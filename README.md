@@ -1,5 +1,11 @@
 # Batch-Downloader
 
+⠀⠀⠀
+<div align="center">
+    <img src="./assets/BatchDownloaderI.png" alt="Batch Downloader" width="400px"/>
+</div>
+⠀⠀⠀
+
 Permite descargar varios ejecutables de programas conocidos al mismo tiempo. Ideal para poner un nuevo PC en marcha.
 
 ## Licencia
