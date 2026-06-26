@@ -123,9 +123,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <span />
-          </span>
+          <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
           <h1>{t('app.title')}</h1>
         </div>
         <div className="topbar-actions">

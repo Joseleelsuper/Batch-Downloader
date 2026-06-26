@@ -4,6 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${WEBAPP_HOST_PORT:-3000}:80"
+      - "${WEBAPP_HOST_PORT}:80"
     extra_hosts:
       - "host.docker.internal:host-gateway"

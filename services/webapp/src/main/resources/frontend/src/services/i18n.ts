@@ -1,6 +1,6 @@
 const es = {
   'app.title': 'Batch Downloader',
-  'app.lastScrape': 'Ultimo rastreo',
+  'app.lastScrape': 'Últimorastreo',
   'app.lastScrape.empty': 'Sin rastreos todavia',
   'app.refresh': 'Actualizar catalogo',
   'catalog.searchPlaceholder': 'Buscar aplicaciones',
@@ -30,7 +30,7 @@ const es = {
   'app.details.status': 'Estado',
   'app.details.version': 'Ultima version detectada',
   'app.details.updated': 'Ultima actualizacion',
-  'app.details.size': 'Tamano',
+  'app.details.size': 'Tamaño',
   'app.details.source': 'Fuente',
   'app.details.notes': 'Notas',
   'app.details.viewSource': 'Ver origen',

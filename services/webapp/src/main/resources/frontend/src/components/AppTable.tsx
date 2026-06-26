@@ -18,7 +18,6 @@ export function AppTable({ apps, selectedId, onSelect }: Props) {
             <th>{t('catalog.column.app')}</th>
             <th>{t('catalog.column.publisher')}</th>
             <th>{t('catalog.column.version')}</th>
-            <th>{t('catalog.column.source')}</th>
             <th>{t('catalog.column.status')}</th>
             <th>{t('catalog.column.action')}</th>
           </tr>
@@ -38,7 +37,6 @@ export function AppTable({ apps, selectedId, onSelect }: Props) {
               </td>
               <td>{app.publisher ?? '-'}</td>
               <td>{app.latestVersion ?? '-'}</td>
-              <td>{app.sourceLabel}</td>
               <td>
                 <AppStatusBadge status={app.resolutionStatus} />
               </td>

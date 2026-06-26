@@ -22,6 +22,8 @@ describe('AppTable', () => {
     const onSelect = vi.fn();
     render(<AppTable apps={[app]} onSelect={onSelect} />);
 
+    expect(screen.queryByRole('columnheader', { name: 'Fuente' })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByText('Epic Games Launcher'));
 
     expect(onSelect).toHaveBeenCalledWith(app);
