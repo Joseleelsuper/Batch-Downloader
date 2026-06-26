@@ -1,0 +1,45 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: batch_downloader
+      MYSQL_USER: batch_downloader
+      MYSQL_PASSWORD: batch_downloader
+    ports:
+      - "${MYSQL_HOST_PORT:-3306}:3306"
+    volumes:
+      - scrapper_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -proot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  scrapper-api:
+    build:
+      context: .
+    environment:
+      SCRAPPER_DATABASE_URL: mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader
+      SCRAPPER_URL_PROTECTION_SECRET: local-development-change-me
+      SCRAPPER_SCHEDULER_TIMEZONE: Europe/Madrid
+    ports:
+      - "${SCRAPPER_API_HOST_PORT:-8000}:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  scrapper-scheduler:
+    build:
+      context: .
+    command: ["scheduler"]
+    environment:
+      SCRAPPER_DATABASE_URL: mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader
+      SCRAPPER_URL_PROTECTION_SECRET: local-development-change-me
+      SCRAPPER_SCHEDULER_TIMEZONE: Europe/Madrid
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  scrapper_mysql_data:
