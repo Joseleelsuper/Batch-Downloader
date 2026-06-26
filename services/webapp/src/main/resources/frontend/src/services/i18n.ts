@@ -1,6 +1,8 @@
 const es = {
   'app.title': 'Batch Downloader',
-  'app.lastScrape': 'Ultimo rastreo: hoy 03:00',
+  'app.lastScrape': 'Ultimo rastreo',
+  'app.lastScrape.empty': 'Sin rastreos todavia',
+  'app.refresh': 'Actualizar catalogo',
   'catalog.searchPlaceholder': 'Buscar aplicaciones',
   'catalog.filters': 'Filtros',
   'catalog.filter.all': 'Todas',
@@ -8,6 +10,8 @@ const es = {
   'catalog.filter.review': 'Revision',
   'catalog.filter.missing': 'Sin instalador',
   'catalog.sort.updated': 'Actualizadas',
+  'catalog.sort.name': 'Nombre',
+  'catalog.sort.toggle': 'Cambiar orden',
   'catalog.column.app': 'Aplicacion',
   'catalog.column.publisher': 'Editor',
   'catalog.column.version': 'Version',
@@ -30,6 +34,8 @@ const es = {
   'app.details.source': 'Fuente',
   'app.details.notes': 'Notas',
   'app.details.viewSource': 'Ver origen',
+  'app.details.copyInstaller': 'Copiar nombre del instalador',
+  'app.details.copied': 'Nombre del instalador copiado.',
   'status.direct': 'Directa',
   'status.fallback': 'Fallback',
   'status.requires_manual_review': 'Revision',
@@ -38,6 +44,13 @@ const es = {
   'confidence.high': 'Alta',
   'confidence.medium': 'Media',
   'confidence.low': 'Baja',
+  'language.selector': 'Seleccionar idioma',
+  'language.spanish': 'Espanol',
+  'language.active': 'Activo',
+  'profile.menu': 'Menu de perfil',
+  'profile.localMode': 'Modo local MVP',
+  'profile.catalogSize': 'Aplicaciones en catalogo',
+  'profile.authPending': 'Autenticacion pendiente de backend definitivo',
 };
 
 export type TranslationKey = keyof typeof es;

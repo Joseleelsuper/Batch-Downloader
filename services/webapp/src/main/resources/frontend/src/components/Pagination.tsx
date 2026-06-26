@@ -6,9 +6,12 @@ interface Props {
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
 }
 
-export function Pagination({ page, pageSize, total, onPageChange }: Props) {
+const pageSizes = [12, 24, 48];
+
+export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }: Props) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(total, page * pageSize);
@@ -29,9 +32,20 @@ export function Pagination({ page, pageSize, total, onPageChange }: Props) {
           <ChevronRight size={18} />
         </button>
       </div>
-      <button className="page-size" type="button">
-        {t('catalog.perPage')}
-      </button>
+      <label className="page-size">
+        <span className="sr-only">{t('catalog.perPage')}</span>
+        <select
+          aria-label={t('catalog.perPage')}
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+        >
+          {pageSizes.map((size) => (
+            <option key={size} value={size}>
+              {size} / pagina
+            </option>
+          ))}
+        </select>
+      </label>
     </footer>
   );
 }

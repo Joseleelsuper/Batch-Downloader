@@ -12,21 +12,21 @@ import { t } from '../services/i18n';
 const filters: Array<{
   key: FilterKey;
   label: string;
-  count?: string;
   icon: LucideIcon;
 }> = [
-  { key: 'all', label: t('catalog.filter.all'), count: '1.842', icon: Grid2X2 },
-  { key: 'available', label: t('catalog.filter.available'), count: '1.473', icon: CheckCircle2 },
-  { key: 'review', label: t('catalog.filter.review'), count: '198', icon: AlertTriangle },
-  { key: 'missing', label: t('catalog.filter.missing'), count: '171', icon: XCircle },
+  { key: 'all', label: t('catalog.filter.all'), icon: Grid2X2 },
+  { key: 'available', label: t('catalog.filter.available'), icon: CheckCircle2 },
+  { key: 'review', label: t('catalog.filter.review'), icon: AlertTriangle },
+  { key: 'missing', label: t('catalog.filter.missing'), icon: XCircle },
 ];
 
 interface Props {
   active: FilterKey;
+  counts: Record<FilterKey, number>;
   onChange: (filter: FilterKey) => void;
 }
 
-export function AppFilters({ active, onChange }: Props) {
+export function AppFilters({ active, counts, onChange }: Props) {
   return (
     <aside className="filter-rail">
       <div className="filter-header">
@@ -45,7 +45,7 @@ export function AppFilters({ active, onChange }: Props) {
             >
               <Icon size={20} />
               <span>{filter.label}</span>
-              <strong>{filter.count}</strong>
+              <strong>{counts[filter.key].toLocaleString('es-ES')}</strong>
             </button>
           );
         })}

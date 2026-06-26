@@ -35,6 +35,7 @@ button {
 
 button:disabled {
   cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .app-shell {
@@ -122,10 +123,65 @@ button:disabled {
   border: 0;
 }
 
+.menu-wrapper {
+  position: relative;
+}
+
+.topbar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 190px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
+}
+
+.topbar-menu button,
+.topbar-menu span,
+.topbar-menu strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 8px;
+  color: #263241;
+  font-size: 14px;
+  text-align: left;
+}
+
+.topbar-menu button {
+  width: 100%;
+  background: #f8fbfc;
+  border-radius: 5px;
+}
+
+.topbar-menu strong {
+  color: var(--teal-dark);
+  font-weight: 760;
+}
+
+.profile-menu {
+  gap: 4px;
+  min-width: 240px;
+}
+
 .workspace {
   display: grid;
-  grid-template-columns: 264px minmax(660px, 1fr) 360px;
+  grid-template-columns: 236px minmax(0, 1fr) 326px;
   min-height: calc(100vh - 72px);
+}
+
+.workspace.filters-hidden {
+  grid-template-columns: minmax(0, 1fr) 326px;
+}
+
+.workspace.filters-hidden .filter-rail {
+  display: none;
 }
 
 .filter-rail {
@@ -435,6 +491,17 @@ button:disabled {
   min-width: 130px;
 }
 
+.page-size select {
+  width: 100%;
+  height: 100%;
+  padding: 0 10px;
+  color: #1f2937;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-weight: 620;
+}
+
 .details-drawer {
   position: relative;
   padding: 34px 24px 24px 22px;
@@ -495,6 +562,25 @@ button:disabled {
   font-weight: 640;
 }
 
+.icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: #344052;
+  background: #f8fbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.copy-feedback {
+  margin: 8px 0 0;
+  color: #076340;
+  font-size: 14px;
+  font-weight: 620;
+}
+
 .confidence {
   gap: 9px;
   color: #14815d;
@@ -515,6 +601,10 @@ button:disabled {
   border-radius: 6px;
   text-decoration: none;
   font-weight: 680;
+}
+
+button.origin-button {
+  color: #6b7280;
 }
 
 .details-skeleton {
@@ -560,7 +650,11 @@ button:disabled {
 
 @media (max-width: 1180px) {
   .workspace {
-    grid-template-columns: 220px minmax(560px, 1fr);
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .workspace.filters-hidden {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .details-drawer {

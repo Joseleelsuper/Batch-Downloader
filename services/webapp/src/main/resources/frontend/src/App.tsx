@@ -1,28 +1,41 @@
 import { Globe2, RefreshCw, UserCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { fetchAppDetails, fetchApps } from './api/catalog';
+import { fetchAppDetails, fetchApps, fetchCatalogStats } from './api/catalog';
 import { AppDetailsDrawer } from './components/AppDetailsDrawer';
 import { AppFilters } from './components/AppFilters';
 import { AppSearchBar } from './components/AppSearchBar';
 import { AppTable } from './components/AppTable';
 import { Pagination } from './components/Pagination';
 import { t } from './services/i18n';
-import type { AppDetails, CatalogApp, FilterKey } from './types/catalog';
+import type { AppDetails, CatalogApp, CatalogStats, FilterKey, SortKey } from './types/catalog';
 
-const PAGE_SIZE = 12;
+const DEFAULT_COUNTS: Record<FilterKey, number> = {
+  all: 0,
+  available: 0,
+  review: 0,
+  missing: 0,
+};
 
 export default function App() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [sort, setSort] = useState<SortKey>('updated');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
   const [apps, setApps] = useState<CatalogApp[]>([]);
   const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState<CatalogStats | null>(null);
   const [selected, setSelected] = useState<AppDetails | null>(null);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [loadingApps, setLoadingApps] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [filtersVisible, setFiltersVisible] = useState(true);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [language, setLanguage] = useState(() => localStorage.getItem('batch.language') ?? 'es');
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -36,7 +49,7 @@ export default function App() {
     let cancelled = false;
     setLoadingApps(true);
     setError(null);
-    fetchApps({ query: debouncedQuery, filter, page, pageSize: PAGE_SIZE })
+    fetchApps({ query: debouncedQuery, filter, sort, page, pageSize })
       .then((response) => {
         if (cancelled) return;
         setApps(response.data);
@@ -56,13 +69,40 @@ export default function App() {
     };
     // selectedId is intentionally excluded: changing selection should not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, filter, page]);
+  }, [debouncedQuery, filter, sort, page, pageSize, refreshToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCatalogStats()
+      .then((response) => {
+        if (!cancelled) setStats(response);
+      })
+      .catch(() => {
+        if (!cancelled) setStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshToken]);
 
   const filterTotal = useMemo(() => total.toLocaleString('es-ES'), [total]);
+  const filterCounts = stats?.filters ?? DEFAULT_COUNTS;
+  const lastScrapeLabel = useMemo(() => formatLastScrape(stats), [stats]);
 
   function handleFilterChange(nextFilter: FilterKey) {
     setFilter(nextFilter);
     setPage(1);
+  }
+
+  function handlePageSizeChange(nextPageSize: number) {
+    setPageSize(nextPageSize);
+    setPage(1);
+  }
+
+  function selectLanguage(nextLanguage: string) {
+    setLanguage(nextLanguage);
+    localStorage.setItem('batch.language', nextLanguage);
+    setLanguageOpen(false);
   }
 
   async function selectApp(app: CatalogApp) {
@@ -71,6 +111,9 @@ export default function App() {
     try {
       const details = await fetchAppDetails(app.id);
       setSelected(details);
+    } catch {
+      setSelected(null);
+      setError('No se pudo cargar el detalle de la aplicacion.');
     } finally {
       setLoadingDetails(false);
     }
@@ -86,27 +129,85 @@ export default function App() {
           <h1>{t('app.title')}</h1>
         </div>
         <div className="topbar-actions">
-          <span>{t('app.lastScrape')}</span>
-          <button type="button" aria-label="Actualizar">
+          <span>{lastScrapeLabel}</span>
+          <button
+            type="button"
+            aria-label={t('app.refresh')}
+            title={t('app.refresh')}
+            disabled={loadingApps}
+            onClick={() => setRefreshToken((value) => value + 1)}
+          >
             <RefreshCw size={19} />
           </button>
-          <button type="button" aria-label="Idioma">
-            <Globe2 size={20} />
-            ES
-          </button>
-          <button type="button" aria-label="Perfil">
-            <UserCircle size={25} />
-          </button>
+          <div className="menu-wrapper">
+            <button
+              type="button"
+              aria-label={t('language.selector')}
+              aria-expanded={languageOpen}
+              onClick={() => {
+                setLanguageOpen((value) => !value);
+                setProfileOpen(false);
+              }}
+            >
+              <Globe2 size={20} />
+              {language.toUpperCase()}
+            </button>
+            {languageOpen ? (
+              <div className="topbar-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => selectLanguage('es')}>
+                  <span>{t('language.spanish')}</span>
+                  <strong>{t('language.active')}</strong>
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <div className="menu-wrapper">
+            <button
+              type="button"
+              aria-label={t('profile.menu')}
+              aria-expanded={profileOpen}
+              onClick={() => {
+                setProfileOpen((value) => !value);
+                setLanguageOpen(false);
+              }}
+            >
+              <UserCircle size={25} />
+            </button>
+            {profileOpen ? (
+              <div className="topbar-menu profile-menu" role="menu">
+                <strong>{t('profile.localMode')}</strong>
+                <span>
+                  {t('profile.catalogSize')}: {filterCounts.all.toLocaleString('es-ES')}
+                </span>
+                <span>{t('profile.authPending')}</span>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
-      <main className="workspace">
-        <AppFilters active={filter} onChange={handleFilterChange} />
+      <main className={`workspace ${filtersVisible ? '' : 'filters-hidden'}`}>
+        <AppFilters active={filter} counts={filterCounts} onChange={handleFilterChange} />
         <section className="catalog-panel">
-          <AppSearchBar value={query} onChange={setQuery} />
+          <AppSearchBar
+            value={query}
+            sort={sort}
+            onChange={setQuery}
+            onSortChange={(nextSort) => {
+              setSort(nextSort);
+              setPage(1);
+            }}
+            onToggleFilters={() => setFiltersVisible((value) => !value)}
+          />
           {error ? <p className="error-banner">{error}</p> : null}
           {loadingApps ? <p className="loading-label">Cargando aplicaciones...</p> : null}
           <AppTable apps={apps} selectedId={selectedId} onSelect={selectApp} />
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={handlePageSizeChange}
+          />
           <span className="sr-only">{filterTotal}</span>
         </section>
         <AppDetailsDrawer
@@ -120,4 +221,14 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+function formatLastScrape(stats: CatalogStats | null): string {
+  if (!stats?.lastScrape) return t('app.lastScrape.empty');
+  const date = stats.lastScrape.finishedAt ?? stats.lastScrape.heartbeatAt ?? stats.lastScrape.startedAt;
+  const formatted = new Intl.DateTimeFormat('es-ES', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(date));
+  return `${t('app.lastScrape')}: ${formatted}`;
 }

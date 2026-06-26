@@ -1,5 +1,6 @@
 import { Copy, ExternalLink, ShieldCheck, X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import type { AppDetails } from '../types/catalog';
 import { t } from '../services/i18n';
 import { AppStatusBadge } from './AppStatusBadge';
@@ -11,6 +12,15 @@ interface Props {
 }
 
 export function AppDetailsDrawer({ app, loading, onClose }: Props) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyInstallerName() {
+    if (!app?.installerFilename) return;
+    await navigator.clipboard.writeText(app.installerFilename);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
   return (
     <aside className="details-drawer">
       <button className="drawer-close" onClick={onClose} type="button" aria-label="Cerrar">
@@ -32,8 +42,19 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
           </DetailBlock>
           <DetailBlock label={t('app.details.installer')}>
             <span>{app.installerFilename ?? '-'}</span>
-            {app.installerFilename ? <Copy size={18} /> : null}
+            {app.installerFilename ? (
+              <button
+                className="icon-action"
+                onClick={copyInstallerName}
+                type="button"
+                aria-label={t('app.details.copyInstaller')}
+                title={t('app.details.copyInstaller')}
+              >
+                <Copy size={18} />
+              </button>
+            ) : null}
           </DetailBlock>
+          {copied ? <p className="copy-feedback">{t('app.details.copied')}</p> : null}
           <DetailBlock label={t('app.details.type')}>{app.installerType ?? '-'}</DetailBlock>
           <DetailBlock label={t('app.details.confidence')}>
             <span className="confidence">
@@ -51,16 +72,17 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
           <DetailBlock label={t('app.details.size')}>{formatSize(app.sizeBytes)}</DetailBlock>
           <DetailBlock label={t('app.details.source')}>{app.sourceLabel}</DetailBlock>
           <DetailBlock label={t('app.details.notes')}>{app.notes}</DetailBlock>
-          <a
-            className="origin-button"
-            href={app.officialUrl ?? '#'}
-            target="_blank"
-            rel="noreferrer"
-            aria-disabled={!app.officialUrl}
-          >
-            <ExternalLink size={20} />
-            {t('app.details.viewSource')}
-          </a>
+          {app.officialUrl ? (
+            <a className="origin-button" href={app.officialUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={20} />
+              {t('app.details.viewSource')}
+            </a>
+          ) : (
+            <button className="origin-button" disabled type="button">
+              <ExternalLink size={20} />
+              {t('app.details.viewSource')}
+            </button>
+          )}
         </>
       ) : null}
       {!loading && !app ? <p className="drawer-empty">Selecciona una aplicacion.</p> : null}

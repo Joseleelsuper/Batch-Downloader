@@ -29,6 +29,21 @@ export interface CatalogResponse {
   total: number;
 }
 
+export interface CatalogStats {
+  total: number;
+  filters: Record<FilterKey, number>;
+  lastScrape: {
+    status: string;
+    startedAt: string;
+    heartbeatAt: string;
+    finishedAt?: string | null;
+    appsDiscovered: number;
+    appsResolved: number;
+    appsFailed: number;
+  } | null;
+  generatedAt: string;
+}
+
 export interface AppDetails extends CatalogApp {
   officialUrl?: string | null;
   installerFilename?: string | null;
@@ -43,3 +58,5 @@ export interface AppDetails extends CatalogApp {
 }
 
 export type FilterKey = 'all' | 'available' | 'review' | 'missing';
+
+export type SortKey = 'name' | 'updated';
