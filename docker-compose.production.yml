@@ -76,13 +76,29 @@ services:
       context: ./api/scrapper
     restart: unless-stopped
     environment:
-      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL:-mysql+asyncmy://${MYSQL_USER:-batch_downloader}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-batch_downloader}}
+      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL}
       SCRAPPER_URL_PROTECTION_SECRET: ${SCRAPPER_URL_PROTECTION_SECRET}
+      SCRAPPER_WINSTALL_BASE_URL: ${SCRAPPER_WINSTALL_BASE_URL:-https://winstall.app}
+      SCRAPPER_WINSTALL_API_BASE_URL: ${SCRAPPER_WINSTALL_API_BASE_URL:-https://winstall.app/api/winstall}
       SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE:-Europe/Madrid}
+      SCRAPPER_SCHEDULER_HOUR: ${SCRAPPER_SCHEDULER_HOUR:-3}
+      SCRAPPER_SCHEDULER_MINUTE: ${SCRAPPER_SCHEDULER_MINUTE:-0}
+      SCRAPPER_SCRAPE_MAX_APPS: ${SCRAPPER_SCRAPE_MAX_APPS:-0}
       SCRAPPER_PLAYWRIGHT_ENABLED: ${SCRAPPER_PLAYWRIGHT_ENABLED:-true}
     depends_on:
       mysql:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
   scraper-scheduler:
     build:
@@ -90,9 +106,14 @@ services:
     restart: unless-stopped
     command: ["scheduler"]
     environment:
-      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL:-mysql+asyncmy://${MYSQL_USER:-batch_downloader}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-batch_downloader}}
+      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL}
       SCRAPPER_URL_PROTECTION_SECRET: ${SCRAPPER_URL_PROTECTION_SECRET}
+      SCRAPPER_WINSTALL_BASE_URL: ${SCRAPPER_WINSTALL_BASE_URL:-https://winstall.app}
+      SCRAPPER_WINSTALL_API_BASE_URL: ${SCRAPPER_WINSTALL_API_BASE_URL:-https://winstall.app/api/winstall}
       SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE:-Europe/Madrid}
+      SCRAPPER_SCHEDULER_HOUR: ${SCRAPPER_SCHEDULER_HOUR:-3}
+      SCRAPPER_SCHEDULER_MINUTE: ${SCRAPPER_SCHEDULER_MINUTE:-0}
+      SCRAPPER_SCRAPE_MAX_APPS: ${SCRAPPER_SCRAPE_MAX_APPS:-0}
       SCRAPPER_PLAYWRIGHT_ENABLED: ${SCRAPPER_PLAYWRIGHT_ENABLED:-true}
     depends_on:
       mysql:
@@ -105,7 +126,8 @@ services:
     ports:
       - "${WEBAPP_HOST_PORT:-80}:80"
     depends_on:
-      - scraper-api
+      scraper-api:
+        condition: service_healthy
 
   core-api:
     build:
