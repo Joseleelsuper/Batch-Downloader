@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     max_download_size_bytes: int = 1_500_000_000
     scrape_page_size: int = 60
     scrape_concurrency: int = 6
+    scrape_max_apps: int = 0
     scheduler_timezone: str = "Europe/Madrid"
     scheduler_hour: int = 3
     scheduler_minute: int = 0

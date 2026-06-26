@@ -9,7 +9,13 @@ from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus
 from app.db.session import get_session
 from app.repositories.catalog import CatalogRepository
-from app.schemas.apps import AppDetails, AppSearchResponse, ErrorResponse
+from app.schemas.apps import (
+    AppDetails,
+    AppSearchResponse,
+    CatalogStatsResponse,
+    LastScrapeRun,
+    ErrorResponse,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -23,18 +29,43 @@ async def health(settings: Settings = Depends(get_settings)) -> dict[str, str]:
 async def search_apps(
     query: str | None = None,
     status: str | None = Query(default=None),
+    sort: str = Query(default="name", pattern="^(name|updated)$"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> AppSearchResponse:
     catalog = _catalog(session, settings)
-    apps, total = await catalog.search_apps(query=query, status=status, page=page, page_size=page_size)
+    apps, total = await catalog.search_apps(
+        query=query,
+        status=status,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+    )
     return AppSearchResponse(
         data=[to_list_item(app) for app in apps],
         page=page,
         pageSize=page_size,
         total=total,
+    )
+
+
+@router.get("/apps/stats", response_model=CatalogStatsResponse, response_model_by_alias=True)
+async def get_catalog_stats(
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> CatalogStatsResponse:
+    catalog = _catalog(session, settings)
+    stats = await catalog.catalog_stats()
+    last_run = stats["last_run"]
+    return CatalogStatsResponse(
+        total=stats["total"],
+        filters=stats["filters"],
+        lastScrape=LastScrapeRun.model_validate(last_run, from_attributes=True)
+        if last_run
+        else None,
+        generatedAt=utc_now(),
     )
 
 

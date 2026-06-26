@@ -12,6 +12,7 @@ from app.db.enums import AppStatus, ResolutionStatus, ValidationStatus
 from app.db.models import (
     DownloadSource,
     ResolvedSource,
+    ScrapeRun,
     SoftwareApp,
     SourceAllowedDomain,
 )
@@ -84,14 +85,14 @@ class CatalogRepository:
         return existing
 
     async def _ensure_default_source(self, software_app: SoftwareApp, app: WinstallApp) -> None:
-        source = next(
-            (
-                source
-                for source in software_app.sources
-                if source.operating_system == "windows" and source.architecture == "x86_64"
-            ),
-            None,
+        source = await self.session.scalar(
+            select(DownloadSource)
+            .options(selectinload(DownloadSource.allowed_domains))
+            .where(DownloadSource.software_app_id == software_app.id)
+            .where(DownloadSource.operating_system == "windows")
+            .where(DownloadSource.architecture == "x86_64")
         )
+        is_new_source = source is None
         if source is None:
             source = DownloadSource(
                 software_app_id=software_app.id,
@@ -105,18 +106,32 @@ class CatalogRepository:
             )
             self.session.add(source)
             await self.session.flush()
-            software_app.sources.append(source)
         else:
             source.initial_url = app.homepage or source.initial_url
             source.resolver_config = {"winstall_id": app.package_id}
             source.updated_at = utc_now()
 
         domains = allowed_domains_for(app.homepage, app.installer_urls)
-        existing_domains = {domain.domain for domain in source.allowed_domains}
+        existing_domains = (
+            set() if is_new_source else {domain.domain for domain in source.allowed_domains}
+        )
         for domain in domains - existing_domains:
             self.session.add(
                 SourceAllowedDomain(source_id=source.id, domain=domain, include_subdomains=True)
             )
+
+    async def default_source_for_app(self, software_app_id: uuid.UUID) -> DownloadSource | None:
+        return await self.session.scalar(
+            select(DownloadSource)
+            .options(
+                selectinload(DownloadSource.allowed_domains),
+                selectinload(DownloadSource.resolved_sources),
+            )
+            .where(DownloadSource.software_app_id == software_app_id)
+            .where(DownloadSource.operating_system == "windows")
+            .where(DownloadSource.architecture == "x86_64")
+            .limit(1)
+        )
 
     async def save_resolved_source(self, item: ResolvedSourceCreate) -> ResolvedSource:
         encrypted_url = self.url_protector.protect(item.url)
@@ -165,12 +180,18 @@ class CatalogRepository:
         status: str | None,
         page: int,
         page_size: int,
+        sort: str = "name",
     ) -> tuple[list[SoftwareApp], int]:
         stmt = self._base_app_query(query, status)
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = await self.session.scalar(count_stmt)
+        order_by = (
+            SoftwareApp.updated_at.desc()
+            if sort == "updated"
+            else SoftwareApp.normalized_name.asc()
+        )
         result = await self.session.scalars(
-            stmt.order_by(SoftwareApp.normalized_name)
+            stmt.order_by(order_by)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .options(
@@ -179,6 +200,49 @@ class CatalogRepository:
             )
         )
         return list(result.unique()), int(total or 0)
+
+    async def catalog_stats(self) -> dict:
+        active = SoftwareApp.app_status == AppStatus.ACTIVE.value
+        total = await self.session.scalar(select(func.count(SoftwareApp.id)).where(active))
+
+        async def count_sources(statuses: list[str]) -> int:
+            return int(
+                await self.session.scalar(
+                    select(func.count(func.distinct(DownloadSource.software_app_id)))
+                    .join(SoftwareApp, SoftwareApp.id == DownloadSource.software_app_id)
+                    .where(active)
+                    .where(DownloadSource.resolution_status.in_(statuses))
+                )
+                or 0
+            )
+
+        available = await count_sources(
+            [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value]
+        )
+        review = await count_sources([ResolutionStatus.REQUIRES_MANUAL_REVIEW.value])
+        missing_sources = await count_sources(
+            [ResolutionStatus.MISSING.value, ResolutionStatus.BROKEN.value]
+        )
+        apps_with_sources = await self.session.scalar(
+            select(func.count(func.distinct(DownloadSource.software_app_id)))
+            .join(SoftwareApp, SoftwareApp.id == DownloadSource.software_app_id)
+            .where(active)
+        )
+        missing = missing_sources + max(0, int(total or 0) - int(apps_with_sources or 0))
+
+        latest_run = await self.session.scalar(
+            select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(1)
+        )
+        return {
+            "total": int(total or 0),
+            "filters": {
+                "all": int(total or 0),
+                "available": available,
+                "review": review,
+                "missing": missing,
+            },
+            "last_run": latest_run,
+        }
 
     async def get_app_by_public_id(self, public_id: str) -> SoftwareApp | None:
         stmt = (

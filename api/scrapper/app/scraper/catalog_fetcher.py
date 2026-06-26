@@ -41,23 +41,29 @@ class CatalogFetcher:
         if run is None:
             logger.info("scrape_skipped", reason="active_recent_run")
             return ScrapeCounters()
+        run_id = run.id
         await self.session.commit()
 
         counters = ScrapeCounters()
         try:
             async with WinstallClient(self.settings) as winstall:
                 async for lightweight_app in winstall.iter_apps():
+                    if (
+                        self.settings.scrape_max_apps > 0
+                        and counters.apps_discovered >= self.settings.scrape_max_apps
+                    ):
+                        break
                     counters.apps_discovered += 1
                     try:
                         app = await winstall.get_app(lightweight_app.package_id)
                         software_app = await self.catalog.upsert_winstall_app(app)
                         await self.session.flush()
-                        source = software_app.sources[0] if software_app.sources else None
+                        source = await self.catalog.default_source_for_app(software_app.id)
                         if source:
                             await self.resolver.resolve(source, app)
                             counters.apps_resolved += 1
                         if counters.apps_discovered % 10 == 0:
-                            await self.runs.heartbeat(run.id, **counters.__dict__)
+                            await self.runs.heartbeat(run_id, **counters.__dict__)
                             await self.session.commit()
                     except Exception as exc:
                         counters.apps_failed += 1
@@ -73,12 +79,12 @@ class CatalogFetcher:
             final_status = (
                 ScrapeRunStatus.PARTIAL if counters.apps_failed else ScrapeRunStatus.COMPLETED
             )
-            await self.runs.finish(run.id, final_status, **counters.__dict__)
+            await self.runs.finish(run_id, final_status, **counters.__dict__)
             await self.session.commit()
             return counters
         except Exception as exc:
             await self.runs.finish(
-                run.id,
+                run_id,
                 ScrapeRunStatus.FAILED,
                 error_summary=exc.__class__.__name__,
                 **counters.__dict__,

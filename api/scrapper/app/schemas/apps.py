@@ -35,6 +35,34 @@ class AppSearchResponse(BaseModel):
     total: int
 
 
+class CatalogFilterStats(BaseModel):
+    all: int
+    available: int
+    review: int
+    missing: int
+
+
+class LastScrapeRun(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: str
+    started_at: datetime = Field(alias="startedAt")
+    heartbeat_at: datetime = Field(alias="heartbeatAt")
+    finished_at: datetime | None = Field(default=None, alias="finishedAt")
+    apps_discovered: int = Field(alias="appsDiscovered")
+    apps_resolved: int = Field(alias="appsResolved")
+    apps_failed: int = Field(alias="appsFailed")
+
+
+class CatalogStatsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    total: int
+    filters: CatalogFilterStats
+    last_scrape: LastScrapeRun | None = Field(default=None, alias="lastScrape")
+    generated_at: datetime = Field(alias="generatedAt")
+
+
 class AppDetails(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
