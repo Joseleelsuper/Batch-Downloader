@@ -1,0 +1,174 @@
+name: batch-downloader-prod
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-batch_downloader}
+      MYSQL_USER: ${MYSQL_USER:-batch_downloader}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-batch_downloader_semantic}
+      POSTGRES_USER: ${POSTGRES_USER:-batch_downloader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-batch_downloader}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-batch_downloader}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do sleep 2; done;
+      mc mb --ignore-existing local/installers;
+      mc mb --ignore-existing local/zips;
+      mc mb --ignore-existing local/manifests;
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-batch_downloader}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+  scraper-api:
+    build:
+      context: ./api/scrapper
+    restart: unless-stopped
+    environment:
+      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL:-mysql+asyncmy://${MYSQL_USER:-batch_downloader}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-batch_downloader}}
+      SCRAPPER_URL_PROTECTION_SECRET: ${SCRAPPER_URL_PROTECTION_SECRET}
+      SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE:-Europe/Madrid}
+      SCRAPPER_PLAYWRIGHT_ENABLED: ${SCRAPPER_PLAYWRIGHT_ENABLED:-true}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  scraper-scheduler:
+    build:
+      context: ./api/scrapper
+    restart: unless-stopped
+    command: ["scheduler"]
+    environment:
+      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL:-mysql+asyncmy://${MYSQL_USER:-batch_downloader}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-batch_downloader}}
+      SCRAPPER_URL_PROTECTION_SECRET: ${SCRAPPER_URL_PROTECTION_SECRET}
+      SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE:-Europe/Madrid}
+      SCRAPPER_PLAYWRIGHT_ENABLED: ${SCRAPPER_PLAYWRIGHT_ENABLED:-true}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  webapp:
+    build:
+      context: ./services/webapp
+    restart: unless-stopped
+    ports:
+      - "${WEBAPP_HOST_PORT:-80}:80"
+    depends_on:
+      - scraper-api
+
+  core-api:
+    build:
+      context: ./services/core-api
+    restart: unless-stopped
+    environment:
+      CORE_API_SERVER_PORT: ${CORE_API_SERVER_PORT:-8080}
+      MYSQL_URL: ${CORE_API_MYSQL_URL:-jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-batch_downloader}}
+      RABBITMQ_HOST: ${CORE_API_RABBITMQ_HOST:-rabbitmq}
+      SCRAPER_API_URL: ${CORE_API_SCRAPPER_API_URL:-http://scraper-api:8000}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  semantic-service:
+    build:
+      context: ./services/semantic-service
+    restart: unless-stopped
+    environment:
+      POSTGRES_DSN: ${SEMANTIC_SERVICE_POSTGRES_DSN:-postgresql://${POSTGRES_USER:-batch_downloader}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-batch_downloader_semantic}}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+    restart: unless-stopped
+    environment:
+      NOTIFICATION_SERVICE_SERVER_PORT: ${NOTIFICATION_SERVICE_SERVER_PORT:-8080}
+      RABBITMQ_HOST: ${NOTIFICATION_SERVICE_RABBITMQ_HOST:-rabbitmq}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  download-worker:
+    build:
+      context: ./services/download-worker
+    restart: unless-stopped
+    environment:
+      DOWNLOAD_WORKER_SERVER_PORT: ${DOWNLOAD_WORKER_SERVER_PORT:-8080}
+      RABBITMQ_HOST: ${DOWNLOAD_WORKER_RABBITMQ_HOST:-rabbitmq}
+      MINIO_ENDPOINT: ${DOWNLOAD_WORKER_MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${DOWNLOAD_WORKER_MINIO_ACCESS_KEY:-${MINIO_ROOT_USER:-batch_downloader}}
+      MINIO_SECRET_KEY: ${DOWNLOAD_WORKER_MINIO_SECRET_KEY:-${MINIO_ROOT_PASSWORD}}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  translation-service:
+    build:
+      context: ./services/translation-service
+    restart: unless-stopped
+    environment:
+      TRANSLATION_SERVICE_SERVER_PORT: ${TRANSLATION_SERVICE_SERVER_PORT:-8080}
+      TRANSLATION_SERVICE_LOCALES_PATH: ${TRANSLATION_SERVICE_LOCALES_PATH:-/app/locales}
+
+volumes:
+  mysql_data:
+  postgres_data:
+  rabbitmq_data:
+  minio_data:
