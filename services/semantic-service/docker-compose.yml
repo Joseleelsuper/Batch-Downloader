@@ -1,0 +1,8 @@
+services:
+  semantic-service:
+    build:
+      context: .
+    environment:
+      POSTGRES_DSN: postgresql://batch_downloader:batch_downloader@postgres:5432/batch_downloader_semantic
+    ports:
+      - "${SEMANTIC_SERVICE_HOST_PORT:-8001}:8000"
