@@ -33,6 +33,20 @@ class ScrapeRunRepository:
         await self.session.flush()
         return run
 
+    async def recover_running(self, error_summary: str) -> int:
+        result = await self.session.scalars(
+            select(ScrapeRun).where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+        )
+        runs = list(result)
+        recovered_at = utc_now()
+        for run in runs:
+            run.status = ScrapeRunStatus.FAILED.value
+            run.finished_at = recovered_at
+            run.heartbeat_at = recovered_at
+            run.error_summary = error_summary
+        await self.session.flush()
+        return len(runs)
+
     async def heartbeat(self, run_id: uuid.UUID, **counters: int) -> None:
         run = await self.session.get(ScrapeRun, run_id)
         if not run:

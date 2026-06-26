@@ -36,7 +36,15 @@ class CatalogFetcher:
         self.resolver = InstallerResolver(settings, self.catalog, self.logs, self.validator)
         self.runs = ScrapeRunRepository(session, settings)
 
-    async def scrape_once(self) -> ScrapeCounters:
+    async def scrape_once(self, recover_running: bool = False) -> ScrapeCounters:
+        if recover_running:
+            recovered = await self.runs.recover_running(
+                "Recovered before startup scrape because the scheduler container was restarted."
+            )
+            if recovered:
+                logger.warning("scrape_running_locks_recovered", recovered=recovered)
+                await self.session.commit()
+
         run = await self.runs.acquire()
         if run is None:
             logger.info("scrape_skipped", reason="active_recent_run")

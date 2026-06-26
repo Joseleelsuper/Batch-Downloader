@@ -13,10 +13,12 @@ from app.scraper.catalog_fetcher import CatalogFetcher
 logger = get_logger(__name__)
 
 
-async def scrape_once() -> None:
+async def scrape_once(recover_running: bool = False) -> None:
     settings = get_settings()
     async with AsyncSessionLocal() as session:
-        counters = await CatalogFetcher(settings, session).scrape_once()
+        counters = await CatalogFetcher(settings, session).scrape_once(
+            recover_running=recover_running
+        )
     logger.info("scrape_finished", **counters.__dict__)
 
 
@@ -42,7 +44,7 @@ async def run_scheduler() -> None:
     )
     if settings.run_on_startup:
         logger.info("startup_scrape_scheduled")
-        asyncio.create_task(scrape_once())
+        asyncio.create_task(scrape_once(recover_running=True))
     await asyncio.Event().wait()
 
 
