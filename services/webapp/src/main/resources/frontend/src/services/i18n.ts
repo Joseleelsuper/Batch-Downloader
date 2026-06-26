@@ -1,0 +1,47 @@
+const es = {
+  'app.title': 'Batch Downloader',
+  'app.lastScrape': 'Ultimo rastreo: hoy 03:00',
+  'catalog.searchPlaceholder': 'Buscar aplicaciones',
+  'catalog.filters': 'Filtros',
+  'catalog.filter.all': 'Todas',
+  'catalog.filter.available': 'Disponibles',
+  'catalog.filter.review': 'Revision',
+  'catalog.filter.missing': 'Sin instalador',
+  'catalog.sort.updated': 'Actualizadas',
+  'catalog.column.app': 'Aplicacion',
+  'catalog.column.publisher': 'Editor',
+  'catalog.column.version': 'Version',
+  'catalog.column.source': 'Fuente',
+  'catalog.column.status': 'Estado',
+  'catalog.column.action': 'Accion',
+  'catalog.empty': 'No hay aplicaciones que coincidan con la busqueda.',
+  'catalog.showing': 'Mostrando',
+  'catalog.results': 'resultados',
+  'catalog.perPage': '12 por pagina',
+  'app.download': 'Descargar',
+  'app.details.official': 'Web oficial',
+  'app.details.installer': 'Instalador detectado',
+  'app.details.type': 'Tipo',
+  'app.details.confidence': 'Confianza',
+  'app.details.status': 'Estado',
+  'app.details.version': 'Ultima version detectada',
+  'app.details.updated': 'Ultima actualizacion',
+  'app.details.size': 'Tamano',
+  'app.details.source': 'Fuente',
+  'app.details.notes': 'Notas',
+  'app.details.viewSource': 'Ver origen',
+  'status.direct': 'Directa',
+  'status.fallback': 'Fallback',
+  'status.requires_manual_review': 'Revision',
+  'status.missing': 'No disponible',
+  'status.broken': 'Rota',
+  'confidence.high': 'Alta',
+  'confidence.medium': 'Media',
+  'confidence.low': 'Baja',
+};
+
+export type TranslationKey = keyof typeof es;
+
+export function t(key: TranslationKey): string {
+  return es[key] ?? key;
+}
