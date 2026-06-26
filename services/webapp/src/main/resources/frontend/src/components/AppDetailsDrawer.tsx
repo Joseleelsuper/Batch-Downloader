@@ -72,8 +72,8 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
           <DetailBlock label={t('app.details.size')}>{formatSize(app.sizeBytes)}</DetailBlock>
           <DetailBlock label={t('app.details.source')}>{app.sourceLabel}</DetailBlock>
           <DetailBlock label={t('app.details.notes')}>{app.notes}</DetailBlock>
-          {app.officialUrl ? (
-            <a className="origin-button" href={app.officialUrl} target="_blank" rel="noreferrer">
+          {app.originUrl ? (
+            <a className="origin-button" href={app.originUrl} target="_blank" rel="noreferrer">
               <ExternalLink size={20} />
               {t('app.details.viewSource')}
             </a>

@@ -23,6 +23,7 @@ services:
       SCRAPPER_DATABASE_URL: mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader
       SCRAPPER_URL_PROTECTION_SECRET: local-development-change-me
       SCRAPPER_SCHEDULER_TIMEZONE: Europe/Madrid
+      SCRAPPER_RUN_ON_STARTUP: ${SCRAPPER_RUN_ON_STARTUP:-true}
       SCRAPPER_SCRAPE_MAX_APPS: ${SCRAPPER_SCRAPE_MAX_APPS:-0}
     ports:
       - "${SCRAPPER_API_HOST_PORT:-8000}:8000"
@@ -49,6 +50,7 @@ services:
       SCRAPPER_DATABASE_URL: mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader
       SCRAPPER_URL_PROTECTION_SECRET: local-development-change-me
       SCRAPPER_SCHEDULER_TIMEZONE: Europe/Madrid
+      SCRAPPER_RUN_ON_STARTUP: ${SCRAPPER_RUN_ON_STARTUP:-true}
       SCRAPPER_SCRAPE_MAX_APPS: ${SCRAPPER_SCRAPE_MAX_APPS:-0}
     depends_on:
       mysql:

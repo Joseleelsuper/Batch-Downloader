@@ -73,6 +73,7 @@ class AppDetails(BaseModel):
     description: str | None = None
     icon_url: str | None = Field(default=None, alias="iconUrl")
     official_url: str | None = Field(default=None, alias="officialUrl")
+    origin_url: str | None = Field(default=None, alias="originUrl")
     latest_version: str | None = Field(default=None, alias="latestVersion")
     installer_filename: str | None = Field(default=None, alias="installerFilename")
     installer_type: str | None = Field(default=None, alias="installerType")

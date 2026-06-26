@@ -38,7 +38,11 @@ async def run_scheduler() -> None:
         hour=settings.scheduler_hour,
         minute=settings.scheduler_minute,
         timezone=settings.scheduler_timezone,
+        run_on_startup=settings.run_on_startup,
     )
+    if settings.run_on_startup:
+        logger.info("startup_scrape_scheduled")
+        asyncio.create_task(scrape_once())
     await asyncio.Event().wait()
 
 

@@ -20,6 +20,7 @@
 - MVP tables: `software_apps`, `download_sources`, `source_allowed_domains`, `resolved_sources`, `resolver_logs`, `scrape_runs`.
 - Track statuses separately: app availability, resolver result (`direct`, `fallback`, `requires_manual_review`, `missing`, `broken`), and validation result.
 - Daily scraping is a separate worker/scheduler process, not part of FastAPI startup. `scrape_runs.heartbeat_at` prevents overlapping recent runs.
+- The scheduler also runs one scrape on container startup when `SCRAPPER_RUN_ON_STARTUP=true`; leave it enabled for local Docker unless a full Winstall pass is too expensive.
 - `SCRAPPER_SCRAPE_MAX_APPS=0` means unlimited. Override it only for local smoke tests, e.g. a 5-app Winstall scrape.
 
 ## Developer Commands

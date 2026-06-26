@@ -81,13 +81,14 @@ services:
     build:
       context: ./api/scrapper
     environment:
-      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL:-mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader}
+      SCRAPPER_DATABASE_URL: ${SCRAPPER_DOCKER_DATABASE_URL:-mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader}
       SCRAPPER_URL_PROTECTION_SECRET: ${SCRAPPER_URL_PROTECTION_SECRET:-local-development-change-me}
       SCRAPPER_WINSTALL_BASE_URL: ${SCRAPPER_WINSTALL_BASE_URL:-https://winstall.app}
       SCRAPPER_WINSTALL_API_BASE_URL: ${SCRAPPER_WINSTALL_API_BASE_URL:-https://winstall.app/api/winstall}
       SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE:-Europe/Madrid}
       SCRAPPER_SCHEDULER_HOUR: ${SCRAPPER_SCHEDULER_HOUR:-3}
       SCRAPPER_SCHEDULER_MINUTE: ${SCRAPPER_SCHEDULER_MINUTE:-0}
+      SCRAPPER_RUN_ON_STARTUP: ${SCRAPPER_RUN_ON_STARTUP:-true}
       SCRAPPER_SCRAPE_MAX_APPS: ${SCRAPPER_SCRAPE_MAX_APPS:-0}
       SCRAPPER_PLAYWRIGHT_ENABLED: ${SCRAPPER_PLAYWRIGHT_ENABLED:-true}
     ports:
@@ -112,13 +113,14 @@ services:
       context: ./api/scrapper
     command: ["scheduler"]
     environment:
-      SCRAPPER_DATABASE_URL: ${SCRAPPER_DATABASE_URL:-mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader}
+      SCRAPPER_DATABASE_URL: ${SCRAPPER_DOCKER_DATABASE_URL:-mysql+asyncmy://batch_downloader:batch_downloader@mysql:3306/batch_downloader}
       SCRAPPER_URL_PROTECTION_SECRET: ${SCRAPPER_URL_PROTECTION_SECRET:-local-development-change-me}
       SCRAPPER_WINSTALL_BASE_URL: ${SCRAPPER_WINSTALL_BASE_URL:-https://winstall.app}
       SCRAPPER_WINSTALL_API_BASE_URL: ${SCRAPPER_WINSTALL_API_BASE_URL:-https://winstall.app/api/winstall}
       SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE:-Europe/Madrid}
       SCRAPPER_SCHEDULER_HOUR: ${SCRAPPER_SCHEDULER_HOUR:-3}
       SCRAPPER_SCHEDULER_MINUTE: ${SCRAPPER_SCHEDULER_MINUTE:-0}
+      SCRAPPER_RUN_ON_STARTUP: ${SCRAPPER_RUN_ON_STARTUP:-true}
       SCRAPPER_SCRAPE_MAX_APPS: ${SCRAPPER_SCRAPE_MAX_APPS:-0}
       SCRAPPER_PLAYWRIGHT_ENABLED: ${SCRAPPER_PLAYWRIGHT_ENABLED:-true}
     depends_on:

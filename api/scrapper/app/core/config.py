@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     scheduler_timezone: str = "Europe/Madrid"
     scheduler_hour: int = 3
     scheduler_minute: int = 0
+    run_on_startup: bool = False
     run_lock_stale_minutes: int = 90
     resolved_source_ttl_hours: int = 24
     url_protection_secret: str = "change-me-before-production"

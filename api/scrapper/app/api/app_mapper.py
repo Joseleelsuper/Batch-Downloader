@@ -31,6 +31,10 @@ def source_label(status: str) -> str:
     return "Sitio oficial" if status == ResolutionStatus.DIRECT.value else "Fallback Winstall"
 
 
+def winstall_app_url(package_id: str) -> str:
+    return f"https://winstall.app/apps/{package_id}"
+
+
 def to_list_item(app: SoftwareApp) -> AppListItem:
     resolved = best_resolved_source(app)
     resolution_status, validation_status = source_status(app)
@@ -65,6 +69,11 @@ def to_details(app: SoftwareApp) -> AppDetails:
             if resolved.status == ResolutionStatus.DIRECT.value
             else "Instalador obtenido desde el fallback de Winstall."
         )
+    origin_url = (
+        app.official_url
+        if resolution_status == ResolutionStatus.DIRECT.value and app.official_url
+        else winstall_app_url(app.winstall_id)
+    )
 
     return AppDetails(
         id=app.slug,
@@ -74,6 +83,7 @@ def to_details(app: SoftwareApp) -> AppDetails:
         description=app.description,
         iconUrl=app.icon_url,
         officialUrl=app.official_url,
+        originUrl=origin_url,
         latestVersion=app.latest_version,
         installerFilename=resolved.filename if resolved else None,
         installerType=resolved.extension.upper().lstrip(".") if resolved and resolved.extension else None,

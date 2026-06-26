@@ -46,6 +46,7 @@ export interface CatalogStats {
 
 export interface AppDetails extends CatalogApp {
   officialUrl?: string | null;
+  originUrl?: string | null;
   installerFilename?: string | null;
   installerType?: string | null;
   contentType?: string | null;
