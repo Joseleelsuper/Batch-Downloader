@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.time import utc_now
 from app.db.enums import ScrapeRunStatus
-from app.db.models import ScrapeRun
+from app.db.models import ScrapeRun, ScraperCommand
 
 
 class ScrapeRunRepository:
@@ -56,6 +56,39 @@ class ScrapeRunRepository:
             if hasattr(run, key):
                 setattr(run, key, value)
 
+    async def set_current(
+        self,
+        run_id: uuid.UUID,
+        package_id: str | None,
+        app_name: str | None,
+        phase: str | None,
+    ) -> None:
+        run = await self.session.get(ScrapeRun, run_id)
+        if not run:
+            return
+        run.heartbeat_at = utc_now()
+        run.current_package_id = package_id
+        run.current_app_name = app_name
+        run.current_phase = phase
+        if phase != "paused":
+            run.paused_at = None
+
+    async def mark_paused(self, run_id: uuid.UUID) -> None:
+        run = await self.session.get(ScrapeRun, run_id)
+        if not run:
+            return
+        run.heartbeat_at = utc_now()
+        run.current_phase = "paused"
+        run.paused_at = utc_now()
+
+    async def mark_stop_requested(self, run_id: uuid.UUID) -> None:
+        run = await self.session.get(ScrapeRun, run_id)
+        if not run:
+            return
+        run.heartbeat_at = utc_now()
+        run.stop_requested = True
+        run.current_phase = "stopping"
+
     async def finish(
         self,
         run_id: uuid.UUID,
@@ -70,9 +103,29 @@ class ScrapeRunRepository:
         run.finished_at = utc_now()
         run.heartbeat_at = utc_now()
         run.error_summary = error_summary
+        run.current_phase = status.value
+        run.paused_at = None
         for key, value in counters.items():
             if hasattr(run, key):
                 setattr(run, key, value)
+
+    async def next_pending_command(self) -> ScraperCommand | None:
+        return await self.session.scalar(
+            select(ScraperCommand)
+            .where(ScraperCommand.status == "pending")
+            .order_by(ScraperCommand.created_at.asc())
+            .limit(1)
+        )
+
+    async def consume_command(
+        self,
+        command: ScraperCommand,
+        status: str = "completed",
+        message: str | None = None,
+    ) -> None:
+        command.status = status
+        command.message = message
+        command.consumed_at = utc_now()
 
 
 def worker_id() -> str:

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { AppDetailsDrawer } from './AppDetailsDrawer';
 import type { AppDetails } from '../types/catalog';
+import { AppDetailsDrawer } from './AppDetailsDrawer';
 
 const app: AppDetails = {
   id: 'geogebra-graphing-calculator',
@@ -57,8 +57,19 @@ describe('AppDetailsDrawer', () => {
     expect(screen.getByText(/Principal/)).toBeInTheDocument();
   });
 
-  it('shows an AI pending message when long description is missing', () => {
+  it('falls back to the short description when long description is missing', () => {
     render(<AppDetailsDrawer app={{ ...app, longDescription: null }} onClose={vi.fn()} />);
+
+    expect(screen.getByText('Dynamic mathematics app.')).toBeInTheDocument();
+  });
+
+  it('shows an AI pending message when both descriptions are missing', () => {
+    render(
+      <AppDetailsDrawer
+        app={{ ...app, description: null, longDescription: null }}
+        onClose={vi.fn()}
+      />,
+    );
 
     expect(screen.getByText('Descripcion IA pendiente de generar.')).toBeInTheDocument();
   });

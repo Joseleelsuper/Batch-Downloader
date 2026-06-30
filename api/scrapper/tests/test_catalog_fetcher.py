@@ -33,6 +33,12 @@ class FakeRuns:
     async def heartbeat(self, *_args, **_kwargs) -> None:
         return None
 
+    async def set_current(self, *_args, **_kwargs) -> None:
+        return None
+
+    async def next_pending_command(self):
+        return None
+
     async def finish(self, run_id, status, **counters) -> None:
         self.finished = (run_id, status, counters)
 
@@ -86,7 +92,7 @@ async def test_scrape_once_skips_current_available_packages(monkeypatch) -> None
     )
     scraped = []
 
-    async def scrape_single_app(_winstall, package_id):
+    async def scrape_single_app(_winstall, package_id, _run_id):
         scraped.append(package_id)
         return True
 

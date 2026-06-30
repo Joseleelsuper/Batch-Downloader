@@ -5,13 +5,24 @@ import type { AppDetails, DownloadOption } from '../types/catalog';
 import { t } from '../services/i18n';
 import { AppStatusBadge } from './AppStatusBadge';
 
+/**
+ * Componente que representa un panel lateral (drawer) para mostrar los detalles de una aplicación específica.
+ */
 interface Props {
   app?: AppDetails | null;
   loading?: boolean;
   onClose: () => void;
 }
 
-export function AppDetailsDrawer({ app, loading, onClose }: Props) {
+/**
+ * Componente que representa un panel lateral (drawer) para mostrar los detalles de una aplicación específica.
+ * 
+ * @param app  Objeto que contiene los detalles de la aplicación a mostrar. Puede ser nulo si no hay detalles disponibles.
+ * @param loading  Indica si los detalles de la aplicación están en proceso de carga. Si es verdadero, se muestra un esqueleto de carga.
+ * @param onClose  Función que se llama cuando el usuario cierra el panel lateral. 
+ * @returns  Un elemento JSX que representa el panel lateral con los detalles de la aplicación, incluyendo nombre, descripción, estado, instaladores disponibles, y otros metadatos relevantes.
+ */
+export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
   const [copied, setCopied] = useState(false);
 
   async function copyInstallerName() {
@@ -32,7 +43,7 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
           <h2>{app.name}</h2>
           <DetailBlock label={t('app.details.description')}>
             <p className="long-description">
-              {app.longDescription || t('app.details.descriptionPending')}
+              {app.longDescription || app.description || t('app.details.descriptionPending')}
             </p>
           </DetailBlock>
           {app.tags?.length ? (
@@ -111,7 +122,7 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
   );
 }
 
-function DownloadOptions({ options }: { options: DownloadOption[] }) {
+function DownloadOptions({ options }: Readonly<{ options: DownloadOption[] }>) {
   return (
     <div className="download-options">
       {options.map((option) => (

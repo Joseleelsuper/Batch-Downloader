@@ -1,14 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.app_mapper import best_resolved_source, to_details, to_list_item
 from app.core.config import Settings, get_settings
 from app.core.time import utc_now
 from app.core.url_protector import UrlProtector
-from app.db.enums import ResolutionStatus
-from app.db.session import get_session
+from app.db.enums import LongDescriptionStatus, ResolutionStatus
+from app.db.session import AsyncSessionLocal, get_session
 from app.repositories.catalog import CatalogRepository
+from app.repositories.logs import ResolverLogRepository
 from app.schemas.apps import (
     AppDetails,
     AppSearchResponse,
@@ -16,8 +18,20 @@ from app.schemas.apps import (
     LastScrapeRun,
     ErrorResponse,
 )
+from app.scraper.catalog_fetcher import CatalogFetcher
+from app.scraper.description_enricher import (
+    AppDescriptionLLMClient,
+    LLMGenerationError,
+    description_evidence,
+    description_input_hash,
+    fetch_safe_page_metadata,
+)
 
 router = APIRouter(prefix="/api")
+
+
+class GenerateDescriptionRequest(BaseModel):
+    appId: str
 
 
 @router.get("/health")
@@ -143,5 +157,95 @@ async def download_app(
     return RedirectResponse(url=url, status_code=307)
 
 
+@router.post("/internal/scraper/run-once", status_code=202)
+async def run_scraper_once(background_tasks: BackgroundTasks) -> dict[str, bool]:
+    background_tasks.add_task(_run_scrape_once_background)
+    return {"accepted": True}
+
+
+@router.post("/internal/descriptions/generate")
+async def generate_description(
+    request: GenerateDescriptionRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, str | None]:
+    catalog = _catalog(session, settings)
+    app = await catalog.get_app_by_public_id(request.appId)
+    if not app:
+        raise HTTPException(status_code=404, detail={"code": "app_not_found"})
+
+    input_hash = description_input_hash(app)
+    metadata = await fetch_safe_page_metadata(
+        app.official_url,
+        timeout=settings.request_timeout_seconds,
+    )
+    llm = AppDescriptionLLMClient(settings)
+    logs = ResolverLogRepository(session)
+    if not llm.has_provider():
+        await catalog.mark_long_description_failed(
+            app.id,
+            input_hash,
+            "llm_provider_not_configured",
+        )
+        await logs.add(
+            phase="description",
+            status=LongDescriptionStatus.FAILED.value,
+            message="llm_provider_not_configured",
+            safe_metadata={"input_hash": input_hash},
+        )
+        await session.commit()
+        raise HTTPException(status_code=409, detail={"code": "llm_provider_not_configured"})
+
+    try:
+        generated = await llm.generate(description_evidence(app, metadata))
+    except LLMGenerationError as exc:
+        await catalog.mark_long_description_failed(
+            app.id,
+            input_hash,
+            exc.reason,
+            source=exc.provider,
+            model=exc.model,
+        )
+        await logs.add(
+            phase="description",
+            status=LongDescriptionStatus.FAILED.value,
+            message=exc.reason,
+            safe_metadata={"input_hash": input_hash, "provider": exc.provider, "model": exc.model},
+        )
+        await session.commit()
+        raise HTTPException(status_code=409, detail={"code": exc.reason})
+
+    await catalog.save_long_description(
+        software_app_id=app.id,
+        description=generated.description,
+        language=generated.language,
+        source=generated.provider,
+        model=generated.model,
+        input_hash=input_hash,
+    )
+    await logs.add(
+        phase="description",
+        status=LongDescriptionStatus.COMPLETED.value,
+        safe_metadata={
+            "input_hash": input_hash,
+            "provider": generated.provider,
+            "model": generated.model,
+        },
+    )
+    await session.commit()
+    return {
+        "longDescription": generated.description,
+        "language": generated.language,
+        "provider": generated.provider,
+        "model": generated.model,
+    }
+
+
 def _catalog(session: AsyncSession, settings: Settings) -> CatalogRepository:
     return CatalogRepository(session, UrlProtector(settings.url_protection_secret))
+
+
+async def _run_scrape_once_background() -> None:
+    settings = get_settings()
+    async with AsyncSessionLocal() as session:
+        await CatalogFetcher(settings, session).scrape_once(recover_running=True)

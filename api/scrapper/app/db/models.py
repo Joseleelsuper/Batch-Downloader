@@ -205,5 +205,25 @@ class ScrapeRun(Base):
     apps_discovered: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     apps_resolved: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     apps_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    apps_skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     worker_id: Mapped[str] = mapped_column(String(120), nullable=False)
     error_summary: Mapped[str | None] = mapped_column(String(1000))
+    current_package_id: Mapped[str | None] = mapped_column(String(180))
+    current_app_name: Mapped[str | None] = mapped_column(String(180))
+    current_phase: Mapped[str | None] = mapped_column(String(80))
+    stop_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ScraperCommand(Base):
+    __tablename__ = "scraper_commands"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    command: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True, nullable=False)
+    message: Mapped[str | None] = mapped_column(String(1000))
+    created_by: Mapped[str] = mapped_column(String(180), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (Index("ix_scraper_commands_status_created", "status", "created_at"),)

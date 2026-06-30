@@ -1,0 +1,79 @@
+package es.ubu.batchdownloader.catalog;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+public class CatalogDtos {
+    public record AppListItem(
+            String id,
+            String packageId,
+            String name,
+            String publisher,
+            String description,
+            String longDescription,
+            List<String> tags,
+            String iconUrl,
+            String latestVersion,
+            String sourceLabel,
+            String resolutionStatus,
+            String validationStatus,
+            boolean downloadable,
+            LocalDateTime updatedAt) {}
+
+    public record AppSearchResponse(List<AppListItem> data, int page, int pageSize, long total) {}
+
+    public record DownloadOption(
+            String id,
+            String filename,
+            String extension,
+            String sourceLabel,
+            int score,
+            String finalDomain,
+            boolean isPrimary) {}
+
+    public record AppDetails(
+            String id,
+            String packageId,
+            String name,
+            String publisher,
+            String description,
+            String longDescription,
+            List<String> tags,
+            String iconUrl,
+            String officialUrl,
+            String originUrl,
+            String latestVersion,
+            String installerFilename,
+            String installerType,
+            String contentType,
+            Long sizeBytes,
+            String finalDomain,
+            Integer score,
+            String resolutionStatus,
+            String validationStatus,
+            String sourceLabel,
+            LocalDateTime checkedAt,
+            LocalDateTime expiresAt,
+            List<DownloadOption> downloadOptions,
+            String notes) {}
+
+    public record LastScrapeRun(
+            String status,
+            LocalDateTime startedAt,
+            LocalDateTime heartbeatAt,
+            LocalDateTime finishedAt,
+            int appsDiscovered,
+            int appsResolved,
+            int appsFailed,
+            int appsSkipped,
+            String currentPackageId,
+            String currentAppName,
+            String currentPhase) {}
+
+    public record CatalogStatsResponse(
+            long total,
+            Map<String, Long> filters,
+            LastScrapeRun lastScrape,
+            LocalDateTime generatedAt) {}
+}

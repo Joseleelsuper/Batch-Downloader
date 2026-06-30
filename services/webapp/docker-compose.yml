@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${WEBAPP_VITE_API_BASE_URL}
     ports:
       - "${WEBAPP_HOST_PORT}:80"
     extra_hosts:

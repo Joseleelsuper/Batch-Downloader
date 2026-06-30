@@ -1,6 +1,6 @@
 const es = {
   'app.title': 'Batch Downloader',
-  'app.lastScrape': 'Últimorastreo',
+  'app.lastScrape': 'Ultimo rastreo',
   'app.lastScrape.empty': 'Sin rastreos todavia',
   'app.refresh': 'Actualizar catalogo',
   'catalog.searchPlaceholder': 'Buscar aplicaciones',
@@ -33,7 +33,7 @@ const es = {
   'app.details.status': 'Estado',
   'app.details.version': 'Ultima version detectada',
   'app.details.updated': 'Ultima actualizacion',
-  'app.details.size': 'Tamaño',
+  'app.details.size': 'Tamano',
   'app.details.source': 'Fuente',
   'app.details.notes': 'Notas',
   'app.details.installersDetected': 'Instaladores detectados',
@@ -55,7 +55,7 @@ const es = {
   'profile.menu': 'Menu de perfil',
   'profile.localMode': 'Modo local MVP',
   'profile.catalogSize': 'Aplicaciones en catalogo',
-  'profile.authPending': 'Autenticacion pendiente de backend definitivo',
+  'profile.authPending': 'Autenticacion admin disponible',
 };
 
 export type TranslationKey = keyof typeof es;

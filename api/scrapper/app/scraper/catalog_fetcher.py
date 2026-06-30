@@ -66,14 +66,24 @@ class CatalogFetcher:
         )
 
         counters = ScrapeCounters()
+        stopped_by_command = False
         try:
             async with WinstallClient(self.settings) as winstall:
                 async for lightweight_app in winstall.iter_apps():
+                    if await self._apply_pending_commands(run_id, counters):
+                        stopped_by_command = True
+                        break
                     if (
                         self.settings.scrape_max_apps > 0
                         and counters.apps_discovered >= self.settings.scrape_max_apps
                     ):
                         break
+                    await self.runs.set_current(
+                        run_id,
+                        lightweight_app.package_id,
+                        getattr(lightweight_app, "name", None),
+                        "checking_catalog",
+                    )
                     should_scrape = await self.catalog.should_scrape_winstall_package(
                         lightweight_app.package_id
                     )
@@ -83,7 +93,7 @@ class CatalogFetcher:
                     counters.apps_discovered += 1
                     try:
                         resolved = await asyncio.wait_for(
-                            self._scrape_single_app(winstall, lightweight_app.package_id),
+                            self._scrape_single_app(winstall, lightweight_app.package_id, run_id),
                             timeout=self.settings.scrape_app_timeout_seconds,
                         )
                         if resolved:
@@ -127,12 +137,21 @@ class CatalogFetcher:
                     ):
                         await self._enrich_descriptions(run_id)
 
-            await self._enrich_descriptions(run_id)
+            if not stopped_by_command:
+                await self.runs.set_current(run_id, None, None, "enriching_descriptions")
+                await self._enrich_descriptions(run_id)
 
             final_status = (
-                ScrapeRunStatus.PARTIAL if counters.apps_failed else ScrapeRunStatus.COMPLETED
+                ScrapeRunStatus.PARTIAL
+                if stopped_by_command or counters.apps_failed
+                else ScrapeRunStatus.COMPLETED
             )
-            await self.runs.finish(run_id, final_status, **counters.__dict__)
+            await self.runs.finish(
+                run_id,
+                final_status,
+                error_summary="Stopped by admin command" if stopped_by_command else None,
+                **counters.__dict__,
+            )
             await self.session.commit()
             return counters
         except Exception as exc:
@@ -145,16 +164,94 @@ class CatalogFetcher:
             await self.session.commit()
             raise
 
-    async def _scrape_single_app(self, winstall: WinstallClient, package_id: str) -> bool:
+    async def _scrape_single_app(
+        self,
+        winstall: WinstallClient,
+        package_id: str,
+        run_id,
+    ) -> bool:
+        await self.runs.set_current(run_id, package_id, None, "fetching_winstall_app")
         app = await winstall.get_app(package_id)
+        await self.runs.set_current(run_id, app.package_id, app.name, "upserting_app")
         software_app = await self.catalog.upsert_winstall_app(app)
+        await self.runs.set_current(run_id, app.package_id, app.name, "resolving_icon")
         await self._resolve_missing_icon(software_app.id, software_app.icon_url, app)
         await self.session.flush()
         source = await self.catalog.default_source_for_app(software_app.id)
         if not source:
             return False
+        await self.runs.set_current(run_id, app.package_id, app.name, "resolving_installer")
         await self.resolver.resolve(source, app)
         return True
+
+    async def _apply_pending_commands(self, run_id, counters: ScrapeCounters) -> bool:
+        while True:
+            command = await self.runs.next_pending_command()
+            if not command:
+                return False
+
+            if command.command == "pause":
+                await self.runs.consume_command(command)
+                await self.runs.mark_paused(run_id)
+                await self.session.commit()
+                logger.info("scrape_paused", run_id=str(run_id))
+                return await self._wait_until_resume_or_stop(run_id, counters)
+
+            if command.command == "resume":
+                await self.runs.consume_command(command, message="No paused run was waiting.")
+                await self.session.commit()
+                continue
+
+            if command.command == "stop":
+                await self.runs.mark_stop_requested(run_id)
+                await self.runs.consume_command(command)
+                await self.session.commit()
+                logger.info("scrape_stop_requested", run_id=str(run_id))
+                return True
+
+            if command.command == "run_once":
+                await self.runs.consume_command(
+                    command,
+                    status="rejected",
+                    message="A scraper run is already active.",
+                )
+                await self.session.commit()
+                continue
+
+            await self.runs.consume_command(
+                command,
+                status="failed",
+                message=f"Unsupported command: {command.command}",
+            )
+            await self.session.commit()
+
+    async def _wait_until_resume_or_stop(self, run_id, counters: ScrapeCounters) -> bool:
+        while True:
+            await self.runs.mark_paused(run_id)
+            await self.runs.heartbeat(run_id, **counters.__dict__)
+            await self.session.commit()
+            await asyncio.sleep(5)
+            command = await self.runs.next_pending_command()
+            if not command:
+                continue
+            if command.command == "resume":
+                await self.runs.consume_command(command)
+                await self.runs.set_current(run_id, None, None, "running")
+                await self.session.commit()
+                logger.info("scrape_resumed", run_id=str(run_id))
+                return False
+            if command.command == "stop":
+                await self.runs.mark_stop_requested(run_id)
+                await self.runs.consume_command(command)
+                await self.session.commit()
+                logger.info("scrape_stop_requested_while_paused", run_id=str(run_id))
+                return True
+            await self.runs.consume_command(
+                command,
+                status="rejected",
+                message="Only resume or stop are accepted while paused.",
+            )
+            await self.session.commit()
 
     async def _enrich_descriptions(self, run_id) -> int:
         logger.info(
