@@ -1,23 +1,40 @@
 from app.core.time import utc_now
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import ResolvedSource, SoftwareApp
-from app.schemas.apps import AppDetails, AppListItem
+from app.schemas.apps import AppDetails, AppListItem, DownloadOption
 
 
-def best_resolved_source(app: SoftwareApp) -> ResolvedSource | None:
+def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
     candidates = [
         resolved
         for source in app.sources
         for resolved in source.resolved_sources
         if resolved.validation_status == ValidationStatus.VALID.value and resolved.expires_at > utc_now()
     ]
+    latest_by_file: dict[tuple[str, str | None, str | None, str], ResolvedSource] = {}
+    for resolved in candidates:
+        key = (resolved.final_domain, resolved.filename, resolved.extension, resolved.status)
+        current = latest_by_file.get(key)
+        if current is None or (resolved.checked_at, resolved.score) > (
+            current.checked_at,
+            current.score,
+        ):
+            latest_by_file[key] = resolved
+    return sorted(latest_by_file.values(), key=resolved_sort_key)
+
+
+def best_resolved_source(app: SoftwareApp) -> ResolvedSource | None:
+    candidates = valid_resolved_sources(app)
     if not candidates:
         return None
+    return candidates[0]
+
+
+def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, object]:
     status_priority = {ResolutionStatus.DIRECT.value: 0, ResolutionStatus.FALLBACK.value: 1}
-    return sorted(
-        candidates,
-        key=lambda item: (status_priority.get(item.status, 9), -item.score, item.expires_at),
-    )[0]
+    metadata = item.metadata_json or {}
+    primary_rank = 0 if metadata.get("is_primary") else 1
+    return (status_priority.get(item.status, 9), primary_rank, -item.score, item.expires_at)
 
 
 def source_status(app: SoftwareApp) -> tuple[str, str]:
@@ -35,6 +52,10 @@ def winstall_app_url(package_id: str) -> str:
     return f"https://winstall.app/apps/{package_id}"
 
 
+def app_tags(app: SoftwareApp) -> list[str]:
+    return sorted({tag.tag for tag in app.tags}, key=str.casefold)
+
+
 def to_list_item(app: SoftwareApp) -> AppListItem:
     resolved = best_resolved_source(app)
     resolution_status, validation_status = source_status(app)
@@ -47,6 +68,8 @@ def to_list_item(app: SoftwareApp) -> AppListItem:
         name=app.name,
         publisher=app.publisher,
         description=app.description,
+        longDescription=app.long_description,
+        tags=app_tags(app),
         iconUrl=app.icon_url,
         latestVersion=app.latest_version,
         sourceLabel=source_label(resolution_status),
@@ -58,7 +81,8 @@ def to_list_item(app: SoftwareApp) -> AppListItem:
 
 
 def to_details(app: SoftwareApp) -> AppDetails:
-    resolved = best_resolved_source(app)
+    resolved_options = valid_resolved_sources(app)
+    resolved = resolved_options[0] if resolved_options else None
     resolution_status, validation_status = source_status(app)
     notes = "El instalador necesita revision manual."
     if resolved:
@@ -81,6 +105,8 @@ def to_details(app: SoftwareApp) -> AppDetails:
         name=app.name,
         publisher=app.publisher,
         description=app.description,
+        longDescription=app.long_description,
+        tags=app_tags(app),
         iconUrl=app.icon_url,
         officialUrl=app.official_url,
         originUrl=origin_url,
@@ -96,5 +122,21 @@ def to_details(app: SoftwareApp) -> AppDetails:
         sourceLabel=source_label(resolution_status),
         checkedAt=resolved.checked_at if resolved else None,
         expiresAt=resolved.expires_at if resolved else None,
+        downloadOptions=[
+            to_download_option(option, is_primary=resolved is not None and option.id == resolved.id)
+            for option in resolved_options
+        ],
         notes=notes,
+    )
+
+
+def to_download_option(resolved: ResolvedSource, is_primary: bool) -> DownloadOption:
+    return DownloadOption(
+        id=str(resolved.id),
+        filename=resolved.filename,
+        extension=resolved.extension,
+        sourceLabel=source_label(resolved.status),
+        score=resolved.score,
+        finalDomain=resolved.final_domain,
+        isPrimary=is_primary,
     )

@@ -9,6 +9,7 @@ const app: CatalogApp = {
   name: 'Epic Games Launcher',
   publisher: 'Epic Games, Inc.',
   description: 'Game store',
+  tags: ['games'],
   latestVersion: '1.0.0',
   sourceLabel: 'Sitio oficial',
   resolutionStatus: 'direct',

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     scrape_page_size: int = 60
     scrape_concurrency: int = 6
     scrape_max_apps: int = 0
+    scrape_app_timeout_seconds: float = 90.0
     scheduler_timezone: str = "Europe/Madrid"
     scheduler_hour: int = 3
     scheduler_minute: int = 0
@@ -34,6 +35,16 @@ class Settings(BaseSettings):
     preferred_architecture: str = "x86_64"
     playwright_enabled: bool = True
     playwright_timeout_ms: int = 15_000
+    llm_groq_api_key: str = ""
+    llm_groq_base_url: str = "https://api.groq.com/openai/v1"
+    llm_groq_model: str = "llama-3.1-8b-instant"
+    llm_deepseek_api_key: str = ""
+    llm_deepseek_base_url: str = "https://api.deepseek.com"
+    llm_deepseek_model: str = "deepseek-v4-flash"
+    llm_max_concurrency: int = 2
+    llm_max_apps_per_run: int = 25
+    llm_enrich_interval_apps: int = 10
+    llm_request_timeout_seconds: float = 45.0
 
     @property
     def scheduler_zoneinfo(self) -> ZoneInfo:

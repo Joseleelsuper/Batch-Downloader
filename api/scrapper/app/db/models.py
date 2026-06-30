@@ -17,7 +17,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.time import utc_now
 from app.db.base import Base
-from app.db.enums import AppStatus, ResolutionStatus, ScrapeRunStatus, ValidationStatus
+from app.db.enums import (
+    AppStatus,
+    LongDescriptionStatus,
+    ResolutionStatus,
+    ScrapeRunStatus,
+    ValidationStatus,
+)
 from app.db.types import GUID, uuid_pk
 
 
@@ -37,6 +43,19 @@ class SoftwareApp(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(180), index=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    long_description: Mapped[str | None] = mapped_column(Text)
+    long_description_language: Mapped[str | None] = mapped_column(String(16))
+    long_description_status: Mapped[str] = mapped_column(
+        String(32),
+        default=LongDescriptionStatus.PENDING.value,
+        index=True,
+        nullable=False,
+    )
+    long_description_source: Mapped[str | None] = mapped_column(String(50))
+    long_description_model: Mapped[str | None] = mapped_column(String(120))
+    long_description_generated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    long_description_input_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    long_description_error: Mapped[str | None] = mapped_column(String(1000))
     publisher: Mapped[str | None] = mapped_column(String(180))
     icon_url: Mapped[str | None] = mapped_column(String(2048))
     official_url: Mapped[str | None] = mapped_column(String(2048))
@@ -48,6 +67,9 @@ class SoftwareApp(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     sources: Mapped[list["DownloadSource"]] = relationship(
+        back_populates="software_app", cascade="all, delete-orphan"
+    )
+    tags: Mapped[list["SoftwareAppTag"]] = relationship(
         back_populates="software_app", cascade="all, delete-orphan"
     )
 
@@ -90,6 +112,26 @@ class DownloadSource(Base, TimestampMixin):
             "architecture",
             "resolution_status",
         ),
+    )
+
+
+class SoftwareAppTag(Base):
+    __tablename__ = "software_app_tags"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    software_app_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("software_apps.id"), nullable=False
+    )
+    tag: Mapped[str] = mapped_column(String(120), nullable=False)
+    normalized_tag: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(50), default="winstall", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    software_app: Mapped[SoftwareApp] = relationship(back_populates="tags")
+
+    __table_args__ = (
+        UniqueConstraint("software_app_id", "normalized_tag", name="uq_software_app_tag"),
+        Index("ix_software_app_tags_app", "software_app_id"),
     )
 
 

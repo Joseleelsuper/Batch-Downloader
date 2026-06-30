@@ -4,12 +4,15 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 from selectolax.parser import HTMLParser
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import Settings
+from app.scraper.candidates import detect_extension
+from app.scraper.text import normalize_text
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,13 @@ class WinstallVersion:
     version: str | None
     installer_type: str | None
     installers: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class WinstallDownload:
+    url: str
+    label: str | None = None
+    context: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +102,16 @@ class WinstallClient:
             raise LookupError(f"Winstall app not found: {package_id}")
         return parse_winstall_app(payload)
 
+    async def get_downloads(self, package_id: str) -> list[WinstallDownload]:
+        assert self._client is not None
+        response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
+        if not response.is_success:
+            return []
+        return extract_winstall_downloads(
+            response.text,
+            f"{self.settings.winstall_base_url}/apps/{package_id}",
+        )
+
     @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
     async def _fetch_catalog_page(self, offset: int, limit: int) -> dict[str, Any] | None:
         assert self._client is not None
@@ -140,6 +160,27 @@ def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
     page_props = payload.get("props", {}).get("pageProps", {})
     value = page_props.get(key)
     return value if isinstance(value, dict) else None
+
+
+def extract_winstall_downloads(html: str, base_url: str) -> list[WinstallDownload]:
+    parser = HTMLParser(html)
+    downloads: dict[str, WinstallDownload] = {}
+
+    for node in parser.css("a"):
+        href = node.attributes.get("href")
+        if not href:
+            continue
+        label = node.text(separator=" ", strip=True)
+        text = normalize_text(f"{label} {href}")
+        if "download" not in text and not detect_extension(href):
+            continue
+        url = urljoin(base_url, href)
+        downloads.setdefault(
+            url,
+            WinstallDownload(url=url, label=label or None, context=node.html[:500]),
+        )
+
+    return list(downloads.values())
 
 
 def parse_winstall_app(payload: dict[str, Any]) -> WinstallApp:

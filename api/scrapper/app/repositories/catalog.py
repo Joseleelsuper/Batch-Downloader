@@ -1,23 +1,30 @@
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 import tldextract
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
-from app.db.enums import AppStatus, ResolutionStatus, ValidationStatus
+from app.db.enums import AppStatus, LongDescriptionStatus, ResolutionStatus, ValidationStatus
 from app.db.models import (
     DownloadSource,
     ResolvedSource,
     ScrapeRun,
     SoftwareApp,
+    SoftwareAppTag,
     SourceAllowedDomain,
 )
 from app.scraper.text import normalize_text, slugify
 from app.scraper.winstall import WinstallApp
+
+AVAILABLE_RESOLUTION_STATUSES = {
+    ResolutionStatus.DIRECT.value,
+    ResolutionStatus.FALLBACK.value,
+}
 
 
 @dataclass(frozen=True)
@@ -41,10 +48,25 @@ class CatalogRepository:
         self.session = session
         self.url_protector = url_protector
 
+    async def should_scrape_winstall_package(self, package_id: str) -> bool:
+        app = await self.session.scalar(
+            select(SoftwareApp)
+            .options(
+                selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
+            )
+            .where(SoftwareApp.winstall_id == package_id)
+        )
+        if app is None:
+            return True
+        return not has_current_available_installer(app)
+
     async def upsert_winstall_app(self, app: WinstallApp) -> SoftwareApp:
         existing = await self.session.scalar(
             select(SoftwareApp)
-            .options(selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains))
+            .options(
+                selectinload(SoftwareApp.tags),
+                selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains),
+            )
             .where(SoftwareApp.winstall_id == app.package_id)
         )
         slug = slugify(app.package_id)
@@ -60,6 +82,7 @@ class CatalogRepository:
                 name=app.name or app.package_id,
                 normalized_name=normalize_text(app.name or app.package_id),
                 description=app.description,
+                long_description_status=LongDescriptionStatus.PENDING.value,
                 publisher=app.publisher,
                 icon_url=icon_url,
                 official_url=app.homepage,
@@ -74,15 +97,64 @@ class CatalogRepository:
             existing.normalized_name = normalize_text(existing.name)
             existing.description = app.description
             existing.publisher = app.publisher
-            existing.icon_url = icon_url
+            existing.icon_url = icon_url if has_icon_url(icon_url) else existing.icon_url
             existing.official_url = app.homepage
             existing.latest_version = app.latest_version
             existing.metadata_json = app.raw
             existing.updated_at = utc_now()
             existing.version += 1
 
+        await self._sync_tags(existing, app.tags)
         await self._ensure_default_source(existing, app)
         return existing
+
+    async def _sync_tags(self, software_app: SoftwareApp, raw_tags: list[str]) -> None:
+        normalized_to_tag: dict[str, str] = {}
+        for raw_tag in raw_tags:
+            normalized = normalize_text(raw_tag).strip()
+            tag = raw_tag.strip()
+            if normalized and tag:
+                normalized_to_tag[normalized[:120]] = tag[:120]
+
+        existing_tags = {
+            tag.normalized_tag: tag
+            for tag in software_app.tags
+            if tag.source == "winstall"
+        }
+        changed = False
+        for normalized, tag in normalized_to_tag.items():
+            existing = existing_tags.get(normalized)
+            if existing:
+                if existing.tag != tag:
+                    existing.tag = tag
+                    changed = True
+                continue
+            self.session.add(
+                SoftwareAppTag(
+                    software_app_id=software_app.id,
+                    tag=tag,
+                    normalized_tag=normalized,
+                    source="winstall",
+                )
+            )
+            changed = True
+
+        for normalized, tag in existing_tags.items():
+            if normalized not in normalized_to_tag:
+                await self.session.delete(tag)
+                changed = True
+
+        if changed:
+            software_app.updated_at = utc_now()
+            software_app.version += 1
+
+    async def update_icon_url(self, software_app_id: uuid.UUID, icon_url: str) -> None:
+        software_app = await self.session.get(SoftwareApp, software_app_id)
+        if not software_app or has_icon_url(software_app.icon_url) or not has_icon_url(icon_url):
+            return
+        software_app.icon_url = icon_url
+        software_app.updated_at = utc_now()
+        software_app.version += 1
 
     async def _ensure_default_source(self, software_app: SoftwareApp, app: WinstallApp) -> None:
         source = await self.session.scalar(
@@ -161,6 +233,93 @@ class CatalogRepository:
             source.version += 1
         return resolved
 
+    async def apps_for_description_enrichment(self) -> list[SoftwareApp]:
+        result = await self.session.scalars(
+            select(SoftwareApp)
+            .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+            .order_by(
+                case(
+                    (
+                        SoftwareApp.long_description_status
+                        == LongDescriptionStatus.PENDING.value,
+                        0,
+                    ),
+                    (
+                        SoftwareApp.long_description_status
+                        == LongDescriptionStatus.FAILED.value,
+                        1,
+                    ),
+                    (
+                        SoftwareApp.long_description_status
+                        == LongDescriptionStatus.COMPLETED.value,
+                        2,
+                    ),
+                    else_=3,
+                ),
+                SoftwareApp.updated_at.desc(),
+            )
+            .options(
+                selectinload(SoftwareApp.tags),
+                selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
+            )
+        )
+        return list(result.unique())
+
+    async def save_long_description(
+        self,
+        software_app_id: uuid.UUID,
+        description: str,
+        language: str,
+        source: str,
+        model: str,
+        input_hash: str,
+    ) -> None:
+        software_app = await self.session.get(SoftwareApp, software_app_id)
+        if not software_app:
+            return
+        software_app.long_description = description
+        software_app.long_description_language = language
+        software_app.long_description_status = LongDescriptionStatus.COMPLETED.value
+        software_app.long_description_source = source
+        software_app.long_description_model = model
+        software_app.long_description_generated_at = utc_now()
+        software_app.long_description_input_hash = input_hash
+        software_app.long_description_error = None
+        software_app.updated_at = utc_now()
+        software_app.version += 1
+
+    async def mark_long_description_failed(
+        self,
+        software_app_id: uuid.UUID,
+        input_hash: str,
+        error: str,
+        source: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        software_app = await self.session.get(SoftwareApp, software_app_id)
+        if not software_app:
+            return
+        software_app.long_description_status = LongDescriptionStatus.FAILED.value
+        software_app.long_description_source = source
+        software_app.long_description_model = model
+        software_app.long_description_generated_at = utc_now()
+        software_app.long_description_input_hash = input_hash
+        software_app.long_description_error = error[:1000]
+        software_app.updated_at = utc_now()
+        software_app.version += 1
+
+    async def expire_valid_resolved_sources(self, source_id: uuid.UUID) -> None:
+        result = await self.session.scalars(
+            select(ResolvedSource)
+            .where(ResolvedSource.download_source_id == source_id)
+            .where(ResolvedSource.validation_status == ValidationStatus.VALID.value)
+        )
+        now = utc_now()
+        for resolved in result:
+            resolved.validation_status = ValidationStatus.EXPIRED.value
+            resolved.expires_at = now
+            resolved.checked_at = now
+
     async def mark_source_status(
         self,
         source_id: uuid.UUID,
@@ -195,6 +354,7 @@ class CatalogRepository:
             .offset((page - 1) * page_size)
             .limit(page_size)
             .options(
+                selectinload(SoftwareApp.tags),
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains),
             )
@@ -250,6 +410,7 @@ class CatalogRepository:
             .options(
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains),
+                selectinload(SoftwareApp.tags),
             )
             .where(or_(SoftwareApp.slug == public_id, SoftwareApp.winstall_id == public_id))
         )
@@ -268,7 +429,9 @@ class CatalogRepository:
                     SoftwareApp.normalized_name.like(q),
                     func.lower(SoftwareApp.publisher).like(raw_q),
                     func.lower(SoftwareApp.description).like(raw_q),
+                    func.lower(SoftwareApp.long_description).like(raw_q),
                     func.lower(SoftwareApp.winstall_id).like(raw_q),
+                    SoftwareApp.tags.any(SoftwareAppTag.normalized_tag.like(q)),
                 )
             )
         if status:
@@ -281,7 +444,8 @@ class CatalogRepository:
                 )
             elif status == "review":
                 stmt = stmt.where(
-                    DownloadSource.resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+                    DownloadSource.resolution_status
+                    == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
                 )
             elif status == "missing":
                 stmt = stmt.where(
@@ -302,6 +466,30 @@ def allowed_domains_for(homepage: str | None, installer_urls: list[str]) -> set[
         if domain:
             domains.add(domain)
     return domains
+
+
+def has_icon_url(value: str | None) -> bool:
+    return bool(value and value.strip() and value.strip() != "-")
+
+
+def has_current_available_installer(
+    app: SoftwareApp,
+    now: datetime | None = None,
+) -> bool:
+    checked_at = now or utc_now()
+    for source in app.sources:
+        if source.resolution_status not in AVAILABLE_RESOLUTION_STATUSES:
+            continue
+        if source.validation_status != ValidationStatus.VALID.value:
+            continue
+        for resolved in source.resolved_sources:
+            if resolved.status not in AVAILABLE_RESOLUTION_STATUSES:
+                continue
+            if resolved.validation_status != ValidationStatus.VALID.value:
+                continue
+            if resolved.expires_at > checked_at:
+                return True
+    return False
 
 
 def registered_domain(url: str | None) -> str | None:

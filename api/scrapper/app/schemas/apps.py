@@ -17,6 +17,8 @@ class AppListItem(BaseModel):
     name: str
     publisher: str | None = None
     description: str | None = None
+    long_description: str | None = Field(default=None, alias="longDescription")
+    tags: list[str] = Field(default_factory=list)
     icon_url: str | None = Field(default=None, alias="iconUrl")
     latest_version: str | None = Field(default=None, alias="latestVersion")
     source_label: str = Field(alias="sourceLabel")
@@ -63,6 +65,18 @@ class CatalogStatsResponse(BaseModel):
     generated_at: datetime = Field(alias="generatedAt")
 
 
+class DownloadOption(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    filename: str | None = None
+    extension: str | None = None
+    source_label: str = Field(alias="sourceLabel")
+    score: int
+    final_domain: str | None = Field(default=None, alias="finalDomain")
+    is_primary: bool = Field(alias="isPrimary")
+
+
 class AppDetails(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -71,6 +85,8 @@ class AppDetails(BaseModel):
     name: str
     publisher: str | None = None
     description: str | None = None
+    long_description: str | None = Field(default=None, alias="longDescription")
+    tags: list[str] = Field(default_factory=list)
     icon_url: str | None = Field(default=None, alias="iconUrl")
     official_url: str | None = Field(default=None, alias="officialUrl")
     origin_url: str | None = Field(default=None, alias="originUrl")
@@ -86,4 +102,5 @@ class AppDetails(BaseModel):
     source_label: str = Field(alias="sourceLabel")
     checked_at: datetime | None = Field(default=None, alias="checkedAt")
     expires_at: datetime | None = Field(default=None, alias="expiresAt")
+    download_options: list[DownloadOption] = Field(default_factory=list, alias="downloadOptions")
     notes: str

@@ -27,3 +27,10 @@ class ScrapeRunStatus(StrEnum):
     COMPLETED = "completed"
     PARTIAL = "partial"
     FAILED = "failed"
+
+
+class LongDescriptionStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"

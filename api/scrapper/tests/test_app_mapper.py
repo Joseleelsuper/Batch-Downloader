@@ -1,0 +1,82 @@
+from uuid import uuid4
+
+from app.api.app_mapper import best_resolved_source, to_details
+from app.core.time import utc_after, utc_now
+from app.db.enums import ResolutionStatus, ValidationStatus
+from app.db.models import DownloadSource, ResolvedSource, SoftwareApp, SoftwareAppTag
+
+
+def test_details_exposes_download_options_and_primary_candidate() -> None:
+    now = utc_now()
+    app = SoftwareApp(
+        id=uuid4(),
+        winstall_id="GeoGebra.GraphingCalculator",
+        slug="geogebra-graphing-calculator",
+        name="GeoGebra Graphing Calculator",
+        normalized_name="geogebra graphing calculator",
+        description="Dynamic mathematics app.",
+        long_description="GeoGebra Graphing Calculator permite crear graficas y analizar funciones.",
+        long_description_status="completed",
+        app_status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    app.tags = [
+        SoftwareAppTag(
+            id=uuid4(),
+            software_app_id=app.id,
+            tag="graphing",
+            normalized_tag="graphing",
+            source="winstall",
+            created_at=now,
+        )
+    ]
+    source = DownloadSource(
+        id=uuid4(),
+        software_app_id=app.id,
+        operating_system="windows",
+        architecture="x86_64",
+        resolution_status=ResolutionStatus.DIRECT.value,
+        validation_status=ValidationStatus.VALID.value,
+    )
+    primary = ResolvedSource(
+        id=uuid4(),
+        download_source_id=source.id,
+        resolved_url_encrypted="encrypted-primary",
+        final_domain="geogebra.org",
+        filename="GeoGebraGraphing.exe",
+        extension=".exe",
+        score=130,
+        status=ResolutionStatus.DIRECT.value,
+        validation_status=ValidationStatus.VALID.value,
+        checked_at=utc_now(),
+        expires_at=utc_after(hours=1),
+        metadata_json={"is_primary": True},
+    )
+    alternative = ResolvedSource(
+        id=uuid4(),
+        download_source_id=source.id,
+        resolved_url_encrypted="encrypted-alt",
+        final_domain="geogebra.org",
+        filename="GeoGebraSuite.exe",
+        extension=".exe",
+        score=80,
+        status=ResolutionStatus.DIRECT.value,
+        validation_status=ValidationStatus.VALID.value,
+        checked_at=utc_now(),
+        expires_at=utc_after(hours=1),
+        metadata_json={"is_primary": False},
+    )
+    source.resolved_sources = [alternative, primary]
+    app.sources = [source]
+
+    details = to_details(app)
+
+    assert best_resolved_source(app) == primary
+    assert details.long_description == app.long_description
+    assert details.tags == ["graphing"]
+    assert [option.filename for option in details.download_options] == [
+        "GeoGebraGraphing.exe",
+        "GeoGebraSuite.exe",
+    ]
+    assert details.download_options[0].is_primary is True

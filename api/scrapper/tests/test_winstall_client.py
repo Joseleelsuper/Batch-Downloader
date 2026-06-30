@@ -1,4 +1,4 @@
-from app.scraper.winstall import extract_next_data, parse_winstall_app
+from app.scraper.winstall import extract_next_data, extract_winstall_downloads, parse_winstall_app
 
 
 def test_extract_next_data_app_payload() -> None:
@@ -36,4 +36,25 @@ def test_parse_winstall_app_versions() -> None:
     )
 
     assert app.package_id == "EpicGames.EpicGamesLauncher"
+    assert app.tags == ["games"]
     assert app.installer_urls == ["https://cdn.example.com/EpicInstaller.msi"]
+
+
+def test_extract_winstall_download_links_from_app_page() -> None:
+    html = """
+    <ul>
+      <li>
+        <a href="https://github.com/bibletime/bibletime/releases/download/v3.1.1/BibleTime-3.1.1-win64.exe">
+          Download (.nullsoft)
+        </a>
+      </li>
+      <li><a href="https://github.com/bibletime/bibletime">View Site</a></li>
+    </ul>
+    """
+
+    downloads = extract_winstall_downloads(html, "https://winstall.app/apps/BibleTime.BibleTime")
+
+    assert [download.url for download in downloads] == [
+        "https://github.com/bibletime/bibletime/releases/download/v3.1.1/BibleTime-3.1.1-win64.exe"
+    ]
+    assert downloads[0].label == "Download (.nullsoft)"

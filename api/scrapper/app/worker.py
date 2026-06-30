@@ -43,8 +43,15 @@ async def run_scheduler() -> None:
         run_on_startup=settings.run_on_startup,
     )
     if settings.run_on_startup:
+        scheduler.add_job(
+            scrape_once,
+            trigger="date",
+            kwargs={"recover_running": True},
+            id="startup-winstall-scrape",
+            replace_existing=True,
+            max_instances=1,
+        )
         logger.info("startup_scrape_scheduled")
-        asyncio.create_task(scrape_once(recover_running=True))
     await asyncio.Event().wait()
 
 

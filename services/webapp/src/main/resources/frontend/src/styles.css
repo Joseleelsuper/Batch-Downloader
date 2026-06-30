@@ -554,6 +554,57 @@ button:disabled {
   font-weight: 620;
 }
 
+.download-options {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.long-description {
+  margin: 0;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  color: #27515a;
+  background: #eef8f7;
+  border: 1px solid #cde8e7;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.download-option {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: #f8fbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.download-option span,
+.download-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-option small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .confidence {
   gap: 9px;
   color: #14815d;

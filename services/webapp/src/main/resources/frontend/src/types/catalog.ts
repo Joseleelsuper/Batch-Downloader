@@ -13,6 +13,8 @@ export interface CatalogApp {
   name: string;
   publisher?: string | null;
   description?: string | null;
+  longDescription?: string | null;
+  tags: string[];
   iconUrl?: string | null;
   latestVersion?: string | null;
   sourceLabel: string;
@@ -44,6 +46,16 @@ export interface CatalogStats {
   generatedAt: string;
 }
 
+export interface DownloadOption {
+  id: string;
+  filename?: string | null;
+  extension?: string | null;
+  sourceLabel: string;
+  score: number;
+  finalDomain?: string | null;
+  isPrimary: boolean;
+}
+
 export interface AppDetails extends CatalogApp {
   officialUrl?: string | null;
   originUrl?: string | null;
@@ -55,6 +67,7 @@ export interface AppDetails extends CatalogApp {
   score?: number | null;
   checkedAt?: string | null;
   expiresAt?: string | null;
+  downloadOptions?: DownloadOption[];
   notes: string;
 }
 

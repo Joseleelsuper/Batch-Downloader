@@ -1,7 +1,7 @@
 import { Copy, ExternalLink, ShieldCheck, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import type { AppDetails } from '../types/catalog';
+import type { AppDetails, DownloadOption } from '../types/catalog';
 import { t } from '../services/i18n';
 import { AppStatusBadge } from './AppStatusBadge';
 
@@ -30,6 +30,22 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
       {!loading && app ? (
         <>
           <h2>{app.name}</h2>
+          <DetailBlock label={t('app.details.description')}>
+            <p className="long-description">
+              {app.longDescription || t('app.details.descriptionPending')}
+            </p>
+          </DetailBlock>
+          {app.tags?.length ? (
+            <DetailBlock label={t('app.details.tags')}>
+              <div className="tag-list">
+                {app.tags.map((tag) => (
+                  <span className="tag-chip" key={tag}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </DetailBlock>
+          ) : null}
           <DetailBlock label={t('app.details.official')}>
             {app.officialUrl ? (
               <a href={app.officialUrl} target="_blank" rel="noreferrer">
@@ -71,6 +87,11 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
           </DetailBlock>
           <DetailBlock label={t('app.details.size')}>{formatSize(app.sizeBytes)}</DetailBlock>
           <DetailBlock label={t('app.details.source')}>{app.sourceLabel}</DetailBlock>
+          {app.downloadOptions && app.downloadOptions.length > 1 ? (
+            <DetailBlock label={t('app.details.installersDetected')}>
+              <DownloadOptions options={app.downloadOptions} />
+            </DetailBlock>
+          ) : null}
           <DetailBlock label={t('app.details.notes')}>{app.notes}</DetailBlock>
           {app.originUrl ? (
             <a className="origin-button" href={app.originUrl} target="_blank" rel="noreferrer">
@@ -87,6 +108,23 @@ export function AppDetailsDrawer({ app, loading, onClose }: Props) {
       ) : null}
       {!loading && !app ? <p className="drawer-empty">Selecciona una aplicacion.</p> : null}
     </aside>
+  );
+}
+
+function DownloadOptions({ options }: { options: DownloadOption[] }) {
+  return (
+    <div className="download-options">
+      {options.map((option) => (
+        <div className="download-option" key={option.id}>
+          <span>{option.filename ?? option.finalDomain ?? '-'}</span>
+          <small>
+            {option.extension?.toUpperCase().replace('.', '') ?? '-'} - {option.sourceLabel} -{' '}
+            {option.score}
+            {option.isPrimary ? ` - ${t('app.details.primaryInstaller')}` : ''}
+          </small>
+        </div>
+      ))}
+    </div>
   );
 }
 

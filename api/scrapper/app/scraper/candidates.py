@@ -22,6 +22,8 @@ PREFERRED_EXTENSIONS = (
     ".tar.gz",
 )
 
+WINDOWS_INSTALLER_EXTENSIONS = (".exe", ".msi", ".msix", ".appx")
+
 POSITIVE_KEYWORDS = (
     "download",
     "descargar",
@@ -63,6 +65,8 @@ class InstallerCandidate:
     label: str | None = None
     context: str | None = None
     score: int = 0
+    asset_kind: str | None = None
+    match_tokens: tuple[str, ...] = ()
 
     @property
     def extension(self) -> str | None:
@@ -132,14 +136,31 @@ def score_candidate(
     allowed_domains: set[str],
     preferred_os: str = "windows",
     preferred_architecture: str = "x86_64",
+    app_name: str | None = None,
+    package_id: str | None = None,
+    publisher: str | None = None,
+    version: str | None = None,
 ) -> InstallerCandidate:
     text = normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
     score = 0
     extension = detect_extension(candidate.url)
-    if extension in PREFERRED_EXTENSIONS:
+    asset_kind = (
+        "source_archive"
+        if is_github_source_archive(candidate.url)
+        else candidate.asset_kind or classify_asset(candidate.url)
+    )
+    if asset_kind == "source_archive":
+        score -= 150
+    if extension in WINDOWS_INSTALLER_EXTENSIONS:
+        score += 70
+    elif extension == ".zip":
+        score += 25
+    elif extension in PREFERRED_EXTENSIONS:
         score += 50
-    if extension in {".exe", ".msi", ".msix", ".appx"} and preferred_os == "windows":
+    if extension in WINDOWS_INSTALLER_EXTENSIONS and preferred_os == "windows":
         score += 20
+    if extension == ".zip" and registered_domain(candidate.url) == "github.com":
+        score += 10 if is_github_release_asset(candidate.url) else -90
     if extension in {".dmg", ".pkg"} and preferred_os == "windows":
         score -= 35
     if extension in {".deb", ".rpm"} and preferred_os == "windows":
@@ -157,13 +178,111 @@ def score_candidate(
     domain = registered_domain(candidate.url)
     if domain and domain in allowed_domains:
         score += 30
+    match_tokens = app_match_tokens(
+        text=text,
+        app_name=app_name,
+        package_id=package_id,
+        publisher=publisher,
+        version=version,
+    )
+    score += len(match_tokens) * 12
+    score += variant_score(text=text, app_name=app_name, package_id=package_id)
     return InstallerCandidate(
         url=candidate.url,
         source=candidate.source,
         label=candidate.label,
         context=candidate.context,
         score=score,
+        asset_kind=asset_kind,
+        match_tokens=tuple(match_tokens),
     )
+
+
+def classify_asset(url: str) -> str:
+    if is_github_source_archive(url):
+        return "source_archive"
+    if is_github_release_asset(url) and detect_extension(url) == ".zip":
+        return "release_zip"
+    if detect_extension(url) in WINDOWS_INSTALLER_EXTENSIONS:
+        return "installer"
+    if detect_extension(url) in PREFERRED_EXTENSIONS:
+        return "archive"
+    return "unknown"
+
+
+def is_github_source_archive(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if host == "codeload.github.com":
+        return True
+    if host.endswith("github.com") and any(
+        marker in path for marker in ("/archive/", "/zipball/", "/tarball/", "/refs/heads/")
+    ):
+        return True
+    filename = PurePosixPath(path).name
+    return host.endswith("github.com") and filename in {"main.zip", "master.zip"}
+
+
+def is_github_release_asset(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.netloc.lower().endswith("github.com") and "/releases/download/" in parsed.path.lower()
+
+
+def app_match_tokens(
+    text: str,
+    app_name: str | None,
+    package_id: str | None,
+    publisher: str | None,
+    version: str | None,
+) -> list[str]:
+    raw = " ".join(value for value in (app_name, package_id, publisher, version) if value)
+    tokens = product_tokens(raw)
+    return [token for token in tokens if token in text]
+
+
+def product_tokens(value: str) -> list[str]:
+    normalized = normalize_text(value.replace(".", " ").replace("_", " ").replace("-", " "))
+    stopwords = {
+        "app",
+        "application",
+        "desktop",
+        "for",
+        "inc",
+        "installer",
+        "launcher",
+        "llc",
+        "software",
+        "windows",
+    }
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+", normalized)
+        if len(token) >= 3 and token not in stopwords
+    ]
+    return list(dict.fromkeys(tokens))
+
+
+def variant_score(text: str, app_name: str | None, package_id: str | None) -> int:
+    app_text = normalize_text(f"{app_name or ''} {package_id or ''}")
+    score = 0
+    variants = {
+        "graphing": ("graphing",),
+        "geometry": ("geometry",),
+        "cas": ("cas",),
+        "suite": ("suite", "win-suite", "calculator-suite"),
+        "classic": ("classic",),
+    }
+    for variant, aliases in variants.items():
+        app_wants_variant = variant in app_text or (
+            variant == "suite" and "calculator suite" in app_text
+        )
+        candidate_has_variant = any(alias in text for alias in aliases)
+        if app_wants_variant and candidate_has_variant:
+            score += 35
+        elif not app_wants_variant and candidate_has_variant:
+            score -= 25
+    return score
 
 
 def detect_extension(url: str) -> str | None:
