@@ -7,6 +7,7 @@ from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.json_safe import json_safe
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.enums import AppStatus, LongDescriptionStatus, ResolutionStatus, ValidationStatus
@@ -88,7 +89,7 @@ class CatalogRepository:
                 official_url=app.homepage,
                 latest_version=app.latest_version,
                 app_status=AppStatus.ACTIVE.value,
-                metadata_json=app.raw,
+                metadata_json=json_safe(app.raw),
             )
             self.session.add(existing)
             await self.session.flush()
@@ -100,7 +101,7 @@ class CatalogRepository:
             existing.icon_url = icon_url if has_icon_url(icon_url) else existing.icon_url
             existing.official_url = app.homepage
             existing.latest_version = app.latest_version
-            existing.metadata_json = app.raw
+            existing.metadata_json = json_safe(app.raw)
             existing.updated_at = utc_now()
             existing.version += 1
 
@@ -172,7 +173,7 @@ class CatalogRepository:
                 architecture="x86_64",
                 initial_url=app.homepage,
                 resolver_type="generic_http",
-                resolver_config={"winstall_id": app.package_id},
+                resolver_config=json_safe({"winstall_id": app.package_id}),
                 resolution_status=ResolutionStatus.MISSING.value,
                 validation_status=ValidationStatus.UNCHECKED.value,
             )
@@ -180,7 +181,7 @@ class CatalogRepository:
             await self.session.flush()
         else:
             source.initial_url = app.homepage or source.initial_url
-            source.resolver_config = {"winstall_id": app.package_id}
+            source.resolver_config = json_safe({"winstall_id": app.package_id})
             source.updated_at = utc_now()
 
         domains = allowed_domains_for(app.homepage, app.installer_urls)
@@ -221,7 +222,7 @@ class CatalogRepository:
             validation_status=item.validation_status.value,
             checked_at=utc_now(),
             expires_at=utc_after(hours=24),
-            metadata_json=item.metadata,
+            metadata_json=json_safe(item.metadata),
         )
         self.session.add(resolved)
 
@@ -405,6 +406,11 @@ class CatalogRepository:
         }
 
     async def get_app_by_public_id(self, public_id: str) -> SoftwareApp | None:
+        conditions = [SoftwareApp.slug == public_id, SoftwareApp.winstall_id == public_id]
+        try:
+            conditions.append(SoftwareApp.id == uuid.UUID(public_id))
+        except (TypeError, ValueError):
+            pass
         stmt = (
             select(SoftwareApp)
             .options(
@@ -412,7 +418,7 @@ class CatalogRepository:
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains),
                 selectinload(SoftwareApp.tags),
             )
-            .where(or_(SoftwareApp.slug == public_id, SoftwareApp.winstall_id == public_id))
+            .where(or_(*conditions))
         )
         return await self.session.scalar(stmt)
 

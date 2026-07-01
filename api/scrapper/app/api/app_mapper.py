@@ -63,7 +63,8 @@ def to_list_item(app: SoftwareApp) -> AppListItem:
         resolution_status = resolved.status
         validation_status = resolved.validation_status
     return AppListItem(
-        id=app.slug,
+        id=str(app.id),
+        slug=app.slug,
         packageId=app.winstall_id,
         name=app.name,
         publisher=app.publisher,
@@ -100,7 +101,8 @@ def to_details(app: SoftwareApp) -> AppDetails:
     )
 
     return AppDetails(
-        id=app.slug,
+        id=str(app.id),
+        slug=app.slug,
         packageId=app.winstall_id,
         name=app.name,
         publisher=app.publisher,

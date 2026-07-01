@@ -13,6 +13,7 @@ class AppListItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
+    slug: str
     package_id: str = Field(alias="packageId")
     name: str
     publisher: str | None = None
@@ -81,6 +82,7 @@ class AppDetails(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
+    slug: str
     package_id: str = Field(alias="packageId")
     name: str
     publisher: str | None = None

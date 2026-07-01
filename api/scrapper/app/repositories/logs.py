@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.json_safe import json_safe
 from app.db.models import ResolverLog
 
 
@@ -23,6 +24,6 @@ class ResolverLogRepository:
                 phase=phase,
                 status=status,
                 message=message,
-                safe_metadata=safe_metadata,
+                safe_metadata=json_safe(safe_metadata),
             )
         )

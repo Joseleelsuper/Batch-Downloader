@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from sqlalchemy.exc import StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.json_safe import json_safe
 from app.core.logging import get_logger
 from app.core.url_protector import UrlProtector
 from app.db.enums import ScrapeRunStatus
@@ -120,9 +122,18 @@ class CatalogFetcher:
                             phase="scrape_app",
                             status="failed",
                             message=exc.__class__.__name__,
-                            safe_metadata={"winstall_id": lightweight_app.package_id},
+                            safe_metadata=scrape_app_failure_metadata(
+                                exc,
+                                lightweight_app.package_id,
+                            ),
                         )
                         await self.session.commit()
+                        logger.warning(
+                            "scrape_app_failed",
+                            winstall_id=lightweight_app.package_id,
+                            error=exc.__class__.__name__,
+                            detail=exception_detail(exc),
+                        )
                     if counters.apps_discovered % 10 == 0:
                         await self.runs.heartbeat(run_id, **counters.__dict__)
                         await self.session.commit()
@@ -313,3 +324,30 @@ class CatalogFetcher:
                 "domain": registered_domain(result.url),
             },
         )
+
+
+def scrape_app_failure_metadata(exc: Exception, winstall_id: str) -> dict:
+    metadata = {
+        "winstall_id": winstall_id,
+        "error": exc.__class__.__name__,
+        "detail": exception_detail(exc),
+    }
+    if isinstance(exc, StatementError):
+        metadata["statement"] = truncate_text(exc.statement, 1200)
+        metadata["params"] = truncate_text(repr(exc.params), 1200)
+    return json_safe(metadata)
+
+
+def exception_detail(exc: Exception) -> str:
+    if isinstance(exc, StatementError) and exc.orig is not None:
+        return truncate_text(f"{exc.orig.__class__.__name__}: {exc.orig}", 1200) or ""
+    return truncate_text(str(exc), 1200) or ""
+
+
+def truncate_text(value: object, max_length: int) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3] + "..."

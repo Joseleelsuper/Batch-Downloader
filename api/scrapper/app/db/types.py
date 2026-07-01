@@ -19,6 +19,10 @@ class GUID(TypeDecorator):
     def process_bind_param(self, value: Any, dialect):
         if value is None:
             return None
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            raw = bytes(value)
+            if len(raw) == 16:
+                return raw if dialect.name == "mysql" else str(uuid.UUID(bytes=raw))
         if not isinstance(value, uuid.UUID):
             value = uuid.UUID(str(value))
         if dialect.name == "mysql":
@@ -31,7 +35,7 @@ class GUID(TypeDecorator):
         if isinstance(value, uuid.UUID):
             return value
         if dialect.name == "mysql":
-            return uuid.UUID(bytes=value)
+            return uuid.UUID(bytes=bytes(value))
         return uuid.UUID(str(value))
 
 
