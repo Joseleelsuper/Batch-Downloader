@@ -41,9 +41,9 @@ public class BundleController {
         return new BundleSearchResponse(data, safePage, safePageSize, bundles.count(type));
     }
 
-    @GetMapping("/api/bundles/{slug}")
-    public BundleDetails getBundle(@PathVariable String slug) {
-        return bundles.details(slug);
+    @GetMapping("/api/bundles/{bundleId}")
+    public BundleDetails getBundle(@PathVariable String bundleId) {
+        return bundles.details(bundleId);
     }
 
     @GetMapping("/api/admin/bundles")
@@ -59,27 +59,27 @@ public class BundleController {
     @ResponseStatus(HttpStatus.CREATED)
     public BundleDetails createBundle(
             @Valid @RequestBody UpsertBundleRequest request,
-            Principal principal) {
+        Principal principal) {
         BundleDetails created = bundles.create(request);
-        audit.record(actor(principal), "bundle.create", "bundle", created.slug(), null);
+        audit.record(actor(principal), "bundle.create", "bundle", created.id(), null);
         return created;
     }
 
-    @PatchMapping("/api/admin/bundles/{slug}")
+    @PatchMapping("/api/admin/bundles/{bundleId}")
     public BundleDetails updateBundle(
-            @PathVariable String slug,
+            @PathVariable String bundleId,
             @Valid @RequestBody UpsertBundleRequest request,
             Principal principal) {
-        BundleDetails updated = bundles.update(slug, request);
-        audit.record(actor(principal), "bundle.update", "bundle", updated.slug(), null);
+        BundleDetails updated = bundles.update(bundleId, request);
+        audit.record(actor(principal), "bundle.update", "bundle", updated.id(), null);
         return updated;
     }
 
-    @DeleteMapping("/api/admin/bundles/{slug}")
+    @DeleteMapping("/api/admin/bundles/{bundleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteBundle(@PathVariable String slug, Principal principal) {
-        bundles.delete(slug);
-        audit.record(actor(principal), "bundle.delete", "bundle", slug, null);
+    public void deleteBundle(@PathVariable String bundleId, Principal principal) {
+        bundles.delete(bundleId);
+        audit.record(actor(principal), "bundle.delete", "bundle", bundleId, null);
     }
 
     private String actor(Principal principal) {

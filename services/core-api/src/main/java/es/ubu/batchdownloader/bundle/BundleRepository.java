@@ -51,11 +51,17 @@ public class BundleRepository {
         return count == null ? 0 : count;
     }
 
-    public BundleDetails details(String slug) {
+    public BundleDetails details(String publicId) {
         List<BundleDetails> bundles = jdbc.query(
-                "SELECT * FROM bundles WHERE slug = ? LIMIT 1",
+                """
+                SELECT * FROM bundles
+                WHERE (? IS NOT NULL AND id = ?) OR slug = ?
+                LIMIT 1
+                """,
                 (rs, rowNum) -> detailsFromRow(rs),
-                slug);
+                uuidBytesOrNull(publicId),
+                uuidBytesOrNull(publicId),
+                publicId);
         if (bundles.isEmpty()) {
             throw new NotFoundException("bundle_not_found", "El bundle no existe.");
         }
@@ -64,10 +70,13 @@ public class BundleRepository {
 
     @Transactional
     public BundleDetails create(UpsertBundleRequest request) {
-        String slug = normalizeSlug(request.slug() == null || request.slug().isBlank() ? request.name() : request.slug());
-        if (existsSlug(slug)) {
+        String requestedSlug = normalizeSlug(request.slug() == null || request.slug().isBlank() ? request.name() : request.slug());
+        if (request.slug() != null && !request.slug().isBlank() && existsSlug(requestedSlug)) {
             throw new ConflictException("bundle_slug_exists", "Ya existe un bundle con ese slug.");
         }
+        String slug = request.slug() == null || request.slug().isBlank()
+                ? uniqueSlug(requestedSlug)
+                : requestedSlug;
         UUID id = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
         jdbc.update(
@@ -91,10 +100,11 @@ public class BundleRepository {
     }
 
     @Transactional
-    public BundleDetails update(String slug, UpsertBundleRequest request) {
-        UUID id = idBySlug(slug);
-        String nextSlug = normalizeSlug(request.slug() == null || request.slug().isBlank() ? slug : request.slug());
-        if (!nextSlug.equals(slug) && existsSlug(nextSlug)) {
+    public BundleDetails update(String publicId, UpsertBundleRequest request) {
+        UUID id = idByPublicId(publicId);
+        String currentSlug = slugById(id);
+        String nextSlug = normalizeSlug(request.slug() == null || request.slug().isBlank() ? currentSlug : request.slug());
+        if (!nextSlug.equals(currentSlug) && existsSlug(nextSlug)) {
             throw new ConflictException("bundle_slug_exists", "Ya existe un bundle con ese slug.");
         }
         jdbc.update(
@@ -116,8 +126,8 @@ public class BundleRepository {
     }
 
     @Transactional
-    public void delete(String slug) {
-        UUID id = idBySlug(slug);
+    public void delete(String publicId) {
+        UUID id = idByPublicId(publicId);
         jdbc.update("DELETE FROM bundles WHERE id = ?", UuidBytes.fromUuid(id));
     }
 
@@ -145,7 +155,7 @@ public class BundleRepository {
         int order = 0;
         if (appIds != null) {
             for (String appId : appIds) {
-                UUID softwareAppId = softwareAppId(appId);
+                UUID softwareAppId = catalog.softwareAppId(appId);
                 jdbc.update(
                         """
                         INSERT IGNORE INTO bundle_items (id, bundle_id, software_app_id, sort_order, created_at)
@@ -194,21 +204,22 @@ public class BundleRepository {
     }
 
     private List<AppListItem> previewApps(UUID bundleId, int limit) {
-        return jdbc.queryForList(
+        return jdbc.query(
                         """
-                        SELECT a.slug FROM bundle_items bi
+                        SELECT a.id FROM bundle_items bi
                         JOIN software_apps a ON a.id = bi.software_app_id
                         WHERE bi.bundle_id = ?
                         ORDER BY bi.sort_order ASC
                         LIMIT ?
                         """,
-                        String.class,
+                        (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")).toString(),
                         UuidBytes.fromUuid(bundleId),
                         limit)
                 .stream()
-                .map(slug -> catalog.details(slug))
+                .map(catalog::details)
                 .map(details -> new AppListItem(
                         details.id(),
+                        details.slug(),
                         details.packageId(),
                         details.name(),
                         details.publisher(),
@@ -232,27 +243,32 @@ public class BundleRepository {
                 UuidBytes.fromUuid(bundleId));
     }
 
-    private UUID idBySlug(String slug) {
+    private UUID idByPublicId(String publicId) {
         List<UUID> ids = jdbc.query(
-                "SELECT id FROM bundles WHERE slug = ? LIMIT 1",
+                """
+                SELECT id FROM bundles
+                WHERE (? IS NOT NULL AND id = ?) OR slug = ?
+                LIMIT 1
+                """,
                 (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
-                slug);
+                uuidBytesOrNull(publicId),
+                uuidBytesOrNull(publicId),
+                publicId);
         if (ids.isEmpty()) {
             throw new NotFoundException("bundle_not_found", "El bundle no existe.");
         }
         return ids.get(0);
     }
 
-    private UUID softwareAppId(String publicId) {
-        List<UUID> ids = jdbc.query(
-                "SELECT id FROM software_apps WHERE slug = ? OR winstall_id = ? LIMIT 1",
-                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
-                publicId,
-                publicId);
-        if (ids.isEmpty()) {
-            throw new NotFoundException("app_not_found", "Una aplicacion del bundle no existe.");
+    private String slugById(UUID id) {
+        String slug = jdbc.queryForObject(
+                "SELECT slug FROM bundles WHERE id = ?",
+                String.class,
+                UuidBytes.fromUuid(id));
+        if (slug == null) {
+            throw new NotFoundException("bundle_not_found", "El bundle no existe.");
         }
-        return ids.get(0);
+        return slug;
     }
 
     private boolean existsSlug(String slug) {
@@ -279,6 +295,25 @@ public class BundleRepository {
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("(^-|-$)", "");
         return slug.isBlank() ? "bundle-" + UUID.randomUUID() : slug;
+    }
+
+    private String uniqueSlug(String baseSlug) {
+        String candidate = baseSlug;
+        int suffix = 2;
+        while (existsSlug(candidate)) {
+            candidate = baseSlug + "-" + suffix++;
+        }
+        return candidate;
+    }
+
+    private byte[] uuidBytesOrNull(String publicId) {
+        try {
+            return publicId == null || publicId.isBlank()
+                    ? null
+                    : UuidBytes.fromUuid(UUID.fromString(publicId));
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private String blankToNull(String value) {

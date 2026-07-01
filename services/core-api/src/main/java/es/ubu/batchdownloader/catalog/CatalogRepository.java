@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.catalog;
 
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppListItem;
+import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.DownloadOption;
 import es.ubu.batchdownloader.catalog.CatalogDtos.LastScrapeRun;
@@ -75,20 +76,39 @@ public class CatalogRepository {
     }
 
     public AppDetails details(String publicId) {
+        UUID id = softwareAppId(publicId);
         List<AppDetails> matches = jdbc.query(
                 """
                 SELECT a.*
                 FROM software_apps a
-                WHERE a.app_status = 'active' AND (a.slug = ? OR a.winstall_id = ?)
+                WHERE a.app_status = 'active' AND a.id = ?
                 LIMIT 1
                 """,
                 (rs, rowNum) -> mapDetails(rs),
-                publicId,
-                publicId);
+                UuidBytes.fromUuid(id));
         if (matches.isEmpty()) {
             throw new NotFoundException("app_not_found", "La aplicacion no existe.");
         }
         return matches.get(0);
+    }
+
+    public UUID softwareAppId(String publicId) {
+        UUID parsed = parseUuid(publicId);
+        List<UUID> ids = jdbc.query(
+                """
+                SELECT id FROM software_apps
+                WHERE (? IS NOT NULL AND id = ?) OR slug = ? OR winstall_id = ?
+                LIMIT 1
+                """,
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                parsed == null ? null : UuidBytes.fromUuid(parsed),
+                parsed == null ? null : UuidBytes.fromUuid(parsed),
+                publicId,
+                publicId);
+        if (ids.isEmpty()) {
+            throw new NotFoundException("app_not_found", "La aplicacion no existe.");
+        }
+        return ids.get(0);
     }
 
     public CatalogStatsResponse stats() {
@@ -109,6 +129,36 @@ public class CatalogRepository {
                 """));
         LastScrapeRun last = latestRun();
         return new CatalogStatsResponse(total, filters, last, LocalDateTime.now());
+    }
+
+    public CatalogChangeEvent changeEvent() {
+        return new CatalogChangeEvent("catalog.changed", changeVersion(), LocalDateTime.now());
+    }
+
+    public String changeVersion() {
+        String appToken = jdbc.queryForObject(
+                """
+                SELECT CONCAT(COUNT(*), ':', COALESCE(UNIX_TIMESTAMP(MAX(updated_at)), 0))
+                FROM software_apps
+                WHERE app_status = 'active'
+                """,
+                String.class);
+        List<String> runTokens = jdbc.query(
+                """
+                SELECT CONCAT(
+                    HEX(id), ':', status, ':',
+                    COALESCE(UNIX_TIMESTAMP(heartbeat_at), 0), ':',
+                    apps_discovered, ':', apps_resolved, ':', apps_failed, ':',
+                    COALESCE(apps_skipped, 0), ':',
+                    COALESCE(current_package_id, ''), ':',
+                    COALESCE(current_phase, '')
+                ) AS token
+                FROM scrape_runs
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                (rs, rowNum) -> rs.getString("token"));
+        return Integer.toHexString(((appToken == null ? "" : appToken) + "|" + (runTokens.isEmpty() ? "" : runTokens.get(0))).hashCode());
     }
 
     private void appendFilters(
@@ -176,6 +226,7 @@ public class CatalogRepository {
         AppBasics app = readBasics(rs);
         SourceSnapshot source = sourceFor(app.dbId());
         return new AppListItem(
+                app.dbId().toString(),
                 app.slug(),
                 app.winstallId(),
                 app.name(),
@@ -197,6 +248,7 @@ public class CatalogRepository {
         SourceSnapshot source = sourceFor(app.dbId());
         List<DownloadOption> options = downloadOptions(app.dbId());
         return new AppDetails(
+                app.dbId().toString(),
                 app.slug(),
                 app.winstallId(),
                 app.name(),
@@ -384,6 +436,14 @@ public class CatalogRepository {
             return true;
         } catch (SQLException exception) {
             return false;
+        }
+    }
+
+    private UUID parseUuid(String raw) {
+        try {
+            return raw == null || raw.isBlank() ? null : UUID.fromString(raw);
+        } catch (IllegalArgumentException exception) {
+            return null;
         }
     }
 

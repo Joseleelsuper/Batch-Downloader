@@ -56,7 +56,7 @@ public class AdminAppRepository {
                 now);
         replaceTags(id, request.tags(), "admin");
         createDefaultSource(id, request.officialUrl(), now);
-        return catalog.details(slug);
+        return catalog.details(id.toString());
     }
 
     @Transactional
@@ -83,12 +83,38 @@ public class AdminAppRepository {
                 isBlank(request.appStatus()) ? "active" : request.appStatus(),
                 LocalDateTime.now(),
                 UuidBytes.fromUuid(id));
-        return catalog.details(publicId);
+        return catalog.details(id.toString());
     }
 
     @Transactional
     public void replaceTags(String publicId, List<String> tags) {
         replaceTags(softwareAppId(publicId), tags, "admin");
+    }
+
+    @Transactional
+    public void delete(String publicId) {
+        UUID appId = softwareAppId(publicId);
+        List<UUID> affectedBundles = jdbc.query(
+                "SELECT bundle_id FROM bundle_items WHERE software_app_id = ?",
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("bundle_id")),
+                UuidBytes.fromUuid(appId));
+        deleteApps("WHERE id = ?", List.<Object>of(UuidBytes.fromUuid(appId)));
+        refreshBundleCounts(affectedBundles);
+    }
+
+    @Transactional
+    public int deleteAll() {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM software_apps", Integer.class);
+        deleteApps("", List.of());
+        jdbc.update("UPDATE bundles SET app_count = 0, updated_at = ? WHERE app_count <> 0", LocalDateTime.now());
+        return count == null ? 0 : count;
+    }
+
+    public boolean hasRunningScraper() {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM scrape_runs WHERE status = 'running'",
+                Integer.class);
+        return count != null && count > 0;
     }
 
     @Transactional
@@ -121,15 +147,37 @@ public class AdminAppRepository {
     }
 
     public UUID softwareAppId(String publicId) {
-        List<UUID> ids = jdbc.query(
-                "SELECT id FROM software_apps WHERE slug = ? OR winstall_id = ? LIMIT 1",
-                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
-                publicId,
-                publicId);
-        if (ids.isEmpty()) {
-            throw new NotFoundException("app_not_found", "La aplicacion no existe.");
+        return catalog.softwareAppId(publicId);
+    }
+
+    private void deleteApps(String appWhereClause, List<Object> appWhereParams) {
+        String scopedApps = appWhereClause.isBlank()
+                ? "SELECT id FROM software_apps"
+                : "SELECT id FROM software_apps " + appWhereClause;
+        String scopedSources = "SELECT id FROM download_sources WHERE software_app_id IN (" + scopedApps + ")";
+        Object[] params = appWhereParams.toArray();
+
+        jdbc.update("DELETE FROM resolver_logs WHERE download_source_id IN (" + scopedSources + ")", params);
+        jdbc.update("DELETE FROM resolved_sources WHERE download_source_id IN (" + scopedSources + ")", params);
+        jdbc.update("DELETE FROM source_allowed_domains WHERE source_id IN (" + scopedSources + ")", params);
+        jdbc.update("DELETE FROM download_sources WHERE software_app_id IN (" + scopedApps + ")", params);
+        jdbc.update("DELETE FROM software_app_tags WHERE software_app_id IN (" + scopedApps + ")", params);
+        jdbc.update("DELETE FROM bundle_items WHERE software_app_id IN (" + scopedApps + ")", params);
+        jdbc.update("DELETE FROM software_apps " + appWhereClause, params);
+    }
+
+    private void refreshBundleCounts(List<UUID> bundleIds) {
+        for (UUID bundleId : bundleIds.stream().distinct().toList()) {
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM bundle_items WHERE bundle_id = ?",
+                    Integer.class,
+                    UuidBytes.fromUuid(bundleId));
+            jdbc.update(
+                    "UPDATE bundles SET app_count = ?, updated_at = ? WHERE id = ?",
+                    count == null ? 0 : count,
+                    LocalDateTime.now(),
+                    UuidBytes.fromUuid(bundleId));
         }
-        return ids.get(0);
     }
 
     private void createDefaultSource(UUID appId, String officialUrl, LocalDateTime now) {

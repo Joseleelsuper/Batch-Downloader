@@ -7,6 +7,7 @@ import java.util.Map;
 public class CatalogDtos {
     public record AppListItem(
             String id,
+            String slug,
             String packageId,
             String name,
             String publisher,
@@ -34,6 +35,7 @@ public class CatalogDtos {
 
     public record AppDetails(
             String id,
+            String slug,
             String packageId,
             String name,
             String publisher,
@@ -76,4 +78,8 @@ public class CatalogDtos {
             Map<String, Long> filters,
             LastScrapeRun lastScrape,
             LocalDateTime generatedAt) {}
+
+    public record DownloadZipRequest(List<String> appIds) {}
+
+    public record CatalogChangeEvent(String type, String version, LocalDateTime generatedAt) {}
 }

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -95,6 +96,32 @@ public class AdminAppController {
         AppDetails updated = adminApps.patch(appId, request);
         audit.record(actor(principal), "app.update", "app", updated.id(), null);
         return updated;
+    }
+
+    @DeleteMapping("/api/admin/apps/{appId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteApp(@PathVariable String appId, Principal principal) {
+        adminApps.delete(appId);
+        audit.record(actor(principal), "app.delete", "app", appId, null);
+    }
+
+    @DeleteMapping("/api/admin/apps")
+    public Map<String, Object> deleteAllApps(
+            @RequestParam(required = false) String confirm,
+            Principal principal) {
+        if (!"DELETE_ALL".equals(confirm)) {
+            throw new ConflictException(
+                    "delete_all_confirmation_required",
+                    "Debes confirmar el borrado completo con confirm=DELETE_ALL.");
+        }
+        if (adminApps.hasRunningScraper()) {
+            throw new ConflictException(
+                    "scraper_running",
+                    "No se pueden eliminar todas las aplicaciones mientras el scraper esta en ejecucion.");
+        }
+        int deleted = adminApps.deleteAll();
+        audit.record(actor(principal), "app.delete_all", "app", null, Map.of("deleted", deleted));
+        return Map.of("deleted", deleted);
     }
 
     @PutMapping("/api/admin/apps/{appId}/tags")
