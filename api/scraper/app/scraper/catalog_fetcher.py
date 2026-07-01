@@ -11,6 +11,7 @@ from app.core.json_safe import json_safe
 from app.core.logging import get_logger
 from app.core.url_protector import UrlProtector
 from app.db.enums import ScrapeRunStatus
+from app.db.session import AsyncSessionLocal
 from app.repositories.catalog import CatalogRepository
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.runs import ScrapeRunRepository
@@ -42,7 +43,6 @@ class CatalogFetcher:
         self.validator = DownloadValidator(settings)
         self.resolver = InstallerResolver(settings, self.catalog, self.logs, self.validator)
         self.icon_resolver = IconResolver(settings)
-        self.description_enricher = AppDescriptionEnricher(settings, self.catalog, self.logs)
         self.runs = ScrapeRunRepository(session, settings)
 
     async def scrape_once(self, recover_running: bool = False) -> ScrapeCounters:
@@ -271,8 +271,10 @@ class CatalogFetcher:
             max_apps=self.settings.llm_max_apps_per_run,
         )
         try:
-            enriched = await self.description_enricher.enrich_pending()
-            await self.session.commit()
+            enriched = await asyncio.wait_for(
+                self._enrich_descriptions_in_isolated_session(),
+                timeout=self._description_enrichment_timeout_seconds(),
+            )
             logger.info(
                 "descriptions_enrichment_done",
                 run_id=str(run_id),
@@ -293,6 +295,24 @@ class CatalogFetcher:
                 error=exc.__class__.__name__,
             )
             return 0
+
+    async def _enrich_descriptions_in_isolated_session(self) -> int:
+        async with AsyncSessionLocal() as session:
+            catalog = CatalogRepository(session, self.url_protector)
+            logs = ResolverLogRepository(session)
+            enricher = AppDescriptionEnricher(self.settings, catalog, logs)
+            enriched = await enricher.enrich_pending()
+            await session.commit()
+            return enriched
+
+    def _description_enrichment_timeout_seconds(self) -> float:
+        jobs = (
+            self.settings.llm_max_apps_per_run
+            if self.settings.llm_max_apps_per_run > 0
+            else max(1, self.settings.llm_enrich_interval_apps)
+        )
+        per_job_timeout = self.settings.request_timeout_seconds + self.settings.llm_request_timeout_seconds
+        return max(60.0, min(600.0, jobs * per_job_timeout + 30.0))
 
     async def _resolve_missing_icon(
         self,

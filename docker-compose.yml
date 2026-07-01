@@ -79,7 +79,7 @@ services:
 
   scraper-api:
     build:
-      context: ./api/scrapper
+      context: ./api/scraper
     environment:
       SCRAPPER_APP_NAME: ${SCRAPPER_APP_NAME}
       SCRAPPER_ENVIRONMENT: ${SCRAPPER_ENVIRONMENT}
@@ -134,7 +134,7 @@ services:
 
   scraper-scheduler:
     build:
-      context: ./api/scrapper
+      context: ./api/scraper
     command: ["scheduler"]
     environment:
       SCRAPPER_APP_NAME: ${SCRAPPER_APP_NAME}

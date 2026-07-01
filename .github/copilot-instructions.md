@@ -3,7 +3,7 @@
 ## Architecture
 - Monorepo for Batch Downloader. MySQL is the catalog source of truth; pgvector is reserved for derived semantic search.
 - `services/core-api` is now the public Spring Boot API for `/api/*`: catalog, downloads proxy, admin auth, bundles, requests, scraper monitor, and audit.
-- `api/scrapper` is an internal FastAPI worker/API for Winstall scraping, installer resolution, validation, icon resolution, LLM descriptions, and scheduler control.
+- `api/scraper` is an internal FastAPI worker/API for Winstall scraping, installer resolution, validation, icon resolution, LLM descriptions, and scheduler control.
 - `services/webapp/src/main/resources/frontend` is React/Vite/TypeScript served by Nginx. Nginx proxies `/api/*` to `core-api:8080`, not to `scraper-api`.
 - `services/translation-service/locales` holds Spanish defaults and a translation template.
 
@@ -22,7 +22,7 @@
 - Scheduler control is cooperative through `scraper_commands`; check commands between apps and keep `scrape_runs.current_*` fields updated.
 
 ## Data Ownership
-- Alembic in `api/scrapper/alembic` owns scraper/catalog tables: `software_apps`, sources, resolved sources, tags, resolver logs, scrape runs, and scraper commands.
+- Alembic in `api/scraper/alembic` owns scraper/catalog tables: `software_apps`, sources, resolved sources, tags, resolver logs, scrape runs, and scraper commands.
 - Flyway in `services/core-api/src/main/resources/db/migration` owns public/admin tables: bundles, bundle items/tags/stars, software requests, and admin audit logs.
 - `description` is Winstall's short text. `long_description` is AI-generated Spanish enrichment and must not overwrite `description`.
 
@@ -43,7 +43,7 @@ npm run build
 npm test -- --run
 ```
 ```bash
-docker compose run --rm -v "${PWD}/api/scrapper/tests:/app/tests" scraper-api pytest /app/tests
+docker compose run --rm -v "${PWD}/api/scraper/tests:/app/tests" scraper-api pytest /app/tests
 python -m app.worker scrape-once
 python -m app.worker scheduler
 ```

@@ -117,11 +117,12 @@ class CatalogRepository:
             if normalized and tag:
                 normalized_to_tag[normalized[:120]] = tag[:120]
 
-        existing_tags = {
-            tag.normalized_tag: tag
-            for tag in software_app.tags
-            if tag.source == "winstall"
-        }
+        result = await self.session.scalars(
+            select(SoftwareAppTag)
+            .where(SoftwareAppTag.software_app_id == software_app.id)
+            .where(SoftwareAppTag.source == "winstall")
+        )
+        existing_tags = {tag.normalized_tag: tag for tag in result}
         changed = False
         for normalized, tag in normalized_to_tag.items():
             existing = existing_tags.get(normalized)
@@ -160,7 +161,6 @@ class CatalogRepository:
     async def _ensure_default_source(self, software_app: SoftwareApp, app: WinstallApp) -> None:
         source = await self.session.scalar(
             select(DownloadSource)
-            .options(selectinload(DownloadSource.allowed_domains))
             .where(DownloadSource.software_app_id == software_app.id)
             .where(DownloadSource.operating_system == "windows")
             .where(DownloadSource.architecture == "x86_64")
@@ -185,9 +185,13 @@ class CatalogRepository:
             source.updated_at = utc_now()
 
         domains = allowed_domains_for(app.homepage, app.installer_urls)
-        existing_domains = (
-            set() if is_new_source else {domain.domain for domain in source.allowed_domains}
-        )
+        if is_new_source:
+            existing_domains = set()
+        else:
+            result = await self.session.scalars(
+                select(SourceAllowedDomain.domain).where(SourceAllowedDomain.source_id == source.id)
+            )
+            existing_domains = set(result)
         for domain in domains - existing_domains:
             self.session.add(
                 SourceAllowedDomain(source_id=source.id, domain=domain, include_subdomains=True)

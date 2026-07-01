@@ -9,14 +9,14 @@ services:
     ports:
       - "${MYSQL_HOST_PORT}:3306"
     volumes:
-      - scrapper_mysql_data:/var/lib/mysql
+      - scraper_mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 10s
       timeout: 5s
       retries: 20
 
-  scrapper-api:
+  scraper-api:
     build:
       context: .
     environment:
@@ -71,7 +71,7 @@ services:
       timeout: 5s
       retries: 20
 
-  scrapper-scheduler:
+  scraper-scheduler:
     build:
       context: .
     command: ["scheduler"]
@@ -115,4 +115,4 @@ services:
         condition: service_healthy
 
 volumes:
-  scrapper_mysql_data:
+  scraper_mysql_data:
