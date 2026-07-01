@@ -1,9 +1,11 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   Grid2X2,
   type LucideIcon,
   SlidersHorizontal,
+  X,
   XCircle,
 } from 'lucide-react';
 import type { FilterKey } from '../types/catalog';
@@ -24,9 +26,21 @@ interface Props {
   active: FilterKey;
   counts: Record<FilterKey, number>;
   onChange: (filter: FilterKey) => void;
+  selectedCount?: number;
+  downloading?: boolean;
+  onDownloadSelected?: () => void;
+  onClearSelection?: () => void;
 }
 
-export function AppFilters({ active, counts, onChange }: Props) {
+export function AppFilters({
+  active,
+  counts,
+  onChange,
+  selectedCount = 0,
+  downloading = false,
+  onDownloadSelected,
+  onClearSelection,
+}: Props) {
   return (
     <aside className="filter-rail">
       <div className="filter-header">
@@ -50,6 +64,30 @@ export function AppFilters({ active, counts, onChange }: Props) {
           );
         })}
       </nav>
+      <section className="selection-panel">
+        <div>
+          <span>Descarga seleccionada</span>
+          <strong>{selectedCount} / 100</strong>
+        </div>
+        <button
+          className="primary-button selection-download"
+          type="button"
+          disabled={selectedCount < 1 || downloading}
+          onClick={onDownloadSelected}
+        >
+          <Download size={17} />
+          {downloading ? 'Preparando...' : 'Descargar ZIP'}
+        </button>
+        <button
+          className="secondary-button selection-clear"
+          type="button"
+          disabled={selectedCount < 1 || downloading}
+          onClick={onClearSelection}
+        >
+          <X size={17} />
+          Limpiar
+        </button>
+      </section>
     </aside>
   );
 }

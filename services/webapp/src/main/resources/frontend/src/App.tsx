@@ -1,4 +1,6 @@
 import {
+  ArrowDown,
+  ArrowUp,
   Boxes,
   ClipboardList,
   Globe2,
@@ -7,16 +9,24 @@ import {
   LogOut,
   PackagePlus,
   Play,
-  RefreshCw,
+  Plus,
+  Save,
   Shield,
   Square,
+  Trash2,
   UserCircle,
+  Wand2,
+  X,
 } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import {
+  connectCatalogEvents,
   createAdminApp,
   createAdminBundle,
+  deleteAdminApp,
+  deleteAllAdminApps,
+  downloadSelectedApps,
   fetchAdminApps,
   fetchAdminAudit,
   fetchAdminCurrentRun,
@@ -34,6 +44,7 @@ import {
   me,
   patchAdminApp,
   sendScraperCommand,
+  updateAdminBundle,
 } from './api/catalog';
 import { AppDetailsDrawer } from './components/AppDetailsDrawer';
 import { AppFilters } from './components/AppFilters';
@@ -81,6 +92,7 @@ export default function App() {
       <Route element={<PublicLayout auth={auth} onLogout={() => handleLogout(setAuth)} />}>
         <Route index element={<HomePage />} />
         <Route path="catalog" element={<CatalogPage />} />
+        <Route path="catalog/app/:appId" element={<CatalogPage />} />
         <Route path="bundles/:slug" element={<BundleDetailPage />} />
         <Route path="login" element={<LoginPage onLogin={setAuth} />} />
       </Route>
@@ -255,7 +267,7 @@ function BundleSection({
 
 function BundleCard({ bundle }: { bundle: BundleSummary }) {
   return (
-    <Link className="bundle-card" to={`/bundles/${bundle.slug}`}>
+    <Link className="bundle-card" to={`/bundles/${bundle.id}`}>
       <div className="bundle-card-header">
         <span className="bundle-icon">
           <Boxes size={22} />
@@ -278,7 +290,7 @@ function BundleCard({ bundle }: { bundle: BundleSummary }) {
 
 function AppCompactCard({ app }: { app: CatalogApp }) {
   return (
-    <Link className="app-compact-card" to="/catalog">
+    <Link className="app-compact-card" to={`/catalog/app/${app.id}`}>
       <AppMiniIcon app={app} />
       <div>
         <strong>{app.name}</strong>
@@ -294,6 +306,8 @@ function AppMiniIcon({ app }: { app: CatalogApp }) {
 }
 
 function CatalogPage() {
+  const { appId } = useParams();
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -310,6 +324,9 @@ function CatalogPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [filtersVisible, setFiltersVisible] = useState(true);
+  const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
+  const [downloadingSelected, setDownloadingSelected] = useState(false);
+  const [liveState, setLiveState] = useState<'live' | 'reconnecting' | 'offline'>('reconnecting');
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -320,6 +337,13 @@ function CatalogPage() {
   }, [query]);
 
   useEffect(() => {
+    return connectCatalogEvents(
+      () => setRefreshToken((value) => value + 1),
+      setLiveState,
+    );
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     setLoadingApps(true);
     setError(null);
@@ -328,7 +352,6 @@ function CatalogPage() {
         if (cancelled) return;
         setApps(response.data);
         setTotal(response.total);
-        if (!selectedId && response.data[0]) void selectApp(response.data[0]);
       })
       .catch(() => {
         if (!cancelled) setError('No se pudo cargar el catalogo.');
@@ -339,8 +362,6 @@ function CatalogPage() {
     return () => {
       cancelled = true;
     };
-    // selectedId intentionally stays out: selecting a row should not refetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, filter, sort, page, pageSize, refreshToken]);
 
   useEffect(() => {
@@ -357,16 +378,65 @@ function CatalogPage() {
     };
   }, [refreshToken]);
 
-  async function selectApp(app: CatalogApp) {
-    setSelectedId(app.id);
-    setLoadingDetails(true);
-    try {
-      setSelected(await fetchAppDetails(app.id));
-    } catch {
+  useEffect(() => {
+    let cancelled = false;
+    if (!appId) {
       setSelected(null);
-      setError('No se pudo cargar el detalle de la aplicacion.');
+      setSelectedId(undefined);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setSelectedId(appId);
+    setLoadingDetails(true);
+    fetchAppDetails(appId)
+      .then((details) => {
+        if (cancelled) return;
+        setSelected(details);
+        setSelectedId(details.id);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSelected(null);
+        setError('No se pudo cargar el detalle de la aplicacion.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDetails(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appId, refreshToken]);
+
+  function selectApp(app: CatalogApp) {
+    setSelectedId(app.id);
+    navigate(`/catalog/app/${app.id}`);
+  }
+
+  function toggleDownloadSelection(app: CatalogApp) {
+    if (!app.downloadable) return;
+    setSelectedDownloadIds((current) => {
+      const next = new Set(current);
+      if (next.has(app.id)) {
+        next.delete(app.id);
+        return next;
+      }
+      if (next.size >= 100) return next;
+      next.add(app.id);
+      return next;
+    });
+  }
+
+  async function downloadSelection() {
+    if (selectedDownloadIds.size < 1) return;
+    setDownloadingSelected(true);
+    setError(null);
+    try {
+      await downloadSelectedApps(Array.from(selectedDownloadIds));
+    } catch {
+      setError('No se pudo preparar el ZIP de descarga.');
     } finally {
-      setLoadingDetails(false);
+      setDownloadingSelected(false);
     }
   }
 
@@ -375,23 +445,19 @@ function CatalogPage() {
       <AppFilters
         active={filter}
         counts={stats?.filters ?? DEFAULT_COUNTS}
+        selectedCount={selectedDownloadIds.size}
+        downloading={downloadingSelected}
         onChange={(nextFilter) => {
           setFilter(nextFilter);
           setPage(1);
         }}
+        onDownloadSelected={() => void downloadSelection()}
+        onClearSelection={() => setSelectedDownloadIds(new Set())}
       />
       <section className="catalog-panel">
         <div className="catalog-header-row">
           <span>{formatLastScrape(stats)}</span>
-          <button
-            type="button"
-            aria-label={t('app.refresh')}
-            title={t('app.refresh')}
-            disabled={loadingApps}
-            onClick={() => setRefreshToken((value) => value + 1)}
-          >
-            <RefreshCw size={18} />
-          </button>
+          <span className={`live-status live-status-${liveState}`}>{liveStatusLabel(liveState)}</span>
         </div>
         <AppSearchBar
           value={query}
@@ -405,7 +471,14 @@ function CatalogPage() {
         />
         {error ? <p className="error-banner">{error}</p> : null}
         {loadingApps ? <p className="loading-label">Cargando aplicaciones...</p> : null}
-        <AppTable apps={apps} selectedId={selectedId} onSelect={selectApp} />
+        <AppTable
+          apps={apps}
+          selectedId={selectedId}
+          selectedIds={selectedDownloadIds}
+          selectedCount={selectedDownloadIds.size}
+          onSelect={selectApp}
+          onToggleSelection={toggleDownloadSelection}
+        />
         <Pagination
           page={page}
           pageSize={pageSize}
@@ -423,6 +496,7 @@ function CatalogPage() {
         onClose={() => {
           setSelected(null);
           setSelectedId(undefined);
+          navigate('/catalog');
         }}
       />
     </main>
@@ -608,17 +682,53 @@ function AdminAppsPage() {
   const [query, setQuery] = useState('');
   const [apps, setApps] = useState<CatalogApp[]>([]);
   const [selected, setSelected] = useState<AppDetails | null>(null);
-  const [form, setForm] = useState({ name: '', publisher: '', officialUrl: '', description: '' });
+  const [form, setForm] = useState({
+    name: '',
+    publisher: '',
+    officialUrl: '',
+    description: '',
+    longDescription: '',
+    latestVersion: '',
+  });
   const [message, setMessage] = useState<string | null>(null);
+  const [dangerConfirm, setDangerConfirm] = useState('');
 
   useEffect(() => {
-    fetchAdminApps({ query, filter: 'all', sort: 'updated', page: 1, pageSize: 30 })
-      .then((response) => setApps(response.data))
-      .catch(() => setMessage('No se pudieron cargar las aplicaciones.'));
+    void loadApps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
+  async function loadApps() {
+    try {
+      const response = await fetchAdminApps({ query, filter: 'all', sort: 'updated', page: 1, pageSize: 30 });
+      setApps(response.data);
+    } catch {
+      setMessage('No se pudieron cargar las aplicaciones.');
+    }
+  }
+
+  function fillForm(app?: AppDetails | null) {
+    setForm({
+      name: app?.name ?? '',
+      publisher: app?.publisher ?? '',
+      officialUrl: app?.officialUrl ?? '',
+      description: app?.description ?? '',
+      longDescription: app?.longDescription ?? '',
+      latestVersion: app?.latestVersion ?? '',
+    });
+  }
+
   async function select(app: CatalogApp) {
-    setSelected(await fetchAppDetails(app.id));
+    const details = await fetchAppDetails(app.id);
+    setSelected(details);
+    fillForm(details);
+    setMessage(null);
+  }
+
+  function startNewApp() {
+    setSelected(null);
+    fillForm(null);
+    setMessage(null);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -626,16 +736,26 @@ function AdminAppsPage() {
     setMessage(null);
     try {
       const payload = {
-        name: form.name || selected?.name,
-        publisher: form.publisher || selected?.publisher,
-        officialUrl: form.officialUrl || selected?.officialUrl,
-        description: form.description || selected?.description,
+        name: form.name.trim(),
+        publisher: form.publisher.trim() || null,
+        officialUrl: form.officialUrl.trim() || null,
+        description: form.description.trim() || null,
+        longDescription: form.longDescription.trim() || null,
+        latestVersion: form.latestVersion.trim() || null,
       };
-      if (selected) {
-        setSelected(await patchAdminApp(selected.id, payload));
-      } else {
-        setSelected(await createAdminApp(payload));
+      if (!payload.name) {
+        setMessage('El nombre es obligatorio.');
+        return;
       }
+      let saved: AppDetails;
+      if (selected) {
+        saved = await patchAdminApp(selected.id, payload);
+      } else {
+        saved = await createAdminApp(payload);
+      }
+      setSelected(saved);
+      fillForm(saved);
+      await loadApps();
       setMessage('Aplicacion guardada.');
     } catch {
       setMessage('No se pudo guardar la aplicacion.');
@@ -647,17 +767,59 @@ function AdminAppsPage() {
     setMessage('Generando descripcion...');
     try {
       const result = await generateAdminDescription(selected.id);
-      setSelected({ ...selected, longDescription: result.longDescription });
+      const next = { ...selected, longDescription: result.longDescription };
+      setSelected(next);
+      setForm((current) => ({ ...current, longDescription: result.longDescription }));
       setMessage('Descripcion generada.');
     } catch {
       setMessage('No se pudo generar la descripcion.');
     }
   }
 
+  async function removeSelectedApp() {
+    if (!selected) return;
+    if (!window.confirm(`Eliminar definitivamente ${selected.name}?`)) return;
+    setMessage(null);
+    try {
+      await deleteAdminApp(selected.id);
+      setSelected(null);
+      fillForm(null);
+      await loadApps();
+      setMessage('Aplicacion eliminada.');
+    } catch {
+      setMessage('No se pudo eliminar la aplicacion.');
+    }
+  }
+
+  async function removeAllApps() {
+    if (dangerConfirm !== 'DELETE_ALL') {
+      setMessage('Escribe DELETE_ALL para confirmar el borrado completo.');
+      return;
+    }
+    if (!window.confirm('Eliminar definitivamente todas las aplicaciones?')) return;
+    setMessage(null);
+    try {
+      const result = await deleteAllAdminApps();
+      setSelected(null);
+      fillForm(null);
+      setApps([]);
+      setDangerConfirm('');
+      setMessage(`Aplicaciones eliminadas: ${result.deleted}.`);
+    } catch {
+      setMessage('No se pudieron eliminar todas las aplicaciones. Comprueba que el scraper no este en ejecucion.');
+    }
+  }
+
   return (
     <section className="admin-panel two-column-admin">
       <div>
-        <h2>Aplicaciones</h2>
+        <div className="admin-section-heading">
+          <h2>Aplicaciones</h2>
+          <button className="secondary-button compact-button" type="button" onClick={startNewApp}>
+            <Plus size={17} />
+            Nueva
+          </button>
+        </div>
         <input
           className="admin-search"
           value={query}
@@ -666,7 +828,12 @@ function AdminAppsPage() {
         />
         <div className="admin-list">
           {apps.map((app) => (
-            <button type="button" key={app.id} onClick={() => void select(app)}>
+            <button
+              type="button"
+              key={app.id}
+              className={selected?.id === app.id ? 'admin-list-active' : ''}
+              onClick={() => void select(app)}
+            >
               <AppMiniIcon app={app} />
               <span>{app.name}</span>
               <AppStatusBadge status={app.resolutionStatus} />
@@ -675,16 +842,52 @@ function AdminAppsPage() {
         </div>
       </div>
       <form className="admin-card editor-form" onSubmit={save}>
-        <h3>{selected ? selected.name : 'Nueva aplicacion'}</h3>
-        <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={selected?.name} /></label>
-        <label>Editor<input value={form.publisher} onChange={(e) => setForm({ ...form, publisher: e.target.value })} placeholder={selected?.publisher ?? ''} /></label>
-        <label>Web oficial<input value={form.officialUrl} onChange={(e) => setForm({ ...form, officialUrl: e.target.value })} placeholder={selected?.officialUrl ?? ''} /></label>
-        <label>Descripcion corta<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={selected?.description ?? ''} /></label>
-        <p>{selected?.longDescription || selected?.description || 'Sin descripcion larga.'}</p>
+        <div className="editor-header">
+          <div>
+            <span>{selected ? 'Editando aplicacion' : 'Nueva aplicacion'}</span>
+            <h3>{selected ? selected.name : 'Crear aplicacion'}</h3>
+          </div>
+          {selected ? <small>{selected.id}</small> : null}
+        </div>
+        <fieldset className="editor-section">
+          <legend>Datos principales</legend>
+          <label>Nombre<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+          <label>Editor<input value={form.publisher} onChange={(e) => setForm({ ...form, publisher: e.target.value })} /></label>
+          <label>Web oficial<input value={form.officialUrl} onChange={(e) => setForm({ ...form, officialUrl: e.target.value })} /></label>
+          <label>Ultima version<input value={form.latestVersion} onChange={(e) => setForm({ ...form, latestVersion: e.target.value })} /></label>
+        </fieldset>
+        <fieldset className="editor-section">
+          <legend>Descripcion</legend>
+          <label>Descripcion corta<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+          <label>Descripcion larga<textarea className="long-editor" value={form.longDescription} onChange={(e) => setForm({ ...form, longDescription: e.target.value })} /></label>
+        </fieldset>
         {message ? <span className="form-message">{message}</span> : null}
         <div className="button-row">
-          <button className="primary-button" type="submit">Guardar</button>
-          <button type="button" className="secondary-button" onClick={generateDescription} disabled={!selected}>Generar IA</button>
+          <button className="primary-button" type="submit">
+            <Save size={17} />
+            {selected ? 'Guardar cambios' : 'Crear aplicacion'}
+          </button>
+          <button type="button" className="secondary-button" onClick={generateDescription} disabled={!selected}>
+            <Wand2 size={17} />
+            Generar descripcion IA
+          </button>
+          <button type="button" className="danger-button" onClick={removeSelectedApp} disabled={!selected}>
+            <Trash2 size={17} />
+            Eliminar aplicacion
+          </button>
+        </div>
+        <div className="danger-zone">
+          <h4>Zona peligrosa</h4>
+          <p>El borrado completo elimina aplicaciones, fuentes, instaladores resueltos, tags y relaciones con bundles.</p>
+          <input
+            value={dangerConfirm}
+            onChange={(event) => setDangerConfirm(event.target.value)}
+            placeholder="DELETE_ALL"
+          />
+          <button type="button" className="danger-button" onClick={removeAllApps}>
+            <Trash2 size={17} />
+            Eliminar todas
+          </button>
         </div>
       </form>
     </section>
@@ -693,29 +896,101 @@ function AdminAppsPage() {
 
 function AdminBundlesPage() {
   const [official, setOfficial] = useState<BundleSummary[]>([]);
+  const [selected, setSelected] = useState<BundleDetails | null>(null);
   const [form, setForm] = useState({ name: '', description: '', tags: '' });
+  const [bundleApps, setBundleApps] = useState<CatalogApp[]>([]);
+  const [appQuery, setAppQuery] = useState('');
+  const [appResults, setAppResults] = useState<CatalogApp[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchBundles({ type: 'official', pageSize: 30 })
-      .then((response) => setOfficial(response.data))
-      .catch(() => setOfficial([]));
+    void loadBundles();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAdminApps({ query: appQuery, filter: 'all', sort: 'updated', page: 1, pageSize: 12 })
+      .then((response) => {
+        if (!cancelled) setAppResults(response.data);
+      })
+      .catch(() => {
+        if (!cancelled) setAppResults([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appQuery]);
+
+  async function loadBundles() {
+    try {
+      const response = await fetchBundles({ type: 'official', pageSize: 30 });
+      setOfficial(response.data);
+    } catch {
+      setOfficial([]);
+    }
+  }
+
+  function resetBundleEditor() {
+    setSelected(null);
+    setForm({ name: '', description: '', tags: '' });
+    setBundleApps([]);
+    setMessage(null);
+  }
+
+  async function selectBundle(bundle: BundleSummary) {
+    const details = await fetchBundle(bundle.id);
+    setSelected(details);
+    setForm({
+      name: details.name,
+      description: details.description ?? '',
+      tags: details.tags.join(', '),
+    });
+    setBundleApps(details.apps);
+    setMessage(null);
+  }
+
+  function addBundleApp(app: CatalogApp) {
+    setBundleApps((current) => (current.some((item) => item.id === app.id) ? current : [...current, app]));
+  }
+
+  function removeBundleApp(appId: string) {
+    setBundleApps((current) => current.filter((app) => app.id !== appId));
+  }
+
+  function moveBundleApp(appId: string, direction: -1 | 1) {
+    setBundleApps((current) => {
+      const index = current.findIndex((app) => app.id === appId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
     try {
-      const created = await createAdminBundle({
+      const payload = {
         name: form.name,
         description: form.description,
         type: 'official',
         visibility: 'official',
         tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-        appIds: [],
+        appIds: bundleApps.map((app) => app.id),
+      };
+      const saved = selected
+        ? await updateAdminBundle(selected.id, payload)
+        : await createAdminBundle(payload);
+      setSelected(saved);
+      setBundleApps(saved.apps);
+      setForm({
+        name: saved.name,
+        description: saved.description ?? '',
+        tags: saved.tags.join(', '),
       });
-      setOfficial((items) => [created, ...items]);
-      setForm({ name: '', description: '', tags: '' });
+      await loadBundles();
       setMessage('Bundle guardado.');
     } catch {
       setMessage('No se pudo guardar el bundle.');
@@ -725,18 +1000,83 @@ function AdminBundlesPage() {
   return (
     <section className="admin-panel two-column-admin">
       <div>
-        <h2>Bundles oficiales</h2>
+        <div className="admin-section-heading">
+          <h2>Bundles oficiales</h2>
+          <button className="secondary-button compact-button" type="button" onClick={resetBundleEditor}>
+            <Plus size={17} />
+            Nuevo
+          </button>
+        </div>
         <div className="bundle-grid admin-bundles">
-          {official.map((bundle) => <BundleCard bundle={bundle} key={bundle.id} />)}
+          {official.map((bundle) => (
+            <button
+              className={`bundle-card admin-bundle-button ${selected?.id === bundle.id ? 'admin-list-active' : ''}`}
+              type="button"
+              key={bundle.id}
+              onClick={() => void selectBundle(bundle)}
+            >
+              <div className="bundle-card-header">
+                <span className="bundle-icon"><Boxes size={22} /></span>
+                <div>
+                  <h3>{bundle.name}</h3>
+                  <small>{bundle.appCount} apps</small>
+                </div>
+              </div>
+              <p>{bundle.description || 'Bundle preparado para descarga en lote.'}</p>
+            </button>
+          ))}
         </div>
       </div>
       <form className="admin-card editor-form" onSubmit={save}>
-        <h3>Editor de bundle</h3>
-        <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+        <div className="editor-header">
+          <div>
+            <span>{selected ? 'Editando bundle' : 'Nuevo bundle'}</span>
+            <h3>{selected ? selected.name : 'Editor de bundle'}</h3>
+          </div>
+          {selected ? <small>{selected.id}</small> : null}
+        </div>
+        <label>Nombre<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label>Descripcion<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         <label>Tags<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="utilidades, trabajo" /></label>
+        <div className="bundle-app-editor">
+          <h4>Aplicaciones del bundle</h4>
+          <div className="bundle-app-selected">
+            {bundleApps.length ? bundleApps.map((app, index) => (
+              <div className="bundle-app-edit-row" key={app.id}>
+                <AppMiniIcon app={app} />
+                <span>{app.name}</span>
+                <button type="button" onClick={() => moveBundleApp(app.id, -1)} disabled={index === 0} title="Subir">
+                  <ArrowUp size={16} />
+                </button>
+                <button type="button" onClick={() => moveBundleApp(app.id, 1)} disabled={index === bundleApps.length - 1} title="Bajar">
+                  <ArrowDown size={16} />
+                </button>
+                <button type="button" onClick={() => removeBundleApp(app.id)} title="Quitar">
+                  <X size={16} />
+                </button>
+              </div>
+            )) : <p className="empty-state">Añade aplicaciones al bundle.</p>}
+          </div>
+          <input
+            value={appQuery}
+            onChange={(event) => setAppQuery(event.target.value)}
+            placeholder="Buscar aplicaciones para añadir"
+          />
+          <div className="app-picker-results">
+            {appResults.map((app) => (
+              <button type="button" key={app.id} onClick={() => addBundleApp(app)}>
+                <AppMiniIcon app={app} />
+                <span>{app.name}</span>
+                <Plus size={16} />
+              </button>
+            ))}
+          </div>
+        </div>
         {message ? <span className="form-message">{message}</span> : null}
-        <button className="primary-button" type="submit">Guardar bundle</button>
+        <button className="primary-button" type="submit">
+          <Save size={17} />
+          {selected ? 'Guardar cambios' : 'Crear bundle'}
+        </button>
       </form>
     </section>
   );
@@ -776,6 +1116,8 @@ function AdminScraperPage() {
     }
   }
 
+  const controlState = scraperControlState(current);
+
   return (
     <section className="admin-panel">
       <h2>Scraper</h2>
@@ -798,15 +1140,32 @@ function AdminScraperPage() {
         </div>
       </div>
       <div className="button-row">
-        <button className="secondary-button" type="button" onClick={() => command('pause')}>Pausar</button>
-        <button className="secondary-button" type="button" onClick={() => command('resume')}>Continuar</button>
-        <button className="secondary-button" type="button" onClick={() => command('stop')}><Square size={16} />Parar</button>
-        <button className="primary-button" type="button" onClick={() => command('run_once')}>Ejecutar ahora</button>
+        <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>Pausar</button>
+        <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>Continuar</button>
+        <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />Parar</button>
+        <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => command('run_once')}>Ejecutar ahora</button>
       </div>
       {message ? <p className="form-message">{message}</p> : null}
       <div className="admin-grid-two">
-        <AdminTable title="Ejecuciones" rows={runs.map((run) => [run.status, run.currentAppName || '-', formatDate(run.startedAt)])} />
-        <AdminTable title="Logs recientes" rows={logs.map((log) => [log.phase, log.status, log.message || '-'])} />
+        <AdminTable
+          title="Ejecuciones"
+          rows={runs.map((run) => [
+            run.status,
+            `${run.appsResolved}/${run.appsDiscovered}`,
+            run.currentAppName || run.currentPackageId || 'Sin app',
+            run.currentPhase || run.errorSummary || 'Sin fase',
+            formatDate(run.startedAt),
+          ])}
+        />
+        <AdminTable
+          title="Logs recientes"
+          rows={logs.map((log) => [
+            log.phase,
+            log.status,
+            formatLogDetails(log),
+            formatDate(log.createdAt),
+          ])}
+        />
       </div>
     </section>
   );
@@ -844,13 +1203,101 @@ function AdminTable({ title, rows }: { title: string; rows: string[][] }) {
       <h3>{title}</h3>
       <div className="admin-table">
         {rows.length ? rows.map((row, index) => (
-          <div className="admin-table-row" key={`${title}-${index}`}>
+          <div
+            className="admin-table-row"
+            key={`${title}-${index}`}
+            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
+          >
             {row.map((cell, cellIndex) => <span key={`${title}-${index}-${cellIndex}`}>{cell}</span>)}
           </div>
         )) : <p className="empty-state">Sin registros.</p>}
       </div>
     </div>
   );
+}
+
+function liveStatusLabel(state: 'live' | 'reconnecting' | 'offline'): string {
+  if (state === 'live') return 'En vivo';
+  if (state === 'reconnecting') return 'Reconectando';
+  return 'Sin conexion';
+}
+
+function scraperControlState(current: ScraperRunSummary | null) {
+  const running = current?.status === 'running';
+  const paused = running && Boolean(current?.pausedAt || current?.currentPhase === 'paused');
+  const stopping = Boolean(current?.stopRequested || current?.currentPhase === 'stopping');
+  return {
+    pause: {
+      enabled: running && !paused && !stopping,
+      reason: running && !paused && !stopping ? 'Pausar ejecucion actual' : 'Solo disponible durante una ejecucion activa.',
+    },
+    resume: {
+      enabled: paused && !stopping,
+      reason: paused && !stopping ? 'Continuar ejecucion pausada' : 'Solo disponible cuando el scraper esta pausado.',
+    },
+    stop: {
+      enabled: running && !stopping,
+      reason: running && !stopping ? 'Solicitar parada del scraper' : 'No hay ejecucion activa que parar.',
+    },
+    runOnce: {
+      enabled: !running,
+      reason: !running ? 'Lanzar una ejecucion manual' : 'Ya hay una ejecucion activa.',
+    },
+  };
+}
+
+function formatLogDetails(log: ResolverLogItem): string {
+  const metadata = parseSafeMetadata(log.safeMetadata);
+  const domain = metadataString(metadata, 'domain');
+  const reason = metadataString(metadata, 'reason');
+  const extension = metadataString(metadata, 'extension');
+  const assetKind = metadataString(metadata, 'asset_kind');
+  const source = metadataString(metadata, 'source');
+  const error = metadataString(metadata, 'error');
+  const detail = metadataString(metadata, 'detail');
+  const statement = metadataString(metadata, 'statement');
+  const score = metadataNumber(metadata, 'score');
+  const isPrimary = metadataBoolean(metadata, 'is_primary');
+  const details = [
+    error ? `error ${error}` : null,
+    detail ? `detalle ${detail}` : null,
+    domain ? `dominio ${domain}` : null,
+    reason ? `motivo ${reason}` : null,
+    score !== undefined ? `score ${score}` : null,
+    extension ? `ext ${extension}` : null,
+    assetKind ? `tipo ${assetKind}` : null,
+    source ? `fuente ${source}` : null,
+    statement ? 'sentencia SQL disponible' : null,
+    isPrimary !== undefined ? (isPrimary ? 'principal' : 'alternativo') : null,
+  ].filter(Boolean);
+  if (log.message && details.length) return `${log.message} - ${details.join('; ')}`;
+  if (details.length) return details.join('; ');
+  return log.message || 'Sin detalles';
+}
+
+function parseSafeMetadata(value?: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function metadataString(metadata: Record<string, unknown>, key: string): string | undefined {
+  const value = metadata[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function metadataNumber(metadata: Record<string, unknown>, key: string): number | undefined {
+  const value = metadata[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function metadataBoolean(metadata: Record<string, unknown>, key: string): boolean | undefined {
+  const value = metadata[key];
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 async function handleLogout(setAuth: (value: AuthUser | null) => void) {

@@ -1,10 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppTable } from './AppTable';
 import type { CatalogApp } from '../types/catalog';
 
 const app: CatalogApp = {
-  id: 'epic-games-launcher',
+  id: '11111111-1111-4111-8111-111111111111',
+  slug: 'epic-games-launcher',
   packageId: 'EpicGames.EpicGamesLauncher',
   name: 'Epic Games Launcher',
   publisher: 'Epic Games, Inc.',
@@ -19,6 +20,8 @@ const app: CatalogApp = {
 };
 
 describe('AppTable', () => {
+  afterEach(() => cleanup());
+
   it('selects rows from catalog results', () => {
     const onSelect = vi.fn();
     render(<AppTable apps={[app]} onSelect={onSelect} />);
@@ -28,5 +31,38 @@ describe('AppTable', () => {
     fireEvent.click(screen.getByText('Epic Games Launcher'));
 
     expect(onSelect).toHaveBeenCalledWith(app);
+  });
+
+  it('toggles selection without selecting the row', () => {
+    const onSelect = vi.fn();
+    const onToggleSelection = vi.fn();
+    render(
+      <AppTable
+        apps={[app]}
+        selectedIds={new Set()}
+        selectedCount={0}
+        onSelect={onSelect}
+        onToggleSelection={onToggleSelection}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Epic Games Launcher' }));
+
+    expect(onToggleSelection).toHaveBeenCalledWith(app);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('disables new selections when the limit is reached', () => {
+    render(
+      <AppTable
+        apps={[app]}
+        selectedIds={new Set()}
+        selectedCount={100}
+        onSelect={vi.fn()}
+        onToggleSelection={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar Epic Games Launcher' })).toBeDisabled();
   });
 });

@@ -4,6 +4,7 @@ import type {
   AuthUser,
   BundleDetails,
   BundleResponse,
+  CatalogChangeEvent,
   CatalogResponse,
   CatalogStats,
   FilterKey,
@@ -13,7 +14,7 @@ import type {
   SortKey,
 } from '../types/catalog';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -65,6 +66,34 @@ export function downloadUrl(appId: string): string {
   return `${API_BASE}/api/apps/${encodeURIComponent(appId)}/download`;
 }
 
+export async function downloadSelectedApps(appIds: string[]): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/apps/downloads/zip`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ appIds }),
+  });
+  if (!response.ok) throw new Error(`request_failed_${response.status}`);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'batch-downloader-apps.zip';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function catalogWebSocketUrl(): string {
+  const base = API_BASE || window.location.origin;
+  const url = new URL('/api/catalog/ws', base);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
+
 export async function fetchBundles(params: {
   type?: 'official' | 'community' | 'user';
   page?: number;
@@ -86,6 +115,13 @@ export async function fetchBundle(slug: string): Promise<BundleDetails> {
 export async function createAdminBundle(payload: Record<string, unknown>): Promise<BundleDetails> {
   return requestJson<BundleDetails>('/api/admin/bundles', {
     method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminBundle(bundleId: string, payload: Record<string, unknown>): Promise<BundleDetails> {
+  return requestJson<BundleDetails>(`/api/admin/bundles/${encodeURIComponent(bundleId)}`, {
+    method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }
@@ -133,6 +169,52 @@ export async function patchAdminApp(appId: string, payload: Record<string, unkno
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
+}
+
+export async function deleteAdminApp(appId: string): Promise<void> {
+  await requestJson<void>(`/api/admin/apps/${encodeURIComponent(appId)}`, { method: 'DELETE' });
+}
+
+export async function deleteAllAdminApps(): Promise<{ deleted: number }> {
+  return requestJson<{ deleted: number }>('/api/admin/apps?confirm=DELETE_ALL', { method: 'DELETE' });
+}
+
+export function connectCatalogEvents(onEvent: (event: CatalogChangeEvent) => void, onState?: (state: 'live' | 'reconnecting' | 'offline') => void): () => void {
+  let socket: WebSocket | null = null;
+  let stopped = false;
+  let reconnectTimer: number | undefined;
+
+  function connect() {
+    if (stopped) return;
+    onState?.('reconnecting');
+    socket = new WebSocket(catalogWebSocketUrl());
+    socket.addEventListener('open', () => onState?.('live'));
+    socket.addEventListener('message', (event) => {
+      try {
+        const payload = JSON.parse(event.data) as CatalogChangeEvent;
+        if (payload.type === 'catalog.changed') onEvent(payload);
+      } catch {
+        // Ignore non-catalog messages.
+      }
+    });
+    socket.addEventListener('close', () => {
+      if (stopped) return;
+      onState?.('offline');
+      reconnectTimer = window.setTimeout(connect, 2500);
+    });
+    socket.addEventListener('error', () => {
+      onState?.('offline');
+      socket?.close();
+    });
+  }
+
+  connect();
+
+  return () => {
+    stopped = true;
+    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    socket?.close();
+  };
 }
 
 export async function generateAdminDescription(appId: string): Promise<{ longDescription: string }> {

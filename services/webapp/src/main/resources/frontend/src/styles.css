@@ -29,6 +29,10 @@ input {
   font: inherit;
 }
 
+textarea {
+  font: inherit;
+}
+
 button {
   cursor: pointer;
 }
@@ -248,6 +252,41 @@ button:disabled {
   color: var(--teal);
 }
 
+.selection-panel {
+  display: grid;
+  gap: 10px;
+  margin: 24px 12px 0 16px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.selection-panel div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #344052;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.selection-panel strong {
+  color: var(--teal-dark);
+}
+
+.selection-download,
+.selection-clear {
+  width: 100%;
+  min-height: 40px;
+}
+
+.selection-clear {
+  height: 40px;
+}
+
 .catalog-panel {
   min-width: 0;
   padding: 20px 16px 16px;
@@ -272,6 +311,35 @@ button:disabled {
   color: #344052;
   background: transparent;
   border: 0;
+}
+
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.live-status-live {
+  color: #076340;
+  background: #eefbf4;
+  border-color: #cbeedb;
+}
+
+.live-status-reconnecting {
+  color: #9a5500;
+  background: #fff6df;
+  border-color: #ffe4a3;
+}
+
+.live-status-offline {
+  color: #9f1239;
+  background: #fff1f2;
+  border-color: #fecdd3;
 }
 
 .search-row {
@@ -368,17 +436,17 @@ button:disabled {
 
 .app-table th:nth-child(1),
 .app-table td:nth-child(1) {
-  width: 36%;
+  width: 48px;
 }
 
 .app-table th:nth-child(2),
 .app-table td:nth-child(2) {
-  width: 24%;
+  width: 38%;
 }
 
 .app-table th:nth-child(3),
 .app-table td:nth-child(3) {
-  width: 16%;
+  width: 26%;
 }
 
 .app-table th:nth-child(4),
@@ -388,7 +456,17 @@ button:disabled {
 
 .app-table th:nth-child(5),
 .app-table td:nth-child(5) {
-  width: 130px;
+  width: 20%;
+}
+
+.selection-column {
+  text-align: center;
+}
+
+.selection-column input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--teal);
 }
 
 .app-cell {
@@ -491,7 +569,7 @@ button:disabled {
 .pagination-controls {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
 }
 
 .pagination button,
@@ -526,6 +604,32 @@ button:disabled {
   border: 0;
   outline: 0;
   font-weight: 620;
+}
+
+.page-input-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  color: #344052;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.page-input-label input {
+  width: 58px;
+  height: 30px;
+  color: #111827;
+  text-align: center;
+  background: #f8fbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+  font-weight: 760;
 }
 
 .details-drawer {
@@ -770,6 +874,7 @@ button.origin-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 9px;
   min-height: 42px;
   padding: 0 16px;
   color: #ffffff;
@@ -778,6 +883,25 @@ button.origin-button {
   border-radius: 6px;
   text-decoration: none;
   font-weight: 750;
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 14px;
+  color: #9f1239;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+  font-weight: 750;
+}
+
+.danger-button:disabled {
+  color: #6b7280;
+  background: #f8fafc;
 }
 
 .home-section {
@@ -1107,6 +1231,11 @@ button.origin-button {
   border-radius: 6px;
 }
 
+.admin-list-active {
+  border-color: var(--teal) !important;
+  box-shadow: inset 4px 0 0 var(--teal);
+}
+
 .admin-list span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1117,6 +1246,151 @@ button.origin-button {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.compact-button {
+  width: auto;
+  min-width: 0;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.admin-section-heading,
+.editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor-header span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.editor-header small {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.editor-section legend,
+.bundle-app-editor h4,
+.danger-zone h4 {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.long-editor {
+  min-height: 160px;
+}
+
+.danger-zone {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 14px;
+  background: #fff7f8;
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+}
+
+.danger-zone h4,
+.danger-zone p {
+  margin: 0;
+}
+
+.danger-zone p {
+  color: #6b3341;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.danger-zone input,
+.bundle-app-editor input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  color: #111827;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+}
+
+.admin-bundle-button {
+  width: 100%;
+  color: #1f2937;
+  text-align: left;
+}
+
+.bundle-app-editor,
+.bundle-app-selected,
+.app-picker-results {
+  display: grid;
+  gap: 8px;
+}
+
+.bundle-app-edit-row,
+.app-picker-results button {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 8px;
+  background: #f8fbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.app-picker-results button {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  color: #1f2937;
+  text-align: left;
+}
+
+.bundle-app-edit-row span,
+.app-picker-results span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bundle-app-edit-row button,
+.app-picker-results button svg {
+  color: #344052;
+}
+
+.bundle-app-edit-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .form-message {

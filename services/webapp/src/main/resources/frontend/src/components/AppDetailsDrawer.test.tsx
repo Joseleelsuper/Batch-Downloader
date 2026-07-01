@@ -4,7 +4,8 @@ import type { AppDetails } from '../types/catalog';
 import { AppDetailsDrawer } from './AppDetailsDrawer';
 
 const app: AppDetails = {
-  id: 'geogebra-graphing-calculator',
+  id: '22222222-2222-4222-8222-222222222222',
+  slug: 'geogebra-graphing-calculator',
   packageId: 'GeoGebra.GraphingCalculator',
   name: 'GeoGebra Graphing Calculator',
   publisher: 'International GeoGebra Institute',

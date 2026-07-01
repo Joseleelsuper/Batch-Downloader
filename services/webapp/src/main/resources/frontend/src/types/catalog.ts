@@ -9,6 +9,7 @@ export type ValidationStatus = 'unchecked' | 'valid' | 'invalid' | 'expired';
 
 export interface CatalogApp {
   id: string;
+  slug: string;
   packageId: string;
   name: string;
   publisher?: string | null;
@@ -130,6 +131,12 @@ export interface ResolverLogItem {
   message?: string | null;
   safeMetadata?: string | null;
   createdAt: string;
+}
+
+export interface CatalogChangeEvent {
+  type: 'catalog.changed';
+  version: string;
+  generatedAt: string;
 }
 
 export interface SoftwareRequestItem {
