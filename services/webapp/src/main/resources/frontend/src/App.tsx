@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   connectCatalogEvents,
   createAdminApp,
@@ -117,11 +117,14 @@ export default function App() {
 }
 
 function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
+  const location = useLocation();
+  const appSurface = location.pathname.startsWith('/catalog');
+
   return (
-    <div className="site-shell">
+    <div className={`site-shell ${appSurface ? 'site-shell-app' : ''}`}>
       <Topbar auth={auth} onLogout={onLogout} />
       <Outlet />
-      <Footer />
+      {appSurface ? null : <Footer />}
     </div>
   );
 }
@@ -470,7 +473,7 @@ function CatalogPage() {
           onToggleFilters={() => setFiltersVisible((value) => !value)}
         />
         {error ? <p className="error-banner">{error}</p> : null}
-        {loadingApps ? <p className="loading-label">Cargando aplicaciones...</p> : null}
+        {loadingApps ? <p className="loading-label catalog-loading">Cargando aplicaciones...</p> : null}
         <AppTable
           apps={apps}
           selectedId={selectedId}

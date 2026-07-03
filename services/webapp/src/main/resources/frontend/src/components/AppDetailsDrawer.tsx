@@ -33,13 +33,14 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
   }
 
   return (
-    <aside className="details-drawer">
+    <aside className="details-drawer" aria-busy={loading ? 'true' : 'false'}>
       <button className="drawer-close" onClick={onClose} type="button" aria-label="Cerrar">
         <X size={22} />
       </button>
-      {loading ? <DetailsSkeleton /> : null}
-      {!loading && app ? (
-        <>
+      {loading && app ? <p className="drawer-loading-note">Actualizando detalle...</p> : null}
+      {loading && !app ? <DetailsSkeleton /> : null}
+      {app ? (
+        <div className={`drawer-content ${loading ? 'drawer-content-busy' : ''}`}>
           <h2>{app.name}</h2>
           <DetailBlock label={t('app.details.description')}>
             <p className="long-description">
@@ -115,7 +116,7 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
               {t('app.details.viewSource')}
             </button>
           )}
-        </>
+        </div>
       ) : null}
       {!loading && !app ? <p className="drawer-empty">Selecciona una aplicacion.</p> : null}
     </aside>
