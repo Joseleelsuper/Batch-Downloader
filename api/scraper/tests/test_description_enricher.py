@@ -104,7 +104,7 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
             self.app = make_app(official_url=None)
             self.failed = []
 
-        async def apps_for_description_enrichment(self):
+        async def apps_for_description_enrichment(self, _software_app_ids=None):
             return [self.app]
 
         async def save_long_description(self, **_kwargs):
@@ -156,7 +156,7 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
             ]
             self.saved = []
 
-        async def apps_for_description_enrichment(self):
+        async def apps_for_description_enrichment(self, _software_app_ids=None):
             return self.apps
 
         async def save_long_description(self, **kwargs):

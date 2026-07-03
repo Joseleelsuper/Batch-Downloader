@@ -76,7 +76,7 @@ class FakeWinstallClient:
 
 
 @pytest.mark.asyncio
-async def test_scrape_once_skips_current_available_packages(monkeypatch) -> None:
+async def test_scrape_once_skips_existing_packages(monkeypatch) -> None:
     session = FakeSession()
     fetcher = CatalogFetcher.__new__(CatalogFetcher)
     fetcher.settings = Settings(scrape_max_apps=0, llm_enrich_interval_apps=0)
@@ -86,17 +86,19 @@ async def test_scrape_once_skips_current_available_packages(monkeypatch) -> None
         {
             "Already.Available": False,
             "New.App": True,
-            "Needs.Review": True,
-            "Missing.Installer": True,
+            "Needs.Review": False,
+            "Missing.Installer": False,
         }
     )
     scraped = []
+    enriched = []
 
     async def scrape_single_app(_winstall, package_id, _run_id):
         scraped.append(package_id)
-        return True
+        return SimpleNamespace(app_id=uuid4(), resolved=True)
 
-    async def enrich_descriptions(_run_id):
+    async def enrich_descriptions(run_id, software_app_ids=None):
+        enriched.append((run_id, software_app_ids))
         return 0
 
     fetcher._scrape_single_app = scrape_single_app
@@ -107,8 +109,41 @@ async def test_scrape_once_skips_current_available_packages(monkeypatch) -> None
     counters = await fetcher.scrape_once()
 
     assert fetcher.catalog.checked == FakeWinstallClient.package_ids
-    assert scraped == ["New.App", "Needs.Review", "Missing.Installer"]
-    assert counters.apps_discovered == 3
-    assert counters.apps_resolved == 3
+    assert scraped == ["New.App"]
+    assert len(enriched) == 1
+    assert len(enriched[0][1]) == 1
+    assert counters.apps_discovered == 1
+    assert counters.apps_resolved == 1
     assert counters.apps_failed == 0
-    assert counters.apps_skipped == 1
+    assert counters.apps_skipped == 3
+
+
+@pytest.mark.asyncio
+async def test_scrape_once_does_not_enrich_when_all_packages_exist(monkeypatch) -> None:
+    session = FakeSession()
+    fetcher = CatalogFetcher.__new__(CatalogFetcher)
+    fetcher.settings = Settings(scrape_max_apps=0, llm_enrich_interval_apps=0)
+    fetcher.session = session
+    fetcher.runs = FakeRuns()
+    fetcher.catalog = FakeCatalog(
+        {package_id: False for package_id in FakeWinstallClient.package_ids}
+    )
+
+    async def scrape_single_app(_winstall, package_id, _run_id):
+        raise AssertionError(f"existing package should not be scraped: {package_id}")
+
+    async def enrich_descriptions(_run_id):
+        raise AssertionError("existing-only scrape should not enrich descriptions")
+
+    fetcher._scrape_single_app = scrape_single_app
+    fetcher._enrich_descriptions = enrich_descriptions
+
+    monkeypatch.setattr("app.scraper.catalog_fetcher.WinstallClient", FakeWinstallClient)
+
+    counters = await fetcher.scrape_once()
+
+    assert fetcher.catalog.checked == FakeWinstallClient.package_ids
+    assert counters.apps_discovered == 0
+    assert counters.apps_resolved == 0
+    assert counters.apps_failed == 0
+    assert counters.apps_skipped == len(FakeWinstallClient.package_ids)

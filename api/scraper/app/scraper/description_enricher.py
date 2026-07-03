@@ -221,7 +221,7 @@ class AppDescriptionEnricher:
         self.logs = logs
         self.llm = llm or AppDescriptionLLMClient(settings)
 
-    async def enrich_pending(self) -> int:
+    async def enrich_pending(self, software_app_ids: list[Any] | None = None) -> int:
         if not self.llm.has_provider():
             logger.warning("description_enrichment_skipped", reason="llm_provider_not_configured")
             await self.logs.add(
@@ -234,7 +234,7 @@ class AppDescriptionEnricher:
         max_jobs = self.settings.llm_max_apps_per_run
         unlimited = max_jobs <= 0
         jobs = []
-        for app in await self.catalog.apps_for_description_enrichment():
+        for app in await self.catalog.apps_for_description_enrichment(software_app_ids):
             input_hash = description_input_hash(app)
             if (
                 app.long_description_status == LongDescriptionStatus.COMPLETED.value

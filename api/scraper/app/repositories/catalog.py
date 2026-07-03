@@ -50,16 +50,10 @@ class CatalogRepository:
         self.url_protector = url_protector
 
     async def should_scrape_winstall_package(self, package_id: str) -> bool:
-        app = await self.session.scalar(
-            select(SoftwareApp)
-            .options(
-                selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
-            )
-            .where(SoftwareApp.winstall_id == package_id)
+        existing_id = await self.session.scalar(
+            select(SoftwareApp.id).where(SoftwareApp.winstall_id == package_id).limit(1)
         )
-        if app is None:
-            return True
-        return not has_current_available_installer(app)
+        return existing_id is None
 
     async def upsert_winstall_app(self, app: WinstallApp) -> SoftwareApp:
         existing = await self.session.scalar(
@@ -70,40 +64,31 @@ class CatalogRepository:
             )
             .where(SoftwareApp.winstall_id == app.package_id)
         )
+        if existing is not None:
+            return existing
+
         slug = slugify(app.package_id)
         icon_url = app.icon_url
         if app.icon and not app.icon.startswith("http"):
             icon_key = app.icon.removesuffix(".png")
             icon_url = f"https://api.winstall.app/icons/next/{icon_key}.webp"
 
-        if existing is None:
-            existing = SoftwareApp(
-                winstall_id=app.package_id,
-                slug=slug,
-                name=app.name or app.package_id,
-                normalized_name=normalize_text(app.name or app.package_id),
-                description=app.description,
-                long_description_status=LongDescriptionStatus.PENDING.value,
-                publisher=app.publisher,
-                icon_url=icon_url,
-                official_url=app.homepage,
-                latest_version=app.latest_version,
-                app_status=AppStatus.ACTIVE.value,
-                metadata_json=json_safe(app.raw),
-            )
-            self.session.add(existing)
-            await self.session.flush()
-        else:
-            existing.name = app.name or existing.name
-            existing.normalized_name = normalize_text(existing.name)
-            existing.description = app.description
-            existing.publisher = app.publisher
-            existing.icon_url = icon_url if has_icon_url(icon_url) else existing.icon_url
-            existing.official_url = app.homepage
-            existing.latest_version = app.latest_version
-            existing.metadata_json = json_safe(app.raw)
-            existing.updated_at = utc_now()
-            existing.version += 1
+        existing = SoftwareApp(
+            winstall_id=app.package_id,
+            slug=slug,
+            name=app.name or app.package_id,
+            normalized_name=normalize_text(app.name or app.package_id),
+            description=app.description,
+            long_description_status=LongDescriptionStatus.PENDING.value,
+            publisher=app.publisher,
+            icon_url=icon_url,
+            official_url=app.homepage,
+            latest_version=app.latest_version,
+            app_status=AppStatus.ACTIVE.value,
+            metadata_json=json_safe(app.raw),
+        )
+        self.session.add(existing)
+        await self.session.flush()
 
         await self._sync_tags(existing, app.tags)
         await self._ensure_default_source(existing, app)
@@ -238,8 +223,11 @@ class CatalogRepository:
             source.version += 1
         return resolved
 
-    async def apps_for_description_enrichment(self) -> list[SoftwareApp]:
-        result = await self.session.scalars(
+    async def apps_for_description_enrichment(
+        self,
+        app_ids: list[uuid.UUID] | None = None,
+    ) -> list[SoftwareApp]:
+        stmt = (
             select(SoftwareApp)
             .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
             .order_by(
@@ -268,6 +256,12 @@ class CatalogRepository:
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
             )
         )
+        if app_ids is not None:
+            if not app_ids:
+                return []
+            stmt = stmt.where(SoftwareApp.id.in_(app_ids))
+
+        result = await self.session.scalars(stmt)
         return list(result.unique())
 
     async def save_long_description(

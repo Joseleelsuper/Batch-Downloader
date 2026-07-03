@@ -33,6 +33,12 @@ class ScrapeCounters:
     apps_skipped: int = 0
 
 
+@dataclass(frozen=True)
+class ScrapedAppResult:
+    app_id: object
+    resolved: bool
+
+
 class CatalogFetcher:
     def __init__(self, settings: Settings, session: AsyncSession) -> None:
         self.settings = settings
@@ -68,6 +74,7 @@ class CatalogFetcher:
         )
 
         counters = ScrapeCounters()
+        new_app_ids = []
         stopped_by_command = False
         try:
             async with WinstallClient(self.settings) as winstall:
@@ -94,11 +101,12 @@ class CatalogFetcher:
                         continue
                     counters.apps_discovered += 1
                     try:
-                        resolved = await asyncio.wait_for(
+                        scrape_result = await asyncio.wait_for(
                             self._scrape_single_app(winstall, lightweight_app.package_id, run_id),
                             timeout=self.settings.scrape_app_timeout_seconds,
                         )
-                        if resolved:
+                        new_app_ids.append(scrape_result.app_id)
+                        if scrape_result.resolved:
                             counters.apps_resolved += 1
                     except TimeoutError:
                         counters.apps_failed += 1
@@ -146,11 +154,17 @@ class CatalogFetcher:
                         self.settings.llm_enrich_interval_apps > 0
                         and counters.apps_discovered % self.settings.llm_enrich_interval_apps == 0
                     ):
-                        await self._enrich_descriptions(run_id)
+                        await self._enrich_descriptions(run_id, new_app_ids)
 
-            if not stopped_by_command:
+            if not stopped_by_command and new_app_ids:
                 await self.runs.set_current(run_id, None, None, "enriching_descriptions")
-                await self._enrich_descriptions(run_id)
+                await self._enrich_descriptions(run_id, new_app_ids)
+            elif not stopped_by_command:
+                logger.info(
+                    "description_enrichment_skipped",
+                    run_id=str(run_id),
+                    reason="no_new_apps",
+                )
 
             final_status = (
                 ScrapeRunStatus.PARTIAL
@@ -180,7 +194,7 @@ class CatalogFetcher:
         winstall: WinstallClient,
         package_id: str,
         run_id,
-    ) -> bool:
+    ) -> ScrapedAppResult:
         await self.runs.set_current(run_id, package_id, None, "fetching_winstall_app")
         app = await winstall.get_app(package_id)
         await self.runs.set_current(run_id, app.package_id, app.name, "upserting_app")
@@ -190,10 +204,10 @@ class CatalogFetcher:
         await self.session.flush()
         source = await self.catalog.default_source_for_app(software_app.id)
         if not source:
-            return False
+            return ScrapedAppResult(software_app.id, False)
         await self.runs.set_current(run_id, app.package_id, app.name, "resolving_installer")
         await self.resolver.resolve(source, app)
-        return True
+        return ScrapedAppResult(software_app.id, True)
 
     async def _apply_pending_commands(self, run_id, counters: ScrapeCounters) -> bool:
         while True:
@@ -264,15 +278,16 @@ class CatalogFetcher:
             )
             await self.session.commit()
 
-    async def _enrich_descriptions(self, run_id) -> int:
+    async def _enrich_descriptions(self, run_id, software_app_ids: list | None = None) -> int:
         logger.info(
             "descriptions_enrichment_triggered",
             run_id=str(run_id),
             max_apps=self.settings.llm_max_apps_per_run,
+            target_apps=len(software_app_ids) if software_app_ids is not None else None,
         )
         try:
             enriched = await asyncio.wait_for(
-                self._enrich_descriptions_in_isolated_session(),
+                self._enrich_descriptions_in_isolated_session(software_app_ids),
                 timeout=self._description_enrichment_timeout_seconds(),
             )
             logger.info(
@@ -296,12 +311,15 @@ class CatalogFetcher:
             )
             return 0
 
-    async def _enrich_descriptions_in_isolated_session(self) -> int:
+    async def _enrich_descriptions_in_isolated_session(
+        self,
+        software_app_ids: list | None = None,
+    ) -> int:
         async with AsyncSessionLocal() as session:
             catalog = CatalogRepository(session, self.url_protector)
             logs = ResolverLogRepository(session)
             enricher = AppDescriptionEnricher(self.settings, catalog, logs)
-            enriched = await enricher.enrich_pending()
+            enriched = await enricher.enrich_pending(software_app_ids)
             await session.commit()
             return enriched
 
