@@ -43,6 +43,7 @@ services:
       - "${RABBITMQ_HOST_PORT}:5672"
       - "${RABBITMQ_MANAGEMENT_HOST_PORT}:15672"
     volumes:
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-batch-downloader.conf:ro
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
