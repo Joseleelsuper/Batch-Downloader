@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.6</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -17,7 +17,7 @@
     <name>Batch Downloader Download Worker</name>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>26</java.version>
     </properties>
 
     <dependencies>
