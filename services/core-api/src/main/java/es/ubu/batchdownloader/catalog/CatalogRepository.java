@@ -38,18 +38,21 @@ public class CatalogRepository {
             String sort,
             int page,
             int pageSize) {
+        String orderBy = "updated".equals(sort)
+                ? "a.updated_at DESC, a.id ASC"
+                : "a.normalized_name ASC, a.id ASC";
         StringBuilder sql = new StringBuilder("""
-                SELECT DISTINCT a.*
+                SELECT a.*
                 FROM software_apps a
-                LEFT JOIN download_sources ds ON ds.software_app_id = a.id
-                LEFT JOIN software_app_tags sat ON sat.software_app_id = a.id
-                WHERE a.app_status = 'active'
+                JOIN (
+                    SELECT a.id
+                    FROM software_apps a
+                    WHERE a.app_status = 'active'
                 """);
         List<Object> params = new ArrayList<>();
         appendFilters(sql, params, query, status, operatingSystem, architecture, tags, tagMode);
-        sql.append(" ORDER BY ");
-        sql.append("updated".equals(sort) ? "a.updated_at DESC" : "a.normalized_name ASC");
-        sql.append(" LIMIT ? OFFSET ?");
+        sql.append(" ORDER BY ").append(orderBy);
+        sql.append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ").append(orderBy);
         params.add(pageSize);
         params.add((page - 1) * pageSize);
         return jdbc.query(sql.toString(), this::mapListItem, params.toArray());
@@ -63,10 +66,8 @@ public class CatalogRepository {
             List<String> tags,
             String tagMode) {
         StringBuilder sql = new StringBuilder("""
-                SELECT COUNT(DISTINCT a.id)
+                SELECT COUNT(*)
                 FROM software_apps a
-                LEFT JOIN download_sources ds ON ds.software_app_id = a.id
-                LEFT JOIN software_app_tags sat ON sat.software_app_id = a.id
                 WHERE a.app_status = 'active'
                 """);
         List<Object> params = new ArrayList<>();
@@ -176,33 +177,18 @@ public class CatalogRepository {
                     AND (
                         LOWER(a.name) LIKE ? OR LOWER(a.publisher) LIKE ? OR
                         LOWER(a.description) LIKE ? OR LOWER(a.long_description) LIKE ? OR
-                        LOWER(a.winstall_id) LIKE ? OR sat.normalized_tag LIKE ?
+                        LOWER(a.winstall_id) LIKE ? OR
+                        EXISTS (
+                            SELECT 1 FROM software_app_tags sat
+                            WHERE sat.software_app_id = a.id AND sat.normalized_tag LIKE ?
+                        )
                     )
                     """);
             for (int i = 0; i < 6; i++) {
                 params.add(like);
             }
         }
-        if (status != null && !status.isBlank() && !"all".equals(status)) {
-            if ("available".equals(status)) {
-                sql.append(" AND ds.resolution_status IN ('direct', 'fallback')");
-            } else if ("review".equals(status)) {
-                sql.append(" AND ds.resolution_status = 'requires_manual_review'");
-            } else if ("missing".equals(status)) {
-                sql.append(" AND ds.resolution_status IN ('missing', 'broken')");
-            } else {
-                sql.append(" AND ds.resolution_status = ?");
-                params.add(status);
-            }
-        }
-        if (operatingSystem != null && !operatingSystem.isBlank()) {
-            sql.append(" AND ds.operating_system = ?");
-            params.add(operatingSystem);
-        }
-        if (architecture != null && !architecture.isBlank()) {
-            sql.append(" AND ds.architecture = ?");
-            params.add(architecture);
-        }
+        appendSourceFilter(sql, params, status, operatingSystem, architecture);
         List<String> normalizedTags = tags.stream()
                 .filter(tag -> tag != null && !tag.isBlank())
                 .map(tag -> tag.toLowerCase(Locale.ROOT).trim())
@@ -220,6 +206,47 @@ public class CatalogRepository {
                 }
             }
         }
+    }
+
+    private void appendSourceFilter(
+            StringBuilder sql,
+            List<Object> params,
+            String status,
+            String operatingSystem,
+            String architecture) {
+        boolean hasStatus = status != null && !status.isBlank() && !"all".equals(status);
+        boolean hasOperatingSystem = operatingSystem != null && !operatingSystem.isBlank();
+        boolean hasArchitecture = architecture != null && !architecture.isBlank();
+        if (!hasStatus && !hasOperatingSystem && !hasArchitecture) {
+            return;
+        }
+
+        sql.append("""
+                AND EXISTS (
+                    SELECT 1 FROM download_sources ds
+                    WHERE ds.software_app_id = a.id
+                """);
+        if (hasStatus) {
+            if ("available".equals(status)) {
+                sql.append(" AND ds.resolution_status IN ('direct', 'fallback')");
+            } else if ("review".equals(status)) {
+                sql.append(" AND ds.resolution_status = 'requires_manual_review'");
+            } else if ("missing".equals(status)) {
+                sql.append(" AND ds.resolution_status IN ('missing', 'broken')");
+            } else {
+                sql.append(" AND ds.resolution_status = ?");
+                params.add(status);
+            }
+        }
+        if (hasOperatingSystem) {
+            sql.append(" AND ds.operating_system = ?");
+            params.add(operatingSystem);
+        }
+        if (hasArchitecture) {
+            sql.append(" AND ds.architecture = ?");
+            params.add(architecture);
+        }
+        sql.append(")");
     }
 
     private AppListItem mapListItem(ResultSet rs, int rowNum) throws SQLException {
