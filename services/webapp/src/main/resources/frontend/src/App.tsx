@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  Building2,
   Boxes,
   ClipboardList,
   Globe2,
@@ -13,13 +14,14 @@ import {
   Save,
   Shield,
   Square,
+  Tags,
   Trash2,
   UserCircle,
   Wand2,
   X,
 } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   connectCatalogEvents,
   createAdminApp,
@@ -37,6 +39,7 @@ import {
   fetchApps,
   fetchBundle,
   fetchBundles,
+  fetchCatalogFacets,
   fetchCatalogStats,
   generateAdminDescription,
   login,
@@ -46,6 +49,15 @@ import {
   sendScraperCommand,
   updateAdminBundle,
 } from './api/catalog';
+import {
+  catalogFiltersToSearchParams,
+  DEFAULT_CATALOG_FILTERS,
+  effectiveTagMatchMin,
+  nextFilters,
+  parseCatalogFilters,
+  toggleValue,
+  type CatalogFilterState,
+} from './catalogFilters';
 import { AppDetailsDrawer } from './components/AppDetailsDrawer';
 import { AppFilters } from './components/AppFilters';
 import { AppSearchBar } from './components/AppSearchBar';
@@ -60,8 +72,10 @@ import type {
   AuthUser,
   BundleDetails,
   BundleSummary,
+  CatalogFacets,
   CatalogApp,
   CatalogStats,
+  FacetItem,
   FilterKey,
   ResolverLogItem,
   ScraperRunSummary,
@@ -75,6 +89,8 @@ const DEFAULT_COUNTS: Record<FilterKey, number> = {
   review: 0,
   missing: 0,
 };
+
+const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 
 export default function App() {
   const [auth, setAuth] = useState<AuthUser | null>(null);
@@ -93,6 +109,8 @@ export default function App() {
         <Route index element={<HomePage />} />
         <Route path="catalog" element={<CatalogPage />} />
         <Route path="catalog/app/:appId" element={<CatalogPage />} />
+        <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
+        <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
         <Route path="bundles/:slug" element={<BundleDetailPage />} />
         <Route path="login" element={<LoginPage onLogin={setAuth} />} />
       </Route>
@@ -311,12 +329,10 @@ function AppMiniIcon({ app }: { app: CatalogApp }) {
 function CatalogPage() {
   const { appId } = useParams();
   const navigate = useNavigate();
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [filter, setFilter] = useState<FilterKey>('all');
-  const [sort, setSort] = useState<SortKey>('updated');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(12);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchKey = searchParams.toString();
+  const filters = useMemo(() => parseCatalogFilters(searchKey), [searchKey]);
+  const [query, setQuery] = useState(filters.query);
   const [apps, setApps] = useState<CatalogApp[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<CatalogStats | null>(null);
@@ -332,12 +348,22 @@ function CatalogPage() {
   const [liveState, setLiveState] = useState<'live' | 'reconnecting' | 'offline'>('reconnecting');
 
   useEffect(() => {
+    setQuery(filters.query);
+  }, [filters.query]);
+
+  function updateFilters(patch: Partial<CatalogFilterState>, resetPage = true, replace = false) {
+    const params = catalogFiltersToSearchParams(nextFilters(filters, patch, resetPage));
+    setSearchParams(params, { replace });
+  }
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
-      setDebouncedQuery(query);
-      setPage(1);
+      if (query !== filters.query) {
+        updateFilters({ query }, true, true);
+      }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query, filters]);
 
   useEffect(() => {
     return connectCatalogEvents(
@@ -350,7 +376,18 @@ function CatalogPage() {
     let cancelled = false;
     setLoadingApps(true);
     setError(null);
-    fetchApps({ query: debouncedQuery, filter, sort, page, pageSize })
+    fetchApps({
+      query: filters.query,
+      filter: filters.filter,
+      sort: filters.sort,
+      page: filters.page,
+      pageSize: filters.pageSize,
+      tags: filters.tags,
+      publishers: filters.publishers,
+      tagMatchMin: filters.tagMatchMin,
+      os: filters.os,
+      architecture: filters.architecture,
+    })
       .then((response) => {
         if (cancelled) return;
         setApps(response.data);
@@ -365,7 +402,7 @@ function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, filter, sort, page, pageSize, refreshToken]);
+  }, [filters, refreshToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,7 +450,7 @@ function CatalogPage() {
 
   function selectApp(app: CatalogApp) {
     setSelectedId(app.id);
-    navigate(`/catalog/app/${app.id}`);
+    navigate({ pathname: `/catalog/app/${app.id}`, search: searchKey });
   }
 
   function toggleDownloadSelection(app: CatalogApp) {
@@ -446,14 +483,22 @@ function CatalogPage() {
   return (
     <main className={`workspace ${filtersVisible ? '' : 'filters-hidden'}`}>
       <AppFilters
-        active={filter}
+        active={filters.filter}
         counts={stats?.filters ?? DEFAULT_COUNTS}
+        selectedTags={filters.tags}
+        selectedPublishers={filters.publishers}
+        tagMatchMin={effectiveTagMatchMin(filters)}
+        catalogSearch={searchKey}
         selectedCount={selectedDownloadIds.size}
         downloading={downloadingSelected}
         onChange={(nextFilter) => {
-          setFilter(nextFilter);
-          setPage(1);
+          updateFilters({ filter: nextFilter });
         }}
+        onRemoveTag={(tag) => updateFilters({ tags: filters.tags.filter((item) => item !== tag) })}
+        onRemovePublisher={(publisher) => updateFilters({
+          publishers: filters.publishers.filter((item) => item !== publisher),
+        })}
+        onClearFacets={() => updateFilters({ tags: [], publishers: [], tagMatchMin: undefined })}
         onDownloadSelected={() => void downloadSelection()}
         onClearSelection={() => setSelectedDownloadIds(new Set())}
       />
@@ -464,11 +509,10 @@ function CatalogPage() {
         </div>
         <AppSearchBar
           value={query}
-          sort={sort}
+          sort={filters.sort}
           onChange={setQuery}
           onSortChange={(nextSort) => {
-            setSort(nextSort);
-            setPage(1);
+            updateFilters({ sort: nextSort });
           }}
           onToggleFilters={() => setFiltersVisible((value) => !value)}
         />
@@ -483,13 +527,12 @@ function CatalogPage() {
           onToggleSelection={toggleDownloadSelection}
         />
         <Pagination
-          page={page}
-          pageSize={pageSize}
+          page={filters.page}
+          pageSize={filters.pageSize}
           total={total}
-          onPageChange={setPage}
+          onPageChange={(nextPage) => updateFilters({ page: nextPage }, false)}
           onPageSizeChange={(nextPageSize) => {
-            setPageSize(nextPageSize);
-            setPage(1);
+            updateFilters({ pageSize: nextPageSize });
           }}
         />
       </section>
@@ -499,9 +542,150 @@ function CatalogPage() {
         onClose={() => {
           setSelected(null);
           setSelectedId(undefined);
-          navigate('/catalog');
+          navigate({ pathname: '/catalog', search: searchKey });
         }}
       />
+    </main>
+  );
+}
+
+function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchKey = searchParams.toString();
+  const filters = useMemo(() => parseCatalogFilters(searchKey), [searchKey]);
+  const [facets, setFacets] = useState<CatalogFacets>({ tags: [], publishers: [] });
+  const [activeLetter, setActiveLetter] = useState('A');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const items = kind === 'tags' ? facets.tags : facets.publishers;
+  const selectedValues = kind === 'tags' ? filters.tags : filters.publishers;
+  const selectedSet = new Set(selectedValues);
+  const lettersWithItems = useMemo(() => new Set(items.map((item) => item.letter)), [items]);
+  const visibleItems = items.filter((item) => item.letter === activeLetter);
+  const title = kind === 'tags' ? 'Tags' : 'Editor';
+  const subtitle = kind === 'tags'
+    ? 'Selecciona una o varias tags para filtrar el catalogo.'
+    : 'Selecciona uno o varios editores para filtrar el catalogo.';
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchCatalogFacets({
+      query: filters.query,
+      filter: filters.filter,
+      tags: filters.tags,
+      publishers: filters.publishers,
+      tagMatchMin: filters.tagMatchMin,
+      os: filters.os,
+      architecture: filters.architecture,
+    })
+      .then((response) => {
+        if (!cancelled) setFacets(response);
+      })
+      .catch(() => {
+        if (!cancelled) setError('No se pudieron cargar los filtros.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filters]);
+
+  useEffect(() => {
+    if (!items.length || lettersWithItems.has(activeLetter)) return;
+    const firstLetter = FACET_ALPHABET.find((letter) => lettersWithItems.has(letter)) ?? 'A';
+    setActiveLetter(firstLetter);
+  }, [activeLetter, items.length, lettersWithItems]);
+
+  function updateFilters(patch: Partial<CatalogFilterState>) {
+    setSearchParams(catalogFiltersToSearchParams(nextFilters(filters, patch)));
+  }
+
+  function toggleFacet(item: FacetItem) {
+    if (kind === 'tags') {
+      const nextTags = toggleValue(filters.tags, item.value);
+      const nextMin = filters.tagMatchMin && filters.tagMatchMin > nextTags.length
+        ? nextTags.length
+        : filters.tagMatchMin;
+      updateFilters({ tags: nextTags, tagMatchMin: nextTags.length ? nextMin : undefined });
+      return;
+    }
+    updateFilters({ publishers: toggleValue(filters.publishers, item.value) });
+  }
+
+  function updateTagMatchMin(value: number) {
+    if (!filters.tags.length) return;
+    const clamped = Math.max(1, Math.min(value, filters.tags.length));
+    updateFilters({ tagMatchMin: clamped === filters.tags.length ? undefined : clamped });
+  }
+
+  return (
+    <main className="facet-page">
+      <section className="facet-header">
+        <div>
+          <span>Filtros del catalogo</span>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+        <Link className="secondary-button facet-back-link" to={{ pathname: '/catalog', search: searchKey }}>
+          Volver al catalogo
+        </Link>
+      </section>
+
+      {kind === 'tags' && filters.tags.length ? (
+        <section className="facet-match-panel">
+          <div>
+            <span>Coincidencias minimas</span>
+            <strong>
+              {effectiveTagMatchMin(filters)} de {filters.tags.length} tags
+            </strong>
+          </div>
+          <input
+            aria-label="Coincidencias minimas de tags"
+            type="number"
+            min={1}
+            max={filters.tags.length}
+            value={effectiveTagMatchMin(filters)}
+            onChange={(event) => updateTagMatchMin(Number(event.target.value))}
+          />
+        </section>
+      ) : null}
+
+      <nav className="facet-letter-nav" aria-label={`Letras de ${title}`}>
+        {FACET_ALPHABET.map((letter) => (
+          <button
+            key={letter}
+            className={activeLetter === letter ? 'facet-letter-active' : ''}
+            type="button"
+            disabled={!lettersWithItems.has(letter)}
+            onClick={() => setActiveLetter(letter)}
+          >
+            {letter}
+          </button>
+        ))}
+      </nav>
+
+      {error ? <p className="error-banner">{error}</p> : null}
+      {loading ? <p className="loading-label">Cargando filtros...</p> : null}
+      <section className="facet-chip-grid" aria-label={`${title} disponibles`}>
+        {visibleItems.map((item) => (
+          <button
+            key={`${kind}-${item.normalizedValue}`}
+            className={`facet-chip ${selectedSet.has(item.value) ? 'facet-chip-active' : ''}`}
+            type="button"
+            onClick={() => toggleFacet(item)}
+          >
+            <span>{item.label}</span>
+            <strong>{item.count.toLocaleString('es-ES')}</strong>
+          </button>
+        ))}
+        {!loading && !visibleItems.length ? (
+          <p className="empty-state">No hay filtros en esta letra.</p>
+        ) : null}
+      </section>
     </main>
   );
 }

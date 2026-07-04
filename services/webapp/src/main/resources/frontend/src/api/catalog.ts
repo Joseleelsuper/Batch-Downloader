@@ -5,6 +5,7 @@ import type {
   BundleDetails,
   BundleResponse,
   CatalogChangeEvent,
+  CatalogFacets,
   CatalogResponse,
   CatalogStats,
   FilterKey,
@@ -39,19 +40,43 @@ export async function fetchApps(params: {
   page: number;
   pageSize: number;
   tags?: string[];
+  publishers?: string[];
+  tagMatchMin?: number;
   os?: string;
   architecture?: string;
 }): Promise<CatalogResponse> {
   const search = new URLSearchParams();
   if (params.query.trim()) search.set('query', params.query.trim());
   if (params.filter !== 'all') search.set('status', params.filter);
-  if (params.tags?.length) search.set('tags', params.tags.join(','));
+  params.tags?.forEach((tag) => search.append('tag', tag));
+  params.publishers?.forEach((publisher) => search.append('publisher', publisher));
+  if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
   if (params.os) search.set('os', params.os);
   if (params.architecture) search.set('architecture', params.architecture);
   search.set('sort', params.sort);
   search.set('page', String(params.page));
   search.set('pageSize', String(params.pageSize));
   return requestJson<CatalogResponse>(`/api/apps?${search.toString()}`);
+}
+
+export async function fetchCatalogFacets(params: {
+  query: string;
+  filter: FilterKey;
+  tags?: string[];
+  publishers?: string[];
+  tagMatchMin?: number;
+  os?: string;
+  architecture?: string;
+}): Promise<CatalogFacets> {
+  const search = new URLSearchParams();
+  if (params.query.trim()) search.set('query', params.query.trim());
+  if (params.filter !== 'all') search.set('status', params.filter);
+  params.tags?.forEach((tag) => search.append('tag', tag));
+  params.publishers?.forEach((publisher) => search.append('publisher', publisher));
+  if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
+  if (params.os) search.set('os', params.os);
+  if (params.architecture) search.set('architecture', params.architecture);
+  return requestJson<CatalogFacets>(`/api/apps/facets?${search.toString()}`);
 }
 
 export async function fetchCatalogStats(): Promise<CatalogStats> {

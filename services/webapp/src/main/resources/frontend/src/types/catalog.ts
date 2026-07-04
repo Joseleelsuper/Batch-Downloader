@@ -32,6 +32,19 @@ export interface CatalogResponse {
   total: number;
 }
 
+export interface FacetItem {
+  label: string;
+  value: string;
+  normalizedValue: string;
+  letter: string;
+  count: number;
+}
+
+export interface CatalogFacets {
+  tags: FacetItem[];
+  publishers: FacetItem[];
+}
+
 export interface CatalogStats {
   total: number;
   filters: Record<FilterKey, number>;
