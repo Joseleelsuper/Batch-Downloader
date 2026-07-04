@@ -136,13 +136,14 @@ export default function App() {
 
 function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
   const location = useLocation();
-  const appSurface = location.pathname.startsWith('/catalog');
+  const catalogSurface = location.pathname.startsWith('/catalog');
+  const lockedCatalogSurface = location.pathname === '/catalog' || location.pathname.startsWith('/catalog/app/');
 
   return (
-    <div className={`site-shell ${appSurface ? 'site-shell-app' : ''}`}>
+    <div className={`site-shell ${lockedCatalogSurface ? 'site-shell-app' : ''}`}>
       <Topbar auth={auth} onLogout={onLogout} />
       <Outlet />
-      {appSurface ? null : <Footer />}
+      {catalogSurface ? null : <Footer />}
     </div>
   );
 }
@@ -335,14 +336,12 @@ function CatalogPage() {
   const [stats, setStats] = useState<CatalogStats | null>(null);
   const [selected, setSelected] = useState<AppDetails | null>(null);
   const [selectedId, setSelectedId] = useState<string | undefined>();
-  const [loadingApps, setLoadingApps] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
   const [downloadingSelected, setDownloadingSelected] = useState(false);
-  const [liveState, setLiveState] = useState<'live' | 'reconnecting' | 'offline'>('reconnecting');
 
   useEffect(() => {
     setQuery(filters.query);
@@ -363,15 +362,11 @@ function CatalogPage() {
   }, [query, filters]);
 
   useEffect(() => {
-    return connectCatalogEvents(
-      () => setRefreshToken((value) => value + 1),
-      setLiveState,
-    );
+    return connectCatalogEvents(() => setRefreshToken((value) => value + 1));
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setLoadingApps(true);
     setError(null);
     fetchApps({
       query: filters.query,
@@ -392,9 +387,6 @@ function CatalogPage() {
       })
       .catch(() => {
         if (!cancelled) setError(t('catalog.error.load'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingApps(false);
       });
     return () => {
       cancelled = true;
@@ -502,7 +494,6 @@ function CatalogPage() {
       <section className="catalog-panel">
         <div className="catalog-header-row">
           <span>{formatLastScrape(stats)}</span>
-          <span className={`live-status live-status-${liveState}`}>{liveStatusLabel(liveState)}</span>
         </div>
         <AppSearchBar
           value={query}
@@ -514,7 +505,6 @@ function CatalogPage() {
           onToggleFilters={() => setFiltersVisible((value) => !value)}
         />
         {error ? <p className="error-banner">{error}</p> : null}
-        {loadingApps ? <p className="loading-label catalog-loading">{t('catalog.loading')}</p> : null}
         <AppTable
           apps={apps}
           selectedId={selectedId}
@@ -1321,7 +1311,7 @@ function AdminScraperPage() {
         </div>
         <div>
           <span>{t('admin.scraper.progress')}</span>
-          <strong>{current ? `${current.appsResolved}/${current.appsDiscovered}` : '-'}</strong>
+          <strong>{current ? formatScrapeProgress(current) : '-'}</strong>
         </div>
       </div>
       <div className="button-row">
@@ -1336,7 +1326,7 @@ function AdminScraperPage() {
           title={t('admin.scraper.runs')}
           rows={runs.map((run) => [
             run.status,
-            `${run.appsResolved}/${run.appsDiscovered}`,
+            formatScrapeProgress(run),
             run.currentAppName || run.currentPackageId || t('admin.scraper.noApp'),
             run.currentPhase || run.errorSummary || t('admin.scraper.noPhase'),
             formatDate(run.startedAt),
@@ -1401,10 +1391,13 @@ function AdminTable({ title, rows }: { title: string; rows: string[][] }) {
   );
 }
 
-function liveStatusLabel(state: 'live' | 'reconnecting' | 'offline'): string {
-  if (state === 'live') return t('ui.live');
-  if (state === 'reconnecting') return t('ui.reconnecting');
-  return t('ui.offline');
+function formatScrapeProgress(run: ScraperRunSummary): string {
+  return [
+    t('admin.scraper.progress.resolved', { count: run.appsResolved }),
+    t('admin.scraper.progress.discovered', { count: run.appsDiscovered }),
+    t('admin.scraper.progress.failed', { count: run.appsFailed }),
+    t('admin.scraper.progress.skipped', { count: run.appsSkipped }),
+  ].join(' · ');
 }
 
 function scraperControlState(current: ScraperRunSummary | null) {
@@ -1441,13 +1434,27 @@ function formatLogDetails(log: ResolverLogItem): string {
   const error = metadataString(metadata, 'error');
   const detail = metadataString(metadata, 'detail');
   const statement = metadataString(metadata, 'statement');
+  const winstallId = metadataString(metadata, 'winstall_id');
+  const appName = metadataString(metadata, 'app_name');
+  const currentPhase = metadataString(metadata, 'current_phase');
+  const lastKnownStep = metadataString(metadata, 'last_known_step');
+  const officialDomain = metadataString(metadata, 'official_domain');
   const score = metadataNumber(metadata, 'score');
+  const elapsedSeconds = metadataNumber(metadata, 'elapsed_seconds');
+  const timeoutSeconds = metadataNumber(metadata, 'timeout_seconds');
   const isPrimary = metadataBoolean(metadata, 'is_primary');
   const details = [
     error ? t('admin.log.error', { value: error }) : null,
     detail ? t('admin.log.detail', { value: detail }) : null,
+    appName ? t('admin.log.app', { value: appName }) : null,
+    winstallId ? t('admin.log.winstallId', { value: winstallId }) : null,
+    currentPhase ? t('admin.log.phase', { value: currentPhase }) : null,
+    lastKnownStep && lastKnownStep !== currentPhase ? t('admin.log.lastStep', { value: lastKnownStep }) : null,
     domain ? t('admin.log.domain', { value: domain }) : null,
+    officialDomain ? t('admin.log.officialDomain', { value: officialDomain }) : null,
     reason ? t('admin.log.reason', { value: reason }) : null,
+    elapsedSeconds !== undefined ? t('admin.log.elapsedSeconds', { value: elapsedSeconds }) : null,
+    timeoutSeconds !== undefined ? t('admin.log.timeoutSeconds', { value: timeoutSeconds }) : null,
     score !== undefined ? t('admin.log.score', { value: score }) : null,
     extension ? t('admin.log.extension', { value: extension }) : null,
     assetKind ? t('admin.log.type', { value: assetKind }) : null,
