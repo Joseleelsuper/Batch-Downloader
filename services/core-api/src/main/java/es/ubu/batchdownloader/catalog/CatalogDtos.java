@@ -24,6 +24,15 @@ public class CatalogDtos {
 
     public record AppSearchResponse(List<AppListItem> data, int page, int pageSize, long total) {}
 
+    public record FacetItem(
+            String label,
+            String value,
+            String normalizedValue,
+            String letter,
+            long count) {}
+
+    public record CatalogFacetsResponse(List<FacetItem> tags, List<FacetItem> publishers) {}
+
     public record DownloadOption(
             String id,
             String filename,

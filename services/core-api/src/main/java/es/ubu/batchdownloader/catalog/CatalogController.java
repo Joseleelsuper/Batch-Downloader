@@ -3,6 +3,7 @@ package es.ubu.batchdownloader.catalog;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
+import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.DownloadZipRequest;
 import es.ubu.batchdownloader.common.ApiError;
@@ -16,7 +17,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -69,26 +69,50 @@ public class CatalogController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false, name = "os") String operatingSystem,
             @RequestParam(required = false) String architecture,
+            @RequestParam(required = false, name = "tag") List<String> tag,
             @RequestParam(required = false) String tags,
+            @RequestParam(required = false) List<String> publisher,
+            @RequestParam(required = false) Integer tagMatchMin,
             @RequestParam(defaultValue = "all") String tagMode,
             @RequestParam(defaultValue = "name") String sort,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(pageSize, 100));
-        List<String> tagList = tags == null || tags.isBlank()
-                ? List.of()
-                : Arrays.stream(tags.split(",")).map(String::trim).filter(value -> !value.isBlank()).toList();
+        List<String> tagList = parseRepeatedAndCsv(tag, tags);
+        List<String> publisherList = parseRepeated(publisher);
         return new AppSearchResponse(
-                catalog.search(query, status, operatingSystem, architecture, tagList, tagMode, sort, safePage, safePageSize),
+                catalog.search(query, status, operatingSystem, architecture, tagList, publisherList, tagMatchMin, tagMode, sort, safePage, safePageSize),
                 safePage,
                 safePageSize,
-                catalog.count(query, status, operatingSystem, architecture, tagList, tagMode));
+                catalog.count(query, status, operatingSystem, architecture, tagList, publisherList, tagMatchMin, tagMode));
     }
 
     @GetMapping("/apps/stats")
     public CatalogStatsResponse stats() {
         return catalog.stats();
+    }
+
+    @GetMapping("/apps/facets")
+    public CatalogFacetsResponse facets(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false, name = "os") String operatingSystem,
+            @RequestParam(required = false) String architecture,
+            @RequestParam(required = false, name = "tag") List<String> tag,
+            @RequestParam(required = false) String tags,
+            @RequestParam(required = false) List<String> publisher,
+            @RequestParam(required = false) Integer tagMatchMin,
+            @RequestParam(defaultValue = "all") String tagMode) {
+        return catalog.facets(
+                query,
+                status,
+                operatingSystem,
+                architecture,
+                parseRepeatedAndCsv(tag, tags),
+                parseRepeated(publisher),
+                tagMatchMin,
+                tagMode);
     }
 
     @GetMapping("/apps/{appId}")
@@ -272,6 +296,29 @@ public class CatalogController {
 
     private String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private List<String> parseRepeatedAndCsv(List<String> repeated, String csv) {
+        List<String> values = new ArrayList<>(parseRepeated(repeated));
+        if (csv != null && !csv.isBlank()) {
+            for (String value : csv.split(",")) {
+                if (value != null && !value.isBlank()) {
+                    values.add(value.trim());
+                }
+            }
+        }
+        return values.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
+    }
+
+    private List<String> parseRepeated(List<String> repeated) {
+        if (repeated == null || repeated.isEmpty()) {
+            return List.of();
+        }
+        return repeated.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 
     private record ZipCandidate(AppDetails app, String location) {}

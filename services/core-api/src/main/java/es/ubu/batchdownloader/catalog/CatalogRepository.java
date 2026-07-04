@@ -3,16 +3,20 @@ package es.ubu.batchdownloader.catalog;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppListItem;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
+import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.DownloadOption;
+import es.ubu.batchdownloader.catalog.CatalogDtos.FacetItem;
 import es.ubu.batchdownloader.catalog.CatalogDtos.LastScrapeRun;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UuidBytes;
+import java.text.Normalizer;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -34,6 +38,8 @@ public class CatalogRepository {
             String operatingSystem,
             String architecture,
             List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
             String tagMode,
             String sort,
             int page,
@@ -50,7 +56,7 @@ public class CatalogRepository {
                     WHERE a.app_status = 'active'
                 """);
         List<Object> params = new ArrayList<>();
-        appendFilters(sql, params, query, status, operatingSystem, architecture, tags, tagMode);
+        appendFilters(sql, params, query, status, operatingSystem, architecture, tags, publishers, tagMatchMin, tagMode);
         sql.append(" ORDER BY ").append(orderBy);
         sql.append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ").append(orderBy);
         params.add(pageSize);
@@ -64,6 +70,8 @@ public class CatalogRepository {
             String operatingSystem,
             String architecture,
             List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
             String tagMode) {
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*)
@@ -71,9 +79,74 @@ public class CatalogRepository {
                 WHERE a.app_status = 'active'
                 """);
         List<Object> params = new ArrayList<>();
-        appendFilters(sql, params, query, status, operatingSystem, architecture, tags, tagMode);
+        appendFilters(sql, params, query, status, operatingSystem, architecture, tags, publishers, tagMatchMin, tagMode);
         Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return count == null ? 0 : count;
+    }
+
+    public CatalogFacetsResponse facets(
+            String query,
+            String status,
+            String operatingSystem,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode) {
+        return new CatalogFacetsResponse(
+                tagFacets(query, status, operatingSystem, architecture, publishers),
+                publisherFacets(query, status, operatingSystem, architecture, tags, tagMatchMin, tagMode));
+    }
+
+    private List<FacetItem> tagFacets(
+            String query,
+            String status,
+            String operatingSystem,
+            String architecture,
+            List<String> publishers) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT MIN(t.tag) AS label, t.normalized_tag AS normalized_value, COUNT(DISTINCT a.id) AS app_count
+                FROM software_app_tags t
+                JOIN software_apps a ON a.id = t.software_app_id
+                WHERE a.app_status = 'active'
+                """);
+        List<Object> params = new ArrayList<>();
+        appendFilters(sql, params, query, status, operatingSystem, architecture, List.of(), publishers, null, "all");
+        sql.append("""
+                GROUP BY t.normalized_tag
+                ORDER BY app_count DESC, label ASC
+                """);
+        return jdbc.query(sql.toString(), (rs, rowNum) -> facetItem(
+                rs.getString("label"),
+                rs.getString("normalized_value"),
+                rs.getLong("app_count")), params.toArray());
+    }
+
+    private List<FacetItem> publisherFacets(
+            String query,
+            String status,
+            String operatingSystem,
+            String architecture,
+            List<String> tags,
+            Integer tagMatchMin,
+            String tagMode) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT a.publisher AS label, LOWER(TRIM(a.publisher)) AS normalized_value, COUNT(DISTINCT a.id) AS app_count
+                FROM software_apps a
+                WHERE a.app_status = 'active'
+                  AND a.publisher IS NOT NULL
+                  AND TRIM(a.publisher) <> ''
+                """);
+        List<Object> params = new ArrayList<>();
+        appendFilters(sql, params, query, status, operatingSystem, architecture, tags, List.of(), tagMatchMin, tagMode);
+        sql.append("""
+                GROUP BY a.publisher
+                ORDER BY app_count DESC, label ASC
+                """);
+        return jdbc.query(sql.toString(), (rs, rowNum) -> facetItem(
+                rs.getString("label"),
+                rs.getString("normalized_value"),
+                rs.getLong("app_count")), params.toArray());
     }
 
     public AppDetails details(String publicId) {
@@ -170,6 +243,8 @@ public class CatalogRepository {
             String operatingSystem,
             String architecture,
             List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
             String tagMode) {
         if (query != null && !query.isBlank()) {
             String like = "%" + query.toLowerCase(Locale.ROOT).trim() + "%";
@@ -189,22 +264,22 @@ public class CatalogRepository {
             }
         }
         appendSourceFilter(sql, params, status, operatingSystem, architecture);
-        List<String> normalizedTags = tags.stream()
-                .filter(tag -> tag != null && !tag.isBlank())
-                .map(tag -> tag.toLowerCase(Locale.ROOT).trim())
-                .toList();
+        List<String> normalizedPublishers = normalizedDistinct(publishers);
+        if (!normalizedPublishers.isEmpty()) {
+            sql.append(" AND LOWER(TRIM(COALESCE(a.publisher, ''))) IN (");
+            appendPlaceholders(sql, normalizedPublishers.size());
+            sql.append(")");
+            params.addAll(normalizedPublishers);
+        }
+
+        List<String> normalizedTags = normalizedDistinct(tags);
         if (!normalizedTags.isEmpty()) {
-            if ("any".equals(tagMode)) {
-                sql.append(" AND EXISTS (SELECT 1 FROM software_app_tags t WHERE t.software_app_id = a.id AND t.normalized_tag IN (");
-                appendPlaceholders(sql, normalizedTags.size());
-                sql.append("))");
-                params.addAll(normalizedTags);
-            } else {
-                for (String tag : normalizedTags) {
-                    sql.append(" AND EXISTS (SELECT 1 FROM software_app_tags t WHERE t.software_app_id = a.id AND t.normalized_tag = ?)");
-                    params.add(tag);
-                }
-            }
+            int requiredMatches = requiredTagMatches(normalizedTags.size(), tagMatchMin, tagMode);
+            sql.append(" AND (SELECT COUNT(DISTINCT t.normalized_tag) FROM software_app_tags t WHERE t.software_app_id = a.id AND t.normalized_tag IN (");
+            appendPlaceholders(sql, normalizedTags.size());
+            sql.append(")) >= ?\n");
+            params.addAll(normalizedTags);
+            params.add(requiredMatches);
         }
     }
 
@@ -420,6 +495,64 @@ public class CatalogRepository {
             }
             sql.append("?");
         }
+    }
+
+    private List<String> normalizedDistinct(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            normalized.add(value.toLowerCase(Locale.ROOT).trim());
+        }
+        return List.copyOf(normalized);
+    }
+
+    static int requiredTagMatches(int selectedTags, Integer requestedMinimum, String tagMode) {
+        if (selectedTags < 1) {
+            return 0;
+        }
+        if (requestedMinimum != null) {
+            return Math.max(1, Math.min(requestedMinimum, selectedTags));
+        }
+        return "any".equals(tagMode) ? 1 : selectedTags;
+    }
+
+    private FacetItem facetItem(String label, String normalizedValue, long count) {
+        String safeLabel = label == null || label.isBlank() ? "-" : label.trim();
+        String safeNormalized = normalizedValue == null || normalizedValue.isBlank()
+                ? safeLabel.toLowerCase(Locale.ROOT)
+                : normalizedValue.trim();
+        return new FacetItem(safeLabel, safeLabel, safeNormalized, facetLetter(safeLabel), count);
+    }
+
+    static String facetLetter(String value) {
+        if (value == null || value.isBlank()) {
+            return "#";
+        }
+        String normalized = Normalizer.normalize(value.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
+        for (int offset = 0; offset < normalized.length();) {
+            int codePoint = normalized.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+            if (Character.isWhitespace(codePoint)) {
+                continue;
+            }
+            if (Character.isDigit(codePoint)) {
+                return "#";
+            }
+            char upper = Character.toUpperCase((char) codePoint);
+            if (upper >= 'A' && upper <= 'Z') {
+                return Character.toString(upper);
+            }
+            if (Character.isLetter(codePoint)) {
+                return "#";
+            }
+        }
+        return "#";
     }
 
     private String sourceLabel(String status) {

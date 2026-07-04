@@ -74,10 +74,10 @@ public class AdminAppController {
                 ? List.of()
                 : Arrays.stream(tags.split(",")).map(String::trim).filter(value -> !value.isBlank()).toList();
         return new AppSearchResponse(
-                catalog.search(query, status, operatingSystem, architecture, tagList, tagMode, sort, safePage, safePageSize),
+                catalog.search(query, status, operatingSystem, architecture, tagList, List.of(), null, tagMode, sort, safePage, safePageSize),
                 safePage,
                 safePageSize,
-                catalog.count(query, status, operatingSystem, architecture, tagList, tagMode));
+                catalog.count(query, status, operatingSystem, architecture, tagList, List.of(), null, tagMode));
     }
 
     @PostMapping("/api/admin/apps")
