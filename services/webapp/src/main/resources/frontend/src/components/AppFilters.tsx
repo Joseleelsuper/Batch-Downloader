@@ -86,24 +86,24 @@ export function AppFilters({
       <section className="facet-links-panel">
         <Link className="facet-link-button" to={`/catalog/tags${facetSearch}`}>
           <Tags size={18} />
-          <span>Tags</span>
+          <span>{t('facet.tags.title')}</span>
           <strong>{selectedTags.length.toLocaleString('es-ES')}</strong>
         </Link>
         <Link className="facet-link-button" to={`/catalog/editors${facetSearch}`}>
           <Building2 size={18} />
-          <span>Editor</span>
+          <span>{t('facet.publishers.title')}</span>
           <strong>{selectedPublishers.length.toLocaleString('es-ES')}</strong>
         </Link>
         {activeFacetCount ? (
           <div className="active-facet-list">
             <div>
-              <span>Filtros activos</span>
+              <span>{t('catalog.activeFilters')}</span>
               <button type="button" onClick={onClearFacets}>
-                Limpiar
+                {t('catalog.selection.clear')}
               </button>
             </div>
             {selectedTags.length ? (
-              <small>Minimo {tagMatchMin} de {selectedTags.length} tags</small>
+              <small>{t('facet.matchMinValue', { min: tagMatchMin, total: selectedTags.length })}</small>
             ) : null}
             {[...selectedTags.map((value) => ({ value, type: 'tag' as const })), ...selectedPublishers.map((value) => ({ value, type: 'publisher' as const }))].map((item) => (
               <button
@@ -123,7 +123,7 @@ export function AppFilters({
       </section>
       <section className="selection-panel">
         <div>
-          <span>Descarga seleccionada</span>
+          <span>{t('catalog.selection.selected')}</span>
           <strong>{selectedCount} / 100</strong>
         </div>
         <button
@@ -133,7 +133,7 @@ export function AppFilters({
           onClick={onDownloadSelected}
         >
           <Download size={17} />
-          {downloading ? 'Preparando...' : 'Descargar ZIP'}
+          {downloading ? t('catalog.selection.downloading') : t('catalog.selection.downloadZip')}
         </button>
         <button
           className="secondary-button selection-clear"
@@ -142,7 +142,7 @@ export function AppFilters({
           onClick={onClearSelection}
         >
           <X size={17} />
-          Limpiar
+          {t('catalog.selection.clear')}
         </button>
       </section>
     </aside>

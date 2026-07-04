@@ -32,15 +32,18 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
   return (
     <footer className="pagination">
       <span>
-        {t('catalog.showing')} {start} a {end} de {total.toLocaleString('es-ES')}{' '}
-        {t('catalog.results')}
+        {t('catalog.pagination.showing', {
+          start,
+          end,
+          total: total.toLocaleString('es-ES'),
+        })}
       </span>
       <div className="pagination-controls">
         <button disabled={page <= 1} onClick={() => onPageChange(page - 1)} type="button">
           <ChevronLeft size={18} />
         </button>
         <label className="page-input-label">
-          <span>Pagina</span>
+          <span>{t('catalog.pagination.page')}</span>
           <input
             value={draftPage}
             inputMode="numeric"
@@ -49,7 +52,7 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
             onKeyDown={(event) => {
               if (event.key === 'Enter') commitPage();
             }}
-            aria-label="Pagina"
+            aria-label={t('catalog.pagination.page')}
           />
           <span>/ {pages}</span>
         </label>
@@ -66,7 +69,7 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
         >
           {pageSizes.map((size) => (
             <option key={size} value={size}>
-              {size} / pagina
+              {t('catalog.pagination.perPage', { count: size })}
             </option>
           ))}
         </select>

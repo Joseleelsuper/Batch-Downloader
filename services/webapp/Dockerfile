@@ -3,9 +3,10 @@ FROM node:20-alpine AS build
 WORKDIR /app
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-COPY src/main/resources/frontend/package.json ./
+COPY services/webapp/src/main/resources/frontend/package*.json ./
 RUN npm install
-COPY src/main/resources/frontend ./
+COPY services/webapp/src/main/resources/frontend ./
+COPY services/translation-service/locales /translation-service/locales
 RUN npm run build
 
 FROM nginx:1.27-alpine

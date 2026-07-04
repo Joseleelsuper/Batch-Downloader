@@ -25,7 +25,7 @@ export function AppTable({
         <thead>
           <tr>
             <th className="selection-column">
-              <span className="sr-only">Seleccionar</span>
+              <span className="sr-only">{t('catalog.select')}</span>
             </th>
             <th>{t('catalog.column.app')}</th>
             <th>{t('catalog.column.publisher')}</th>
@@ -46,7 +46,7 @@ export function AppTable({
                 <td className="selection-column" onClick={(event) => event.stopPropagation()}>
                   <input
                     type="checkbox"
-                    aria-label={`Seleccionar ${app.name}`}
+                    aria-label={t('catalog.selectApp', { name: app.name })}
                     checked={checked}
                     disabled={disabled}
                     onChange={() => onToggleSelection?.(app)}

@@ -1,65 +1,9 @@
-const es = {
-  'app.title': 'Batch Downloader',
-  'app.lastScrape': 'Ultimo rastreo',
-  'app.lastScrape.empty': 'Sin rastreos todavia',
-  'app.refresh': 'Actualizar catalogo',
-  'catalog.searchPlaceholder': 'Buscar aplicaciones',
-  'catalog.filters': 'Filtros',
-  'catalog.filter.all': 'Todas',
-  'catalog.filter.available': 'Disponibles',
-  'catalog.filter.review': 'Revision',
-  'catalog.filter.missing': 'Sin instalador',
-  'catalog.sort.updated': 'Actualizadas',
-  'catalog.sort.name': 'Nombre',
-  'catalog.sort.toggle': 'Cambiar orden',
-  'catalog.column.app': 'Aplicacion',
-  'catalog.column.publisher': 'Editor',
-  'catalog.column.version': 'Version',
-  'catalog.column.source': 'Fuente',
-  'catalog.column.status': 'Estado',
-  'catalog.column.action': 'Accion',
-  'catalog.empty': 'No hay aplicaciones que coincidan con la busqueda.',
-  'catalog.showing': 'Mostrando',
-  'catalog.results': 'resultados',
-  'catalog.perPage': '12 por pagina',
-  'app.download': 'Descargar',
-  'app.details.official': 'Web oficial',
-  'app.details.description': 'Descripcion',
-  'app.details.descriptionPending': 'Descripcion IA pendiente de generar.',
-  'app.details.tags': 'Tags',
-  'app.details.installer': 'Instalador detectado',
-  'app.details.type': 'Tipo',
-  'app.details.confidence': 'Confianza',
-  'app.details.status': 'Estado',
-  'app.details.version': 'Ultima version detectada',
-  'app.details.updated': 'Ultima actualizacion',
-  'app.details.size': 'Tamano',
-  'app.details.source': 'Fuente',
-  'app.details.notes': 'Notas',
-  'app.details.installersDetected': 'Instaladores detectados',
-  'app.details.primaryInstaller': 'Principal',
-  'app.details.viewSource': 'Ver origen',
-  'app.details.copyInstaller': 'Copiar nombre del instalador',
-  'app.details.copied': 'Nombre del instalador copiado.',
-  'status.direct': 'Directa',
-  'status.fallback': 'Fallback',
-  'status.requires_manual_review': 'Revision',
-  'status.missing': 'No disponible',
-  'status.broken': 'Rota',
-  'confidence.high': 'Alta',
-  'confidence.medium': 'Media',
-  'confidence.low': 'Baja',
-  'language.selector': 'Seleccionar idioma',
-  'language.spanish': 'Espanol',
-  'language.active': 'Activo',
-  'profile.menu': 'Menu de perfil',
-  'profile.localMode': 'Modo local MVP',
-  'profile.catalogSize': 'Aplicaciones en catalogo',
-  'profile.authPending': 'Autenticacion admin disponible',
-};
+import es from '@batch-locales/es.json';
 
 export type TranslationKey = keyof typeof es;
 
-export function t(key: TranslationKey): string {
-  return es[key] ?? key;
+export function t(key: TranslationKey | string, params?: Record<string, string | number>): string {
+  const text = (es as Record<string, string>)[key] ?? key;
+  if (!params) return text;
+  return text.replace(/\{(\w+)}/g, (_, name: string) => String(params[name] ?? `{${name}}`));
 }

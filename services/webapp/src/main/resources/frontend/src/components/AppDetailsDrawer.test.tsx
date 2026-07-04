@@ -72,6 +72,6 @@ describe('AppDetailsDrawer', () => {
       />,
     );
 
-    expect(screen.getByText('Descripcion IA pendiente de generar.')).toBeInTheDocument();
+    expect(screen.getByText('Descripción IA pendiente de generar.')).toBeInTheDocument();
   });
 });

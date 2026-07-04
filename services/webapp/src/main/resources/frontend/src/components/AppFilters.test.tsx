@@ -37,7 +37,7 @@ describe('AppFilters', () => {
       'href',
       '/catalog/tags?tag=.NET&publisher=ACME%2C+Inc.',
     );
-    expect(screen.getByText('Minimo 1 de 2 tags')).toBeInTheDocument();
+    expect(screen.getByText('1 de 2 tags')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '.NET' }));
     fireEvent.click(screen.getByRole('button', { name: 'ACME, Inc.' }));
