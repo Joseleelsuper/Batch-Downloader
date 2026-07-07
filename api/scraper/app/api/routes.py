@@ -134,16 +134,6 @@ async def download_app(
             ).model_dump(),
         )
 
-    if resolved.expires_at <= utc_now():
-        return JSONResponse(
-            status_code=409,
-            content=ErrorResponse(
-                code="installer_expired",
-                status=ResolutionStatus.BROKEN.value,
-                message="La URL del instalador ha expirado. Ejecuta el scraper de nuevo.",
-            ).model_dump(),
-        )
-
     url = catalog.reveal_url(resolved)
     if not url:
         return JSONResponse(

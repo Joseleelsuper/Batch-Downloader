@@ -80,3 +80,48 @@ def test_details_exposes_download_options_and_primary_candidate() -> None:
         "GeoGebraSuite.exe",
     ]
     assert details.download_options[0].is_primary is True
+
+
+def test_expired_valid_sources_remain_downloadable_candidates() -> None:
+    now = utc_now()
+    app = SoftwareApp(
+        id=uuid4(),
+        winstall_id="Vendor.App",
+        slug="vendor-app",
+        name="Vendor App",
+        normalized_name="vendor app",
+        app_status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    source = DownloadSource(
+        id=uuid4(),
+        software_app_id=app.id,
+        operating_system="windows",
+        architecture="x86_64",
+        resolution_status=ResolutionStatus.FALLBACK.value,
+        validation_status=ValidationStatus.VALID.value,
+    )
+    resolved = ResolvedSource(
+        id=uuid4(),
+        download_source_id=source.id,
+        resolved_url_encrypted="encrypted",
+        final_domain="downloads.example.com",
+        filename="VendorApp.exe",
+        extension=".exe",
+        score=80,
+        status=ResolutionStatus.FALLBACK.value,
+        validation_status=ValidationStatus.VALID.value,
+        checked_at=now,
+        expires_at=utc_after(hours=-1),
+        metadata_json={"is_primary": True},
+    )
+    source.resolved_sources = [resolved]
+    app.sources = [source]
+    app.tags = []
+
+    details = to_details(app)
+
+    assert best_resolved_source(app) == resolved
+    assert details.download_options[0].filename == "VendorApp.exe"
+    assert details.resolution_status == ResolutionStatus.FALLBACK.value

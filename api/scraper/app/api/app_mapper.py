@@ -1,4 +1,3 @@
-from app.core.time import utc_now
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import ResolvedSource, SoftwareApp
 from app.schemas.apps import AppDetails, AppListItem, DownloadOption
@@ -9,7 +8,7 @@ def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
         resolved
         for source in app.sources
         for resolved in source.resolved_sources
-        if resolved.validation_status == ValidationStatus.VALID.value and resolved.expires_at > utc_now()
+        if resolved.validation_status == ValidationStatus.VALID.value
     ]
     latest_by_file: dict[tuple[str, str | None, str | None, str], ResolvedSource] = {}
     for resolved in candidates:

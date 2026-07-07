@@ -410,9 +410,7 @@ public class CatalogRepository {
                     String resolution = rs.getString("resolution_status");
                     String validation = rs.getString("validation_status");
                     boolean downloadable = rs.getBytes("resolved_id") != null
-                            && "valid".equals(rs.getString("validation_status"))
-                            && rs.getTimestamp("expires_at") != null
-                            && rs.getTimestamp("expires_at").toLocalDateTime().isAfter(LocalDateTime.now());
+                            && "valid".equals(rs.getString("validation_status"));
                     return new SourceSnapshot(
                             resolution == null ? "missing" : resolution,
                             validation == null ? "unchecked" : validation,
