@@ -1,0 +1,127 @@
+﻿.long-editor {
+  min-height: 160px;
+}
+
+.login-card h2 {
+  margin: 0 0 8px;
+}
+
+.login-card,
+.editor-form {
+  display: grid;
+  gap: 14px;
+  width: min(420px, 100%);
+  padding: 22px;
+}
+
+.login-card label,
+.editor-form label {
+  display: grid;
+  gap: 7px;
+  color: #344052;
+  font-weight: 650;
+}
+
+.login-card input,
+.editor-form input,
+.editor-form textarea,
+.admin-search {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  color: #111827;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+}
+
+.editor-form textarea {
+  min-height: 94px;
+  padding-top: 10px;
+  resize: vertical;
+}
+
+.admin-section-heading,
+.editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.editor-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor-header span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.editor-header small {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.editor-section legend,
+.bundle-app-editor h4,
+.danger-zone h4 {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.danger-zone {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 14px;
+  background: #fff7f8;
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+}
+
+.danger-zone h4,
+.danger-zone p {
+  margin: 0;
+}
+
+.danger-zone p {
+  color: #6b3341;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.danger-zone input,
+.bundle-app-editor input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  color: #111827;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+}
+.form-message {
+  color: var(--teal-dark);
+  font-weight: 700;
+}
+
+

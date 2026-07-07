@@ -1,0 +1,28 @@
+﻿.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.section-heading a {
+  color: var(--teal-dark);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.home-hero h2,
+.bundle-detail-header h2,
+.admin-panel h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+

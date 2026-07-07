@@ -1,0 +1,13 @@
+﻿.home-page,
+.content-page,
+.login-page {
+  width: min(1180px, calc(100vw - 32px));
+  margin: 0 auto;
+}
+
+.login-page {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 150px);
+}
+

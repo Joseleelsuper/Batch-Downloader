@@ -1,0 +1,148 @@
+﻿.details-drawer {
+  position: relative;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 34px 24px 24px 22px;
+  background: #ffffff;
+  border-left: 1px solid var(--border);
+}
+
+.drawer-content {
+  transition: opacity 140ms ease;
+}
+
+.drawer-content-busy {
+  opacity: 0.54;
+  pointer-events: none;
+}
+
+.drawer-close {
+  position: absolute;
+  top: 26px;
+  right: 22px;
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  color: #344052;
+  background: transparent;
+  border: 0;
+}
+
+.details-drawer h2 {
+  margin: 0 42px 26px 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 780;
+  letter-spacing: 0;
+}
+
+.detail-block {
+  padding: 13px 0;
+  border-bottom: 1px solid #e5ebf0;
+}
+
+.detail-label {
+  display: block;
+  margin-bottom: 9px;
+  color: #5f6b7a;
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.detail-value {
+  justify-content: space-between;
+  gap: 12px;
+  color: #344052;
+  font-size: 15px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.detail-value a {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #00818a;
+  text-decoration: none;
+  font-weight: 640;
+}
+
+.copy-feedback {
+  margin: 8px 0 0;
+  color: #076340;
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.download-options {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.long-description {
+  margin: 0;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  color: #27515a;
+  background: #eef8f7;
+  border: 1px solid #cde8e7;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.download-option {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: #f8fbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.download-option span,
+.download-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-option small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.confidence {
+  gap: 9px;
+  color: #14815d;
+  font-weight: 720;
+}
+
+.details-skeleton {
+  display: grid;
+  gap: 16px;
+  min-height: 620px;
+  margin-top: 46px;
+}
+
+.details-skeleton span {
+  height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #eef3f6, #f7fafc, #eef3f6);
+}
+
