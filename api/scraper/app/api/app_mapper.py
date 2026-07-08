@@ -10,9 +10,17 @@ def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
         for resolved in source.resolved_sources
         if resolved.validation_status == ValidationStatus.VALID.value
     ]
-    latest_by_file: dict[tuple[str, str | None, str | None, str], ResolvedSource] = {}
+    latest_by_file: dict[tuple[str, str | None, str | None, str, str, str | None], ResolvedSource] = {}
     for resolved in candidates:
-        key = (resolved.final_domain, resolved.filename, resolved.extension, resolved.status)
+        source = resolved.source
+        key = (
+            resolved.final_domain,
+            resolved.filename,
+            resolved.extension,
+            resolved.status,
+            source.operating_system if source else "",
+            resolved.version,
+        )
         current = latest_by_file.get(key)
         if current is None or (resolved.checked_at, resolved.score) > (
             current.checked_at,
@@ -29,11 +37,13 @@ def best_resolved_source(app: SoftwareApp) -> ResolvedSource | None:
     return candidates[0]
 
 
-def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, object]:
+def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, int, int, object]:
     status_priority = {ResolutionStatus.DIRECT.value: 0, ResolutionStatus.FALLBACK.value: 1}
     metadata = item.metadata_json or {}
     primary_rank = 0 if metadata.get("is_primary") else 1
-    return (status_priority.get(item.status, 9), primary_rank, -item.score, item.expires_at)
+    latest_rank = 0 if item.is_latest or metadata.get("is_latest") else 1
+    release_rank = item.release_rank if item.release_rank is not None else 9999
+    return (status_priority.get(item.status, 9), latest_rank, release_rank, primary_rank, -item.score, item.expires_at)
 
 
 def source_status(app: SoftwareApp) -> tuple[str, str]:
@@ -93,11 +103,7 @@ def to_details(app: SoftwareApp) -> AppDetails:
             if resolved.status == ResolutionStatus.DIRECT.value
             else "Instalador obtenido desde el fallback de Winstall."
         )
-    origin_url = (
-        app.official_url
-        if resolution_status == ResolutionStatus.DIRECT.value and app.official_url
-        else winstall_app_url(app.winstall_id)
-    )
+    origin_url = winstall_app_url(app.winstall_id)
 
     return AppDetails(
         id=str(app.id),
@@ -132,10 +138,16 @@ def to_details(app: SoftwareApp) -> AppDetails:
 
 
 def to_download_option(resolved: ResolvedSource, is_primary: bool) -> DownloadOption:
+    source = resolved.source
     return DownloadOption(
         id=str(resolved.id),
         filename=resolved.filename,
         extension=resolved.extension,
+        operatingSystem=source.operating_system if source else "windows",
+        architecture=source.architecture if source else "x86_64",
+        version=resolved.version,
+        isLatest=bool(resolved.is_latest),
+        versionStatus=resolved.version_status,
         sourceLabel=source_label(resolved.status),
         score=resolved.score,
         finalDomain=resolved.final_domain,

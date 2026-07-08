@@ -30,6 +30,13 @@ class WinstallDownload:
 
 
 @dataclass(frozen=True)
+class WinstallPageLinks:
+    official_url: str | None
+    source_code_url: str | None
+    downloads: list[WinstallDownload]
+
+
+@dataclass(frozen=True)
 class WinstallApp:
     package_id: str
     name: str
@@ -103,11 +110,15 @@ class WinstallClient:
         return parse_winstall_app(payload)
 
     async def get_downloads(self, package_id: str) -> list[WinstallDownload]:
+        links = await self.get_page_links(package_id)
+        return links.downloads
+
+    async def get_page_links(self, package_id: str) -> WinstallPageLinks:
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
         if not response.is_success:
-            return []
-        return extract_winstall_downloads(
+            return WinstallPageLinks(official_url=None, source_code_url=None, downloads=[])
+        return extract_winstall_page_links(
             response.text,
             f"{self.settings.winstall_base_url}/apps/{package_id}",
         )
@@ -163,8 +174,14 @@ def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
 
 
 def extract_winstall_downloads(html: str, base_url: str) -> list[WinstallDownload]:
+    return extract_winstall_page_links(html, base_url).downloads
+
+
+def extract_winstall_page_links(html: str, base_url: str) -> WinstallPageLinks:
     parser = HTMLParser(html)
     downloads: dict[str, WinstallDownload] = {}
+    official_url: str | None = None
+    source_code_url: str | None = None
 
     for node in parser.css("a"):
         href = node.attributes.get("href")
@@ -172,15 +189,25 @@ def extract_winstall_downloads(html: str, base_url: str) -> list[WinstallDownloa
             continue
         label = node.text(separator=" ", strip=True)
         text = normalize_text(f"{label} {href}")
+        url = urljoin(base_url, href)
+        if official_url is None and ("view site" in text or "sitio" in text):
+            official_url = url
+            continue
+        if source_code_url is None and "source code" in text:
+            source_code_url = url
+            continue
         if "download" not in text and not detect_extension(href):
             continue
-        url = urljoin(base_url, href)
         downloads.setdefault(
             url,
             WinstallDownload(url=url, label=label or None, context=node.html[:500]),
         )
 
-    return list(downloads.values())
+    return WinstallPageLinks(
+        official_url=official_url,
+        source_code_url=source_code_url,
+        downloads=list(downloads.values()),
+    )
 
 
 def parse_winstall_app(payload: dict[str, Any]) -> WinstallApp:

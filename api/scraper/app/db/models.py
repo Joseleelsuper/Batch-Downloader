@@ -163,6 +163,9 @@ class ResolvedSource(Base):
     content_type: Mapped[str | None] = mapped_column(String(180))
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
     version: Mapped[str | None] = mapped_column(String(100))
+    release_rank: Mapped[int | None] = mapped_column(Integer)
+    is_latest: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    version_status: Mapped[str | None] = mapped_column(String(32))
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     validation_status: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
@@ -227,3 +230,61 @@ class ScraperCommand(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     __table_args__ = (Index("ix_scraper_commands_status_created", "status", "created_at"),)
+
+
+class ScraperWorkItem(Base, TimestampMixin):
+    __tablename__ = "scraper_work_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("scrape_runs.id"))
+    queue: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    package_id: Mapped[str] = mapped_column(String(180), nullable=False)
+    app_name: Mapped[str | None] = mapped_column(String(180))
+    payload_json: Mapped[dict | None] = mapped_column(JSON)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(120))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    available_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(1000))
+
+    __table_args__ = (
+        UniqueConstraint("queue", "package_id", name="uq_scraper_work_queue_package"),
+        Index("ix_scraper_work_queue_status_available", "queue", "status", "available_at"),
+        Index("ix_scraper_work_lease", "status", "lease_expires_at"),
+    )
+
+
+class ScraperWorkerSnapshot(Base):
+    __tablename__ = "scraper_worker_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("scrape_runs.id"))
+    worker_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    package_id: Mapped[str | None] = mapped_column(String(180))
+    app_name: Mapped[str | None] = mapped_column(String(180))
+    url: Mapped[str | None] = mapped_column(String(2048))
+    html: Mapped[str | None] = mapped_column(Text)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index("ix_scraper_snapshots_stage_captured", "stage", "captured_at"),
+        Index("ix_scraper_snapshots_expires", "expires_at"),
+    )
+
+
+class ScraperMetricSnapshot(Base):
+    __tablename__ = "scraper_metric_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("scrape_runs.id"))
+    available: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    review: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    unavailable: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    queued_searcher_filter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    queued_filter_scraper: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (Index("ix_scraper_metric_snapshots_captured", "captured_at"),)

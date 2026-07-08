@@ -17,12 +17,16 @@ PREFERRED_EXTENSIONS = (
     ".zip",
     ".deb",
     ".rpm",
+    ".appimage",
     ".dmg",
     ".pkg",
     ".tar.gz",
+    ".jar",
 )
 
 WINDOWS_INSTALLER_EXTENSIONS = (".exe", ".msi", ".msix", ".appx")
+MACOS_INSTALLER_EXTENSIONS = (".dmg", ".pkg")
+LINUX_INSTALLER_EXTENSIONS = (".deb", ".rpm", ".appimage", ".tar.gz", ".jar")
 
 POSITIVE_KEYWORDS = (
     "download",
@@ -53,9 +57,11 @@ NEGATIVE_KEYWORDS = (
 
 URL_PATTERN = re.compile(
     r"https?://[^\s'\"<>\\]+|(?:(?:\.\./|\.\/|/)?[A-Za-z0-9._~!$&'()*+,;=:@%/-]+"
-    r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.dmg|\.pkg|\.tar\.gz)(?:\?[^\s'\"<>\\]*)?)",
+    r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.appimage|\.dmg|\.pkg|\.tar\.gz|\.jar)(?:\?[^\s'\"<>\\]*)?)",
     re.IGNORECASE,
 )
+
+VERSION_PATTERN = re.compile(r"(?<!\d)v?(\d+(?:\.\d+){1,4})", re.I)
 
 
 @dataclass(frozen=True)
@@ -159,6 +165,10 @@ def score_candidate(
         score += 50
     if extension in WINDOWS_INSTALLER_EXTENSIONS and preferred_os == "windows":
         score += 20
+    if extension in MACOS_INSTALLER_EXTENSIONS and preferred_os in {"macos", "darwin"}:
+        score += 20
+    if extension in LINUX_INSTALLER_EXTENSIONS and preferred_os == "linux":
+        score += 20
     if extension == ".zip" and registered_domain(candidate.url) == "github.com":
         score += 10 if is_github_release_asset(candidate.url) else -90
     if extension in {".dmg", ".pkg"} and preferred_os == "windows":
@@ -204,6 +214,10 @@ def classify_asset(url: str) -> str:
     if is_github_release_asset(url) and detect_extension(url) == ".zip":
         return "release_zip"
     if detect_extension(url) in WINDOWS_INSTALLER_EXTENSIONS:
+        return "installer"
+    if detect_extension(url) in MACOS_INSTALLER_EXTENSIONS:
+        return "installer"
+    if detect_extension(url) in LINUX_INSTALLER_EXTENSIONS:
         return "installer"
     if detect_extension(url) in PREFERRED_EXTENSIONS:
         return "archive"
@@ -314,6 +328,51 @@ def filename_from_url(url: str) -> str | None:
             if name and "." in name:
                 return name[:255]
     return None
+
+
+def candidate_text(candidate: InstallerCandidate) -> str:
+    return normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
+
+
+def infer_operating_system(candidate: InstallerCandidate) -> str | None:
+    extension = candidate.extension
+    text = candidate_text(candidate)
+    if extension in WINDOWS_INSTALLER_EXTENSIONS:
+        return "windows"
+    if extension in MACOS_INSTALLER_EXTENSIONS:
+        return "macos"
+    if extension in {".deb", ".rpm", ".appimage", ".tar.gz"}:
+        return "linux"
+    if extension == ".jar":
+        if any(token in text for token in ("linux", "ubuntu", "debian", "fedora")):
+            return "linux"
+        return "linux"
+    if any(token in text for token in ("windows", "win64", "win32", "x64.exe")):
+        return "windows"
+    if any(token in text for token in ("macos", "mac os", "darwin", "dmg", "apple silicon")):
+        return "macos"
+    if any(token in text for token in ("linux", "ubuntu", "debian", "fedora", "appimage")):
+        return "linux"
+    return None
+
+
+def infer_architecture(candidate: InstallerCandidate) -> str:
+    text = candidate_text(candidate)
+    if any(token in text for token in ("aarch64", "arm64", "apple silicon", "m1", "m2", "m3")):
+        return "aarch64"
+    if any(token in text for token in ("x86_64", "amd64", "x64", "win64", "64-bit", "64bit")):
+        return "x86_64"
+    if any(token in text for token in ("i386", "i686", "x86", "win32", "32-bit", "32bit")):
+        return "x86"
+    return "x86_64"
+
+
+def extract_version(candidate: InstallerCandidate) -> str | None:
+    raw = " ".join(value for value in (candidate.url, candidate.label, candidate.context) if value)
+    matches = VERSION_PATTERN.findall(raw)
+    if not matches:
+        return None
+    return matches[-1]
 
 
 def registered_domain(url: str) -> str | None:

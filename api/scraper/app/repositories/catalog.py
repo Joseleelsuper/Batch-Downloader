@@ -41,6 +41,9 @@ class ResolvedSourceCreate:
     score: int
     status: ResolutionStatus
     validation_status: ValidationStatus
+    release_rank: int | None = None
+    is_latest: bool = False
+    version_status: str | None = None
     metadata: dict | None = None
 
 
@@ -144,19 +147,36 @@ class CatalogRepository:
         software_app.version += 1
 
     async def _ensure_default_source(self, software_app: SoftwareApp, app: WinstallApp) -> None:
+        await self.ensure_download_source(
+            software_app_id=software_app.id,
+            app=app,
+            operating_system="windows",
+            architecture="x86_64",
+            initial_url=app.homepage,
+        )
+
+    async def ensure_download_source(
+        self,
+        software_app_id: uuid.UUID,
+        app: WinstallApp,
+        operating_system: str,
+        architecture: str,
+        initial_url: str | None,
+    ) -> DownloadSource:
         source = await self.session.scalar(
             select(DownloadSource)
-            .where(DownloadSource.software_app_id == software_app.id)
-            .where(DownloadSource.operating_system == "windows")
-            .where(DownloadSource.architecture == "x86_64")
+            .options(selectinload(DownloadSource.allowed_domains))
+            .where(DownloadSource.software_app_id == software_app_id)
+            .where(DownloadSource.operating_system == operating_system)
+            .where(DownloadSource.architecture == architecture)
         )
         is_new_source = source is None
         if source is None:
             source = DownloadSource(
-                software_app_id=software_app.id,
-                operating_system="windows",
-                architecture="x86_64",
-                initial_url=app.homepage,
+                software_app_id=software_app_id,
+                operating_system=operating_system,
+                architecture=architecture,
+                initial_url=initial_url,
                 resolver_type="generic_http",
                 resolver_config=json_safe({"winstall_id": app.package_id}),
                 resolution_status=ResolutionStatus.MISSING.value,
@@ -165,11 +185,11 @@ class CatalogRepository:
             self.session.add(source)
             await self.session.flush()
         else:
-            source.initial_url = app.homepage or source.initial_url
+            source.initial_url = initial_url or source.initial_url
             source.resolver_config = json_safe({"winstall_id": app.package_id})
             source.updated_at = utc_now()
 
-        domains = allowed_domains_for(app.homepage, app.installer_urls)
+        domains = allowed_domains_for(initial_url or app.homepage, app.installer_urls)
         if is_new_source:
             existing_domains = set()
         else:
@@ -181,6 +201,25 @@ class CatalogRepository:
             self.session.add(
                 SourceAllowedDomain(source_id=source.id, domain=domain, include_subdomains=True)
             )
+        return source
+
+    async def source_for_platform(
+        self,
+        software_app_id: uuid.UUID,
+        operating_system: str,
+        architecture: str,
+    ) -> DownloadSource | None:
+        return await self.session.scalar(
+            select(DownloadSource)
+            .options(
+                selectinload(DownloadSource.allowed_domains),
+                selectinload(DownloadSource.resolved_sources),
+            )
+            .where(DownloadSource.software_app_id == software_app_id)
+            .where(DownloadSource.operating_system == operating_system)
+            .where(DownloadSource.architecture == architecture)
+            .limit(1)
+        )
 
     async def default_source_for_app(self, software_app_id: uuid.UUID) -> DownloadSource | None:
         return await self.session.scalar(
@@ -206,6 +245,9 @@ class CatalogRepository:
             content_type=item.content_type,
             size_bytes=item.size_bytes,
             version=item.version,
+            release_rank=item.release_rank,
+            is_latest=item.is_latest,
+            version_status=item.version_status,
             score=item.score,
             status=item.status.value,
             validation_status=item.validation_status.value,
@@ -227,27 +269,38 @@ class CatalogRepository:
         self,
         app_ids: list[uuid.UUID] | None = None,
     ) -> list[SoftwareApp]:
+        missing_long_description = or_(
+            SoftwareApp.long_description.is_(None),
+            SoftwareApp.long_description == "",
+        )
+        needs_description = or_(
+            missing_long_description,
+            SoftwareApp.long_description_status.in_(
+                [LongDescriptionStatus.PENDING.value, LongDescriptionStatus.FAILED.value]
+            ),
+        )
         stmt = (
             select(SoftwareApp)
             .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
             .order_by(
                 case(
+                    (missing_long_description, 0),
                     (
                         SoftwareApp.long_description_status
                         == LongDescriptionStatus.PENDING.value,
-                        0,
-                    ),
-                    (
-                        SoftwareApp.long_description_status
-                        == LongDescriptionStatus.FAILED.value,
                         1,
                     ),
                     (
                         SoftwareApp.long_description_status
-                        == LongDescriptionStatus.COMPLETED.value,
+                        == LongDescriptionStatus.FAILED.value,
                         2,
                     ),
-                    else_=3,
+                    (
+                        SoftwareApp.long_description_status
+                        == LongDescriptionStatus.COMPLETED.value,
+                        3,
+                    ),
+                    else_=4,
                 ),
                 SoftwareApp.updated_at.desc(),
             )
@@ -260,6 +313,8 @@ class CatalogRepository:
             if not app_ids:
                 return []
             stmt = stmt.where(SoftwareApp.id.in_(app_ids))
+        else:
+            stmt = stmt.where(needs_description)
 
         result = await self.session.scalars(stmt)
         return list(result.unique())

@@ -102,6 +102,7 @@ async def get_app(
 )
 async def download_app(
     app_id: str,
+    option_id: str | None = Query(default=None, alias="optionId"),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
@@ -117,7 +118,7 @@ async def download_app(
             ).model_dump(),
         )
 
-    resolved = best_resolved_source(app)
+    resolved = selected_resolved_source(app, option_id) if option_id else best_resolved_source(app)
     if not resolved:
         status, _ = next(
             ((source.resolution_status, source.validation_status) for source in app.sources),
@@ -145,6 +146,17 @@ async def download_app(
             ).model_dump(),
         )
     return RedirectResponse(url=url, status_code=307)
+
+
+def selected_resolved_source(app, option_id: str):
+    for source in app.sources:
+        for resolved in source.resolved_sources:
+            if (
+                str(resolved.id) == option_id
+                and resolved.validation_status == "valid"
+            ):
+                return resolved
+    return None
 
 
 @router.post("/internal/scraper/run-once", status_code=202)

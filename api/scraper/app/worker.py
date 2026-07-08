@@ -16,9 +16,14 @@ logger = get_logger(__name__)
 async def scrape_once(recover_running: bool = False) -> None:
     settings = get_settings()
     async with AsyncSessionLocal() as session:
-        counters = await CatalogFetcher(settings, session).scrape_once(
-            recover_running=recover_running
-        )
+        try:
+            counters = await CatalogFetcher(settings, session).scrape_once(
+                recover_running=recover_running
+            )
+        except Exception as exc:
+            await session.rollback()
+            logger.warning("scrape_once_failed", error=exc.__class__.__name__)
+            raise
     logger.info("scrape_finished", **counters.__dict__)
 
 

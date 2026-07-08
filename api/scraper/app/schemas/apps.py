@@ -55,6 +55,7 @@ class LastScrapeRun(BaseModel):
     apps_discovered: int = Field(alias="appsDiscovered")
     apps_resolved: int = Field(alias="appsResolved")
     apps_failed: int = Field(alias="appsFailed")
+    apps_skipped: int = Field(default=0, alias="appsSkipped")
 
 
 class CatalogStatsResponse(BaseModel):
@@ -72,6 +73,11 @@ class DownloadOption(BaseModel):
     id: str
     filename: str | None = None
     extension: str | None = None
+    operating_system: str = Field(alias="operatingSystem")
+    architecture: str
+    version: str | None = None
+    is_latest: bool = Field(default=False, alias="isLatest")
+    version_status: str | None = Field(default=None, alias="versionStatus")
     source_label: str = Field(alias="sourceLabel")
     score: int
     final_domain: str | None = Field(default=None, alias="finalDomain")
