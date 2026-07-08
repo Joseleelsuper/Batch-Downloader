@@ -121,9 +121,12 @@ public class CatalogController {
     }
 
     @GetMapping("/apps/{appId}/download")
-    public ResponseEntity<?> download(@PathVariable String appId, HttpServletResponse servletResponse) throws Exception {
+    public ResponseEntity<?> download(
+            @PathVariable String appId,
+            @RequestParam(required = false) String optionId,
+            HttpServletResponse servletResponse) throws Exception {
         AppDetails app = catalog.details(appId);
-        return redirectToInstaller(app.slug());
+        return redirectToInstaller(app.slug(), optionId);
     }
 
     @PostMapping("/apps/downloads/zip")
@@ -206,9 +209,9 @@ public class CatalogController {
                 .body(body);
     }
 
-    private ResponseEntity<?> redirectToInstaller(String appId) throws Exception {
+    private ResponseEntity<?> redirectToInstaller(String appId, String optionId) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(scraperApiUrl + "/api/apps/" + encode(appId) + "/download"))
+                .uri(URI.create(scraperApiUrl + "/api/apps/" + encode(appId) + "/download" + optionQuery(optionId)))
                 .GET()
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -296,6 +299,12 @@ public class CatalogController {
 
     private String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private String optionQuery(String optionId) {
+        return optionId == null || optionId.isBlank()
+                ? ""
+                : "?optionId=" + encode(optionId);
     }
 
     private List<String> parseRepeatedAndCsv(List<String> repeated, String csv) {

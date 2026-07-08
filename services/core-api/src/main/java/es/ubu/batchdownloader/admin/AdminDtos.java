@@ -63,7 +63,50 @@ public class AdminDtos {
             String safeMetadata,
             LocalDateTime createdAt) {}
 
+    public record ScraperQueueItem(
+            String id,
+            String packageId,
+            String appName,
+            String status,
+            int attempts,
+            LocalDateTime updatedAt) {}
+
+    public record ScraperQueueState(
+            String queue,
+            long queued,
+            long inProgress,
+            long completed,
+            long discarded,
+            long failed,
+            List<ScraperQueueItem> items) {}
+
+    public record ScraperMetricItem(
+            int available,
+            int review,
+            int unavailable,
+            int queuedSearcherFilter,
+            int queuedFilterScraper,
+            LocalDateTime capturedAt) {}
+
+    public record ScraperSnapshotItem(
+            String stage,
+            String packageId,
+            String appName,
+            String url,
+            String html,
+            LocalDateTime capturedAt) {}
+
+    public record ScraperEvent(
+            String type,
+            String version,
+            List<ScraperQueueState> queues,
+            List<ScraperMetricItem> metrics,
+            List<ScraperSnapshotItem> snapshots,
+            LocalDateTime generatedAt) {}
+
     public record ScraperCommandRequest(@NotBlank String command) {}
+
+    public record ScraperQueueMaintenanceResult(String action, int affected) {}
 
     public record AdminAuditItem(
             String actor,

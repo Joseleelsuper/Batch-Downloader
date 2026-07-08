@@ -360,7 +360,7 @@ public class CatalogRepository {
                 tagsFor(app.dbId()),
                 app.iconUrl(),
                 app.officialUrl(),
-                source.originUrl() != null ? source.originUrl() : app.officialUrl(),
+                winstallAppUrl(app.winstallId()),
                 app.latestVersion(),
                 source.filename(),
                 source.extension() == null ? null : source.extension().replace(".", "").toUpperCase(Locale.ROOT),
@@ -397,12 +397,15 @@ public class CatalogRepository {
                 """
                 SELECT ds.id AS source_id, ds.initial_url, ds.resolution_status, ds.validation_status,
                        rs.id AS resolved_id, rs.filename, rs.extension, rs.content_type, rs.size_bytes,
-                       rs.final_domain, rs.score, rs.checked_at, rs.expires_at, rs.metadata_json
+                       rs.final_domain, rs.score, rs.checked_at, rs.expires_at, rs.metadata_json,
+                       rs.release_rank, rs.is_latest
                 FROM download_sources ds
                 LEFT JOIN resolved_sources rs ON rs.download_source_id = ds.id
                     AND rs.validation_status = 'valid'
                 WHERE ds.software_app_id = ?
-                ORDER BY (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
+                ORDER BY rs.is_latest DESC,
+                         COALESCE(rs.release_rank, 9999) ASC,
+                         (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
                          rs.score DESC, rs.checked_at DESC
                 LIMIT 1
                 """,
@@ -435,18 +438,27 @@ public class CatalogRepository {
     private List<DownloadOption> downloadOptions(UUID appId) {
         return jdbc.query(
                 """
-                SELECT rs.id, rs.filename, rs.extension, rs.final_domain, rs.score, rs.status, rs.metadata_json
+                SELECT rs.id, rs.filename, rs.extension, rs.final_domain, rs.score, rs.status, rs.metadata_json,
+                       ds.operating_system, ds.architecture, rs.version, rs.is_latest, rs.version_status,
+                       rs.release_rank
                 FROM download_sources ds
                 JOIN resolved_sources rs ON rs.download_source_id = ds.id
                 WHERE ds.software_app_id = ? AND rs.validation_status = 'valid'
-                ORDER BY (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
+                ORDER BY rs.is_latest DESC,
+                         COALESCE(rs.release_rank, 9999) ASC,
+                         (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
                          rs.score DESC, rs.checked_at DESC
-                LIMIT 5
+                LIMIT 50
                 """,
                 (rs, rowNum) -> new DownloadOption(
                         UuidBytes.toUuid(rs.getBytes("id")).toString(),
                         rs.getString("filename"),
                         rs.getString("extension"),
+                        rs.getString("operating_system"),
+                        rs.getString("architecture"),
+                        rs.getString("version"),
+                        rs.getBoolean("is_latest"),
+                        rs.getString("version_status"),
                         sourceLabel(rs.getString("status")),
                         rs.getInt("score"),
                         rs.getString("final_domain"),
@@ -561,6 +573,10 @@ public class CatalogRepository {
             return "Fallback Winstall";
         }
         return "No disponible";
+    }
+
+    private String winstallAppUrl(String winstallId) {
+        return "https://winstall.app/apps/" + winstallId;
     }
 
     private String notesFor(SourceSnapshot source) {
