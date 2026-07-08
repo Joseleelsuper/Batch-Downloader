@@ -29,6 +29,11 @@ const app: AppDetails = {
       id: 'primary',
       filename: 'GeoGebraGraphing.exe',
       extension: '.exe',
+      operatingSystem: 'windows',
+      architecture: 'x86_64',
+      version: '6.0.920',
+      isLatest: true,
+      versionStatus: 'latest',
       sourceLabel: 'Sitio oficial',
       score: 130,
       finalDomain: 'geogebra.org',
@@ -38,6 +43,11 @@ const app: AppDetails = {
       id: 'secondary',
       filename: 'GeoGebraSuite.exe',
       extension: '.exe',
+      operatingSystem: 'windows',
+      architecture: 'x86_64',
+      version: '6.0.910',
+      isLatest: false,
+      versionStatus: 'previous',
       sourceLabel: 'Sitio oficial',
       score: 80,
       finalDomain: 'geogebra.org',
@@ -55,7 +65,7 @@ describe('AppDetailsDrawer', () => {
     expect(screen.getByText(/permite crear graficas/)).toBeInTheDocument();
     expect(screen.getAllByText('GeoGebraGraphing.exe')).toHaveLength(2);
     expect(screen.getByText('GeoGebraSuite.exe')).toBeInTheDocument();
-    expect(screen.getByText(/Principal/)).toBeInTheDocument();
+    expect(screen.getByText(/130 - Última/)).toBeInTheDocument();
   });
 
   it('falls back to the short description when long description is missing', () => {

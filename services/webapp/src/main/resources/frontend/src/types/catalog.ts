@@ -56,6 +56,7 @@ export interface CatalogStats {
     appsDiscovered: number;
     appsResolved: number;
     appsFailed: number;
+    appsSkipped?: number;
   } | null;
   generatedAt: string;
 }
@@ -64,6 +65,11 @@ export interface DownloadOption {
   id: string;
   filename?: string | null;
   extension?: string | null;
+  operatingSystem: string;
+  architecture: string;
+  version?: string | null;
+  isLatest: boolean;
+  versionStatus?: string | null;
   sourceLabel: string;
   score: number;
   finalDomain?: string | null;
@@ -144,6 +150,57 @@ export interface ResolverLogItem {
   message?: string | null;
   safeMetadata?: string | null;
   createdAt: string;
+}
+
+export interface ScraperQueueItem {
+  id: string;
+  packageId: string;
+  appName?: string | null;
+  status: string;
+  attempts: number;
+  updatedAt: string;
+}
+
+export interface ScraperQueueState {
+  queue: string;
+  queued: number;
+  inProgress: number;
+  completed: number;
+  discarded: number;
+  failed: number;
+  items: ScraperQueueItem[];
+}
+
+export interface ScraperMetricItem {
+  available: number;
+  review: number;
+  unavailable: number;
+  queuedSearcherFilter: number;
+  queuedFilterScraper: number;
+  capturedAt: string;
+}
+
+export interface ScraperSnapshotItem {
+  stage: string;
+  packageId?: string | null;
+  appName?: string | null;
+  url?: string | null;
+  html?: string | null;
+  capturedAt: string;
+}
+
+export interface ScraperEvent {
+  type: 'scraper.changed';
+  version: string;
+  queues: ScraperQueueState[];
+  metrics: ScraperMetricItem[];
+  snapshots: ScraperSnapshotItem[];
+  generatedAt: string;
+}
+
+export interface ScraperQueueMaintenanceResult {
+  action: string;
+  affected: number;
 }
 
 export interface CatalogChangeEvent {

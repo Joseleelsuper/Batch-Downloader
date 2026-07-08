@@ -11,6 +11,8 @@
   PackagePlus,
   Play,
   Plus,
+  RefreshCw,
+  RotateCcw,
   Save,
   Shield,
   Square,
@@ -24,6 +26,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   connectCatalogEvents,
+  connectScraperEvents,
   createAdminApp,
   createAdminBundle,
   deleteAdminApp,
@@ -33,8 +36,11 @@ import {
   fetchAdminAudit,
   fetchAdminCurrentRun,
   fetchAdminLogs,
+  fetchAdminMetrics,
+  fetchAdminQueues,
   fetchAdminRequests,
   fetchAdminRuns,
+  fetchAdminSnapshots,
   fetchAppDetails,
   fetchApps,
   fetchBundle,
@@ -46,6 +52,9 @@ import {
   logout,
   me,
   patchAdminApp,
+  pruneTerminalScraperQueueItems,
+  recoverStuckScraperQueueItems,
+  retryFailedScraperQueueItems,
   sendScraperCommand,
   updateAdminBundle,
 } from './api/catalog';
@@ -78,7 +87,10 @@ import type {
   FacetItem,
   FilterKey,
   ResolverLogItem,
+  ScraperMetricItem,
+  ScraperQueueState,
   ScraperRunSummary,
+  ScraperSnapshotItem,
   SoftwareRequestItem,
   SortKey,
 } from './types/catalog';
@@ -1261,17 +1273,27 @@ function AdminScraperPage() {
   const [current, setCurrent] = useState<ScraperRunSummary | null>(null);
   const [runs, setRuns] = useState<ScraperRunSummary[]>([]);
   const [logs, setLogs] = useState<ResolverLogItem[]>([]);
+  const [queues, setQueues] = useState<ScraperQueueState[]>([]);
+  const [metrics, setMetrics] = useState<ScraperMetricItem[]>([]);
+  const [snapshots, setSnapshots] = useState<ScraperSnapshotItem[]>([]);
+  const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
   const [message, setMessage] = useState<string | null>(null);
 
   async function load() {
-    const [nextCurrent, nextRuns, nextLogs] = await Promise.all([
+    const [nextCurrent, nextRuns, nextLogs, nextQueues, nextMetrics, nextSnapshots] = await Promise.all([
       fetchAdminCurrentRun(),
       fetchAdminRuns(),
       fetchAdminLogs(),
+      fetchAdminQueues(),
+      fetchAdminMetrics(),
+      fetchAdminSnapshots(),
     ]);
     setCurrent(nextCurrent);
     setRuns(nextRuns);
     setLogs(nextLogs);
+    setQueues(nextQueues);
+    setMetrics(nextMetrics);
+    setSnapshots(nextSnapshots);
   }
 
   useEffect(() => {
@@ -1279,6 +1301,12 @@ function AdminScraperPage() {
     const timer = window.setInterval(() => void load(), 10000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => connectScraperEvents((event) => {
+    setQueues(event.queues);
+    setMetrics(event.metrics);
+    setSnapshots(event.snapshots);
+  }, setSocketState), []);
 
   async function command(value: 'pause' | 'resume' | 'stop' | 'run_once') {
     setMessage(null);
@@ -1288,6 +1316,21 @@ function AdminScraperPage() {
       await load();
     } catch {
       setMessage(t('admin.message.sendCommandError'));
+    }
+  }
+
+  async function maintainQueue(action: 'recover_stuck' | 'retry_failed' | 'prune_terminal') {
+    setMessage(null);
+    try {
+      const result = action === 'recover_stuck'
+        ? await recoverStuckScraperQueueItems()
+        : action === 'retry_failed'
+          ? await retryFailedScraperQueueItems()
+          : await pruneTerminalScraperQueueItems();
+      setMessage(t(`admin.message.queueMaintenance.${action}`, { count: result.affected }));
+      await load();
+    } catch {
+      setMessage(t('admin.message.queueMaintenanceError'));
     }
   }
 
@@ -1320,7 +1363,19 @@ function AdminScraperPage() {
         <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
         <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => command('run_once')}>{t('admin.scraper.runNow')}</button>
       </div>
+      <div className="button-row queue-maintenance-row">
+        <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
+        <button className="secondary-button" type="button" onClick={() => maintainQueue('retry_failed')}><RefreshCw size={16} />{t('admin.scraper.retryFailed')}</button>
+        <button className="secondary-button" type="button" onClick={() => maintainQueue('prune_terminal')}><Trash2 size={16} />{t('admin.scraper.pruneTerminal')}</button>
+      </div>
       {message ? <p className="form-message">{message}</p> : null}
+      <div className="scraper-live-line">
+        <span>{t('admin.scraper.liveState')}</span>
+        <strong>{socketState}</strong>
+      </div>
+      <ScraperQueues queues={queues} />
+      <ScraperMetricsChart metrics={metrics} />
+      <ScraperSnapshots snapshots={snapshots} />
       <div className="admin-grid-two">
         <AdminTable
           title={t('admin.scraper.runs')}
@@ -1343,6 +1398,114 @@ function AdminScraperPage() {
         />
       </div>
     </section>
+  );
+}
+
+function ScraperQueues({ queues }: Readonly<{ queues: ScraperQueueState[] }>) {
+  const searcherFilter = queues.find((queue) => queue.queue === 'searcher_filter');
+  const filterScraper = queues.find((queue) => queue.queue === 'filter_scraper');
+  return (
+    <div className="scraper-pipeline admin-card">
+      <PipelineStage title="Searcher" count={searcherFilter?.queued ?? 0} />
+      <QueueColumn title="Searcher -> Filter" queue={searcherFilter} />
+      <PipelineStage title="Filter" count={filterScraper?.queued ?? 0} />
+      <QueueColumn title="Filter -> Scraper" queue={filterScraper} />
+      <PipelineStage title="Scraper" count={filterScraper?.inProgress ?? 0} />
+    </div>
+  );
+}
+
+function PipelineStage({ title, count }: Readonly<{ title: string; count: number }>) {
+  return (
+    <div className="pipeline-stage">
+      <strong>{title}</strong>
+      <span>{count}</span>
+    </div>
+  );
+}
+
+function QueueColumn({ title, queue }: Readonly<{ title: string; queue?: ScraperQueueState }>) {
+  const items = queue?.items ?? [];
+  return (
+    <div className="pipeline-queue">
+      <div className="pipeline-queue-heading">
+        <strong>{title}</strong>
+        <span>{queue ? `${queue.queued}/${queue.inProgress}` : '0/0'}</span>
+      </div>
+      <div className="pipeline-queue-list">
+        {items.length ? items.slice(0, 5).map((item) => (
+          <span className={`pipeline-token pipeline-token-${item.status}`} key={item.id}>
+            {item.appName || item.packageId}
+          </span>
+        )) : <span className="pipeline-token">{t('admin.table.empty')}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ScraperMetricsChart({ metrics }: Readonly<{ metrics: ScraperMetricItem[] }>) {
+  const width = 720;
+  const height = 190;
+  const maxValue = Math.max(1, ...metrics.flatMap((item) => [item.available, item.review, item.unavailable]));
+  return (
+    <div className="admin-card scraper-chart-card">
+      <div className="scraper-section-heading">
+        <h3>{t('admin.scraper.metrics')}</h3>
+      </div>
+      {metrics.length ? (
+        <svg className="scraper-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('admin.scraper.metrics')}>
+          <polyline points={metricPoints(metrics, 'available', width, height, maxValue)} className="metric-line metric-line-available" />
+          <polyline points={metricPoints(metrics, 'review', width, height, maxValue)} className="metric-line metric-line-review" />
+          <polyline points={metricPoints(metrics, 'unavailable', width, height, maxValue)} className="metric-line metric-line-unavailable" />
+        </svg>
+      ) : <p className="empty-state">{t('admin.table.empty')}</p>}
+      <div className="metric-legend">
+        <span className="legend-available">{t('catalog.filter.available')}</span>
+        <span className="legend-review">{t('catalog.filter.review')}</span>
+        <span className="legend-unavailable">{t('catalog.filter.missing')}</span>
+      </div>
+    </div>
+  );
+}
+
+function ScraperSnapshots({ snapshots }: Readonly<{ snapshots: ScraperSnapshotItem[] }>) {
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  const selected = snapshots.find((snapshot) => snapshot.stage === selectedStage) ?? snapshots[0];
+  useEffect(() => {
+    if (!selectedStage && snapshots[0]) setSelectedStage(snapshots[0].stage);
+  }, [selectedStage, snapshots]);
+  return (
+    <div className="admin-card scraper-snapshot-card">
+      <div className="scraper-section-heading">
+        <h3>{t('admin.scraper.snapshot')}</h3>
+        <div className="snapshot-tabs">
+          {snapshots.map((snapshot) => (
+            <button
+              className={snapshot.stage === selected?.stage ? 'snapshot-tab-active' : ''}
+              key={snapshot.stage}
+              onClick={() => setSelectedStage(snapshot.stage)}
+              type="button"
+            >
+              {snapshot.stage}
+            </button>
+          ))}
+        </div>
+      </div>
+      {selected ? (
+        <>
+          <div className="snapshot-meta">
+            <span>{selected.appName || selected.packageId || '-'}</span>
+            <span>{selected.url || '-'}</span>
+          </div>
+          <iframe
+            className="snapshot-frame"
+            sandbox=""
+            srcDoc={selected.html || `<p>${t('admin.scraper.snapshotEmpty')}</p>`}
+            title={t('admin.scraper.snapshot')}
+          />
+        </>
+      ) : <p className="empty-state">{t('admin.table.empty')}</p>}
+    </div>
   );
 }
 
@@ -1398,6 +1561,22 @@ function formatScrapeProgress(run: ScraperRunSummary): string {
     t('admin.scraper.progress.failed', { count: run.appsFailed }),
     t('admin.scraper.progress.skipped', { count: run.appsSkipped }),
   ].join(' · ');
+}
+
+function metricPoints(
+  metrics: ScraperMetricItem[],
+  key: 'available' | 'review' | 'unavailable',
+  width: number,
+  height: number,
+  maxValue: number,
+): string {
+  if (!metrics.length) return '';
+  const xStep = metrics.length === 1 ? 0 : width / (metrics.length - 1);
+  return metrics.map((item, index) => {
+    const x = Math.round(index * xStep);
+    const y = Math.round(height - (item[key] / maxValue) * (height - 24) - 12);
+    return `${x},${y}`;
+  }).join(' ');
 }
 
 function scraperControlState(current: ScraperRunSummary | null) {

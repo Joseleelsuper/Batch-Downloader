@@ -10,7 +10,12 @@ import type {
   CatalogStats,
   FilterKey,
   ResolverLogItem,
+  ScraperEvent,
+  ScraperMetricItem,
+  ScraperQueueMaintenanceResult,
+  ScraperQueueState,
   ScraperRunSummary,
+  ScraperSnapshotItem,
   SoftwareRequestItem,
   SortKey,
 } from '../types/catalog';
@@ -87,8 +92,9 @@ export async function fetchAppDetails(appId: string): Promise<AppDetails> {
   return requestJson<AppDetails>(`/api/apps/${encodeURIComponent(appId)}`);
 }
 
-export function downloadUrl(appId: string): string {
-  return `${API_BASE}/api/apps/${encodeURIComponent(appId)}/download`;
+export function downloadUrl(appId: string, optionId?: string): string {
+  const query = optionId ? `?optionId=${encodeURIComponent(optionId)}` : '';
+  return `${API_BASE}/api/apps/${encodeURIComponent(appId)}/download${query}`;
 }
 
 export async function downloadSelectedApps(appIds: string[]): Promise<void> {
@@ -115,6 +121,13 @@ export async function downloadSelectedApps(appIds: string[]): Promise<void> {
 export function catalogWebSocketUrl(): string {
   const base = API_BASE || window.location.origin;
   const url = new URL('/api/catalog/ws', base);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
+
+export function scraperWebSocketUrl(): string {
+  const base = API_BASE || window.location.origin;
+  const url = new URL('/api/admin/scraper/ws', base);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
@@ -259,6 +272,77 @@ export async function fetchAdminCurrentRun(): Promise<ScraperRunSummary | null> 
 
 export async function fetchAdminLogs(): Promise<ResolverLogItem[]> {
   return requestJson<ResolverLogItem[]>('/api/admin/scraper/logs');
+}
+
+export async function fetchAdminQueues(): Promise<ScraperQueueState[]> {
+  return requestJson<ScraperQueueState[]>('/api/admin/scraper/queues');
+}
+
+export async function fetchAdminMetrics(): Promise<ScraperMetricItem[]> {
+  return requestJson<ScraperMetricItem[]>('/api/admin/scraper/metrics');
+}
+
+export async function fetchAdminSnapshots(): Promise<ScraperSnapshotItem[]> {
+  return requestJson<ScraperSnapshotItem[]>('/api/admin/scraper/snapshots');
+}
+
+export async function recoverStuckScraperQueueItems(): Promise<ScraperQueueMaintenanceResult> {
+  return requestJson<ScraperQueueMaintenanceResult>(
+    '/api/admin/scraper/queues/recover-stuck',
+    { method: 'POST' },
+  );
+}
+
+export async function retryFailedScraperQueueItems(): Promise<ScraperQueueMaintenanceResult> {
+  return requestJson<ScraperQueueMaintenanceResult>(
+    '/api/admin/scraper/queues/retry-failed',
+    { method: 'POST' },
+  );
+}
+
+export async function pruneTerminalScraperQueueItems(): Promise<ScraperQueueMaintenanceResult> {
+  return requestJson<ScraperQueueMaintenanceResult>(
+    '/api/admin/scraper/queues/prune-terminal',
+    { method: 'POST' },
+  );
+}
+
+export function connectScraperEvents(onEvent: (event: ScraperEvent) => void, onState?: (state: 'live' | 'reconnecting' | 'offline') => void): () => void {
+  let socket: WebSocket | null = null;
+  let stopped = false;
+  let reconnectTimer: number | undefined;
+
+  function connect() {
+    if (stopped) return;
+    onState?.('reconnecting');
+    socket = new WebSocket(scraperWebSocketUrl());
+    socket.addEventListener('open', () => onState?.('live'));
+    socket.addEventListener('message', (event) => {
+      try {
+        const payload = JSON.parse(event.data) as ScraperEvent;
+        if (payload.type === 'scraper.changed') onEvent(payload);
+      } catch {
+        // Ignore non-scraper messages.
+      }
+    });
+    socket.addEventListener('close', () => {
+      if (stopped) return;
+      onState?.('offline');
+      reconnectTimer = window.setTimeout(connect, 2500);
+    });
+    socket.addEventListener('error', () => {
+      onState?.('offline');
+      socket?.close();
+    });
+  }
+
+  connect();
+
+  return () => {
+    stopped = true;
+    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    socket?.close();
+  };
 }
 
 export async function sendScraperCommand(command: 'pause' | 'resume' | 'stop' | 'run_once'): Promise<void> {

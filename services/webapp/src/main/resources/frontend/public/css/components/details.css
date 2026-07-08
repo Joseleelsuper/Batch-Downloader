@@ -110,9 +110,16 @@
   gap: 3px;
   min-width: 0;
   padding: 9px 10px;
+  color: #344052;
+  text-align: left;
   background: #f8fbfc;
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+.download-option-selected {
+  border-color: var(--teal);
+  box-shadow: inset 3px 0 0 var(--teal);
 }
 
 .download-option span,
@@ -125,6 +132,21 @@
 .download-option small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.download-selected-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 42px;
+  margin-top: 14px;
+  padding: 0 14px;
+  color: #ffffff;
+  background: var(--teal);
+  border: 1px solid var(--teal-dark);
+  border-radius: 6px;
+  font-weight: 720;
 }
 
 .confidence {

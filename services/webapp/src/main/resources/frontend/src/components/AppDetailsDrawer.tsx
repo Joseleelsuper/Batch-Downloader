@@ -1,7 +1,8 @@
-import { Copy, ExternalLink, ShieldCheck, X } from 'lucide-react';
+import { Copy, Download, ExternalLink, ShieldCheck, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AppDetails, DownloadOption } from '../types/catalog';
+import { downloadUrl } from '../api/catalog';
 import { t } from '../services/i18n';
 import { AppStatusBadge } from './AppStatusBadge';
 
@@ -24,12 +25,28 @@ interface Props {
  */
 export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
   const [copied, setCopied] = useState(false);
+  const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
+
+  const selectedOption = useMemo(() => {
+    const options = app?.downloadOptions ?? [];
+    return options.find((option) => option.id === selectedOptionId) ?? preferredOption(options);
+  }, [app?.downloadOptions, selectedOptionId]);
+
+  useEffect(() => {
+    setSelectedOptionId(preferredOption(app?.downloadOptions ?? [])?.id ?? null);
+  }, [app?.id, app?.downloadOptions]);
 
   async function copyInstallerName() {
-    if (!app?.installerFilename) return;
-    await navigator.clipboard.writeText(app.installerFilename);
+    const filename = selectedOption?.filename ?? app?.installerFilename;
+    if (!filename) return;
+    await navigator.clipboard.writeText(filename);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  function downloadSelected() {
+    if (!app || !selectedOption) return;
+    window.location.assign(downloadUrl(app.slug, selectedOption.id));
   }
 
   return (
@@ -68,8 +85,8 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
             )}
           </DetailBlock>
           <DetailBlock label={t('app.details.installer')}>
-            <span>{app.installerFilename ?? '-'}</span>
-            {app.installerFilename ? (
+            <span>{selectedOption?.filename ?? app.installerFilename ?? '-'}</span>
+            {selectedOption?.filename || app.installerFilename ? (
               <button
                 className="icon-action"
                 onClick={copyInstallerName}
@@ -82,7 +99,9 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
             ) : null}
           </DetailBlock>
           {copied ? <p className="copy-feedback">{t('app.details.copied')}</p> : null}
-          <DetailBlock label={t('app.details.type')}>{app.installerType ?? '-'}</DetailBlock>
+          <DetailBlock label={t('app.details.type')}>
+            {selectedOption ? platformLabel(selectedOption) : app.installerType ?? '-'}
+          </DetailBlock>
           <DetailBlock label={t('app.details.confidence')}>
             <span className="confidence">
               <ShieldCheck size={20} />
@@ -92,16 +111,26 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
           <DetailBlock label={t('app.details.status')}>
             <AppStatusBadge status={app.resolutionStatus} />
           </DetailBlock>
-          <DetailBlock label={t('app.details.version')}>{app.latestVersion ?? '-'}</DetailBlock>
+          <DetailBlock label={t('app.details.version')}>{selectedOption?.version ?? app.latestVersion ?? '-'}</DetailBlock>
           <DetailBlock label={t('app.details.updated')}>
             {app.checkedAt ? formatDate(app.checkedAt) : '-'}
           </DetailBlock>
           <DetailBlock label={t('app.details.size')}>{formatSize(app.sizeBytes)}</DetailBlock>
           <DetailBlock label={t('app.details.source')}>{app.sourceLabel}</DetailBlock>
-          {app.downloadOptions && app.downloadOptions.length > 1 ? (
+          {app.downloadOptions && app.downloadOptions.length ? (
             <DetailBlock label={t('app.details.installersDetected')}>
-              <DownloadOptions options={app.downloadOptions} />
+              <DownloadOptions
+                options={app.downloadOptions}
+                selectedOptionId={selectedOption?.id}
+                onSelect={setSelectedOptionId}
+              />
             </DetailBlock>
+          ) : null}
+          {selectedOption ? (
+            <button className="download-selected-button" type="button" onClick={downloadSelected}>
+              <Download size={18} />
+              {t('app.details.downloadSelected')}
+            </button>
           ) : null}
           <DetailBlock label={t('app.details.notes')}>{app.notes}</DetailBlock>
           {app.originUrl ? (
@@ -122,18 +151,30 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
   );
 }
 
-function DownloadOptions({ options }: Readonly<{ options: DownloadOption[] }>) {
+function DownloadOptions({
+  options,
+  selectedOptionId,
+  onSelect,
+}: Readonly<{
+  options: DownloadOption[];
+  selectedOptionId?: string;
+  onSelect: (id: string) => void;
+}>) {
   return (
     <div className="download-options">
       {options.map((option) => (
-        <div className="download-option" key={option.id}>
+        <button
+          className={`download-option ${option.id === selectedOptionId ? 'download-option-selected' : ''}`}
+          key={option.id}
+          onClick={() => onSelect(option.id)}
+          type="button"
+        >
           <span>{option.filename ?? option.finalDomain ?? '-'}</span>
           <small>
-            {option.extension?.toUpperCase().replace('.', '') ?? '-'} - {option.sourceLabel} -{' '}
-            {option.score}
-            {option.isPrimary ? ` - ${t('app.details.primaryInstaller')}` : ''}
+            {platformLabel(option)} - {option.sourceLabel} - {option.score}
+            {option.isLatest ? ` - ${t('app.details.latestInstaller')}` : ''}
           </small>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -178,4 +219,28 @@ function formatSize(value?: number | null): string {
   return `${(value / 1024 / 1024).toLocaleString('es-ES', {
     maximumFractionDigits: 1,
   })} MB`;
+}
+
+function preferredOption(options: DownloadOption[]): DownloadOption | undefined {
+  if (!options.length) return undefined;
+  const os = detectedOperatingSystem();
+  return (
+    options.find((option) => option.operatingSystem === os && option.isLatest) ??
+    options.find((option) => option.operatingSystem === os) ??
+    options.find((option) => option.isPrimary) ??
+    options[0]
+  );
+}
+
+function detectedOperatingSystem(): string {
+  const text = `${navigator.platform} ${navigator.userAgent}`.toLowerCase();
+  if (text.includes('mac')) return 'macos';
+  if (text.includes('linux')) return 'linux';
+  return 'windows';
+}
+
+function platformLabel(option: DownloadOption): string {
+  const os = option.operatingSystem === 'macos' ? 'macOS' : option.operatingSystem;
+  const extension = option.extension?.toUpperCase().replace('.', '') ?? '-';
+  return `${os} · ${option.architecture} · ${option.version ?? '-'} · ${extension}`;
 }
