@@ -1,0 +1,384 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
+
+from selectolax.parser import HTMLParser
+
+from app.scraper.text import normalize_text
+
+PREFERRED_EXTENSIONS = (
+    ".exe",
+    ".msi",
+    ".msix",
+    ".appx",
+    ".zip",
+    ".deb",
+    ".rpm",
+    ".appimage",
+    ".dmg",
+    ".pkg",
+    ".tar.gz",
+    ".jar",
+)
+
+WINDOWS_INSTALLER_EXTENSIONS = (".exe", ".msi", ".msix", ".appx")
+MACOS_INSTALLER_EXTENSIONS = (".dmg", ".pkg")
+LINUX_INSTALLER_EXTENSIONS = (".deb", ".rpm", ".appimage", ".tar.gz", ".jar")
+
+POSITIVE_KEYWORDS = (
+    "download",
+    "descargar",
+    "installer",
+    "instalador",
+    "setup",
+    "install",
+    "windows",
+    "win64",
+    "x64",
+    "offline",
+    "standalone",
+)
+
+NEGATIVE_KEYWORDS = (
+    "documentation",
+    "docs",
+    "release-notes",
+    "source",
+    "checksum",
+    "signature",
+    "torrent",
+    "beta",
+    "portable",
+    "uninstall",
+)
+
+URL_PATTERN = re.compile(
+    r"https?://[^\s'\"<>\\]+|(?:(?:\.\./|\.\/|/)?[A-Za-z0-9._~!$&'()*+,;=:@%/-]+"
+    r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.appimage|\.dmg|\.pkg|\.tar\.gz|\.jar)(?:\?[^\s'\"<>\\]*)?)",
+    re.IGNORECASE,
+)
+
+VERSION_PATTERN = re.compile(r"(?<!\d)v?(\d+(?:\.\d+){1,4})", re.I)
+
+
+@dataclass(frozen=True)
+class InstallerCandidate:
+    url: str
+    source: str
+    label: str | None = None
+    context: str | None = None
+    score: int = 0
+    asset_kind: str | None = None
+    match_tokens: tuple[str, ...] = ()
+
+    @property
+    def extension(self) -> str | None:
+        return detect_extension(self.url)
+
+
+def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
+    parser = HTMLParser(html)
+    candidates: list[InstallerCandidate] = []
+
+    for node in parser.css("a, area"):
+        href = node.attributes.get("href")
+        if href:
+            candidates.append(
+                InstallerCandidate(
+                    url=urljoin(base_url, href),
+                    source="href",
+                    label=node.text(separator=" ", strip=True),
+                    context=node.html[:500],
+                )
+            )
+
+    for node in parser.css("form"):
+        action = node.attributes.get("action")
+        if action:
+            candidates.append(
+                InstallerCandidate(
+                    url=urljoin(base_url, action),
+                    source="form",
+                    label=node.attributes.get("aria-label") or node.text(separator=" ", strip=True),
+                    context=node.html[:500],
+                )
+            )
+
+    for node in parser.css("button, [role=button]"):
+        values = " ".join(
+            value for value in node.attributes.values() if isinstance(value, str)
+        )
+        text = f"{node.text(separator=' ', strip=True)} {values}"
+        for match in URL_PATTERN.findall(text):
+            candidates.append(
+                InstallerCandidate(
+                    url=urljoin(base_url, match),
+                    source="button",
+                    label=node.text(separator=" ", strip=True),
+                    context=node.html[:500],
+                )
+            )
+
+    for node in parser.css("script, meta"):
+        content = node.text() if node.tag == "script" else node.attributes.get("content", "")
+        for match in URL_PATTERN.findall(content or ""):
+            candidates.append(
+                InstallerCandidate(url=urljoin(base_url, match), source=node.tag, context=match)
+            )
+
+    deduped: dict[str, InstallerCandidate] = {}
+    for candidate in candidates:
+        normalized_url = candidate.url.strip()
+        if normalized_url and normalized_url not in deduped:
+            deduped[normalized_url] = candidate
+    return list(deduped.values())
+
+
+def score_candidate(
+    candidate: InstallerCandidate,
+    allowed_domains: set[str],
+    preferred_os: str = "windows",
+    preferred_architecture: str = "x86_64",
+    app_name: str | None = None,
+    package_id: str | None = None,
+    publisher: str | None = None,
+    version: str | None = None,
+) -> InstallerCandidate:
+    text = normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
+    score = 0
+    extension = detect_extension(candidate.url)
+    asset_kind = (
+        "source_archive"
+        if is_github_source_archive(candidate.url)
+        else candidate.asset_kind or classify_asset(candidate.url)
+    )
+    if asset_kind == "source_archive":
+        score -= 150
+    if extension in WINDOWS_INSTALLER_EXTENSIONS:
+        score += 70
+    elif extension == ".zip":
+        score += 25
+    elif extension in PREFERRED_EXTENSIONS:
+        score += 50
+    if extension in WINDOWS_INSTALLER_EXTENSIONS and preferred_os == "windows":
+        score += 20
+    if extension in MACOS_INSTALLER_EXTENSIONS and preferred_os in {"macos", "darwin"}:
+        score += 20
+    if extension in LINUX_INSTALLER_EXTENSIONS and preferred_os == "linux":
+        score += 20
+    if extension == ".zip" and registered_domain(candidate.url) == "github.com":
+        score += 10 if is_github_release_asset(candidate.url) else -90
+    if extension in {".dmg", ".pkg"} and preferred_os == "windows":
+        score -= 35
+    if extension in {".deb", ".rpm"} and preferred_os == "windows":
+        score -= 30
+    if preferred_architecture in {"x86_64", "amd64"} and any(
+        keyword in text for keyword in ("x64", "x86_64", "amd64", "64-bit", "64bit")
+    ):
+        score += 15
+    for keyword in POSITIVE_KEYWORDS:
+        if keyword in text:
+            score += 8 if keyword not in {"download", "descargar"} else 20
+    for keyword in NEGATIVE_KEYWORDS:
+        if keyword in text:
+            score -= 50
+    domain = registered_domain(candidate.url)
+    if domain and domain in allowed_domains:
+        score += 30
+    match_tokens = app_match_tokens(
+        text=text,
+        app_name=app_name,
+        package_id=package_id,
+        publisher=publisher,
+        version=version,
+    )
+    score += len(match_tokens) * 12
+    score += variant_score(text=text, app_name=app_name, package_id=package_id)
+    return InstallerCandidate(
+        url=candidate.url,
+        source=candidate.source,
+        label=candidate.label,
+        context=candidate.context,
+        score=score,
+        asset_kind=asset_kind,
+        match_tokens=tuple(match_tokens),
+    )
+
+
+def classify_asset(url: str) -> str:
+    if is_github_source_archive(url):
+        return "source_archive"
+    if is_github_release_asset(url) and detect_extension(url) == ".zip":
+        return "release_zip"
+    if detect_extension(url) in WINDOWS_INSTALLER_EXTENSIONS:
+        return "installer"
+    if detect_extension(url) in MACOS_INSTALLER_EXTENSIONS:
+        return "installer"
+    if detect_extension(url) in LINUX_INSTALLER_EXTENSIONS:
+        return "installer"
+    if detect_extension(url) in PREFERRED_EXTENSIONS:
+        return "archive"
+    return "unknown"
+
+
+def is_github_source_archive(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if host == "codeload.github.com":
+        return True
+    if host.endswith("github.com") and any(
+        marker in path for marker in ("/archive/", "/zipball/", "/tarball/", "/refs/heads/")
+    ):
+        return True
+    filename = PurePosixPath(path).name
+    return host.endswith("github.com") and filename in {"main.zip", "master.zip"}
+
+
+def is_github_release_asset(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.netloc.lower().endswith("github.com") and "/releases/download/" in parsed.path.lower()
+
+
+def app_match_tokens(
+    text: str,
+    app_name: str | None,
+    package_id: str | None,
+    publisher: str | None,
+    version: str | None,
+) -> list[str]:
+    raw = " ".join(value for value in (app_name, package_id, publisher, version) if value)
+    tokens = product_tokens(raw)
+    return [token for token in tokens if token in text]
+
+
+def product_tokens(value: str) -> list[str]:
+    normalized = normalize_text(value.replace(".", " ").replace("_", " ").replace("-", " "))
+    stopwords = {
+        "app",
+        "application",
+        "desktop",
+        "for",
+        "inc",
+        "installer",
+        "launcher",
+        "llc",
+        "software",
+        "windows",
+    }
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+", normalized)
+        if len(token) >= 3 and token not in stopwords
+    ]
+    return list(dict.fromkeys(tokens))
+
+
+def variant_score(text: str, app_name: str | None, package_id: str | None) -> int:
+    app_text = normalize_text(f"{app_name or ''} {package_id or ''}")
+    score = 0
+    variants = {
+        "graphing": ("graphing",),
+        "geometry": ("geometry",),
+        "cas": ("cas",),
+        "suite": ("suite", "win-suite", "calculator-suite"),
+        "classic": ("classic",),
+    }
+    for variant, aliases in variants.items():
+        app_wants_variant = variant in app_text or (
+            variant == "suite" and "calculator suite" in app_text
+        )
+        candidate_has_variant = any(alias in text for alias in aliases)
+        if app_wants_variant and candidate_has_variant:
+            score += 35
+        elif not app_wants_variant and candidate_has_variant:
+            score -= 25
+    return score
+
+
+def detect_extension(url: str) -> str | None:
+    parsed = urlparse(url)
+    path = unquote(parsed.path).lower()
+    if path.endswith(".tar.gz"):
+        return ".tar.gz"
+    suffix = PurePosixPath(path).suffix
+    if suffix in PREFERRED_EXTENSIONS:
+        return suffix
+    query = parse_qs(parsed.query)
+    for values in query.values():
+        for value in values:
+            nested = detect_extension(value)
+            if nested:
+                return nested
+    return None
+
+
+def filename_from_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    name = PurePosixPath(unquote(parsed.path)).name
+    if name and "." in name:
+        return name[:255]
+    query = parse_qs(parsed.query)
+    for key in ("filename", "file", "download", "installer"):
+        for value in query.get(key, []):
+            name = PurePosixPath(unquote(value)).name
+            if name and "." in name:
+                return name[:255]
+    return None
+
+
+def candidate_text(candidate: InstallerCandidate) -> str:
+    return normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
+
+
+def infer_operating_system(candidate: InstallerCandidate) -> str | None:
+    extension = candidate.extension
+    text = candidate_text(candidate)
+    if extension in WINDOWS_INSTALLER_EXTENSIONS:
+        return "windows"
+    if extension in MACOS_INSTALLER_EXTENSIONS:
+        return "macos"
+    if extension in {".deb", ".rpm", ".appimage", ".tar.gz"}:
+        return "linux"
+    if extension == ".jar":
+        if any(token in text for token in ("linux", "ubuntu", "debian", "fedora")):
+            return "linux"
+        return "linux"
+    if any(token in text for token in ("windows", "win64", "win32", "x64.exe")):
+        return "windows"
+    if any(token in text for token in ("macos", "mac os", "darwin", "dmg", "apple silicon")):
+        return "macos"
+    if any(token in text for token in ("linux", "ubuntu", "debian", "fedora", "appimage")):
+        return "linux"
+    return None
+
+
+def infer_architecture(candidate: InstallerCandidate) -> str:
+    text = candidate_text(candidate)
+    if any(token in text for token in ("aarch64", "arm64", "apple silicon", "m1", "m2", "m3")):
+        return "aarch64"
+    if any(token in text for token in ("x86_64", "amd64", "x64", "win64", "64-bit", "64bit")):
+        return "x86_64"
+    if any(token in text for token in ("i386", "i686", "x86", "win32", "32-bit", "32bit")):
+        return "x86"
+    return "x86_64"
+
+
+def extract_version(candidate: InstallerCandidate) -> str | None:
+    raw = " ".join(value for value in (candidate.url, candidate.label, candidate.context) if value)
+    matches = VERSION_PATTERN.findall(raw)
+    if not matches:
+        return None
+    return matches[-1]
+
+
+def registered_domain(url: str) -> str | None:
+    import tldextract
+
+    extracted = tldextract.extract(url)
+    if not extracted.domain or not extracted.suffix:
+        return None
+    return f"{extracted.domain}.{extracted.suffix}".lower()

@@ -1,0 +1,1 @@
+"""Semantic service placeholder API."""

@@ -1,0 +1,434 @@
+from __future__ import annotations
+
+import uuid
+
+import httpx
+
+from app.core.config import Settings
+from app.db.enums import ResolutionStatus, ValidationStatus
+from app.db.models import DownloadSource
+from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.logs import ResolverLogRepository
+from app.scraper.candidates import (
+    InstallerCandidate,
+    extract_candidates,
+    is_github_release_asset,
+    registered_domain,
+    score_candidate,
+)
+from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.playwright_fallback import PlaywrightCandidateCollector
+from app.scraper.validator import DownloadValidator, ValidationResult
+from app.scraper.winstall import WinstallApp, WinstallClient
+
+
+class InstallerResolver:
+    def __init__(
+        self,
+        settings: Settings,
+        catalog: CatalogRepository,
+        logs: ResolverLogRepository,
+        validator: DownloadValidator,
+    ) -> None:
+        self.settings = settings
+        self.catalog = catalog
+        self.logs = logs
+        self.validator = validator
+        self.playwright = PlaywrightCandidateCollector(settings)
+        self.github = GitHubReleaseResolver(settings)
+
+    async def resolve(self, source: DownloadSource, app: WinstallApp) -> ResolutionStatus:
+        allowed_domains = {domain.domain for domain in source.allowed_domains}
+        official_url = source.initial_url or app.homepage
+        await self.catalog.expire_valid_resolved_sources(source.id)
+
+        if official_url:
+            if parse_github_repo(official_url):
+                github_status = await self._resolve_github_releases(
+                    source.id,
+                    official_url,
+                    allowed_domains,
+                    app,
+                )
+                if github_status == ResolutionStatus.DIRECT:
+                    return github_status
+            else:
+                direct_status = await self._resolve_official_page(
+                    source.id,
+                    official_url,
+                    allowed_domains,
+                    app,
+                )
+                if direct_status == ResolutionStatus.DIRECT:
+                    return direct_status
+
+        fallback_status = await self._resolve_winstall_fallback(source.id, app, allowed_domains)
+        if fallback_status == ResolutionStatus.FALLBACK:
+            return fallback_status
+
+        final_status = ResolutionStatus.REQUIRES_MANUAL_REVIEW if official_url else ResolutionStatus.MISSING
+        await self.catalog.mark_source_status(source.id, final_status, ValidationStatus.UNCHECKED)
+        await self.logs.add(
+            phase="resolve",
+            status=final_status.value,
+            download_source_id=source.id,
+            message="No safe installer candidate was found.",
+            safe_metadata={"winstall_id": app.package_id},
+        )
+        return final_status
+
+    async def _resolve_official_page(
+        self,
+        source_id: uuid.UUID,
+        official_url: str,
+        allowed_domains: set[str],
+        app: WinstallApp,
+    ) -> ResolutionStatus:
+        try:
+            html = await self._fetch_html(official_url)
+        except Exception as exc:
+            await self.logs.add(
+                phase="official_http",
+                status="failed",
+                download_source_id=source_id,
+                message=exc.__class__.__name__,
+            )
+            html = None
+
+        candidates: list[InstallerCandidate] = []
+        if html:
+            candidates.extend(extract_candidates(html, official_url))
+            await self.logs.add(
+                phase="official_http",
+                status="candidates",
+                download_source_id=source_id,
+                safe_metadata={"count": len(candidates)},
+            )
+
+        valid = await self._validate_candidates(
+            source_id=source_id,
+            candidates=candidates,
+            allowed_domains=allowed_domains,
+            status=ResolutionStatus.DIRECT,
+            app=app,
+        )
+        if valid:
+            return ResolutionStatus.DIRECT
+
+        try:
+            playwright_candidates = await self.playwright.collect(official_url)
+        except Exception as exc:
+            await self.logs.add(
+                phase="official_playwright",
+                status="failed",
+                download_source_id=source_id,
+                message=exc.__class__.__name__,
+                safe_metadata={"domain": registered_domain(official_url)},
+            )
+            playwright_candidates = []
+        if playwright_candidates:
+            await self.logs.add(
+                phase="official_playwright",
+                status="candidates",
+                download_source_id=source_id,
+                safe_metadata={"count": len(playwright_candidates)},
+            )
+            valid = await self._validate_candidates(
+                source_id=source_id,
+                candidates=playwright_candidates,
+                allowed_domains=allowed_domains,
+                status=ResolutionStatus.DIRECT,
+                app=app,
+            )
+            if valid:
+                return ResolutionStatus.DIRECT
+
+        return ResolutionStatus.REQUIRES_MANUAL_REVIEW
+
+    async def _resolve_github_releases(
+        self,
+        source_id: uuid.UUID,
+        official_url: str,
+        allowed_domains: set[str],
+        app: WinstallApp,
+    ) -> ResolutionStatus:
+        if not parse_github_repo(official_url):
+            return ResolutionStatus.REQUIRES_MANUAL_REVIEW
+
+        try:
+            candidates = await self.github.collect(official_url)
+        except Exception as exc:
+            await self.logs.add(
+                phase="github_releases",
+                status="failed",
+                download_source_id=source_id,
+                message=exc.__class__.__name__,
+            )
+            return ResolutionStatus.REQUIRES_MANUAL_REVIEW
+
+        if candidates:
+            await self.logs.add(
+                phase="github_releases",
+                status="candidates",
+                download_source_id=source_id,
+                safe_metadata={"count": len(candidates)},
+            )
+        valid = await self._validate_candidates(
+            source_id=source_id,
+            candidates=candidates,
+            allowed_domains=allowed_domains | {"github.com", "githubusercontent.com"},
+            status=ResolutionStatus.DIRECT,
+            app=app,
+        )
+        return ResolutionStatus.DIRECT if valid else ResolutionStatus.REQUIRES_MANUAL_REVIEW
+
+    async def _resolve_winstall_fallback(
+        self,
+        source_id: uuid.UUID,
+        app: WinstallApp,
+        allowed_domains: set[str],
+    ) -> ResolutionStatus:
+        fallback_candidates = []
+        for version in app.versions:
+            for url in version.installers:
+                fallback_candidates.append(
+                    InstallerCandidate(
+                        url=url,
+                        source="winstall_api",
+                        label=f"{app.name} {version.installer_type or ''}".strip(),
+                        context=version.version,
+                        asset_kind="winstall_download",
+                    )
+                )
+
+        try:
+            async with WinstallClient(self.settings) as winstall:
+                page_downloads = await winstall.get_downloads(app.package_id)
+        except Exception as exc:
+            await self.logs.add(
+                phase="winstall_page",
+                status="failed",
+                download_source_id=source_id,
+                message=exc.__class__.__name__,
+                safe_metadata={"winstall_id": app.package_id},
+            )
+            page_downloads = []
+
+        for download in page_downloads:
+            fallback_candidates.append(
+                InstallerCandidate(
+                    url=download.url,
+                    source="winstall_page",
+                    label=download.label or app.name,
+                    context=download.context,
+                    asset_kind="winstall_download",
+                )
+            )
+
+        fallback_candidates.extend(
+            await self._latest_github_candidates_from_winstall(
+                source_id,
+                fallback_candidates,
+            )
+        )
+
+        fallback_allowed = set(allowed_domains)
+        for candidate in fallback_candidates:
+            domain = registered_domain(candidate.url)
+            if domain:
+                fallback_allowed.add(domain)
+            if is_github_release_asset(candidate.url):
+                fallback_allowed.add("githubusercontent.com")
+
+        valid = await self._validate_candidates(
+            source_id=source_id,
+            candidates=fallback_candidates,
+            allowed_domains=fallback_allowed,
+            status=ResolutionStatus.FALLBACK,
+            app=app,
+        )
+        return ResolutionStatus.FALLBACK if valid else ResolutionStatus.REQUIRES_MANUAL_REVIEW
+
+    async def _latest_github_candidates_from_winstall(
+        self,
+        source_id: uuid.UUID,
+        candidates: list[InstallerCandidate],
+    ) -> list[InstallerCandidate]:
+        repos = {}
+        for candidate in candidates:
+            if candidate.source not in {"winstall_api", "winstall_page"}:
+                continue
+            repo = parse_github_repo(candidate.url)
+            if repo:
+                repos[(repo.owner, repo.name)] = repo
+        latest_candidates: list[InstallerCandidate] = []
+        for repo in repos.values():
+            try:
+                collected = await self.github.collect(f"https://github.com/{repo.owner}/{repo.name}")
+            except Exception as exc:
+                await self.logs.add(
+                    phase="winstall_github_latest",
+                    status="failed",
+                    download_source_id=source_id,
+                    message=exc.__class__.__name__,
+                    safe_metadata={"owner": repo.owner, "repo": repo.name},
+                )
+                continue
+            latest_candidates.extend(
+                InstallerCandidate(
+                    url=candidate.url,
+                    source=f"winstall_{candidate.source}",
+                    label=candidate.label,
+                    context=candidate.context,
+                    asset_kind=candidate.asset_kind or "winstall_download",
+                )
+                for candidate in collected
+            )
+        if latest_candidates:
+            await self.logs.add(
+                phase="winstall_github_latest",
+                status="candidates",
+                download_source_id=source_id,
+                safe_metadata={"count": len(latest_candidates), "repos": len(repos)},
+            )
+        return latest_candidates
+
+    async def _validate_candidates(
+        self,
+        source_id: uuid.UUID,
+        candidates: list[InstallerCandidate],
+        allowed_domains: set[str],
+        status: ResolutionStatus,
+        app: WinstallApp,
+    ) -> bool:
+        scored = sorted(
+            (
+                score_candidate(
+                    candidate,
+                    allowed_domains=allowed_domains,
+                    preferred_os=self.settings.preferred_operating_system,
+                    preferred_architecture=self.settings.preferred_architecture,
+                    app_name=app.name,
+                    package_id=app.package_id,
+                    publisher=app.publisher,
+                    version=app.latest_version,
+                )
+                for candidate in candidates
+            ),
+            key=lambda candidate: candidate.score,
+            reverse=True,
+        )
+        valid_results: list[tuple[InstallerCandidate, ValidationResult]] = []
+        for candidate in scored[:24]:
+            if candidate.score <= 0:
+                continue
+            try:
+                result = await self.validator.validate(candidate, allowed_domains)
+            except Exception as exc:
+                await self.logs.add(
+                    phase="validate",
+                    status="failed",
+                    download_source_id=source_id,
+                    message=exc.__class__.__name__,
+                    safe_metadata={
+                        "score": candidate.score,
+                        "domain": registered_domain(candidate.url),
+                        "source": candidate.source,
+                    },
+                )
+                continue
+            if result.ok:
+                valid_results.append((candidate, result))
+                if len(valid_results) >= 5:
+                    break
+                continue
+            await self.logs.add(
+                phase="validate",
+                status="rejected",
+                download_source_id=source_id,
+                safe_metadata={
+                    "reason": result.reason,
+                    "score": candidate.score,
+                    "domain": registered_domain(candidate.url),
+                    "source": candidate.source,
+                    "asset_kind": candidate.asset_kind,
+                },
+            )
+        for index, (candidate, result) in enumerate(valid_results):
+            await self._save_valid_candidate(
+                source_id,
+                candidate,
+                result,
+                status,
+                app.latest_version,
+                is_primary=index == 0,
+            )
+        return bool(valid_results)
+
+    async def _save_valid_candidate(
+        self,
+        source_id: uuid.UUID,
+        candidate: InstallerCandidate,
+        result: ValidationResult,
+        status: ResolutionStatus,
+        version: str | None,
+        is_primary: bool,
+    ) -> None:
+        await self.catalog.save_resolved_source(
+            ResolvedSourceCreate(
+                source_id=source_id,
+                url=result.final_url or candidate.url,
+                final_domain=result.final_domain or registered_domain(result.final_url or candidate.url) or "",
+                filename=result.filename,
+                extension=result.extension,
+                content_type=result.content_type,
+                size_bytes=result.size_bytes,
+                version=version,
+                score=candidate.score,
+                status=status,
+                validation_status=ValidationStatus.VALID,
+                metadata=resolved_metadata(candidate, result, is_primary),
+            )
+        )
+        await self.logs.add(
+            phase="resolve",
+            status=status.value,
+            download_source_id=source_id,
+            safe_metadata={
+                "score": candidate.score,
+                "domain": result.final_domain,
+                "extension": result.extension,
+                "asset_kind": candidate.asset_kind,
+                "is_primary": is_primary,
+            },
+        )
+
+    async def _fetch_html(self, url: str) -> str:
+        async with httpx.AsyncClient(
+            timeout=self.settings.request_timeout_seconds,
+            follow_redirects=True,
+            headers={"User-Agent": "BatchDownloaderScraper/0.1"},
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+            if "html" not in content_type and content_type:
+                return ""
+            return response.text
+
+
+def resolved_metadata(
+    candidate: InstallerCandidate,
+    result: ValidationResult,
+    is_primary: bool,
+) -> dict:
+    metadata = {
+        "candidate_source": candidate.source,
+        "candidate_label": candidate.label,
+        "match_tokens": list(candidate.match_tokens),
+        "is_primary": is_primary,
+        "asset_kind": candidate.asset_kind or "installer",
+    }
+    if result.transport_security:
+        metadata["transport_security"] = result.transport_security
+    return metadata

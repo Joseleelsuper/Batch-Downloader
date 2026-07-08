@@ -1,0 +1,45 @@
+package es.ubu.batchdownloader.bundle;
+
+import es.ubu.batchdownloader.catalog.CatalogDtos.AppListItem;
+import jakarta.validation.constraints.NotBlank;
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class BundleDtos {
+    public record BundleSummary(
+            String id,
+            String slug,
+            String name,
+            String description,
+            String type,
+            String visibility,
+            int starCount,
+            int appCount,
+            List<String> tags,
+            List<AppListItem> previewApps,
+            LocalDateTime updatedAt) {}
+
+    public record BundleDetails(
+            String id,
+            String slug,
+            String name,
+            String description,
+            String type,
+            String visibility,
+            int starCount,
+            int appCount,
+            List<String> tags,
+            List<AppListItem> apps,
+            LocalDateTime updatedAt) {}
+
+    public record BundleSearchResponse(List<BundleSummary> data, int page, int pageSize, long total) {}
+
+    public record UpsertBundleRequest(
+            @NotBlank String name,
+            String description,
+            String slug,
+            String type,
+            String visibility,
+            List<String> tags,
+            List<String> appIds) {}
+}

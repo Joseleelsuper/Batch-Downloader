@@ -1,0 +1,163 @@
+﻿.app-shell {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 252, 253, 0.98)),
+    #f7fafc;
+}
+
+.site-shell {
+  min-height: 100vh;
+  background: #f7fafc;
+}
+
+.site-shell-app {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 72px;
+  padding: 0 28px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  gap: 18px;
+  color: #111827;
+  text-decoration: none;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 23px;
+  line-height: 1;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.brand-icon {
+  display: block;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.topbar-actions {
+  gap: 18px;
+  color: #303846;
+  font-size: 16px;
+}
+
+.main-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 6px;
+  color: #303846;
+  background: transparent;
+  border: 0;
+}
+
+.menu-wrapper {
+  position: relative;
+}
+
+.topbar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 190px;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
+}
+
+.topbar-menu button,
+.topbar-menu span,
+.topbar-menu strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 8px;
+  color: #263241;
+  font-size: 14px;
+  text-align: left;
+}
+
+.topbar-menu button {
+  width: 100%;
+  background: #f8fbfc;
+  border-radius: 5px;
+}
+
+.topbar-menu strong {
+  color: var(--teal-dark);
+  font-weight: 760;
+}
+
+.profile-menu {
+  gap: 4px;
+  min-width: 240px;
+}
+
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  min-height: 76px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.site-footer a {
+  color: #344052;
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.brand,
+.topbar-actions,
+.search-row,
+.app-cell,
+.detail-value,
+.confidence {
+  display: flex;
+  align-items: center;
+}
+
+.main-nav a,
+.admin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  color: #344052;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.main-nav a.active,
+.admin-link.active {
+  color: var(--teal-dark);
+  background: var(--teal-soft);
+}
+

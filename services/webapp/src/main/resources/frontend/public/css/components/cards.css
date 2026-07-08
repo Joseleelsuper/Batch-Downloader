@@ -1,0 +1,126 @@
+﻿.bundle-card,
+.app-compact-card,
+.admin-card,
+.login-card,
+.metric-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.bundle-grid,
+.app-compact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.bundle-card {
+  display: grid;
+  gap: 12px;
+  min-height: 178px;
+  padding: 16px;
+  color: #1f2937;
+  text-decoration: none;
+}
+
+.bundle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--teal-dark);
+  background: var(--teal-soft);
+  border-radius: 6px;
+}
+
+.mini-apps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mini-icon,
+.mini-more {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.mini-icon-fallback,
+.mini-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: #334155;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.app-compact-card {
+  min-height: 72px;
+  padding: 12px;
+  color: #1f2937;
+  text-decoration: none;
+}
+
+.app-compact-card div {
+  display: grid;
+  min-width: 0;
+}
+
+.app-compact-card strong,
+.app-compact-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-compact-card span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.home-hero p,
+.bundle-detail-header p,
+.bundle-card p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.bundle-card-header,
+.app-compact-card,
+.bundle-app-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bundle-card h3,
+.admin-card h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.metric-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.metric-card span {
+  color: var(--muted);
+}
+
+.metric-card strong {
+  font-size: 28px;
+}
+
+.admin-card {
+  padding: 16px;
+}
+
+
