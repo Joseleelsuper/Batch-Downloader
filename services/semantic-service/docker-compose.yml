@@ -1,8 +1,0 @@
-services:
-  semantic-service:
-    build:
-      context: .
-    environment:
-      POSTGRES_DSN: ${SEMANTIC_SERVICE_POSTGRES_DSN}
-    ports:
-      - "${SEMANTIC_SERVICE_HOST_PORT}:8000"

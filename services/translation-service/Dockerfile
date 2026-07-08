@@ -9,6 +9,7 @@ FROM eclipse-temurin:26.0.1_8-jre
 
 WORKDIR /app
 COPY --from=build /workspace/target/*.jar /app/app.jar
+COPY locales /app/locales
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

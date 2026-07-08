@@ -1,9 +1,0 @@
-services:
-  notification-service:
-    build:
-      context: .
-    environment:
-      NOTIFICATION_SERVICE_SERVER_PORT: ${NOTIFICATION_SERVICE_SERVER_PORT}
-      RABBITMQ_HOST: ${NOTIFICATION_SERVICE_RABBITMQ_HOST}
-    ports:
-      - "${NOTIFICATION_SERVICE_HOST_PORT}:${NOTIFICATION_SERVICE_SERVER_PORT}"

@@ -8,6 +8,19 @@
 
 Permite descargar varios ejecutables de programas conocidos al mismo tiempo. Ideal para poner un nuevo PC en marcha.
 
+## Despliegue Docker
+
+La aplicacion web se despliega con un unico `docker-compose.yml` y un archivo `.env`.
+Las imagenes propias se publican en GitHub Container Registry desde la rama `main`.
+
+```bash
+cp .env.example .env
+docker compose --env-file .env up -d
+```
+
+Por defecto, el compose usa imagenes como `ghcr.io/joseleelsuper/batch-downloader-webapp:main`.
+Para que un usuario pueda arrancar la aplicacion sin `docker login ghcr.io`, los paquetes de GHCR deben estar marcados como publicos.
+
 ## Licencia
 
 Este proyecto está bajo la Licencia GNU GENERAL PUBLIC LICENSE 3.0. Para más detalles, consulte el archivo [LICENSE](LICENSE).
