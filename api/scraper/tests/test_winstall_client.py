@@ -1,4 +1,9 @@
-from app.scraper.winstall import extract_next_data, extract_winstall_downloads, parse_winstall_app
+from app.scraper.winstall import (
+    extract_next_data,
+    extract_winstall_downloads,
+    extract_winstall_page_links,
+    parse_winstall_app,
+)
 
 
 def test_extract_next_data_app_payload() -> None:
@@ -58,3 +63,21 @@ def test_extract_winstall_download_links_from_app_page() -> None:
         "https://github.com/bibletime/bibletime/releases/download/v3.1.1/BibleTime-3.1.1-win64.exe"
     ]
     assert downloads[0].label == "Download (.nullsoft)"
+
+
+def test_extract_winstall_page_links_finds_view_site_and_download() -> None:
+    html = """
+    <ul>
+      <li><a href="https://technology.a-sit.at/pdf-over-2/?ref=winstall">View Site</a></li>
+      <li><a href="https://github.com/microsoft/winget-pkgs">Source code for winget package</a></li>
+      <li><a href="https://technology.a-sit.at/wp-content/uploads/2026/03/PDF-Over-4.4.8.msi">Download (.msi)</a></li>
+    </ul>
+    """
+
+    links = extract_winstall_page_links(html, "https://winstall.app/apps/A-SIT.PDF-Over")
+
+    assert links.official_url == "https://technology.a-sit.at/pdf-over-2/?ref=winstall"
+    assert links.source_code_url == "https://github.com/microsoft/winget-pkgs"
+    assert [download.url for download in links.downloads] == [
+        "https://technology.a-sit.at/wp-content/uploads/2026/03/PDF-Over-4.4.8.msi"
+    ]

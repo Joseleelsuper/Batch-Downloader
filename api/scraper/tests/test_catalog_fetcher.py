@@ -3,147 +3,137 @@ from uuid import uuid4
 
 import pytest
 
+import app.scraper.catalog_fetcher as catalog_fetcher
 from app.core.config import Settings
-from app.scraper.catalog_fetcher import CatalogFetcher
+from app.core.time import utc_now
+from app.db.enums import ResolutionStatus
+from app.scraper.candidates import InstallerCandidate
+from app.scraper.catalog_fetcher import (
+    PipelineRuntime,
+    SearcherWorker,
+    ValidInstaller,
+    fallback_candidates,
+    is_stale_control_command,
+    rank_installers,
+)
+from app.scraper.validator import ValidationResult
 
 
-class FakeSession:
-    def __init__(self) -> None:
-        self.commits = 0
-        self.rollbacks = 0
+def test_fallback_candidates_include_winstall_api_and_page_links() -> None:
+    app = SimpleNamespace(
+        versions=[
+            SimpleNamespace(
+                version="1.2.3",
+                installer_type="msi",
+                installers=["https://cdn.example.com/App-1.2.3.msi"],
+            )
+        ],
+        name="Example App",
+    )
+    payload = {
+        "winstall_downloads": [
+            {
+                "url": "https://cdn.example.com/App-1.2.3.msi",
+                "label": "Download (.msi)",
+                "context": "<a>Download</a>",
+            },
+            {
+                "url": "https://cdn.example.com/App-1.2.3.dmg",
+                "label": "Download (.dmg)",
+            },
+        ]
+    }
 
-    async def commit(self) -> None:
-        self.commits += 1
+    candidates = fallback_candidates(payload, app)
 
-    async def rollback(self) -> None:
-        self.rollbacks += 1
-
-
-class FakeRuns:
-    def __init__(self) -> None:
-        self.run = SimpleNamespace(id=uuid4())
-        self.finished = None
-
-    async def recover_running(self, _error_summary: str) -> int:
-        return 0
-
-    async def acquire(self):
-        return self.run
-
-    async def heartbeat(self, *_args, **_kwargs) -> None:
-        return None
-
-    async def set_current(self, *_args, **_kwargs) -> None:
-        return None
-
-    async def next_pending_command(self):
-        return None
-
-    async def finish(self, run_id, status, **counters) -> None:
-        self.finished = (run_id, status, counters)
+    assert [candidate.url for candidate in candidates] == [
+        "https://cdn.example.com/App-1.2.3.msi",
+        "https://cdn.example.com/App-1.2.3.dmg",
+    ]
+    assert candidates[0].asset_kind == "winstall_download"
 
 
-class FakeCatalog:
-    def __init__(self, should_scrape_by_package: dict[str, bool]) -> None:
-        self.should_scrape_by_package = should_scrape_by_package
-        self.checked = []
-
-    async def should_scrape_winstall_package(self, package_id: str) -> bool:
-        self.checked.append(package_id)
-        return self.should_scrape_by_package[package_id]
-
-
-class FakeWinstallClient:
-    package_ids = [
-        "Already.Available",
-        "New.App",
-        "Needs.Review",
-        "Missing.Installer",
+def test_rank_installers_marks_latest_per_platform_architecture() -> None:
+    installers = [
+        valid("https://example.com/App-1.0.0.msi", "windows", "x86_64", "1.0.0", 90),
+        valid("https://example.com/App-2.0.0.msi", "windows", "x86_64", "2.0.0", 80),
+        valid("https://example.com/App-1.5.0-aarch64.dmg", "macos", "aarch64", "1.5.0", 70),
     ]
 
-    def __init__(self, *_args, **_kwargs) -> None:
-        pass
+    ranked = rank_installers(installers)
 
-    async def __aenter__(self):
-        return self
+    by_url = {installer.candidate.url: (rank, latest) for installer, rank, latest in ranked}
+    assert by_url["https://example.com/App-2.0.0.msi"] == (0, True)
+    assert by_url["https://example.com/App-1.0.0.msi"] == (1, False)
+    assert by_url["https://example.com/App-1.5.0-aarch64.dmg"] == (0, True)
 
-    async def __aexit__(self, *_args) -> None:
+
+def test_stale_control_command_rejects_only_old_control_commands() -> None:
+    run_started_at = utc_now()
+    old_pause = SimpleNamespace(command="pause", created_at=run_started_at.replace(year=2025))
+    old_run_once = SimpleNamespace(command="run_once", created_at=run_started_at.replace(year=2025))
+    fresh_stop = SimpleNamespace(command="stop", created_at=run_started_at)
+
+    assert is_stale_control_command(old_pause, run_started_at)
+    assert not is_stale_control_command(old_run_once, run_started_at)
+    assert not is_stale_control_command(fresh_stop, run_started_at)
+
+
+@pytest.mark.asyncio
+async def test_searcher_backpressure_waits_until_queue_depth_drops(monkeypatch) -> None:
+    depths = [3, 0]
+    phases = []
+
+    class FakePipeline:
+        def __init__(self, _session) -> None:
+            pass
+
+        async def queue_depth(self, _queue: str) -> int:
+            return depths.pop(0)
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    async def fake_set_current(_settings, _run_id, _package_id, _app_name, phase):
+        phases.append(phase)
+
+    async def fake_sleep(_seconds):
         return None
 
-    async def iter_apps(self):
-        for package_id in self.package_ids:
-            yield SimpleNamespace(package_id=package_id)
+    monkeypatch.setattr(catalog_fetcher, "PipelineRepository", FakePipeline)
+    monkeypatch.setattr(catalog_fetcher, "async_session_local", lambda: FakeSession)
+    monkeypatch.setattr(catalog_fetcher, "set_current", fake_set_current)
+    monkeypatch.setattr(catalog_fetcher.asyncio, "sleep", fake_sleep)
 
-
-@pytest.mark.asyncio
-async def test_scrape_once_skips_existing_packages(monkeypatch) -> None:
-    session = FakeSession()
-    fetcher = CatalogFetcher.__new__(CatalogFetcher)
-    fetcher.settings = Settings(scrape_max_apps=0, llm_enrich_interval_apps=0)
-    fetcher.session = session
-    fetcher.runs = FakeRuns()
-    fetcher.catalog = FakeCatalog(
-        {
-            "Already.Available": False,
-            "New.App": True,
-            "Needs.Review": False,
-            "Missing.Installer": False,
-        }
+    settings = Settings(
+        scrape_searcher_backpressure_limit=2,
+        scrape_searcher_backpressure_sleep_seconds=0,
     )
-    scraped = []
-    enriched = []
+    runtime = PipelineRuntime(settings=settings, run_id=uuid4(), run_started_at=utc_now())
 
-    async def scrape_single_app(_winstall, package_id, _run_id):
-        scraped.append(package_id)
-        return SimpleNamespace(app_id=uuid4(), resolved=True)
-
-    async def enrich_descriptions(run_id, software_app_ids=None):
-        enriched.append((run_id, software_app_ids))
-        return 0
-
-    fetcher._scrape_single_app = scrape_single_app
-    fetcher._enrich_descriptions = enrich_descriptions
-
-    monkeypatch.setattr("app.scraper.catalog_fetcher.WinstallClient", FakeWinstallClient)
-
-    counters = await fetcher.scrape_once()
-
-    assert fetcher.catalog.checked == FakeWinstallClient.package_ids
-    assert scraped == ["New.App"]
-    assert len(enriched) == 1
-    assert len(enriched[0][1]) == 1
-    assert counters.apps_discovered == 1
-    assert counters.apps_resolved == 1
-    assert counters.apps_failed == 0
-    assert counters.apps_skipped == 3
+    assert await SearcherWorker(settings)._wait_for_backpressure(runtime)
+    assert phases == ["searcher_waiting_for_filter_backpressure"]
+    assert depths == []
 
 
-@pytest.mark.asyncio
-async def test_scrape_once_does_not_enrich_when_all_packages_exist(monkeypatch) -> None:
-    session = FakeSession()
-    fetcher = CatalogFetcher.__new__(CatalogFetcher)
-    fetcher.settings = Settings(scrape_max_apps=0, llm_enrich_interval_apps=0)
-    fetcher.session = session
-    fetcher.runs = FakeRuns()
-    fetcher.catalog = FakeCatalog(
-        {package_id: False for package_id in FakeWinstallClient.package_ids}
+def valid(url: str, os: str, arch: str, version: str, score: int) -> ValidInstaller:
+    candidate = InstallerCandidate(url=url, source="href", score=score, asset_kind="installer")
+    return ValidInstaller(
+        candidate=candidate,
+        result=ValidationResult(
+            ok=True,
+            url=url,
+            final_url=url,
+            final_domain="example.com",
+            filename=url.rsplit("/", 1)[-1],
+            extension=candidate.extension,
+        ),
+        status=ResolutionStatus.DIRECT,
+        operating_system=os,
+        architecture=arch,
+        version=version,
     )
-
-    async def scrape_single_app(_winstall, package_id, _run_id):
-        raise AssertionError(f"existing package should not be scraped: {package_id}")
-
-    async def enrich_descriptions(_run_id):
-        raise AssertionError("existing-only scrape should not enrich descriptions")
-
-    fetcher._scrape_single_app = scrape_single_app
-    fetcher._enrich_descriptions = enrich_descriptions
-
-    monkeypatch.setattr("app.scraper.catalog_fetcher.WinstallClient", FakeWinstallClient)
-
-    counters = await fetcher.scrape_once()
-
-    assert fetcher.catalog.checked == FakeWinstallClient.package_ids
-    assert counters.apps_discovered == 0
-    assert counters.apps_resolved == 0
-    assert counters.apps_failed == 0
-    assert counters.apps_skipped == len(FakeWinstallClient.package_ids)

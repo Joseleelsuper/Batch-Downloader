@@ -1,6 +1,9 @@
 from app.scraper.candidates import (
     InstallerCandidate,
     extract_candidates,
+    extract_version,
+    infer_architecture,
+    infer_operating_system,
     is_github_source_archive,
     score_candidate,
 )
@@ -97,3 +100,21 @@ def test_score_prefers_geogebra_matching_variant() -> None:
     assert best_url("GeoGebra Geometry").endswith("/windows-geometry")
     assert best_url("GeoGebra CAS Calculator").endswith("/windows-cas")
     assert best_url("GeoGebra Calculator Suite").endswith("/win-suite")
+
+
+def test_infers_platform_architecture_and_version_for_multios_assets() -> None:
+    mac = InstallerCandidate(
+        url="https://example.com/PDF-Over-4.4.8-aarch64.dmg",
+        source="href",
+        label="Mac OS ARM",
+    )
+    linux = InstallerCandidate(
+        url="https://example.com/PDF-Over-4.4.8.jar",
+        source="href",
+        label="Linux",
+    )
+
+    assert infer_operating_system(mac) == "macos"
+    assert infer_architecture(mac) == "aarch64"
+    assert extract_version(mac) == "4.4.8"
+    assert infer_operating_system(linux) == "linux"
