@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -17,6 +18,7 @@ from app.repositories.pipeline import (
     STATUS_IN_PROGRESS,
     STATUS_QUEUED,
     PipelineRepository,
+    sanitize_snapshot_html,
 )
 
 
@@ -80,6 +82,45 @@ async def test_retry_failed_and_prune_terminal_do_not_touch_queued(db_session) -
     assert by_package["Vendor.Queued"].status == STATUS_QUEUED
     assert "Vendor.Completed" not in by_package
     assert "Vendor.Discarded" not in by_package
+
+
+@pytest.mark.asyncio
+async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session) -> None:
+    repository = PipelineRepository(db_session)
+    previous_run = uuid4()
+    next_run = uuid4()
+
+    for queue in (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER):
+        item = await repository.enqueue(
+            queue,
+            f"Vendor.{queue}",
+            "Vendor App",
+            {"package_id": f"Vendor.{queue}"},
+            previous_run,
+        )
+        await repository.complete(item)
+    await db_session.commit()
+
+    for queue in (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER):
+        item = await repository.enqueue(
+            queue,
+            f"Vendor.{queue}",
+            "Vendor App",
+            {"package_id": f"Vendor.{queue}"},
+            next_run,
+        )
+        assert item.status == STATUS_QUEUED
+        assert item.run_id == next_run
+
+
+def test_snapshot_html_is_truncated_below_mysql_text_limit() -> None:
+    html = "<html>" + ("a" * 100_000) + "</html>"
+
+    sanitized = sanitize_snapshot_html(html)
+
+    assert sanitized is not None
+    assert len(sanitized) < 31_000
+    assert "snapshot truncated" in sanitized
 
 
 def work_item(package_id: str, status: str, lease_expires_at):

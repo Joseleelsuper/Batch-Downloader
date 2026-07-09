@@ -226,6 +226,70 @@ async def test_validator_allows_verified_winstall_redirect_to_public_cdn(monkeyp
 
 
 @pytest.mark.asyncio
+@respx.mock
+async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflare(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = (
+        "https://sourceforge.net/projects/beebeep/files/Windows/"
+        "beebeep-setup-5.8.6.exe/download"
+    )
+    respx.head(url).mock(
+        return_value=httpx.Response(200, headers={"content-type": "text/html"})
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            403,
+            headers={"server": "cloudflare", "content-type": "text/html"},
+            content=b"<html><a href='/cdn-cgi/challenge-platform/'>Challenge</a></html>",
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.inno)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.filename == "beebeep-setup-5.8.6.exe"
+    assert result.extension == ".exe"
+    assert result.transport_security == "https_winstall_edge_attested"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_does_not_attest_generic_cloudflare_candidate(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(200, headers={"content-type": "text/html"})
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            403,
+            headers={"server": "cloudflare", "content-type": "text/html"},
+            content=b"<html>/cdn-cgi/challenge-platform</html>",
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="href", label="Download installer")
+    )
+
+    assert result.ok is False
+    assert result.reason == "http_403"
+
+
+@pytest.mark.asyncio
 async def test_validator_rejects_non_winstall_http_before_network() -> None:
     result = await DownloadValidator(Settings()).validate(
         InstallerCandidate(
@@ -236,3 +300,38 @@ async def test_validator_rejects_non_winstall_http_before_network() -> None:
 
     assert result.ok is False
     assert result.reason == "unsupported_scheme"
+
+
+@pytest.mark.asyncio
+async def test_validator_retries_verified_winstall_tls_failure_over_http(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.scheme == "https":
+            raise httpx.ConnectError(
+                "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed",
+                request=request,
+            )
+        return httpx.Response(
+            206,
+            headers={"content-type": "application/octet-stream", "content-length": "1024"},
+            request=request,
+        )
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False)
+    try:
+        result = await DownloadValidator(Settings(), client).validate(
+            InstallerCandidate(
+                url="https://downloads.example.com/Concept2UtilitySetup.exe",
+                source="winstall_page",
+                asset_kind="winstall_download",
+            )
+        )
+    finally:
+        await client.aclose()
+
+    assert result.ok is True
+    assert result.final_url == "http://downloads.example.com/Concept2UtilitySetup.exe"
+    assert result.transport_security == "http_winstall_verified"

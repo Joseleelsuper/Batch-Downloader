@@ -9,7 +9,11 @@ from app.core.url_protector import UrlProtector
 from app.db.base import Base
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import DownloadSource, ResolvedSource, SoftwareApp
-from app.repositories.catalog import CatalogRepository, has_current_available_installer
+from app.repositories.catalog import (
+    CatalogRepository,
+    has_current_available_installer,
+    inferred_platform_for_resolved_source,
+)
 
 
 def make_app_with_source(
@@ -90,6 +94,49 @@ def test_current_available_installer_rejects_review_or_missing_statuses() -> Non
 
     assert has_current_available_installer(review_app) is False
     assert has_current_available_installer(missing_app) is False
+
+
+def test_platform_repair_keeps_macos_tar_gz_out_of_linux() -> None:
+    now = utc_now()
+    resolved = ResolvedSource(
+        id=uuid4(),
+        download_source_id=uuid4(),
+        resolved_url_encrypted="encrypted",
+        final_domain="github.com",
+        filename="uad_gui-macos.tar.gz",
+        extension=".tar.gz",
+        score=100,
+        status=ResolutionStatus.DIRECT.value,
+        validation_status=ValidationStatus.VALID.value,
+        checked_at=now,
+        expires_at=utc_after(hours=1),
+        metadata_json={"candidate_label": "uad_gui-macos.tar.gz"},
+    )
+
+    assert inferred_platform_for_resolved_source(resolved) == "macos"
+
+
+@pytest.mark.asyncio
+async def test_should_scrape_retries_review_apps_but_skips_resolved_apps() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        app = make_app_with_source(ResolutionStatus.DIRECT)
+        session.add(app)
+        await session.commit()
+        repository = CatalogRepository(session, UrlProtector("test-secret"))
+
+        assert await repository.should_scrape_winstall_package("Vendor.App") is False
+
+        app.sources[0].resolution_status = ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+        app.sources[0].validation_status = ValidationStatus.UNCHECKED.value
+        await session.commit()
+
+        assert await repository.should_scrape_winstall_package("Vendor.App") is True
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -269,11 +316,11 @@ async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
                 download_source_id=source.id,
                 resolved_url_encrypted="fallback",
                 final_domain="githubusercontent.com",
-                filename="Browser-previous.exe",
+                filename="Browser-latest-from-winstall.exe",
                 extension=".exe",
-                version="114.0.5735.91",
-                release_rank=1,
-                is_latest=False,
+                version="115.0.5790.110",
+                release_rank=0,
+                is_latest=True,
                 score=200,
                 status=ResolutionStatus.FALLBACK.value,
                 validation_status=ValidationStatus.VALID.value,

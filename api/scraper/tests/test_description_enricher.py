@@ -15,6 +15,11 @@ from app.scraper.description_enricher import (
 )
 
 
+class NoopRateLimiter:
+    async def wait_for_slot(self):
+        return None
+
+
 def make_app(**overrides) -> SoftwareApp:
     app = SoftwareApp(
         id=uuid4(),
@@ -84,7 +89,9 @@ async def test_llm_client_falls_back_to_deepseek_and_retries_groq() -> None:
         return_value=httpx.Response(500)
     )
 
-    result = await AppDescriptionLLMClient(settings).generate({"name": "Vendor App"})
+    result = await AppDescriptionLLMClient(settings, rate_limiter=NoopRateLimiter()).generate(
+        {"name": "Vendor App"}
+    )
 
     assert result.provider == "groq"
     assert result.description == "Descripcion larga valida para la app."

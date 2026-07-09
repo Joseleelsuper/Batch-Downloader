@@ -1,11 +1,14 @@
 from app.scraper.candidates import (
     InstallerCandidate,
+    detect_extension,
     extract_candidates,
     extract_version,
     infer_architecture,
     infer_operating_system,
+    is_download_candidate,
     is_github_source_archive,
     score_candidate,
+    s3_path_style_variant,
 )
 
 
@@ -21,6 +24,15 @@ def test_extract_candidates_from_links_and_scripts() -> None:
         "https://example.com/downloads/app-x64.exe",
         "https://cdn.example.com/setup.msi",
     }
+
+
+def test_script_extraction_ignores_non_url_javascript_fragments() -> None:
+    candidates = extract_candidates(
+        '<script>const broken = ").exe"; const real = "https://cdn.example.com/App.exe";</script>',
+        "https://example.com",
+    )
+
+    assert [candidate.url for candidate in candidates] == ["https://cdn.example.com/App.exe"]
 
 
 def test_score_prefers_windows_installer_over_docs() -> None:
@@ -130,3 +142,66 @@ def test_infers_platform_architecture_and_version_for_multios_assets() -> None:
     assert infer_architecture(mac) == "aarch64"
     assert extract_version(mac) == "4.4.8"
     assert infer_operating_system(linux) == "linux"
+
+
+def test_infer_architecture_ignores_svg_path_fragments() -> None:
+    candidate = InstallerCandidate(
+        url="https://down.360safe.com/se/360se16.1.2000.64.exe",
+        source="winstall_page",
+        label="Download (.exe)",
+        context='<svg><path d="M21 15v4"></path></svg>',
+    )
+
+    assert infer_architecture(candidate) == "x86_64"
+
+
+def test_sourceforge_download_path_keeps_installer_extension_and_score() -> None:
+    candidate = score_candidate(
+        InstallerCandidate(
+            url=(
+                "https://sourceforge.net/projects/akelpad/files/AkelPad%204/4.9.9/"
+                "x64/AkelPad-4.9.9-x64-setup.exe/download"
+            ),
+            source="winstall_page",
+            label="Download (.nullsoft)",
+            asset_kind="winstall_download",
+        ),
+        app_name="AkelPad",
+        package_id="AkelPad.AkelPad",
+    )
+
+    assert detect_extension(candidate.url) == ".exe"
+    assert infer_operating_system(candidate) == "windows"
+    assert candidate.score > 0
+
+
+def test_extensionless_winstall_download_is_eligible_for_final_url_validation() -> None:
+    candidate = InstallerCandidate(
+        url="https://dist.0patch.com/download/latestagent",
+        source="winstall_page",
+        label="Download (.msi)",
+        asset_kind="winstall_download",
+    )
+
+    assert infer_operating_system(candidate) is None
+    assert is_download_candidate(candidate)
+
+
+def test_s3_legacy_bucket_uses_secure_path_style_variant() -> None:
+    candidate = InstallerCandidate(
+        url=(
+            "https://build_archives.s3.amazonaws.com/Wireframes-Windows/"
+            "Balsamiq_Wireframes_4.8.6_x86_Setup.exe"
+        ),
+        source="winstall_page",
+        asset_kind="winstall_download",
+    )
+
+    variant = s3_path_style_variant(candidate)
+
+    assert variant is not None
+    assert variant.url == (
+        "https://s3.amazonaws.com/build_archives/Wireframes-Windows/"
+        "Balsamiq_Wireframes_4.8.6_x86_Setup.exe"
+    )
+    assert variant.source == "winstall_page_s3_path_style"

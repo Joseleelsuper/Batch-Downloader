@@ -10,13 +10,19 @@ from app.db.enums import ResolutionStatus
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.catalog_fetcher import (
     PipelineRuntime,
+    FilterWorker,
+    PlatformScraperWorker,
     SearcherWorker,
     ValidInstaller,
     fallback_candidates,
     infer_validated_operating_system,
+    is_windows_winstall_archive,
     is_stale_control_command,
     known_official_candidates,
     rank_installers,
+    should_collect_official_installers,
+    use_only_known_official_candidates,
+    use_winstall_fallback_only,
 )
 from app.scraper.validator import ValidationResult
 
@@ -123,6 +129,46 @@ def test_validated_operating_system_uses_validation_extension_first() -> None:
     ) == "linux"
 
 
+def test_validated_tar_gz_uses_filename_tokens_before_defaulting_to_linux() -> None:
+    candidate = InstallerCandidate(
+        url="https://github.com/vendor/app/releases/download/1.0.0/app-macos.tar.gz",
+        source="github_release_expanded_assets",
+        label="app-macos.tar.gz",
+    )
+
+    assert infer_validated_operating_system(
+        candidate,
+        ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url=candidate.url,
+            extension=".tar.gz",
+            filename="app-macos.tar.gz",
+        ),
+    ) == "macos"
+
+
+def test_winstall_zip_defaults_to_windows_when_platform_is_not_in_filename() -> None:
+    candidate = InstallerCandidate(
+        url="https://github.com/86Box/86BoxManager/releases/download/1.7.4/86BoxManager_1.7.4.zip",
+        source="winstall_page",
+        label="Download (.zip)",
+        asset_kind="winstall_download",
+    )
+
+    assert is_windows_winstall_archive(candidate)
+    assert infer_validated_operating_system(
+        candidate,
+        ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url=candidate.url,
+            extension=".zip",
+            filename="86BoxManager_1.7.4.zip",
+        ),
+    ) == "windows"
+
+
 def test_epic_games_launcher_has_known_official_candidate() -> None:
     app = SimpleNamespace(package_id="EpicGames.EpicGamesLauncher")
 
@@ -130,6 +176,122 @@ def test_epic_games_launcher_has_known_official_candidate() -> None:
 
     assert candidates[0].source == "official_known_endpoint"
     assert candidates[0].url.endswith("EpicGamesLauncherInstaller.exe")
+
+
+def test_115_browser_has_known_cross_platform_official_candidates() -> None:
+    app = SimpleNamespace(package_id="115.115Chrome", latest_version="36.0.0")
+
+    candidates = known_official_candidates(app)
+
+    urls = {candidate.url for candidate in candidates}
+    assert "https://down.115.com/client/win/115br_v36.0.0_x64.exe" in urls
+    assert "https://down.115.com/client/mac/115br_v36.0.0_arm64.dmg" in urls
+    assert "https://down.115.com/client/115pc/lin/115br_v36.0.0.deb" in urls
+    assert use_only_known_official_candidates(app, candidates)
+
+
+def test_123pan_has_versioned_official_windows_installer() -> None:
+    app = SimpleNamespace(package_id="123.123pan", latest_version="3.2.0.0")
+
+    candidates = known_official_candidates(app)
+
+    assert [candidate.url for candidate in candidates] == [
+        "https://app.123957.com/pc-pro/windows/320/123pan_3.2.0.exe"
+    ]
+    assert use_only_known_official_candidates(app, candidates)
+
+
+def test_known_official_endpoint_bypasses_an_unavailable_marketing_page() -> None:
+    app = SimpleNamespace(package_id="123.123pan", latest_version="3.2.0")
+
+    assert should_collect_official_installers(
+        app,
+        "https://www.123pan.com/",
+        use_official=False,
+        fallback=[],
+    )
+
+
+def test_known_heavy_pages_can_use_winstall_fallback_only() -> None:
+    app = SimpleNamespace(package_id="360.360SE")
+    fallback = [
+        InstallerCandidate(
+            url="https://down.360safe.com/se/360se16.1.2000.64.exe",
+            source="winstall_page",
+            asset_kind="winstall_download",
+        )
+    ]
+
+    assert use_winstall_fallback_only(app, fallback)
+    assert not use_winstall_fallback_only(app, [])
+
+
+@pytest.mark.asyncio
+async def test_winstall_github_asset_refreshes_from_release_api() -> None:
+    app = SimpleNamespace(package_id="Coloryr.ColorMC", latest_version="40")
+    stale = InstallerCandidate(
+        url="https://github.com/Coloryr/ColorMC/releases/download/old/ColorMC.exe",
+        source="winstall_page",
+        asset_kind="winstall_download",
+    )
+    refreshed_asset = InstallerCandidate(
+        url="https://github.com/Coloryr/ColorMC/releases/download/v40/ColorMC-Setup.exe",
+        source="github_release_api",
+        label="ColorMC-Setup.exe",
+        asset_kind="installer",
+    )
+
+    async def collect(url: str, version: str | None) -> list[InstallerCandidate]:
+        assert url == stale.url
+        assert version == "40"
+        return [refreshed_asset]
+
+    worker = PlatformScraperWorker(Settings())
+    worker.github = SimpleNamespace(collect=collect)
+
+    candidates = await worker._collect_winstall_github_candidates(app, [stale])
+
+    assert [candidate.url for candidate in candidates] == [refreshed_asset.url]
+    assert candidates[0].source == "winstall_github_release_api"
+
+
+@pytest.mark.asyncio
+async def test_filter_uses_refreshed_winstall_github_release_before_discarding() -> None:
+    app = SimpleNamespace(
+        package_id="Coloryr.ColorMC",
+        name="ColorMC",
+        publisher="Coloryr",
+        latest_version="40",
+        versions=[],
+    )
+    stale = "https://github.com/Coloryr/ColorMC/releases/download/old/ColorMC.exe"
+    refreshed = "https://github.com/Coloryr/ColorMC/releases/download/v40/ColorMC-Setup.exe"
+    worker = FilterWorker(Settings())
+
+    async def collect(_url: str, _version: str | None) -> list[InstallerCandidate]:
+        return [
+            InstallerCandidate(
+                url=refreshed,
+                source="github_release_api",
+                asset_kind="installer",
+            )
+        ]
+
+    class FakeValidator:
+        async def validate(self, candidate: InstallerCandidate) -> ValidationResult:
+            return ValidationResult(ok=candidate.url == refreshed, url=candidate.url)
+
+    worker.github = SimpleNamespace(collect=collect)
+    worker.validator = FakeValidator()
+
+    assert await worker._fallback_download_valid(
+        {
+            "winstall_downloads": [
+                {"url": stale, "label": "Download (.exe)"},
+            ]
+        },
+        app,
+    )
 
 
 def test_stale_control_command_rejects_only_old_control_commands() -> None:
