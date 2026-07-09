@@ -225,6 +225,7 @@ class ScraperWorkItem(Base, TimestampMixin):
     package_id: Mapped[str] = mapped_column(String(180), nullable=False)
     app_name: Mapped[str | None] = mapped_column(String(180))
     payload_json: Mapped[dict | None] = mapped_column(JSON)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     lease_owner: Mapped[str | None] = mapped_column(String(120))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -268,6 +269,15 @@ class ScraperMetricSnapshot(Base):
     unavailable: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     queued_searcher_filter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     queued_filter_scraper: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    queued_scraper_descriptor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
     __table_args__ = (Index("ix_scraper_metric_snapshots_captured", "captured_at"),)
+
+
+class ScraperRateLimit(Base):
+    __tablename__ = "scraper_rate_limits"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    next_allowed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)

@@ -7,10 +7,10 @@ from app.api.app_mapper import best_resolved_source, to_details, to_list_item
 from app.core.config import Settings, get_settings
 from app.core.time import utc_now
 from app.core.url_protector import UrlProtector
-from app.db.enums import LongDescriptionStatus, ResolutionStatus
+from app.db.enums import ResolutionStatus
 from app.db.session import AsyncSessionLocal, get_session
 from app.repositories.catalog import CatalogRepository
-from app.repositories.logs import ResolverLogRepository
+from app.repositories.pipeline import PipelineRepository
 from app.schemas.apps import (
     AppDetails,
     AppSearchResponse,
@@ -18,14 +18,7 @@ from app.schemas.apps import (
     LastScrapeRun,
     ErrorResponse,
 )
-from app.scraper.catalog_fetcher import CatalogFetcher
-from app.scraper.description_enricher import (
-    AppDescriptionLLMClient,
-    LLMGenerationError,
-    description_evidence,
-    description_input_hash,
-    fetch_safe_page_metadata,
-)
+from app.scraper.catalog_fetcher import CatalogFetcher, DescriptorWorker, enqueue_descriptor_for_app
 
 router = APIRouter(prefix="/api")
 
@@ -165,9 +158,10 @@ async def run_scraper_once(background_tasks: BackgroundTasks) -> dict[str, bool]
     return {"accepted": True}
 
 
-@router.post("/internal/descriptions/generate")
+@router.post("/internal/descriptions/generate", status_code=202)
 async def generate_description(
     request: GenerateDescriptionRequest,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, str | None]:
@@ -175,71 +169,21 @@ async def generate_description(
     app = await catalog.get_app_by_public_id(request.appId)
     if not app:
         raise HTTPException(status_code=404, detail={"code": "app_not_found"})
-
-    input_hash = description_input_hash(app)
-    metadata = await fetch_safe_page_metadata(
-        app.official_url,
-        timeout=settings.request_timeout_seconds,
+    item = await enqueue_descriptor_for_app(
+        catalog,
+        PipelineRepository(session),
+        None,
+        app,
+        force=True,
+        priority=100,
     )
-    llm = AppDescriptionLLMClient(settings)
-    logs = ResolverLogRepository(session)
-    if not llm.has_provider():
-        await catalog.mark_long_description_failed(
-            app.id,
-            input_hash,
-            "llm_provider_not_configured",
-        )
-        await logs.add(
-            phase="description",
-            status=LongDescriptionStatus.FAILED.value,
-            message="llm_provider_not_configured",
-            safe_metadata={"input_hash": input_hash},
-        )
-        await session.commit()
-        raise HTTPException(status_code=409, detail={"code": "llm_provider_not_configured"})
-
-    try:
-        generated = await llm.generate(description_evidence(app, metadata))
-    except LLMGenerationError as exc:
-        await catalog.mark_long_description_failed(
-            app.id,
-            input_hash,
-            exc.reason,
-            source=exc.provider,
-            model=exc.model,
-        )
-        await logs.add(
-            phase="description",
-            status=LongDescriptionStatus.FAILED.value,
-            message=exc.reason,
-            safe_metadata={"input_hash": input_hash, "provider": exc.provider, "model": exc.model},
-        )
-        await session.commit()
-        raise HTTPException(status_code=409, detail={"code": exc.reason})
-
-    await catalog.save_long_description(
-        software_app_id=app.id,
-        description=generated.description,
-        language=generated.language,
-        source=generated.provider,
-        model=generated.model,
-        input_hash=input_hash,
-    )
-    await logs.add(
-        phase="description",
-        status=LongDescriptionStatus.COMPLETED.value,
-        safe_metadata={
-            "input_hash": input_hash,
-            "provider": generated.provider,
-            "model": generated.model,
-        },
-    )
+    if not item:
+        raise HTTPException(status_code=409, detail={"code": "description_already_current"})
     await session.commit()
+    background_tasks.add_task(_run_descriptor_once_background)
     return {
-        "longDescription": generated.description,
-        "language": generated.language,
-        "provider": generated.provider,
-        "model": generated.model,
+        "jobId": str(item.id),
+        "status": item.status,
     }
 
 
@@ -251,3 +195,8 @@ async def _run_scrape_once_background() -> None:
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         await CatalogFetcher(settings, session).scrape_once(recover_running=True)
+
+
+async def _run_descriptor_once_background() -> None:
+    settings = get_settings()
+    await DescriptorWorker(settings).process_one()

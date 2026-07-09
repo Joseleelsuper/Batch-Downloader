@@ -100,6 +100,20 @@ public class AdminScraperController {
         return new ScraperQueueMaintenanceResult("prune_terminal", affected);
     }
 
+    @PostMapping("/api/admin/scraper/queues/clear-pending")
+    public ScraperQueueMaintenanceResult clearPendingQueueItems(Principal principal) {
+        int affected = scraper.clearPendingQueueItems();
+        audit.record(actor(principal), "scraper.queue.clear_pending", "scraper", "queues", null);
+        return new ScraperQueueMaintenanceResult("clear_pending", affected);
+    }
+
+    @PostMapping("/api/admin/scraper/queues/clear-all")
+    public ScraperQueueMaintenanceResult clearAllQueueItems(Principal principal) {
+        int affected = scraper.clearAllQueueItems();
+        audit.record(actor(principal), "scraper.queue.clear_all", "scraper", "queues", null);
+        return new ScraperQueueMaintenanceResult("clear_all", affected);
+    }
+
     @PostMapping("/api/admin/scraper/commands")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, String> command(
@@ -107,6 +121,17 @@ public class AdminScraperController {
             Principal principal) throws Exception {
         String actor = actor(principal);
         scraper.enqueueCommand(request.command(), actor);
+        if ("force_stop".equals(request.command())) {
+            int stopped = scraper.forceStopRunningRuns();
+            int recovered = scraper.releaseInProgressQueueItems();
+            audit.record(
+                    actor,
+                    "scraper.command.force_stop",
+                    "scraper",
+                    request.command(),
+                    Map.of("runs", stopped, "recoveredQueueItems", recovered));
+            return Map.of("status", "accepted", "command", request.command());
+        }
         if ("run_once".equals(request.command())) {
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create(scraperApiUrl + "/api/internal/scraper/run-once"))

@@ -15,12 +15,13 @@ from app.core.config import Settings
 from app.core.json_safe import json_safe
 from app.core.logging import get_logger
 from app.core.url_protector import UrlProtector
-from app.db.enums import ResolutionStatus, ScrapeRunStatus, ValidationStatus
+from app.db.enums import LongDescriptionStatus, ResolutionStatus, ScrapeRunStatus, ValidationStatus
 from app.db.models import ScraperWorkItem
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
     QUEUE_FILTER_SCRAPER,
+    QUEUE_SCRAPER_DESCRIPTOR,
     QUEUE_SEARCHER_FILTER,
     PipelineRepository,
 )
@@ -35,7 +36,11 @@ from app.scraper.candidates import (
     registered_domain,
     score_candidate,
 )
-from app.scraper.description_enricher import AppDescriptionEnricher
+from app.scraper.description_enricher import (
+    AppDescriptionEnricher,
+    AppDescriptionLLMClient,
+    description_input_hash,
+)
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
 from app.scraper.icon_resolver import IconResolver
 from app.scraper.playwright_fallback import PlaywrightCandidateCollector
@@ -69,9 +74,13 @@ class PipelineRuntime:
     pause_event: asyncio.Event = field(default_factory=asyncio.Event)
     searcher_done: asyncio.Event = field(default_factory=asyncio.Event)
     filter_done: asyncio.Event = field(default_factory=asyncio.Event)
+    scraper_done: asyncio.Event = field(default_factory=asyncio.Event)
+    descriptor_done: asyncio.Event = field(default_factory=asyncio.Event)
     all_workers_done: asyncio.Event = field(default_factory=asyncio.Event)
     stopped_by_command: bool = False
     _counter_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _descriptor_budget_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _descriptor_attempts: int = 0
 
     async def before_next_item(self) -> bool:
         while self.pause_event.is_set() and not self.stop_event.is_set():
@@ -81,6 +90,18 @@ class PipelineRuntime:
     async def increment(self, field_name: str, amount: int = 1) -> None:
         async with self._counter_lock:
             setattr(self.counters, field_name, getattr(self.counters, field_name) + amount)
+
+    async def reserve_descriptor_attempt(self) -> bool:
+        async with self._descriptor_budget_lock:
+            maximum = self.settings.llm_max_apps_per_run
+            if maximum > 0 and self._descriptor_attempts >= maximum:
+                return False
+            self._descriptor_attempts += 1
+            return True
+
+    async def release_descriptor_attempt(self) -> None:
+        async with self._descriptor_budget_lock:
+            self._descriptor_attempts = max(0, self._descriptor_attempts - 1)
 
 
 @dataclass(frozen=True)
@@ -130,6 +151,10 @@ class CatalogFetcher:
         if recovered_items:
             logger.warning("scraper_pipeline_leases_recovered", count=recovered_items)
 
+        seeded_descriptions = await self._seed_descriptor_queue(run_id)
+        if seeded_descriptions:
+            logger.info("descriptor_backlog_seeded", count=seeded_descriptions)
+
         runtime = PipelineRuntime(
             settings=self.settings,
             run_id=run_id,
@@ -155,6 +180,10 @@ class CatalogFetcher:
                 PlatformScraperWorker(self.settings).run(runtime),
                 name="scraper-worker",
             ),
+            asyncio.create_task(
+                DescriptorWorker(self.settings).run(runtime),
+                name="scraper-descriptor",
+            ),
         ]
 
         worker_error: BaseException | None = None
@@ -172,9 +201,6 @@ class CatalogFetcher:
         finally:
             runtime.all_workers_done.set()
             await asyncio.gather(*tasks, return_exceptions=True)
-
-        if worker_error is None and not runtime.stopped_by_command:
-            await self._run_description_enrichment()
 
         final_status = (
             ScrapeRunStatus.FAILED
@@ -216,7 +242,7 @@ class CatalogFetcher:
                         runtime.pause_event.clear()
                         await runs.consume_command(command)
                         await runs.set_current(runtime.run_id, None, None, "running")
-                    elif command.command == "stop":
+                    elif command.command in {"stop", "force_stop"}:
                         runtime.stopped_by_command = True
                         runtime.stop_event.set()
                         runtime.pause_event.clear()
@@ -247,22 +273,40 @@ class CatalogFetcher:
                 await session.commit()
             await asyncio.sleep(5)
 
-    async def _run_description_enrichment(self) -> None:
+    async def _seed_descriptor_queue(self, run_id: uuid.UUID) -> int:
         async with async_session_local()() as session:
             catalog = CatalogRepository(session, self.url_protector)
-            logs = ResolverLogRepository(session)
-            try:
-                completed = await AppDescriptionEnricher(
-                    self.settings,
-                    catalog,
-                    logs,
-                ).enrich_pending()
-            except Exception as exc:
-                await session.rollback()
-                logger.warning("description_enrichment_failed", error=exc.__class__.__name__)
-                return
+            pipeline = PipelineRepository(session)
+            maximum = self.settings.llm_max_apps_per_run
+            queued = 0
+            apps = await catalog.apps_for_description_enrichment(include_completed=True)
+            for app in apps:
+                input_hash = description_input_hash(app)
+                current = (
+                    app.long_description_status == LongDescriptionStatus.COMPLETED.value
+                    and bool(app.long_description)
+                    and app.long_description_input_hash == input_hash
+                )
+                if current:
+                    continue
+                await catalog.mark_long_description_pending(app.id)
+                await pipeline.enqueue(
+                    QUEUE_SCRAPER_DESCRIPTOR,
+                    app.winstall_id,
+                    app.name,
+                    {
+                        "software_app_id": str(app.id),
+                        "package_id": app.winstall_id,
+                        "input_hash": input_hash,
+                        "force": False,
+                    },
+                    run_id,
+                )
+                queued += 1
+                if maximum > 0 and queued >= maximum:
+                    break
             await session.commit()
-            logger.info("description_enrichment_finished", completed=completed)
+            return queued
 
 
 class SearcherWorker:
@@ -518,31 +562,34 @@ class PlatformScraperWorker:
         self.icon_resolver = IconResolver(settings)
 
     async def run(self, runtime: PipelineRuntime) -> None:
-        while not runtime.stop_event.is_set():
-            if not await runtime.before_next_item():
-                break
-            item = await claim_item(self.settings, QUEUE_FILTER_SCRAPER, self.worker_id)
-            if item is None:
-                if runtime.searcher_done.is_set() and runtime.filter_done.is_set():
+        try:
+            while not runtime.stop_event.is_set():
+                if not await runtime.before_next_item():
                     break
-                await asyncio.sleep(1)
-                continue
-            try:
-                resolved = await self._scrape_item(runtime, item)
-                await finish_item(self.settings, item, "complete", None)
-                if resolved:
-                    await runtime.increment("apps_resolved")
-                else:
+                item = await claim_item(self.settings, QUEUE_FILTER_SCRAPER, self.worker_id)
+                if item is None:
+                    if runtime.searcher_done.is_set() and runtime.filter_done.is_set():
+                        break
+                    await asyncio.sleep(1)
+                    continue
+                try:
+                    resolved = await self._scrape_item(runtime, item)
+                    await finish_item(self.settings, item, "complete", None)
+                    if resolved:
+                        await runtime.increment("apps_resolved")
+                    else:
+                        await runtime.increment("apps_failed")
+                except Exception as exc:
+                    await finish_item(self.settings, item, "fail", exc.__class__.__name__)
                     await runtime.increment("apps_failed")
-            except Exception as exc:
-                await finish_item(self.settings, item, "fail", exc.__class__.__name__)
-                await runtime.increment("apps_failed")
-                logger.warning(
-                    "scraper_app_failed",
-                    winstall_id=item.package_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
+                    logger.warning(
+                        "scraper_app_failed",
+                        winstall_id=item.package_id,
+                        error=exc.__class__.__name__,
+                        detail=exception_detail(exc),
+                    )
+        finally:
+            runtime.scraper_done.set()
 
     async def _scrape_item(self, runtime: PipelineRuntime, item: ScraperWorkItem) -> bool:
         payload = item.payload_json or {}
@@ -620,6 +667,13 @@ class PlatformScraperWorker:
                         message="No safe installer candidate was found.",
                         safe_metadata={"winstall_id": app.package_id},
                     )
+                await enqueue_descriptor_for_app(
+                    catalog,
+                    PipelineRepository(session),
+                    runtime.run_id,
+                    software_app,
+                    force=False,
+                )
                 await session.commit()
                 return False
             await self._save_valid_installers(
@@ -629,6 +683,13 @@ class PlatformScraperWorker:
                 app,
                 official_url,
                 valid_installers,
+            )
+            await enqueue_descriptor_for_app(
+                catalog,
+                PipelineRepository(session),
+                runtime.run_id,
+                software_app,
+                force=False,
             )
             await session.commit()
             return True
@@ -847,6 +908,159 @@ class PlatformScraperWorker:
         )
 
 
+async def enqueue_descriptor_for_app(
+    catalog: CatalogRepository,
+    pipeline: PipelineRepository,
+    run_id: uuid.UUID | None,
+    software_app: Any,
+    *,
+    force: bool,
+    priority: int = 0,
+) -> ScraperWorkItem | None:
+    apps = await catalog.apps_for_description_enrichment(
+        [software_app.id],
+        include_completed=True,
+    )
+    app = apps[0] if apps else software_app
+    input_hash = description_input_hash(app)
+    current = (
+        not force
+        and app.long_description_status == LongDescriptionStatus.COMPLETED.value
+        and bool(app.long_description)
+        and app.long_description_input_hash == input_hash
+    )
+    if current:
+        return None
+    await catalog.mark_long_description_pending(app.id)
+    return await pipeline.enqueue(
+        QUEUE_SCRAPER_DESCRIPTOR,
+        app.winstall_id,
+        app.name,
+        {
+            "software_app_id": str(app.id),
+            "package_id": app.winstall_id,
+            "input_hash": input_hash,
+            "force": force,
+        },
+        run_id,
+        priority=priority,
+        force=force,
+    )
+
+
+class DescriptorWorker:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.worker_id = f"descriptor:{worker_id()}"
+        self.llm = AppDescriptionLLMClient(settings)
+
+    async def run(self, runtime: PipelineRuntime) -> None:
+        if not self.llm.has_provider():
+            logger.warning("descriptor_worker_idle", reason="llm_provider_not_configured")
+            runtime.descriptor_done.set()
+            return
+        workers = [
+            asyncio.create_task(self._consume(runtime), name=f"descriptor-worker-{index}")
+            for index in range(max(1, self.settings.llm_max_concurrency))
+        ]
+        try:
+            await asyncio.gather(*workers)
+        finally:
+            runtime.descriptor_done.set()
+
+    async def process_one(self) -> bool:
+        if not self.llm.has_provider():
+            logger.warning("descriptor_process_one_skipped", reason="llm_provider_not_configured")
+            return False
+        item = await claim_item(self.settings, QUEUE_SCRAPER_DESCRIPTOR, self.worker_id)
+        if item is None:
+            return False
+        return await self._process_claimed_item(None, item)
+
+    async def _consume(self, runtime: PipelineRuntime) -> None:
+        while not runtime.stop_event.is_set():
+            if not await runtime.before_next_item():
+                break
+            if not await runtime.reserve_descriptor_attempt():
+                logger.info("descriptor_budget_exhausted")
+                break
+            item = await claim_item(self.settings, QUEUE_SCRAPER_DESCRIPTOR, self.worker_id)
+            if item is None:
+                await runtime.release_descriptor_attempt()
+                if runtime.scraper_done.is_set():
+                    break
+                await asyncio.sleep(1)
+                continue
+            await self._process_claimed_item(runtime, item)
+
+    async def _process_claimed_item(
+        self,
+        runtime: PipelineRuntime | None,
+        item: ScraperWorkItem,
+    ) -> bool:
+        payload = item.payload_json or {}
+        software_app_id = payload.get("software_app_id")
+        if not software_app_id:
+            await finish_item(self.settings, item, "discard", "missing_software_app_id")
+            return False
+        try:
+            if runtime:
+                await set_current(
+                    self.settings,
+                    runtime.run_id,
+                    payload.get("package_id") or item.package_id,
+                    item.app_name,
+                    "descriptor_generating_description",
+                )
+            async with async_session_local()() as session:
+                catalog = CatalogRepository(
+                    session,
+                    UrlProtector(self.settings.url_protection_secret),
+                )
+                logs = ResolverLogRepository(session)
+                pipeline = PipelineRepository(session)
+                await pipeline.save_snapshot(
+                    run_id=runtime.run_id if runtime else item.run_id,
+                    worker_id=self.worker_id,
+                    stage="descriptor",
+                    package_id=payload.get("package_id") or item.package_id,
+                    app_name=item.app_name,
+                    url=None,
+                    html=None,
+                )
+                result = await AppDescriptionEnricher(
+                    self.settings,
+                    catalog,
+                    logs,
+                    llm=self.llm,
+                ).enrich_app(software_app_id, force=bool(payload.get("force")))
+                await session.commit()
+            if result.status in {"completed", "skipped"}:
+                await finish_item(self.settings, item, "complete", result.status)
+                return True
+            if result.status == "missing":
+                await finish_item(self.settings, item, "discard", result.status)
+                if runtime:
+                    await runtime.release_descriptor_attempt()
+                return False
+            if result.status == "pending":
+                await finish_item(self.settings, item, "fail", result.error or result.status)
+                if runtime:
+                    await runtime.release_descriptor_attempt()
+                return False
+            await finish_item(self.settings, item, "fail", result.error or result.status)
+            return False
+        except Exception as exc:
+            await finish_item(self.settings, item, "fail", exc.__class__.__name__)
+            logger.warning(
+                "descriptor_app_failed",
+                winstall_id=item.package_id,
+                error=exc.__class__.__name__,
+                detail=exception_detail(exc),
+            )
+            return False
+
+
 async def claim_item(
     settings: Settings,
     queue: str,
@@ -928,7 +1142,7 @@ def payload_package_id(payload: dict[str, Any], item: ScraperWorkItem) -> str:
 
 
 def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
-    return command.command in {"pause", "resume", "stop"} and command.created_at < run_started_at
+    return command.command in {"pause", "resume", "stop", "force_stop"} and command.created_at < run_started_at
 
 
 def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[InstallerCandidate]:

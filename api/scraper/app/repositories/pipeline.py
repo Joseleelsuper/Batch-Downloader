@@ -22,6 +22,7 @@ from app.db.models import (
 
 QUEUE_SEARCHER_FILTER = "searcher_filter"
 QUEUE_FILTER_SCRAPER = "filter_scraper"
+QUEUE_SCRAPER_DESCRIPTOR = "scraper_descriptor"
 
 STATUS_QUEUED = "queued"
 STATUS_IN_PROGRESS = "in_progress"
@@ -64,6 +65,7 @@ class MetricSnapshotView:
     unavailable: int
     queued_searcher_filter: int
     queued_filter_scraper: int
+    queued_scraper_descriptor: int
     captured_at: object
 
 
@@ -128,6 +130,22 @@ class PipelineRepository:
         await self.session.flush()
         return int(result.rowcount or 0)
 
+    async def clear_pending(self) -> int:
+        result = await self.session.execute(
+            delete(ScraperWorkItem).where(
+                ScraperWorkItem.status.in_(
+                    [STATUS_QUEUED, STATUS_FAILED, STATUS_COMPLETED, STATUS_DISCARDED]
+                )
+            )
+        )
+        await self.session.flush()
+        return int(result.rowcount or 0)
+
+    async def clear_all(self) -> int:
+        result = await self.session.execute(delete(ScraperWorkItem))
+        await self.session.flush()
+        return int(result.rowcount or 0)
+
     async def enqueue(
         self,
         queue: str,
@@ -135,6 +153,9 @@ class PipelineRepository:
         app_name: str | None,
         payload: dict[str, Any],
         run_id: uuid.UUID | None,
+        *,
+        priority: int = 0,
+        force: bool = False,
     ) -> ScraperWorkItem:
         existing = await self.session.scalar(
             select(ScraperWorkItem)
@@ -144,11 +165,24 @@ class PipelineRepository:
         )
         now = utc_now()
         if existing:
-            if existing.status in {STATUS_QUEUED, STATUS_FAILED, STATUS_DISCARDED}:
+            payload_changed = (existing.payload_json or {}).get("input_hash") != payload.get(
+                "input_hash"
+            )
+            should_requeue = existing.status in {
+                STATUS_QUEUED,
+                STATUS_FAILED,
+                STATUS_DISCARDED,
+            } or (
+                existing.status == STATUS_COMPLETED
+                and queue == QUEUE_SCRAPER_DESCRIPTOR
+                and (force or payload_changed)
+            )
+            if should_requeue:
                 existing.status = STATUS_QUEUED
                 existing.payload_json = json_safe(payload)
                 existing.app_name = app_name or existing.app_name
                 existing.run_id = run_id or existing.run_id
+                existing.priority = max(existing.priority, priority)
                 existing.last_error = None
                 existing.available_at = now
                 existing.updated_at = now
@@ -161,6 +195,7 @@ class PipelineRepository:
             app_name=app_name,
             payload_json=json_safe(payload),
             run_id=run_id,
+            priority=priority,
             available_at=now,
         )
         self.session.add(item)
@@ -179,7 +214,11 @@ class PipelineRepository:
             .where(ScraperWorkItem.queue == queue)
             .where(ScraperWorkItem.status == STATUS_QUEUED)
             .where(ScraperWorkItem.available_at <= now)
-            .order_by(ScraperWorkItem.available_at.asc(), ScraperWorkItem.created_at.asc())
+            .order_by(
+                ScraperWorkItem.priority.desc(),
+                ScraperWorkItem.available_at.asc(),
+                ScraperWorkItem.created_at.asc(),
+            )
             .limit(1)
         )
         if not item_id:
@@ -225,7 +264,11 @@ class PipelineRepository:
 
     async def queue_states(self, limit: int = 20) -> list[QueueState]:
         states: list[QueueState] = []
-        for queue in (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER):
+        for queue in (
+            QUEUE_SEARCHER_FILTER,
+            QUEUE_FILTER_SCRAPER,
+            QUEUE_SCRAPER_DESCRIPTOR,
+        ):
             rows = await self.session.execute(
                 select(ScraperWorkItem.status, func.count(ScraperWorkItem.id))
                 .where(ScraperWorkItem.queue == queue)
@@ -301,7 +344,7 @@ class PipelineRepository:
 
     async def latest_snapshots(self) -> list[WorkerSnapshotView]:
         snapshots: list[WorkerSnapshotView] = []
-        for stage in ("searcher", "filter", "scraper"):
+        for stage in ("searcher", "filter", "scraper", "descriptor"):
             snapshot = await self.session.scalar(
                 select(ScraperWorkerSnapshot)
                 .where(ScraperWorkerSnapshot.stage == stage)
@@ -334,6 +377,7 @@ class PipelineRepository:
         )
         queued_searcher_filter = await self._count_queue(QUEUE_SEARCHER_FILTER)
         queued_filter_scraper = await self._count_queue(QUEUE_FILTER_SCRAPER)
+        queued_scraper_descriptor = await self._count_queue(QUEUE_SCRAPER_DESCRIPTOR)
         self.session.add(
             ScraperMetricSnapshot(
                 run_id=run_id,
@@ -342,6 +386,7 @@ class PipelineRepository:
                 unavailable=unavailable,
                 queued_searcher_filter=queued_searcher_filter,
                 queued_filter_scraper=queued_filter_scraper,
+                queued_scraper_descriptor=queued_scraper_descriptor,
                 captured_at=utc_now(),
             )
         )
@@ -360,6 +405,7 @@ class PipelineRepository:
                 unavailable=item.unavailable,
                 queued_searcher_filter=item.queued_searcher_filter,
                 queued_filter_scraper=item.queued_filter_scraper,
+                queued_scraper_descriptor=item.queued_scraper_descriptor,
                 captured_at=item.captured_at,
             )
             for item in reversed(list(result))

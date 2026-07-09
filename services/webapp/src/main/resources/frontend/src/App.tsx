@@ -28,6 +28,8 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigat
 import {
   connectCatalogEvents,
   connectScraperEvents,
+  clearAllScraperQueueItems,
+  clearPendingScraperQueueItems,
   createAdminApp,
   createAdminBundle,
   deleteAdminApp,
@@ -962,11 +964,8 @@ function AdminAppsPage() {
     if (!selected) return;
     setMessage(t('admin.message.descriptionGenerating'));
     try {
-      const result = await generateAdminDescription(selected.id);
-      const next = { ...selected, longDescription: result.longDescription };
-      setSelected(next);
-      setForm((current) => ({ ...current, longDescription: result.longDescription }));
-      setMessage(t('admin.message.descriptionGenerated'));
+      await generateAdminDescription(selected.id);
+      setMessage(t('admin.message.descriptionQueued'));
     } catch {
       setMessage(t('admin.message.generateDescriptionError'));
     }
@@ -1340,7 +1339,7 @@ function AdminScraperPage() {
     setSnapshots(event.snapshots);
   }, setSocketState), []);
 
-  async function command(value: 'pause' | 'resume' | 'stop' | 'run_once') {
+  async function command(value: 'pause' | 'resume' | 'stop' | 'force_stop' | 'run_once') {
     setMessage(null);
     try {
       await sendScraperCommand(value);
@@ -1351,14 +1350,18 @@ function AdminScraperPage() {
     }
   }
 
-  async function maintainQueue(action: 'recover_stuck' | 'retry_failed' | 'prune_terminal') {
+  async function maintainQueue(action: 'recover_stuck' | 'retry_failed' | 'prune_terminal' | 'clear_pending' | 'clear_all') {
     setMessage(null);
     try {
       const result = action === 'recover_stuck'
         ? await recoverStuckScraperQueueItems()
         : action === 'retry_failed'
           ? await retryFailedScraperQueueItems()
-          : await pruneTerminalScraperQueueItems();
+          : action === 'prune_terminal'
+            ? await pruneTerminalScraperQueueItems()
+            : action === 'clear_pending'
+              ? await clearPendingScraperQueueItems()
+              : await clearAllScraperQueueItems();
       setMessage(t(`admin.message.queueMaintenance.${action}`, { count: result.affected }));
       await load();
     } catch {
@@ -1393,12 +1396,15 @@ function AdminScraperPage() {
         <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>{t('admin.scraper.pause')}</button>
         <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
         <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
+        <button className="secondary-button danger-button" type="button" disabled={!controlState.forceStop.enabled} title={controlState.forceStop.reason} onClick={() => command('force_stop')}><Square size={16} />{t('admin.scraper.forceStop')}</button>
         <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => command('run_once')}>{t('admin.scraper.runNow')}</button>
       </div>
       <div className="button-row queue-maintenance-row">
         <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
         <button className="secondary-button" type="button" onClick={() => maintainQueue('retry_failed')}><RefreshCw size={16} />{t('admin.scraper.retryFailed')}</button>
         <button className="secondary-button" type="button" onClick={() => maintainQueue('prune_terminal')}><Trash2 size={16} />{t('admin.scraper.pruneTerminal')}</button>
+        <button className="secondary-button" type="button" onClick={() => maintainQueue('clear_pending')}><Trash2 size={16} />{t('admin.scraper.clearPending')}</button>
+        <button className="secondary-button danger-button" type="button" onClick={() => maintainQueue('clear_all')}><Trash2 size={16} />{t('admin.scraper.clearAll')}</button>
       </div>
       {message ? <p className="form-message">{message}</p> : null}
       <div className="scraper-live-line">
@@ -1436,13 +1442,16 @@ function AdminScraperPage() {
 function ScraperQueues({ queues }: Readonly<{ queues: ScraperQueueState[] }>) {
   const searcherFilter = queues.find((queue) => queue.queue === 'searcher_filter');
   const filterScraper = queues.find((queue) => queue.queue === 'filter_scraper');
+  const scraperDescriptor = queues.find((queue) => queue.queue === 'scraper_descriptor');
   return (
     <div className="scraper-pipeline admin-card">
-      <PipelineStage title="Searcher" count={searcherFilter?.queued ?? 0} />
-      <QueueColumn title="Searcher -> Filter" queue={searcherFilter} />
-      <PipelineStage title="Filter" count={filterScraper?.queued ?? 0} />
-      <QueueColumn title="Filter -> Scraper" queue={filterScraper} />
-      <PipelineStage title="Scraper" count={filterScraper?.inProgress ?? 0} />
+      <PipelineStage title={t('admin.scraper.stage.searcher')} count={searcherFilter?.queued ?? 0} />
+      <QueueColumn title={t('admin.scraper.queue.searcherFilter')} queue={searcherFilter} />
+      <PipelineStage title={t('admin.scraper.stage.filter')} count={filterScraper?.queued ?? 0} />
+      <QueueColumn title={t('admin.scraper.queue.filterScraper')} queue={filterScraper} />
+      <PipelineStage title={t('admin.scraper.stage.scraper')} count={filterScraper?.inProgress ?? 0} />
+      <QueueColumn title={t('admin.scraper.queue.scraperDescriptor')} queue={scraperDescriptor} />
+      <PipelineStage title={t('admin.scraper.stage.descriptor')} count={scraperDescriptor?.inProgress ?? 0} />
     </div>
   );
 }
@@ -1627,6 +1636,10 @@ function scraperControlState(current: ScraperRunSummary | null) {
     stop: {
       enabled: running && !stopping,
       reason: running && !stopping ? t('admin.scraper.reason.stop') : t('admin.scraper.reason.stopUnavailable'),
+    },
+    forceStop: {
+      enabled: Boolean(current),
+      reason: current ? t('admin.scraper.reason.forceStop') : t('admin.scraper.reason.forceStopUnavailable'),
     },
     runOnce: {
       enabled: !running,

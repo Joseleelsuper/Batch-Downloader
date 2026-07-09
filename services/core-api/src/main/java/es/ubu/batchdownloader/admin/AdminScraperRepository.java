@@ -24,7 +24,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class AdminScraperRepository {
-    private static final Set<String> COMMANDS = Set.of("pause", "resume", "stop", "run_once");
+    private static final Set<String> COMMANDS = Set.of("pause", "resume", "stop", "force_stop", "run_once");
     private final JdbcTemplate jdbc;
 
     public AdminScraperRepository(JdbcTemplate jdbc) {
@@ -73,7 +73,7 @@ public class AdminScraperRepository {
 
     public List<ScraperQueueState> queues() {
         List<ScraperQueueState> states = new ArrayList<>();
-        for (String queue : List.of("searcher_filter", "filter_scraper")) {
+        for (String queue : List.of("searcher_filter", "filter_scraper", "scraper_descriptor")) {
             Map<String, Long> counts = new LinkedHashMap<>();
             jdbc.queryForList(
                     """
@@ -117,7 +117,8 @@ public class AdminScraperRepository {
     public List<ScraperMetricItem> metrics(int limit) {
         return jdbc.query(
                 """
-                SELECT available, review, unavailable, queued_searcher_filter, queued_filter_scraper, captured_at
+                SELECT available, review, unavailable, queued_searcher_filter,
+                       queued_filter_scraper, queued_scraper_descriptor, captured_at
                 FROM scraper_metric_snapshots
                 ORDER BY captured_at DESC
                 LIMIT ?
@@ -128,6 +129,7 @@ public class AdminScraperRepository {
                         rs.getInt("unavailable"),
                         rs.getInt("queued_searcher_filter"),
                         rs.getInt("queued_filter_scraper"),
+                        rs.getInt("queued_scraper_descriptor"),
                         rs.getTimestamp("captured_at").toLocalDateTime()),
                 Math.max(1, Math.min(limit, 200))).reversed();
     }
@@ -192,6 +194,20 @@ public class AdminScraperRepository {
                 """);
     }
 
+    public int releaseInProgressQueueItems() {
+        return jdbc.update(
+                """
+                UPDATE scraper_work_items
+                SET status = 'queued',
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    available_at = NOW(),
+                    last_error = NULL,
+                    updated_at = NOW()
+                WHERE status = 'in_progress'
+                """);
+    }
+
     public int retryFailedQueueItems() {
         return jdbc.update(
                 """
@@ -211,6 +227,33 @@ public class AdminScraperRepository {
                 """
                 DELETE FROM scraper_work_items
                 WHERE status IN ('completed', 'discarded')
+                """);
+    }
+
+    public int clearPendingQueueItems() {
+        return jdbc.update(
+                """
+                DELETE FROM scraper_work_items
+                WHERE status IN ('queued', 'failed', 'completed', 'discarded')
+                """);
+    }
+
+    public int clearAllQueueItems() {
+        return jdbc.update("DELETE FROM scraper_work_items");
+    }
+
+    public int forceStopRunningRuns() {
+        return jdbc.update(
+                """
+                UPDATE scrape_runs
+                SET status = 'partial',
+                    finished_at = NOW(),
+                    heartbeat_at = NOW(),
+                    current_phase = 'force_stopped',
+                    stop_requested = TRUE,
+                    paused_at = NULL,
+                    error_summary = 'Force stopped by admin.'
+                WHERE status = 'running'
                 """);
     }
 

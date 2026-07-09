@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -164,7 +165,9 @@ public class AdminAppController {
     }
 
     @PostMapping("/api/admin/apps/{appId}/generate-description")
-    public Map<String, Object> generateDescription(@PathVariable String appId, Principal principal) throws Exception {
+    public ResponseEntity<Map<String, Object>> generateDescription(
+            @PathVariable String appId,
+            Principal principal) throws Exception {
         String body = objectMapper.writeValueAsString(Map.of("appId", appId));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(scraperApiUrl + "/api/internal/descriptions/generate"))
@@ -185,8 +188,8 @@ public class AdminAppController {
                 "app.description.generate",
                 "app",
                 appId,
-                Map.of("provider", payload.get("provider"), "model", payload.get("model")));
-        return payload;
+                Map.of("jobId", payload.get("jobId"), "status", payload.get("status")));
+        return ResponseEntity.status(response.statusCode()).body(payload);
     }
 
     private String actor(Principal principal) {

@@ -271,8 +271,8 @@ export function connectCatalogEvents(onEvent: (event: CatalogChangeEvent) => voi
   };
 }
 
-export async function generateAdminDescription(appId: string): Promise<{ longDescription: string }> {
-  return requestJson<{ longDescription: string }>(
+export async function generateAdminDescription(appId: string): Promise<{ jobId: string; status: string }> {
+  return requestJson<{ jobId: string; status: string }>(
     `/api/admin/apps/${encodeURIComponent(appId)}/generate-description`,
     { method: 'POST' },
   );
@@ -323,6 +323,20 @@ export async function pruneTerminalScraperQueueItems(): Promise<ScraperQueueMain
   );
 }
 
+export async function clearPendingScraperQueueItems(): Promise<ScraperQueueMaintenanceResult> {
+  return requestJson<ScraperQueueMaintenanceResult>(
+    '/api/admin/scraper/queues/clear-pending',
+    { method: 'POST' },
+  );
+}
+
+export async function clearAllScraperQueueItems(): Promise<ScraperQueueMaintenanceResult> {
+  return requestJson<ScraperQueueMaintenanceResult>(
+    '/api/admin/scraper/queues/clear-all',
+    { method: 'POST' },
+  );
+}
+
 export function connectScraperEvents(onEvent: (event: ScraperEvent) => void, onState?: (state: 'live' | 'reconnecting' | 'offline') => void): () => void {
   let socket: WebSocket | null = null;
   let stopped = false;
@@ -361,7 +375,7 @@ export function connectScraperEvents(onEvent: (event: ScraperEvent) => void, onS
   };
 }
 
-export async function sendScraperCommand(command: 'pause' | 'resume' | 'stop' | 'run_once'): Promise<void> {
+export async function sendScraperCommand(command: 'pause' | 'resume' | 'stop' | 'force_stop' | 'run_once'): Promise<void> {
   await requestJson<void>('/api/admin/scraper/commands', {
     method: 'POST',
     body: JSON.stringify({ command }),

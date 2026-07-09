@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     llm_deepseek_model: str = "deepseek-v4-flash"
     llm_max_concurrency: int = 2
     llm_max_apps_per_run: int = 0
-    llm_enrich_interval_apps: int = 10
     llm_request_timeout_seconds: float = 45
 
     @property

@@ -366,6 +366,8 @@ class CatalogRepository:
     async def apps_for_description_enrichment(
         self,
         app_ids: list[uuid.UUID] | None = None,
+        *,
+        include_completed: bool = False,
     ) -> list[SoftwareApp]:
         missing_long_description = or_(
             SoftwareApp.long_description.is_(None),
@@ -411,11 +413,20 @@ class CatalogRepository:
             if not app_ids:
                 return []
             stmt = stmt.where(SoftwareApp.id.in_(app_ids))
-        else:
+        elif not include_completed:
             stmt = stmt.where(needs_description)
 
         result = await self.session.scalars(stmt)
         return list(result.unique())
+
+    async def mark_long_description_pending(self, software_app_id: uuid.UUID) -> None:
+        software_app = await self.session.get(SoftwareApp, software_app_id)
+        if not software_app:
+            return
+        software_app.long_description_status = LongDescriptionStatus.PENDING.value
+        software_app.long_description_error = None
+        software_app.updated_at = utc_now()
+        await self.session.flush()
 
     async def save_long_description(
         self,

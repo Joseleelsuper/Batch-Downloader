@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -18,6 +18,7 @@ from app.db.enums import LongDescriptionStatus
 from app.db.models import SoftwareApp
 from app.repositories.catalog import CatalogRepository
 from app.repositories.logs import ResolverLogRepository
+from app.repositories.rate_limits import DatabaseLLMRateLimiter
 from app.scraper.candidates import registered_domain
 
 logger = get_logger(__name__)
@@ -49,6 +50,20 @@ class EnrichmentResult:
     model: str | None = None
 
 
+@dataclass(frozen=True)
+class DescriptionJobResult:
+    app_id: Any
+    status: str
+    input_hash: str | None = None
+    error: str | None = None
+    provider: str | None = None
+    model: str | None = None
+
+
+class LLMRateLimiter(Protocol):
+    async def wait_for_slot(self) -> Any: ...
+
+
 class LLMGenerationError(Exception):
     def __init__(self, reason: str, provider: str | None = None, model: str | None = None) -> None:
         super().__init__(reason)
@@ -62,8 +77,13 @@ class NoLLMProviderConfigured(LLMGenerationError):
 
 
 class AppDescriptionLLMClient:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        rate_limiter: LLMRateLimiter | None = None,
+    ) -> None:
         self.settings = settings
+        self.rate_limiter = rate_limiter or DatabaseLLMRateLimiter()
 
     def has_provider(self) -> bool:
         return bool(self._groq().api_key or self._deepseek().api_key)
@@ -125,6 +145,7 @@ class AppDescriptionLLMClient:
             "Authorization": f"Bearer {provider.api_key}",
             "Content-Type": "application/json",
         }
+        await self.rate_limiter.wait_for_slot()
         logger.info(
             "llm_request_started",
             provider=provider.name,
@@ -221,6 +242,96 @@ class AppDescriptionEnricher:
         self.logs = logs
         self.llm = llm or AppDescriptionLLMClient(settings)
 
+    async def enrich_app(
+        self,
+        software_app_id: Any,
+        *,
+        force: bool = False,
+    ) -> DescriptionJobResult:
+        apps = await self.catalog.apps_for_description_enrichment([software_app_id])
+        if not apps:
+            return DescriptionJobResult(app_id=software_app_id, status="missing")
+        app = apps[0]
+        input_hash = description_input_hash(app)
+        if (
+            not force
+            and app.long_description_status == LongDescriptionStatus.COMPLETED.value
+            and app.long_description_input_hash == input_hash
+            and app.long_description
+        ):
+            return DescriptionJobResult(
+                app_id=app.id,
+                status="skipped",
+                input_hash=input_hash,
+            )
+        if not self.llm.has_provider():
+            return DescriptionJobResult(
+                app_id=app.id,
+                status="pending",
+                input_hash=input_hash,
+                error="llm_provider_not_configured",
+            )
+
+        metadata = await fetch_safe_page_metadata(
+            app.official_url,
+            timeout=self.settings.request_timeout_seconds,
+        )
+        try:
+            description = await self.llm.generate(description_evidence(app, metadata))
+        except LLMGenerationError as exc:
+            await self.catalog.mark_long_description_failed(
+                software_app_id=app.id,
+                input_hash=input_hash,
+                error=exc.reason,
+                source=exc.provider,
+                model=exc.model,
+            )
+            await self.logs.add(
+                phase="descriptor",
+                status="failed",
+                message=exc.reason,
+                safe_metadata={
+                    "winstall_id": app.winstall_id,
+                    "input_hash": input_hash,
+                    "provider": exc.provider,
+                    "model": exc.model,
+                },
+            )
+            return DescriptionJobResult(
+                app_id=app.id,
+                status="failed",
+                input_hash=input_hash,
+                error=exc.reason,
+                provider=exc.provider,
+                model=exc.model,
+            )
+
+        await self.catalog.save_long_description(
+            software_app_id=app.id,
+            description=description.description,
+            language=description.language,
+            source=description.provider,
+            model=description.model,
+            input_hash=input_hash,
+        )
+        await self.logs.add(
+            phase="descriptor",
+            status="completed",
+            safe_metadata={
+                "winstall_id": app.winstall_id,
+                "input_hash": input_hash,
+                "provider": description.provider,
+                "model": description.model,
+            },
+        )
+        return DescriptionJobResult(
+            app_id=app.id,
+            status="completed",
+            input_hash=input_hash,
+            provider=description.provider,
+            model=description.model,
+        )
+
     async def enrich_pending(self, software_app_ids: list[Any] | None = None) -> int:
         if not self.llm.has_provider():
             logger.warning("description_enrichment_skipped", reason="llm_provider_not_configured")
@@ -255,79 +366,16 @@ class AppDescriptionEnricher:
             jobs=len(jobs),
             max_apps_per_run=max_jobs,
             unlimited=unlimited,
-            max_concurrency=self.settings.llm_max_concurrency,
         )
-        semaphore = asyncio.Semaphore(max(1, self.settings.llm_max_concurrency))
-
-        async def run_job(app: SoftwareApp, input_hash: str) -> EnrichmentResult:
-            async with semaphore:
-                metadata = await fetch_safe_page_metadata(
-                    app.official_url,
-                    timeout=self.settings.request_timeout_seconds,
-                )
-                evidence = description_evidence(app, metadata)
-                try:
-                    description = await self.llm.generate(evidence)
-                except LLMGenerationError as exc:
-                    return EnrichmentResult(
-                        app_id=app.id,
-                        input_hash=input_hash,
-                        description=None,
-                        error=exc.reason,
-                        provider=exc.provider,
-                        model=exc.model,
-                    )
-                return EnrichmentResult(
-                    app_id=app.id,
-                    input_hash=input_hash,
-                    description=description,
-                    provider=description.provider,
-                    model=description.model,
-                )
-
-        results = await asyncio.gather(*(run_job(app, input_hash) for app, input_hash in jobs))
         completed = 0
         failed = 0
-        for result in results:
-            if result.description:
-                await self.catalog.save_long_description(
-                    software_app_id=result.app_id,
-                    description=result.description.description,
-                    language=result.description.language,
-                    source=result.description.provider,
-                    model=result.description.model,
-                    input_hash=result.input_hash,
-                )
+        for app, _input_hash in jobs:
+            result = await self.enrich_app(app.id)
+            if result.status == "completed":
                 completed += 1
-                await self.logs.add(
-                    phase="description",
-                    status="completed",
-                    safe_metadata={
-                        "input_hash": result.input_hash,
-                        "provider": result.description.provider,
-                        "model": result.description.model,
-                    },
-                )
                 continue
-
-            failed += 1
-            await self.catalog.mark_long_description_failed(
-                software_app_id=result.app_id,
-                input_hash=result.input_hash,
-                error=result.error or "unknown_error",
-                source=result.provider,
-                model=result.model,
-            )
-            await self.logs.add(
-                phase="description",
-                status="failed",
-                message=result.error,
-                safe_metadata={
-                    "input_hash": result.input_hash,
-                    "provider": result.provider,
-                    "model": result.model,
-                },
-            )
+            if result.status == "failed":
+                failed += 1
         logger.info(
             "description_enrichment_batch_finished",
             completed=completed,

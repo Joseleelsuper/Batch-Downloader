@@ -177,6 +177,7 @@ export interface ScraperMetricItem {
   unavailable: number;
   queuedSearcherFilter: number;
   queuedFilterScraper: number;
+  queuedScraperDescriptor: number;
   capturedAt: string;
 }
 

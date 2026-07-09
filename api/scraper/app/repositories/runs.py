@@ -90,6 +90,7 @@ class ScrapeRunRepository:
         run.heartbeat_at = utc_now()
         run.stop_requested = True
         run.current_phase = "stopping"
+        run.paused_at = None
 
     async def finish(
         self,
