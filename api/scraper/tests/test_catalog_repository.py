@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.time import utc_after, utc_now
@@ -126,6 +127,98 @@ async def test_description_enrichment_prioritizes_completed_apps_missing_long_de
     assert "Vendor.CompletedMissing" in ordered_ids
     assert "Vendor.Pending" in ordered_ids
     assert "Vendor.Completed" not in ordered_ids
+
+
+@pytest.mark.asyncio
+async def test_repair_resolved_source_platforms_moves_cross_platform_installers() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    now = utc_now()
+    async with session_factory() as session:
+        app = SoftwareApp(
+            id=uuid4(),
+            winstall_id="Valve.Steam",
+            slug="valve-steam",
+            name="Steam",
+            normalized_name="steam",
+            app_status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        source = DownloadSource(
+            id=uuid4(),
+            software_app_id=app.id,
+            operating_system="windows",
+            architecture="x86_64",
+            initial_url="https://store.steampowered.com/about/",
+            resolution_status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+        )
+        source.resolved_sources = [
+            ResolvedSource(
+                id=uuid4(),
+                download_source_id=source.id,
+                resolved_url_encrypted="encrypted-exe",
+                final_domain="steamstatic.com",
+                filename="SteamSetup.exe",
+                extension=".exe",
+                score=100,
+                status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+                checked_at=now,
+                expires_at=utc_after(hours=1),
+            ),
+            ResolvedSource(
+                id=uuid4(),
+                download_source_id=source.id,
+                resolved_url_encrypted="encrypted-deb",
+                final_domain="steampowered.com",
+                filename="steam_latest.deb",
+                extension=".deb",
+                score=90,
+                status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+                checked_at=now,
+                expires_at=utc_after(hours=1),
+            ),
+            ResolvedSource(
+                id=uuid4(),
+                download_source_id=source.id,
+                resolved_url_encrypted="encrypted-dmg",
+                final_domain="steamstatic.com",
+                filename="steam.dmg",
+                extension=".dmg",
+                score=80,
+                status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+                checked_at=now,
+                expires_at=utc_after(hours=1),
+            ),
+        ]
+        app.sources = [source]
+        session.add(app)
+        await session.commit()
+
+        repaired = await CatalogRepository(session, UrlProtector("test-secret")).repair_resolved_source_platforms()
+        await session.commit()
+
+        assert repaired == 2
+        rows = await session.execute(
+            select(DownloadSource.operating_system, ResolvedSource.filename)
+            .join(ResolvedSource, ResolvedSource.download_source_id == DownloadSource.id)
+            .where(DownloadSource.software_app_id == app.id)
+        )
+        by_os: dict[str, list[str]] = {}
+        for operating_system, filename in rows:
+            by_os.setdefault(operating_system, []).append(filename)
+
+    await engine.dispose()
+    assert set(by_os) == {"windows", "linux", "macos"}
+    assert by_os["windows"] == ["SteamSetup.exe"]
+    assert by_os["linux"] == ["steam_latest.deb"]
+    assert by_os["macos"] == ["steam.dmg"]
 
 
 def software_app(

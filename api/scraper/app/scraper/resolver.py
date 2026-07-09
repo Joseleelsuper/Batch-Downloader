@@ -12,7 +12,6 @@ from app.repositories.logs import ResolverLogRepository
 from app.scraper.candidates import (
     InstallerCandidate,
     extract_candidates,
-    is_github_release_asset,
     registered_domain,
     score_candidate,
 )
@@ -38,7 +37,6 @@ class InstallerResolver:
         self.github = GitHubReleaseResolver(settings)
 
     async def resolve(self, source: DownloadSource, app: WinstallApp) -> ResolutionStatus:
-        allowed_domains = {domain.domain for domain in source.allowed_domains}
         official_url = source.initial_url or app.homepage
         await self.catalog.expire_valid_resolved_sources(source.id)
 
@@ -47,7 +45,6 @@ class InstallerResolver:
                 github_status = await self._resolve_github_releases(
                     source.id,
                     official_url,
-                    allowed_domains,
                     app,
                 )
                 if github_status == ResolutionStatus.DIRECT:
@@ -56,13 +53,12 @@ class InstallerResolver:
                 direct_status = await self._resolve_official_page(
                     source.id,
                     official_url,
-                    allowed_domains,
                     app,
                 )
                 if direct_status == ResolutionStatus.DIRECT:
                     return direct_status
 
-        fallback_status = await self._resolve_winstall_fallback(source.id, app, allowed_domains)
+        fallback_status = await self._resolve_winstall_fallback(source.id, app)
         if fallback_status == ResolutionStatus.FALLBACK:
             return fallback_status
 
@@ -81,7 +77,6 @@ class InstallerResolver:
         self,
         source_id: uuid.UUID,
         official_url: str,
-        allowed_domains: set[str],
         app: WinstallApp,
     ) -> ResolutionStatus:
         try:
@@ -108,7 +103,6 @@ class InstallerResolver:
         valid = await self._validate_candidates(
             source_id=source_id,
             candidates=candidates,
-            allowed_domains=allowed_domains,
             status=ResolutionStatus.DIRECT,
             app=app,
         )
@@ -136,7 +130,6 @@ class InstallerResolver:
             valid = await self._validate_candidates(
                 source_id=source_id,
                 candidates=playwright_candidates,
-                allowed_domains=allowed_domains,
                 status=ResolutionStatus.DIRECT,
                 app=app,
             )
@@ -149,7 +142,6 @@ class InstallerResolver:
         self,
         source_id: uuid.UUID,
         official_url: str,
-        allowed_domains: set[str],
         app: WinstallApp,
     ) -> ResolutionStatus:
         if not parse_github_repo(official_url):
@@ -176,7 +168,6 @@ class InstallerResolver:
         valid = await self._validate_candidates(
             source_id=source_id,
             candidates=candidates,
-            allowed_domains=allowed_domains | {"github.com", "githubusercontent.com"},
             status=ResolutionStatus.DIRECT,
             app=app,
         )
@@ -186,7 +177,6 @@ class InstallerResolver:
         self,
         source_id: uuid.UUID,
         app: WinstallApp,
-        allowed_domains: set[str],
     ) -> ResolutionStatus:
         fallback_candidates = []
         for version in app.versions:
@@ -232,18 +222,9 @@ class InstallerResolver:
             )
         )
 
-        fallback_allowed = set(allowed_domains)
-        for candidate in fallback_candidates:
-            domain = registered_domain(candidate.url)
-            if domain:
-                fallback_allowed.add(domain)
-            if is_github_release_asset(candidate.url):
-                fallback_allowed.add("githubusercontent.com")
-
         valid = await self._validate_candidates(
             source_id=source_id,
             candidates=fallback_candidates,
-            allowed_domains=fallback_allowed,
             status=ResolutionStatus.FALLBACK,
             app=app,
         )
@@ -297,7 +278,6 @@ class InstallerResolver:
         self,
         source_id: uuid.UUID,
         candidates: list[InstallerCandidate],
-        allowed_domains: set[str],
         status: ResolutionStatus,
         app: WinstallApp,
     ) -> bool:
@@ -305,9 +285,6 @@ class InstallerResolver:
             (
                 score_candidate(
                     candidate,
-                    allowed_domains=allowed_domains,
-                    preferred_os=self.settings.preferred_operating_system,
-                    preferred_architecture=self.settings.preferred_architecture,
                     app_name=app.name,
                     package_id=app.package_id,
                     publisher=app.publisher,
@@ -323,7 +300,7 @@ class InstallerResolver:
             if candidate.score <= 0:
                 continue
             try:
-                result = await self.validator.validate(candidate, allowed_domains)
+                result = await self.validator.validate(candidate)
             except Exception as exc:
                 await self.logs.add(
                     phase="validate",

@@ -97,9 +97,6 @@ class DownloadSource(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     software_app: Mapped[SoftwareApp] = relationship(back_populates="sources")
-    allowed_domains: Mapped[list["SourceAllowedDomain"]] = relationship(
-        back_populates="source", cascade="all, delete-orphan"
-    )
     resolved_sources: Mapped[list["ResolvedSource"]] = relationship(
         back_populates="source", cascade="all, delete-orphan"
     )
@@ -133,20 +130,6 @@ class SoftwareAppTag(Base):
         UniqueConstraint("software_app_id", "normalized_tag", name="uq_software_app_tag"),
         Index("ix_software_app_tags_app", "software_app_id"),
     )
-
-
-class SourceAllowedDomain(Base):
-    __tablename__ = "source_allowed_domains"
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
-    source_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("download_sources.id"))
-    domain: Mapped[str] = mapped_column(String(253), nullable=False)
-    include_subdomains: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
-
-    source: Mapped[DownloadSource] = relationship(back_populates="allowed_domains")
-
-    __table_args__ = (UniqueConstraint("source_id", "domain", name="uq_source_allowed_domain"),)
 
 
 class ResolvedSource(Base):

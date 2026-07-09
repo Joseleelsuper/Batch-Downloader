@@ -17,7 +17,6 @@ from app.db.models import (
     ScrapeRun,
     SoftwareApp,
     SoftwareAppTag,
-    SourceAllowedDomain,
 )
 from app.scraper.text import normalize_text, slugify
 from app.scraper.winstall import WinstallApp
@@ -58,12 +57,57 @@ class CatalogRepository:
         )
         return existing_id is None
 
+    async def repair_resolved_source_platforms(self) -> int:
+        result = await self.session.scalars(
+            select(ResolvedSource)
+            .join(DownloadSource)
+            .where(ResolvedSource.validation_status == ValidationStatus.VALID.value)
+            .options(selectinload(ResolvedSource.source))
+        )
+        repaired = 0
+        affected_sources: set[uuid.UUID] = set()
+        for resolved in list(result.unique()):
+            source = resolved.source
+            target_os = inferred_platform_for_resolved_source(resolved)
+            if not source or not target_os or target_os == source.operating_system:
+                continue
+            target_architecture = inferred_architecture_for_resolved_source(
+                resolved,
+                fallback=source.architecture,
+            )
+            target = await self._ensure_platform_source_from_existing(
+                source,
+                target_os,
+                target_architecture,
+                status=resolved.status,
+                validation_status=resolved.validation_status,
+            )
+            if target.id == source.id:
+                continue
+            affected_sources.add(source.id)
+            affected_sources.add(target.id)
+            resolved.download_source_id = target.id
+            metadata = dict(resolved.metadata_json or {})
+            metadata["operating_system"] = target_os
+            metadata["architecture"] = target_architecture
+            metadata["platform_repaired"] = True
+            resolved.metadata_json = json_safe(metadata)
+            resolved.checked_at = utc_now()
+            source.updated_at = utc_now()
+            target.updated_at = utc_now()
+            repaired += 1
+
+        await self.session.flush()
+        for source_id in affected_sources:
+            await self._refresh_source_status_from_resolved(source_id)
+        return repaired
+
     async def upsert_winstall_app(self, app: WinstallApp) -> SoftwareApp:
         existing = await self.session.scalar(
             select(SoftwareApp)
             .options(
                 selectinload(SoftwareApp.tags),
-                selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains),
+                selectinload(SoftwareApp.sources),
             )
             .where(SoftwareApp.winstall_id == app.package_id)
         )
@@ -165,12 +209,10 @@ class CatalogRepository:
     ) -> DownloadSource:
         source = await self.session.scalar(
             select(DownloadSource)
-            .options(selectinload(DownloadSource.allowed_domains))
             .where(DownloadSource.software_app_id == software_app_id)
             .where(DownloadSource.operating_system == operating_system)
             .where(DownloadSource.architecture == architecture)
         )
-        is_new_source = source is None
         if source is None:
             source = DownloadSource(
                 software_app_id=software_app_id,
@@ -189,19 +231,67 @@ class CatalogRepository:
             source.resolver_config = json_safe({"winstall_id": app.package_id})
             source.updated_at = utc_now()
 
-        domains = allowed_domains_for(initial_url or app.homepage, app.installer_urls)
-        if is_new_source:
-            existing_domains = set()
-        else:
-            result = await self.session.scalars(
-                select(SourceAllowedDomain.domain).where(SourceAllowedDomain.source_id == source.id)
-            )
-            existing_domains = set(result)
-        for domain in domains - existing_domains:
-            self.session.add(
-                SourceAllowedDomain(source_id=source.id, domain=domain, include_subdomains=True)
-            )
         return source
+
+    async def _ensure_platform_source_from_existing(
+        self,
+        source: DownloadSource,
+        operating_system: str,
+        architecture: str,
+        *,
+        status: str,
+        validation_status: str,
+    ) -> DownloadSource:
+        target = await self.session.scalar(
+            select(DownloadSource)
+            .where(DownloadSource.software_app_id == source.software_app_id)
+            .where(DownloadSource.operating_system == operating_system)
+            .where(DownloadSource.architecture == architecture)
+            .limit(1)
+        )
+        if target is None:
+            target = DownloadSource(
+                software_app_id=source.software_app_id,
+                operating_system=operating_system,
+                architecture=architecture,
+                initial_url=source.initial_url,
+                resolver_type=source.resolver_type,
+                resolver_config=json_safe(source.resolver_config),
+                resolution_status=status,
+                validation_status=validation_status,
+            )
+            self.session.add(target)
+            await self.session.flush()
+        else:
+            target.initial_url = target.initial_url or source.initial_url
+            target.resolver_config = target.resolver_config or json_safe(source.resolver_config)
+            target.updated_at = utc_now()
+
+        return target
+
+    async def _refresh_source_status_from_resolved(self, source_id: uuid.UUID) -> None:
+        source = await self.session.get(DownloadSource, source_id)
+        if not source:
+            return
+        resolved = await self.session.scalar(
+            select(ResolvedSource)
+            .where(ResolvedSource.download_source_id == source_id)
+            .where(ResolvedSource.validation_status == ValidationStatus.VALID.value)
+            .order_by(
+                ResolvedSource.is_latest.desc(),
+                ResolvedSource.release_rank.asc(),
+                ResolvedSource.score.desc(),
+                ResolvedSource.checked_at.desc(),
+            )
+            .limit(1)
+        )
+        if resolved:
+            source.resolution_status = resolved.status
+            source.validation_status = resolved.validation_status
+        elif source.validation_status == ValidationStatus.VALID.value:
+            source.resolution_status = ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+            source.validation_status = ValidationStatus.UNCHECKED.value
+        source.updated_at = utc_now()
 
     async def source_for_platform(
         self,
@@ -212,7 +302,6 @@ class CatalogRepository:
         return await self.session.scalar(
             select(DownloadSource)
             .options(
-                selectinload(DownloadSource.allowed_domains),
                 selectinload(DownloadSource.resolved_sources),
             )
             .where(DownloadSource.software_app_id == software_app_id)
@@ -225,7 +314,6 @@ class CatalogRepository:
         return await self.session.scalar(
             select(DownloadSource)
             .options(
-                selectinload(DownloadSource.allowed_domains),
                 selectinload(DownloadSource.resolved_sources),
             )
             .where(DownloadSource.software_app_id == software_app_id)
@@ -410,7 +498,6 @@ class CatalogRepository:
             .options(
                 selectinload(SoftwareApp.tags),
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
-                selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains),
             )
         )
         return list(result.unique()), int(total or 0)
@@ -468,7 +555,6 @@ class CatalogRepository:
             select(SoftwareApp)
             .options(
                 selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
-                selectinload(SoftwareApp.sources).selectinload(DownloadSource.allowed_domains),
                 selectinload(SoftwareApp.tags),
             )
             .where(or_(*conditions))
@@ -518,15 +604,6 @@ class CatalogRepository:
         return stmt
 
 
-def allowed_domains_for(homepage: str | None, installer_urls: list[str]) -> set[str]:
-    domains: set[str] = set()
-    for url in [homepage, *installer_urls]:
-        domain = registered_domain(url)
-        if domain:
-            domains.add(domain)
-    return domains
-
-
 def has_icon_url(value: str | None) -> bool:
     return bool(value and value.strip() and value.strip() != "-")
 
@@ -558,3 +635,53 @@ def registered_domain(url: str | None) -> str | None:
     if not extracted.domain or not extracted.suffix:
         return None
     return f"{extracted.domain}.{extracted.suffix}".lower()
+
+
+def inferred_platform_for_resolved_source(resolved: ResolvedSource) -> str | None:
+    extension = normalized_extension(resolved.extension)
+    if extension in {".exe", ".msi", ".msix", ".appx"}:
+        return "windows"
+    if extension in {".dmg", ".pkg"}:
+        return "macos"
+    if extension in {".deb", ".rpm", ".appimage", ".tar.gz", ".jar"}:
+        return "linux"
+
+    filename = (resolved.filename or "").lower()
+    if filename.endswith((".exe", ".msi", ".msix", ".appx")):
+        return "windows"
+    if filename.endswith((".dmg", ".pkg")):
+        return "macos"
+    if filename.endswith((".deb", ".rpm", ".appimage", ".tar.gz", ".jar")):
+        return "linux"
+    return None
+
+
+def inferred_architecture_for_resolved_source(
+    resolved: ResolvedSource,
+    fallback: str,
+) -> str:
+    metadata = resolved.metadata_json or {}
+    text = " ".join(
+        str(value)
+        for value in (
+            resolved.filename,
+            resolved.extension,
+            metadata.get("candidate_label"),
+            metadata.get("candidate_source"),
+        )
+        if value
+    ).lower()
+    if any(token in text for token in ("aarch64", "arm64", "apple silicon", "m1", "m2", "m3")):
+        return "aarch64"
+    if any(token in text for token in ("i386", "i686", "win32", "32-bit", "32bit")):
+        return "x86"
+    if any(token in text for token in ("x86_64", "amd64", "x64", "win64", "64-bit", "64bit")):
+        return "x86_64"
+    return fallback or "x86_64"
+
+
+def normalized_extension(value: str | None) -> str | None:
+    if not value:
+        return None
+    extension = value.lower().strip()
+    return extension if extension.startswith(".") else f".{extension}"

@@ -26,7 +26,6 @@ async def test_validator_rejects_github_source_archives_before_network() -> None
             url="https://codeload.github.com/vendor/app/zip/refs/heads/main",
             source="github_release_html",
         ),
-        allowed_domains={"github.com"},
     )
 
     assert result.ok is False
@@ -64,11 +63,100 @@ async def test_validator_accepts_github_release_asset_redirect(monkeypatch) -> N
             url="https://github.com/vendor/app/releases/download/v1.0.0/AppSetup.exe",
             source="github_release_api",
         ),
-        allowed_domains={"github.com", "githubusercontent.com"},
     )
 
     assert result.ok is True
     assert result.final_domain == "githubusercontent.com"
+    assert result.filename == "AppSetup.exe"
+    assert result.extension == ".exe"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_preserves_candidate_filename_when_redirect_hides_it(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    respx.head("https://downloads.example.com/releases/AppSetup.msi").mock(
+        return_value=httpx.Response(
+            302,
+            headers={"location": "https://cdn.example.net/opaque/12345"},
+        )
+    )
+    respx.head("https://cdn.example.net/opaque/12345").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/octet-stream", "content-length": "2048"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url="https://downloads.example.com/releases/AppSetup.msi",
+            source="href",
+        ),
+    )
+
+    assert result.ok is True
+    assert result.filename == "AppSetup.msi"
+    assert result.extension == ".msi"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_accepts_public_cross_domain_redirect_without_allowlist(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    respx.head("https://downloads.vendor.com/AppSetup.exe").mock(
+        return_value=httpx.Response(
+            302,
+            headers={"location": "https://cloudflare-cdn.net/AppSetup.exe"},
+        )
+    )
+    respx.head("https://cloudflare-cdn.net/AppSetup.exe").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/x-msdownload", "content-length": "1024"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url="https://downloads.vendor.com/AppSetup.exe",
+            source="href",
+        )
+    )
+
+    assert result.ok is True
+    assert result.final_url == "https://cloudflare-cdn.net/AppSetup.exe"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_rejects_known_non_desktop_binary_extensions(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    respx.head("https://store.example.com/steamlink-android.apk").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/octet-stream", "content-length": "4096"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url="https://store.example.com/steamlink-android.apk",
+            source="href",
+        ),
+    )
+
+    assert result.ok is False
+    assert result.reason == "unsupported_extension:.apk"
 
 
 @pytest.mark.asyncio
@@ -93,7 +181,6 @@ async def test_validator_accepts_verified_winstall_http_installer(monkeypatch) -
             source="winstall_page",
             asset_kind="winstall_download",
         ),
-        allowed_domains={"cevio.jp"},
     )
 
     assert result.ok is True
@@ -131,7 +218,6 @@ async def test_validator_allows_verified_winstall_redirect_to_public_cdn(monkeyp
             source="winstall_api",
             asset_kind="winstall_download",
         ),
-        allowed_domains={"codesector.com"},
     )
 
     assert result.ok is True
@@ -146,7 +232,6 @@ async def test_validator_rejects_non_winstall_http_before_network() -> None:
             url="http://downloads.example.com/AppSetup.exe",
             source="href",
         ),
-        allowed_domains={"example.com"},
     )
 
     assert result.ok is False

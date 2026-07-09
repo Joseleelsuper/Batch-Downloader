@@ -58,6 +58,9 @@ class WinstallApp:
         return list(dict.fromkeys(urls))
 
 
+WINSTALL_CATALOG_PAGE_SIZE = 60
+
+
 class WinstallClient:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
@@ -82,7 +85,7 @@ class WinstallClient:
         total: int | None = None
         while total is None or offset < total:
             try:
-                payload = await self._fetch_catalog_page(offset, self.settings.scrape_page_size)
+                payload = await self._fetch_catalog_page(offset, WINSTALL_CATALOG_PAGE_SIZE)
             except Exception:
                 payload = None
             if payload is None and offset == 0:

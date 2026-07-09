@@ -13,7 +13,9 @@ from app.scraper.catalog_fetcher import (
     SearcherWorker,
     ValidInstaller,
     fallback_candidates,
+    infer_validated_operating_system,
     is_stale_control_command,
+    known_official_candidates,
     rank_installers,
 )
 from app.scraper.validator import ValidationResult
@@ -66,6 +68,44 @@ def test_rank_installers_marks_latest_per_platform_architecture() -> None:
     assert by_url["https://example.com/App-2.0.0.msi"] == (0, True)
     assert by_url["https://example.com/App-1.0.0.msi"] == (1, False)
     assert by_url["https://example.com/App-1.5.0-aarch64.dmg"] == (0, True)
+
+
+def test_validated_operating_system_uses_validation_extension_first() -> None:
+    candidate = InstallerCandidate(
+        url="https://store.steampowered.com/about/",
+        source="href",
+        label="Download Steam",
+    )
+
+    assert infer_validated_operating_system(
+        candidate,
+        ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url="https://cdn.akamai.steamstatic.com/client/installer/steam.dmg",
+            extension=".dmg",
+            filename="steam.dmg",
+        ),
+    ) == "macos"
+    assert infer_validated_operating_system(
+        candidate,
+        ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url="https://repo.steampowered.com/steam/archive/steam_latest.deb",
+            extension=".deb",
+            filename="steam_latest.deb",
+        ),
+    ) == "linux"
+
+
+def test_epic_games_launcher_has_known_official_candidate() -> None:
+    app = SimpleNamespace(package_id="EpicGames.EpicGamesLauncher")
+
+    candidates = known_official_candidates(app)
+
+    assert candidates[0].source == "official_known_endpoint"
+    assert candidates[0].url.endswith("EpicGamesLauncherInstaller.exe")
 
 
 def test_stale_control_command_rejects_only_old_control_commands() -> None:

@@ -30,7 +30,7 @@ class FakeLogs:
 
 
 class FakeValidator:
-    async def validate(self, candidate, _allowed_domains):
+    async def validate(self, candidate):
         if "latest" in candidate.url:
             return ValidationResult(
                 ok=True,
@@ -48,7 +48,7 @@ class FakeValidator:
 @pytest.mark.asyncio
 async def test_github_official_url_does_not_fall_back_to_generic_page_parser(monkeypatch) -> None:
     resolver = InstallerResolver(Settings(), FakeCatalog(), FakeLogs(), FakeValidator())
-    source = SimpleNamespace(id=uuid4(), initial_url=None, allowed_domains=[])
+    source = SimpleNamespace(id=uuid4(), initial_url=None)
     app = SimpleNamespace(
         homepage="https://github.com/ali50m/AddCurrentPath",
         package_id="ali50m.AddCurrentPath",
@@ -122,7 +122,7 @@ async def test_winstall_github_asset_404_retries_latest_release(monkeypatch) -> 
     monkeypatch.setattr("app.scraper.resolver.WinstallClient", FakeWinstallClient)
     monkeypatch.setattr(resolver.github, "collect", collect_latest)
 
-    status = await resolver._resolve_winstall_fallback(source_id, app, {"github.com"})
+    status = await resolver._resolve_winstall_fallback(source_id, app)
 
     assert status == ResolutionStatus.FALLBACK
     assert catalog.saved[0].url.endswith("App-latest.exe")
@@ -151,7 +151,6 @@ async def test_official_page_playwright_error_does_not_fail_app(monkeypatch) -> 
     status = await resolver._resolve_official_page(
         uuid4(),
         "https://example.com/download",
-        {"example.com"},
         app,
     )
 

@@ -10,6 +10,8 @@ from app.core.time import utc_now
 from app.db.enums import ScrapeRunStatus
 from app.db.models import ScrapeRun, ScraperCommand
 
+RUN_LOCK_STALE_MINUTES = 90
+
 
 class ScrapeRunRepository:
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
@@ -17,7 +19,7 @@ class ScrapeRunRepository:
         self.settings = settings
 
     async def acquire(self) -> ScrapeRun | None:
-        stale_before = utc_now() - timedelta(minutes=self.settings.run_lock_stale_minutes)
+        stale_before = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES)
         active = await self.session.scalar(
             select(ScrapeRun)
             .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)

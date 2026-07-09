@@ -27,6 +27,24 @@ PREFERRED_EXTENSIONS = (
 WINDOWS_INSTALLER_EXTENSIONS = (".exe", ".msi", ".msix", ".appx")
 MACOS_INSTALLER_EXTENSIONS = (".dmg", ".pkg")
 LINUX_INSTALLER_EXTENSIONS = (".deb", ".rpm", ".appimage", ".tar.gz", ".jar")
+UNSUPPORTED_DOWNLOAD_EXTENSIONS = (
+    ".apk",
+    ".asc",
+    ".bib",
+    ".checksum",
+    ".css",
+    ".html",
+    ".json",
+    ".pdf",
+    ".sig",
+    ".sha1",
+    ".sha256",
+    ".sha512",
+    ".txt",
+    ".xml",
+    ".yml",
+    ".yaml",
+)
 
 POSITIVE_KEYWORDS = (
     "download",
@@ -139,9 +157,6 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
 
 def score_candidate(
     candidate: InstallerCandidate,
-    allowed_domains: set[str],
-    preferred_os: str = "windows",
-    preferred_architecture: str = "x86_64",
     app_name: str | None = None,
     package_id: str | None = None,
     publisher: str | None = None,
@@ -157,26 +172,33 @@ def score_candidate(
     )
     if asset_kind == "source_archive":
         score -= 150
-    if extension in WINDOWS_INSTALLER_EXTENSIONS:
+    if extension in (
+        WINDOWS_INSTALLER_EXTENSIONS
+        + MACOS_INSTALLER_EXTENSIONS
+        + (".deb", ".rpm", ".appimage")
+    ):
         score += 70
     elif extension == ".zip":
         score += 25
     elif extension in PREFERRED_EXTENSIONS:
         score += 50
-    if extension in WINDOWS_INSTALLER_EXTENSIONS and preferred_os == "windows":
-        score += 20
-    if extension in MACOS_INSTALLER_EXTENSIONS and preferred_os in {"macos", "darwin"}:
-        score += 20
-    if extension in LINUX_INSTALLER_EXTENSIONS and preferred_os == "linux":
-        score += 20
     if extension == ".zip" and registered_domain(candidate.url) == "github.com":
         score += 10 if is_github_release_asset(candidate.url) else -90
-    if extension in {".dmg", ".pkg"} and preferred_os == "windows":
-        score -= 35
-    if extension in {".deb", ".rpm"} and preferred_os == "windows":
-        score -= 30
-    if preferred_architecture in {"x86_64", "amd64"} and any(
-        keyword in text for keyword in ("x64", "x86_64", "amd64", "64-bit", "64bit")
+    if any(
+        keyword in text
+        for keyword in (
+            "x64",
+            "x86_64",
+            "amd64",
+            "64-bit",
+            "64bit",
+            "x86",
+            "i386",
+            "i686",
+            "arm64",
+            "aarch64",
+            "apple silicon",
+        )
     ):
         score += 15
     for keyword in POSITIVE_KEYWORDS:
@@ -185,9 +207,6 @@ def score_candidate(
     for keyword in NEGATIVE_KEYWORDS:
         if keyword in text:
             score -= 50
-    domain = registered_domain(candidate.url)
-    if domain and domain in allowed_domains:
-        score += 30
     match_tokens = app_match_tokens(
         text=text,
         app_name=app_name,
@@ -337,21 +356,27 @@ def candidate_text(candidate: InstallerCandidate) -> str:
 def infer_operating_system(candidate: InstallerCandidate) -> str | None:
     extension = candidate.extension
     text = candidate_text(candidate)
-    if extension in WINDOWS_INSTALLER_EXTENSIONS:
-        return "windows"
-    if extension in MACOS_INSTALLER_EXTENSIONS:
-        return "macos"
-    if extension in {".deb", ".rpm", ".appimage", ".tar.gz"}:
-        return "linux"
-    if extension == ".jar":
-        if any(token in text for token in ("linux", "ubuntu", "debian", "fedora")):
-            return "linux"
-        return "linux"
+    operating_system = operating_system_for_extension(extension)
+    if operating_system:
+        return operating_system
     if any(token in text for token in ("windows", "win64", "win32", "x64.exe")):
         return "windows"
     if any(token in text for token in ("macos", "mac os", "darwin", "dmg", "apple silicon")):
         return "macos"
     if any(token in text for token in ("linux", "ubuntu", "debian", "fedora", "appimage")):
+        return "linux"
+    return None
+
+
+def operating_system_for_extension(extension: str | None) -> str | None:
+    if not extension:
+        return None
+    normalized = extension.lower().strip()
+    if normalized in WINDOWS_INSTALLER_EXTENSIONS:
+        return "windows"
+    if normalized in MACOS_INSTALLER_EXTENSIONS:
+        return "macos"
+    if normalized in LINUX_INSTALLER_EXTENSIONS:
         return "linux"
     return None
 

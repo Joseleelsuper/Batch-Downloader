@@ -17,7 +17,7 @@ from app.core.logging import get_logger
 from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ScrapeRunStatus, ValidationStatus
 from app.db.models import ScraperWorkItem
-from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate, allowed_domains_for
+from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
     QUEUE_FILTER_SCRAPER,
@@ -31,7 +31,7 @@ from app.scraper.candidates import (
     extract_version,
     infer_architecture,
     infer_operating_system,
-    is_github_release_asset,
+    operating_system_for_extension,
     registered_domain,
     score_candidate,
 )
@@ -116,6 +116,11 @@ class CatalogFetcher:
             return ScrapeCounters()
         run_id = run.id
         await self.session.commit()
+
+        repaired_platforms = await self.catalog.repair_resolved_source_platforms()
+        if repaired_platforms:
+            await self.session.commit()
+            logger.warning("resolved_source_platforms_repaired", count=repaired_platforms)
 
         async with async_session_local()() as session:
             pipeline = PipelineRepository(session)
@@ -493,12 +498,8 @@ class FilterWorker:
     async def _fallback_download_valid(self, payload: dict[str, Any], app: WinstallApp) -> bool:
         candidates = fallback_candidates(payload, app)
         for candidate in candidates[:12]:
-            domain = registered_domain(candidate.url)
-            allowed_domains = {domain} if domain else set()
-            if is_github_release_asset(candidate.url):
-                allowed_domains.add("githubusercontent.com")
             try:
-                result = await self.validator.validate(candidate, allowed_domains)
+                result = await self.validator.validate(candidate)
             except Exception:
                 continue
             if result.ok:
@@ -638,11 +639,12 @@ class PlatformScraperWorker:
         app: WinstallApp,
         official_url: str,
     ) -> list[InstallerCandidate]:
+        known_candidates = known_official_candidates(app)
         if parse_github_repo(official_url):
             try:
-                return await self.github.collect(official_url)
+                return dedupe_candidates([*known_candidates, *(await self.github.collect(official_url))])
             except Exception:
-                return []
+                return known_candidates
 
         html = ""
         try:
@@ -671,7 +673,7 @@ class PlatformScraperWorker:
             )
             await session.commit()
 
-        candidates = extract_candidates(html, official_url) if html else []
+        candidates = [*known_candidates, *(extract_candidates(html, official_url) if html else [])]
         try:
             candidates.extend(await self.playwright.collect(official_url))
         except Exception:
@@ -687,32 +689,20 @@ class PlatformScraperWorker:
         fallback_candidates: list[InstallerCandidate],
     ) -> list[ValidInstaller]:
         valid: list[ValidInstaller] = []
-        official_allowed = allowed_domains_for(official_url, app.installer_urls)
-        if parse_github_repo(official_url or ""):
-            official_allowed |= {"github.com", "githubusercontent.com"}
         valid.extend(
             await self._validate_candidate_group(
                 app,
                 direct_candidates,
                 ResolutionStatus.DIRECT,
-                official_allowed,
                 max_candidates=96,
             )
         )
 
-        fallback_allowed = set(official_allowed)
-        for candidate in fallback_candidates:
-            domain = registered_domain(candidate.url)
-            if domain:
-                fallback_allowed.add(domain)
-            if is_github_release_asset(candidate.url):
-                fallback_allowed.add("githubusercontent.com")
         valid.extend(
             await self._validate_candidate_group(
                 app,
                 fallback_candidates,
                 ResolutionStatus.FALLBACK,
-                fallback_allowed,
                 max_candidates=48,
             )
         )
@@ -723,7 +713,6 @@ class PlatformScraperWorker:
         app: WinstallApp,
         candidates: list[InstallerCandidate],
         status: ResolutionStatus,
-        allowed_domains: set[str],
         max_candidates: int,
     ) -> list[ValidInstaller]:
         scored = []
@@ -734,9 +723,6 @@ class PlatformScraperWorker:
             scored.append(
                 score_candidate(
                     candidate,
-                    allowed_domains=allowed_domains,
-                    preferred_os=operating_system,
-                    preferred_architecture=infer_architecture(candidate),
                     app_name=app.name,
                     package_id=app.package_id,
                     publisher=app.publisher,
@@ -750,12 +736,12 @@ class PlatformScraperWorker:
             if candidate.score <= 0:
                 continue
             try:
-                result = await self.validator.validate(candidate, allowed_domains)
+                result = await self.validator.validate(candidate)
             except Exception:
                 continue
             if not result.ok:
                 continue
-            operating_system = infer_operating_system(candidate)
+            operating_system = infer_validated_operating_system(candidate, result)
             if not operating_system:
                 continue
             valid.append(
@@ -981,6 +967,23 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
     return dedupe_candidates(candidates)
 
 
+def known_official_candidates(app: WinstallApp) -> list[InstallerCandidate]:
+    if app.package_id == "EpicGames.EpicGamesLauncher":
+        return [
+            InstallerCandidate(
+                url=(
+                    "https://launcher-public-service-prod06.ol.epicgames.com/"
+                    "launcher/api/installer/download/EpicGamesLauncherInstaller.exe"
+                ),
+                source="official_known_endpoint",
+                label="Epic Games Launcher Windows installer",
+                context="Official Epic Games launcher download API.",
+                asset_kind="installer",
+            )
+        ]
+    return []
+
+
 def dedupe_candidates(candidates: list[InstallerCandidate]) -> list[InstallerCandidate]:
     deduped: dict[str, InstallerCandidate] = {}
     for candidate in candidates:
@@ -1014,6 +1017,36 @@ def rank_installers(installers: list[ValidInstaller]) -> list[tuple[ValidInstall
         for index, installer in enumerate(group):
             ranked.append((installer, index, index == 0))
     return ranked
+
+
+def infer_validated_operating_system(
+    candidate: InstallerCandidate,
+    result: ValidationResult,
+) -> str | None:
+    operating_system = operating_system_for_extension(result.extension)
+    if operating_system:
+        return operating_system
+    if result.filename:
+        filename_probe = InstallerCandidate(
+            url=f"https://local.invalid/{result.filename}",
+            source=candidate.source,
+            label=candidate.label,
+            context=candidate.context,
+        )
+        operating_system = infer_operating_system(filename_probe)
+        if operating_system:
+            return operating_system
+    if result.final_url:
+        final_probe = InstallerCandidate(
+            url=result.final_url,
+            source=candidate.source,
+            label=candidate.label,
+            context=candidate.context,
+        )
+        operating_system = infer_operating_system(final_probe)
+        if operating_system:
+            return operating_system
+    return infer_operating_system(candidate)
 
 
 def installer_sort_key(installer: ValidInstaller) -> tuple[int, Any, int]:

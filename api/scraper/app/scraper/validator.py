@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import dns.asyncresolver
 import httpx
@@ -10,6 +11,7 @@ import httpx
 from app.core.config import Settings
 from app.scraper.candidates import (
     InstallerCandidate,
+    UNSUPPORTED_DOWNLOAD_EXTENSIONS,
     detect_extension,
     filename_from_url,
     is_github_release_asset,
@@ -54,7 +56,6 @@ class DownloadValidator:
     async def validate(
         self,
         candidate: InstallerCandidate,
-        allowed_domains: set[str],
     ) -> ValidationResult:
         parsed = urlparse(candidate.url)
         if not self._scheme_allowed(candidate, parsed.scheme):
@@ -70,8 +71,6 @@ class DownloadValidator:
             and not is_github_release_asset(candidate.url)
         ):
             return self._fail(candidate.url, "github_zip_not_release_asset")
-        if allowed_domains and domain not in allowed_domains:
-            return self._fail(candidate.url, "domain_not_allowed")
         if not await domain_has_public_dns(parsed.hostname):
             return self._fail(candidate.url, "dns_not_public")
 
@@ -82,7 +81,7 @@ class DownloadValidator:
             headers={"User-Agent": "BatchDownloaderScraper/0.1"},
         )
         try:
-            return await self._validate_http(client, candidate, allowed_domains)
+            return await self._validate_http(client, candidate)
         finally:
             if owns_client:
                 await client.aclose()
@@ -91,7 +90,6 @@ class DownloadValidator:
         self,
         client: httpx.AsyncClient,
         candidate: InstallerCandidate,
-        allowed_domains: set[str],
     ) -> ValidationResult:
         current_url = candidate.url
         previous_url: str | None = None
@@ -116,13 +114,6 @@ class DownloadValidator:
                     and not is_github_release_asset(current_url)
                 ):
                     return self._fail(current_url, "redirect_github_zip_not_release_asset")
-                if allowed_domains and not redirect_domain_allowed(
-                    candidate=candidate,
-                    allowed_domains=allowed_domains,
-                    previous_url=previous_url,
-                    redirected_domain=domain,
-                ):
-                    return self._fail(current_url, "redirect_domain_not_allowed")
                 if not await domain_has_public_dns(parsed.hostname):
                     return self._fail(current_url, "redirect_dns_not_public")
                 continue
@@ -141,9 +132,21 @@ class DownloadValidator:
         if size_bytes and size_bytes > self.settings.max_download_size_bytes:
             return self._fail(current_url, "file_too_large")
 
-        extension = detect_extension(current_url) or detect_extension(
-            response.headers.get("content-disposition", "")
+        disposition = response.headers.get("content-disposition", "")
+        filename = (
+            filename_from_content_disposition(disposition)
+            or filename_from_url(str(response.url))
+            or filename_from_url(candidate.url)
         )
+        extension = (
+            detect_extension(current_url)
+            or detect_extension(disposition)
+            or detect_extension(filename or "")
+            or candidate.extension
+        )
+        unsupported_extension = unsupported_filename_extension(filename or str(response.url))
+        if unsupported_extension:
+            return self._fail(current_url, f"unsupported_extension:{unsupported_extension}")
         disposition = response.headers.get("content-disposition", "").lower()
         looks_binary = content_type in BINARY_CONTENT_TYPES or "attachment" in disposition
         if content_type.startswith("text/html"):
@@ -156,7 +159,7 @@ class DownloadValidator:
             url=candidate.url,
             final_url=str(response.url),
             final_domain=registered_domain(str(response.url)),
-            filename=filename_from_url(str(response.url)),
+            filename=filename,
             extension=extension,
             content_type=content_type or None,
             size_bytes=size_bytes,
@@ -184,24 +187,6 @@ def transport_security_for(url: str, candidate: InstallerCandidate) -> str | Non
     return None
 
 
-def redirect_domain_allowed(
-    candidate: InstallerCandidate,
-    allowed_domains: set[str],
-    previous_url: str | None,
-    redirected_domain: str | None,
-) -> bool:
-    if not redirected_domain:
-        return False
-    if redirected_domain in allowed_domains:
-        return True
-    previous_domain = registered_domain(previous_url or candidate.url)
-    return bool(
-        is_verified_winstall_candidate(candidate)
-        and previous_domain
-        and previous_domain in allowed_domains
-    )
-
-
 def metadata_headers(referer: str | None = None, *, partial: bool = False) -> dict[str, str]:
     headers = {
         "Accept": "application/octet-stream,application/x-msdownload,application/x-msi,*/*",
@@ -226,6 +211,32 @@ async def request_metadata(
     )):
         response = await client.get(url, headers=metadata_headers(referer, partial=True))
     return response
+
+
+def filename_from_content_disposition(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", value, flags=re.I)
+    if match:
+        filename = unquote(match.group(1).strip().strip('"'))
+        return filename[:255] if filename and "." in filename else None
+    match = re.search(r"filename\s*=\s*\"?([^\";]+)\"?", value, flags=re.I)
+    if not match:
+        return None
+    filename = unquote(match.group(1).strip())
+    return filename[:255] if filename and "." in filename else None
+
+
+def unsupported_filename_extension(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed_path = unquote(urlparse(value).path or value).lower()
+    if parsed_path.endswith(".tar.gz"):
+        return None
+    for extension in UNSUPPORTED_DOWNLOAD_EXTENSIONS:
+        if parsed_path.endswith(extension):
+            return extension
+    return None
 
 
 async def domain_has_public_dns(hostname: str | None) -> bool:

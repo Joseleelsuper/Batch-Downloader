@@ -29,18 +29,32 @@ def test_score_prefers_windows_installer_over_docs() -> None:
             '<a href="https://example.com/app-x64.exe">Download installer</a>',
             "https://example.com",
         )[0],
-        allowed_domains={"example.com"},
     )
     bad = score_candidate(
         extract_candidates(
             '<a href="https://example.com/release-notes.zip">Source docs</a>',
             "https://example.com",
         )[0],
-        allowed_domains={"example.com"},
     )
 
     assert good.score > bad.score
     assert good.score >= 100
+
+
+def test_score_does_not_prefer_one_desktop_operating_system() -> None:
+    scores = {
+        extension: score_candidate(
+            InstallerCandidate(
+                url=f"https://downloads.example.com/AppSetup{extension}",
+                source="href",
+                label="Download installer",
+            ),
+            app_name="Example App",
+        ).score
+        for extension in (".exe", ".deb", ".dmg")
+    }
+
+    assert len(set(scores.values())) == 1
 
 
 def test_score_rejects_github_source_archive_candidate() -> None:
@@ -50,7 +64,6 @@ def test_score_rejects_github_source_archive_candidate() -> None:
             source="href",
             label="Download ZIP",
         ),
-        allowed_domains={"github.com"},
         app_name="Vendor App",
         package_id="Vendor.App",
     )
@@ -88,7 +101,6 @@ def test_score_prefers_geogebra_matching_variant() -> None:
         scored = [
             score_candidate(
                 candidate,
-                allowed_domains={"geogebra.org"},
                 app_name=app_name,
                 package_id=app_name.replace(" ", "."),
             )

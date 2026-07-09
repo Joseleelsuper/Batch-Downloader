@@ -9,9 +9,6 @@ class PlaywrightCandidateCollector:
         self.settings = settings
 
     async def collect(self, url: str) -> list[InstallerCandidate]:
-        if not self.settings.playwright_enabled:
-            return []
-
         try:
             from playwright.async_api import async_playwright
         except ImportError:

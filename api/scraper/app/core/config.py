@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = 20
     max_redirects: int = 5
     max_download_size_bytes: int = 1_500_000_000
-    scrape_page_size: int = 60
     scrape_concurrency: int = 6
     scrape_max_apps: int = 0
     scrape_app_timeout_seconds: float = 90
@@ -32,13 +31,8 @@ class Settings(BaseSettings):
     scheduler_hour: int = 3
     scheduler_minute: int = 0
     run_on_startup: bool = True
-    run_lock_stale_minutes: int = 90
-    resolved_source_ttl_hours: int = 24
     url_protection_secret: str = "replace-with-a-long-random-secret"
     allowed_download_schemes: tuple[str, ...] = ("https",)
-    preferred_operating_system: str = "windows"
-    preferred_architecture: str = "x86_64"
-    playwright_enabled: bool = True
     playwright_timeout_ms: int = 15000
     llm_groq_api_key: str = ""
     llm_groq_base_url: str = "https://api.groq.com/openai/v1"
