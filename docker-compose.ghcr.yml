@@ -78,8 +78,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
 
   scraper-api:
-    build:
-      context: ./api/scraper
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-scraper:${GHCR_IMAGE_TAG}
+    pull_policy: always
     environment:
       SCRAPPER_APP_NAME: ${SCRAPPER_APP_NAME}
       SCRAPPER_ENVIRONMENT: ${SCRAPPER_ENVIRONMENT}
@@ -127,8 +127,8 @@ services:
       retries: 20
 
   scraper-scheduler:
-    build:
-      context: ./api/scraper
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-scraper:${GHCR_IMAGE_TAG}
+    pull_policy: always
     command: ["scheduler"]
     environment:
       SCRAPPER_APP_NAME: ${SCRAPPER_APP_NAME}
@@ -164,9 +164,8 @@ services:
         condition: service_healthy
 
   webapp:
-    build:
-      context: .
-      dockerfile: services/webapp/Dockerfile
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-webapp:${GHCR_IMAGE_TAG}
+    pull_policy: always
     ports:
       - "${WEBAPP_HOST_PORT}:80"
     depends_on:
@@ -174,8 +173,8 @@ services:
         condition: service_started
 
   core-api:
-    build:
-      context: ./services/core-api
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-core-api:${GHCR_IMAGE_TAG}
+    pull_policy: always
     environment:
       CORE_API_SERVER_PORT: ${CORE_API_SERVER_PORT}
       CORE_API_MYSQL_URL: ${CORE_API_MYSQL_URL}
@@ -196,8 +195,8 @@ services:
         condition: service_healthy
 
   semantic-service:
-    build:
-      context: ./services/semantic-service
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
     environment:
       POSTGRES_DSN: ${SEMANTIC_SERVICE_POSTGRES_DSN}
     ports:
@@ -207,8 +206,8 @@ services:
         condition: service_healthy
 
   notification-service:
-    build:
-      context: ./services/notification-service
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-notification-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
     environment:
       NOTIFICATION_SERVICE_SERVER_PORT: ${NOTIFICATION_SERVICE_SERVER_PORT}
       RABBITMQ_HOST: ${NOTIFICATION_SERVICE_RABBITMQ_HOST}
@@ -219,8 +218,8 @@ services:
         condition: service_healthy
 
   download-worker:
-    build:
-      context: ./services/download-worker
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-download-worker:${GHCR_IMAGE_TAG}
+    pull_policy: always
     environment:
       DOWNLOAD_WORKER_SERVER_PORT: ${DOWNLOAD_WORKER_SERVER_PORT}
       RABBITMQ_HOST: ${DOWNLOAD_WORKER_RABBITMQ_HOST}
@@ -236,8 +235,8 @@ services:
         condition: service_started
 
   translation-service:
-    build:
-      context: ./services/translation-service
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-translation-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
     environment:
       TRANSLATION_SERVICE_SERVER_PORT: ${TRANSLATION_SERVICE_SERVER_PORT}
       TRANSLATION_SERVICE_LOCALES_PATH: ${TRANSLATION_SERVICE_LOCALES_PATH}
