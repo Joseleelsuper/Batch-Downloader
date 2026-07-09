@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from dataclasses import dataclass
-from urllib.parse import unquote, urljoin, urlparse
+from dataclasses import dataclass, replace
+from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
 import dns.asyncresolver
 import httpx
@@ -12,6 +12,7 @@ from app.core.config import Settings
 from app.scraper.candidates import (
     InstallerCandidate,
     UNSUPPORTED_DOWNLOAD_EXTENSIONS,
+    candidate_has_download_intent,
     detect_extension,
     filename_from_url,
     is_github_release_asset,
@@ -81,7 +82,13 @@ class DownloadValidator:
             headers={"User-Agent": "BatchDownloaderScraper/0.1"},
         )
         try:
-            return await self._validate_http(client, candidate)
+            try:
+                return await self._validate_http(client, candidate)
+            except httpx.ConnectError as exc:
+                http_candidate = winstall_http_tls_fallback(candidate, exc)
+                if http_candidate is None:
+                    raise
+                return await self._validate_http(client, http_candidate)
         finally:
             if owns_client:
                 await client.aclose()
@@ -95,7 +102,12 @@ class DownloadValidator:
         previous_url: str | None = None
         response: httpx.Response | None = None
         for _ in range(self.settings.max_redirects + 1):
-            response = await request_metadata(client, current_url, referer=previous_url)
+            response = await request_metadata(
+                client,
+                current_url,
+                referer=previous_url or candidate.referer,
+                probe_html=candidate_has_download_intent(candidate),
+            )
             if response.is_redirect:
                 location = response.headers.get("location")
                 if not location:
@@ -124,6 +136,9 @@ class DownloadValidator:
         if response is None:
             return self._fail(current_url, "no_response")
         if response.status_code >= 400:
+            attested = self._winstall_edge_attested_result(candidate, current_url, response)
+            if attested:
+                return attested
             return self._fail(current_url, f"http_{response.status_code}")
 
         content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -150,6 +165,9 @@ class DownloadValidator:
         disposition = response.headers.get("content-disposition", "").lower()
         looks_binary = content_type in BINARY_CONTENT_TYPES or "attachment" in disposition
         if content_type.startswith("text/html"):
+            attested = self._winstall_edge_attested_result(candidate, current_url, response)
+            if attested:
+                return attested
             return self._fail(current_url, "html_response")
         if not extension and not looks_binary:
             return self._fail(current_url, "not_an_installer")
@@ -174,11 +192,70 @@ class DownloadValidator:
             return True
         return scheme == "http" and is_verified_winstall_candidate(candidate)
 
+    def _winstall_edge_attested_result(
+        self,
+        candidate: InstallerCandidate,
+        current_url: str,
+        response: httpx.Response,
+    ) -> ValidationResult | None:
+        """Keep a visible Winstall installer usable when an edge challenge blocks bots.
+
+        This is intentionally narrower than a normal validation: it requires an HTTPS
+        Winstall download link with an explicit supported extension and an identifiable
+        Cloudflare-style challenge. Stale links that merely serve an HTML page, and
+        generic 403 responses, remain rejected.
+        """
+        extension = detect_extension(current_url) or candidate.extension
+        if not (
+            is_verified_winstall_candidate(candidate)
+            and urlparse(current_url).scheme == "https"
+            and extension in {
+                ".exe",
+                ".msi",
+                ".msix",
+                ".appx",
+                ".zip",
+                ".deb",
+                ".rpm",
+                ".appimage",
+                ".dmg",
+                ".pkg",
+                ".tar.gz",
+                ".jar",
+            }
+            and is_edge_challenge(response)
+        ):
+            return None
+        return ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url=current_url,
+            final_domain=registered_domain(current_url),
+            filename=filename_from_url(current_url) or filename_from_url(candidate.url),
+            extension=extension,
+            transport_security="https_winstall_edge_attested",
+        )
+
 
 def is_verified_winstall_candidate(candidate: InstallerCandidate) -> bool:
     return candidate.source in {"winstall_api", "winstall_page"} or (
         candidate.asset_kind == "winstall_download"
     )
+
+
+def winstall_http_tls_fallback(
+    candidate: InstallerCandidate,
+    error: httpx.ConnectError,
+) -> InstallerCandidate | None:
+    """Retry a Winstall-attested download over HTTP only after a TLS chain failure."""
+    parsed = urlparse(candidate.url)
+    if not (
+        is_verified_winstall_candidate(candidate)
+        and parsed.scheme == "https"
+        and "certificate verify failed" in str(error).lower()
+    ):
+        return None
+    return replace(candidate, url=urlunparse(parsed._replace(scheme="http")))
 
 
 def transport_security_for(url: str, candidate: InstallerCandidate) -> str | None:
@@ -204,13 +281,32 @@ async def request_metadata(
     client: httpx.AsyncClient,
     url: str,
     referer: str | None = None,
+    *,
+    probe_html: bool = False,
 ) -> httpx.Response:
     response = await client.head(url, headers=metadata_headers(referer))
-    if not response.is_redirect and (response.status_code in {405, 403} or (
-        response.status_code < 400 and not response.headers.get("content-type")
-    )):
+    content_type = response.headers.get("content-type", "").lower()
+    if not response.is_redirect and (
+        response.status_code in {405, 403}
+        or (response.status_code < 400 and not content_type)
+        or (probe_html and "html" in content_type)
+    ):
         response = await client.get(url, headers=metadata_headers(referer, partial=True))
     return response
+
+
+def is_edge_challenge(response: httpx.Response) -> bool:
+    headers = " ".join(
+        value.lower()
+        for key, value in response.headers.items()
+        if key.lower() in {"server", "cf-ray", "cf-mitigated", "x-sucuri-id"}
+    )
+    if "cloudflare" in headers or "cf-ray" in response.headers or "cf-mitigated" in response.headers:
+        return True
+    if not response.content:
+        return False
+    probe = response.content[:4096].lower()
+    return any(marker in probe for marker in (b"/cdn-cgi/", b"just a moment", b"cloudflare"))
 
 
 def filename_from_content_disposition(value: str | None) -> str | None:

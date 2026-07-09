@@ -45,6 +45,9 @@ class ScrapeRunRepository:
             run.status = ScrapeRunStatus.FAILED.value
             run.finished_at = recovered_at
             run.heartbeat_at = recovered_at
+            run.current_phase = ScrapeRunStatus.FAILED.value
+            run.stop_requested = False
+            run.paused_at = None
             run.error_summary = error_summary
         await self.session.flush()
         return len(runs)

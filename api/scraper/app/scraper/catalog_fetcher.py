@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from packaging.version import InvalidVersion, Version
@@ -28,10 +29,13 @@ from app.repositories.pipeline import (
 from app.repositories.runs import ScrapeRunRepository, worker_id
 from app.scraper.candidates import (
     InstallerCandidate,
+    candidate_has_download_intent,
+    candidate_variants,
     extract_candidates,
     extract_version,
     infer_architecture,
     infer_operating_system,
+    is_download_candidate,
     operating_system_for_extension,
     registered_domain,
     score_candidate,
@@ -112,6 +116,39 @@ class ValidInstaller:
     operating_system: str
     architecture: str
     version: str | None
+
+
+@dataclass
+class CandidateValidationDiagnostics:
+    discovered: int = 0
+    eligible: int = 0
+    attempted: int = 0
+    valid: int = 0
+    skipped: dict[str, int] = field(default_factory=dict)
+    rejected: dict[str, int] = field(default_factory=dict)
+    errors: dict[str, int] = field(default_factory=dict)
+
+    def skip(self, reason: str) -> None:
+        self.skipped[reason] = self.skipped.get(reason, 0) + 1
+
+    def reject(self, reason: str | None) -> None:
+        key = reason or "unknown"
+        self.rejected[key] = self.rejected.get(key, 0) + 1
+
+    def error(self, exc: Exception) -> None:
+        key = exc.__class__.__name__
+        self.errors[key] = self.errors.get(key, 0) + 1
+
+    def as_metadata(self) -> dict[str, Any]:
+        return {
+            "discovered": self.discovered,
+            "eligible": self.eligible,
+            "attempted": self.attempted,
+            "valid": self.valid,
+            "skipped": self.skipped,
+            "rejected": self.rejected,
+            "errors": self.errors,
+        }
 
 
 class CatalogFetcher:
@@ -430,6 +467,7 @@ class FilterWorker:
         self.settings = settings
         self.worker_id = f"filter:{worker_id()}"
         self.validator = DownloadValidator(settings)
+        self.github = GitHubReleaseResolver(settings)
 
     async def run(self, runtime: PipelineRuntime) -> None:
         while not runtime.stop_event.is_set():
@@ -541,7 +579,27 @@ class FilterWorker:
 
     async def _fallback_download_valid(self, payload: dict[str, Any], app: WinstallApp) -> bool:
         candidates = fallback_candidates(payload, app)
-        for candidate in candidates[:12]:
+        candidates.extend(await self._collect_winstall_github_candidates(app, candidates))
+        expanded_candidates = [
+            variant
+            for candidate in dedupe_candidates(candidates)
+            for variant in candidate_variants(candidate)
+        ]
+        scored = [
+            score_candidate(
+                candidate,
+                app_name=app.name,
+                package_id=app.package_id,
+                publisher=app.publisher,
+                version=app.latest_version,
+            )
+            for candidate in dedupe_candidates(expanded_candidates)
+            if is_download_candidate(candidate)
+        ]
+        scored.sort(key=lambda candidate: candidate.score, reverse=True)
+        for candidate in scored[:48]:
+            if candidate.score <= 0:
+                continue
             try:
                 result = await self.validator.validate(candidate)
             except Exception:
@@ -549,6 +607,33 @@ class FilterWorker:
             if result.ok:
                 return True
         return False
+
+    async def _collect_winstall_github_candidates(
+        self,
+        app: WinstallApp,
+        candidates: list[InstallerCandidate],
+    ) -> list[InstallerCandidate]:
+        """Resolve stale Winstall GitHub assets before deciding an app is unusable."""
+        refreshed: list[InstallerCandidate] = []
+        for candidate in candidates:
+            if not parse_github_repo(candidate.url):
+                continue
+            try:
+                release_candidates = await self.github.collect(candidate.url, app.latest_version)
+            except Exception:
+                continue
+            for release_candidate in release_candidates:
+                refreshed.append(
+                    InstallerCandidate(
+                        url=release_candidate.url,
+                        source=f"winstall_{release_candidate.source}",
+                        label=release_candidate.label or candidate.label,
+                        context=release_candidate.context or candidate.context,
+                        asset_kind=release_candidate.asset_kind or candidate.asset_kind,
+                        referer=candidate.referer,
+                    )
+                )
+        return dedupe_candidates(refreshed)
 
 
 class PlatformScraperWorker:
@@ -573,12 +658,26 @@ class PlatformScraperWorker:
                     await asyncio.sleep(1)
                     continue
                 try:
-                    resolved = await self._scrape_item(runtime, item)
+                    async with asyncio.timeout(self.settings.scrape_app_timeout_seconds):
+                        resolved = await self._scrape_item(runtime, item)
                     await finish_item(self.settings, item, "complete", None)
                     if resolved:
                         await runtime.increment("apps_resolved")
                     else:
                         await runtime.increment("apps_failed")
+                except TimeoutError:
+                    await finish_item(
+                        self.settings,
+                        item,
+                        "fail",
+                        f"Timeout after {self.settings.scrape_app_timeout_seconds:.0f}s",
+                    )
+                    await runtime.increment("apps_failed")
+                    logger.warning(
+                        "scrape_app_timeout",
+                        winstall_id=item.package_id,
+                        timeout_seconds=self.settings.scrape_app_timeout_seconds,
+                    )
                 except Exception as exc:
                     await finish_item(self.settings, item, "fail", exc.__class__.__name__)
                     await runtime.increment("apps_failed")
@@ -617,8 +716,15 @@ class PlatformScraperWorker:
             await session.commit()
 
         direct_candidates: list[InstallerCandidate] = []
+        fallback = fallback_candidates(payload, app)
+        fallback.extend(await self._collect_winstall_github_candidates(app, fallback))
         filter_info = payload.get("filter") or {}
-        if filter_info.get("use_official") and official_url:
+        if should_collect_official_installers(
+            app,
+            official_url,
+            use_official=bool(filter_info.get("use_official")),
+            fallback=fallback,
+        ):
             await set_current(
                 self.settings,
                 runtime.run_id,
@@ -629,11 +735,10 @@ class PlatformScraperWorker:
             direct_candidates = await self._collect_official_candidates(
                 runtime,
                 app,
-                official_url,
+                official_url or app.homepage or known_official_candidates(app)[0].url,
             )
 
-        fallback = fallback_candidates(payload, app)
-        valid_installers = await self._validate_installers(
+        valid_installers, validation_diagnostics = await self._validate_installers(
             app=app,
             official_url=official_url,
             direct_candidates=direct_candidates,
@@ -665,7 +770,10 @@ class PlatformScraperWorker:
                         status="requires_manual_review",
                         download_source_id=source.id,
                         message="No safe installer candidate was found.",
-                        safe_metadata={"winstall_id": app.package_id},
+                        safe_metadata={
+                            "winstall_id": app.package_id,
+                            "candidate_diagnostics": validation_diagnostics,
+                        },
                     )
                 await enqueue_descriptor_for_app(
                     catalog,
@@ -701,9 +809,16 @@ class PlatformScraperWorker:
         official_url: str,
     ) -> list[InstallerCandidate]:
         known_candidates = known_official_candidates(app)
+        if use_only_known_official_candidates(app, known_candidates):
+            return known_candidates
         if parse_github_repo(official_url):
             try:
-                return dedupe_candidates([*known_candidates, *(await self.github.collect(official_url))])
+                return dedupe_candidates(
+                    [
+                        *known_candidates,
+                        *(await self.github.collect(official_url, app.latest_version)),
+                    ]
+                )
             except Exception:
                 return known_candidates
 
@@ -735,11 +850,91 @@ class PlatformScraperWorker:
             await session.commit()
 
         candidates = [*known_candidates, *(extract_candidates(html, official_url) if html else [])]
-        try:
-            candidates.extend(await self.playwright.collect(official_url))
-        except Exception:
-            pass
+        candidates.extend(await self._collect_download_landing_candidates(official_url, candidates))
+        if not any(is_download_candidate(candidate) for candidate in candidates):
+            try:
+                candidates.extend(await self.playwright.collect(official_url))
+            except Exception:
+                pass
         return dedupe_candidates(candidates)
+
+    async def _collect_download_landing_candidates(
+        self,
+        official_url: str,
+        candidates: list[InstallerCandidate],
+    ) -> list[InstallerCandidate]:
+        """Inspect a few first-party download pages before paying for Playwright.
+
+        Sites commonly expose a product page first (for example `/download.html` or
+        `?do=download`) and put the actual binary link on that page. The former
+        implementation never traversed that lightweight hop.
+        """
+        official_domain = registered_domain(official_url)
+        landing_pages = [
+            candidate
+            for candidate in candidates
+            if is_download_landing_page(candidate, official_url, official_domain)
+        ][:6]
+        if not landing_pages:
+            return []
+
+        nested: list[InstallerCandidate] = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.settings.request_timeout_seconds,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
+            ) as client:
+                for landing in landing_pages:
+                    try:
+                        response = await client.get(landing.url)
+                    except Exception:
+                        continue
+                    if not response.is_success:
+                        continue
+                    if "html" not in response.headers.get("content-type", "").lower():
+                        continue
+                    base_url = str(response.url)
+                    for candidate in extract_candidates(response.text, base_url):
+                        nested.append(
+                            InstallerCandidate(
+                                url=candidate.url,
+                                source="official_download_page",
+                                label=candidate.label,
+                                context=candidate.context,
+                                referer=base_url,
+                            )
+                        )
+        except Exception:
+            return []
+        return dedupe_candidates(nested)
+
+    async def _collect_winstall_github_candidates(
+        self,
+        app: WinstallApp,
+        candidates: list[InstallerCandidate],
+    ) -> list[InstallerCandidate]:
+        """Refresh expired GitHub assets linked by Winstall through the release API."""
+        refreshed: list[InstallerCandidate] = []
+        for candidate in candidates:
+            if not parse_github_repo(candidate.url):
+                continue
+            try:
+                release_candidates = await self.github.collect(candidate.url, app.latest_version)
+            except Exception:
+                continue
+            for release_candidate in release_candidates:
+                refreshed.append(
+                    InstallerCandidate(
+                        url=release_candidate.url,
+                        source=f"winstall_{release_candidate.source}",
+                        label=release_candidate.label or candidate.label,
+                        context=release_candidate.context or candidate.context,
+                        asset_kind=release_candidate.asset_kind or candidate.asset_kind,
+                        referer=candidate.referer,
+                    )
+                )
+        return dedupe_candidates(refreshed)
 
     async def _validate_installers(
         self,
@@ -748,26 +943,25 @@ class PlatformScraperWorker:
         official_url: str | None,
         direct_candidates: list[InstallerCandidate],
         fallback_candidates: list[InstallerCandidate],
-    ) -> list[ValidInstaller]:
-        valid: list[ValidInstaller] = []
-        valid.extend(
-            await self._validate_candidate_group(
-                app,
-                direct_candidates,
-                ResolutionStatus.DIRECT,
-                max_candidates=96,
-            )
+    ) -> tuple[list[ValidInstaller], dict[str, dict[str, Any]]]:
+        direct, direct_diagnostics = await self._validate_candidate_group(
+            app,
+            direct_candidates,
+            ResolutionStatus.DIRECT,
+            max_candidates=96,
+            max_valid=12,
         )
-
-        valid.extend(
-            await self._validate_candidate_group(
-                app,
-                fallback_candidates,
-                ResolutionStatus.FALLBACK,
-                max_candidates=48,
-            )
+        fallback, fallback_diagnostics = await self._validate_candidate_group(
+            app,
+            fallback_candidates,
+            ResolutionStatus.FALLBACK,
+            max_candidates=48,
+            max_valid=12,
         )
-        return dedupe_valid_installers(valid)
+        return dedupe_valid_installers([*direct, *fallback]), {
+            "direct": direct_diagnostics.as_metadata(),
+            "fallback": fallback_diagnostics.as_metadata(),
+        }
 
     async def _validate_candidate_group(
         self,
@@ -775,35 +969,53 @@ class PlatformScraperWorker:
         candidates: list[InstallerCandidate],
         status: ResolutionStatus,
         max_candidates: int,
-    ) -> list[ValidInstaller]:
+        max_valid: int,
+    ) -> tuple[list[ValidInstaller], CandidateValidationDiagnostics]:
+        diagnostics = CandidateValidationDiagnostics()
         scored = []
-        for candidate in dedupe_candidates(candidates):
-            operating_system = infer_operating_system(candidate)
-            if not operating_system:
-                continue
-            scored.append(
-                score_candidate(
-                    candidate,
-                    app_name=app.name,
-                    package_id=app.package_id,
-                    publisher=app.publisher,
-                    version=app.latest_version,
-                )
+        expanded_candidates = [
+            variant
+            for candidate in dedupe_candidates(candidates)
+            for variant in candidate_variants(candidate)
+        ]
+        for candidate in dedupe_candidates(expanded_candidates):
+            diagnostics.discovered += 1
+            scored_candidate = score_candidate(
+                candidate,
+                app_name=app.name,
+                package_id=app.package_id,
+                publisher=app.publisher,
+                version=app.latest_version,
             )
+            operating_system = infer_operating_system(candidate)
+            if (
+                not operating_system
+                and not is_windows_winstall_archive(scored_candidate)
+                and not is_download_candidate(scored_candidate)
+            ):
+                diagnostics.skip("no_platform_or_download_intent")
+                continue
+            diagnostics.eligible += 1
+            scored.append(scored_candidate)
         scored.sort(key=lambda candidate: candidate.score, reverse=True)
 
         valid: list[ValidInstaller] = []
         for candidate in scored[:max_candidates]:
             if candidate.score <= 0:
+                diagnostics.skip("non_positive_score")
                 continue
+            diagnostics.attempted += 1
             try:
                 result = await self.validator.validate(candidate)
-            except Exception:
+            except Exception as exc:
+                diagnostics.error(exc)
                 continue
             if not result.ok:
+                diagnostics.reject(result.reason)
                 continue
             operating_system = infer_validated_operating_system(candidate, result)
             if not operating_system:
+                diagnostics.reject("operating_system_unresolved")
                 continue
             valid.append(
                 ValidInstaller(
@@ -815,7 +1027,10 @@ class PlatformScraperWorker:
                     version=extract_version(candidate) or app.latest_version,
                 )
             )
-        return valid
+            diagnostics.valid += 1
+            if len(valid) >= max_valid:
+                break
+        return valid, diagnostics
 
     async def _save_valid_installers(
         self,
@@ -1147,17 +1362,7 @@ def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
 
 def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[InstallerCandidate]:
     candidates: list[InstallerCandidate] = []
-    for version in app.versions:
-        for url in version.installers:
-            candidates.append(
-                InstallerCandidate(
-                    url=url,
-                    source="winstall_api",
-                    label=f"{app.name} {version.installer_type or ''}".strip(),
-                    context=version.version,
-                    asset_kind="winstall_download",
-                )
-            )
+    winstall_referer = payload.get("winstall_url")
     for item in payload.get("winstall_downloads") or []:
         if isinstance(item, dict) and item.get("url"):
             candidates.append(
@@ -1167,6 +1372,7 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
                     label=item.get("label") or app.name,
                     context=item.get("context"),
                     asset_kind="winstall_download",
+                    referer=winstall_referer,
                 )
             )
     for url in payload.get("winstall_download_urls") or []:
@@ -1177,6 +1383,19 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
                     source="winstall_page",
                     label=app.name,
                     asset_kind="winstall_download",
+                    referer=winstall_referer,
+                )
+            )
+    for version in app.versions:
+        for url in version.installers:
+            candidates.append(
+                InstallerCandidate(
+                    url=url,
+                    source="winstall_api",
+                    label=f"{app.name} {version.installer_type or ''}".strip(),
+                    context=version.version,
+                    asset_kind="winstall_download",
+                    referer=winstall_referer,
                 )
             )
     return dedupe_candidates(candidates)
@@ -1196,7 +1415,118 @@ def known_official_candidates(app: WinstallApp) -> list[InstallerCandidate]:
                 asset_kind="installer",
             )
         ]
+    if app.package_id == "115.115Chrome" and app.latest_version:
+        version = app.latest_version.strip().removeprefix("v")
+        return [
+            InstallerCandidate(
+                url=f"https://down.115.com/client/win/115br_v{version}_x64.exe",
+                source="official_known_endpoint",
+                label="115 Browser Windows x64 installer",
+                context="Official 115 Browser Windows download endpoint.",
+                asset_kind="installer",
+            ),
+            InstallerCandidate(
+                url=f"https://down.115.com/client/mac/115br_v{version}_x64.dmg",
+                source="official_known_endpoint",
+                label="115 Browser macOS x64 installer",
+                context="Official 115 Browser macOS download endpoint.",
+                asset_kind="installer",
+            ),
+            InstallerCandidate(
+                url=f"https://down.115.com/client/mac/115br_v{version}_arm64.dmg",
+                source="official_known_endpoint",
+                label="115 Browser macOS ARM64 installer",
+                context="Official 115 Browser macOS download endpoint.",
+                asset_kind="installer",
+            ),
+            InstallerCandidate(
+                url=f"https://down.115.com/client/115pc/lin/115br_v{version}.deb",
+                source="official_known_endpoint",
+                label="115 Browser Linux DEB installer",
+                context="Official 115 Browser Linux download endpoint.",
+                asset_kind="installer",
+            ),
+        ]
+    if app.package_id == "123.123pan" and app.latest_version:
+        version = normalized_123pan_version(app.latest_version)
+        compact_version = "".join(character for character in version if character.isdigit())
+        if compact_version:
+            return [
+                InstallerCandidate(
+                    url=(
+                        "https://app.123957.com/pc-pro/windows/"
+                        f"{compact_version}/123pan_{version}.exe"
+                    ),
+                    source="official_known_endpoint",
+                    label="123云盘 Windows installer",
+                    context="Official 123云盘 Windows download endpoint.",
+                    asset_kind="installer",
+                )
+            ]
     return []
+
+
+def use_only_known_official_candidates(
+    app: WinstallApp,
+    known_candidates: list[InstallerCandidate],
+) -> bool:
+    return bool(known_candidates) and app.package_id in {
+        "EpicGames.EpicGamesLauncher",
+        "115.115Chrome",
+        "123.123pan",
+    }
+
+
+def use_winstall_fallback_only(
+    app: WinstallApp,
+    fallback: list[InstallerCandidate],
+) -> bool:
+    return bool(fallback) and app.package_id in {
+        "360.360DocProtect",
+        "360.360SE",
+        "360.360Zip",
+        "3TSoftwareLabs.Studio3T",
+        "86Box.86BoxManager",
+    }
+
+
+def should_collect_official_installers(
+    app: WinstallApp,
+    official_url: str | None,
+    *,
+    use_official: bool,
+    fallback: list[InstallerCandidate],
+) -> bool:
+    """Known official endpoints remain usable if their marketing page blocks bots."""
+    if known_official_candidates(app):
+        return True
+    return bool(use_official and official_url and not use_winstall_fallback_only(app, fallback))
+
+
+def normalized_123pan_version(value: str) -> str:
+    """The Winstall four-part display version maps to a three-part 123pan filename."""
+    parts = value.strip().removeprefix("v").split(".")
+    if len(parts) >= 3 and all(part.isdigit() for part in parts[:3]):
+        return ".".join(parts[:3])
+    return value.strip().removeprefix("v")
+
+
+def is_download_landing_page(
+    candidate: InstallerCandidate,
+    official_url: str,
+    official_domain: str | None,
+) -> bool:
+    if candidate.url == official_url or candidate.extension:
+        return False
+    parsed = urlparse(candidate.url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if not official_domain or registered_domain(candidate.url) != official_domain:
+        return False
+    route = f"{parsed.path}?{parsed.query}".lower()
+    return candidate_has_download_intent(candidate) or any(
+        marker in route for marker in ("download", "installer", "setup", "desktop")
+    )
 
 
 def dedupe_candidates(candidates: list[InstallerCandidate]) -> list[InstallerCandidate]:
@@ -1238,9 +1568,10 @@ def infer_validated_operating_system(
     candidate: InstallerCandidate,
     result: ValidationResult,
 ) -> str | None:
-    operating_system = operating_system_for_extension(result.extension)
-    if operating_system:
-        return operating_system
+    if result.extension != ".tar.gz":
+        operating_system = operating_system_for_extension(result.extension)
+        if operating_system:
+            return operating_system
     if result.filename:
         filename_probe = InstallerCandidate(
             url=f"https://local.invalid/{result.filename}",
@@ -1261,7 +1592,23 @@ def infer_validated_operating_system(
         operating_system = infer_operating_system(final_probe)
         if operating_system:
             return operating_system
-    return infer_operating_system(candidate)
+    operating_system = infer_operating_system(candidate)
+    if operating_system:
+        return operating_system
+    if is_windows_winstall_archive(candidate, result.extension):
+        return "windows"
+    return None
+
+
+def is_windows_winstall_archive(
+    candidate: InstallerCandidate,
+    extension: str | None = None,
+) -> bool:
+    detected_extension = extension or candidate.extension
+    return detected_extension == ".zip" and (
+        candidate.source in {"winstall_api", "winstall_page"}
+        or candidate.asset_kind == "winstall_download"
+    )
 
 
 def installer_sort_key(installer: ValidInstaller) -> tuple[int, Any, int, int]:

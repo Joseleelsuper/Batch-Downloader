@@ -55,7 +55,22 @@ class CatalogRepository:
         existing_id = await self.session.scalar(
             select(SoftwareApp.id).where(SoftwareApp.winstall_id == package_id).limit(1)
         )
-        return existing_id is None
+        if existing_id is None:
+            return True
+        resolved_source = await self.session.scalar(
+            select(DownloadSource.id)
+            .where(DownloadSource.software_app_id == existing_id)
+            .where(
+                DownloadSource.resolution_status.in_(
+                    [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value]
+                )
+            )
+            .where(DownloadSource.validation_status == ValidationStatus.VALID.value)
+            .limit(1)
+        )
+        # Keep successful applications immutable during normal catalogue passes, while
+        # allowing previous review/missing results to benefit from resolver fixes.
+        return resolved_source is None
 
     async def repair_resolved_source_platforms(self) -> int:
         result = await self.session.scalars(
@@ -280,6 +295,7 @@ class CatalogRepository:
             .order_by(
                 ResolvedSource.is_latest.desc(),
                 ResolvedSource.release_rank.asc(),
+                case((ResolvedSource.status == ResolutionStatus.DIRECT.value, 1), else_=0).desc(),
                 ResolvedSource.score.desc(),
                 ResolvedSource.checked_at.desc(),
             )
@@ -659,6 +675,26 @@ def registered_domain(url: str | None) -> str | None:
 
 
 def inferred_platform_for_resolved_source(resolved: ResolvedSource) -> str | None:
+    metadata = resolved.metadata_json or {}
+    platform_text = " ".join(
+        str(value).lower()
+        for value in (
+            resolved.filename,
+            metadata.get("candidate_label"),
+        )
+        if value
+    )
+    if any(token in platform_text for token in ("macos", "mac-os", "darwin", "apple-silicon")):
+        return "macos"
+    if any(token in platform_text for token in ("windows", "win32", "win64", "win-x64")):
+        return "windows"
+    if any(token in platform_text for token in ("linux", "ubuntu", "debian", "appimage")):
+        return "linux"
+
+    stored_platform = metadata.get("operating_system")
+    if stored_platform in {"windows", "macos", "linux"}:
+        return str(stored_platform)
+
     extension = normalized_extension(resolved.extension)
     if extension in {".exe", ".msi", ".msix", ".appx"}:
         return "windows"

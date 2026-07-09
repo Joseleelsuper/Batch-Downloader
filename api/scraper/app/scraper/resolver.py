@@ -148,7 +148,7 @@ class InstallerResolver:
             return ResolutionStatus.REQUIRES_MANUAL_REVIEW
 
         try:
-            candidates = await self.github.collect(official_url)
+            candidates = await self.github.collect(official_url, app.latest_version)
         except Exception as exc:
             await self.logs.add(
                 phase="github_releases",

@@ -168,6 +168,7 @@ class PipelineRepository:
             payload_changed = (existing.payload_json or {}).get("input_hash") != payload.get(
                 "input_hash"
             )
+            belongs_to_new_run = run_id is not None and existing.run_id != run_id
             should_requeue = existing.status in {
                 STATUS_QUEUED,
                 STATUS_FAILED,
@@ -176,6 +177,10 @@ class PipelineRepository:
                 existing.status == STATUS_COMPLETED
                 and queue == QUEUE_SCRAPER_DESCRIPTOR
                 and (force or payload_changed)
+            ) or (
+                existing.status == STATUS_COMPLETED
+                and queue in {QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER}
+                and belongs_to_new_run
             )
             if should_requeue:
                 existing.status = STATUS_QUEUED
@@ -367,13 +372,16 @@ class PipelineRepository:
 
     async def save_metric_snapshot(self, run_id: uuid.UUID | None = None) -> None:
         available = await self._count_apps_with_statuses(
-            [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value]
+            [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value],
         )
         review = await self._count_apps_with_statuses(
-            [ResolutionStatus.REQUIRES_MANUAL_REVIEW.value]
+            [ResolutionStatus.REQUIRES_MANUAL_REVIEW.value],
+            exclude_available=True,
         )
         unavailable = await self._count_apps_with_statuses(
-            [ResolutionStatus.MISSING.value, ResolutionStatus.BROKEN.value]
+            [ResolutionStatus.MISSING.value, ResolutionStatus.BROKEN.value],
+            exclude_available=True,
+            exclude_review=True,
         )
         queued_searcher_filter = await self._count_queue(QUEUE_SEARCHER_FILTER)
         queued_filter_scraper = await self._count_queue(QUEUE_FILTER_SCRAPER)
@@ -421,25 +429,53 @@ class PipelineRepository:
             or 0
         )
 
-    async def _count_apps_with_statuses(self, statuses: list[str]) -> int:
-        source_exists = (
+    async def _count_apps_with_statuses(
+        self,
+        statuses: list[str],
+        *,
+        exclude_available: bool = False,
+        exclude_review: bool = False,
+    ) -> int:
+        source_query = (
             select(DownloadSource.id)
             .where(DownloadSource.software_app_id == SoftwareApp.id)
             .where(DownloadSource.resolution_status.in_(statuses))
-            .limit(1)
-            .exists()
         )
-        return int(
-            await self.session.scalar(
-                select(func.count(SoftwareApp.id))
-                .where(SoftwareApp.app_status == "active")
-                .where(source_exists)
+        if set(statuses) == {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}:
+            source_query = source_query.where(DownloadSource.validation_status == "valid")
+        source_exists = source_query.limit(1).exists()
+        stmt = (
+            select(func.count(SoftwareApp.id))
+            .where(SoftwareApp.app_status == "active")
+            .where(source_exists)
+        )
+        if exclude_available:
+            available_exists = (
+                select(DownloadSource.id)
+                .where(DownloadSource.software_app_id == SoftwareApp.id)
+                .where(
+                    DownloadSource.resolution_status.in_(
+                        [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value]
+                    )
+                )
+                .where(DownloadSource.validation_status == "valid")
+                .limit(1)
+                .exists()
             )
-            or 0
-        )
+            stmt = stmt.where(~available_exists)
+        if exclude_review:
+            review_exists = (
+                select(DownloadSource.id)
+                .where(DownloadSource.software_app_id == SoftwareApp.id)
+                .where(DownloadSource.resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value)
+                .limit(1)
+                .exists()
+            )
+            stmt = stmt.where(~review_exists)
+        return int(await self.session.scalar(stmt) or 0)
 
 
-def sanitize_snapshot_html(html: str | None, max_length: int = 200_000) -> str | None:
+def sanitize_snapshot_html(html: str | None, max_length: int = 30_000) -> str | None:
     if not html:
         return None
     cleaned = re.sub(r"<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>", "", html, flags=re.I)
