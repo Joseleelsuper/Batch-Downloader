@@ -188,7 +188,9 @@ public class AdminAppController {
                 "app.description.generate",
                 "app",
                 appId,
-                Map.of("jobId", payload.get("jobId"), "status", payload.get("status")));
+                Map.of(
+                        "jobId", String.valueOf(payload.get("jobId")),
+                        "status", String.valueOf(payload.get("status"))));
         return ResponseEntity.status(response.statusCode()).body(payload);
     }
 

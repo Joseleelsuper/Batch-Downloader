@@ -84,6 +84,32 @@ class CatalogRepositoryTest {
     }
 
     @Test
+    void reviewFilterExcludesAppsThatAlreadyHaveAValidInstaller() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        CatalogRepository repository = new CatalogRepository(jdbc);
+
+        repository.search(
+                "",
+                "review",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                "all",
+                "updated",
+                1,
+                12);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue()).contains("ds.resolution_status = 'requires_manual_review'");
+        assertThat(sql.getValue()).contains("NOT EXISTS");
+        assertThat(sql.getValue()).contains("valid_source.resolution_status IN ('direct', 'fallback')");
+    }
+
+    @Test
     void normalizeSearchQueryRemovesAccentsAndCollapsesWhitespace() {
         assertThat(CatalogRepository.normalizeSearchQuery("  Épic   GAMES  "))
                 .isEqualTo("epic games");

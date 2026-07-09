@@ -196,16 +196,49 @@ public class CatalogRepository {
         Map<String, Long> filters = new LinkedHashMap<>();
         filters.put("all", total);
         filters.put("available", scalarLong("""
-                SELECT COUNT(DISTINCT software_app_id) FROM download_sources
-                WHERE resolution_status IN ('direct', 'fallback')
+                SELECT COUNT(*) FROM software_apps a
+                WHERE a.app_status = 'active'
+                  AND EXISTS (
+                    SELECT 1 FROM download_sources ds
+                    WHERE ds.software_app_id = a.id
+                      AND ds.resolution_status IN ('direct', 'fallback')
+                      AND ds.validation_status = 'valid'
+                  )
                 """));
         filters.put("review", scalarLong("""
-                SELECT COUNT(DISTINCT software_app_id) FROM download_sources
-                WHERE resolution_status = 'requires_manual_review'
+                SELECT COUNT(*) FROM software_apps a
+                WHERE a.app_status = 'active'
+                  AND EXISTS (
+                    SELECT 1 FROM download_sources ds
+                    WHERE ds.software_app_id = a.id
+                      AND ds.resolution_status = 'requires_manual_review'
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM download_sources valid_source
+                    WHERE valid_source.software_app_id = a.id
+                      AND valid_source.resolution_status IN ('direct', 'fallback')
+                      AND valid_source.validation_status = 'valid'
+                  )
                 """));
         filters.put("missing", scalarLong("""
-                SELECT COUNT(DISTINCT software_app_id) FROM download_sources
-                WHERE resolution_status IN ('missing', 'broken')
+                SELECT COUNT(*) FROM software_apps a
+                WHERE a.app_status = 'active'
+                  AND EXISTS (
+                    SELECT 1 FROM download_sources ds
+                    WHERE ds.software_app_id = a.id
+                      AND ds.resolution_status IN ('missing', 'broken')
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM download_sources valid_source
+                    WHERE valid_source.software_app_id = a.id
+                      AND valid_source.resolution_status IN ('direct', 'fallback')
+                      AND valid_source.validation_status = 'valid'
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM download_sources review_source
+                    WHERE review_source.software_app_id = a.id
+                      AND review_source.resolution_status = 'requires_manual_review'
+                  )
                 """));
         LastScrapeRun last = latestRun();
         return new CatalogStatsResponse(total, filters, last, LocalDateTime.now());
@@ -320,7 +353,7 @@ public class CatalogRepository {
                 """);
         if (hasStatus) {
             if ("available".equals(status)) {
-                sql.append(" AND ds.resolution_status IN ('direct', 'fallback')");
+                sql.append(" AND ds.resolution_status IN ('direct', 'fallback') AND ds.validation_status = 'valid'");
             } else if ("review".equals(status)) {
                 sql.append(" AND ds.resolution_status = 'requires_manual_review'");
             } else if ("missing".equals(status)) {
@@ -330,14 +363,60 @@ public class CatalogRepository {
                 params.add(status);
             }
         }
-        if (hasOperatingSystem) {
-            sql.append(" AND ds.operating_system = ?");
+        appendSourcePlatformFilters(sql, params, "ds", operatingSystem, architecture);
+        sql.append(")");
+        if ("review".equals(status)) {
+            appendNoAvailableSource(sql, params, operatingSystem, architecture);
+        } else if ("missing".equals(status)) {
+            appendNoAvailableSource(sql, params, operatingSystem, architecture);
+            appendNoReviewSource(sql, params, operatingSystem, architecture);
+        }
+    }
+
+    private void appendSourcePlatformFilters(
+            StringBuilder sql,
+            List<Object> params,
+            String alias,
+            String operatingSystem,
+            String architecture) {
+        if (operatingSystem != null && !operatingSystem.isBlank()) {
+            sql.append(" AND ").append(alias).append(".operating_system = ?");
             params.add(operatingSystem);
         }
-        if (hasArchitecture) {
-            sql.append(" AND ds.architecture = ?");
+        if (architecture != null && !architecture.isBlank()) {
+            sql.append(" AND ").append(alias).append(".architecture = ?");
             params.add(architecture);
         }
+    }
+
+    private void appendNoAvailableSource(
+            StringBuilder sql,
+            List<Object> params,
+            String operatingSystem,
+            String architecture) {
+        sql.append("""
+                AND NOT EXISTS (
+                    SELECT 1 FROM download_sources valid_source
+                    WHERE valid_source.software_app_id = a.id
+                      AND valid_source.resolution_status IN ('direct', 'fallback')
+                      AND valid_source.validation_status = 'valid'
+                """);
+        appendSourcePlatformFilters(sql, params, "valid_source", operatingSystem, architecture);
+        sql.append(")");
+    }
+
+    private void appendNoReviewSource(
+            StringBuilder sql,
+            List<Object> params,
+            String operatingSystem,
+            String architecture) {
+        sql.append("""
+                AND NOT EXISTS (
+                    SELECT 1 FROM download_sources review_source
+                    WHERE review_source.software_app_id = a.id
+                      AND review_source.resolution_status = 'requires_manual_review'
+                """);
+        appendSourcePlatformFilters(sql, params, "review_source", operatingSystem, architecture);
         sql.append(")");
     }
 
