@@ -4,6 +4,7 @@
   Building2,
   Boxes,
   ClipboardList,
+  FileDown,
   Globe2,
   Home,
   ListFilter,
@@ -32,6 +33,7 @@ import {
   deleteAdminApp,
   deleteAllAdminApps,
   downloadSelectedApps,
+  exportAdminAppsCsv,
   fetchAdminApps,
   fetchAdminAudit,
   fetchAdminCurrentRun,
@@ -67,6 +69,7 @@ import {
   toggleValue,
   type CatalogFilterState,
 } from './catalogFilters';
+import { mergeSelectedAppIntoPage } from './catalogSelection';
 import { AppDetailsDrawer } from './components/AppDetailsDrawer';
 import { AppFilters } from './components/AppFilters';
 import { AppSearchBar } from './components/AppSearchBar';
@@ -354,6 +357,10 @@ function CatalogPage() {
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
   const [downloadingSelected, setDownloadingSelected] = useState(false);
+  const visibleApps = useMemo(
+    () => mergeSelectedAppIntoPage(apps, appId ? selected : null, filters.pageSize),
+    [apps, appId, selected, filters.pageSize],
+  );
 
   useEffect(() => {
     setQuery(filters.query);
@@ -518,7 +525,7 @@ function CatalogPage() {
         />
         {error ? <p className="error-banner">{error}</p> : null}
         <AppTable
-          apps={apps}
+          apps={visibleApps}
           selectedId={selectedId}
           selectedIds={selectedDownloadIds}
           selectedCount={selectedDownloadIds.size}
@@ -879,6 +886,8 @@ function AdminAppsPage() {
   });
   const [message, setMessage] = useState<string | null>(null);
   const [dangerConfirm, setDangerConfirm] = useState('');
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   useEffect(() => {
     void loadApps();
@@ -979,11 +988,13 @@ function AdminAppsPage() {
   }
 
   async function removeAllApps() {
+    if (deletingAll) return;
     if (dangerConfirm !== 'DELETE_ALL') {
       setMessage(t('admin.message.confirmDeleteAll'));
       return;
     }
     if (!window.confirm(t('admin.app.confirm.deleteAll'))) return;
+    setDeletingAll(true);
     setMessage(null);
     try {
       const result = await deleteAllAdminApps();
@@ -994,6 +1005,20 @@ function AdminAppsPage() {
       setMessage(t('admin.message.allAppsDeleted', { count: result.deleted }));
     } catch {
       setMessage(t('admin.message.deleteAllAppsError'));
+    } finally {
+      setDeletingAll(false);
+    }
+  }
+
+  async function exportCsv() {
+    setExportingCsv(true);
+    setMessage(null);
+    try {
+      await exportAdminAppsCsv();
+    } catch {
+      setMessage(t('admin.message.exportCsvError'));
+    } finally {
+      setExportingCsv(false);
     }
   }
 
@@ -1002,10 +1027,16 @@ function AdminAppsPage() {
       <div>
         <div className="admin-section-heading">
           <h2>{t('admin.app.title')}</h2>
-          <button className="secondary-button compact-button" type="button" onClick={startNewApp}>
-            <Plus size={17} />
-            {t('admin.app.new')}
-          </button>
+          <div className="button-row">
+            <button className="secondary-button compact-button" type="button" onClick={() => void exportCsv()} disabled={exportingCsv}>
+              <FileDown size={17} />
+              {exportingCsv ? t('admin.app.exportingCsv') : t('admin.app.exportCsv')}
+            </button>
+            <button className="secondary-button compact-button" type="button" onClick={startNewApp}>
+              <Plus size={17} />
+              {t('admin.app.new')}
+            </button>
+          </div>
         </div>
         <input
           className="admin-search"
@@ -1070,8 +1101,9 @@ function AdminAppsPage() {
             value={dangerConfirm}
             onChange={(event) => setDangerConfirm(event.target.value)}
             placeholder={t('common.deleteAllConfirmation')}
+            disabled={deletingAll}
           />
-          <button type="button" className="danger-button" onClick={removeAllApps}>
+          <button type="button" className="danger-button" onClick={removeAllApps} disabled={deletingAll}>
             <Trash2 size={17} />
             {t('admin.app.deleteAll')}
           </button>

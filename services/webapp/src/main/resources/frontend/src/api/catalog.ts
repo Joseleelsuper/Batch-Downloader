@@ -217,6 +217,22 @@ export async function deleteAllAdminApps(): Promise<{ deleted: number }> {
   return requestJson<{ deleted: number }>('/api/admin/apps?confirm=DELETE_ALL', { method: 'DELETE' });
 }
 
+export async function exportAdminAppsCsv(): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/admin/apps/export.csv`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error(`request_failed_${response.status}`);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'batch-downloader-apps.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function connectCatalogEvents(onEvent: (event: CatalogChangeEvent) => void, onState?: (state: 'live' | 'reconnecting' | 'offline') => void): () => void {
   let socket: WebSocket | null = null;
   let stopped = false;
