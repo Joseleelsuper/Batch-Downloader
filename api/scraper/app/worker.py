@@ -49,6 +49,15 @@ async def repair_platforms() -> None:
     logger.info("platform_repair_finished", repaired=repaired)
 
 
+async def repair_source_statuses() -> None:
+    settings = get_settings()
+    async with AsyncSessionLocal() as session:
+        catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
+        repaired = await catalog.repair_source_statuses()
+        await session.commit()
+    logger.info("source_status_repair_finished", repaired=repaired)
+
+
 async def repair_known_apps() -> None:
     settings = get_settings()
     repaired = 0
@@ -169,13 +178,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Batch Downloader scraper worker")
     parser.add_argument(
         "command",
-        choices=("scrape-once", "scheduler", "repair-platforms", "repair-known-apps"),
+        choices=(
+            "scrape-once",
+            "scheduler",
+            "repair-platforms",
+            "repair-source-statuses",
+            "repair-known-apps",
+        ),
     )
     args = parser.parse_args()
     if args.command == "scrape-once":
         asyncio.run(scrape_once())
     elif args.command == "repair-platforms":
         asyncio.run(repair_platforms())
+    elif args.command == "repair-source-statuses":
+        asyncio.run(repair_source_statuses())
     elif args.command == "repair-known-apps":
         asyncio.run(repair_known_apps())
     else:

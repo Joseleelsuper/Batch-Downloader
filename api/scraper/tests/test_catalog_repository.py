@@ -221,6 +221,80 @@ async def test_repair_resolved_source_platforms_moves_cross_platform_installers(
     assert by_os["macos"] == ["steam.dmg"]
 
 
+@pytest.mark.asyncio
+async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    now = utc_now()
+    async with session_factory() as session:
+        app = SoftwareApp(
+            id=uuid4(),
+            winstall_id="0xGingi.Browser",
+            slug="0xgingi-browser",
+            name="0xGingi-Browser",
+            normalized_name="0xgingi browser",
+            app_status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        source = DownloadSource(
+            id=uuid4(),
+            software_app_id=app.id,
+            operating_system="windows",
+            architecture="x86_64",
+            resolution_status=ResolutionStatus.FALLBACK.value,
+            validation_status=ValidationStatus.VALID.value,
+        )
+        source.resolved_sources = [
+            ResolvedSource(
+                id=uuid4(),
+                download_source_id=source.id,
+                resolved_url_encrypted="direct",
+                final_domain="githubusercontent.com",
+                filename="Browser-latest.exe",
+                extension=".exe",
+                version="115.0.5790.110",
+                release_rank=0,
+                is_latest=True,
+                score=174,
+                status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+                checked_at=now,
+                expires_at=utc_after(hours=1),
+            ),
+            ResolvedSource(
+                id=uuid4(),
+                download_source_id=source.id,
+                resolved_url_encrypted="fallback",
+                final_domain="githubusercontent.com",
+                filename="Browser-previous.exe",
+                extension=".exe",
+                version="114.0.5735.91",
+                release_rank=1,
+                is_latest=False,
+                score=200,
+                status=ResolutionStatus.FALLBACK.value,
+                validation_status=ValidationStatus.VALID.value,
+                checked_at=now,
+                expires_at=utc_after(hours=1),
+            ),
+        ]
+        app.sources = [source]
+        session.add(app)
+        await session.commit()
+
+        repository = CatalogRepository(session, UrlProtector("test-secret"))
+        await repository.refresh_source_statuses({source.id})
+        await session.commit()
+
+        assert source.resolution_status == ResolutionStatus.DIRECT.value
+        assert source.validation_status == ValidationStatus.VALID.value
+
+    await engine.dispose()
+
+
 def software_app(
     winstall_id: str,
     *,

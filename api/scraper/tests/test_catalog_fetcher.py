@@ -70,6 +70,30 @@ def test_rank_installers_marks_latest_per_platform_architecture() -> None:
     assert by_url["https://example.com/App-1.5.0-aarch64.dmg"] == (0, True)
 
 
+def test_rank_installers_prefers_direct_over_fallback_for_same_version() -> None:
+    direct = valid(
+        "https://github.com/vendor/app/releases/download/2.0.0/App.exe",
+        "windows",
+        "x86_64",
+        "2.0.0",
+        100,
+        status=ResolutionStatus.DIRECT,
+    )
+    fallback = valid(
+        "https://winstall.example/App.exe",
+        "windows",
+        "x86_64",
+        "2.0.0",
+        200,
+        status=ResolutionStatus.FALLBACK,
+    )
+
+    ranked = rank_installers([fallback, direct])
+
+    assert ranked[0] == (direct, 0, True)
+    assert ranked[1] == (fallback, 1, False)
+
+
 def test_validated_operating_system_uses_validation_extension_first() -> None:
     candidate = InstallerCandidate(
         url="https://store.steampowered.com/about/",
@@ -160,7 +184,15 @@ async def test_searcher_backpressure_waits_until_queue_depth_drops(monkeypatch) 
     assert depths == []
 
 
-def valid(url: str, os: str, arch: str, version: str, score: int) -> ValidInstaller:
+def valid(
+    url: str,
+    os: str,
+    arch: str,
+    version: str,
+    score: int,
+    *,
+    status: ResolutionStatus = ResolutionStatus.DIRECT,
+) -> ValidInstaller:
     candidate = InstallerCandidate(url=url, source="href", score=score, asset_kind="installer")
     return ValidInstaller(
         candidate=candidate,
@@ -172,7 +204,7 @@ def valid(url: str, os: str, arch: str, version: str, score: int) -> ValidInstal
             filename=url.rsplit("/", 1)[-1],
             extension=candidate.extension,
         ),
-        status=ResolutionStatus.DIRECT,
+        status=status,
         operating_system=os,
         architecture=arch,
         version=version,

@@ -811,6 +811,7 @@ class PlatformScraperWorker:
                     "is_latest": is_latest,
                 },
             )
+        await catalog.refresh_source_statuses(expired_sources)
 
     async def _resolve_missing_icon(
         self,
@@ -1049,9 +1050,14 @@ def infer_validated_operating_system(
     return infer_operating_system(candidate)
 
 
-def installer_sort_key(installer: ValidInstaller) -> tuple[int, Any, int]:
+def installer_sort_key(installer: ValidInstaller) -> tuple[int, Any, int, int]:
     version = parse_version(installer.version)
-    return (1 if version is not None else 0, version or Version("0"), installer.candidate.score)
+    return (
+        1 if version is not None else 0,
+        version or Version("0"),
+        1 if installer.status == ResolutionStatus.DIRECT else 0,
+        installer.candidate.score,
+    )
 
 
 def parse_version(value: str | None) -> Version | None:

@@ -293,6 +293,16 @@ class CatalogRepository:
             source.validation_status = ValidationStatus.UNCHECKED.value
         source.updated_at = utc_now()
 
+    async def refresh_source_statuses(self, source_ids: set[uuid.UUID]) -> None:
+        await self.session.flush()
+        for source_id in source_ids:
+            await self._refresh_source_status_from_resolved(source_id)
+
+    async def repair_source_statuses(self) -> int:
+        source_ids = set(await self.session.scalars(select(DownloadSource.id)))
+        await self.refresh_source_statuses(source_ids)
+        return len(source_ids)
+
     async def source_for_platform(
         self,
         software_app_id: uuid.UUID,
