@@ -44,21 +44,27 @@ public class CatalogRepository {
             String sort,
             int page,
             int pageSize) {
-        String orderBy = "updated".equals(sort)
-                ? "a.updated_at DESC, a.id ASC"
-                : "a.normalized_name ASC, a.id ASC";
+        SearchRanking ranking = SearchRanking.from(query);
+        String innerOrderBy = orderBy(sort, ranking.innerPrefix());
+        String outerOrderBy = orderBy(sort, ranking.outerPrefix());
         StringBuilder sql = new StringBuilder("""
                 SELECT a.*
                 FROM software_apps a
                 JOIN (
                     SELECT a.id
+                """);
+        List<Object> params = new ArrayList<>();
+        if (ranking.active()) {
+            sql.append(", ").append(ranking.scoreSql()).append(" AS search_score\n");
+            params.addAll(ranking.params());
+        }
+        sql.append("""
                     FROM software_apps a
                     WHERE a.app_status = 'active'
                 """);
-        List<Object> params = new ArrayList<>();
         appendFilters(sql, params, query, status, operatingSystem, architecture, tags, publishers, tagMatchMin, tagMode);
-        sql.append(" ORDER BY ").append(orderBy);
-        sql.append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ").append(orderBy);
+        sql.append(" ORDER BY ").append(innerOrderBy);
+        sql.append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ").append(outerOrderBy);
         params.add(pageSize);
         params.add((page - 1) * pageSize);
         return jdbc.query(sql.toString(), this::mapListItem, params.toArray());
@@ -247,21 +253,32 @@ public class CatalogRepository {
             Integer tagMatchMin,
             String tagMode) {
         if (query != null && !query.isBlank()) {
-            String like = "%" + query.toLowerCase(Locale.ROOT).trim() + "%";
+            String normalized = normalizeSearchQuery(query);
+            String normalizedLike = "%" + normalized + "%";
+            String compactLike = "%" + compactSearchQuery(normalized) + "%";
+            String rawLike = "%" + query.toLowerCase(Locale.ROOT).trim() + "%";
             sql.append("""
                     AND (
-                        LOWER(a.name) LIKE ? OR LOWER(a.publisher) LIKE ? OR
+                        a.normalized_name LIKE ? OR LOWER(a.name) LIKE ? OR
+                        REPLACE(a.normalized_name, ' ', '') LIKE ? OR
+                        LOWER(a.publisher) LIKE ? OR
                         LOWER(a.description) LIKE ? OR LOWER(a.long_description) LIKE ? OR
-                        LOWER(a.winstall_id) LIKE ? OR
+                        LOWER(a.winstall_id) LIKE ? OR LOWER(REPLACE(a.winstall_id, '.', '')) LIKE ? OR
                         EXISTS (
                             SELECT 1 FROM software_app_tags sat
                             WHERE sat.software_app_id = a.id AND sat.normalized_tag LIKE ?
                         )
                     )
                     """);
-            for (int i = 0; i < 6; i++) {
-                params.add(like);
-            }
+            params.add(normalizedLike);
+            params.add(rawLike);
+            params.add(compactLike);
+            params.add(rawLike);
+            params.add(rawLike);
+            params.add(rawLike);
+            params.add(rawLike);
+            params.add(compactLike);
+            params.add(normalizedLike);
         }
         appendSourceFilter(sql, params, status, operatingSystem, architecture);
         List<String> normalizedPublishers = normalizedDistinct(publishers);
@@ -498,6 +515,13 @@ public class CatalogRepository {
         return value == null ? 0 : value;
     }
 
+    private String orderBy(String sort, String prefix) {
+        String tieBreaker = "updated".equals(sort)
+                ? "a.updated_at DESC, a.normalized_name ASC, a.id ASC"
+                : "a.normalized_name ASC, a.id ASC";
+        return prefix == null || prefix.isBlank() ? tieBreaker : prefix + tieBreaker;
+    }
+
     private void appendPlaceholders(StringBuilder sql, int count) {
         for (int i = 0; i < count; i++) {
             if (i > 0) {
@@ -519,6 +543,21 @@ public class CatalogRepository {
             normalized.add(value.toLowerCase(Locale.ROOT).trim());
         }
         return List.copyOf(normalized);
+    }
+
+    static String normalizeSearchQuery(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFKD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT)
+                .trim();
+        return normalized.replaceAll("\\s+", " ");
+    }
+
+    private static String compactSearchQuery(String normalized) {
+        return normalized == null ? "" : normalized.replaceAll("\\s+", "");
     }
 
     static int requiredTagMatches(int selectedTags, Integer requestedMinimum, String tagMode) {
@@ -619,6 +658,98 @@ public class CatalogRepository {
         } catch (IllegalArgumentException exception) {
             return null;
         }
+    }
+
+    record SearchRanking(boolean active, String scoreSql, List<Object> params) {
+        static SearchRanking from(String query) {
+            String normalized = normalizeSearchQuery(query);
+            if (normalized.isBlank()) {
+                return new SearchRanking(false, "", List.of());
+            }
+            String compact = compactSearchQuery(normalized);
+            String lowerRaw = query.toLowerCase(Locale.ROOT).trim();
+            String normalizedPrefix = normalized + "%";
+            String normalizedContains = "%" + normalized + "%";
+            String compactPrefix = compact + "%";
+            String compactContains = "%" + compact + "%";
+            String rawPrefix = lowerRaw + "%";
+            String rawContains = "%" + lowerRaw + "%";
+
+            List<Object> params = new ArrayList<>();
+            StringBuilder sql = new StringBuilder("""
+                    (
+                        CASE WHEN a.normalized_name = ? THEN 10000 ELSE 0 END
+                      + CASE WHEN a.normalized_name LIKE ? THEN 9000 ELSE 0 END
+                      + CASE WHEN a.normalized_name LIKE ? THEN 7600 ELSE 0 END
+                      + CASE WHEN REPLACE(a.normalized_name, ' ', '') = ? THEN 7300 ELSE 0 END
+                      + CASE WHEN REPLACE(a.normalized_name, ' ', '') LIKE ? THEN 6800 ELSE 0 END
+                      + CASE WHEN LOWER(TRIM(COALESCE(a.publisher, ''))) = ? THEN 3400 ELSE 0 END
+                      + CASE WHEN LOWER(TRIM(COALESCE(a.publisher, ''))) LIKE ? THEN 2600 ELSE 0 END
+                      + CASE WHEN LOWER(a.winstall_id) LIKE ? THEN 2200 ELSE 0 END
+                      + CASE WHEN LOWER(REPLACE(a.winstall_id, '.', '')) LIKE ? THEN 2200 ELSE 0 END
+                      + CASE WHEN EXISTS (
+                            SELECT 1 FROM software_app_tags sat_rank_exact
+                            WHERE sat_rank_exact.software_app_id = a.id
+                              AND sat_rank_exact.normalized_tag = ?
+                        ) THEN 1700 ELSE 0 END
+                      + CASE WHEN EXISTS (
+                            SELECT 1 FROM software_app_tags sat_rank_like
+                            WHERE sat_rank_like.software_app_id = a.id
+                              AND sat_rank_like.normalized_tag LIKE ?
+                        ) THEN 900 ELSE 0 END
+                      + CASE WHEN LOWER(COALESCE(a.description, '')) LIKE ? THEN 250 ELSE 0 END
+                      + CASE WHEN LOWER(COALESCE(a.long_description, '')) LIKE ? THEN 150 ELSE 0 END
+                    """);
+            params.add(normalized);
+            params.add(normalizedPrefix);
+            params.add(normalizedContains);
+            params.add(compact);
+            params.add(compactPrefix);
+            params.add(lowerRaw);
+            params.add(rawPrefix);
+            params.add(rawContains);
+            params.add(compactContains);
+            params.add(normalized);
+            params.add(normalizedContains);
+            params.add(rawContains);
+            params.add(rawContains);
+
+            for (String token : searchTokens(normalized)) {
+                sql.append("""
+                      + CASE WHEN a.normalized_name LIKE ? THEN 80 ELSE 0 END
+                      + CASE WHEN LOWER(TRIM(COALESCE(a.publisher, ''))) LIKE ? THEN 25 ELSE 0 END
+                    """);
+                String tokenLike = "%" + token + "%";
+                params.add(tokenLike);
+                params.add(tokenLike);
+            }
+            sql.append(")");
+            return new SearchRanking(true, sql.toString(), List.copyOf(params));
+        }
+
+        String innerPrefix() {
+            return active ? "search_score DESC, " : "";
+        }
+
+        String outerPrefix() {
+            return active ? "page.search_score DESC, " : "";
+        }
+    }
+
+    private static List<String> searchTokens(String normalized) {
+        if (normalized == null || normalized.isBlank()) {
+            return List.of();
+        }
+        LinkedHashSet<String> tokens = new LinkedHashSet<>();
+        for (String token : normalized.split("\\s+")) {
+            if (token.length() >= 2) {
+                tokens.add(token);
+            }
+            if (tokens.size() >= 6) {
+                break;
+            }
+        }
+        return List.copyOf(tokens);
     }
 
     public record AppBasics(

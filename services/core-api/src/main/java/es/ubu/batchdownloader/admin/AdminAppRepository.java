@@ -5,12 +5,19 @@ import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.UpsertAppRequest;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
+import es.ubu.batchdownloader.common.ConflictException;
+import es.ubu.batchdownloader.common.FernetUrlProtector;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UuidBytes;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,10 +26,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminAppRepository {
     private final JdbcTemplate jdbc;
     private final CatalogRepository catalog;
+    private final FernetUrlProtector urlProtector;
 
-    public AdminAppRepository(JdbcTemplate jdbc, CatalogRepository catalog) {
+    public AdminAppRepository(
+            JdbcTemplate jdbc,
+            CatalogRepository catalog,
+            @Value("${app.url-protection-secret}") String urlProtectionSecret) {
         this.jdbc = jdbc;
         this.catalog = catalog;
+        this.urlProtector = new FernetUrlProtector(urlProtectionSecret);
     }
 
     @Transactional
@@ -93,6 +105,7 @@ public class AdminAppRepository {
 
     @Transactional
     public void delete(String publicId) {
+        assertScraperIdleForDeletion();
         UUID appId = softwareAppId(publicId);
         List<UUID> affectedBundles = jdbc.query(
                 "SELECT bundle_id FROM bundle_items WHERE software_app_id = ?",
@@ -104,17 +117,64 @@ public class AdminAppRepository {
 
     @Transactional
     public int deleteAll() {
+        assertScraperIdleForDeletion();
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM software_apps", Integer.class);
+        jdbc.update("DELETE FROM scraper_worker_snapshots");
+        jdbc.update("DELETE FROM scraper_metric_snapshots");
+        jdbc.update("DELETE FROM scraper_work_items");
         deleteApps("", List.of());
         jdbc.update("UPDATE bundles SET app_count = 0, updated_at = ? WHERE app_count <> 0", LocalDateTime.now());
         return count == null ? 0 : count;
     }
 
-    public boolean hasRunningScraper() {
-        Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM scrape_runs WHERE status = 'running'",
-                Integer.class);
-        return count != null && count > 0;
+    public AppCsvExport exportCsv() {
+        List<ExportCandidate> candidates = jdbc.query(
+                """
+                SELECT HEX(a.id) AS app_key, a.name, a.winstall_id, a.official_url,
+                       ds.operating_system, rs.extension, rs.resolved_url_encrypted
+                FROM software_apps a
+                LEFT JOIN download_sources ds ON ds.software_app_id = a.id
+                LEFT JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                    AND rs.validation_status = 'valid'
+                WHERE a.app_status = 'active'
+                ORDER BY a.normalized_name ASC,
+                         a.id ASC,
+                         rs.is_latest DESC,
+                         COALESCE(rs.release_rank, 9999) ASC,
+                         (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
+                         rs.score DESC,
+                         rs.checked_at DESC
+                """,
+                this::mapExportCandidate);
+        Map<String, ExportRow> rows = new LinkedHashMap<>();
+        for (ExportCandidate candidate : candidates) {
+            ExportRow row = rows.computeIfAbsent(candidate.appKey(), key -> new ExportRow(
+                    candidate.name(),
+                    winstallUrl(candidate.winstallId()),
+                    blankToNone(candidate.officialUrl())));
+            String platform = platformKey(candidate.operatingSystem(), candidate.extension());
+            String url = urlProtector.reveal(candidate.encryptedUrl());
+            if (platform != null && url != null && !url.isBlank()) {
+                row.putIfMissing(platform, url);
+            }
+        }
+
+        StringBuilder csv = new StringBuilder("Nombre,Winstall,URL,Windows,Linux,MacOS\r\n");
+        for (ExportRow row : rows.values()) {
+            csv.append(csvCell(row.name()))
+                    .append(',')
+                    .append(csvCell(row.winstall()))
+                    .append(',')
+                    .append(csvCell(row.officialUrl()))
+                    .append(',')
+                    .append(csvCell(row.windows()))
+                    .append(',')
+                    .append(csvCell(row.linux()))
+                    .append(',')
+                    .append(csvCell(row.macos()))
+                    .append("\r\n");
+        }
+        return new AppCsvExport(csv.toString(), rows.size());
     }
 
     @Transactional
@@ -150,6 +210,17 @@ public class AdminAppRepository {
         return catalog.softwareAppId(publicId);
     }
 
+    private ExportCandidate mapExportCandidate(ResultSet rs, int rowNum) throws SQLException {
+        return new ExportCandidate(
+                rs.getString("app_key"),
+                rs.getString("name"),
+                rs.getString("winstall_id"),
+                rs.getString("official_url"),
+                rs.getString("operating_system"),
+                rs.getString("extension"),
+                rs.getString("resolved_url_encrypted"));
+    }
+
     private void deleteApps(String appWhereClause, List<Object> appWhereParams) {
         String scopedApps = appWhereClause.isBlank()
                 ? "SELECT id FROM software_apps"
@@ -159,11 +230,34 @@ public class AdminAppRepository {
 
         jdbc.update("DELETE FROM resolver_logs WHERE download_source_id IN (" + scopedSources + ")", params);
         jdbc.update("DELETE FROM resolved_sources WHERE download_source_id IN (" + scopedSources + ")", params);
-        jdbc.update("DELETE FROM source_allowed_domains WHERE source_id IN (" + scopedSources + ")", params);
         jdbc.update("DELETE FROM download_sources WHERE software_app_id IN (" + scopedApps + ")", params);
         jdbc.update("DELETE FROM software_app_tags WHERE software_app_id IN (" + scopedApps + ")", params);
         jdbc.update("DELETE FROM bundle_items WHERE software_app_id IN (" + scopedApps + ")", params);
         jdbc.update("DELETE FROM software_apps " + appWhereClause, params);
+    }
+
+    private void assertScraperIdleForDeletion() {
+        boolean running = !jdbc.queryForList(
+                "SELECT id FROM scrape_runs WHERE status = 'running' FOR UPDATE").isEmpty();
+        if (running) {
+            throw scraperRunningConflict();
+        }
+        boolean queuedOrActive = !jdbc.queryForList(
+                """
+                SELECT id
+                FROM scraper_work_items
+                WHERE status IN ('queued', 'in_progress')
+                FOR UPDATE
+                """).isEmpty();
+        if (queuedOrActive) {
+            throw scraperRunningConflict();
+        }
+    }
+
+    private ConflictException scraperRunningConflict() {
+        return new ConflictException(
+                "scraper_running",
+                "No se pueden eliminar aplicaciones mientras el scraper está en ejecución.");
     }
 
     private void refreshBundleCounts(List<UUID> bundleIds) {
@@ -247,5 +341,105 @@ public class AdminAppRepository {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String winstallUrl(String winstallId) {
+        if (isBlank(winstallId) || winstallId.startsWith("manual.")) {
+            return "None";
+        }
+        return "https://winstall.app/apps/" + winstallId.trim();
+    }
+
+    private String blankToNone(String value) {
+        return isBlank(value) ? "None" : value.trim();
+    }
+
+    private String platformKey(String operatingSystem, String extension) {
+        String os = operatingSystem == null ? "" : operatingSystem.toLowerCase(Locale.ROOT).trim();
+        if (os.contains("windows") || os.equals("win")) {
+            return "windows";
+        }
+        if (os.contains("linux")) {
+            return "linux";
+        }
+        if (os.contains("mac") || os.contains("darwin") || os.contains("osx")) {
+            return "macos";
+        }
+
+        String ext = extension == null ? "" : extension.toLowerCase(Locale.ROOT).replace(".", "").trim();
+        return switch (ext) {
+            case "exe", "msi", "msix", "appx" -> "windows";
+            case "deb", "rpm", "appimage", "flatpak" -> "linux";
+            case "dmg", "pkg" -> "macos";
+            default -> null;
+        };
+    }
+
+    private String csvCell(String value) {
+        String safe = isBlank(value) ? "None" : value;
+        if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")) {
+            return "\"" + safe.replace("\"", "\"\"") + "\"";
+        }
+        return safe;
+    }
+
+    public record AppCsvExport(String content, int rowCount) {}
+
+    private record ExportCandidate(
+            String appKey,
+            String name,
+            String winstallId,
+            String officialUrl,
+            String operatingSystem,
+            String extension,
+            String encryptedUrl) {}
+
+    private static final class ExportRow {
+        private final String name;
+        private final String winstall;
+        private final String officialUrl;
+        private String windows = "None";
+        private String linux = "None";
+        private String macos = "None";
+
+        private ExportRow(String name, String winstall, String officialUrl) {
+            this.name = name;
+            this.winstall = winstall;
+            this.officialUrl = officialUrl;
+        }
+
+        private void putIfMissing(String platform, String url) {
+            if ("windows".equals(platform) && "None".equals(windows)) {
+                windows = url;
+            } else if ("linux".equals(platform) && "None".equals(linux)) {
+                linux = url;
+            } else if ("macos".equals(platform) && "None".equals(macos)) {
+                macos = url;
+            }
+        }
+
+        private String name() {
+            return name;
+        }
+
+        private String winstall() {
+            return winstall;
+        }
+
+        private String officialUrl() {
+            return officialUrl;
+        }
+
+        private String windows() {
+            return windows;
+        }
+
+        private String linux() {
+            return linux;
+        }
+
+        private String macos() {
+            return macos;
+        }
     }
 }

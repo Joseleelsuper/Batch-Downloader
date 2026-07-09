@@ -1,8 +1,10 @@
 package es.ubu.batchdownloader.common;
 
 import java.util.Map;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.slf4j.Logger;
@@ -31,6 +33,20 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> duplicate(DuplicateKeyException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiError.of("duplicate_resource", "El recurso ya existe."));
+    }
+
+    @ExceptionHandler(CannotAcquireLockException.class)
+    ResponseEntity<ApiError> databaseBusy(CannotAcquireLockException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(
+                        "database_busy",
+                        "La base de datos está procesando otra operación. Inténtalo de nuevo."));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ApiError> invalidJson(HttpMessageNotReadableException exception) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of("invalid_json", "El cuerpo de la solicitud no contiene JSON válido."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

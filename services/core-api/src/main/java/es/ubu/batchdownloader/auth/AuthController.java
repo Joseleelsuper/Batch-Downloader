@@ -24,7 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final String adminUsername;
     private final String adminPasswordHash;
-    private final boolean cookieSecure;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AdminAuditService audit;
@@ -32,13 +31,11 @@ public class AuthController {
     public AuthController(
             @Value("${app.auth.admin-username}") String adminUsername,
             @Value("${app.auth.admin-password-hash}") String adminPasswordHash,
-            @Value("${app.cookie-secure}") boolean cookieSecure,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
             AdminAuditService audit) {
         this.adminUsername = adminUsername;
         this.adminPasswordHash = adminPasswordHash;
-        this.cookieSecure = cookieSecure;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.audit = audit;
@@ -73,7 +70,7 @@ public class AuthController {
     private ResponseCookie authCookie(String token, long maxAgeSeconds) {
         return ResponseCookie.from(JwtAuthenticationFilter.COOKIE_NAME, token)
                 .httpOnly(true)
-                .secure(cookieSecure)
+                .secure(true)
                 .sameSite("Lax")
                 .path("/")
                 .maxAge(Duration.ofSeconds(maxAgeSeconds))

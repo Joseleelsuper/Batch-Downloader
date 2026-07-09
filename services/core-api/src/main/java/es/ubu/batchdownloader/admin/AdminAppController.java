@@ -6,6 +6,7 @@ import es.ubu.batchdownloader.admin.AdminDtos.PatchAppRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.ReplaceTagsRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.UpsertAppRequest;
+import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
@@ -22,7 +23,11 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -80,6 +85,24 @@ public class AdminAppController {
                 catalog.count(query, status, operatingSystem, architecture, tagList, List.of(), null, tagMode));
     }
 
+    @GetMapping(value = "/api/admin/apps/export.csv", produces = "text/csv")
+    public ResponseEntity<String> exportCsv(Principal principal) {
+        AppCsvExport export = adminApps.exportCsv();
+        audit.record(
+                actor(principal),
+                "app.export_csv",
+                "app",
+                null,
+                Map.of("rows", export.rowCount()));
+        return ResponseEntity.ok()
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename("batch-downloader-apps.csv", StandardCharsets.UTF_8)
+                        .build()
+                        .toString())
+                .body(export.content());
+    }
+
     @PostMapping("/api/admin/apps")
     @ResponseStatus(HttpStatus.CREATED)
     public AppDetails createApp(@Valid @RequestBody UpsertAppRequest request, Principal principal) {
@@ -113,11 +136,6 @@ public class AdminAppController {
             throw new ConflictException(
                     "delete_all_confirmation_required",
                     "Debes confirmar el borrado completo con confirm=DELETE_ALL.");
-        }
-        if (adminApps.hasRunningScraper()) {
-            throw new ConflictException(
-                    "scraper_running",
-                    "No se pueden eliminar todas las aplicaciones mientras el scraper esta en ejecucion.");
         }
         int deleted = adminApps.deleteAll();
         audit.record(actor(principal), "app.delete_all", "app", null, Map.of("deleted", deleted));
