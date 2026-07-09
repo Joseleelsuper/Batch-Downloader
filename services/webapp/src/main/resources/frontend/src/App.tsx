@@ -1351,6 +1351,7 @@ function AdminScraperPage() {
   }
 
   async function maintainQueue(action: 'recover_stuck' | 'retry_failed' | 'prune_terminal' | 'clear_pending' | 'clear_all') {
+    if (action === 'clear_all' && !window.confirm(t('admin.scraper.confirm.clearAll'))) return;
     setMessage(null);
     try {
       const result = action === 'recover_stuck'

@@ -123,6 +123,7 @@
   "admin.scraper.snapshotEmpty": "",
   "admin.scraper.status": "",
   "admin.scraper.stop": "",
+  "admin.scraper.confirm.clearAll": "",
   "admin.scraper.pruneTerminal": "",
   "admin.scraper.clearPending": "",
   "admin.scraper.clearAll": "",

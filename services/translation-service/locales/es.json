@@ -119,6 +119,7 @@
   "admin.scraper.resume": "Continuar",
   "admin.scraper.retryFailed": "Reintentar fallidas",
   "admin.scraper.stop": "Parar",
+  "admin.scraper.confirm.clearAll": "Esta acción vaciará todas las colas del scraper, incluidos trabajos en progreso. ¿Continuar?",
   "admin.scraper.reason.pause": "Pausar ejecución actual",
   "admin.scraper.reason.pauseUnavailable": "Solo disponible durante una ejecución activa.",
   "admin.scraper.reason.resume": "Continuar ejecución pausada",
