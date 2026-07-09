@@ -17,7 +17,9 @@
 - Keep Winstall access behind `WinstallClient`: API first, `__NEXT_DATA__` second, HTML fallback third.
 - Resolver order: official/GitHub-specific resolver, generic HTTP candidates, Playwright fallback, Winstall fallback, then manual review.
 - `DownloadValidator` must remain independent and enforce public DNS, private/reserved IP blocking, redirect revalidation, content/extension checks, and size limits. HTTP is allowed only for verified Winstall fallback candidates.
+- Installer domains are not allowlisted; validate every initial URL and redirect through public DNS/IP checks instead.
 - Never log signed URLs, cookies, auth headers, prompts/responses, or installer contents. Store resolved URLs only in `resolved_url_encrypted`.
+- Scraper and Core API share `SCRAPPER_URL_PROTECTION_SECRET` to encrypt/decrypt resolved URLs. Admin auth cookies are always `HttpOnly` and `Secure`.
 - `SCRAPPER_SCRAPE_MAX_APPS=0` and `SCRAPPER_LLM_MAX_APPS_PER_RUN=0` both mean unlimited.
 - Scheduler control is cooperative through `scraper_commands`; check commands between apps and keep `scrape_runs.current_*` fields updated.
 
