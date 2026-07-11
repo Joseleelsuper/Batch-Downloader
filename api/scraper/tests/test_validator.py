@@ -1,10 +1,17 @@
 import pytest
 import httpx
 import respx
+import dns.exception
+import dns.resolver
 
 from app.core.config import Settings
 from app.scraper.candidates import InstallerCandidate
-from app.scraper.validator import DownloadValidator, domain_has_public_dns, is_public_ip
+from app.scraper.validator import (
+    DownloadValidator,
+    domain_has_public_dns,
+    is_public_ip,
+    same_site_referer,
+)
 
 
 @pytest.mark.asyncio
@@ -12,11 +19,44 @@ async def test_domain_has_public_dns_rejects_loopback_literal() -> None:
     assert await domain_has_public_dns("127.0.0.1") is False
 
 
+@pytest.mark.asyncio
+async def test_domain_dns_resolution_retries_transient_failure(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def resolve(_hostname: str, record_type: str, **_kwargs):
+        calls.append(record_type)
+        if len(calls) <= 2:
+            raise dns.exception.Timeout
+        if record_type == "AAAA":
+            raise dns.resolver.NoAnswer
+        return [type("Answer", (), {"address": "203.0.113.10"})()]
+
+    monkeypatch.setattr("app.scraper.validator.dns.asyncresolver.resolve", resolve)
+    monkeypatch.setattr(
+        "app.scraper.validator.is_public_ip",
+        lambda address: str(address) == "203.0.113.10",
+    )
+
+    assert await domain_has_public_dns("transient-retry.example.test") is True
+    assert len(calls) == 4
+
+
 def test_private_ips_are_not_public() -> None:
     import ipaddress
 
     assert is_public_ip(ipaddress.ip_address("10.0.0.1")) is False
     assert is_public_ip(ipaddress.ip_address("192.168.1.10")) is False
+
+
+def test_cross_site_winstall_referer_is_not_sent_to_download_host() -> None:
+    assert same_site_referer(
+        "https://geeks3d.com/downloads/FurMark_Setup.exe",
+        "https://winstall.app/apps/Geeks3D.FurMark.1",
+    ) is None
+    assert same_site_referer(
+        "https://cdn.geeks3d.com/downloads/FurMark_Setup.exe",
+        "https://www.geeks3d.com/furmark/downloads/",
+    ) == "https://www.geeks3d.com/furmark/downloads/"
 
 
 @pytest.mark.asyncio
@@ -136,6 +176,292 @@ async def test_validator_accepts_public_cross_domain_redirect_without_allowlist(
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_validator_accepts_common_windows_executable_mime_alias(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/x-msdos-program", "content-length": "4096"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="winstall_page", asset_kind="winstall_download")
+    )
+
+    assert result.ok is True
+    assert result.extension == ".exe"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_accepts_mislabeled_msi_after_partial_signature_probe(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.msi"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/plain", "content-length": "100000"},
+        )
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            206,
+            headers={"content-type": "text/plain", "content-range": "bytes 0-1023/100000"},
+            content=b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + (b"\0" * 32),
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="winstall_page", asset_kind="winstall_download")
+    )
+
+    assert result.ok is True
+    assert result.extension == ".msi"
+    assert result.size_bytes == 100000
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_uses_actual_zip_signature_for_winstall_mislabeled_exe(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/MyApp-Win64.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(200, headers={"content-type": "text/plain"})
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(206, content=b"PK\x03\x04" + (b"\0" * 32))
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.exe)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.extension == ".zip"
+    assert result.filename == "MyApp-Win64.zip"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_follows_redirect_revealed_only_by_partial_get(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    original = "https://downloads.example.com/App-1.0.exe"
+    endpoint = "https://downloads.example.com/current"
+    current = "https://downloads.example.com/App-2.0.zip"
+    respx.head(original).mock(
+        return_value=httpx.Response(302, headers={"location": endpoint})
+    )
+    respx.head(endpoint).mock(
+        return_value=httpx.Response(200, headers={"content-type": "text/plain"})
+    )
+    respx.get(endpoint).mock(
+        return_value=httpx.Response(302, headers={"location": current})
+    )
+    respx.head(current).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/zip", "content-length": "4096"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=original,
+            source="winstall_page",
+            label="Download (.exe)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.final_url == current
+    assert result.extension == ".zip"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_rejects_mislabeled_text_without_binary_signature(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(200, headers={"content-type": "text/plain"})
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(206, content=b"This is not an executable")
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="winstall_page", asset_kind="winstall_download")
+    )
+
+    assert result.ok is False
+    assert result.reason == "not_an_installer"
+
+
+@pytest.mark.asyncio
+async def test_validator_rejects_malformed_url_without_aborting() -> None:
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url="https://[broken/AppSetup.exe", source="href")
+    )
+
+    assert result.ok is False
+    assert result.reason == "invalid_url"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_rejects_extensionless_octet_stream(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    respx.head("https://tracking.example.net/opaque-download").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/octet-stream", "content-length": "0"},
+        )
+    )
+    respx.get("https://tracking.example.net/opaque-download").mock(
+        return_value=httpx.Response(206, content=b"opaque telemetry payload")
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url="https://tracking.example.net/opaque-download",
+            source="playwright_request",
+        )
+    )
+
+    assert result.ok is False
+    assert result.reason == "missing_installer_extension"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_infers_extensionless_winstall_pe_executable(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://frontend.example.com/download/bbk_cli_win_amd64-1.2.2"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/octet-stream", "content-length": "4096"},
+        )
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            206,
+            headers={"content-range": "bytes 0-1023/4096"},
+            content=b"MZ" + (b"\0" * 32),
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.exe)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.extension == ".exe"
+    assert result.filename == "bbk_cli_win_amd64-1.2.2.exe"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_accepts_winstall_distribution_zip_outside_github_releases(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://github.com/vendor/app/raw/master/dist/App-v140.zip"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/zip", "content-length": "4096"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.zip)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.extension == ".zip"
+
+
+@pytest.mark.asyncio
+async def test_validator_still_rejects_generic_github_zip_outside_releases() -> None:
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url="https://github.com/vendor/app/raw/master/dist/App.zip",
+            source="href",
+            label="Download ZIP",
+        )
+    )
+
+    assert result.ok is False
+    assert result.reason == "github_zip_not_release_asset"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_accepts_public_ip_host_for_winstall_download() -> None:
+    url = "http://120.24.245.232/app/pcr532.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/x-msdownload", "content-length": "4096"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.exe)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.final_domain == "120.24.245.232"
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_validator_rejects_known_non_desktop_binary_extensions(monkeypatch) -> None:
     async def public_dns(_hostname: str | None) -> bool:
         return True
@@ -157,6 +483,32 @@ async def test_validator_rejects_known_non_desktop_binary_extensions(monkeypatch
 
     assert result.ok is False
     assert result.reason == "unsupported_extension:.apk"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_accepts_msixbundle(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://staticcdn.duckduckgo.com/release/DuckDuckGo_0.164.1.0.msixbundle"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={
+                "content-type": "application/msixbundle",
+                "content-length": "1048576",
+            },
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="winstall_page", asset_kind="winstall_download")
+    )
+
+    assert result.ok is True
+    assert result.extension == ".msixbundle"
 
 
 @pytest.mark.asyncio
@@ -259,6 +611,123 @@ async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflar
     assert result.ok is True
     assert result.filename == "beebeep-setup-5.8.6.exe"
     assert result.extension == ".exe"
+    assert result.transport_security == "https_winstall_edge_attested"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_attests_siteground_challenge_with_winstall_declared_extension(
+    monkeypatch,
+) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://www.uniconta.com/download/uniconta-setup-msi/?wpdmdl=17651"
+    challenge = (
+        b'<html><meta http-equiv="refresh" content="0;/.well-known/sgcaptcha/'
+        b'?r=%2Fdownload%2Funiconta-setup-msi"></html>'
+    )
+    respx.head(url).mock(
+        return_value=httpx.Response(202, headers={"content-type": "text/html"})
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            202,
+            headers={"content-type": "text/html"},
+            content=challenge,
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.msi)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.extension == ".msi"
+    assert result.filename == "uniconta-setup-msi.msi"
+    assert result.transport_security == "https_winstall_edge_attested"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_attests_tencent_edgeone_challenge(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://cdn.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(200, headers={"content-type": "text/html"})
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=(
+                b"<html><title>Security Verification</title>"
+                b"<script src='TEOCaptchaWidget-global.js'></script>"
+                b"Protected by Tencent Cloud EdgeOne</html>"
+            ),
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.exe)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.extension == ".exe"
+    assert result.transport_security == "https_winstall_edge_attested"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_attests_akamai_edge_denial_for_winstall_binary(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.msi"
+    denied = (
+        b"<html><title>Access Denied</title>"
+        b"https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18</html>"
+    )
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            403,
+            headers={"server": "AkamaiGHost", "content-type": "text/html"},
+        )
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            403,
+            headers={"server": "AkamaiGHost", "content-type": "text/html"},
+            content=denied,
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_page",
+            label="Download (.msi)",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.extension == ".msi"
     assert result.transport_security == "https_winstall_edge_attested"
 
 

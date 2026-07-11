@@ -1,7 +1,9 @@
+import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 import app.scraper.catalog_fetcher as catalog_fetcher
 from app.core.config import Settings
@@ -10,12 +12,16 @@ from app.db.enums import ResolutionStatus
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.catalog_fetcher import (
     PipelineRuntime,
+    CatalogFetcher,
     FilterWorker,
     PlatformScraperWorker,
     SearcherWorker,
     ValidInstaller,
+    dedupe_valid_installers,
     fallback_candidates,
     infer_validated_operating_system,
+    is_actionable_installer_candidate,
+    is_transient_mysql_lock_error,
     is_windows_winstall_archive,
     is_stale_control_command,
     known_official_candidates,
@@ -23,6 +29,8 @@ from app.scraper.catalog_fetcher import (
     should_collect_official_installers,
     use_only_known_official_candidates,
     use_winstall_fallback_only,
+    validated_installer_version,
+    winstall_parent_index_url,
 )
 from app.scraper.validator import ValidationResult
 
@@ -100,6 +108,43 @@ def test_rank_installers_prefers_direct_over_fallback_for_same_version() -> None
     assert ranked[1] == (fallback, 1, False)
 
 
+def test_dedupes_redirect_variants_that_only_change_query_parameters() -> None:
+    first = valid(
+        "https://cdn.example.com/launcher/App-1.2.3.exe?token=one",
+        "windows",
+        "x86_64",
+        "1.2.3",
+        80,
+    )
+    second = valid(
+        "https://cdn.example.com/launcher/App-1.2.3.exe?token=two",
+        "windows",
+        "x86_64",
+        "1.2.3",
+        100,
+    )
+
+    deduped = dedupe_valid_installers([first, second])
+
+    assert deduped == [second]
+
+
+def test_validated_version_prefers_the_final_binary_name() -> None:
+    candidate = InstallerCandidate(
+        url="https://warthunder.com/download/launcherPC/",
+        source="attribute:onclick",
+    )
+    result = ValidationResult(
+        ok=True,
+        url=candidate.url,
+        final_url="https://cdn.example.com/wt_launcher_1.0.3.535.exe?distr=abc123",
+        filename="wt_launcher_1.0.3.535.exe",
+        extension=".exe",
+    )
+
+    assert validated_installer_version(candidate, result) == "1.0.3.535"
+
+
 def test_validated_operating_system_uses_validation_extension_first() -> None:
     candidate = InstallerCandidate(
         url="https://store.steampowered.com/about/",
@@ -169,6 +214,67 @@ def test_winstall_zip_defaults_to_windows_when_platform_is_not_in_filename() -> 
     ) == "windows"
 
 
+def test_matching_official_zip_defaults_to_windows_for_winstall_catalog() -> None:
+    candidate = InstallerCandidate(
+        url="https://www.proscan.org/ProScan_24_10.zip",
+        source="href",
+        label="Download ProScan 24.10",
+        asset_kind="archive",
+        match_tokens=("proscan",),
+    )
+
+    assert is_windows_winstall_archive(candidate)
+    assert infer_validated_operating_system(
+        candidate,
+        ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url=candidate.url,
+            extension=".zip",
+            filename="ProScan_24_10.zip",
+        ),
+    ) == "windows"
+
+
+def test_winstall_parent_index_uses_directory_containing_versioned_file() -> None:
+    assert winstall_parent_index_url(
+        "https://xpra.org/stable/windows/Xpra-x86_64_Setup_6.3.2-r0.exe"
+    ) == "https://xpra.org/stable/windows/"
+    assert winstall_parent_index_url(
+        "https://sourceforge.net/project/app/1.0/AppSetup.exe/download"
+    ) == "https://sourceforge.net/project/app/1.0/"
+    assert winstall_parent_index_url(
+        "https://github.com/vendor/app/releases/download/v1/AppSetup.exe"
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_platform_worker_includes_parent_index_fallback(monkeypatch) -> None:
+    worker = PlatformScraperWorker(Settings())
+    stale = InstallerCandidate(
+        url="https://downloads.example.com/app/App-1.0.exe",
+        source="winstall_page",
+        asset_kind="winstall_download",
+    )
+    current = InstallerCandidate(
+        url="https://downloads.example.com/app/App-2.0.exe",
+        source="winstall_parent_index",
+        asset_kind="winstall_download",
+    )
+
+    async def collect_parent(_candidates):
+        return [current]
+
+    monkeypatch.setattr(worker, "_collect_winstall_parent_index_candidates", collect_parent)
+
+    result = await worker._collect_winstall_github_candidates(
+        SimpleNamespace(latest_version="2.0"),
+        [stale],
+    )
+
+    assert result == [current]
+
+
 def test_epic_games_launcher_has_known_official_candidate() -> None:
     app = SimpleNamespace(package_id="EpicGames.EpicGamesLauncher")
 
@@ -226,6 +332,106 @@ def test_known_heavy_pages_can_use_winstall_fallback_only() -> None:
     assert not use_winstall_fallback_only(app, [])
 
 
+def test_javascript_download_control_does_not_suppress_browser_fallback() -> None:
+    javascript_control = InstallerCandidate(
+        url="javascript:;",
+        source="href",
+        label="Descargar el juego",
+    )
+    installer = InstallerCandidate(
+        url="https://downloads.example.com/AppSetup.exe",
+        source="href",
+    )
+
+    assert not is_actionable_installer_candidate(javascript_control)
+    assert is_actionable_installer_candidate(installer)
+
+
+@pytest.mark.asyncio
+async def test_malformed_candidate_does_not_abort_candidate_group() -> None:
+    worker = PlatformScraperWorker(Settings())
+    app = SimpleNamespace(
+        name="Example App",
+        package_id="Vendor.Example",
+        publisher="Vendor",
+        latest_version="1.0.0",
+    )
+
+    valid_installers, diagnostics = await worker._validate_candidate_group(
+        app,
+        [InstallerCandidate(url="https://[broken/AppSetup.exe", source="href")],
+        ResolutionStatus.DIRECT,
+        max_candidates=5,
+        max_valid=5,
+    )
+
+    assert valid_installers == []
+    assert diagnostics.errors == {"ValueError": 1}
+
+
+def test_mysql_deadlocks_and_lock_timeouts_are_transient() -> None:
+    deadlock = OperationalError("UPDATE", {}, Exception(1213, "Deadlock"))
+    lock_timeout = OperationalError("UPDATE", {}, Exception(1205, "Lock wait timeout"))
+    connection_error = OperationalError("UPDATE", {}, Exception(2003, "Connection failed"))
+
+    assert is_transient_mysql_lock_error(deadlock)
+    assert is_transient_mysql_lock_error(lock_timeout)
+    assert not is_transient_mysql_lock_error(connection_error)
+
+
+@pytest.mark.asyncio
+async def test_direct_and_fallback_candidates_are_validated_concurrently() -> None:
+    worker = PlatformScraperWorker(Settings(request_timeout_seconds=1))
+    app = SimpleNamespace(
+        package_id="Vendor.App",
+        name="Vendor App",
+        publisher="Vendor",
+        latest_version="1.0.0",
+    )
+
+    class SlowValidator:
+        async def validate(self, candidate: InstallerCandidate) -> ValidationResult:
+            await asyncio.sleep(0.15)
+            return ValidationResult(
+                ok=True,
+                url=candidate.url,
+                final_url=candidate.url,
+                final_domain="example.com",
+                filename=candidate.url.rsplit("/", 1)[-1],
+                extension=candidate.extension,
+                content_type="application/octet-stream",
+            )
+
+    worker.validator = SlowValidator()
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    installers, diagnostics = await worker._validate_installers(
+        app=app,
+        official_url="https://example.com",
+        direct_candidates=[
+            InstallerCandidate(
+                url="https://example.com/Vendor-App.exe",
+                source="href",
+                label="Download",
+            )
+        ],
+        fallback_candidates=[
+            InstallerCandidate(
+                url="https://cdn.example.com/Vendor-App.msi",
+                source="winstall_page",
+                label="Download",
+                asset_kind="winstall_download",
+            )
+        ],
+    )
+    elapsed = loop.time() - started
+
+    assert elapsed < 0.25
+    assert len(installers) == 2
+    assert diagnostics["direct"]["valid"] == 1
+    assert diagnostics["fallback"]["valid"] == 1
+
+
 @pytest.mark.asyncio
 async def test_winstall_github_asset_refreshes_from_release_api() -> None:
     app = SimpleNamespace(package_id="Coloryr.ColorMC", latest_version="40")
@@ -253,6 +459,64 @@ async def test_winstall_github_asset_refreshes_from_release_api() -> None:
 
     assert [candidate.url for candidate in candidates] == [refreshed_asset.url]
     assert candidates[0].source == "winstall_github_release_api"
+
+
+@pytest.mark.asyncio
+async def test_winstall_github_refresh_queries_each_repository_once() -> None:
+    app = SimpleNamespace(package_id="AdGuard.dnsproxy", latest_version="0.82.1")
+    candidates = [
+        InstallerCandidate(
+            url=(
+                "https://github.com/AdguardTeam/dnsproxy/releases/download/v0.82.1/"
+                f"dnsproxy-windows-{architecture}-v0.82.1.zip"
+            ),
+            source="winstall_api",
+            asset_kind="winstall_download",
+        )
+        for architecture in ("386", "amd64", "arm64")
+    ]
+    calls = []
+    worker = PlatformScraperWorker(Settings())
+
+    async def collect(url: str, version: str | None) -> list[InstallerCandidate]:
+        calls.append((url, version))
+        return []
+
+    worker.github = SimpleNamespace(collect=collect)
+
+    assert await worker._collect_winstall_github_candidates(app, candidates) == []
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_filter_validates_current_winstall_asset_before_refreshing_github() -> None:
+    app = SimpleNamespace(
+        package_id="AdGuard.dnsproxy",
+        name="DNS Proxy",
+        publisher="AdGuard",
+        latest_version="0.82.1",
+        versions=[],
+    )
+    current = (
+        "https://github.com/AdguardTeam/dnsproxy/releases/download/v0.82.1/"
+        "dnsproxy-windows-amd64-v0.82.1.zip"
+    )
+    worker = FilterWorker(Settings())
+
+    class ValidCurrentAsset:
+        async def validate(self, candidate: InstallerCandidate) -> ValidationResult:
+            return ValidationResult(ok=candidate.url == current, url=candidate.url)
+
+    async def unexpected_refresh(*_args, **_kwargs):
+        raise AssertionError("A valid Winstall asset must not trigger a GitHub refresh")
+
+    worker.validator = ValidCurrentAsset()
+    worker.github = SimpleNamespace(collect=unexpected_refresh)
+
+    assert await worker._fallback_download_valid(
+        {"winstall_downloads": [{"url": current, "label": "Download (.zip)"}]},
+        app,
+    )
 
 
 @pytest.mark.asyncio
@@ -344,6 +608,55 @@ async def test_searcher_backpressure_waits_until_queue_depth_drops(monkeypatch) 
     assert await SearcherWorker(settings)._wait_for_backpressure(runtime)
     assert phases == ["searcher_waiting_for_filter_backpressure"]
     assert depths == []
+
+
+@pytest.mark.asyncio
+async def test_catalog_fetcher_starts_configured_scraper_workers(monkeypatch) -> None:
+    started = []
+
+    class FakeScraperWorker:
+        def __init__(self, _settings) -> None:
+            self.index = len(started)
+            started.append(self.index)
+
+        async def run(self, _runtime) -> None:
+            await asyncio.sleep(0)
+
+    monkeypatch.setattr(catalog_fetcher, "PlatformScraperWorker", FakeScraperWorker)
+    settings = Settings(scrape_concurrency=3)
+    runtime = PipelineRuntime(settings=settings, run_id=uuid4(), run_started_at=utc_now())
+    fetcher = CatalogFetcher(settings, SimpleNamespace())
+
+    await fetcher._run_scraper_workers(runtime)
+
+    assert started == [0, 1, 2]
+    assert runtime.scraper_done.is_set()
+
+
+@pytest.mark.asyncio
+async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> None:
+    calls = 0
+
+    async def fake_claim(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OperationalError("SELECT", {}, Exception(1213, "Deadlock"))
+        return None
+
+    async def fake_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(catalog_fetcher, "claim_item", fake_claim)
+    monkeypatch.setattr(catalog_fetcher.asyncio, "sleep", fake_sleep)
+    settings = Settings()
+    runtime = PipelineRuntime(settings=settings, run_id=uuid4(), run_started_at=utc_now())
+    runtime.searcher_done.set()
+    runtime.filter_done.set()
+
+    await PlatformScraperWorker(settings).run(runtime)
+
+    assert calls == 2
 
 
 def valid(

@@ -81,3 +81,19 @@ def test_extract_winstall_page_links_finds_view_site_and_download() -> None:
     assert [download.url for download in links.downloads] == [
         "https://technology.a-sit.at/wp-content/uploads/2026/03/PDF-Over-4.4.8.msi"
     ]
+
+
+def test_winstall_version_link_ending_in_appx_is_not_a_download() -> None:
+    html = """
+    <a href="/apps/KDE.Filelight.AppX">v25.1202.1987.0</a>
+    <a href="https://cdn.kde.org/filelight-sideload.appx">Download (.msix)</a>
+    """
+
+    downloads = extract_winstall_downloads(
+        html,
+        "https://winstall.app/apps/KDE.Filelight.AppX",
+    )
+
+    assert [download.url for download in downloads] == [
+        "https://cdn.kde.org/filelight-sideload.appx"
+    ]

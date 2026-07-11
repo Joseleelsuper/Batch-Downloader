@@ -9,6 +9,7 @@ from app.scraper.candidates import (
     is_github_source_archive,
     score_candidate,
     s3_path_style_variant,
+    sourceforge_mirror_variant,
 )
 
 
@@ -33,6 +34,38 @@ def test_script_extraction_ignores_non_url_javascript_fragments() -> None:
     )
 
     assert [candidate.url for candidate in candidates] == ["https://cdn.example.com/App.exe"]
+
+
+def test_extract_candidates_reads_dynamic_download_routes_and_skips_javascript_href() -> None:
+    html = """
+    <a href="javascript:;" onclick="return AppCore.View.GetLauncher();">
+      Descargar el juego
+    </a>
+    <button onclick="location.href='/download/launcherPC/'">Windows</button>
+    <button onclick="location.href='/download/launcherOSX/'">macOS</button>
+    <button data-download-url="/download/launcherLinux/">Linux</button>
+    """
+
+    candidates = extract_candidates(html, "https://warthunder.com/es")
+
+    assert {candidate.url for candidate in candidates} == {
+        "https://warthunder.com/download/launcherPC/",
+        "https://warthunder.com/download/launcherOSX/",
+        "https://warthunder.com/download/launcherLinux/",
+    }
+    assert all(candidate.url.startswith("https://") for candidate in candidates)
+
+
+def test_extract_candidates_skips_malformed_ipv6_urls() -> None:
+    candidates = extract_candidates(
+        '<a href="https://[broken/download.exe">Broken</a>'
+        '<a href="https://cdn.example.com/AppSetup.exe">Download</a>',
+        "https://example.com",
+    )
+
+    assert [candidate.url for candidate in candidates] == [
+        "https://cdn.example.com/AppSetup.exe"
+    ]
 
 
 def test_score_prefers_windows_installer_over_docs() -> None:
@@ -187,6 +220,37 @@ def test_extensionless_winstall_download_is_eligible_for_final_url_validation() 
     assert is_download_candidate(candidate)
 
 
+def test_winstall_portable_distribution_is_not_scored_out() -> None:
+    candidate = score_candidate(
+        InstallerCandidate(
+            url="https://github.com/mozilla-ai/llamafile/releases/download/0.10.3/llamafile-0.10.3",
+            source="winstall_page",
+            label="Download (.portable)",
+            asset_kind="winstall_download",
+        ),
+        app_name="llamafile",
+        package_id="Mozilla.llamafile",
+        version="0.10.3",
+    )
+
+    assert candidate.score > 0
+
+
+def test_msixbundle_is_recognized_as_a_windows_installer() -> None:
+    candidate = InstallerCandidate(
+        url=(
+            "https://staticcdn.duckduckgo.com/release/0.164.1.0/"
+            "DuckDuckGo_0.164.1.0.msixbundle"
+        ),
+        source="winstall_page",
+        asset_kind="winstall_download",
+    )
+
+    assert detect_extension(candidate.url) == ".msixbundle"
+    assert infer_operating_system(candidate) == "windows"
+    assert is_download_candidate(candidate)
+
+
 def test_s3_legacy_bucket_uses_secure_path_style_variant() -> None:
     candidate = InstallerCandidate(
         url=(
@@ -205,3 +269,43 @@ def test_s3_legacy_bucket_uses_secure_path_style_variant() -> None:
         "Balsamiq_Wireframes_4.8.6_x86_Setup.exe"
     )
     assert variant.source == "winstall_page_s3_path_style"
+
+
+def test_sourceforge_manifest_placeholder_uses_public_router() -> None:
+    candidate = InstallerCandidate(
+        url=(
+            "https://udomain.dl.sourceforge.net/project/maxlauncher/"
+            "MaxLauncher/1.31.0.0/maxlauncher_1.31.0.0_setup.exe"
+        ),
+        source="winstall_page",
+        asset_kind="winstall_download",
+    )
+
+    variant = sourceforge_mirror_variant(candidate)
+
+    assert variant is not None
+    assert variant.url == (
+        "https://downloads.sourceforge.net/project/maxlauncher/"
+        "MaxLauncher/1.31.0.0/maxlauncher_1.31.0.0_setup.exe"
+    )
+    assert variant.source == "winstall_page_sourceforge_router"
+
+    regional = sourceforge_mirror_variant(
+        InstallerCandidate(
+            url="https://cyfuture.dl.sourceforge.net/project/app/AppPortable.zip",
+            source="winstall_page",
+            asset_kind="winstall_download",
+        )
+    )
+    assert regional is not None
+    assert regional.url == "https://downloads.sourceforge.net/project/app/AppPortable.zip"
+
+
+def test_version_extraction_does_not_treat_ip_host_as_version() -> None:
+    candidate = InstallerCandidate(
+        url="http://120.24.245.232/app/pcr532.exe",
+        source="winstall_page",
+        context='<a href="http://120.24.245.232/app/pcr532.exe">Download</a>',
+    )
+
+    assert extract_version(candidate) is None
