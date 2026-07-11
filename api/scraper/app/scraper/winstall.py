@@ -4,7 +4,7 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -192,12 +192,23 @@ def extract_winstall_page_links(html: str, base_url: str) -> WinstallPageLinks:
             continue
         label = node.text(separator=" ", strip=True)
         text = normalize_text(f"{label} {href}")
-        url = urljoin(base_url, href)
+        try:
+            url = urljoin(base_url, href)
+            parsed_url = urlparse(url)
+            parsed_base = urlparse(base_url)
+        except ValueError:
+            continue
         if official_url is None and ("view site" in text or "sitio" in text):
             official_url = url
             continue
         if source_code_url is None and "source code" in text:
             source_code_url = url
+            continue
+        if (
+            parsed_url.netloc.lower() == parsed_base.netloc.lower()
+            and parsed_url.path.startswith("/apps/")
+            and "download" not in normalize_text(label)
+        ):
             continue
         if "download" not in text and not detect_extension(href):
             continue

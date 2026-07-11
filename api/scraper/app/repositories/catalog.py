@@ -395,10 +395,17 @@ class CatalogRepository:
                 [LongDescriptionStatus.PENDING.value, LongDescriptionStatus.FAILED.value]
             ),
         )
-        stmt = (
-            select(SoftwareApp)
-            .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
-            .order_by(
+        stmt = select(SoftwareApp).where(SoftwareApp.app_status == AppStatus.ACTIVE.value).options(
+            selectinload(SoftwareApp.tags),
+            selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
+        )
+        if app_ids is not None:
+            if not app_ids:
+                return []
+            stmt = stmt.where(SoftwareApp.id.in_(app_ids))
+        elif not include_completed:
+            stmt = stmt.where(needs_description)
+            stmt = stmt.order_by(
                 case(
                     (missing_long_description, 0),
                     (
@@ -411,26 +418,10 @@ class CatalogRepository:
                         == LongDescriptionStatus.FAILED.value,
                         2,
                     ),
-                    (
-                        SoftwareApp.long_description_status
-                        == LongDescriptionStatus.COMPLETED.value,
-                        3,
-                    ),
-                    else_=4,
+                    else_=3,
                 ),
                 SoftwareApp.updated_at.desc(),
             )
-            .options(
-                selectinload(SoftwareApp.tags),
-                selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
-            )
-        )
-        if app_ids is not None:
-            if not app_ids:
-                return []
-            stmt = stmt.where(SoftwareApp.id.in_(app_ids))
-        elif not include_completed:
-            stmt = stmt.where(needs_description)
 
         result = await self.session.scalars(stmt)
         return list(result.unique())

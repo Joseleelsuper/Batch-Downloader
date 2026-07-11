@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.json_safe import json_safe
 from app.core.time import utc_now
-from app.db.enums import ResolutionStatus
+from app.db.enums import ResolutionStatus, ScrapeRunStatus
 from app.db.models import (
     DownloadSource,
+    ScrapeRun,
     ScraperMetricSnapshot,
     ScraperWorkerSnapshot,
     ScraperWorkItem,
@@ -23,6 +24,11 @@ from app.db.models import (
 QUEUE_SEARCHER_FILTER = "searcher_filter"
 QUEUE_FILTER_SCRAPER = "filter_scraper"
 QUEUE_SCRAPER_DESCRIPTOR = "scraper_descriptor"
+
+# Snapshots back the live admin monitor; they are previews, never an archive of
+# an official web page. Bound the raw input before sanitizing so a large page
+# cannot monopolize a scraper worker in a regular-expression pass.
+MAX_SNAPSHOT_HTML_BYTES = 24_000
 
 STATUS_QUEUED = "queued"
 STATUS_IN_PROGRESS = "in_progress"
@@ -101,6 +107,38 @@ class PipelineRepository:
             item.lease_expires_at = None
             item.available_at = now
             item.last_error = None
+            item.updated_at = now
+        await self.session.flush()
+        return len(items)
+
+    async def recover_orphaned_run_items(self) -> int:
+        """Release work owned by a run that cannot still have live workers.
+
+        A scheduler restart marks its previous run as failed immediately. Its
+        leases may still have minutes remaining, so waiting for normal lease
+        expiry leaves the admin panel apparently stuck after a restart.
+        """
+        now = utc_now()
+        inactive_run_ids = select(ScrapeRun.id).where(
+            ScrapeRun.status != ScrapeRunStatus.RUNNING.value
+        )
+        result = await self.session.scalars(
+            select(ScraperWorkItem)
+            .where(ScraperWorkItem.status == STATUS_IN_PROGRESS)
+            .where(
+                or_(
+                    ScraperWorkItem.run_id.is_(None),
+                    ScraperWorkItem.run_id.in_(inactive_run_ids),
+                )
+            )
+        )
+        items = list(result)
+        for item in items:
+            item.status = STATUS_QUEUED
+            item.lease_owner = None
+            item.lease_expires_at = None
+            item.available_at = now
+            item.last_error = "scheduler_restart_recovery"
             item.updated_at = now
         await self.session.flush()
         return len(items)
@@ -225,6 +263,7 @@ class PipelineRepository:
                 ScraperWorkItem.created_at.asc(),
             )
             .limit(1)
+            .with_for_update(skip_locked=True)
         )
         if not item_id:
             return None
@@ -247,6 +286,22 @@ class PipelineRepository:
 
     async def fail(self, item: ScraperWorkItem, error: str) -> None:
         await self._finish(item, STATUS_FAILED, error)
+
+    async def requeue(
+        self,
+        item: ScraperWorkItem,
+        reason: str,
+        *,
+        delay_seconds: int = 2,
+    ) -> None:
+        now = utc_now()
+        item.status = STATUS_QUEUED
+        item.last_error = truncate(reason, 1000)
+        item.lease_owner = None
+        item.lease_expires_at = None
+        item.available_at = now + timedelta(seconds=max(0, delay_seconds))
+        item.updated_at = now
+        await self.session.flush()
 
     async def _finish(self, item: ScraperWorkItem, status: str, message: str | None) -> None:
         item.status = status
@@ -329,12 +384,12 @@ class PipelineRepository:
         ttl_seconds: int = 900,
     ) -> None:
         now = utc_now()
-        await self.session.execute(
-            delete(ScraperWorkerSnapshot).where(ScraperWorkerSnapshot.expires_at < now)
-        )
         self.session.add(
             ScraperWorkerSnapshot(
-                run_id=run_id,
+                # Snapshots are a best-effort live view. Referencing the actively
+                # updated scrape run makes every insert take an FK lock on that row
+                # and can deadlock concurrent workers with `set_current`.
+                run_id=None,
                 worker_id=worker_id,
                 stage=stage,
                 package_id=package_id,
@@ -346,6 +401,15 @@ class PipelineRepository:
             )
         )
         await self.session.flush()
+
+    async def prune_expired_snapshots(self) -> int:
+        result = await self.session.execute(
+            delete(ScraperWorkerSnapshot).where(
+                ScraperWorkerSnapshot.expires_at < utc_now()
+            )
+        )
+        await self.session.flush()
+        return int(result.rowcount or 0)
 
     async def latest_snapshots(self) -> list[WorkerSnapshotView]:
         snapshots: list[WorkerSnapshotView] = []
@@ -475,15 +539,31 @@ class PipelineRepository:
         return int(await self.session.scalar(stmt) or 0)
 
 
-def sanitize_snapshot_html(html: str | None, max_length: int = 30_000) -> str | None:
+def sanitize_snapshot_html(html: str | None) -> str | None:
     if not html:
         return None
-    cleaned = re.sub(r"<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>", "", html, flags=re.I)
+
+    bounded = truncate_snapshot_bytes(html)
+    # The previous nested script-tag expression could backtrack heavily on
+    # pages with large inline scripts. This bounded, non-nested pattern is
+    # sufficient for the monitor preview and remains predictable.
+    cleaned = re.sub(
+        r"<script\b[^>]*>.*?(?:</script\s*>|\Z)",
+        "",
+        bounded,
+        flags=re.I | re.S,
+    )
     cleaned = re.sub(r"\s+on[a-z]+\s*=\s*(['\"]).*?\1", "", cleaned, flags=re.I | re.S)
     cleaned = re.sub(r"\s+on[a-z]+\s*=\s*[^\s>]+", "", cleaned, flags=re.I)
-    if len(cleaned) > max_length:
-        return cleaned[:max_length] + "\n<!-- snapshot truncated -->"
-    return cleaned
+    return truncate_snapshot_bytes(cleaned)
+
+
+def truncate_snapshot_bytes(value: str) -> str:
+    encoded = value.encode("utf-8", errors="ignore")
+    if len(encoded) <= MAX_SNAPSHOT_HTML_BYTES:
+        return value
+    preview = encoded[:MAX_SNAPSHOT_HTML_BYTES].decode("utf-8", errors="ignore")
+    return preview + "\n<!-- snapshot truncated -->"
 
 
 def truncate(value: str | None, max_length: int) -> str | None:

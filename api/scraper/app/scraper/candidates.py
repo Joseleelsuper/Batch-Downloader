@@ -13,7 +13,9 @@ PREFERRED_EXTENSIONS = (
     ".exe",
     ".msi",
     ".msix",
+    ".msixbundle",
     ".appx",
+    ".appxbundle",
     ".zip",
     ".deb",
     ".rpm",
@@ -24,7 +26,14 @@ PREFERRED_EXTENSIONS = (
     ".jar",
 )
 
-WINDOWS_INSTALLER_EXTENSIONS = (".exe", ".msi", ".msix", ".appx")
+WINDOWS_INSTALLER_EXTENSIONS = (
+    ".exe",
+    ".msi",
+    ".msix",
+    ".msixbundle",
+    ".appx",
+    ".appxbundle",
+)
 MACOS_INSTALLER_EXTENSIONS = (".dmg", ".pkg")
 LINUX_INSTALLER_EXTENSIONS = (".deb", ".rpm", ".appimage", ".tar.gz", ".jar")
 UNSUPPORTED_DOWNLOAD_EXTENSIONS = (
@@ -86,6 +95,15 @@ URL_PATTERN = re.compile(
 # link and form attributes are still handled separately below.
 ABSOLUTE_URL_PATTERN = re.compile(r"https?://[^\s'\"<>\\]+", re.IGNORECASE)
 
+# Dynamic download controls frequently keep the next route in inline JavaScript,
+# for example: onclick="location.href='/download/launcherPC/'". Only quoted
+# navigation-like values are accepted here so arbitrary JavaScript is not treated
+# as a URL.
+EMBEDDED_NAVIGATION_URL_PATTERN = re.compile(
+    r"(['\"])((?:https?:)?//[^'\"]+|/(?!/)[^'\"]+|\.\.?/[^'\"]+)\1",
+    re.IGNORECASE,
+)
+
 VERSION_PATTERN = re.compile(r"(?<!\d)v?(\d+(?:\.\d+){1,4})", re.I)
 
 
@@ -114,7 +132,7 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
         if href:
             candidates.append(
                 InstallerCandidate(
-                    url=urljoin(base_url, href),
+                    url=safe_urljoin(base_url, href) or "",
                     source="href",
                     label=node.text(separator=" ", strip=True),
                     context=node.html[:500],
@@ -127,7 +145,7 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
         if action:
             candidates.append(
                 InstallerCandidate(
-                    url=urljoin(base_url, action),
+                    url=safe_urljoin(base_url, action) or "",
                     source="form",
                     label=node.attributes.get("aria-label") or node.text(separator=" ", strip=True),
                     context=node.html[:500],
@@ -143,13 +161,32 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
         for match in URL_PATTERN.findall(text):
             candidates.append(
                 InstallerCandidate(
-                    url=urljoin(base_url, match),
+                    url=safe_urljoin(base_url, match) or "",
                     source="button",
                     label=node.text(separator=" ", strip=True),
                     context=node.html[:500],
                     referer=base_url,
                 )
             )
+
+    for node in parser.css(
+        "[onclick], [data-url], [data-href], [data-link], "
+        "[data-download], [data-download-url]"
+    ):
+        label = node.text(separator=" ", strip=True)
+        for attribute, value in node.attributes.items():
+            if not isinstance(value, str):
+                continue
+            for embedded_url in navigation_urls_from_attribute(value):
+                candidates.append(
+                    InstallerCandidate(
+                        url=safe_urljoin(base_url, embedded_url) or "",
+                        source=f"attribute:{attribute}",
+                        label=label,
+                        context=node.html[:500],
+                        referer=base_url,
+                    )
+                )
 
     for node in parser.css("script"):
         for match in ABSOLUTE_URL_PATTERN.findall(node.text() or ""):
@@ -177,9 +214,31 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
     deduped: dict[str, InstallerCandidate] = {}
     for candidate in candidates:
         normalized_url = candidate.url.strip()
+        try:
+            scheme = urlparse(normalized_url).scheme
+        except ValueError:
+            continue
+        if scheme not in {"http", "https"}:
+            continue
         if normalized_url and normalized_url not in deduped:
             deduped[normalized_url] = candidate
     return list(deduped.values())
+
+
+def safe_urljoin(base_url: str, value: str) -> str | None:
+    try:
+        return urljoin(base_url, value)
+    except ValueError:
+        return None
+
+
+def navigation_urls_from_attribute(value: str) -> list[str]:
+    stripped = value.strip()
+    urls: list[str] = []
+    if stripped.startswith(("http://", "https://", "//", "/", "./", "../")):
+        urls.append(stripped)
+    urls.extend(match.group(2) for match in EMBEDDED_NAVIGATION_URL_PATTERN.finditer(value))
+    return list(dict.fromkeys(urls))
 
 
 def score_candidate(
@@ -233,6 +292,8 @@ def score_candidate(
             score += 8 if keyword not in {"download", "descargar"} else 20
     for keyword in NEGATIVE_KEYWORDS:
         if keyword_present(text, keyword):
+            if keyword == "portable" and candidate.asset_kind == "winstall_download":
+                continue
             score -= 50
     match_tokens = app_match_tokens(
         text=text,
@@ -407,8 +468,12 @@ def is_download_candidate(candidate: InstallerCandidate) -> bool:
 
 def candidate_variants(candidate: InstallerCandidate) -> list[InstallerCandidate]:
     """Return safe equivalent URLs for infrastructure-specific malformed hosts."""
-    variant = s3_path_style_variant(candidate)
-    return [candidate, variant] if variant else [candidate]
+    variants = [candidate]
+    for variant_factory in (s3_path_style_variant, sourceforge_mirror_variant):
+        variant = variant_factory(candidate)
+        if variant and variant.url not in {item.url for item in variants}:
+            variants.append(variant)
+    return variants
 
 
 def s3_path_style_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
@@ -438,6 +503,21 @@ def s3_path_style_variant(candidate: InstallerCandidate) -> InstallerCandidate |
     return InstallerCandidate(
         url=url,
         source=f"{candidate.source}_s3_path_style",
+        label=candidate.label,
+        context=candidate.context,
+        asset_kind=candidate.asset_kind,
+        referer=candidate.referer,
+    )
+
+
+def sourceforge_mirror_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
+    """Replace a stale SourceForge mirror with its public mirror router."""
+    parsed = urlparse(candidate.url)
+    if not (parsed.hostname or "").lower().endswith(".dl.sourceforge.net"):
+        return None
+    return InstallerCandidate(
+        url=urlunparse(parsed._replace(netloc="downloads.sourceforge.net")),
+        source=f"{candidate.source}_sourceforge_router",
         label=candidate.label,
         context=candidate.context,
         asset_kind=candidate.asset_kind,
@@ -504,11 +584,25 @@ def has_architecture_token(text: str, token: str) -> bool:
 
 
 def extract_version(candidate: InstallerCandidate) -> str | None:
-    raw = " ".join(value for value in (candidate.url, candidate.label, candidate.context) if value)
+    try:
+        parsed = urlparse(candidate.url)
+        url_text = " ".join((parsed.path, parsed.query, parsed.fragment))
+    except ValueError:
+        url_text = candidate.url
+    supporting_text = " ".join(
+        strip_url_authorities(value)
+        for value in (candidate.label, candidate.context)
+        if value
+    )
+    raw = f"{url_text} {supporting_text}"
     matches = VERSION_PATTERN.findall(raw)
     if not matches:
         return None
     return matches[-1]
+
+
+def strip_url_authorities(value: str) -> str:
+    return re.sub(r"https?://(?:\[[^\]]+\]|[^/\s'\"<>]+)", "", value, flags=re.I)
 
 
 def registered_domain(url: str) -> str | None:

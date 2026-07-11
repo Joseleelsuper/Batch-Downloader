@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
+import time
 from dataclasses import dataclass, replace
+from pathlib import PurePosixPath
 from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
 import dns.asyncresolver
+import dns.resolver
 import httpx
 
 from app.core.config import Settings
 from app.scraper.candidates import (
     InstallerCandidate,
+    PREFERRED_EXTENSIONS,
     UNSUPPORTED_DOWNLOAD_EXTENSIONS,
     candidate_has_download_intent,
     detect_extension,
@@ -21,11 +26,19 @@ from app.scraper.candidates import (
 )
 
 BINARY_CONTENT_TYPES = (
+    "application/exe",
     "application/octet-stream",
+    "application/x-dosexec",
+    "application/x-executable",
+    "application/x-ms-dos-executable",
+    "application/x-msdos-program",
     "application/x-msdownload",
     "application/x-msi",
     "application/x-ms-installer",
+    "application/x-ole-storage",
     "application/vnd.microsoft.portable-executable",
+    "application/msixbundle",
+    "application/appxbundle",
     "application/zip",
     "application/x-zip-compressed",
     "application/x-debian-package",
@@ -33,6 +46,11 @@ BINARY_CONTENT_TYPES = (
     "application/x-apple-diskimage",
     "binary/octet-stream",
 )
+
+DNS_POSITIVE_TTL_SECONDS = 600.0
+DNS_NEGATIVE_TTL_SECONDS = 20.0
+_DNS_CACHE: dict[str, tuple[float, bool]] = {}
+_DNS_INFLIGHT: dict[tuple[int, str], asyncio.Task[bool]] = {}
 
 
 @dataclass(frozen=True)
@@ -58,21 +76,25 @@ class DownloadValidator:
         self,
         candidate: InstallerCandidate,
     ) -> ValidationResult:
-        parsed = urlparse(candidate.url)
+        try:
+            parsed = urlparse(candidate.url)
+            hostname = parsed.hostname
+        except ValueError:
+            return self._fail(candidate.url, "invalid_url")
         if not self._scheme_allowed(candidate, parsed.scheme):
             return self._fail(candidate.url, "unsupported_scheme")
-        domain = registered_domain(candidate.url)
-        if not domain:
+        if not hostname:
             return self._fail(candidate.url, "missing_domain")
         if is_github_source_archive(candidate.url):
             return self._fail(candidate.url, "github_source_archive")
         if (
-            domain == "github.com"
+            hostname.lower().endswith("github.com")
             and detect_extension(candidate.url) == ".zip"
             and not is_github_release_asset(candidate.url)
+            and not is_verified_winstall_candidate(candidate)
         ):
             return self._fail(candidate.url, "github_zip_not_release_asset")
-        if not await domain_has_public_dns(parsed.hostname):
+        if not await domain_has_public_dns(hostname):
             return self._fail(candidate.url, "dns_not_public")
 
         owns_client = self.client is None
@@ -102,10 +124,11 @@ class DownloadValidator:
         previous_url: str | None = None
         response: httpx.Response | None = None
         for _ in range(self.settings.max_redirects + 1):
+            request_referer = previous_url or same_site_referer(current_url, candidate.referer)
             response = await request_metadata(
                 client,
                 current_url,
-                referer=previous_url or candidate.referer,
+                referer=request_referer,
                 probe_html=candidate_has_download_intent(candidate),
             )
             if response.is_redirect:
@@ -113,20 +136,29 @@ class DownloadValidator:
                 if not location:
                     return self._fail(current_url, "redirect_without_location")
                 previous_url = current_url
-                current_url = urljoin(current_url, location)
-                parsed = urlparse(current_url)
+                try:
+                    current_url = urljoin(current_url, location)
+                except ValueError:
+                    return self._fail(current_url, "redirect_invalid_url")
+                try:
+                    parsed = urlparse(current_url)
+                    hostname = parsed.hostname
+                except ValueError:
+                    return self._fail(current_url, "redirect_invalid_url")
                 if not self._scheme_allowed(candidate, parsed.scheme):
                     return self._fail(current_url, "redirect_unsupported_scheme")
-                domain = registered_domain(current_url)
+                if not hostname:
+                    return self._fail(current_url, "redirect_missing_domain")
                 if is_github_source_archive(current_url):
                     return self._fail(current_url, "redirect_github_source_archive")
                 if (
-                    domain == "github.com"
+                    hostname.lower().endswith("github.com")
                     and detect_extension(current_url) == ".zip"
                     and not is_github_release_asset(current_url)
+                    and not is_verified_winstall_candidate(candidate)
                 ):
                     return self._fail(current_url, "redirect_github_zip_not_release_asset")
-                if not await domain_has_public_dns(parsed.hostname):
+                if not await domain_has_public_dns(hostname):
                     return self._fail(current_url, "redirect_dns_not_public")
                 continue
             break
@@ -142,8 +174,7 @@ class DownloadValidator:
             return self._fail(current_url, f"http_{response.status_code}")
 
         content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-        content_length = response.headers.get("content-length")
-        size_bytes = int(content_length) if content_length and content_length.isdigit() else None
+        size_bytes = response_size_bytes(response)
         if size_bytes and size_bytes > self.settings.max_download_size_bytes:
             return self._fail(current_url, "file_too_large")
 
@@ -169,14 +200,44 @@ class DownloadValidator:
             if attested:
                 return attested
             return self._fail(current_url, "html_response")
-        if not extension and not looks_binary:
-            return self._fail(current_url, "not_an_installer")
+        signature_response: httpx.Response | None = None
+        if not extension:
+            signature_response = response
+            if not signature_response.content:
+                signature_response = await request_partial(
+                    client,
+                    current_url,
+                    referer=previous_url or same_site_referer(current_url, candidate.referer),
+                )
+            if signature_response.status_code >= 400:
+                return self._fail(current_url, f"http_{signature_response.status_code}")
+            extension = infer_installer_extension(signature_response.content)
+            if not extension or not candidate_has_download_intent(candidate):
+                return self._fail(current_url, "missing_installer_extension")
+            filename = filename or filename_for_inferred_extension(current_url, extension)
+            looks_binary = True
+        if not looks_binary:
+            signature_response = signature_response or response
+            if not signature_response.content:
+                signature_response = await request_partial(
+                    client,
+                    current_url,
+                    referer=previous_url or same_site_referer(current_url, candidate.referer),
+                )
+            if signature_response.status_code >= 400:
+                return self._fail(current_url, "not_an_installer")
+            if not matches_installer_signature(extension, signature_response.content):
+                actual_extension = infer_installer_extension(signature_response.content)
+                if not actual_extension or not is_verified_winstall_candidate(candidate):
+                    return self._fail(current_url, "not_an_installer")
+                extension = actual_extension
+                filename = filename_with_actual_extension(filename, current_url, extension)
 
         return ValidationResult(
             ok=True,
             url=candidate.url,
             final_url=str(response.url),
-            final_domain=registered_domain(str(response.url)),
+            final_domain=download_host(str(response.url)),
             filename=filename,
             extension=extension,
             content_type=content_type or None,
@@ -205,7 +266,11 @@ class DownloadValidator:
         Cloudflare-style challenge. Stale links that merely serve an HTML page, and
         generic 403 responses, remain rejected.
         """
-        extension = detect_extension(current_url) or candidate.extension
+        extension = (
+            detect_extension(current_url)
+            or candidate.extension
+            or declared_candidate_extension(candidate)
+        )
         if not (
             is_verified_winstall_candidate(candidate)
             and urlparse(current_url).scheme == "https"
@@ -230,8 +295,12 @@ class DownloadValidator:
             ok=True,
             url=candidate.url,
             final_url=current_url,
-            final_domain=registered_domain(current_url),
-            filename=filename_from_url(current_url) or filename_from_url(candidate.url),
+            final_domain=download_host(current_url),
+            filename=(
+                filename_from_url(current_url)
+                or filename_from_url(candidate.url)
+                or filename_for_inferred_extension(current_url, extension)
+            ),
             extension=extension,
             transport_security="https_winstall_edge_attested",
         )
@@ -274,6 +343,7 @@ def metadata_headers(referer: str | None = None, *, partial: bool = False) -> di
         headers["Referer"] = referer
     if partial:
         headers["Range"] = "bytes=0-1023"
+        headers["Accept-Encoding"] = "identity"
     return headers
 
 
@@ -289,10 +359,134 @@ async def request_metadata(
     if not response.is_redirect and (
         response.status_code in {405, 403}
         or (response.status_code < 400 and not content_type)
-        or (probe_html and "html" in content_type)
+        or (
+            probe_html
+            and content_type
+            and content_type.split(";", 1)[0].strip() not in BINARY_CONTENT_TYPES
+        )
     ):
-        response = await client.get(url, headers=metadata_headers(referer, partial=True))
+        response = await request_partial(client, url, referer=referer)
     return response
+
+
+async def request_partial(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    referer: str | None = None,
+    max_bytes: int = 4096,
+) -> httpx.Response:
+    """Read only enough bytes to identify a binary, even if Range is ignored."""
+    async with client.stream(
+        "GET",
+        url,
+        headers=metadata_headers(referer, partial=True),
+    ) as streamed:
+        content = bytearray()
+        async for chunk in streamed.aiter_raw():
+            remaining = max_bytes - len(content)
+            if remaining <= 0:
+                break
+            content.extend(chunk[:remaining])
+            if len(content) >= max_bytes:
+                break
+        return httpx.Response(
+            streamed.status_code,
+            headers=streamed.headers,
+            content=bytes(content),
+            request=streamed.request,
+        )
+
+
+def response_size_bytes(response: httpx.Response) -> int | None:
+    content_range = response.headers.get("content-range", "")
+    match = re.search(r"/(\d+)\s*$", content_range)
+    if match:
+        return int(match.group(1))
+    content_length = response.headers.get("content-length")
+    return int(content_length) if content_length and content_length.isdigit() else None
+
+
+def matches_installer_signature(extension: str, content: bytes) -> bool:
+    if not content:
+        return False
+    signatures = {
+        ".exe": (b"MZ",),
+        ".msi": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+        ".msix": (b"PK\x03\x04",),
+        ".msixbundle": (b"PK\x03\x04",),
+        ".appx": (b"PK\x03\x04",),
+        ".appxbundle": (b"PK\x03\x04",),
+        ".zip": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+        ".jar": (b"PK\x03\x04",),
+        ".deb": (b"!<arch>\n",),
+        ".rpm": (b"\xed\xab\xee\xdb",),
+        ".appimage": (b"\x7fELF",),
+        ".pkg": (b"xar!",),
+        ".tar.gz": (b"\x1f\x8b",),
+    }
+    return any(content.startswith(signature) for signature in signatures.get(extension, ()))
+
+
+def infer_installer_extension(content: bytes) -> str | None:
+    """Infer only formats with stable file signatures for extensionless endpoints."""
+    for extension in (".exe", ".msi", ".zip", ".deb", ".rpm", ".appimage", ".pkg", ".tar.gz"):
+        if matches_installer_signature(extension, content):
+            return extension
+    return None
+
+
+def declared_candidate_extension(candidate: InstallerCandidate) -> str | None:
+    text = f"{candidate.label or ''} {candidate.context or ''}".lower()
+    for extension in sorted(PREFERRED_EXTENSIONS, key=len, reverse=True):
+        if re.search(rf"(?<![a-z0-9]){re.escape(extension)}(?![a-z0-9])", text):
+            return extension
+    return None
+
+
+def filename_for_inferred_extension(url: str, extension: str) -> str:
+    try:
+        name = PurePosixPath(unquote(urlparse(url).path)).name
+    except ValueError:
+        name = ""
+    name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" ._") or "download"
+    return f"{name[: max(1, 255 - len(extension))]}{extension}"
+
+
+def filename_with_actual_extension(
+    filename: str | None,
+    url: str,
+    extension: str,
+) -> str:
+    if not filename:
+        return filename_for_inferred_extension(url, extension)
+    lowered = filename.lower()
+    for declared in sorted(PREFERRED_EXTENSIONS, key=len, reverse=True):
+        if lowered.endswith(declared):
+            filename = filename[: -len(declared)]
+            break
+    return f"{filename[: max(1, 255 - len(extension))]}{extension}"
+
+
+def download_host(url: str) -> str | None:
+    try:
+        hostname = urlparse(url).hostname
+    except ValueError:
+        return None
+    if not hostname:
+        return None
+    return registered_domain(url) or hostname.lower()
+
+
+def same_site_referer(download_url: str, referer: str | None) -> str | None:
+    """Avoid leaking Winstall as a hotlink referer to third-party download CDNs."""
+    if not referer:
+        return None
+    download_domain = registered_domain(download_url)
+    referer_domain = registered_domain(referer)
+    if download_domain and download_domain == referer_domain:
+        return referer
+    return None
 
 
 def is_edge_challenge(response: httpx.Response) -> bool:
@@ -301,12 +495,32 @@ def is_edge_challenge(response: httpx.Response) -> bool:
         for key, value in response.headers.items()
         if key.lower() in {"server", "cf-ray", "cf-mitigated", "x-sucuri-id"}
     )
-    if "cloudflare" in headers or "cf-ray" in response.headers or "cf-mitigated" in response.headers:
+    if (
+        "cloudflare" in headers
+        or "akamaighost" in headers
+        or "cf-ray" in response.headers
+        or "cf-mitigated" in response.headers
+    ):
         return True
     if not response.content:
         return False
     probe = response.content[:4096].lower()
-    return any(marker in probe for marker in (b"/cdn-cgi/", b"just a moment", b"cloudflare"))
+    return any(
+        marker in probe
+        for marker in (
+            b"/cdn-cgi/",
+            b"just a moment",
+            b"cloudflare",
+            b"/.well-known/sgcaptcha/",
+            b"/.within.website/",
+            b"making sure you&#39;re not a bot",
+            b"teocaptchawidget",
+            b"protected by tencent cloud edgeone",
+            b"security verification",
+            b"errors&#46;edgesuite&#46;net",
+            b"errors.edgesuite.net",
+        )
+    )
 
 
 def filename_from_content_disposition(value: str | None) -> str | None:
@@ -326,7 +540,10 @@ def filename_from_content_disposition(value: str | None) -> str | None:
 def unsupported_filename_extension(value: str | None) -> str | None:
     if not value:
         return None
-    parsed_path = unquote(urlparse(value).path or value).lower()
+    try:
+        parsed_path = unquote(urlparse(value).path or value).lower()
+    except ValueError:
+        return None
     if parsed_path.endswith(".tar.gz"):
         return None
     for extension in UNSUPPORTED_DOWNLOAD_EXTENSIONS:
@@ -344,11 +561,54 @@ async def domain_has_public_dns(hostname: str | None) -> bool:
     except ValueError:
         pass
 
+    normalized = hostname.rstrip(".").lower()
+    cached = _DNS_CACHE.get(normalized)
+    now = time.monotonic()
+    if cached and cached[0] > now:
+        return cached[1]
+
+    loop = asyncio.get_running_loop()
+    key = (id(loop), normalized)
+    task = _DNS_INFLIGHT.get(key)
+    if task is None or task.done():
+        task = loop.create_task(resolve_public_dns(normalized))
+        _DNS_INFLIGHT[key] = task
     try:
-        answers = await dns.asyncresolver.resolve(hostname, "A")
-    except Exception:
-        return False
-    return bool(answers) and all(is_public_ip(ipaddress.ip_address(answer.address)) for answer in answers)
+        result = await asyncio.shield(task)
+    finally:
+        if task.done() and _DNS_INFLIGHT.get(key) is task:
+            _DNS_INFLIGHT.pop(key, None)
+    ttl = DNS_POSITIVE_TTL_SECONDS if result else DNS_NEGATIVE_TTL_SECONDS
+    _DNS_CACHE[normalized] = (time.monotonic() + ttl, result)
+    return result
+
+
+async def resolve_public_dns(hostname: str) -> bool:
+    for attempt in range(3):
+        addresses: list[ipaddress._BaseAddress] = []
+        transient_failure = False
+        for record_type in ("A", "AAAA"):
+            try:
+                answers = await dns.asyncresolver.resolve(
+                    hostname,
+                    record_type,
+                    lifetime=4.0,
+                )
+            except dns.resolver.NXDOMAIN:
+                return False
+            except dns.resolver.NoAnswer:
+                continue
+            except Exception:
+                transient_failure = True
+                continue
+            addresses.extend(ipaddress.ip_address(answer.address) for answer in answers)
+        if addresses and not transient_failure:
+            return all(is_public_ip(address) for address in addresses)
+        if not transient_failure:
+            return False
+        if attempt < 2:
+            await asyncio.sleep(0.15 * (attempt + 1))
+    return False
 
 
 def is_public_ip(ip: ipaddress._BaseAddress) -> bool:
