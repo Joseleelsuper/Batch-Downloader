@@ -3,12 +3,13 @@ import uuid
 from datetime import timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.time import utc_now
 from app.db.enums import ScrapeRunStatus
-from app.db.models import ScrapeRun, ScraperCommand
+from app.db.models import ScraperCommand, ScrapeRun
 
 RUN_LOCK_STALE_MINUTES = 90
 
@@ -20,19 +21,37 @@ class ScrapeRunRepository:
 
     async def acquire(self) -> ScrapeRun | None:
         stale_before = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES)
-        active = await self.session.scalar(
-            select(ScrapeRun)
-            .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
-            .where(ScrapeRun.heartbeat_at >= stale_before)
-            .order_by(ScrapeRun.started_at.desc())
-            .limit(1)
+        running = list(
+            await self.session.scalars(
+                select(ScrapeRun)
+                .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+                .order_by(ScrapeRun.started_at.desc())
+                .with_for_update()
+            )
         )
-        if active:
-            return None
+        recovered_at = utc_now()
+        for active in running:
+            if active.heartbeat_at >= stale_before:
+                return None
+            active.status = ScrapeRunStatus.FAILED.value
+            active.active_lock = None
+            active.finished_at = recovered_at
+            active.heartbeat_at = recovered_at
+            active.current_phase = ScrapeRunStatus.FAILED.value
+            active.error_summary = "The coordinator lease expired before a new run was acquired."
 
-        run = ScrapeRun(status=ScrapeRunStatus.RUNNING.value, worker_id=worker_id())
+        run = ScrapeRun(
+            active_lock=1,
+            status=ScrapeRunStatus.RUNNING.value,
+            worker_id=worker_id(),
+        )
         self.session.add(run)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError:
+            # A concurrent coordinator inserted the singleton active lock first.
+            await self.session.rollback()
+            return None
         return run
 
     async def recover_running(self, error_summary: str) -> int:
@@ -43,6 +62,7 @@ class ScrapeRunRepository:
         recovered_at = utc_now()
         for run in runs:
             run.status = ScrapeRunStatus.FAILED.value
+            run.active_lock = None
             run.finished_at = recovered_at
             run.heartbeat_at = recovered_at
             run.current_phase = ScrapeRunStatus.FAILED.value
@@ -106,6 +126,7 @@ class ScrapeRunRepository:
         if not run:
             return
         run.status = status.value
+        run.active_lock = None
         run.finished_at = utc_now()
         run.heartbeat_at = utc_now()
         run.error_summary = error_summary

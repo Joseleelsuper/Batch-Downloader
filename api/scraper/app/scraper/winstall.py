@@ -62,6 +62,8 @@ WINSTALL_CATALOG_PAGE_SIZE = 60
 
 
 class WinstallClient:
+    provider_name = "winstall"
+
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self._client = client
@@ -140,7 +142,9 @@ class WinstallClient:
     @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
     async def _fetch_app(self, package_id: str) -> dict[str, Any] | None:
         assert self._client is not None
-        response = await self._client.get(f"{self.settings.winstall_api_base_url}/apps/{package_id}")
+        response = await self._client.get(
+            f"{self.settings.winstall_api_base_url}/apps/{package_id}"
+        )
         if response.status_code >= 500:
             response.raise_for_status()
         if not response.is_success:

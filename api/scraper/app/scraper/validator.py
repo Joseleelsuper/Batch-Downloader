@@ -5,6 +5,7 @@ import ipaddress
 import re
 import time
 from dataclasses import dataclass, replace
+from enum import StrEnum
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
@@ -13,10 +14,15 @@ import dns.resolver
 import httpx
 
 from app.core.config import Settings
+from app.scraper.artifacts import (
+    DEFAULT_ARTIFACT_FORMAT_REGISTRY,
+    GENERIC_BINARY_MEDIA_TYPES,
+    ArtifactFormatRegistry,
+)
 from app.scraper.candidates import (
-    InstallerCandidate,
     PREFERRED_EXTENSIONS,
     UNSUPPORTED_DOWNLOAD_EXTENSIONS,
+    InstallerCandidate,
     candidate_has_download_intent,
     detect_extension,
     filename_from_url,
@@ -26,31 +32,19 @@ from app.scraper.candidates import (
 )
 
 BINARY_CONTENT_TYPES = (
-    "application/exe",
-    "application/octet-stream",
-    "application/x-dosexec",
-    "application/x-executable",
-    "application/x-ms-dos-executable",
-    "application/x-msdos-program",
-    "application/x-msdownload",
-    "application/x-msi",
-    "application/x-ms-installer",
-    "application/x-ole-storage",
-    "application/vnd.microsoft.portable-executable",
-    "application/msixbundle",
-    "application/appxbundle",
-    "application/zip",
-    "application/x-zip-compressed",
-    "application/x-debian-package",
-    "application/x-rpm",
-    "application/x-apple-diskimage",
-    "binary/octet-stream",
+    DEFAULT_ARTIFACT_FORMAT_REGISTRY.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
 )
 
 DNS_POSITIVE_TTL_SECONDS = 600.0
 DNS_NEGATIVE_TTL_SECONDS = 20.0
 _DNS_CACHE: dict[str, tuple[float, bool]] = {}
 _DNS_INFLIGHT: dict[tuple[int, str], asyncio.Task[bool]] = {}
+
+
+class ValidationConfidence(StrEnum):
+    UNVERIFIED = "unverified"
+    VALIDATED = "validated"
+    ATTESTED = "attested"
 
 
 @dataclass(frozen=True)
@@ -65,12 +59,19 @@ class ValidationResult:
     size_bytes: int | None = None
     reason: str | None = None
     transport_security: str | None = None
+    confidence: ValidationConfidence = ValidationConfidence.UNVERIFIED
 
 
 class DownloadValidator:
-    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: httpx.AsyncClient | None = None,
+        formats: ArtifactFormatRegistry = DEFAULT_ARTIFACT_FORMAT_REGISTRY,
+    ) -> None:
         self.settings = settings
         self.client = client
+        self.formats = formats
 
     async def validate(
         self,
@@ -194,7 +195,10 @@ class DownloadValidator:
         if unsupported_extension:
             return self._fail(current_url, f"unsupported_extension:{unsupported_extension}")
         disposition = response.headers.get("content-disposition", "").lower()
-        looks_binary = content_type in BINARY_CONTENT_TYPES or "attachment" in disposition
+        looks_binary = (
+            content_type in self.formats.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
+            or "attachment" in disposition
+        )
         if content_type.startswith("text/html"):
             attested = self._winstall_edge_attested_result(candidate, current_url, response)
             if attested:
@@ -211,7 +215,7 @@ class DownloadValidator:
                 )
             if signature_response.status_code >= 400:
                 return self._fail(current_url, f"http_{signature_response.status_code}")
-            extension = infer_installer_extension(signature_response.content)
+            extension = self.formats.infer_extension(signature_response.content)
             if not extension or not candidate_has_download_intent(candidate):
                 return self._fail(current_url, "missing_installer_extension")
             filename = filename or filename_for_inferred_extension(current_url, extension)
@@ -226,8 +230,8 @@ class DownloadValidator:
                 )
             if signature_response.status_code >= 400:
                 return self._fail(current_url, "not_an_installer")
-            if not matches_installer_signature(extension, signature_response.content):
-                actual_extension = infer_installer_extension(signature_response.content)
+            if not self.formats.matches_signature(extension, signature_response.content):
+                actual_extension = self.formats.infer_extension(signature_response.content)
                 if not actual_extension or not is_verified_winstall_candidate(candidate):
                     return self._fail(current_url, "not_an_installer")
                 extension = actual_extension
@@ -243,6 +247,7 @@ class DownloadValidator:
             content_type=content_type or None,
             size_bytes=size_bytes,
             transport_security=transport_security_for(str(response.url), candidate),
+            confidence=ValidationConfidence.VALIDATED,
         )
 
     def _fail(self, url: str, reason: str) -> ValidationResult:
@@ -274,20 +279,7 @@ class DownloadValidator:
         if not (
             is_verified_winstall_candidate(candidate)
             and urlparse(current_url).scheme == "https"
-            and extension in {
-                ".exe",
-                ".msi",
-                ".msix",
-                ".appx",
-                ".zip",
-                ".deb",
-                ".rpm",
-                ".appimage",
-                ".dmg",
-                ".pkg",
-                ".tar.gz",
-                ".jar",
-            }
+            and extension in self.formats.extensions
             and is_edge_challenge(response)
         ):
             return None
@@ -303,6 +295,7 @@ class DownloadValidator:
             ),
             extension=extension,
             transport_security="https_winstall_edge_attested",
+            confidence=ValidationConfidence.ATTESTED,
         )
 
 
@@ -408,32 +401,12 @@ def response_size_bytes(response: httpx.Response) -> int | None:
 
 
 def matches_installer_signature(extension: str, content: bytes) -> bool:
-    if not content:
-        return False
-    signatures = {
-        ".exe": (b"MZ",),
-        ".msi": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
-        ".msix": (b"PK\x03\x04",),
-        ".msixbundle": (b"PK\x03\x04",),
-        ".appx": (b"PK\x03\x04",),
-        ".appxbundle": (b"PK\x03\x04",),
-        ".zip": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
-        ".jar": (b"PK\x03\x04",),
-        ".deb": (b"!<arch>\n",),
-        ".rpm": (b"\xed\xab\xee\xdb",),
-        ".appimage": (b"\x7fELF",),
-        ".pkg": (b"xar!",),
-        ".tar.gz": (b"\x1f\x8b",),
-    }
-    return any(content.startswith(signature) for signature in signatures.get(extension, ()))
+    return DEFAULT_ARTIFACT_FORMAT_REGISTRY.matches_signature(extension, content)
 
 
 def infer_installer_extension(content: bytes) -> str | None:
     """Infer only formats with stable file signatures for extensionless endpoints."""
-    for extension in (".exe", ".msi", ".zip", ".deb", ".rpm", ".appimage", ".pkg", ".tar.gz"):
-        if matches_installer_signature(extension, content):
-            return extension
-    return None
+    return DEFAULT_ARTIFACT_FORMAT_REGISTRY.infer_extension(content)
 
 
 def declared_candidate_extension(candidate: InstallerCandidate) -> str | None:

@@ -7,35 +7,23 @@ from urllib.parse import parse_qs, unquote, urljoin, urlparse, urlunparse
 
 from selectolax.parser import HTMLParser
 
+from app.scraper.artifacts import (
+    DEFAULT_ARTIFACT_FORMAT_REGISTRY,
+    ArtifactArchitecture,
+    ArtifactPlatform,
+)
 from app.scraper.text import normalize_text
 
-PREFERRED_EXTENSIONS = (
-    ".exe",
-    ".msi",
-    ".msix",
-    ".msixbundle",
-    ".appx",
-    ".appxbundle",
-    ".zip",
-    ".deb",
-    ".rpm",
-    ".appimage",
-    ".dmg",
-    ".pkg",
-    ".tar.gz",
-    ".jar",
+PREFERRED_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions
+WINDOWS_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
+    ArtifactPlatform.WINDOWS
 )
-
-WINDOWS_INSTALLER_EXTENSIONS = (
-    ".exe",
-    ".msi",
-    ".msix",
-    ".msixbundle",
-    ".appx",
-    ".appxbundle",
+MACOS_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
+    ArtifactPlatform.MACOS
 )
-MACOS_INSTALLER_EXTENSIONS = (".dmg", ".pkg")
-LINUX_INSTALLER_EXTENSIONS = (".deb", ".rpm", ".appimage", ".tar.gz", ".jar")
+LINUX_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
+    ArtifactPlatform.LINUX
+)
 UNSUPPORTED_DOWNLOAD_EXTENSIONS = (
     ".apk",
     ".asc",
@@ -348,7 +336,10 @@ def is_github_source_archive(url: str) -> bool:
 
 def is_github_release_asset(url: str) -> bool:
     parsed = urlparse(url)
-    return parsed.netloc.lower().endswith("github.com") and "/releases/download/" in parsed.path.lower()
+    return (
+        parsed.netloc.lower().endswith("github.com")
+        and "/releases/download/" in parsed.path.lower()
+    )
 
 
 def app_match_tokens(
@@ -408,21 +399,7 @@ def variant_score(text: str, app_name: str | None, package_id: str | None) -> in
 
 
 def detect_extension(url: str) -> str | None:
-    parsed = urlparse(url)
-    path = unquote(parsed.path).lower()
-    for segment in reversed([path, *path.split("/")]):
-        if segment.endswith(".tar.gz"):
-            return ".tar.gz"
-        suffix = PurePosixPath(segment).suffix
-        if suffix in PREFERRED_EXTENSIONS:
-            return suffix
-    query = parse_qs(parsed.query)
-    for values in query.values():
-        for value in values:
-            nested = detect_extension(value)
-            if nested:
-                return nested
-    return None
+    return DEFAULT_ARTIFACT_FORMAT_REGISTRY.detect_extension(url)
 
 
 def filename_from_url(url: str) -> str | None:
@@ -547,36 +524,16 @@ def infer_operating_system(candidate: InstallerCandidate) -> str | None:
 
 
 def operating_system_for_extension(extension: str | None) -> str | None:
-    if not extension:
-        return None
-    normalized = extension.lower().strip()
-    if normalized in WINDOWS_INSTALLER_EXTENSIONS:
-        return "windows"
-    if normalized in MACOS_INSTALLER_EXTENSIONS:
-        return "macos"
-    if normalized in LINUX_INSTALLER_EXTENSIONS:
-        return "linux"
-    return None
+    platform = DEFAULT_ARTIFACT_FORMAT_REGISTRY.platform_for(extension)
+    return platform.value if platform else None
 
 
 def infer_architecture(candidate: InstallerCandidate) -> str:
     text = candidate_text(candidate)
-    if any(
-        has_architecture_token(text, token)
-        for token in ("aarch64", "arm64", "apple silicon", "m1", "m2", "m3")
-    ):
-        return "aarch64"
-    if any(
-        has_architecture_token(text, token)
-        for token in ("x86_64", "amd64", "x64", "win64", "64-bit", "64bit")
-    ):
-        return "x86_64"
-    if any(
-        has_architecture_token(text, token)
-        for token in ("i386", "i686", "x86", "win32", "32-bit", "32bit")
-    ):
-        return "x86"
-    return "x86_64"
+    return DEFAULT_ARTIFACT_FORMAT_REGISTRY.infer_architecture(
+        text,
+        default=ArtifactArchitecture.X86_64,
+    ).value
 
 
 def has_architecture_token(text: str, token: str) -> bool:

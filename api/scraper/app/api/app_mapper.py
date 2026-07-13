@@ -10,7 +10,10 @@ def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
         for resolved in source.resolved_sources
         if resolved.validation_status == ValidationStatus.VALID.value
     ]
-    latest_by_file: dict[tuple[str, str | None, str | None, str, str, str | None], ResolvedSource] = {}
+    latest_by_file: dict[
+        tuple[str, str | None, str | None, str, str, str | None],
+        ResolvedSource,
+    ] = {}
     for resolved in candidates:
         source = resolved.source
         key = (
@@ -43,7 +46,14 @@ def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, int, int, ob
     primary_rank = 0 if metadata.get("is_primary") else 1
     latest_rank = 0 if item.is_latest or metadata.get("is_latest") else 1
     release_rank = item.release_rank if item.release_rank is not None else 9999
-    return (status_priority.get(item.status, 9), latest_rank, release_rank, primary_rank, -item.score, item.expires_at)
+    return (
+        status_priority.get(item.status, 9),
+        latest_rank,
+        release_rank,
+        primary_rank,
+        -item.score,
+        item.expires_at,
+    )
 
 
 def source_status(app: SoftwareApp) -> tuple[str, str]:
@@ -119,7 +129,11 @@ def to_details(app: SoftwareApp) -> AppDetails:
         originUrl=origin_url,
         latestVersion=app.latest_version,
         installerFilename=resolved.filename if resolved else None,
-        installerType=resolved.extension.upper().lstrip(".") if resolved and resolved.extension else None,
+        installerType=(
+            resolved.extension.upper().lstrip(".")
+            if resolved and resolved.extension
+            else None
+        ),
         contentType=resolved.content_type if resolved else None,
         sizeBytes=resolved.size_bytes if resolved else None,
         finalDomain=resolved.final_domain if resolved else None,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from app.core.config import Settings
-from app.scraper.candidates import InstallerCandidate, URL_PATTERN, extract_candidates
+from app.scraper.candidates import URL_PATTERN, InstallerCandidate, extract_candidates
 
 DOWNLOAD_CONTROL_PATTERN = re.compile(
     r"download|descargar|instalador|installer|setup|install|herunterladen|"

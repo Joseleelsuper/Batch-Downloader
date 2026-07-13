@@ -589,6 +589,17 @@ class CatalogRepository:
         )
         return await self.session.scalar(stmt)
 
+    async def get_resolved_source_by_ref(self, source_ref: str) -> ResolvedSource | None:
+        try:
+            resolved_source_id = uuid.UUID(source_ref)
+        except (TypeError, ValueError):
+            return None
+        return await self.session.scalar(
+            select(ResolvedSource)
+            .options(selectinload(ResolvedSource.source))
+            .where(ResolvedSource.id == resolved_source_id)
+        )
+
     def reveal_url(self, resolved_source: ResolvedSource) -> str | None:
         return self.url_protector.reveal(resolved_source.resolved_url_encrypted)
 

@@ -2,13 +2,13 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -182,6 +182,7 @@ class ScrapeRun(Base):
     __tablename__ = "scrape_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    active_lock: Mapped[int | None] = mapped_column(Integer, unique=True)
     status: Mapped[str] = mapped_column(
         String(32), default=ScrapeRunStatus.RUNNING.value, index=True, nullable=False
     )

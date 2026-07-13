@@ -1,7 +1,6 @@
 import uuid
 from typing import Any
 
-from sqlalchemy.dialects import mysql
 from sqlalchemy.types import BINARY, CHAR, TypeDecorator
 
 

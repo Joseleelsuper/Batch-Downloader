@@ -49,6 +49,11 @@ from app.scraper.description_enricher import (
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
 from app.scraper.icon_resolver import IconResolver
 from app.scraper.playwright_fallback import PlaywrightCandidateCollector
+from app.scraper.strategies import (
+    CandidateResolverStrategy,
+    CandidateResolverStrategyRegistry,
+    ScrapeRuntime,
+)
 from app.scraper.validator import DownloadValidator, ValidationResult, domain_has_public_dns
 from app.scraper.winstall import WinstallApp, WinstallClient, parse_winstall_app
 
@@ -212,36 +217,36 @@ class CatalogFetcher:
             max_apps=self.settings.scrape_max_apps,
         )
 
-        tasks = [
+        monitor_tasks = [
             asyncio.create_task(self._command_monitor(runtime), name="scraper-command-monitor"),
             asyncio.create_task(self._heartbeat(runtime), name="scraper-heartbeat"),
-            asyncio.create_task(
-                SearcherWorker(self.settings).run(runtime),
-                name="scraper-searcher",
-            ),
-            asyncio.create_task(FilterWorker(self.settings).run(runtime), name="scraper-filter"),
-            asyncio.create_task(self._run_scraper_workers(runtime), name="scraper-workers"),
-            asyncio.create_task(
-                DescriptorWorker(self.settings).run(runtime),
-                name="scraper-descriptor",
-            ),
         ]
 
         worker_error: BaseException | None = None
         try:
-            worker_tasks = [task for task in tasks if task.get_name() not in {
-                "scraper-command-monitor",
-                "scraper-heartbeat",
-            }]
-            results = await asyncio.gather(*worker_tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, BaseException):
-                    worker_error = result
-                    runtime.stop_event.set()
-                    break
+            async with asyncio.TaskGroup() as workers:
+                workers.create_task(
+                    SearcherWorker(self.settings).run(runtime),
+                    name="scraper-searcher",
+                )
+                workers.create_task(
+                    FilterWorker(self.settings).run(runtime),
+                    name="scraper-filter",
+                )
+                workers.create_task(
+                    self._run_scraper_workers(runtime),
+                    name="scraper-workers",
+                )
+                workers.create_task(
+                    DescriptorWorker(self.settings).run(runtime),
+                    name="scraper-descriptor",
+                )
+        except Exception as exc:
+            worker_error = first_task_failure(exc)
+            runtime.stop_event.set()
         finally:
             runtime.all_workers_done.set()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(*monitor_tasks, return_exceptions=True)
 
         final_status = (
             ScrapeRunStatus.FAILED
@@ -543,7 +548,6 @@ class FilterWorker:
                         payload,
                         runtime.run_id,
                     )
-                    await pipeline.complete(item)
                     await pipeline.save_snapshot(
                         run_id=runtime.run_id,
                         worker_id=self.worker_id,
@@ -748,7 +752,11 @@ class FilterWorker:
 
 
 class PlatformScraperWorker:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        candidate_resolvers: CandidateResolverStrategyRegistry | None = None,
+    ) -> None:
         self.settings = settings
         self.worker_id = f"scraper:{worker_id()}"
         self.url_protector = UrlProtector(settings.url_protection_secret)
@@ -756,6 +764,20 @@ class PlatformScraperWorker:
         self.playwright = PlaywrightCandidateCollector(settings)
         self.github = GitHubReleaseResolver(settings)
         self.icon_resolver = IconResolver(settings)
+        self.candidate_resolvers = candidate_resolvers or CandidateResolverStrategyRegistry(
+            (
+                CandidateResolverStrategy(
+                    name="github_releases",
+                    predicate=lambda url: parse_github_repo(url) is not None,
+                    callback=self._collect_github_official_candidates,
+                ),
+                CandidateResolverStrategy(
+                    name="html_landing_playwright",
+                    predicate=lambda _url: True,
+                    callback=self._collect_html_official_candidates,
+                ),
+            )
+        )
 
     async def run(self, runtime: PipelineRuntime) -> None:
         logger.info("platform_scraper_worker_started", worker_id=self.worker_id)
@@ -1028,17 +1050,30 @@ class PlatformScraperWorker:
         known_candidates = known_official_candidates(app)
         if use_only_known_official_candidates(app, known_candidates):
             return known_candidates
-        if parse_github_repo(official_url):
-            try:
-                async with asyncio.timeout(github_collection_timeout_seconds(self.settings)):
-                    github_candidates = await self.github.collect(
-                        official_url,
-                        app.latest_version,
-                    )
-                return dedupe_candidates([*known_candidates, *github_candidates])
-            except Exception:
-                return known_candidates
+        strategy = self.candidate_resolvers.find(official_url)
+        if strategy is None:
+            return known_candidates
+        collected = await strategy.collect(runtime, app, official_url)
+        return dedupe_candidates([*known_candidates, *collected])
 
+    async def _collect_github_official_candidates(
+        self,
+        _runtime: ScrapeRuntime,
+        app: WinstallApp,
+        official_url: str,
+    ) -> list[InstallerCandidate]:
+        try:
+            async with asyncio.timeout(github_collection_timeout_seconds(self.settings)):
+                return await self.github.collect(official_url, app.latest_version)
+        except Exception:
+            return []
+
+    async def _collect_html_official_candidates(
+        self,
+        runtime: ScrapeRuntime,
+        app: WinstallApp,
+        official_url: str,
+    ) -> list[InstallerCandidate]:
         html = ""
         try:
             async with httpx.AsyncClient(
@@ -1066,7 +1101,7 @@ class PlatformScraperWorker:
             )
             await session.commit()
 
-        candidates = [*known_candidates, *(extract_candidates(html, official_url) if html else [])]
+        candidates = extract_candidates(html, official_url) if html else []
         candidates.extend(await self._collect_download_landing_candidates(official_url, candidates))
         if not any(is_actionable_installer_candidate(candidate) for candidate in candidates):
             try:
@@ -1674,7 +1709,21 @@ def payload_package_id(payload: dict[str, Any], item: ScraperWorkItem) -> str:
 
 
 def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
-    return command.command in {"pause", "resume", "stop", "force_stop"} and command.created_at < run_started_at
+    return (
+        command.command in {"pause", "resume", "stop", "force_stop"}
+        and command.created_at < run_started_at
+    )
+
+
+def first_task_failure(error: BaseException) -> BaseException:
+    """Unwrap TaskGroup failures so run state records the actionable root cause."""
+
+    if isinstance(error, BaseExceptionGroup):
+        for nested in error.exceptions:
+            failure = first_task_failure(nested)
+            if not isinstance(failure, asyncio.CancelledError):
+                return failure
+    return error
 
 
 def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[InstallerCandidate]:
@@ -2023,6 +2072,7 @@ def resolved_metadata(installer: ValidInstaller, is_latest: bool) -> dict:
         "operating_system": installer.operating_system,
         "architecture": installer.architecture,
         "version_status": "latest" if is_latest else "previous",
+        "validation_confidence": installer.result.confidence.value,
     }
     if installer.result.transport_security:
         metadata["transport_security"] = installer.result.transport_security

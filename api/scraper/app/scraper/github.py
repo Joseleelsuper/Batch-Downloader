@@ -7,10 +7,10 @@ import httpx
 
 from app.core.config import Settings
 from app.scraper.candidates import (
-    InstallerCandidate,
     LINUX_INSTALLER_EXTENSIONS,
     MACOS_INSTALLER_EXTENSIONS,
     WINDOWS_INSTALLER_EXTENSIONS,
+    InstallerCandidate,
     detect_extension,
     extract_candidates,
     is_github_release_asset,
@@ -58,7 +58,10 @@ class GitHubReleaseResolver:
     ) -> list[InstallerCandidate]:
         endpoints = [
             *[
-                f"https://api.github.com/repos/{repo.owner}/{repo.name}/releases/tags/{quote(tag, safe='')}"
+                (
+                    f"https://api.github.com/repos/{repo.owner}/{repo.name}/releases/tags/"
+                    f"{quote(tag, safe='')}"
+                )
                 for tag in tags
             ],
             f"https://api.github.com/repos/{repo.owner}/{repo.name}/releases/latest",
@@ -176,7 +179,8 @@ class GitHubReleaseResolver:
         tag: str,
     ) -> list[InstallerCandidate]:
         response = await client.get(
-            f"https://github.com/{repo.owner}/{repo.name}/releases/expanded_assets/{quote(tag, safe='')}"
+            f"https://github.com/{repo.owner}/{repo.name}/releases/expanded_assets/"
+            f"{quote(tag, safe='')}"
         )
         if not response.is_success:
             return []

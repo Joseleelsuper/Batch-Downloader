@@ -17,6 +17,7 @@ from app.scraper.candidates import (
 )
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
 from app.scraper.playwright_fallback import PlaywrightCandidateCollector
+from app.scraper.strategies import CallbackResolverStrategy, ResolverStrategyRegistry
 from app.scraper.validator import DownloadValidator, ValidationResult
 from app.scraper.winstall import WinstallApp, WinstallClient
 
@@ -28,6 +29,7 @@ class InstallerResolver:
         catalog: CatalogRepository,
         logs: ResolverLogRepository,
         validator: DownloadValidator,
+        strategies: ResolverStrategyRegistry | None = None,
     ) -> None:
         self.settings = settings
         self.catalog = catalog
@@ -35,22 +37,29 @@ class InstallerResolver:
         self.validator = validator
         self.playwright = PlaywrightCandidateCollector(settings)
         self.github = GitHubReleaseResolver(settings)
+        self.strategies = strategies or ResolverStrategyRegistry(
+            (
+                CallbackResolverStrategy(
+                    name="github_releases",
+                    predicate=lambda url: parse_github_repo(url) is not None,
+                    callback=self._resolve_github_releases,
+                ),
+                CallbackResolverStrategy(
+                    name="html_playwright",
+                    predicate=lambda _url: True,
+                    callback=self._resolve_official_page,
+                ),
+            )
+        )
 
     async def resolve(self, source: DownloadSource, app: WinstallApp) -> ResolutionStatus:
         official_url = source.initial_url or app.homepage
         await self.catalog.expire_valid_resolved_sources(source.id)
 
         if official_url:
-            if parse_github_repo(official_url):
-                github_status = await self._resolve_github_releases(
-                    source.id,
-                    official_url,
-                    app,
-                )
-                if github_status == ResolutionStatus.DIRECT:
-                    return github_status
-            else:
-                direct_status = await self._resolve_official_page(
+            strategy = self.strategies.find(official_url)
+            if strategy:
+                direct_status = await strategy.resolve(
                     source.id,
                     official_url,
                     app,
@@ -62,7 +71,11 @@ class InstallerResolver:
         if fallback_status == ResolutionStatus.FALLBACK:
             return fallback_status
 
-        final_status = ResolutionStatus.REQUIRES_MANUAL_REVIEW if official_url else ResolutionStatus.MISSING
+        final_status = (
+            ResolutionStatus.REQUIRES_MANUAL_REVIEW
+            if official_url
+            else ResolutionStatus.MISSING
+        )
         await self.catalog.mark_source_status(source.id, final_status, ValidationStatus.UNCHECKED)
         await self.logs.add(
             phase="resolve",
@@ -355,7 +368,11 @@ class InstallerResolver:
             ResolvedSourceCreate(
                 source_id=source_id,
                 url=result.final_url or candidate.url,
-                final_domain=result.final_domain or registered_domain(result.final_url or candidate.url) or "",
+                final_domain=(
+                    result.final_domain
+                    or registered_domain(result.final_url or candidate.url)
+                    or ""
+                ),
                 filename=result.filename,
                 extension=result.extension,
                 content_type=result.content_type,
@@ -405,6 +422,7 @@ def resolved_metadata(
         "match_tokens": list(candidate.match_tokens),
         "is_primary": is_primary,
         "asset_kind": candidate.asset_kind or "installer",
+        "validation_confidence": result.confidence.value,
     }
     if result.transport_security:
         metadata["transport_security"] = result.transport_security

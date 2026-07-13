@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import re
@@ -20,16 +19,19 @@ from app.repositories.catalog import CatalogRepository
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.rate_limits import DatabaseLLMRateLimiter
 from app.scraper.candidates import registered_domain
+from app.scraper.llm import (
+    TRANSIENT_HTTP_STATUSES,
+    InMemoryModelCooldownStore,
+    LLMGenerationError,
+    LLMProviderConfig,
+    LLMProviderName,
+    ModelCooldownStore,
+    NoLLMProviderConfigured,
+    cooldown_from_headers,
+    unique_model_ids,
+)
 
 logger = get_logger(__name__)
-
-
-@dataclass(frozen=True)
-class LLMProviderConfig:
-    name: str
-    api_key: str
-    base_url: str
-    model: str
 
 
 @dataclass(frozen=True)
@@ -64,57 +66,49 @@ class LLMRateLimiter(Protocol):
     async def wait_for_slot(self) -> Any: ...
 
 
-class LLMGenerationError(Exception):
-    def __init__(self, reason: str, provider: str | None = None, model: str | None = None) -> None:
-        super().__init__(reason)
-        self.reason = reason
-        self.provider = provider
-        self.model = model
-
-
-class NoLLMProviderConfigured(LLMGenerationError):
-    pass
-
-
 class AppDescriptionLLMClient:
     def __init__(
         self,
         settings: Settings,
         rate_limiter: LLMRateLimiter | None = None,
+        cooldowns: ModelCooldownStore | None = None,
     ) -> None:
         self.settings = settings
         self.rate_limiter = rate_limiter or DatabaseLLMRateLimiter()
+        self.cooldowns = cooldowns or InMemoryModelCooldownStore()
 
     def has_provider(self) -> bool:
-        return bool(self._groq().api_key or self._deepseek().api_key)
+        return bool(self.settings.llm_groq_api_key or self._deepseek().api_key)
 
     async def generate(self, evidence: dict[str, Any]) -> GeneratedDescription:
-        groq = self._groq()
+        groq_models = self._groq_models()
         deepseek = self._deepseek()
-        if not groq.api_key and not deepseek.api_key:
+        if not groq_models and not deepseek.api_key:
             raise NoLLMProviderConfigured("llm_provider_not_configured")
 
-        first_error: LLMGenerationError | None = None
-        if groq.api_key:
+        last_error: LLMGenerationError | None = None
+        for groq in groq_models:
+            if self._log_cooldown_skip(groq):
+                continue
             try:
                 return await self._call_provider(groq, evidence)
             except LLMGenerationError as exc:
-                first_error = exc
+                last_error = exc
+                if not exc.retryable:
+                    break
+                self._start_cooldown(groq, exc)
 
-        if deepseek.api_key:
+        if deepseek.api_key and not self._log_cooldown_skip(deepseek):
             try:
                 return await self._call_provider(deepseek, evidence)
             except LLMGenerationError as exc:
-                if groq.api_key:
-                    try:
-                        return await self._call_provider(groq, evidence)
-                    except LLMGenerationError as retry_exc:
-                        raise retry_exc from exc
-                raise exc
+                if exc.retryable:
+                    self._start_cooldown(deepseek, exc)
+                raise
 
-        if first_error:
-            raise first_error
-        raise NoLLMProviderConfigured("llm_provider_not_configured")
+        if last_error:
+            raise last_error
+        raise LLMGenerationError("llm_models_cooling_down", retryable=True)
 
     async def _call_provider(
         self,
@@ -148,84 +142,157 @@ class AppDescriptionLLMClient:
         await self.rate_limiter.wait_for_slot()
         logger.info(
             "llm_request_started",
-            provider=provider.name,
+            provider=provider.name.value,
             model=provider.model,
         )
         try:
-            async with httpx.AsyncClient(timeout=self.settings.llm_request_timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.settings.llm_request_timeout_seconds
+            ) as client:
                 response = await client.post(url, headers=headers, json=payload)
         except httpx.TimeoutException as exc:
             logger.warning(
                 "llm_request_failed",
-                provider=provider.name,
+                provider=provider.name.value,
                 model=provider.model,
                 reason="timeout",
             )
-            raise LLMGenerationError("timeout", provider.name, provider.model) from exc
+            raise LLMGenerationError(
+                "timeout",
+                provider.name.value,
+                provider.model,
+                retryable=True,
+                cooldown_seconds=self.settings.llm_transient_cooldown_seconds,
+            ) from exc
         except httpx.HTTPError as exc:
             logger.warning(
                 "llm_request_failed",
-                provider=provider.name,
+                provider=provider.name.value,
                 model=provider.model,
                 reason=exc.__class__.__name__,
             )
-            raise LLMGenerationError(exc.__class__.__name__, provider.name, provider.model) from exc
+            raise LLMGenerationError(
+                exc.__class__.__name__,
+                provider.name.value,
+                provider.model,
+                retryable=True,
+                cooldown_seconds=self.settings.llm_transient_cooldown_seconds,
+            ) from exc
 
         if response.status_code >= 400:
             logger.warning(
                 "llm_request_failed",
-                provider=provider.name,
+                provider=provider.name.value,
                 model=provider.model,
                 status_code=response.status_code,
             )
+            retryable = response.status_code in TRANSIENT_HTTP_STATUSES
+            cooldown_seconds = None
+            if response.status_code == 429:
+                cooldown_seconds = cooldown_from_headers(
+                    response.headers,
+                    default_seconds=self.settings.llm_rate_limit_cooldown_seconds,
+                )
+            elif retryable:
+                cooldown_seconds = self.settings.llm_transient_cooldown_seconds
+            elif response.status_code == 400:
+                retryable = True
+                cooldown_seconds = self.settings.llm_model_error_cooldown_seconds
             raise LLMGenerationError(
                 f"http_{response.status_code}",
-                provider.name,
+                provider.name.value,
                 provider.model,
+                retryable=retryable,
+                cooldown_seconds=cooldown_seconds,
             )
 
         try:
             body = response.json()
             content = body["choices"][0]["message"]["content"]
         except Exception as exc:
-            raise LLMGenerationError("invalid_llm_response", provider.name, provider.model) from exc
+            raise LLMGenerationError(
+                "invalid_llm_response",
+                provider.name.value,
+                provider.model,
+            ) from exc
 
         try:
             description, language = parse_description_payload(content)
         except LLMGenerationError as exc:
             logger.warning(
                 "llm_request_failed",
-                provider=provider.name,
+                provider=provider.name.value,
                 model=provider.model,
                 reason=exc.reason,
             )
-            raise LLMGenerationError(exc.reason, provider.name, provider.model) from exc
+            raise LLMGenerationError(
+                exc.reason,
+                provider.name.value,
+                provider.model,
+            ) from exc
         logger.info(
             "llm_request_completed",
-            provider=provider.name,
+            provider=provider.name.value,
             model=provider.model,
         )
         return GeneratedDescription(
             description=description,
             language=language,
-            provider=provider.name,
+            provider=provider.name.value,
             model=provider.model,
         )
 
-    def _groq(self) -> LLMProviderConfig:
-        return LLMProviderConfig(
-            name="groq",
-            api_key=self.settings.llm_groq_api_key,
-            base_url=self.settings.llm_groq_base_url,
-            model=self.settings.llm_groq_model,
+    def _groq_models(self) -> tuple[LLMProviderConfig, ...]:
+        if not self.settings.llm_groq_api_key:
+            return ()
+        model_ids = unique_model_ids(
+            self.settings.llm_groq_model,
+            self.settings.llm_groq_fallback_models,
+        )
+        return tuple(
+            LLMProviderConfig(
+                name=LLMProviderName.GROQ,
+                api_key=self.settings.llm_groq_api_key,
+                base_url=self.settings.llm_groq_base_url,
+                model=model,
+            )
+            for model in model_ids
         )
 
     def _deepseek(self) -> LLMProviderConfig:
         return LLMProviderConfig(
-            name="deepseek",
+            name=LLMProviderName.DEEPSEEK,
             api_key=self.settings.llm_deepseek_api_key,
             base_url=self.settings.llm_deepseek_base_url,
             model=self.settings.llm_deepseek_model,
+        )
+
+    def _log_cooldown_skip(self, provider: LLMProviderConfig) -> bool:
+        cooldown = self.cooldowns.get(provider)
+        if cooldown is None:
+            return False
+        logger.info(
+            "llm_model_skipped",
+            provider=cooldown.provider,
+            model=cooldown.model,
+            reason=cooldown.reason,
+            remaining_seconds=round(cooldown.remaining_seconds, 3),
+        )
+        return True
+
+    def _start_cooldown(
+        self,
+        provider: LLMProviderConfig,
+        error: LLMGenerationError,
+    ) -> None:
+        seconds = error.cooldown_seconds or self.settings.llm_transient_cooldown_seconds
+        self.cooldowns.start(provider, reason=error.reason, seconds=seconds)
+        logger.warning(
+            "llm_model_cooldown_started",
+            provider=provider.name.value,
+            model=provider.model,
+            reason=error.reason,
+            cooldown_seconds=seconds,
         )
 
 
@@ -427,7 +494,8 @@ def build_embedding_text(app: SoftwareApp) -> str:
         f"Descripcion corta: {app.description or '-'}",
         f"Descripcion larga: {app.long_description or app.description or '-'}",
         f"Version: {app.latest_version or '-'}",
-        f"Web oficial: {(registered_domain(app.official_url) if app.official_url else None) or '-'}",
+        "Web oficial: "
+        f"{(registered_domain(app.official_url) if app.official_url else None) or '-'}",
     ]
     return "\n".join(parts)
 

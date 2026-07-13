@@ -14,8 +14,8 @@ from app.core.time import utc_now
 from app.db.enums import ResolutionStatus, ScrapeRunStatus
 from app.db.models import (
     DownloadSource,
-    ScrapeRun,
     ScraperMetricSnapshot,
+    ScrapeRun,
     ScraperWorkerSnapshot,
     ScraperWorkItem,
     SoftwareApp,
@@ -531,7 +531,10 @@ class PipelineRepository:
             review_exists = (
                 select(DownloadSource.id)
                 .where(DownloadSource.software_app_id == SoftwareApp.id)
-                .where(DownloadSource.resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value)
+                .where(
+                    DownloadSource.resolution_status
+                    == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+                )
                 .limit(1)
                 .exists()
             )

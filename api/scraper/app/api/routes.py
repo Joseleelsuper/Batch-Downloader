@@ -15,8 +15,8 @@ from app.schemas.apps import (
     AppDetails,
     AppSearchResponse,
     CatalogStatsResponse,
-    LastScrapeRun,
     ErrorResponse,
+    LastScrapeRun,
 )
 from app.scraper.catalog_fetcher import CatalogFetcher, DescriptorWorker, enqueue_descriptor_for_app
 
