@@ -17,3 +17,28 @@ pytest
 
 El scheduler debe ejecutarse como proceso separado de FastAPI para evitar trabajos
 duplicados cuando existan varias replicas.
+
+## Generacion de descripciones
+
+La clave `SCRAPPER_LLM_GROQ_API_KEY` activa Groq. El modelo primario se configura
+con `SCRAPPER_LLM_GROQ_MODEL`; cuando alcanza una cuota o sufre un fallo transitorio,
+el descriptor rota, sin duplicados, por estos modelos de texto:
+
+1. `llama-3.3-70b-versatile`
+2. `qwen/qwen3-32b`
+3. `qwen/qwen3.6-27b`
+4. `meta-llama/llama-4-scout-17b-16e-instruct`
+
+La lista puede sobrescribirse mediante `SCRAPPER_LLM_GROQ_FALLBACK_MODELS` como un
+array JSON. `openai/gpt-oss-120b` no se incluye por defecto porque el endpoint
+Groq ha devuelto `400` con el formato JSON estricto usado por este enriquecedor.
+Cada modelo limitado entra en cooldown; las cabeceras `Retry-After` y
+`X-RateLimit-Reset-*` prevalecen sobre
+`SCRAPPER_LLM_RATE_LIMIT_COOLDOWN_SECONDS`. Los fallos transitorios usan
+`SCRAPPER_LLM_TRANSIENT_COOLDOWN_SECONDS`; un `400` de compatibilidad de modelo
+enfria solo ese modelo y permite probar el siguiente fallback.
+
+Si todos los modelos Groq aplicables fallan o estan en cooldown, DeepSeek se usa como
+ultimo proveedor solo cuando `SCRAPPER_LLM_DEEPSEEK_API_KEY` esta configurada. Los
+logs y la descripcion persistida incluyen siempre el proveedor y el modelo que
+produjeron el resultado.

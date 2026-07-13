@@ -5,8 +5,9 @@ Revises: 20260630_0003
 Create Date: 2026-07-07
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260707_0004"
 down_revision = "20260630_0003"
@@ -79,8 +80,18 @@ def upgrade() -> None:
         sa.Column("available", sa.Integer(), server_default=sa.text("0"), nullable=False),
         sa.Column("review", sa.Integer(), server_default=sa.text("0"), nullable=False),
         sa.Column("unavailable", sa.Integer(), server_default=sa.text("0"), nullable=False),
-        sa.Column("queued_searcher_filter", sa.Integer(), server_default=sa.text("0"), nullable=False),
-        sa.Column("queued_filter_scraper", sa.Integer(), server_default=sa.text("0"), nullable=False),
+        sa.Column(
+            "queued_searcher_filter",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "queued_filter_scraper",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
         sa.Column("captured_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["run_id"], ["scrape_runs.id"]),
         sa.PrimaryKeyConstraint("id"),

@@ -64,8 +64,16 @@ def upgrade() -> None:
         "download_sources",
         ["software_app_id", "operating_system", "architecture", "resolution_status"],
     )
-    op.create_index("ix_download_sources_resolution_status", "download_sources", ["resolution_status"])
-    op.create_index("ix_download_sources_validation_status", "download_sources", ["validation_status"])
+    op.create_index(
+        "ix_download_sources_resolution_status",
+        "download_sources",
+        ["resolution_status"],
+    )
+    op.create_index(
+        "ix_download_sources_validation_status",
+        "download_sources",
+        ["validation_status"],
+    )
 
     op.create_table(
         "source_allowed_domains",
