@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://batch-downloader.local/schemas/zip-generated.json",
+  "title": "download.job.ready.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "type", "schemaVersion", "occurredAt", "correlationId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "type": { "const": "download.job.ready" },
+    "schemaVersion": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string" },
+    "causationId": { "type": ["string", "null"] },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobId", "status", "objectKey", "sizeBytes", "sha256", "expiresAt"],
+      "properties": {
+        "jobId": { "type": "string", "format": "uuid" },
+        "status": { "enum": ["READY", "PARTIAL"] },
+        "objectKey": { "type": "string", "minLength": 1 },
+        "sizeBytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "successfulItems": { "type": "integer", "minimum": 1 },
+        "failedItems": { "type": "integer", "minimum": 0 },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

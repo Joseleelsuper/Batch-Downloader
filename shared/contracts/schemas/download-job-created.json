@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://batch-downloader.local/schemas/download-job-created.json",
+  "title": "download.job.requested.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "type", "schemaVersion", "occurredAt", "correlationId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "type": { "const": "download.job.requested" },
+    "schemaVersion": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string" },
+    "causationId": { "type": ["string", "null"] },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobId", "items", "limits"],
+      "properties": {
+        "jobId": { "type": "string", "format": "uuid" },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["itemId", "appId", "sourceRef"],
+            "properties": {
+              "itemId": { "type": "string", "format": "uuid" },
+              "appId": { "type": "string", "format": "uuid" },
+              "sourceRef": { "type": "string", "format": "uuid" },
+              "operatingSystem": { "type": ["string", "null"] },
+              "architecture": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxFileBytes", "maxJobBytes", "maxParallelDownloads"],
+          "properties": {
+            "maxFileBytes": { "type": "integer", "minimum": 1, "maximum": 4294967296 },
+            "maxJobBytes": { "type": "integer", "minimum": 1, "maximum": 21474836480 },
+            "maxParallelDownloads": { "type": "integer", "minimum": 1, "maximum": 8 }
+          }
+        }
+      }
+    }
+  }
+}

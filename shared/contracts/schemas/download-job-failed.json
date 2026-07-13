@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://batch-downloader.local/schemas/file-downloaded.json",
-  "title": "download.job.progressed.v1",
+  "$id": "https://batch-downloader.local/schemas/download-job-failed.json",
+  "title": "download.job.failed.v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["eventId", "type", "schemaVersion", "occurredAt", "correlationId", "payload"],
   "properties": {
     "eventId": { "type": "string", "format": "uuid" },
-    "type": { "const": "download.job.progressed" },
+    "type": { "const": "download.job.failed" },
     "schemaVersion": { "const": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
     "correlationId": { "type": "string" },
@@ -15,15 +15,11 @@
     "payload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["jobId", "itemId", "status", "bytesDownloaded"],
+      "required": ["jobId", "errorCode"],
       "properties": {
         "jobId": { "type": "string", "format": "uuid" },
-        "itemId": { "type": "string", "format": "uuid" },
-        "status": { "enum": ["RESOLVING", "DOWNLOADING", "COMPLETED", "FAILED", "CANCELLED"] },
-        "bytesDownloaded": { "type": "integer", "minimum": 0 },
-        "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
-        "sha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
-        "errorCode": { "type": ["string", "null"] }
+        "errorCode": { "type": "string" },
+        "failedItems": { "type": "integer", "minimum": 1 }
       }
     }
   }

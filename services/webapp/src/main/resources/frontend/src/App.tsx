@@ -34,7 +34,6 @@ import {
   createAdminBundle,
   deleteAdminApp,
   deleteAllAdminApps,
-  downloadSelectedApps,
   exportAdminAppsCsv,
   fetchAdminApps,
   fetchAdminAudit,
@@ -78,7 +77,9 @@ import { AppSearchBar } from './components/AppSearchBar';
 import { AppStatusBadge } from './components/AppStatusBadge';
 import { AppTable } from './components/AppTable';
 import { DownloadButton } from './components/DownloadButton';
+import { DownloadJobPanel } from './components/DownloadJobPanel';
 import { Pagination } from './components/Pagination';
+import { useDownloadJob } from './hooks/useDownloadJob';
 import { t } from './services/i18n';
 import type {
   AppDetails,
@@ -358,7 +359,7 @@ function CatalogPage() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [filtersVisible, setFiltersVisible] = useState(true);
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
-  const [downloadingSelected, setDownloadingSelected] = useState(false);
+  const downloadJob = useDownloadJob();
   const visibleApps = useMemo(
     () => mergeSelectedAppIntoPage(apps, appId ? selected : null, filters.pageSize),
     [apps, appId, selected, filters.pageSize],
@@ -479,14 +480,11 @@ function CatalogPage() {
 
   async function downloadSelection() {
     if (selectedDownloadIds.size < 1) return;
-    setDownloadingSelected(true);
     setError(null);
     try {
-      await downloadSelectedApps(Array.from(selectedDownloadIds));
+      await downloadJob.start(Array.from(selectedDownloadIds));
     } catch {
       setError(t('catalog.error.zip'));
-    } finally {
-      setDownloadingSelected(false);
     }
   }
 
@@ -500,7 +498,7 @@ function CatalogPage() {
         tagMatchMin={effectiveTagMatchMin(filters)}
         catalogSearch={searchKey}
         selectedCount={selectedDownloadIds.size}
-        downloading={downloadingSelected}
+        downloading={downloadJob.starting}
         onChange={(nextFilter) => {
           updateFilters({ filter: nextFilter });
         }}
@@ -526,6 +524,14 @@ function CatalogPage() {
           onToggleFilters={() => setFiltersVisible((value) => !value)}
         />
         {error ? <p className="error-banner">{error}</p> : null}
+        {downloadJob.job ? (
+          <DownloadJobPanel
+            job={downloadJob.job}
+            cancelling={downloadJob.cancelling}
+            onCancel={() => void downloadJob.cancel().catch(() => setError(t('download.job.error')))}
+            onClose={downloadJob.clear}
+          />
+        ) : null}
         <AppTable
           apps={visibleApps}
           selectedId={selectedId}

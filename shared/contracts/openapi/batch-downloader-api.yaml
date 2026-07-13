@@ -1,0 +1,537 @@
+openapi: 3.1.0
+info:
+  title: Batch Downloader API
+  version: 1.0.0
+  description: API pública versionada para identidad, catálogo y trabajos de descarga.
+  license:
+    name: GPL-3.0-only
+    identifier: GPL-3.0-only
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+paths:
+  /auth/register:
+    post:
+      operationId: registerUser
+      summary: Registrar una cuenta
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '202':
+          description: Cuenta creada; la verificación de correo queda encolada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /auth/login:
+    post:
+      operationId: login
+      summary: Iniciar una sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Sesión iniciada.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Cerrar la sesión actual
+      responses:
+        '204':
+          description: Sesión invalidada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/me:
+    get:
+      operationId: currentUser
+      summary: Consultar la sesión actual
+      responses:
+        '200':
+          description: Usuario autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/email-verification/confirm:
+    post:
+      operationId: confirmEmailVerification
+      summary: Confirmar una dirección de correo
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '204':
+          description: Correo verificado.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      summary: Solicitar recuperación de contraseña
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '202':
+          description: Solicitud aceptada aunque el correo no exista.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Confirmar una recuperación de contraseña
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 12
+                  maxLength: 128
+      responses:
+        '204':
+          description: Contraseña actualizada.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /apps:
+    get:
+      operationId: searchApps
+      summary: Buscar aplicaciones del catálogo
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: query
+          in: query
+          schema:
+            type: string
+            maxLength: 180
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: os
+          in: query
+          schema:
+            type: string
+        - name: architecture
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: Página de aplicaciones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /apps/{appId}:
+    get:
+      operationId: getApp
+      summary: Consultar una aplicación
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AppId'
+      responses:
+        '200':
+          description: Detalle de la aplicación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/App'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /download-jobs:
+    post:
+      operationId: createDownloadJob
+      summary: Crear un trabajo de descarga
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDownloadJobRequest'
+      responses:
+        '202':
+          description: Trabajo persistido y encolado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Cuota superada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /download-jobs/{jobId}:
+    get:
+      operationId: getDownloadJob
+      summary: Consultar un trabajo de descarga
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Estado global e items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadJob'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: cancelDownloadJob
+      summary: Cancelar un trabajo de descarga
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '202':
+          description: Cancelación aceptada de forma idempotente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadJob'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /download-jobs/{jobId}/events:
+    get:
+      operationId: streamDownloadJobEvents
+      summary: Seguir el progreso de un trabajo
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Flujo SSE hasta alcanzar un estado terminal.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /download-jobs/{jobId}/file:
+    get:
+      operationId: getDownloadJobFile
+      summary: Obtener el ZIP de un trabajo terminado
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '303':
+          description: Redirección a una URL firmada válida durante cinco minutos.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+                format: uri
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /locales/es:
+    get:
+      operationId: getSpanishLocale
+      summary: Obtener el catálogo de traducciones español
+      security: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Catálogo español versionado.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+        '304':
+          description: El catálogo no ha cambiado.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: BATCH_SESSION
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    AppId:
+      name: appId
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Entrada no válida.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Sesión ausente o inválida.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Recurso no encontrado.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: El estado actual impide la operación.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 80
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    TokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    User:
+      type: object
+      required: [id, username, email, emailVerified, role, notifyOnJobCompletion]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        emailVerified:
+          type: boolean
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        notifyOnJobCompletion:
+          type: boolean
+    App:
+      type: object
+      required: [id, slug, name, downloadable]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        publisher:
+          type: [string, 'null']
+        description:
+          type: [string, 'null']
+        downloadable:
+          type: boolean
+        sourceRefs:
+          type: array
+          items:
+            type: string
+            format: uuid
+    AppPage:
+      type: object
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/App'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+    CreateDownloadJobRequest:
+      type: object
+      required: [appIds]
+      properties:
+        appIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        operatingSystem:
+          type: string
+        architecture:
+          type: string
+        notifyWhenReady:
+          type: boolean
+          default: false
+    DownloadJobStatus:
+      type: string
+      enum: [QUEUED, RESOLVING, DOWNLOADING, PACKAGING, READY, PARTIAL, FAILED, CANCELLED, EXPIRED]
+    DownloadItem:
+      type: object
+      required: [id, appId, status, bytesDownloaded]
+      properties:
+        id:
+          type: string
+          format: uuid
+        appId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [QUEUED, RESOLVING, DOWNLOADING, COMPLETED, FAILED, CANCELLED]
+        bytesDownloaded:
+          type: integer
+          format: int64
+        sha256:
+          type: [string, 'null']
+        errorCode:
+          type: [string, 'null']
+    DownloadJob:
+      type: object
+      required: [id, status, progress, items, createdAt, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/DownloadJobStatus'
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadItem'
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      required: [code, message, correlationId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        correlationId:
+          type: string
+        details:
+          type: object
+          additionalProperties: true

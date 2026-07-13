@@ -8,6 +8,7 @@ import type {
   CatalogFacets,
   CatalogResponse,
   CatalogStats,
+  DownloadJob,
   FilterKey,
   ResolverLogItem,
   ScraperEvent,
@@ -22,15 +23,59 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+let cachedCsrfToken: string | undefined;
+
+function cookieValue(name: string): string | undefined {
+  return document.cookie
+    .split(';')
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+}
+
+async function ensureCsrfToken(forceRefresh = false): Promise<string | undefined> {
+  if (!forceRefresh && cachedCsrfToken) return cachedCsrfToken;
+  const response = await fetch(`${API_BASE}/api/v1/auth/csrf`, { credentials: 'include' });
+  if (response.ok) {
+    const body = await response.json().catch(() => null) as { token?: string } | null;
+    if (body?.token) {
+      cachedCsrfToken = body.token;
+      return cachedCsrfToken;
+    }
+  }
+  const token = cookieValue('XSRF-TOKEN');
+  cachedCsrfToken = token ? decodeURIComponent(token) : undefined;
+  return cachedCsrfToken;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const headers = new Headers(init?.headers);
+  if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (UNSAFE_METHODS.has(method)) {
+    const csrfToken = await ensureCsrfToken();
+    if (csrfToken) headers.set('X-XSRF-TOKEN', csrfToken);
+  }
+  let response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
     ...init,
+    headers,
   });
+  if (response.status === 403 && UNSAFE_METHODS.has(method)) {
+    cachedCsrfToken = undefined;
+    const retryHeaders = new Headers(headers);
+    const csrfToken = await ensureCsrfToken(true);
+    if (csrfToken) retryHeaders.set('X-XSRF-TOKEN', csrfToken);
+    response = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
+      ...init,
+      headers: retryHeaders,
+    });
+  }
   if (!response.ok) throw new Error(`request_failed_${response.status}`);
   if (response.status === 204) return undefined as T;
   const text = await response.text();
@@ -97,25 +142,92 @@ export function downloadUrl(appId: string, optionId?: string): string {
   return `${API_BASE}/api/apps/${encodeURIComponent(appId)}/download${query}`;
 }
 
-export async function downloadSelectedApps(appIds: string[]): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/apps/downloads/zip`, {
+export async function createDownloadJob(
+  appIds: string[],
+  notifyWhenReady = true,
+): Promise<DownloadJob> {
+  return requestJson<DownloadJob>('/api/v1/download-jobs', {
     method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ appIds }),
+    body: JSON.stringify({ appIds, notifyWhenReady }),
   });
-  if (!response.ok) throw new Error(`request_failed_${response.status}`);
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'batch-downloader-apps.zip';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+}
+
+export async function fetchDownloadJob(jobId: string): Promise<DownloadJob> {
+  return requestJson<DownloadJob>(`/api/v1/download-jobs/${encodeURIComponent(jobId)}`);
+}
+
+export async function cancelDownloadJob(jobId: string): Promise<DownloadJob> {
+  return requestJson<DownloadJob>(`/api/v1/download-jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function downloadJobFileUrl(jobId: string): string {
+  return `${API_BASE}/api/v1/download-jobs/${encodeURIComponent(jobId)}/file`;
+}
+
+const TERMINAL_DOWNLOAD_STATUSES = new Set(['READY', 'PARTIAL', 'FAILED', 'CANCELLED', 'EXPIRED']);
+
+export function connectDownloadJobEvents(
+  jobId: string,
+  onJob: (job: DownloadJob) => void,
+  onError?: () => void,
+): () => void {
+  let stopped = false;
+  let pollingTimer: number | undefined;
+  let source: EventSource | undefined;
+
+  const accept = (job: DownloadJob) => {
+    if (stopped) return;
+    onJob(job);
+    if (TERMINAL_DOWNLOAD_STATUSES.has(job.status)) {
+      source?.close();
+      if (pollingTimer) window.clearTimeout(pollingTimer);
+    }
+  };
+
+  const poll = async () => {
+    if (stopped) return;
+    try {
+      const job = await fetchDownloadJob(jobId);
+      accept(job);
+      if (!TERMINAL_DOWNLOAD_STATUSES.has(job.status)) {
+        pollingTimer = window.setTimeout(poll, 2500);
+      }
+    } catch {
+      onError?.();
+      pollingTimer = window.setTimeout(poll, 4000);
+    }
+  };
+
+  const consume = (event: MessageEvent<string>) => {
+    try {
+      accept(JSON.parse(event.data) as DownloadJob);
+    } catch {
+      onError?.();
+    }
+  };
+
+  if (typeof EventSource === 'undefined') {
+    void poll();
+  } else {
+    source = new EventSource(
+      `${API_BASE}/api/v1/download-jobs/${encodeURIComponent(jobId)}/events`,
+      { withCredentials: true },
+    );
+    source.addEventListener('message', consume as EventListener);
+    source.addEventListener('job', consume as EventListener);
+    source.addEventListener('error', () => {
+      source?.close();
+      void poll();
+    });
+  }
+
+  return () => {
+    stopped = true;
+    source?.close();
+    if (pollingTimer) window.clearTimeout(pollingTimer);
+  };
 }
 
 export function catalogWebSocketUrl(): string {
@@ -165,18 +277,18 @@ export async function updateAdminBundle(bundleId: string, payload: Record<string
 }
 
 export async function login(username: string, password: string): Promise<AuthUser> {
-  return requestJson<AuthUser>('/api/auth/login', {
+  return requestJson<AuthUser>('/api/v1/auth/login', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
   });
 }
 
 export async function logout(): Promise<void> {
-  await requestJson<void>('/api/auth/logout', { method: 'POST' });
+  await requestJson<void>('/api/v1/auth/logout', { method: 'POST' });
 }
 
 export async function me(): Promise<AuthUser> {
-  return requestJson<AuthUser>('/api/auth/me');
+  return requestJson<AuthUser>('/api/v1/auth/me');
 }
 
 export async function fetchAdminApps(params: {

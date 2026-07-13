@@ -1,10 +1,10 @@
-import { Copy, Download, ExternalLink, ShieldCheck, X } from 'lucide-react';
+import { Copy, ExternalLink, ShieldCheck, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import type { AppDetails, DownloadOption } from '../types/catalog';
-import { downloadUrl } from '../api/catalog';
 import { t } from '../services/i18n';
 import { AppStatusBadge } from './AppStatusBadge';
+import { DownloadButton } from './DownloadButton';
 
 /**
  * Componente que representa un panel lateral (drawer) para mostrar los detalles de una aplicación específica.
@@ -42,11 +42,6 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
     await navigator.clipboard.writeText(filename);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
-  }
-
-  function downloadSelected() {
-    if (!app || !selectedOption) return;
-    window.location.assign(downloadUrl(app.slug, selectedOption.id));
   }
 
   return (
@@ -127,10 +122,7 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
             </DetailBlock>
           ) : null}
           {selectedOption ? (
-            <button className="download-selected-button" type="button" onClick={downloadSelected}>
-              <Download size={18} />
-              {t('app.details.downloadSelected')}
-            </button>
+            <DownloadButton appId={app.id} disabled={!app.downloadable} />
           ) : null}
           <DetailBlock label={t('app.details.notes')}>{app.notes}</DetailBlock>
           {app.originUrl ? (

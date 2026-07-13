@@ -76,6 +76,43 @@ export interface DownloadOption {
   isPrimary: boolean;
 }
 
+export type DownloadJobStatus =
+  | 'QUEUED'
+  | 'RESOLVING'
+  | 'DOWNLOADING'
+  | 'PACKAGING'
+  | 'READY'
+  | 'PARTIAL'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'EXPIRED';
+
+export type DownloadItemStatus =
+  | 'QUEUED'
+  | 'RESOLVING'
+  | 'DOWNLOADING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export interface DownloadJobItem {
+  id: string;
+  appId: string;
+  status: DownloadItemStatus;
+  bytesDownloaded: number;
+  sha256?: string | null;
+  errorCode?: string | null;
+}
+
+export interface DownloadJob {
+  id: string;
+  status: DownloadJobStatus;
+  progress: number;
+  items: DownloadJobItem[];
+  createdAt: string;
+  expiresAt: string;
+}
+
 export interface AppDetails extends CatalogApp {
   officialUrl?: string | null;
   originUrl?: string | null;
