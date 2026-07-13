@@ -15,7 +15,9 @@ def test_details_exposes_download_options_and_primary_candidate() -> None:
         name="GeoGebra Graphing Calculator",
         normalized_name="geogebra graphing calculator",
         description="Dynamic mathematics app.",
-        long_description="GeoGebra Graphing Calculator permite crear graficas y analizar funciones.",
+        long_description=(
+            "GeoGebra Graphing Calculator permite crear graficas y analizar funciones."
+        ),
         long_description_status="completed",
         app_status="active",
         created_at=now,

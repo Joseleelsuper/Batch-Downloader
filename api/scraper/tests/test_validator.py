@@ -1,13 +1,14 @@
-import pytest
-import httpx
-import respx
 import dns.exception
 import dns.resolver
+import httpx
+import pytest
+import respx
 
 from app.core.config import Settings
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.validator import (
     DownloadValidator,
+    ValidationConfidence,
     domain_has_public_dns,
     is_public_ip,
     same_site_referer,
@@ -109,6 +110,7 @@ async def test_validator_accepts_github_release_asset_redirect(monkeypatch) -> N
     assert result.final_domain == "githubusercontent.com"
     assert result.filename == "AppSetup.exe"
     assert result.extension == ".exe"
+    assert result.confidence == ValidationConfidence.VALIDATED
 
 
 @pytest.mark.asyncio
@@ -145,7 +147,9 @@ async def test_validator_preserves_candidate_filename_when_redirect_hides_it(mon
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_validator_accepts_public_cross_domain_redirect_without_allowlist(monkeypatch) -> None:
+async def test_validator_accepts_public_cross_domain_redirect_without_allowlist(
+    monkeypatch,
+) -> None:
     async def public_dns(_hostname: str | None) -> bool:
         return True
 
@@ -396,7 +400,9 @@ async def test_validator_infers_extensionless_winstall_pe_executable(monkeypatch
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_validator_accepts_winstall_distribution_zip_outside_github_releases(monkeypatch) -> None:
+async def test_validator_accepts_winstall_distribution_zip_outside_github_releases(
+    monkeypatch,
+) -> None:
     async def public_dns(_hostname: str | None) -> bool:
         return True
 
@@ -579,7 +585,9 @@ async def test_validator_allows_verified_winstall_redirect_to_public_cdn(monkeyp
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflare(monkeypatch) -> None:
+async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflare(
+    monkeypatch,
+) -> None:
     async def public_dns(_hostname: str | None) -> bool:
         return True
 
@@ -612,6 +620,7 @@ async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflar
     assert result.filename == "beebeep-setup-5.8.6.exe"
     assert result.extension == ".exe"
     assert result.transport_security == "https_winstall_edge_attested"
+    assert result.confidence == ValidationConfidence.ATTESTED
 
 
 @pytest.mark.asyncio

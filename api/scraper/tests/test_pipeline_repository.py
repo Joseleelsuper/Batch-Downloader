@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.time import utc_now
 from app.db.base import Base
-from app.db.models import ScrapeRun, ScraperWorkItem, ScraperWorkerSnapshot
+from app.db.models import ScrapeRun, ScraperWorkerSnapshot, ScraperWorkItem
 from app.repositories.pipeline import (
     MAX_SNAPSHOT_HTML_BYTES,
     QUEUE_FILTER_SCRAPER,

@@ -7,8 +7,8 @@ from app.scraper.candidates import (
     infer_operating_system,
     is_download_candidate,
     is_github_source_archive,
-    score_candidate,
     s3_path_style_variant,
+    score_candidate,
     sourceforge_mirror_variant,
 )
 

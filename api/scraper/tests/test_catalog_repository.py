@@ -248,7 +248,10 @@ async def test_repair_resolved_source_platforms_moves_cross_platform_installers(
         session.add(app)
         await session.commit()
 
-        repaired = await CatalogRepository(session, UrlProtector("test-secret")).repair_resolved_source_platforms()
+        repaired = await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).repair_resolved_source_platforms()
         await session.commit()
 
         assert repaired == 2

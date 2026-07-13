@@ -11,19 +11,20 @@ from app.core.time import utc_now
 from app.db.enums import ResolutionStatus
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.catalog_fetcher import (
-    PipelineRuntime,
     CatalogFetcher,
     FilterWorker,
+    PipelineRuntime,
     PlatformScraperWorker,
     SearcherWorker,
     ValidInstaller,
     dedupe_valid_installers,
     fallback_candidates,
+    first_task_failure,
     infer_validated_operating_system,
     is_actionable_installer_candidate,
+    is_stale_control_command,
     is_transient_mysql_lock_error,
     is_windows_winstall_archive,
-    is_stale_control_command,
     known_official_candidates,
     rank_installers,
     should_collect_official_installers,
@@ -377,6 +378,16 @@ def test_mysql_deadlocks_and_lock_timeouts_are_transient() -> None:
     assert is_transient_mysql_lock_error(deadlock)
     assert is_transient_mysql_lock_error(lock_timeout)
     assert not is_transient_mysql_lock_error(connection_error)
+
+
+def test_task_group_error_is_unwrapped_to_its_actionable_cause() -> None:
+    root_cause = RuntimeError("worker failed")
+    grouped = BaseExceptionGroup(
+        "pipeline failed",
+        [asyncio.CancelledError(), ExceptionGroup("worker", [root_cause])],
+    )
+
+    assert first_task_failure(grouped) is root_cause
 
 
 @pytest.mark.asyncio

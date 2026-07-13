@@ -4,7 +4,11 @@ import respx
 
 from app.core.config import Settings
 from app.scraper.candidates import extract_version
-from app.scraper.github import GitHubReleaseResolver, parse_github_repo, release_tags_from_url_or_version
+from app.scraper.github import (
+    GitHubReleaseResolver,
+    parse_github_repo,
+    release_tags_from_url_or_version,
+)
 
 
 def test_parse_github_repo() -> None:
@@ -55,8 +59,14 @@ async def test_github_resolver_uses_release_assets_and_skips_source_zips() -> No
     )
 
     urls = {candidate.url for candidate in candidates}
-    assert "https://github.com/bibletime/bibletime/releases/download/v3.1.1/BibleTime-3.1.1-win64.exe" in urls
-    assert "https://github.com/bibletime/bibletime/releases/download/v3.1.1/BibleTime-3.1.1-portable.zip" in urls
+    assert (
+        "https://github.com/bibletime/bibletime/releases/download/v3.1.1/"
+        "BibleTime-3.1.1-win64.exe"
+    ) in urls
+    assert (
+        "https://github.com/bibletime/bibletime/releases/download/v3.1.1/"
+        "BibleTime-3.1.1-portable.zip"
+    ) in urls
     assert all("codeload.github.com" not in url for url in urls)
 
 
@@ -106,7 +116,10 @@ async def test_github_resolver_prefers_winstall_version_tag_over_latest() -> Non
     )
 
     urls = {candidate.url for candidate in candidates}
-    assert "https://github.com/0xGingi/0xgingi-browser-windows/releases/download/115.0.5790.110/0xgingi-browser_115.0.5790.110-1.1_installer.exe" in urls
+    assert (
+        "https://github.com/0xGingi/0xgingi-browser-windows/releases/download/"
+        "115.0.5790.110/0xgingi-browser_115.0.5790.110-1.1_installer.exe"
+    ) in urls
     assert all("115.0.5790.102" not in url for url in urls)
 
 
@@ -128,12 +141,16 @@ async def test_github_resolver_falls_back_to_expanded_assets_when_api_is_rate_li
     respx.get("https://github.com/0x192/universal-android-debloater/releases/expanded_assets/0.5.1").mock(
         return_value=httpx.Response(
             200,
-            html="""
-            <a href="/0x192/universal-android-debloater/releases/download/0.5.1/uad_gui-windows.exe">uad_gui-windows.exe</a>
-            <a href="/0x192/universal-android-debloater/releases/download/0.5.1/uad_gui-linux.tar.gz">uad_gui-linux.tar.gz</a>
-            <a href="/0x192/universal-android-debloater/releases/download/0.5.1/uad_gui-macos.tar.gz">uad_gui-macos.tar.gz</a>
-            <a href="/0x192/universal-android-debloater/archive/refs/tags/0.5.1.zip">Source code</a>
-            """,
+            html=(
+                '<a href="/0x192/universal-android-debloater/releases/download/0.5.1/'
+                'uad_gui-windows.exe">uad_gui-windows.exe</a>'
+                '<a href="/0x192/universal-android-debloater/releases/download/0.5.1/'
+                'uad_gui-linux.tar.gz">uad_gui-linux.tar.gz</a>'
+                '<a href="/0x192/universal-android-debloater/releases/download/0.5.1/'
+                'uad_gui-macos.tar.gz">uad_gui-macos.tar.gz</a>'
+                '<a href="/0x192/universal-android-debloater/archive/refs/tags/0.5.1.zip">'
+                "Source code</a>"
+            ),
         )
     )
 
@@ -143,8 +160,11 @@ async def test_github_resolver_falls_back_to_expanded_assets_when_api_is_rate_li
     )
 
     urls = {candidate.url for candidate in candidates}
-    assert "https://github.com/0x192/universal-android-debloater/releases/download/0.5.1/uad_gui-windows.exe" in urls
-    assert "https://github.com/0x192/universal-android-debloater/releases/download/0.5.1/uad_gui-linux.tar.gz" in urls
-    assert "https://github.com/0x192/universal-android-debloater/releases/download/0.5.1/uad_gui-macos.tar.gz" in urls
+    base_url = (
+        "https://github.com/0x192/universal-android-debloater/releases/download/0.5.1/"
+    )
+    assert f"{base_url}uad_gui-windows.exe" in urls
+    assert f"{base_url}uad_gui-linux.tar.gz" in urls
+    assert f"{base_url}uad_gui-macos.tar.gz" in urls
     assert all("/archive/" not in url for url in urls)
     assert {extract_version(candidate) for candidate in candidates} == {"0.5.1"}
