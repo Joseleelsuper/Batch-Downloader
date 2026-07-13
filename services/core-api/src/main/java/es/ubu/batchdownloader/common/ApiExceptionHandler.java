@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -26,6 +27,12 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ApiError> conflict(ConflictException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    ResponseEntity<ApiError> badRequest(BadRequestException exception) {
+        return ResponseEntity.badRequest()
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
@@ -64,6 +71,12 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> forbidden(AccessDeniedException exception) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(ApiError.of("forbidden", "No tienes permisos para realizar esta operacion."));
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    ResponseEntity<ApiError> authentication(AuthenticationException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiError.of("invalid_credentials", "Credenciales incorrectas o cuenta sin verificar."));
     }
 
     @ExceptionHandler(Exception.class)
