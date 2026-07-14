@@ -1,51 +1,36 @@
-# Batch Downloader AI Coding Notes
+# Batch Downloader: instrucciones para agentes
 
-## Architecture
-- Monorepo for Batch Downloader. MySQL is the catalog source of truth; pgvector is reserved for derived semantic search.
-- `services/core-api` is now the public Spring Boot API for `/api/*`: catalog, downloads proxy, admin auth, bundles, requests, scraper monitor, and audit.
-- `api/scraper` is an internal FastAPI worker/API for Winstall scraping, installer resolution, validation, icon resolution, LLM descriptions, and scheduler control.
-- `services/webapp/src/main/resources/frontend` is React/Vite/TypeScript served by Nginx. Nginx proxies `/api/*` to `core-api:8080`, not to `scraper-api`.
-- `services/translation-service/locales` holds Spanish defaults and a translation template.
+## Arquitectura y flujos
+- Monorepo: `services/core-api` (Spring API pública), `api/scraper` (FastAPI + scheduler), `services/download-worker`, `notification-service`, `translation-service`, `semantic-service` y React/Vite bajo `services/webapp/src/main/resources/frontend`.
+- Nginx expone `http://localhost:3000` y enruta `/api/*` a Core; el scraper solo se consume mediante `/internal/v1/*` con `X-Internal-Service-Token`.
+- Alembic (`api/scraper/alembic`) es dueño de catálogo, fuentes y pipeline; Flyway (`services/core-api/.../db/migration`) es dueño de identidad, bundles, jobs y outbox. No mezcles propietarios en una migración.
+- Pipeline persistente: `searcher_filter -> filter_scraper -> scraper_so_filter -> so_filter_descriptor`. Cada etapa usa leases/reintentos; una parada es cooperativa y conserva las colas.
+- `SO Filter` proyecta `software_apps.operating_systems_json`; Core lo usa para iconos y filtro OR. La disponibilidad y creación de jobs siguen exigiendo una fuente previamente `VALIDATED`.
+- Los iconos GitHub se resuelven dentro del scraper normal; no recrees una cola, worker ni botón administrativo de iconos.
+- Descargas: Core persiste job+items+outbox, RabbitMQ transporta solo IDs, el worker pide la URL al scraper (revalidación inmediata), genera ZIP en MinIO y Core entrega un `303` firmado con `MINIO_PUBLIC_ENDPOINT`.
 
-## Configuration
-- Compose files and Spring `application.properties` intentionally use direct `${VAR}` placeholders only. Do not add `${VAR:-fallback}` or Spring `${VAR:fallback}` defaults.
-- Add every new runtime variable to the root `.env.example`, grouped by service. Update `.env` only when needed for local Docker execution.
-- Core admin login uses `CORE_API_ADMIN_USERNAME`, `CORE_API_ADMIN_PASSWORD_HASH` (BCrypt), `CORE_API_JWT_SECRET`, and an HttpOnly JWT cookie.
+## Configuración
+- En Spring usa solo `${VAR}`: nunca `${VAR:default}`. Toda variable requerida debe existir en `.env` y `.env.example` y ser inyectada explícitamente por ambos Compose.
+- No guardes DSN completos como `SCRAPPER_DATABASE_URL` en `.env`: contienen caracteres reservados y Compose intenta expandir `$...`.
+- Construye URLs en código. El scraper usa `SQLAlchemy URL.create` en `app/core/config.py`; Compose fija host/puerto internos y toma `MYSQL_USER`, `MYSQL_PASSWORD` y `MYSQL_DATABASE` de `.env`.
+- Reutiliza las credenciales canónicas `MYSQL_*`, `RABBITMQ_DEFAULT_*` y `MINIO_ROOT_*`; no crees copias por servicio que puedan divergir.
+- Cita con comillas simples cualquier valor `.env` que contenga `$`. Valida siempre con `docker compose --env-file .env config --quiet`.
+- Añade nuevas variables a `.env.example` sin secretos y a `.env` solo para la ejecución local solicitada.
 
-## Scraper Rules
-- Do not add Scrapy. The scraper stack is FastAPI, HTTPX, selectolax/lxml, Playwright fallback, SQLAlchemy/Alembic, asyncmy, APScheduler, tldextract, dnspython, and structlog.
-- Keep Winstall access behind `WinstallClient`: API first, `__NEXT_DATA__` second, HTML fallback third.
-- Resolver order: official/GitHub-specific resolver, generic HTTP candidates, Playwright fallback, Winstall fallback, then manual review.
-- `DownloadValidator` must remain independent and enforce public DNS, private/reserved IP blocking, redirect revalidation, content/extension checks, and size limits. HTTP is allowed only for verified Winstall fallback candidates.
-- Installer domains are not allowlisted; validate every initial URL and redirect through public DNS/IP checks instead.
-- Never log signed URLs, cookies, auth headers, prompts/responses, or installer contents. Store resolved URLs only in `resolved_url_encrypted`.
-- Scraper and Core API share `SCRAPPER_URL_PROTECTION_SECRET` to encrypt/decrypt resolved URLs. Admin auth cookies are always `HttpOnly` and `Secure`.
-- `SCRAPPER_SCRAPE_MAX_APPS=0` and `SCRAPPER_LLM_MAX_APPS_PER_RUN=0` both mean unlimited.
-- Scheduler control is cooperative through `scraper_commands`; check commands between apps and keep `scrape_runs.current_*` fields updated.
+## Convenciones de implementación
+- Mantén `/api/v1` coordinado entre controladores, `shared/contracts/openapi`, tipos TypeScript y traducciones `es.json`/`template.json` (deben tener exactamente las mismas claves).
+- En el scraper conserva `WinstallClient` (API, `__NEXT_DATA__`, HTML), `DownloadValidator` para DNS/IP/redirecciones/MIME/tamaño y URLs cifradas mediante `SCRAPPER_URL_PROTECTION_SECRET`.
+- Nunca registres URLs firmadas o resueltas, cookies, tokens, prompts/respuestas LLM ni contenido de instaladores.
+- El catálogo es server-side: filtros, facetas, paginación y ranking viven en Core; evita una consulta por fila y conserva la semántica OR de `operatingSystems`.
+- La propiedad anónima de jobs depende de la cookie HttpOnly `BATCH_DOWNLOAD_OWNER`; no pongas tokens en URLs ni relajes CSRF.
 
-## Data Ownership
-- Alembic in `api/scraper/alembic` owns scraper/catalog tables: `software_apps`, sources, resolved sources, tags, resolver logs, scrape runs, and scraper commands.
-- Flyway in `services/core-api/src/main/resources/db/migration` owns public/admin tables: bundles, bundle items/tags/stars, software requests, and admin audit logs.
-- `description` is Winstall's short text. `long_description` is AI-generated Spanish enrichment and must not overwrite `description`.
-
-## Frontend
-- Routes: `/` home with bundle sections, `/catalog`, `/bundles/:slug`, `/login`, and `/admin/*`.
-- Catalog search, filters, tags, pagination, stats, and details are server-backed through Spring; do not load the whole catalog in the browser.
-- Admin uses cookie auth. Do not store JWTs in `localStorage`.
-- Keep the existing compact tool UI: top bar, filter rail, dense tables, teal download actions, status chips, and details drawer.
-
-## Commands
-```bash
-docker compose config --quiet
-docker compose up --build
+## Verificación
+```powershell
+mvn -B verify
+docker compose --env-file .env run --rm scraper-api pytest /app/tests
+cd services/webapp/src/main/resources/frontend; npm ci; npm test -- --run; npm run build
+docker compose --env-file .env config --quiet
+docker compose --env-file .env up --build
+docker compose --env-file .env ps; docker compose --env-file .env logs --tail 200
 ```
-```bash
-cd services/webapp/src/main/resources/frontend
-npm run build
-npm test -- --run
-```
-```bash
-docker compose run --rm -v "${PWD}/api/scraper/tests:/app/tests" scraper-api pytest /app/tests
-python -m app.worker scrape-once
-python -m app.worker scheduler
-```
+- Para fallos de jobs revisa, en orden: respuesta `409`, revalidación de `/internal/v1/sources/{id}/resolution`, eventos RabbitMQ, estado del worker y `Location` del `303` (debe resolver desde el navegador, no usar `minio:9000`).
