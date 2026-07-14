@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import ipaddress
 import json
 import re
+import socket
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -49,18 +52,16 @@ class IconResolver:
         owns_client = self.client is None
         client = self.client or httpx.AsyncClient(
             timeout=self.settings.request_timeout_seconds,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
         )
         try:
+            candidate: IconResult | None = None
             if parse_github_repo(homepage):
-                github_icon = await self._from_github(client, homepage)
-                if github_icon:
-                    return github_icon
-            page_icon = await self._from_official_page(client, homepage)
-            if page_icon:
-                return page_icon
-            return None
+                candidate = await self._from_github(client, homepage)
+            if candidate is None:
+                candidate = await self._from_official_page(client, homepage)
+            return await self._validate_image(client, candidate) if candidate else None
         finally:
             if owns_client:
                 await client.aclose()
@@ -178,7 +179,7 @@ class IconResolver:
         if page_image:
             return page_image
 
-        avatar = await self._github_avatar(client, repo.owner, repo.name)
+        avatar = self._github_avatar(repo.owner)
         if avatar:
             return avatar
 
@@ -208,30 +209,15 @@ class IconResolver:
                 "github_page_image",
                 allow_rel_any=True,
             )
-            if result:
+            if result and is_github_social_image(result.url):
                 return result
         return None
 
-    async def _github_avatar(
-        self,
-        client: httpx.AsyncClient,
-        owner: str,
-        repo: str,
-    ) -> IconResult | None:
-        try:
-            response = await client.get(f"https://api.github.com/repos/{owner}/{repo}")
-        except httpx.HTTPError:
-            return None
-        if not response.is_success:
-            return None
-        payload = response.json()
-        owner_data = payload.get("owner")
-        if not isinstance(owner_data, dict):
-            return None
-        avatar_url = owner_data.get("avatar_url")
-        if isinstance(avatar_url, str) and usable_icon_url(avatar_url):
-            return IconResult(avatar_url, "github_owner_avatar")
-        return None
+    def _github_avatar(self, owner: str) -> IconResult:
+        return IconResult(
+            f"https://github.com/{quote(owner, safe='')}.png?size=128",
+            "github_owner_avatar",
+        )
 
     async def _github_readme_icon(
         self,
@@ -255,6 +241,45 @@ class IconResolver:
             resolved = resolve_github_readme_image(owner, repo, image_url)
             if usable_icon_url(resolved):
                 return IconResult(resolved, "github_readme_image")
+        return None
+
+    async def _validate_image(
+        self,
+        client: httpx.AsyncClient,
+        result: IconResult,
+    ) -> IconResult | None:
+        candidate = result.url
+        for _ in range(self.settings.max_redirects + 1):
+            if not await public_https_url(candidate):
+                return None
+            request = client.build_request("GET", candidate)
+            try:
+                response = await client.send(request, stream=True, follow_redirects=False)
+            except httpx.HTTPError:
+                return None
+            try:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        return None
+                    candidate = urljoin(str(response.url), location)
+                    continue
+                if not response.is_success or not await public_https_url(str(response.url)):
+                    return None
+                content_type = response.headers.get("content-type", "").lower()
+                if not content_type.startswith("image/"):
+                    return None
+                content_length = int_or_none(response.headers.get("content-length", ""))
+                if content_length is not None and content_length > self.settings.icon_max_bytes:
+                    return None
+                bytes_read = 0
+                async for chunk in response.aiter_bytes():
+                    bytes_read += len(chunk)
+                    if bytes_read > self.settings.icon_max_bytes:
+                        return None
+                return IconResult(str(response.url), result.source)
+            finally:
+                await response.aclose()
         return None
 
 
@@ -297,7 +322,38 @@ def resolve_github_readme_image(owner: str, repo: str, image_url: str) -> str:
 
 def usable_icon_url(url: str) -> bool:
     parsed = urlparse(url)
-    return parsed.scheme in {"http", "https"} and not is_badge_image("", url)
+    return parsed.scheme == "https" and bool(parsed.hostname) and not is_badge_image("", url)
+
+
+def is_github_social_image(url: str) -> bool:
+    hostname = (urlparse(url).hostname or "").lower()
+    return hostname == "repository-images.githubusercontent.com" or hostname.endswith(
+        ".repository-images.githubusercontent.com"
+    )
+
+
+async def public_https_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.port not in {None, 443}:
+        return False
+    try:
+        addresses = await asyncio.get_running_loop().getaddrinfo(
+            parsed.hostname,
+            443,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError:
+        return False
+    if not addresses:
+        return False
+    return all(ipaddress.ip_address(item[4][0]).is_global for item in addresses)
+
+
+def int_or_none(value: str) -> int | None:
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def is_badge_image(label: str, url: str) -> bool:

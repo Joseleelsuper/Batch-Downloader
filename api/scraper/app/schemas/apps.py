@@ -20,6 +20,7 @@ class AppListItem(BaseModel):
     description: str | None = None
     long_description: str | None = Field(default=None, alias="longDescription")
     tags: list[str] = Field(default_factory=list)
+    operating_systems: list[str] = Field(default_factory=list, alias="operatingSystems")
     icon_url: str | None = Field(default=None, alias="iconUrl")
     latest_version: str | None = Field(default=None, alias="latestVersion")
     source_label: str = Field(alias="sourceLabel")
@@ -95,6 +96,7 @@ class AppDetails(BaseModel):
     description: str | None = None
     long_description: str | None = Field(default=None, alias="longDescription")
     tags: list[str] = Field(default_factory=list)
+    operating_systems: list[str] = Field(default_factory=list, alias="operatingSystems")
     icon_url: str | None = Field(default=None, alias="iconUrl")
     official_url: str | None = Field(default=None, alias="officialUrl")
     origin_url: str | None = Field(default=None, alias="originUrl")

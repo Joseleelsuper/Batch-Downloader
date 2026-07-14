@@ -13,4 +13,14 @@ class InternalSourceResolution(BaseModel):
     expected_size_bytes: int | None = Field(alias="expectedSizeBytes")
     expected_sha256: str | None = Field(alias="expectedSha256")
     expected_mime: str | None = Field(alias="expectedMime")
+    operating_system: str = Field(alias="operatingSystem")
+    architecture: str = Field(alias="architecture")
     trust_status: SourceTrustStatus = Field(alias="trustStatus")
+
+
+class ContentEnqueueResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    matched: int
+    enqueued: int
+    already_active: int = Field(alias="alreadyActive")

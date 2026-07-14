@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse, urlunparse
@@ -17,13 +17,14 @@ from app.core.json_safe import json_safe
 from app.core.logging import get_logger
 from app.core.url_protector import UrlProtector
 from app.db.enums import LongDescriptionStatus, ResolutionStatus, ScrapeRunStatus, ValidationStatus
-from app.db.models import ScraperWorkItem
+from app.db.models import ScraperWorkItem, SoftwareApp
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
     QUEUE_FILTER_SCRAPER,
-    QUEUE_SCRAPER_DESCRIPTOR,
+    QUEUE_SCRAPER_SO_FILTER,
     QUEUE_SEARCHER_FILTER,
+    QUEUE_SO_FILTER_DESCRIPTOR,
     PipelineRepository,
 )
 from app.repositories.runs import ScrapeRunRepository, worker_id
@@ -85,6 +86,7 @@ class PipelineRuntime:
     searcher_done: asyncio.Event = field(default_factory=asyncio.Event)
     filter_done: asyncio.Event = field(default_factory=asyncio.Event)
     scraper_done: asyncio.Event = field(default_factory=asyncio.Event)
+    so_filter_done: asyncio.Event = field(default_factory=asyncio.Event)
     descriptor_done: asyncio.Event = field(default_factory=asyncio.Event)
     all_workers_done: asyncio.Event = field(default_factory=asyncio.Event)
     stopped_by_command: bool = False
@@ -200,10 +202,6 @@ class CatalogFetcher:
         if pruned_snapshots:
             logger.info("scraper_snapshots_pruned", count=pruned_snapshots)
 
-        seeded_descriptions = await self._seed_descriptor_queue(run_id)
-        if seeded_descriptions:
-            logger.info("descriptor_backlog_seeded", count=seeded_descriptions)
-
         runtime = PipelineRuntime(
             settings=self.settings,
             run_id=run_id,
@@ -238,8 +236,8 @@ class CatalogFetcher:
                     name="scraper-workers",
                 )
                 workers.create_task(
-                    DescriptorWorker(self.settings).run(runtime),
-                    name="scraper-descriptor",
+                    self._run_so_filter_workers(runtime),
+                    name="scraper-so-filter-workers",
                 )
         except Exception as exc:
             worker_error = first_task_failure(exc)
@@ -319,41 +317,6 @@ class CatalogFetcher:
                 await session.commit()
             await asyncio.sleep(5)
 
-    async def _seed_descriptor_queue(self, run_id: uuid.UUID) -> int:
-        async with async_session_local()() as session:
-            catalog = CatalogRepository(session, self.url_protector)
-            pipeline = PipelineRepository(session)
-            maximum = self.settings.llm_max_apps_per_run
-            queued = 0
-            apps = await catalog.apps_for_description_enrichment(include_completed=True)
-            for app in apps:
-                input_hash = description_input_hash(app)
-                current = (
-                    app.long_description_status == LongDescriptionStatus.COMPLETED.value
-                    and bool(app.long_description)
-                    and app.long_description_input_hash == input_hash
-                )
-                if current:
-                    continue
-                await catalog.mark_long_description_pending(app.id)
-                await pipeline.enqueue(
-                    QUEUE_SCRAPER_DESCRIPTOR,
-                    app.winstall_id,
-                    app.name,
-                    {
-                        "software_app_id": str(app.id),
-                        "package_id": app.winstall_id,
-                        "input_hash": input_hash,
-                        "force": False,
-                    },
-                    run_id,
-                )
-                queued += 1
-                if maximum > 0 and queued >= maximum:
-                    break
-            await session.commit()
-            return queued
-
     async def _run_scraper_workers(self, runtime: PipelineRuntime) -> None:
         workers = [
             PlatformScraperWorker(self.settings)
@@ -363,6 +326,16 @@ class CatalogFetcher:
             await asyncio.gather(*(worker.run(runtime) for worker in workers))
         finally:
             runtime.scraper_done.set()
+
+    async def _run_so_filter_workers(self, runtime: PipelineRuntime) -> None:
+        workers = [
+            SOFilterWorker(self.settings)
+            for _ in range(max(1, self.settings.so_filter_concurrency))
+        ]
+        try:
+            await asyncio.gather(*(worker.run(runtime) for worker in workers))
+        finally:
+            runtime.so_filter_done.set()
 
 
 class SearcherWorker:
@@ -874,14 +847,8 @@ class PlatformScraperWorker:
         async with async_session_local()() as session:
             catalog = CatalogRepository(session, self.url_protector)
             logs = ResolverLogRepository(session)
-            software_app = await catalog.upsert_winstall_app(app)
-            await self._resolve_missing_icon(
-                catalog,
-                logs,
-                software_app.id,
-                software_app.icon_url,
-                app,
-            )
+            software_app, _created = await catalog.upsert_winstall_app_with_created(app)
+            await self._enrich_github_icon(catalog, logs, software_app, app)
             await session.commit()
 
         direct_candidates: list[InstallerCandidate] = []
@@ -994,6 +961,7 @@ class PlatformScraperWorker:
         async with async_session_local()() as session:
             catalog = CatalogRepository(session, self.url_protector)
             logs = ResolverLogRepository(session)
+            pipeline = PipelineRepository(session)
             software_app = await catalog.upsert_winstall_app(app)
             if not valid_installers:
                 source = await catalog.default_source_for_app(software_app.id)
@@ -1014,12 +982,10 @@ class PlatformScraperWorker:
                             "candidate_diagnostics": validation_diagnostics,
                         },
                     )
-                await enqueue_descriptor_for_app(
-                    catalog,
-                    PipelineRepository(session),
+                await enqueue_so_filter_for_app(
+                    pipeline,
                     runtime.run_id,
                     software_app,
-                    force=False,
                 )
                 await session.commit()
                 return False
@@ -1031,15 +997,61 @@ class PlatformScraperWorker:
                 official_url,
                 valid_installers,
             )
-            await enqueue_descriptor_for_app(
-                catalog,
-                PipelineRepository(session),
+            await enqueue_so_filter_for_app(
+                pipeline,
                 runtime.run_id,
                 software_app,
-                force=False,
             )
             await session.commit()
             return True
+
+    async def _enrich_github_icon(
+        self,
+        catalog: CatalogRepository,
+        logs: ResolverLogRepository,
+        software_app: SoftwareApp,
+        app: WinstallApp,
+    ) -> None:
+        from app.repositories.catalog import is_github_homepage, is_replaceable_github_icon
+
+        if not (
+            is_github_homepage(software_app.official_url)
+            and is_replaceable_github_icon(software_app.icon_url)
+        ):
+            return
+        try:
+            result = await self.icon_resolver.resolve(
+                replace(
+                    app,
+                    homepage=software_app.official_url,
+                    icon_url=software_app.icon_url,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "scraper_inline_icon_failed",
+                winstall_id=software_app.winstall_id,
+                error=exc.__class__.__name__,
+            )
+            return
+        if result is None:
+            await logs.add(
+                phase="icon",
+                status="discarded",
+                message="no_safe_github_image",
+                safe_metadata={"winstall_id": software_app.winstall_id},
+            )
+            return
+        updated = await catalog.update_icon_url(software_app.id, result.url)
+        await logs.add(
+            phase="icon",
+            status="resolved" if updated else "skipped",
+            safe_metadata={
+                "winstall_id": software_app.winstall_id,
+                "source": result.source,
+                "domain": registered_domain(result.url),
+            },
+        )
 
     async def _collect_official_candidates(
         self,
@@ -1430,49 +1442,6 @@ class PlatformScraperWorker:
             )
         await catalog.refresh_source_statuses(expired_sources)
 
-    async def _resolve_missing_icon(
-        self,
-        catalog: CatalogRepository,
-        logs: ResolverLogRepository,
-        software_app_id,
-        current_icon_url: str | None,
-        app: WinstallApp,
-    ) -> None:
-        if current_icon_url and current_icon_url.strip() and current_icon_url.strip() != "-":
-            return
-        try:
-            async with asyncio.timeout(min(8.0, self.settings.request_timeout_seconds)):
-                result = await self.icon_resolver.resolve(app)
-        except TimeoutError:
-            await logs.add(
-                phase="icon",
-                status="timeout",
-                message="icon_resolution_timeout",
-                safe_metadata={"winstall_id": app.package_id},
-            )
-            return
-        except Exception as exc:
-            await logs.add(
-                phase="icon",
-                status="failed",
-                message=exc.__class__.__name__,
-                safe_metadata={"winstall_id": app.package_id},
-            )
-            return
-        if not result:
-            return
-        await catalog.update_icon_url(software_app_id, result.url)
-        await logs.add(
-            phase="icon",
-            status="resolved",
-            safe_metadata={
-                "winstall_id": app.package_id,
-                "source": result.source,
-                "domain": registered_domain(result.url),
-            },
-        )
-
-
 async def enqueue_descriptor_for_app(
     catalog: CatalogRepository,
     pipeline: PipelineRepository,
@@ -1498,13 +1467,37 @@ async def enqueue_descriptor_for_app(
         return None
     await catalog.mark_long_description_pending(app.id)
     return await pipeline.enqueue(
-        QUEUE_SCRAPER_DESCRIPTOR,
+        QUEUE_SO_FILTER_DESCRIPTOR,
         app.winstall_id,
         app.name,
         {
             "software_app_id": str(app.id),
             "package_id": app.winstall_id,
             "input_hash": input_hash,
+            "force": force,
+        },
+        run_id,
+        priority=priority,
+        force=force,
+    )
+
+
+async def enqueue_so_filter_for_app(
+    pipeline: PipelineRepository,
+    run_id: uuid.UUID | None,
+    software_app: Any,
+    *,
+    force: bool = False,
+    priority: int = 0,
+) -> ScraperWorkItem:
+    return await pipeline.enqueue(
+        QUEUE_SCRAPER_SO_FILTER,
+        software_app.winstall_id,
+        software_app.name,
+        {
+            "software_app_id": str(software_app.id),
+            "package_id": software_app.winstall_id,
+            "input_hash": f"{software_app.version}:{run_id or 'backfill'}",
             "force": force,
         },
         run_id,
@@ -1537,7 +1530,7 @@ class DescriptorWorker:
         if not self.llm.has_provider():
             logger.warning("descriptor_process_one_skipped", reason="llm_provider_not_configured")
             return False
-        item = await claim_item(self.settings, QUEUE_SCRAPER_DESCRIPTOR, self.worker_id)
+        item = await claim_item(self.settings, QUEUE_SO_FILTER_DESCRIPTOR, self.worker_id)
         if item is None:
             return False
         return await self._process_claimed_item(None, item)
@@ -1549,10 +1542,10 @@ class DescriptorWorker:
             if not await runtime.reserve_descriptor_attempt():
                 logger.info("descriptor_budget_exhausted")
                 break
-            item = await claim_item(self.settings, QUEUE_SCRAPER_DESCRIPTOR, self.worker_id)
+            item = await claim_item(self.settings, QUEUE_SO_FILTER_DESCRIPTOR, self.worker_id)
             if item is None:
                 await runtime.release_descriptor_attempt()
-                if runtime.scraper_done.is_set():
+                if runtime.so_filter_done.is_set():
                     break
                 await asyncio.sleep(1)
                 continue
@@ -1626,6 +1619,109 @@ class DescriptorWorker:
             return False
 
 
+class SOFilterWorker:
+    """Projects verified installer platforms before description enrichment."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.worker_id = f"so-filter:{worker_id()}"
+
+    async def run(self, runtime: PipelineRuntime) -> None:
+        while not runtime.stop_event.is_set():
+            if not await runtime.before_next_item():
+                break
+            processed = await self.process_one(runtime)
+            if not processed:
+                if runtime.scraper_done.is_set():
+                    break
+                await asyncio.sleep(1)
+
+    async def process_one(self, runtime: PipelineRuntime | None = None) -> bool:
+        item = await claim_item(self.settings, QUEUE_SCRAPER_SO_FILTER, self.worker_id)
+        if item is None:
+            return False
+        return await self._process_claimed_item(item, runtime)
+
+    async def _process_claimed_item(
+        self,
+        item: ScraperWorkItem,
+        runtime: PipelineRuntime | None,
+    ) -> bool:
+        software_app_id = (item.payload_json or {}).get("software_app_id")
+        if not software_app_id:
+            await finish_item(self.settings, item, "discard", "missing_software_app_id")
+            return True
+        try:
+            app_id = uuid.UUID(str(software_app_id))
+        except (TypeError, ValueError):
+            await finish_item(self.settings, item, "discard", "invalid_software_app_id")
+            return True
+
+        try:
+            if runtime is not None:
+                await set_current(
+                    self.settings,
+                    runtime.run_id,
+                    item.package_id,
+                    item.app_name,
+                    "so_filter_deriving_operating_systems",
+                )
+            async with async_session_local()() as session:
+                catalog = CatalogRepository(
+                    session,
+                    UrlProtector(self.settings.url_protection_secret),
+                )
+                pipeline = PipelineRepository(session)
+                software_app = await session.get(SoftwareApp, app_id)
+                if software_app is None:
+                    await session.commit()
+                    await finish_item(self.settings, item, "discard", "software_app_missing")
+                    return True
+                systems = await catalog.refresh_operating_systems(app_id)
+                await pipeline.save_snapshot(
+                    run_id=item.run_id,
+                    worker_id=self.worker_id,
+                    stage="so_filter",
+                    package_id=software_app.winstall_id,
+                    app_name=software_app.name,
+                    url=None,
+                    html=None,
+                )
+                await enqueue_descriptor_for_app(
+                    catalog,
+                    pipeline,
+                    item.run_id,
+                    software_app,
+                    force=False,
+                )
+                await session.commit()
+            await finish_item(
+                self.settings,
+                item,
+                "complete",
+                ",".join(systems or []) or "no_verified_installers",
+            )
+            return True
+        except Exception as exc:
+            action = (
+                "requeue" if item.attempts < self.settings.so_filter_max_attempts else "fail"
+            )
+            await finish_item(
+                self.settings,
+                item,
+                action,
+                exc.__class__.__name__,
+                delay_seconds=min(300, 2 ** max(1, item.attempts)),
+            )
+            logger.warning(
+                "so_filter_failed",
+                winstall_id=item.package_id,
+                error=exc.__class__.__name__,
+                detail=exception_detail(exc),
+            )
+            return True
+
+
 async def claim_item(
     settings: Settings,
     queue: str,
@@ -1657,6 +1753,8 @@ async def finish_item(
     item: ScraperWorkItem,
     action: str,
     message: str | None,
+    *,
+    delay_seconds: int = 2,
 ) -> None:
     async with async_session_local()() as session:
         pipeline = PipelineRepository(session)
@@ -1668,7 +1766,11 @@ async def finish_item(
         elif action == "discard":
             await pipeline.discard(db_item, message or "discarded")
         elif action == "requeue":
-            await pipeline.requeue(db_item, message or "retry")
+            await pipeline.requeue(
+                db_item,
+                message or "retry",
+                delay_seconds=delay_seconds,
+            )
         else:
             await pipeline.fail(db_item, message or "failed")
         depth = await pipeline.queue_depth(db_item.queue)

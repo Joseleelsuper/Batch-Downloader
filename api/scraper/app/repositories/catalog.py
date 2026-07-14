@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import urlparse
 
 import tldextract
 from sqlalchemy import Select, case, func, or_, select
@@ -118,6 +119,13 @@ class CatalogRepository:
         return repaired
 
     async def upsert_winstall_app(self, app: WinstallApp) -> SoftwareApp:
+        software_app, _created = await self.upsert_winstall_app_with_created(app)
+        return software_app
+
+    async def upsert_winstall_app_with_created(
+        self,
+        app: WinstallApp,
+    ) -> tuple[SoftwareApp, bool]:
         existing = await self.session.scalar(
             select(SoftwareApp)
             .options(
@@ -127,7 +135,7 @@ class CatalogRepository:
             .where(SoftwareApp.winstall_id == app.package_id)
         )
         if existing is not None:
-            return existing
+            return existing, False
 
         slug = slugify(app.package_id)
         icon_url = app.icon_url
@@ -154,7 +162,7 @@ class CatalogRepository:
 
         await self._sync_tags(existing, app.tags)
         await self._ensure_default_source(existing, app)
-        return existing
+        return existing, True
 
     async def _sync_tags(self, software_app: SoftwareApp, raw_tags: list[str]) -> None:
         normalized_to_tag: dict[str, str] = {}
@@ -197,20 +205,115 @@ class CatalogRepository:
             software_app.updated_at = utc_now()
             software_app.version += 1
 
-    async def update_icon_url(self, software_app_id: uuid.UUID, icon_url: str) -> None:
+    async def update_icon_url(self, software_app_id: uuid.UUID, icon_url: str) -> bool:
         software_app = await self.session.get(SoftwareApp, software_app_id)
-        if not software_app or has_icon_url(software_app.icon_url) or not has_icon_url(icon_url):
-            return
+        if (
+            not software_app
+            or not is_replaceable_github_icon(software_app.icon_url)
+            or not has_icon_url(icon_url)
+        ):
+            return False
         software_app.icon_url = icon_url
         software_app.updated_at = utc_now()
         software_app.version += 1
+        return True
+
+    async def apps_missing_long_descriptions(self) -> list[SoftwareApp]:
+        result = await self.session.scalars(
+            select(SoftwareApp)
+            .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+            .where(
+                or_(
+                    SoftwareApp.long_description.is_(None),
+                    func.trim(SoftwareApp.long_description) == "",
+                )
+            )
+            .order_by(SoftwareApp.updated_at.asc())
+        )
+        return list(result)
+
+    async def apps_pending_os_filter(self, limit: int = 250) -> list[SoftwareApp]:
+        candidate_ids = list(
+            await self.session.scalars(
+                select(SoftwareApp.id)
+                .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+                .where(
+                    or_(
+                        SoftwareApp.operating_systems_updated_at.is_(None),
+                        SoftwareApp.operating_systems_updated_at < utc_after(hours=-24),
+                    )
+                )
+                .order_by(SoftwareApp.updated_at.asc())
+                .limit(max(1, limit))
+            )
+        )
+        if not candidate_ids:
+            return []
+
+        result = await self.session.scalars(
+            select(SoftwareApp).where(SoftwareApp.id.in_(candidate_ids))
+        )
+        apps_by_id = {app.id: app for app in result}
+        return [apps_by_id[app_id] for app_id in candidate_ids if app_id in apps_by_id]
+
+    async def refresh_operating_systems(self, software_app_id: uuid.UUID) -> list[str] | None:
+        software_app = await self.session.get(SoftwareApp, software_app_id)
+        if software_app is None:
+            return None
+
+        rows = await self.session.execute(
+            select(
+                DownloadSource.operating_system,
+                ResolvedSource.validation_status,
+                ResolvedSource.status,
+                ResolvedSource.metadata_json,
+            )
+            .join(
+                ResolvedSource,
+                ResolvedSource.download_source_id == DownloadSource.id,
+            )
+            .where(DownloadSource.software_app_id == software_app_id)
+            .where(DownloadSource.operating_system.in_(("windows", "linux", "macos")))
+            .where(
+                DownloadSource.resolution_status.in_(
+                    (ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value)
+                )
+            )
+            .where(DownloadSource.validation_status == ValidationStatus.VALID.value)
+        )
+        detected = {
+            operating_system
+            for (
+                operating_system,
+                validation_status,
+                resolution_status,
+                metadata,
+            ) in rows
+            if has_verified_binary_history(
+                validation_status,
+                resolution_status,
+                metadata or {},
+            )
+        }
+        systems = [
+            operating_system
+            for operating_system in ("windows", "linux", "macos")
+            if operating_system in detected
+        ]
+        if list(software_app.operating_systems or []) != systems:
+            software_app.operating_systems = systems
+            software_app.updated_at = utc_now()
+            software_app.version += 1
+        software_app.operating_systems_updated_at = utc_now()
+        await self.session.flush()
+        return systems
 
     async def _ensure_default_source(self, software_app: SoftwareApp, app: WinstallApp) -> None:
         await self.ensure_download_source(
             software_app_id=software_app.id,
             app=app,
             operating_system="windows",
-            architecture="x86_64",
+            architecture="UNKNOWN",
             initial_url=app.homepage,
         )
 
@@ -344,7 +447,10 @@ class CatalogRepository:
             )
             .where(DownloadSource.software_app_id == software_app_id)
             .where(DownloadSource.operating_system == "windows")
-            .where(DownloadSource.architecture == "x86_64")
+            # Existing rows created before UNKNOWN was introduced can still be
+            # resumed safely; new rows never infer x86_64 without evidence.
+            .where(DownloadSource.architecture.in_(["UNKNOWN", "x86_64"]))
+            .order_by(case((DownloadSource.architecture == "UNKNOWN", 0), else_=1))
             .limit(1)
         )
 
@@ -647,6 +753,37 @@ def has_icon_url(value: str | None) -> bool:
     return bool(value and value.strip() and value.strip() != "-")
 
 
+def has_verified_binary_history(
+    validation_status: str,
+    resolution_status: str,
+    metadata: dict,
+) -> bool:
+    confidence = str(metadata.get("validation_confidence") or "").lower()
+    return (
+        validation_status == ValidationStatus.VALID.value
+        and resolution_status
+        in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
+        and confidence in {"", "validated", "verified"}
+        and metadata.get("transport_security") != "https_winstall_edge_attested"
+    )
+
+
+def is_github_homepage(value: str | None) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme == "https" and parsed.netloc.lower() in {"github.com", "www.github.com"}
+
+
+def is_replaceable_github_icon(value: str | None) -> bool:
+    if not has_icon_url(value):
+        return True
+    hostname = (urlparse(value or "").hostname or "").lower()
+    return hostname == "opengraph.githubassets.com" or hostname.endswith(
+        ".opengraph.githubassets.com"
+    )
+
+
 def has_current_available_installer(
     app: SoftwareApp,
     now: datetime | None = None,
@@ -736,7 +873,7 @@ def inferred_architecture_for_resolved_source(
         return "x86"
     if any(token in text for token in ("x86_64", "amd64", "x64", "win64", "64-bit", "64bit")):
         return "x86_64"
-    return fallback or "x86_64"
+    return fallback or "UNKNOWN"
 
 
 def normalized_extension(value: str | None) -> str | None:

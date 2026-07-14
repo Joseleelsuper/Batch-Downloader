@@ -4,18 +4,31 @@ import argparse
 import asyncio
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.url_protector import UrlProtector
-from app.db.enums import ResolutionStatus, ValidationStatus
+from app.db.enums import ResolutionStatus, ScrapeRunStatus, ValidationStatus
+from app.db.models import ScrapeRun
 from app.db.session import AsyncSessionLocal
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
 from app.repositories.logs import ResolverLogRepository
+from app.repositories.pipeline import (
+    QUEUE_FILTER_SCRAPER,
+    QUEUE_SCRAPER_SO_FILTER,
+    QUEUE_SEARCHER_FILTER,
+    STATUS_COMPLETED,
+    STATUS_DISCARDED,
+    PipelineRepository,
+)
 from app.scraper.candidates import extract_version, infer_architecture, registered_domain
 from app.scraper.catalog_fetcher import (
     CatalogFetcher,
+    DescriptorWorker,
+    SOFilterWorker,
     ValidInstaller,
+    enqueue_so_filter_for_app,
     infer_validated_operating_system,
     known_official_candidates,
     resolved_metadata,
@@ -24,6 +37,117 @@ from app.scraper.validator import DownloadValidator
 from app.scraper.winstall import WinstallClient
 
 logger = get_logger(__name__)
+
+
+class ContentEnrichmentSupervisor:
+    """Keeps the pipeline tail active between scheduled catalogue runs."""
+
+    def __init__(self) -> None:
+        self.settings = get_settings()
+
+    async def run(self) -> None:
+        async with AsyncSessionLocal() as session:
+            pipeline = PipelineRepository(session)
+            recovered = await pipeline.reset_expired_leases()
+            orphaned = await pipeline.recover_orphaned_run_items()
+            await session.commit()
+        if recovered or orphaned:
+            logger.info(
+                "content_enrichment_leases_recovered",
+                expired=recovered,
+                orphaned=orphaned,
+            )
+
+        workers = [asyncio.create_task(self._consume_descriptions(), name="descriptor-supervisor")]
+        workers.extend(
+            asyncio.create_task(
+                self._consume_so_filters(index),
+                name=f"so-filter-supervisor-{index}",
+            )
+            for index in range(max(1, self.settings.so_filter_concurrency))
+        )
+        try:
+            await asyncio.gather(*workers)
+        finally:
+            for task in workers:
+                task.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+
+    async def _consume_descriptions(self) -> None:
+        worker = DescriptorWorker(self.settings)
+        while True:
+            if await self._paused_or_stopping():
+                await asyncio.sleep(1)
+                continue
+            if not worker.llm.has_provider():
+                await asyncio.sleep(15)
+                continue
+            processed = await worker.process_one()
+            if not processed:
+                await asyncio.sleep(1)
+
+    async def _consume_so_filters(self, index: int) -> None:
+        worker = SOFilterWorker(self.settings)
+        while True:
+            if await self._paused_or_stopping():
+                await asyncio.sleep(1)
+                continue
+            if index == 0:
+                try:
+                    await self._enqueue_pending_so_filters()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - keep the supervisor alive
+                    logger.exception(
+                        "so_filter_backfill_failed",
+                        error=exc.__class__.__name__,
+                    )
+                    await asyncio.sleep(5)
+                    continue
+            processed = await worker.process_one()
+            if not processed:
+                await asyncio.sleep(1)
+
+    async def _enqueue_pending_so_filters(self) -> None:
+        async with AsyncSessionLocal() as session:
+            catalog = CatalogRepository(
+                session,
+                UrlProtector(self.settings.url_protection_secret),
+            )
+            pipeline = PipelineRepository(session)
+            apps = await catalog.apps_pending_os_filter()
+            package_ids = [app.winstall_id for app in apps]
+            statuses = await pipeline.item_statuses(
+                QUEUE_SCRAPER_SO_FILTER,
+                package_ids,
+            )
+            upstream_active = await pipeline.active_package_ids(
+                (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER),
+                package_ids,
+            )
+            for app in apps:
+                if app.winstall_id in upstream_active:
+                    continue
+                status = statuses.get(app.winstall_id)
+                if status is not None and status not in {STATUS_COMPLETED, STATUS_DISCARDED}:
+                    continue
+                await enqueue_so_filter_for_app(
+                    pipeline,
+                    None,
+                    app,
+                    force=True,
+                )
+            await session.commit()
+
+    async def _paused_or_stopping(self) -> bool:
+        async with AsyncSessionLocal() as session:
+            run = await session.scalar(
+                select(ScrapeRun)
+                .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+                .order_by(ScrapeRun.started_at.desc())
+                .limit(1)
+            )
+            return bool(run and (run.paused_at is not None or run.stop_requested))
 
 
 async def scrape_once(recover_running: bool = False) -> None:
@@ -153,6 +277,10 @@ async def run_scheduler() -> None:
         max_instances=1,
     )
     scheduler.start()
+    enrichment_task = asyncio.create_task(
+        ContentEnrichmentSupervisor().run(),
+        name="content-enrichment-supervisor",
+    )
     logger.info(
         "scheduler_started",
         hour=settings.scheduler_hour,
@@ -170,7 +298,12 @@ async def run_scheduler() -> None:
             max_instances=1,
         )
         logger.info("startup_scrape_scheduled")
-    await asyncio.Event().wait()
+    try:
+        await asyncio.Event().wait()
+    finally:
+        enrichment_task.cancel()
+        await asyncio.gather(enrichment_task, return_exceptions=True)
+        scheduler.shutdown(wait=False)
 
 
 def main() -> None:

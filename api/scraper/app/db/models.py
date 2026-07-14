@@ -64,6 +64,13 @@ class SoftwareApp(Base, TimestampMixin):
         String(32), default=AppStatus.ACTIVE.value, index=True, nullable=False
     )
     metadata_json: Mapped[dict | None] = mapped_column(JSON)
+    operating_systems: Mapped[list[str]] = mapped_column(
+        "operating_systems_json",
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    operating_systems_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
     version: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
 
     sources: Mapped[list["DownloadSource"]] = relationship(
@@ -84,7 +91,8 @@ class DownloadSource(Base, TimestampMixin):
         GUID(), ForeignKey("software_apps.id"), nullable=False
     )
     operating_system: Mapped[str] = mapped_column(String(32), default="windows", nullable=False)
-    architecture: Mapped[str] = mapped_column(String(32), default="x86_64", nullable=False)
+    # Never invent a CPU family when the provider did not expose one.
+    architecture: Mapped[str] = mapped_column(String(32), default="UNKNOWN", nullable=False)
     initial_url: Mapped[str | None] = mapped_column(String(2048))
     resolver_type: Mapped[str] = mapped_column(String(50), default="generic_http", nullable=False)
     resolver_config: Mapped[dict | None] = mapped_column(JSON)
@@ -270,7 +278,8 @@ class ScraperMetricSnapshot(Base):
     unavailable: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     queued_searcher_filter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     queued_filter_scraper: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    queued_scraper_descriptor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    queued_scraper_so_filter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    queued_so_filter_descriptor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
 
     __table_args__ = (Index("ix_scraper_metric_snapshots_captured", "captured_at"),)

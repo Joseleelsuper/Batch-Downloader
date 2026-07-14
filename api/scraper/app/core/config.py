@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL, make_url
 
 
 class GroqDescriptionModel(StrEnum):
@@ -33,15 +34,24 @@ class Settings(BaseSettings):
         description="FastAPI title and health service name.",
     )
     environment: str = Field(default="development", description="Runtime environment name.")
-    database_url: str = Field(
-        default="mysql+asyncmy://batch_downloader:batch_downloader@localhost:3306/batch_downloader",
-        description="Async SQLAlchemy database URL.",
+    database_host: str = "localhost"
+    database_port: int = 3306
+    database_name: str = "batch_downloader"
+    database_username: str = "batch_downloader"
+    database_password: SecretStr = SecretStr("batch_downloader")
+    database_url_override: str | None = Field(
+        default=None,
+        description="Test-only full URL override; runtime configuration uses database components.",
+        exclude=True,
     )
     winstall_base_url: str = "https://winstall.app"
     winstall_api_base_url: str = "https://winstall.app/api/winstall"
     request_timeout_seconds: float = 20
     max_redirects: int = 5
     max_download_size_bytes: int = 1_500_000_000
+    icon_max_bytes: int = 5_000_000
+    so_filter_concurrency: int = 2
+    so_filter_max_attempts: int = 4
     scrape_concurrency: int = 6
     scrape_max_apps: int = 0
     scrape_app_timeout_seconds: float = 90
@@ -74,6 +84,20 @@ class Settings(BaseSettings):
     @property
     def scheduler_zoneinfo(self) -> ZoneInfo:
         return ZoneInfo(self.scheduler_timezone)
+
+    @property
+    def database_url(self) -> URL:
+        """Build the DSN safely without parsing credentials as URL syntax."""
+        if self.database_url_override:
+            return make_url(self.database_url_override)
+        return URL.create(
+            drivername="mysql+asyncmy",
+            username=self.database_username,
+            password=self.database_password.get_secret_value(),
+            host=self.database_host,
+            port=self.database_port,
+            database=self.database_name,
+        )
 
 
 @lru_cache

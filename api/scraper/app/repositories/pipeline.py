@@ -23,7 +23,8 @@ from app.db.models import (
 
 QUEUE_SEARCHER_FILTER = "searcher_filter"
 QUEUE_FILTER_SCRAPER = "filter_scraper"
-QUEUE_SCRAPER_DESCRIPTOR = "scraper_descriptor"
+QUEUE_SCRAPER_SO_FILTER = "scraper_so_filter"
+QUEUE_SO_FILTER_DESCRIPTOR = "so_filter_descriptor"
 
 # Snapshots back the live admin monitor; they are previews, never an archive of
 # an official web page. Bound the raw input before sanitizing so a large page
@@ -71,7 +72,8 @@ class MetricSnapshotView:
     unavailable: int
     queued_searcher_filter: int
     queued_filter_scraper: int
-    queued_scraper_descriptor: int
+    queued_scraper_so_filter: int
+    queued_so_filter_descriptor: int
     captured_at: object
 
 
@@ -213,11 +215,16 @@ class PipelineRepository:
                 STATUS_DISCARDED,
             } or (
                 existing.status == STATUS_COMPLETED
-                and queue == QUEUE_SCRAPER_DESCRIPTOR
+                and queue in {QUEUE_SCRAPER_SO_FILTER, QUEUE_SO_FILTER_DESCRIPTOR}
                 and (force or payload_changed)
             ) or (
                 existing.status == STATUS_COMPLETED
-                and queue in {QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER}
+                and queue
+                in {
+                    QUEUE_SEARCHER_FILTER,
+                    QUEUE_FILTER_SCRAPER,
+                    QUEUE_SCRAPER_SO_FILTER,
+                }
                 and belongs_to_new_run
             )
             if should_requeue:
@@ -244,6 +251,41 @@ class PipelineRepository:
         self.session.add(item)
         await self.session.flush()
         return item
+
+    async def has_active_item(self, queue: str, package_id: str) -> bool:
+        item_id = await self.session.scalar(
+            select(ScraperWorkItem.id)
+            .where(ScraperWorkItem.queue == queue)
+            .where(ScraperWorkItem.package_id == package_id)
+            .where(ScraperWorkItem.status.in_([STATUS_QUEUED, STATUS_IN_PROGRESS]))
+            .limit(1)
+        )
+        return item_id is not None
+
+    async def item_statuses(self, queue: str, package_ids: list[str]) -> dict[str, str]:
+        if not package_ids:
+            return {}
+        rows = await self.session.execute(
+            select(ScraperWorkItem.package_id, ScraperWorkItem.status)
+            .where(ScraperWorkItem.queue == queue)
+            .where(ScraperWorkItem.package_id.in_(package_ids))
+        )
+        return {package_id: status for package_id, status in rows}
+
+    async def active_package_ids(
+        self,
+        queues: tuple[str, ...],
+        package_ids: list[str],
+    ) -> set[str]:
+        if not queues or not package_ids:
+            return set()
+        rows = await self.session.scalars(
+            select(ScraperWorkItem.package_id)
+            .where(ScraperWorkItem.queue.in_(queues))
+            .where(ScraperWorkItem.package_id.in_(package_ids))
+            .where(ScraperWorkItem.status.in_((STATUS_QUEUED, STATUS_IN_PROGRESS)))
+        )
+        return set(rows)
 
     async def claim_next(
         self,
@@ -327,7 +369,8 @@ class PipelineRepository:
         for queue in (
             QUEUE_SEARCHER_FILTER,
             QUEUE_FILTER_SCRAPER,
-            QUEUE_SCRAPER_DESCRIPTOR,
+            QUEUE_SCRAPER_SO_FILTER,
+            QUEUE_SO_FILTER_DESCRIPTOR,
         ):
             rows = await self.session.execute(
                 select(ScraperWorkItem.status, func.count(ScraperWorkItem.id))
@@ -413,7 +456,7 @@ class PipelineRepository:
 
     async def latest_snapshots(self) -> list[WorkerSnapshotView]:
         snapshots: list[WorkerSnapshotView] = []
-        for stage in ("searcher", "filter", "scraper", "descriptor"):
+        for stage in ("searcher", "filter", "scraper", "so_filter", "descriptor"):
             snapshot = await self.session.scalar(
                 select(ScraperWorkerSnapshot)
                 .where(ScraperWorkerSnapshot.stage == stage)
@@ -449,7 +492,8 @@ class PipelineRepository:
         )
         queued_searcher_filter = await self._count_queue(QUEUE_SEARCHER_FILTER)
         queued_filter_scraper = await self._count_queue(QUEUE_FILTER_SCRAPER)
-        queued_scraper_descriptor = await self._count_queue(QUEUE_SCRAPER_DESCRIPTOR)
+        queued_scraper_so_filter = await self._count_queue(QUEUE_SCRAPER_SO_FILTER)
+        queued_so_filter_descriptor = await self._count_queue(QUEUE_SO_FILTER_DESCRIPTOR)
         self.session.add(
             ScraperMetricSnapshot(
                 run_id=run_id,
@@ -458,7 +502,8 @@ class PipelineRepository:
                 unavailable=unavailable,
                 queued_searcher_filter=queued_searcher_filter,
                 queued_filter_scraper=queued_filter_scraper,
-                queued_scraper_descriptor=queued_scraper_descriptor,
+                queued_scraper_so_filter=queued_scraper_so_filter,
+                queued_so_filter_descriptor=queued_so_filter_descriptor,
                 captured_at=utc_now(),
             )
         )
@@ -477,7 +522,8 @@ class PipelineRepository:
                 unavailable=item.unavailable,
                 queued_searcher_filter=item.queued_searcher_filter,
                 queued_filter_scraper=item.queued_filter_scraper,
-                queued_scraper_descriptor=item.queued_scraper_descriptor,
+                queued_scraper_so_filter=item.queued_scraper_so_filter,
+                queued_so_filter_descriptor=item.queued_so_filter_descriptor,
                 captured_at=item.captured_at,
             )
             for item in reversed(list(result))
