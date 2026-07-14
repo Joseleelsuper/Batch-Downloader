@@ -63,8 +63,8 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
                 item.sourceRef(),
                 URI.create(resolved.url()),
                 resolved.expectedFilename(),
-                item.operatingSystem(),
-                item.architecture(),
+                resolved.operatingSystem(),
+                resolved.architecture(),
                 resolved.expectedSizeBytes(),
                 normalizeSha256(resolved.expectedSha256()),
                 resolved.expectedMime());
@@ -96,7 +96,11 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
                 || !resolved.appId().equals(requested.appId())
                 || !"VERIFIED".equals(resolved.trustStatus())
                 || resolved.url() == null
-                || resolved.url().isBlank()) {
+                || resolved.url().isBlank()
+                || resolved.operatingSystem() == null
+                || resolved.operatingSystem().isBlank()
+                || resolved.architecture() == null
+                || resolved.architecture().isBlank()) {
             throw new InfrastructureException(
                     "invalid_source_resolution_response",
                     new IllegalArgumentException("Source resolver returned inconsistent identifiers or trust"));
@@ -130,6 +134,8 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
             Long expectedSizeBytes,
             String expectedSha256,
             String expectedMime,
+            String operatingSystem,
+            String architecture,
             String trustStatus) {
     }
 }

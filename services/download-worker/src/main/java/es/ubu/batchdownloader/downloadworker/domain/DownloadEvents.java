@@ -1,8 +1,6 @@
 package es.ubu.batchdownloader.downloadworker.domain;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -28,22 +26,13 @@ public final class DownloadEvents {
 
     public record DownloadJobPayload(
             @NotNull UUID jobId,
-            @NotEmpty @Size(max = 100) List<@Valid DownloadItemRequest> items,
-            @NotNull @Valid DownloadLimits limits) {
+            @NotEmpty @Size(max = 100) List<@Valid DownloadItemRequest> items) {
     }
 
     public record DownloadItemRequest(
             @NotNull UUID itemId,
             @NotNull UUID appId,
-            @NotNull UUID sourceRef,
-            String operatingSystem,
-            String architecture) {
-    }
-
-    public record DownloadLimits(
-            @Min(1) @Max(4_294_967_296L) long maxFileBytes,
-            @Min(1) @Max(21_474_836_480L) long maxJobBytes,
-            @Min(1) @Max(8) int maxParallelDownloads) {
+            @NotNull UUID sourceRef) {
     }
 
     public record DownloadJobProgressedEvent(

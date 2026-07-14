@@ -6,6 +6,7 @@ import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
 import io.minio.UploadObjectArgs;
 import java.nio.file.Path;
 
@@ -32,6 +33,19 @@ public class MinioArtifactStore implements ArtifactStore {
                     .build());
         } catch (Exception exception) {
             throw new InfrastructureException("minio_upload_failed", exception);
+        }
+    }
+
+    @Override
+    public void delete(String objectKey) {
+        ensureBucket();
+        try {
+            client.removeObject(RemoveObjectArgs.builder()
+                    .bucket(properties.bucket())
+                    .object(objectKey)
+                    .build());
+        } catch (Exception exception) {
+            throw new InfrastructureException("minio_delete_failed", exception);
         }
     }
 

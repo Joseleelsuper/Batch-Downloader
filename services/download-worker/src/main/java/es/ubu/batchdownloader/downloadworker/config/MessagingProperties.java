@@ -15,6 +15,8 @@ public record MessagingProperties(
         @DefaultValue("batch.events.v1") @NotBlank String eventExchange,
         @DefaultValue("download.job.requested") @NotBlank String inputRoutingKey,
         @DefaultValue("download-worker.download.job.requested.v1") @NotBlank String inputQueue,
+        @DefaultValue("download.job.cancel-requested") @NotBlank String cancellationRoutingKey,
+        @DefaultValue("download-worker.download.job.cancel-requested.v1") @NotBlank String cancellationQueue,
         @DefaultValue("batch.dead-letter.v1") @NotBlank String deadLetterExchange,
         @DefaultValue("download-worker.download.job.requested.v1.dlq") @NotBlank String deadLetterQueue,
         @DefaultValue("3") @Min(1) int retryAttempts,

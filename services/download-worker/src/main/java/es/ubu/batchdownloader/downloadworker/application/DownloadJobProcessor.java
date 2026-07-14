@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -61,6 +62,7 @@ public class DownloadJobProcessor {
     private final DownloadProperties properties;
     private final StorageProperties storageProperties;
     private final Clock clock;
+    private final DownloadCancellationRegistry cancellations;
 
     public DownloadJobProcessor(
             SourceReferenceResolver sourceResolver,
@@ -73,7 +75,8 @@ public class DownloadJobProcessor {
             ExecutorService executor,
             DownloadProperties properties,
             StorageProperties storageProperties,
-            Clock clock) {
+            Clock clock,
+            DownloadCancellationRegistry cancellations) {
         this.sourceResolver = sourceResolver;
         this.remoteDownloader = remoteDownloader;
         this.artifactStore = artifactStore;
@@ -85,6 +88,7 @@ public class DownloadJobProcessor {
         this.properties = properties;
         this.storageProperties = storageProperties;
         this.clock = clock;
+        this.cancellations = cancellations;
     }
 
     public void process(DownloadJobRequestedEvent event) {
@@ -95,23 +99,50 @@ public class DownloadJobProcessor {
         }
 
         UUID jobId = event.payload().jobId();
+        if (cancellations.cancelled(jobId)) {
+            cancellations.finish(jobId);
+            return;
+        }
         Path jobDirectory = createJobDirectory(jobId);
+        List<DownloadedArtifact> stagedArtifacts = List.of();
         try {
             ProcessedDownloads processed = downloadItems(event, jobDirectory);
-            List<DownloadedArtifact> stored = storeFiles(jobId, processed.downloaded());
-            String status = stored.isEmpty() ? "FAILED" : processed.failed().isEmpty() ? "READY" : "PARTIAL";
+            if (cancellations.cancelled(jobId)) {
+                return;
+            }
+            stagedArtifacts = storeFiles(jobId, processed.downloaded());
+            if (cancellations.cancelled(jobId)) {
+                return;
+            }
+            if (stagedArtifacts.isEmpty()) {
+                publishFailedItems(event, processed.failed());
+                publishJobFailure(event, "all_downloads_failed", processed.failed().size());
+                return;
+            }
+            String status = processed.failed().isEmpty() ? "READY" : "PARTIAL";
             Path manifestPath = writeManifest(
-                    event, status, stored, processed.failed(), jobDirectory.resolve("manifest.json"));
+                    event, status, stagedArtifacts, processed.failed(), jobDirectory.resolve("manifest.json"));
             Path zipPath = jobDirectory.resolve("batch-downloader-" + jobId + ".zip");
-            archiveBuilder.build(zipPath, stored, manifestPath);
+            archiveBuilder.build(zipPath, stagedArtifacts, manifestPath);
+            if (cancellations.cancelled(jobId)) {
+                return;
+            }
 
             String prefix = "jobs/" + jobId;
             String manifestObjectKey = prefix + "/manifest.json";
             String zipObjectKey = prefix + "/bundle.zip";
             artifactStore.put(manifestObjectKey, manifestPath, "application/json");
             artifactStore.put(zipObjectKey, zipPath, "application/zip");
-            publishResultEvents(event, status, stored, processed.failed(), zipPath, zipObjectKey);
+            List<DownloadedArtifact> completedArtifacts = stagedArtifacts;
+            deleteStagedArtifacts(stagedArtifacts);
+            stagedArtifacts = List.of();
+            if (cancellations.cancelled(jobId)) {
+                return;
+            }
+            publishResultEvents(event, status, completedArtifacts, processed.failed(), zipPath, zipObjectKey);
         } finally {
+            deleteStagedArtifacts(stagedArtifacts);
+            cancellations.finish(jobId);
             deleteRecursively(jobDirectory);
         }
     }
@@ -130,20 +161,22 @@ public class DownloadJobProcessor {
     }
 
     private ProcessedDownloads downloadItems(DownloadJobRequestedEvent event, Path jobDirectory) {
-        long maxJobBytes = Math.min(
-                event.payload().limits().maxJobBytes(), properties.maxTotalSize().toBytes());
-        long maxFileBytes = Math.min(
-                event.payload().limits().maxFileBytes(), properties.maxFileSize().toBytes());
-        int parallelism = Math.min(
-                event.payload().limits().maxParallelDownloads(), properties.concurrency());
+        long maxJobBytes = properties.maxTotalSize().toBytes();
+        long maxFileBytes = properties.maxFileSize().toBytes();
+        int parallelism = properties.concurrency();
         DownloadBudget totalBudget = new DownloadBudget(maxJobBytes);
         Semaphore semaphore = new Semaphore(parallelism);
         Set<String> usedNames = filenamePolicy.newNameSet();
         List<Future<DownloadAttempt>> futures = new ArrayList<>();
         for (DownloadItemRequest item : event.payload().items()) {
+            if (cancellations.cancelled(event.payload().jobId())) {
+                break;
+            }
+            publishProgress(event, clock.instant(), item.itemId(), "RESOLVING", 0, null, null, null);
             futures.add(executor.submit(() -> downloadOne(
-                    item, jobDirectory, totalBudget, maxFileBytes, semaphore, usedNames)));
+                    event, item, jobDirectory, totalBudget, maxFileBytes, semaphore, usedNames)));
         }
+        cancellations.track(event.payload().jobId(), futures);
 
         List<DownloadedArtifact> downloaded = new ArrayList<>();
         List<FailedDownload> failed = new ArrayList<>();
@@ -156,6 +189,11 @@ public class DownloadJobProcessor {
                     failed.add(attempt.failure());
                 }
             }
+        } catch (CancellationException exception) {
+            if (cancellations.cancelled(event.payload().jobId())) {
+                return new ProcessedDownloads(List.of(), List.of());
+            }
+            throw exception;
         } catch (RuntimeException exception) {
             futures.forEach(future -> future.cancel(true));
             throw exception;
@@ -164,6 +202,7 @@ public class DownloadJobProcessor {
     }
 
     private DownloadAttempt downloadOne(
+            DownloadJobRequestedEvent event,
             DownloadItemRequest item,
             Path jobDirectory,
             DownloadBudget totalBudget,
@@ -173,17 +212,34 @@ public class DownloadJobProcessor {
         boolean acquired = false;
         String filename = "installer-" + item.itemId() + ".bin";
         try {
+            if (cancellations.cancelled(event.payload().jobId())) {
+                return cancelledAttempt(item, filename);
+            }
             semaphore.acquire();
             acquired = true;
+            if (cancellations.cancelled(event.payload().jobId())) {
+                return cancelledAttempt(item, filename);
+            }
             ResolvedDownloadItem resolved = sourceResolver.resolve(item);
+            if (cancellations.cancelled(event.payload().jobId())) {
+                return cancelledAttempt(item, filename);
+            }
+            publishProgress(event, clock.instant(), item.itemId(), "DOWNLOADING", 0,
+                    resolved.expectedSizeBytes(), null, null);
             synchronized (usedNames) {
                 filename = filenamePolicy.filenameFor(resolved, usedNames);
             }
             Path target = jobDirectory.resolve("files").resolve(filename);
-            return DownloadAttempt.success(remoteDownloader.download(
-                    resolved, filename, target, totalBudget, maxFileBytes));
+            DownloadedArtifact downloaded = remoteDownloader.download(
+                    resolved, filename, target, totalBudget, maxFileBytes);
+            return cancellations.cancelled(event.payload().jobId())
+                    ? cancelledAttempt(item, filename)
+                    : DownloadAttempt.success(downloaded);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            if (cancellations.cancelled(event.payload().jobId())) {
+                return cancelledAttempt(item, filename);
+            }
             throw new InfrastructureException("download_job_interrupted", exception);
         } catch (DownloadRejectedException rejected) {
             return DownloadAttempt.failure(new FailedDownload(
@@ -193,6 +249,11 @@ public class DownloadJobProcessor {
                 semaphore.release();
             }
         }
+    }
+
+    private DownloadAttempt cancelledAttempt(DownloadItemRequest item, String filename) {
+        return DownloadAttempt.failure(new FailedDownload(
+                item.itemId(), item.appId(), item.sourceRef(), filename, "cancelled"));
     }
 
     private DownloadAttempt await(Future<DownloadAttempt> future) {
@@ -220,6 +281,16 @@ public class DownloadJobProcessor {
                     artifact.path(), artifact.sizeBytes(), artifact.sha256(), objectKey));
         }
         return stored;
+    }
+
+    private void deleteStagedArtifacts(List<DownloadedArtifact> artifacts) {
+        for (DownloadedArtifact artifact : artifacts) {
+            try {
+                artifactStore.delete(artifact.objectKey());
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Could not delete staged object {}", artifact.objectKey(), exception);
+            }
+        }
     }
 
     private Path writeManifest(
@@ -264,9 +335,7 @@ public class DownloadJobProcessor {
             publishProgress(event, occurredAt, artifact.itemId(), "COMPLETED",
                     artifact.sizeBytes(), artifact.sizeBytes(), artifact.sha256(), null);
         }
-        for (FailedDownload failure : failed) {
-            publishProgress(event, occurredAt, failure.itemId(), "FAILED", 0, null, null, failure.errorCode());
-        }
+        publishFailedItems(event, failed, occurredAt);
 
         if (downloaded.isEmpty()) {
             publishJobFailure(event, "all_downloads_failed", failed.size());
@@ -295,6 +364,17 @@ public class DownloadJobProcessor {
                 payload));
     }
 
+    private void publishFailedItems(DownloadJobRequestedEvent event, List<FailedDownload> failed) {
+        publishFailedItems(event, failed, clock.instant());
+    }
+
+    private void publishFailedItems(
+            DownloadJobRequestedEvent event, List<FailedDownload> failed, Instant occurredAt) {
+        for (FailedDownload failure : failed) {
+            publishProgress(event, occurredAt, failure.itemId(), "FAILED", 0, null, null, failure.errorCode());
+        }
+    }
+
     private void publishProgress(
             DownloadJobRequestedEvent event,
             Instant occurredAt,
@@ -307,7 +387,10 @@ public class DownloadJobProcessor {
         DownloadProgressPayload payload = new DownloadProgressPayload(
                 event.payload().jobId(), itemId, status, bytesDownloaded, sizeBytes, sha256, errorCode);
         eventPublisher.publish(EventTypes.JOB_PROGRESSED_ROUTING_KEY, new DownloadJobProgressedEvent(
-                deterministicEventId(event.payload().jobId(), EventTypes.JOB_PROGRESSED, itemId.toString()),
+                deterministicEventId(
+                        event.payload().jobId(),
+                        EventTypes.JOB_PROGRESSED,
+                        itemId + ":" + status.toLowerCase(java.util.Locale.ROOT)),
                 EventTypes.JOB_PROGRESSED,
                 EventTypes.CURRENT_VERSION,
                 occurredAt,

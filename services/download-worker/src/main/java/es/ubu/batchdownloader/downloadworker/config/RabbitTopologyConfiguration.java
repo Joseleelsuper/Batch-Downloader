@@ -43,6 +43,14 @@ public class RabbitTopologyConfiguration {
     }
 
     @Bean
+    Queue downloadCancellationQueue(MessagingProperties properties) {
+        return QueueBuilder.durable(properties.cancellationQueue())
+                .deadLetterExchange(properties.deadLetterExchange())
+                .deadLetterRoutingKey(properties.deadLetterQueue())
+                .build();
+    }
+
+    @Bean
     Queue downloadJobDeadLetterQueue(MessagingProperties properties) {
         return QueueBuilder.durable(properties.deadLetterQueue()).build();
     }
@@ -55,6 +63,16 @@ public class RabbitTopologyConfiguration {
         return BindingBuilder.bind(downloadJobQueue)
                 .to(downloadCommandsExchange)
                 .with(properties.inputRoutingKey());
+    }
+
+    @Bean
+    Binding downloadCancellationBinding(
+            Queue downloadCancellationQueue,
+            TopicExchange downloadCommandsExchange,
+            MessagingProperties properties) {
+        return BindingBuilder.bind(downloadCancellationQueue)
+                .to(downloadCommandsExchange)
+                .with(properties.cancellationRoutingKey());
     }
 
     @Bean
