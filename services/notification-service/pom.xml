@@ -17,7 +17,8 @@
     <name>Batch Downloader Notification Service</name>
 
     <properties>
-        <java.version>26</java.version>
+        <!-- The images run on JDK 26, while produced bytecode stays on Java 25 LTS. -->
+        <java.version>25</java.version>
     </properties>
 
     <dependencies>
