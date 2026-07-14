@@ -42,7 +42,6 @@ public class LocaleController {
         if (request.checkNotModified(document.etag())) {
             return ResponseEntity.status(304)
                     .cacheControl(cacheControl)
-                    .eTag(document.etag())
                     .build();
         }
         return okResponse(document);
