@@ -1,9 +1,12 @@
 
-asyncapi: 3.0.0
+asyncapi: 3.1.0
 info:
   title: Batch Downloader Messaging API
-  version: 1.0.0
-  description: Contratos RabbitMQ entre Core, scraper, workers y notificaciones.
+  version: 1.1.0
+  description: >-
+    Contratos RabbitMQ entre Core, scraper, workers y notificaciones. Los
+    comandos de descarga solo contienen identificadores; el worker obtiene la
+    URL temporal y la plataforma del endpoint interno autenticado del scraper.
 defaultContentType: application/json
 servers:
   local:
@@ -55,6 +58,12 @@ operations:
       - $ref: '#/channels/downloadJobRequested/messages/downloadJobRequested'
   cancelDownloadJob:
     action: send
+    channel:
+      $ref: '#/channels/downloadJobCancelRequested'
+    messages:
+      - $ref: '#/channels/downloadJobCancelRequested/messages/downloadJobCancelRequested'
+  consumeDownloadCancellation:
+    action: receive
     channel:
       $ref: '#/channels/downloadJobCancelRequested'
     messages:

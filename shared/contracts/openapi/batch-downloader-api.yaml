@@ -157,8 +157,15 @@ paths:
             type: string
         - name: os
           in: query
+          style: form
+          explode: true
           schema:
-            type: string
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items:
+              type: string
+              enum: [windows, linux, macos]
         - name: architecture
           in: query
           schema:
@@ -176,6 +183,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AppPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /apps/facets:
+    get:
+      operationId: getCatalogFacets
+      summary: Consultar facetas del catálogo filtrado
+      security: []
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+            maxLength: 180
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: os
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            uniqueItems: true
+            items:
+              type: string
+              enum: [windows, linux, macos]
+      responses:
+        '200':
+          description: Tags y editores disponibles para el filtro actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogFacets'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /apps/stats:
+    get:
+      operationId: getCatalogStats
+      summary: Consultar estadísticas y último rastreo
+      security: []
+      responses:
+        '200':
+          description: Estadísticas del catálogo.
+          content:
+            application/json:
+              schema:
+                type: object
         '400':
           $ref: '#/components/responses/BadRequest'
   /apps/{appId}:
@@ -198,6 +253,7 @@ paths:
     post:
       operationId: createDownloadJob
       summary: Crear un trabajo de descarga
+      security: []
       requestBody:
         required: true
         content:
@@ -207,12 +263,23 @@ paths:
       responses:
         '202':
           description: Trabajo persistido y encolado.
+          headers:
+            Set-Cookie:
+              description: Se emite para el primer trabajo anónimo y solo contiene un token aleatorio del navegador.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DownloadJob'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Ninguna aplicación solicitada tiene una fuente verificable o el bundle excede el límite.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '429':
           description: Cuota superada.
           content:
@@ -223,6 +290,7 @@ paths:
     get:
       operationId: getDownloadJob
       summary: Consultar un trabajo de descarga
+      security: []
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -237,6 +305,7 @@ paths:
     delete:
       operationId: cancelDownloadJob
       summary: Cancelar un trabajo de descarga
+      security: []
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -252,6 +321,7 @@ paths:
     get:
       operationId: streamDownloadJobEvents
       summary: Seguir el progreso de un trabajo
+      security: []
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -267,6 +337,7 @@ paths:
     get:
       operationId: getDownloadJobFile
       summary: Obtener el ZIP de un trabajo terminado
+      security: []
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -280,6 +351,53 @@ paths:
                 format: uri
         '409':
           $ref: '#/components/responses/Conflict'
+  /bundles:
+    get:
+      operationId: listBundles
+      summary: Listar bundles públicos u oficiales
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [official, community, user]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [updated, stars]
+      responses:
+        '200':
+          description: Página de bundles visibles públicamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundlePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /bundles/{bundleId}:
+    get:
+      operationId: getBundle
+      summary: Consultar un bundle público, oficial o privado propio
+      security: []
+      parameters:
+        - name: bundleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detalle completo del bundle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /locales/es:
     get:
       operationId: getSpanishLocale
@@ -422,12 +540,14 @@ components:
           type: boolean
     App:
       type: object
-      required: [id, slug, name, downloadable]
+      required: [id, slug, packageId, name, tags, operatingSystems, downloadable]
       properties:
         id:
           type: string
           format: uuid
         slug:
+          type: string
+        packageId:
           type: string
         name:
           type: string
@@ -435,13 +555,31 @@ components:
           type: [string, 'null']
         description:
           type: [string, 'null']
-        downloadable:
-          type: boolean
-        sourceRefs:
+        longDescription:
+          type: [string, 'null']
+        tags:
           type: array
           items:
             type: string
-            format: uuid
+        operatingSystems:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [windows, linux, macos]
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+        latestVersion:
+          type: [string, 'null']
+        sourceLabel:
+          type: string
+        resolutionStatus:
+          type: string
+        validationStatus:
+          type: string
+        downloadable:
+          type: boolean
     AppPage:
       type: object
       required: [data, page, pageSize, total]
@@ -459,7 +597,7 @@ components:
           format: int64
     CreateDownloadJobRequest:
       type: object
-      required: [appIds]
+      additionalProperties: false
       properties:
         appIds:
           type: array
@@ -469,13 +607,21 @@ components:
           items:
             type: string
             format: uuid
-        operatingSystem:
+        bundleId:
           type: string
-        architecture:
-          type: string
+          minLength: 1
+        operatingSystems:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [windows, linux, macos]
         notifyWhenReady:
           type: boolean
           default: false
+      oneOf:
+        - required: [appIds]
+        - required: [bundleId]
     DownloadJobStatus:
       type: string
       enum: [QUEUED, RESOLVING, DOWNLOADING, PACKAGING, READY, PARTIAL, FAILED, CANCELLED, EXPIRED]
@@ -501,7 +647,7 @@ components:
           type: [string, 'null']
     DownloadJob:
       type: object
-      required: [id, status, progress, items, createdAt, expiresAt]
+      required: [id, status, progress, requestedCount, acceptedCount, omittedCount, items, createdAt, expiresAt]
       properties:
         id:
           type: string
@@ -512,6 +658,15 @@ components:
           type: integer
           minimum: 0
           maximum: 100
+        requestedCount:
+          type: integer
+          minimum: 1
+        acceptedCount:
+          type: integer
+          minimum: 1
+        omittedCount:
+          type: integer
+          minimum: 0
         items:
           type: array
           items:
@@ -522,6 +677,94 @@ components:
         expiresAt:
           type: string
           format: date-time
+    FacetItem:
+      type: object
+      required: [label, value, normalizedValue, letter, count]
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+        normalizedValue:
+          type: string
+        letter:
+          type: string
+        count:
+          type: integer
+          format: int64
+    CatalogFacets:
+      type: object
+      required: [tags, publishers]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetItem'
+        publishers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetItem'
+    BundleSummary:
+      type: object
+      required: [id, slug, name, type, visibility, starCount, appCount, tags, previewApps, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        type:
+          type: string
+          enum: [official, community, user]
+        visibility:
+          type: string
+          enum: [official, public, private]
+        starCount:
+          type: integer
+        appCount:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        previewApps:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/App'
+        updatedAt:
+          type: string
+          format: date-time
+    Bundle:
+      allOf:
+        - $ref: '#/components/schemas/BundleSummary'
+        - type: object
+          required: [apps]
+          properties:
+            apps:
+              type: array
+              maxItems: 100
+              items:
+                $ref: '#/components/schemas/App'
+    BundlePage:
+      type: object
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
     Problem:
       type: object
       required: [code, message, correlationId]
