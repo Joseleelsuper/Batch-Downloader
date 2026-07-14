@@ -9,7 +9,6 @@ import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPa
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobReadyEvent;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRequestedEvent;
-import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadLimits;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadedArtifact;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ResolvedDownloadItem;
 import es.ubu.batchdownloader.downloadworker.domain.EventTypes;
@@ -81,18 +80,20 @@ class DownloadJobProcessorTest {
         processor.process(event);
 
         assertThat(store.objects.keySet()).contains(
-                "jobs/" + event.payload().jobId() + "/files/Good.exe",
                 "jobs/" + event.payload().jobId() + "/manifest.json",
                 "jobs/" + event.payload().jobId() + "/bundle.zip");
+        assertThat(store.objects.keySet())
+                .doesNotContain("jobs/" + event.payload().jobId() + "/files/Good.exe");
         String manifest = new String(store.objects.get("jobs/" + event.payload().jobId() + "/manifest.json"));
         assertThat(manifest).contains("\"status\" : \"PARTIAL\"")
                 .contains("remote_http_404")
                 .contains("Good.exe");
-        assertThat(publisher.routingKeys).containsExactly(
-                EventTypes.JOB_PROGRESSED_ROUTING_KEY,
-                EventTypes.JOB_PROGRESSED_ROUTING_KEY,
-                EventTypes.JOB_READY_ROUTING_KEY);
-        DownloadJobReadyEvent readyEvent = (DownloadJobReadyEvent) publisher.events.get(2);
+        assertThat(publisher.routingKeys)
+                .containsOnly(EventTypes.JOB_PROGRESSED_ROUTING_KEY, EventTypes.JOB_READY_ROUTING_KEY);
+        assertThat(publisher.routingKeys)
+                .filteredOn(EventTypes.JOB_PROGRESSED_ROUTING_KEY::equals)
+                .hasSize(6);
+        DownloadJobReadyEvent readyEvent = (DownloadJobReadyEvent) publisher.events.getLast();
         assertThat(readyEvent.payload().status()).isEqualTo("PARTIAL");
         assertThat(readyEvent.payload().successfulItems()).isEqualTo(1);
         assertThat(readyEvent.payload().failedItems()).isEqualTo(1);
@@ -114,6 +115,25 @@ class DownloadJobProcessorTest {
 
         assertThat(store.objects).isEmpty();
         assertThat(publisher.routingKeys).containsExactly(EventTypes.JOB_FAILED_ROUTING_KEY);
+    }
+
+    @Test
+    void doesNotPublishAnUnusableArchiveWhenEveryInstallerIsRejected() {
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        RecordingPublisher publisher = new RecordingPublisher();
+        RemoteDownloader rejected = (item, filename, target, budget, maxFileBytes) -> {
+            throw new DownloadRejectedException("remote_http_404");
+        };
+        DownloadJobProcessor processor = processor(rejected, store, publisher, 10);
+
+        processor.process(event(List.of(item("bad", "Bad.exe"))));
+
+        assertThat(store.objects).isEmpty();
+        assertThat(publisher.routingKeys).containsExactly(
+                EventTypes.JOB_PROGRESSED_ROUTING_KEY,
+                EventTypes.JOB_PROGRESSED_ROUTING_KEY,
+                EventTypes.JOB_PROGRESSED_ROUTING_KEY,
+                EventTypes.JOB_FAILED_ROUTING_KEY);
     }
 
     private DownloadJobProcessor processor(
@@ -140,8 +160,8 @@ class DownloadJobProcessorTest {
                 item.sourceRef(),
                 URI.create("https://downloads.example.com/" + filename(item.itemId())),
                 filename(item.itemId()),
-                item.operatingSystem(),
-                item.architecture(),
+                "windows",
+                "x86_64",
                 null,
                 null,
                 null);
@@ -156,7 +176,8 @@ class DownloadJobProcessorTest {
                 executor,
                 downloadProperties,
                 storage,
-                Clock.fixed(Instant.parse("2026-07-11T12:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-07-11T12:00:00Z"), ZoneOffset.UTC),
+                new DownloadCancellationRegistry());
     }
 
     private DownloadJobRequestedEvent event(List<DownloadItemRequest> items) {
@@ -169,17 +190,14 @@ class DownloadJobProcessorTest {
                 null,
                 new DownloadJobPayload(
                         UUID.randomUUID(),
-                        items,
-                        new DownloadLimits(10_000_000, 20_000_000, 2)));
+                        items));
     }
 
     private DownloadItemRequest item(String id, String filename) {
         return new DownloadItemRequest(
                 DownloadJobProcessorTest.id("item-" + id),
                 DownloadJobProcessorTest.id("app-" + id),
-                DownloadJobProcessorTest.id("source-" + id),
-                "windows",
-                "x86_64");
+                DownloadJobProcessorTest.id("source-" + id));
     }
 
     private static String filename(UUID itemId) {
@@ -200,6 +218,11 @@ class DownloadJobProcessorTest {
             } catch (Exception exception) {
                 throw new RuntimeException(exception);
             }
+        }
+
+        @Override
+        public void delete(String objectKey) {
+            objects.remove(objectKey);
         }
 
     }

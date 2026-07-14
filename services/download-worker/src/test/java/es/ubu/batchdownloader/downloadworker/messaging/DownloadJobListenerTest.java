@@ -12,7 +12,6 @@ import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRequestedEvent;
-import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadLimits;
 import es.ubu.batchdownloader.downloadworker.domain.EventTypes;
 import es.ubu.batchdownloader.downloadworker.ports.InboxRepository;
 import jakarta.validation.Validation;
@@ -97,7 +96,6 @@ class DownloadJobListenerTest {
                 new DownloadJobPayload(
                         UUID.randomUUID(),
                         List.of(new DownloadItemRequest(
-                                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "windows", "x86_64")),
-                        new DownloadLimits(10_000_000, 20_000_000, 3)));
+                                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()))));
     }
 }
