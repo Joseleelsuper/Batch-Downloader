@@ -6,6 +6,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -33,7 +36,7 @@ class CatalogRepositoryTest {
     void searchWithQueryOrdersByRelevanceBeforeUpdatedTieBreaker() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
-        CatalogRepository repository = new CatalogRepository(jdbc);
+        CatalogRepository repository = repository(jdbc);
 
         repository.search(
                 "Epic Games",
@@ -62,7 +65,7 @@ class CatalogRepositoryTest {
     void searchWithoutQueryKeepsPlainSortOrder() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
-        CatalogRepository repository = new CatalogRepository(jdbc);
+        CatalogRepository repository = repository(jdbc);
 
         repository.search(
                 "",
@@ -87,7 +90,7 @@ class CatalogRepositoryTest {
     void reviewFilterExcludesAppsThatAlreadyHaveAValidInstaller() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
-        CatalogRepository repository = new CatalogRepository(jdbc);
+        CatalogRepository repository = repository(jdbc);
 
         repository.search(
                 "",
@@ -110,8 +113,32 @@ class CatalogRepositoryTest {
     }
 
     @Test
+    void availableFilterKeepsRecentStaleCandidateForMandatoryWorkerRevalidation() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        CatalogRepository repository = repository(jdbc);
+
+        repository.search(
+                "", "available", List.of("windows"), null, List.of(), List.of(),
+                null, "all", "updated", 1, 12);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
+        assertThat(sql.getValue()).contains("a.operating_systems_json");
+        assertThat(sql.getValue()).contains("JSON_CONTAINS");
+        assertThat(sql.getValue()).contains("verified_artifact.checked_at >= ?");
+        assertThat(sql.getValue()).doesNotContain("verified_artifact.expires_at > NOW()");
+        assertThat(params.getValue()).anyMatch(Timestamp.class::isInstance);
+    }
+
+    @Test
     void normalizeSearchQueryRemovesAccentsAndCollapsesWhitespace() {
         assertThat(CatalogRepository.normalizeSearchQuery("  Épic   GAMES  "))
                 .isEqualTo("epic games");
+    }
+
+    private static CatalogRepository repository(JdbcTemplate jdbc) {
+        return new CatalogRepository(jdbc, Clock.systemUTC(), Duration.ofDays(7));
     }
 }

@@ -1,0 +1,44 @@
+package es.ubu.batchdownloader.downloads.infrastructure.messaging;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+
+import es.ubu.batchdownloader.downloads.domain.DownloadJob;
+import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
+import es.ubu.batchdownloader.messaging.OutboxWriter;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+
+class DownloadOutboxPublisherTest {
+    @Test
+    void publishesOnlyJobAndSourceIdentifiersForWorkerResolution() {
+        OutboxWriter outbox = Mockito.mock(OutboxWriter.class);
+        DownloadJobItem item = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), Instant.now());
+        DownloadJob job = DownloadJob.queue(
+                UUID.randomUUID(), null, null, List.of(item), 1, 0, false,
+                Instant.now(), Instant.now().plusSeconds(3600));
+
+        new DownloadOutboxPublisher(outbox).jobRequested(job);
+
+        ArgumentCaptor<Object> payloadCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(outbox).append(
+                eq("download-job"), eq(job.id()), eq("download.job.requested"),
+                eq("download.job.requested"), eq(job.id()), any(), payloadCaptor.capture());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) payloadCaptor.getValue();
+        assertThat(payload).containsOnlyKeys("jobId", "items");
+        @SuppressWarnings("unchecked")
+        List<Map<String, UUID>> items = (List<Map<String, UUID>>) payload.get("items");
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0)).containsEntry("itemId", item.id())
+                .containsEntry("appId", item.appId())
+                .containsEntry("sourceRef", item.sourceRef());
+    }
+}

@@ -8,7 +8,6 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,10 +23,7 @@ class CatalogControllerTest {
     void appsMergesRepeatedAndLegacyTagParamsAndKeepsPublisherCommas() {
         when(catalog.search(any(), any(), any(), any(), anyList(), anyList(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(List.of());
-        CatalogController controller = new CatalogController(
-                catalog,
-                "http://scraper-api:8000",
-                new ObjectMapper());
+        CatalogController controller = new CatalogController(catalog);
 
         controller.apps(
                 "epic",
@@ -46,7 +42,7 @@ class CatalogControllerTest {
         verify(catalog).search(
                 eq("epic"),
                 eq("available"),
-                isNull(),
+                eq(List.of()),
                 isNull(),
                 eq(List.of(".NET", "runtime", "Windows", "Desktop")),
                 eq(List.of("ACME, Inc.", "東Vendor")),
@@ -59,15 +55,12 @@ class CatalogControllerTest {
 
     @Test
     void facetsParsesTheSameFilterContractAsApps() {
-        CatalogController controller = new CatalogController(
-                catalog,
-                "http://scraper-api:8000",
-                new ObjectMapper());
+        CatalogController controller = new CatalogController(catalog);
 
         controller.facets(
                 null,
                 "review",
-                "windows",
+                List.of("windows"),
                 "x64",
                 List.of("productivity"),
                 null,
@@ -78,7 +71,7 @@ class CatalogControllerTest {
         verify(catalog).facets(
                 isNull(),
                 eq("review"),
-                eq("windows"),
+                eq(List.of("windows")),
                 eq("x64"),
                 eq(List.of("productivity")),
                 eq(List.of("Code Sector")),
