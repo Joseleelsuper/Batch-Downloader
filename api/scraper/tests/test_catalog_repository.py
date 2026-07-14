@@ -345,6 +345,84 @@ async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_so_filter_projects_platforms_with_verified_binary_history() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    now = utc_now()
+    async with session_factory() as session:
+        app = SoftwareApp(
+            id=uuid4(),
+            winstall_id="Vendor.CrossPlatform",
+            slug="vendor-cross-platform",
+            name="Cross Platform",
+            normalized_name="cross platform",
+            app_status="active",
+            operating_systems=["linux"],
+            created_at=now,
+            updated_at=now,
+        )
+        windows = source_with_resolved_app(
+            app,
+            "windows",
+            expires_in_hours=1,
+            metadata={"validation_confidence": "verified"},
+        )
+        linux = source_with_resolved_app(
+            app,
+            "linux",
+            expires_in_hours=1,
+            metadata={
+                "validation_confidence": "verified",
+                "transport_security": "https_winstall_edge_attested",
+            },
+        )
+        macos = source_with_resolved_app(
+            app,
+            "macos",
+            expires_in_hours=-1,
+            metadata={"validation_confidence": "validated"},
+        )
+        app.sources = [windows, linux, macos]
+        session.add(app)
+        await session.commit()
+
+        systems = await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).refresh_operating_systems(app.id)
+        await session.commit()
+
+        assert systems == ["windows", "macos"]
+        assert app.operating_systems == ["windows", "macos"]
+        assert app.operating_systems_updated_at is not None
+        assert app.version == 1
+
+        systems = await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).refresh_operating_systems(app.id)
+        await session.commit()
+        assert systems == ["windows", "macos"]
+        assert app.version == 1
+        assert await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).apps_pending_os_filter() == []
+
+        app.operating_systems_updated_at = utc_after(hours=-25)
+        await session.commit()
+        pending = await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).apps_pending_os_filter()
+        assert [item.id for item in pending] == [app.id]
+
+    await engine.dispose()
+
+
 def software_app(
     winstall_id: str,
     *,
@@ -364,3 +442,37 @@ def software_app(
         created_at=now,
         updated_at=now,
     )
+
+
+def source_with_resolved_app(
+    app: SoftwareApp,
+    operating_system: str,
+    *,
+    expires_in_hours: int,
+    metadata: dict[str, str],
+) -> DownloadSource:
+    now = utc_now()
+    source = DownloadSource(
+        id=uuid4(),
+        software_app_id=app.id,
+        operating_system=operating_system,
+        architecture="UNKNOWN",
+        resolution_status=ResolutionStatus.DIRECT.value,
+        validation_status=ValidationStatus.VALID.value,
+    )
+    source.resolved_sources = [
+        ResolvedSource(
+            id=uuid4(),
+            download_source_id=source.id,
+            resolved_url_encrypted=f"encrypted-{operating_system}",
+            final_domain="example.com",
+            filename=f"app-{operating_system}",
+            score=100,
+            status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+            checked_at=now,
+            expires_at=utc_after(hours=expires_in_hours),
+            metadata_json=metadata,
+        )
+    ]
+    return source

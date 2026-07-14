@@ -12,7 +12,9 @@ from app.db.models import ScrapeRun, ScraperWorkerSnapshot, ScraperWorkItem
 from app.repositories.pipeline import (
     MAX_SNAPSHOT_HTML_BYTES,
     QUEUE_FILTER_SCRAPER,
+    QUEUE_SCRAPER_SO_FILTER,
     QUEUE_SEARCHER_FILTER,
+    QUEUE_SO_FILTER_DESCRIPTOR,
     STATUS_COMPLETED,
     STATUS_DISCARDED,
     STATUS_FAILED,
@@ -131,7 +133,7 @@ async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session)
     previous_run = uuid4()
     next_run = uuid4()
 
-    for queue in (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER):
+    for queue in (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER, QUEUE_SCRAPER_SO_FILTER):
         item = await repository.enqueue(
             queue,
             f"Vendor.{queue}",
@@ -142,7 +144,7 @@ async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session)
         await repository.complete(item)
     await db_session.commit()
 
-    for queue in (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER):
+    for queue in (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER, QUEUE_SCRAPER_SO_FILTER):
         item = await repository.enqueue(
             queue,
             f"Vendor.{queue}",
@@ -152,6 +154,102 @@ async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session)
         )
         assert item.status == STATUS_QUEUED
         assert item.run_id == next_run
+
+
+@pytest.mark.asyncio
+async def test_queue_states_expose_so_filter_pipeline_tail(db_session) -> None:
+    repository = PipelineRepository(db_session)
+    await repository.enqueue(
+        QUEUE_SCRAPER_SO_FILTER,
+        "Vendor.SOFilter",
+        "SO Filter App",
+        {"software_app_id": str(uuid4())},
+        uuid4(),
+    )
+    await repository.enqueue(
+        QUEUE_SO_FILTER_DESCRIPTOR,
+        "Vendor.Descriptor",
+        "Descriptor App",
+        {"software_app_id": str(uuid4())},
+        uuid4(),
+    )
+    await db_session.commit()
+
+    states = await repository.queue_states()
+
+    assert [state.queue for state in states] == [
+        QUEUE_SEARCHER_FILTER,
+        QUEUE_FILTER_SCRAPER,
+        QUEUE_SCRAPER_SO_FILTER,
+        QUEUE_SO_FILTER_DESCRIPTOR,
+    ]
+    assert states[2].counts == {STATUS_QUEUED: 1}
+    assert states[3].counts == {STATUS_QUEUED: 1}
+    assert await repository.item_statuses(
+        QUEUE_SCRAPER_SO_FILTER,
+        ["Vendor.SOFilter", "Vendor.Missing"],
+    ) == {"Vendor.SOFilter": STATUS_QUEUED}
+
+
+@pytest.mark.asyncio
+async def test_so_filter_backfill_does_not_mask_a_later_scrape_result(db_session) -> None:
+    repository = PipelineRepository(db_session)
+    item = await repository.enqueue(
+        QUEUE_SCRAPER_SO_FILTER,
+        "Vendor.Race",
+        "Race App",
+        {"input_hash": "1:backfill"},
+        None,
+    )
+    await repository.complete(item)
+    await db_session.commit()
+
+    run_id = uuid4()
+    item = await repository.enqueue(
+        QUEUE_SCRAPER_SO_FILTER,
+        "Vendor.Race",
+        "Race App",
+        {"input_hash": f"1:{run_id}"},
+        run_id,
+    )
+
+    assert item.status == STATUS_QUEUED
+    assert item.run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_active_package_ids_detects_only_live_upstream_work(db_session) -> None:
+    repository = PipelineRepository(db_session)
+    active = await repository.enqueue(
+        QUEUE_FILTER_SCRAPER,
+        "Vendor.Active",
+        "Active App",
+        {},
+        uuid4(),
+    )
+    await repository.enqueue(
+        QUEUE_SEARCHER_FILTER,
+        "Vendor.Active",
+        "Active App",
+        {},
+        uuid4(),
+    )
+    completed = await repository.enqueue(
+        QUEUE_FILTER_SCRAPER,
+        "Vendor.CompletedUpstream",
+        "Completed App",
+        {},
+        uuid4(),
+    )
+    await repository.complete(completed)
+    await db_session.commit()
+
+    package_ids = await repository.active_package_ids(
+        (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER),
+        [active.package_id, completed.package_id, "Vendor.Missing"],
+    )
+
+    assert package_ids == {"Vendor.Active"}
 
 
 def test_snapshot_html_is_bounded_before_sanitizing_large_pages() -> None:
