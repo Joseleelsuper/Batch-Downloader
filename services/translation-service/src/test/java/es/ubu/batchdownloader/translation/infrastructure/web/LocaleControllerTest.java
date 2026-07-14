@@ -59,7 +59,7 @@ class LocaleControllerTest {
     void returnsNotModifiedWhenIfNoneMatchMatches() throws Exception {
         mockMvc.perform(get("/api/v1/locales/es").header(HttpHeaders.IF_NONE_MATCH, ETAG))
                 .andExpect(status().isNotModified())
-                .andExpect(header().string(HttpHeaders.ETAG, ETAG))
+                .andExpect(header().stringValues(HttpHeaders.ETAG, ETAG))
                 .andExpect(content().bytes(new byte[0]));
     }
 
