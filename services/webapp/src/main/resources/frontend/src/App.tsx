@@ -4,6 +4,8 @@
   Building2,
   Boxes,
   ClipboardList,
+  ChevronLeft,
+  ChevronRight,
   FileDown,
   Globe2,
   Home,
@@ -34,6 +36,7 @@ import {
   createAdminBundle,
   deleteAdminApp,
   deleteAllAdminApps,
+  enqueueMissingScraperDescriptions,
   exportAdminAppsCsv,
   fetchAdminApps,
   fetchAdminAudit,
@@ -68,6 +71,7 @@ import {
   nextFilters,
   parseCatalogFilters,
   toggleValue,
+  toggleOperatingSystem,
   type CatalogFilterState,
 } from './catalogFilters';
 import { mergeSelectedAppIntoPage } from './catalogSelection';
@@ -77,6 +81,7 @@ import { AppSearchBar } from './components/AppSearchBar';
 import { AppStatusBadge } from './components/AppStatusBadge';
 import { AppTable } from './components/AppTable';
 import { DownloadButton } from './components/DownloadButton';
+import { BundleDownloadButton } from './components/BundleDownloadButton';
 import { DownloadJobPanel } from './components/DownloadJobPanel';
 import { Pagination } from './components/Pagination';
 import { useDownloadJob } from './hooks/useDownloadJob';
@@ -304,24 +309,27 @@ function BundleSection({
 
 function BundleCard({ bundle }: { bundle: BundleSummary }) {
   return (
-    <Link className="bundle-card" to={`/bundles/${bundle.id}`}>
-      <div className="bundle-card-header">
-        <span className="bundle-icon">
-          <Boxes size={22} />
-        </span>
-        <div>
-          <h3>{bundle.name}</h3>
-          <small>{t('bundle.appCount', { count: bundle.appCount })}</small>
+    <article className="bundle-card">
+      <Link className="bundle-card-link" to={`/bundles/${bundle.id}`}>
+        <div className="bundle-card-header">
+          <span className="bundle-icon">
+            <Boxes size={22} />
+          </span>
+          <div>
+            <h3>{bundle.name}</h3>
+            <small>{t('bundle.appCount', { count: bundle.appCount })}</small>
+          </div>
         </div>
-      </div>
-      <p>{bundle.description || t('bundle.fallbackDescription')}</p>
-      <div className="mini-apps">
-        {bundle.previewApps.slice(0, 5).map((app) => (
-          <AppMiniIcon app={app} key={app.id} />
-        ))}
-        {bundle.appCount > 5 ? <span className="mini-more">+{bundle.appCount - 5}</span> : null}
-      </div>
-    </Link>
+        <p>{bundle.description || t('bundle.fallbackDescription')}</p>
+        <div className="mini-apps">
+          {bundle.previewApps.slice(0, 5).map((app) => (
+            <AppMiniIcon app={app} key={app.id} />
+          ))}
+          {bundle.appCount > 5 ? <span className="mini-more">+{bundle.appCount - 5}</span> : null}
+        </div>
+      </Link>
+      <BundleDownloadButton bundleId={bundle.id} appCount={bundle.appCount} compact />
+    </article>
   );
 }
 
@@ -357,7 +365,7 @@ function CatalogPage() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [filtersVisible, setFiltersVisible] = useState(true);
+  const [filtersVisible, setFiltersVisible] = useState(() => localStorage.getItem('catalog.filters.open') !== 'false');
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
   const downloadJob = useDownloadJob();
   const visibleApps = useMemo(
@@ -399,7 +407,7 @@ function CatalogPage() {
       tags: filters.tags,
       publishers: filters.publishers,
       tagMatchMin: filters.tagMatchMin,
-      os: filters.os,
+      operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
       architecture: filters.architecture,
     })
       .then((response) => {
@@ -482,7 +490,10 @@ function CatalogPage() {
     if (selectedDownloadIds.size < 1) return;
     setError(null);
     try {
-      await downloadJob.start(Array.from(selectedDownloadIds));
+      await downloadJob.start({
+        appIds: Array.from(selectedDownloadIds),
+        operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
+      });
     } catch {
       setError(t('catalog.error.zip'));
     }
@@ -490,26 +501,47 @@ function CatalogPage() {
 
   return (
     <main className={`workspace ${filtersVisible ? '' : 'filters-hidden'}`}>
-      <AppFilters
-        active={filters.filter}
-        counts={stats?.filters ?? DEFAULT_COUNTS}
-        selectedTags={filters.tags}
-        selectedPublishers={filters.publishers}
-        tagMatchMin={effectiveTagMatchMin(filters)}
-        catalogSearch={searchKey}
-        selectedCount={selectedDownloadIds.size}
-        downloading={downloadJob.starting}
-        onChange={(nextFilter) => {
-          updateFilters({ filter: nextFilter });
-        }}
-        onRemoveTag={(tag) => updateFilters({ tags: filters.tags.filter((item) => item !== tag) })}
-        onRemovePublisher={(publisher) => updateFilters({
-          publishers: filters.publishers.filter((item) => item !== publisher),
+      <div className="filter-rail-shell" hidden={!filtersVisible}>
+        <AppFilters
+          active={filters.filter}
+          counts={stats?.filters ?? DEFAULT_COUNTS}
+          selectedTags={filters.tags}
+          selectedPublishers={filters.publishers}
+          tagMatchMin={effectiveTagMatchMin(filters)}
+          catalogSearch={searchKey}
+          selectedCount={selectedDownloadIds.size}
+          downloading={downloadJob.starting}
+          operatingSystems={filters.operatingSystems}
+          onChange={(nextFilter) => {
+            updateFilters({ filter: nextFilter });
+          }}
+          onToggleOperatingSystem={(operatingSystem) => {
+            updateFilters({ operatingSystems: toggleOperatingSystem(filters.operatingSystems, operatingSystem) });
+          }}
+          onRemoveTag={(tag) => updateFilters({ tags: filters.tags.filter((item) => item !== tag) })}
+          onRemovePublisher={(publisher) => updateFilters({
+            publishers: filters.publishers.filter((item) => item !== publisher),
+          })}
+          onClearFacets={() => updateFilters({ tags: [], publishers: [], tagMatchMin: undefined })}
+          onDownloadSelected={() => void downloadSelection()}
+          onClearSelection={() => setSelectedDownloadIds(new Set())}
+        />
+      </div>
+      <button
+        className="filter-bookmark"
+        type="button"
+        aria-controls="catalog-filters"
+        aria-expanded={filtersVisible}
+        aria-label={filtersVisible ? t('catalog.filters.close') : t('catalog.filters.open')}
+        title={filtersVisible ? t('catalog.filters.close') : t('catalog.filters.open')}
+        onClick={() => setFiltersVisible((visible) => {
+          const next = !visible;
+          localStorage.setItem('catalog.filters.open', String(next));
+          return next;
         })}
-        onClearFacets={() => updateFilters({ tags: [], publishers: [], tagMatchMin: undefined })}
-        onDownloadSelected={() => void downloadSelection()}
-        onClearSelection={() => setSelectedDownloadIds(new Set())}
-      />
+      >
+        {filtersVisible ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+      </button>
       <section className="catalog-panel">
         <div className="catalog-header-row">
           <span>{formatLastScrape(stats)}</span>
@@ -521,7 +553,6 @@ function CatalogPage() {
           onSortChange={(nextSort) => {
             updateFilters({ sort: nextSort });
           }}
-          onToggleFilters={() => setFiltersVisible((value) => !value)}
         />
         {error ? <p className="error-banner">{error}</p> : null}
         {downloadJob.job ? (
@@ -589,7 +620,7 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
       tags: filters.tags,
       publishers: filters.publishers,
       tagMatchMin: filters.tagMatchMin,
-      os: filters.os,
+      operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
       architecture: filters.architecture,
     })
       .then((response) => {
@@ -734,7 +765,10 @@ function BundleDetailPage() {
             ))}
           </div>
         </div>
-        <span>{t('bundle.appsCount', { count: bundle.appCount })}</span>
+        <div className="bundle-detail-actions">
+          <span>{t('bundle.appsCount', { count: bundle.appCount })}</span>
+          <BundleDownloadButton bundleId={bundle.id} appCount={bundle.appCount} />
+        </div>
       </section>
       <div className="bundle-app-list">
         {bundle.apps.map((app) => (
@@ -1315,6 +1349,7 @@ function AdminScraperPage() {
   const [snapshots, setSnapshots] = useState<ScraperSnapshotItem[]>([]);
   const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
   const [message, setMessage] = useState<string | null>(null);
+  const [enrichmentAction, setEnrichmentAction] = useState<'descriptions' | null>(null);
 
   async function load() {
     const [nextCurrent, nextRuns, nextLogs, nextQueues, nextMetrics, nextSnapshots] = await Promise.all([
@@ -1376,6 +1411,27 @@ function AdminScraperPage() {
     }
   }
 
+  async function enqueueMissingDescriptions() {
+    setMessage(null);
+    setEnrichmentAction('descriptions');
+    try {
+      const result = await enqueueMissingScraperDescriptions();
+      if (result.matched === 0) {
+        setMessage(t('admin.message.noMissingDescriptions'));
+      } else {
+        setMessage(t('admin.message.enrichmentQueued', {
+          enqueued: result.enqueued,
+          active: result.alreadyActive,
+        }));
+      }
+      await load();
+    } catch {
+      setMessage(t('admin.message.enrichmentQueueError'));
+    } finally {
+      setEnrichmentAction(null);
+    }
+  }
+
   const controlState = scraperControlState(current);
 
   return (
@@ -1413,6 +1469,17 @@ function AdminScraperPage() {
         <button className="secondary-button" type="button" onClick={() => maintainQueue('clear_pending')}><Trash2 size={16} />{t('admin.scraper.clearPending')}</button>
         <button className="secondary-button danger-button" type="button" onClick={() => maintainQueue('clear_all')}><Trash2 size={16} />{t('admin.scraper.clearAll')}</button>
       </div>
+      <div className="button-row queue-maintenance-row">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={enrichmentAction !== null}
+          onClick={() => enqueueMissingDescriptions()}
+        >
+          <Wand2 size={16} />
+          {t('admin.scraper.enqueueMissingDescriptions')}
+        </button>
+      </div>
       {message ? <p className="form-message">{message}</p> : null}
       <div className="scraper-live-line">
         <span>{t('admin.scraper.liveState')}</span>
@@ -1446,10 +1513,17 @@ function AdminScraperPage() {
   );
 }
 
-function ScraperQueues({ queues }: Readonly<{ queues: ScraperQueueState[] }>) {
+export function ScraperQueues({ queues }: Readonly<{ queues: ScraperQueueState[] }>) {
   const searcherFilter = queues.find((queue) => queue.queue === 'searcher_filter');
   const filterScraper = queues.find((queue) => queue.queue === 'filter_scraper');
-  const scraperDescriptor = queues.find((queue) => queue.queue === 'scraper_descriptor');
+  const scraperSoFilter = queues.find((queue) => (
+    queue.queue === 'scraper_so_filter' || queue.queue === 'scraper_os_filter'
+  ));
+  const soFilterDescriptor = queues.find((queue) => (
+    queue.queue === 'so_filter_descriptor'
+    || queue.queue === 'os_filter_descriptor'
+    || queue.queue === 'scraper_descriptor'
+  ));
   return (
     <div className="scraper-pipeline admin-card">
       <PipelineStage title={t('admin.scraper.stage.searcher')} count={searcherFilter?.queued ?? 0} />
@@ -1457,8 +1531,10 @@ function ScraperQueues({ queues }: Readonly<{ queues: ScraperQueueState[] }>) {
       <PipelineStage title={t('admin.scraper.stage.filter')} count={filterScraper?.queued ?? 0} />
       <QueueColumn title={t('admin.scraper.queue.filterScraper')} queue={filterScraper} />
       <PipelineStage title={t('admin.scraper.stage.scraper')} count={filterScraper?.inProgress ?? 0} />
-      <QueueColumn title={t('admin.scraper.queue.scraperDescriptor')} queue={scraperDescriptor} />
-      <PipelineStage title={t('admin.scraper.stage.descriptor')} count={scraperDescriptor?.inProgress ?? 0} />
+      <QueueColumn title={t('admin.scraper.queue.scraperSoFilter')} queue={scraperSoFilter} />
+      <PipelineStage title={t('admin.scraper.stage.soFilter')} count={scraperSoFilter?.inProgress ?? 0} />
+      <QueueColumn title={t('admin.scraper.queue.soFilterDescriptor')} queue={soFilterDescriptor} />
+      <PipelineStage title={t('admin.scraper.stage.descriptor')} count={soFilterDescriptor?.inProgress ?? 0} />
     </div>
   );
 }

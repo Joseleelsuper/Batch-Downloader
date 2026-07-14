@@ -34,6 +34,7 @@ function app(id: string, name: string): CatalogApp {
     description: null,
     longDescription: null,
     tags: [],
+    operatingSystems: [],
     iconUrl: null,
     latestVersion: null,
     sourceLabel: 'No disponible',

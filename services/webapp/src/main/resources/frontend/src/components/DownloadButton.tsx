@@ -18,7 +18,7 @@ export function DownloadButton({ appId, disabled }: Props) {
       window.location.assign(downloadJobFileUrl(job.id));
       return;
     }
-    void start([appId]).catch(() => undefined);
+    void start({ appIds: [appId] }).catch(() => undefined);
   }
 
   return (

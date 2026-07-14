@@ -31,7 +31,12 @@ export function DownloadJobPanel({ job, cancelling = false, onCancel, onClose }:
       </div>
       <progress max={100} value={job.progress}>{job.progress}%</progress>
       <p>
-        {t('download.job.summary', { completed, total: job.items.length, failed })}
+        {t('download.job.summary', { completed, total: job.acceptedCount || job.items.length, failed })}
+        {job.omittedCount > 0 ? ` · ${t('download.job.omitted', {
+          accepted: job.acceptedCount,
+          requested: job.requestedCount,
+          omitted: job.omittedCount,
+        })}` : null}
       </p>
       <div className="download-job-actions">
         {DOWNLOADABLE_STATUSES.has(job.status) ? (

@@ -5,8 +5,12 @@ import {
   createDownloadJob,
 } from '../api/catalog';
 import type { DownloadJob } from '../types/catalog';
+import type { OperatingSystem } from '../types/catalog';
 
 const TERMINAL_STATUSES = new Set(['READY', 'PARTIAL', 'FAILED', 'CANCELLED', 'EXPIRED']);
+export type DownloadJobRequest =
+  | { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean }
+  | { bundleId: string; notifyWhenReady?: boolean };
 
 export function useDownloadJob() {
   const [job, setJob] = useState<DownloadJob | null>(null);
@@ -19,11 +23,11 @@ export function useDownloadJob() {
     return connectDownloadJobEvents(job.id, setJob, () => setError(true));
   }, [job?.id, job?.status]);
 
-  const start = useCallback(async (appIds: string[]) => {
+  const start = useCallback(async (request: DownloadJobRequest) => {
     setStarting(true);
     setError(false);
     try {
-      const created = await createDownloadJob(appIds);
+      const created = await createDownloadJob(request);
       setJob(created);
       return created;
     } catch (cause) {

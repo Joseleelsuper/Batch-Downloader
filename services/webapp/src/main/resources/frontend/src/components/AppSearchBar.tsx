@@ -1,4 +1,4 @@
-import { Search, SlidersHorizontal } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { t } from '../services/i18n';
 import type { SortKey } from '../types/catalog';
 
@@ -7,10 +7,9 @@ interface Props {
   sort: SortKey;
   onChange: (value: string) => void;
   onSortChange: (sort: SortKey) => void;
-  onToggleFilters: () => void;
 }
 
-export function AppSearchBar({ value, sort, onChange, onSortChange, onToggleFilters }: Props) {
+export function AppSearchBar({ value, sort, onChange, onSortChange }: Props) {
   const nextSort = sort === 'updated' ? 'name' : 'updated';
 
   return (
@@ -24,10 +23,6 @@ export function AppSearchBar({ value, sort, onChange, onSortChange, onToggleFilt
           placeholder={t('catalog.searchPlaceholder')}
         />
       </label>
-      <button className="secondary-button" onClick={onToggleFilters} type="button">
-        <SlidersHorizontal size={18} />
-        {t('catalog.filters')}
-      </button>
       <button
         className="secondary-button"
         onClick={() => onSortChange(nextSort)}

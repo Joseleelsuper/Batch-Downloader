@@ -1,4 +1,6 @@
-import type { FilterKey, SortKey } from './types/catalog';
+import type { FilterKey, OperatingSystem, SortKey } from './types/catalog';
+
+export const ALL_OPERATING_SYSTEMS: OperatingSystem[] = ['windows', 'linux', 'macos'];
 
 export interface CatalogFilterState {
   query: string;
@@ -9,7 +11,7 @@ export interface CatalogFilterState {
   tags: string[];
   publishers: string[];
   tagMatchMin?: number;
-  os?: string;
+  operatingSystems: OperatingSystem[];
   architecture?: string;
 }
 
@@ -24,6 +26,7 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
   pageSize: 12,
   tags: [],
   publishers: [],
+  operatingSystems: ALL_OPERATING_SYSTEMS,
 };
 
 export function parseCatalogFilters(search: URLSearchParams | string): CatalogFilterState {
@@ -40,7 +43,7 @@ export function parseCatalogFilters(search: URLSearchParams | string): CatalogFi
     tags,
     publishers,
     tagMatchMin,
-    os: optionalParam(params.get('os')),
+    operatingSystems: parseOperatingSystems(params.getAll('os')),
     architecture: optionalParam(params.get('architecture')),
   };
 }
@@ -59,9 +62,23 @@ export function catalogFiltersToSearchParams(filters: CatalogFilterState): URLSe
   if (filters.tags.length && filters.tagMatchMin && filters.tagMatchMin !== filters.tags.length) {
     params.set('tagMatchMin', String(clampTagMatchMin(filters.tagMatchMin, filters.tags.length)));
   }
-  if (filters.os) params.set('os', filters.os);
+  if (!hasAllOperatingSystems(filters.operatingSystems)) {
+    filters.operatingSystems.forEach((operatingSystem) => params.append('os', operatingSystem));
+  }
   if (filters.architecture) params.set('architecture', filters.architecture);
   return params;
+}
+
+export function toggleOperatingSystem(
+  values: OperatingSystem[],
+  operatingSystem: OperatingSystem,
+): OperatingSystem[] {
+  if (values.includes(operatingSystem)) {
+    // At least one platform must remain selected. A completely disabled filter
+    // is ambiguous and makes the bookmark state inaccessible to keyboard users.
+    return values.length === 1 ? values : values.filter((value) => value !== operatingSystem);
+  }
+  return ALL_OPERATING_SYSTEMS.filter((value) => values.includes(value) || value === operatingSystem);
 }
 
 export function effectiveTagMatchMin(filters: Pick<CatalogFilterState, 'tags' | 'tagMatchMin'>): number {
@@ -103,6 +120,16 @@ function uniqueValues(values: string[]): string[] {
 function optionalParam(value: string | null): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function parseOperatingSystems(values: string[]): OperatingSystem[] {
+  const selected = uniqueValues(values)
+    .filter((value): value is OperatingSystem => ALL_OPERATING_SYSTEMS.includes(value as OperatingSystem));
+  return selected.length ? ALL_OPERATING_SYSTEMS.filter((value) => selected.includes(value)) : ALL_OPERATING_SYSTEMS;
+}
+
+function hasAllOperatingSystems(values: OperatingSystem[]): boolean {
+  return ALL_OPERATING_SYSTEMS.every((operatingSystem) => values.includes(operatingSystem));
 }
 
 function numberParam(value: string | null): number | undefined {

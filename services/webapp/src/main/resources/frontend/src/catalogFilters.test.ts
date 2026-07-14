@@ -4,6 +4,7 @@ import {
   effectiveTagMatchMin,
   nextFilters,
   parseCatalogFilters,
+  toggleOperatingSystem,
   toggleValue,
 } from './catalogFilters';
 
@@ -31,11 +32,13 @@ describe('catalogFilters', () => {
       tags: ['.NET', 'runtime'],
       publishers: ['ACME, Inc.'],
       tagMatchMin: 2,
+      operatingSystems: ['windows', 'linux'],
     });
 
     expect(params.getAll('tag')).toEqual(['.NET', 'runtime']);
     expect(params.getAll('publisher')).toEqual(['ACME, Inc.']);
     expect(params.has('tagMatchMin')).toBe(false);
+    expect(params.getAll('os')).toEqual(['windows', 'linux']);
   });
 
   it('clamps tagMatchMin when a selected tag is removed', () => {
@@ -48,6 +51,7 @@ describe('catalogFilters', () => {
       tags: ['a', 'b', 'c'],
       publishers: [],
       tagMatchMin: 3,
+      operatingSystems: ['windows', 'linux', 'macos'],
     }, { tags: ['a', 'b'] });
 
     expect(filters.page).toBe(1);
@@ -57,5 +61,21 @@ describe('catalogFilters', () => {
   it('toggles values preserving order for selected facets', () => {
     expect(toggleValue(['a'], 'b')).toEqual(['a', 'b']);
     expect(toggleValue(['a', 'b'], 'a')).toEqual(['b']);
+  });
+
+  it('parses repeated operating systems, omits all active systems and protects the last one', () => {
+    expect(parseCatalogFilters('os=linux&os=windows').operatingSystems).toEqual(['windows', 'linux']);
+    expect(catalogFiltersToSearchParams({
+      query: '',
+      filter: 'all',
+      sort: 'updated',
+      page: 1,
+      pageSize: 12,
+      tags: [],
+      publishers: [],
+      operatingSystems: ['windows', 'linux', 'macos'],
+    }).getAll('os')).toEqual([]);
+    expect(toggleOperatingSystem(['windows'], 'windows')).toEqual(['windows']);
+    expect(toggleOperatingSystem(['windows'], 'linux')).toEqual(['windows', 'linux']);
   });
 });

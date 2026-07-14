@@ -7,6 +7,8 @@ export type ResolutionStatus =
 
 export type ValidationStatus = 'unchecked' | 'valid' | 'invalid' | 'expired';
 
+export type OperatingSystem = 'windows' | 'linux' | 'macos';
+
 export interface CatalogApp {
   id: string;
   slug: string;
@@ -16,6 +18,7 @@ export interface CatalogApp {
   description?: string | null;
   longDescription?: string | null;
   tags: string[];
+  operatingSystems: OperatingSystem[];
   iconUrl?: string | null;
   latestVersion?: string | null;
   sourceLabel: string;
@@ -108,6 +111,9 @@ export interface DownloadJob {
   id: string;
   status: DownloadJobStatus;
   progress: number;
+  requestedCount: number;
+  acceptedCount: number;
+  omittedCount: number;
   items: DownloadJobItem[];
   createdAt: string;
   expiresAt: string;
@@ -214,8 +220,16 @@ export interface ScraperMetricItem {
   unavailable: number;
   queuedSearcherFilter: number;
   queuedFilterScraper: number;
-  queuedScraperDescriptor: number;
+  queuedScraperSoFilter?: number;
+  queuedSoFilterDescriptor?: number;
+  queuedScraperDescriptor?: number;
   capturedAt: string;
+}
+
+export interface ContentEnqueueResult {
+  matched: number;
+  enqueued: number;
+  alreadyActive: number;
 }
 
 export interface ScraperSnapshotItem {

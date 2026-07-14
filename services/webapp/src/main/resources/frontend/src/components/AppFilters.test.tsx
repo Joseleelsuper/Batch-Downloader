@@ -45,4 +45,29 @@ describe('AppFilters', () => {
     expect(onRemoveTag).toHaveBeenCalledWith('.NET');
     expect(onRemovePublisher).toHaveBeenCalledWith('ACME, Inc.');
   });
+
+  it('exposes platform toggle state and keeps the last active platform enabled', () => {
+    const onToggleOperatingSystem = vi.fn();
+    render(
+      <MemoryRouter>
+        <AppFilters
+          active="all"
+          counts={counts}
+          onChange={vi.fn()}
+          operatingSystems={['windows']}
+          onToggleOperatingSystem={onToggleOperatingSystem}
+        />
+      </MemoryRouter>,
+    );
+
+    const windows = screen.getByRole('button', { name: 'Windows' });
+    expect(windows).toHaveAttribute('aria-pressed', 'true');
+    expect(windows).toHaveAttribute('aria-disabled', 'true');
+
+    fireEvent.click(windows);
+    fireEvent.click(screen.getByRole('button', { name: 'Linux' }));
+
+    expect(onToggleOperatingSystem).toHaveBeenCalledTimes(1);
+    expect(onToggleOperatingSystem).toHaveBeenCalledWith('linux');
+  });
 });

@@ -1,10 +1,11 @@
 ﻿@media (max-width: 1180px) {
   .workspace {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: 220px 22px minmax(0, 1fr);
+    grid-template-areas: "filters bookmark catalog";
   }
 
   .workspace.filters-hidden {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 0 22px minmax(0, 1fr);
   }
 
   .details-drawer {
@@ -40,11 +41,34 @@
     flex-direction: column;
   }
 
+  .bundle-detail-actions {
+    justify-items: stretch;
+    width: 100%;
+  }
+
   .workspace {
     display: block;
     height: auto;
     min-height: calc(100vh - 72px);
     overflow: visible;
+  }
+
+  .filter-rail-shell {
+    width: auto;
+  }
+
+  .workspace.filters-hidden .filter-rail-shell {
+    display: none;
+  }
+
+  .filter-bookmark {
+    width: 100%;
+    min-height: 40px;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid #b9e4e1;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .site-shell-app {
@@ -57,6 +81,10 @@
     padding: 14px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+
+  .platform-filter {
+    margin: 16px 0 0;
   }
 
   .filter-rail nav {
@@ -112,7 +140,7 @@
   }
 
   .app-table {
-    min-width: 760px;
+    min-width: 860px;
   }
 
   .pagination {

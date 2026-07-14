@@ -32,6 +32,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+.bundle-detail-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  min-width: 190px;
+}
+
 .bundle-app-list {
   display: grid;
   gap: 8px;

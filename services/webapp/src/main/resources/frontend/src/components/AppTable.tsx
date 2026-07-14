@@ -1,6 +1,7 @@
 import type { CatalogApp } from '../types/catalog';
 import { t } from '../services/i18n';
 import { AppStatusBadge } from './AppStatusBadge';
+import { OperatingSystemList } from './OperatingSystemIcons';
 
 interface Props {
   apps: CatalogApp[];
@@ -29,6 +30,7 @@ export function AppTable({
             </th>
             <th>{t('catalog.column.app')}</th>
             <th>{t('catalog.column.publisher')}</th>
+            <th>S.O.</th>
             <th>{t('catalog.column.version')}</th>
             <th>{t('catalog.column.status')}</th>
           </tr>
@@ -59,6 +61,7 @@ export function AppTable({
                   </div>
                 </td>
                 <td>{app.publisher ?? '-'}</td>
+                <td><OperatingSystemList operatingSystems={app.operatingSystems} /></td>
                 <td>{app.latestVersion ?? '-'}</td>
                 <td>
                   <AppStatusBadge status={app.resolutionStatus} />

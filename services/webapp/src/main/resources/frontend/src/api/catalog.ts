@@ -8,6 +8,7 @@ import type {
   CatalogFacets,
   CatalogResponse,
   CatalogStats,
+  ContentEnqueueResult,
   DownloadJob,
   FilterKey,
   ResolverLogItem,
@@ -18,6 +19,7 @@ import type {
   ScraperRunSummary,
   ScraperSnapshotItem,
   SoftwareRequestItem,
+  OperatingSystem,
   SortKey,
 } from '../types/catalog';
 
@@ -92,7 +94,7 @@ export async function fetchApps(params: {
   tags?: string[];
   publishers?: string[];
   tagMatchMin?: number;
-  os?: string;
+  operatingSystems?: OperatingSystem[];
   architecture?: string;
 }): Promise<CatalogResponse> {
   const search = new URLSearchParams();
@@ -101,12 +103,12 @@ export async function fetchApps(params: {
   params.tags?.forEach((tag) => search.append('tag', tag));
   params.publishers?.forEach((publisher) => search.append('publisher', publisher));
   if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
-  if (params.os) search.set('os', params.os);
+  params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
   search.set('sort', params.sort);
   search.set('page', String(params.page));
   search.set('pageSize', String(params.pageSize));
-  return requestJson<CatalogResponse>(`/api/apps?${search.toString()}`);
+  return requestJson<CatalogResponse>(`/api/v1/apps?${search.toString()}`);
 }
 
 export async function fetchCatalogFacets(params: {
@@ -115,7 +117,7 @@ export async function fetchCatalogFacets(params: {
   tags?: string[];
   publishers?: string[];
   tagMatchMin?: number;
-  os?: string;
+  operatingSystems?: OperatingSystem[];
   architecture?: string;
 }): Promise<CatalogFacets> {
   const search = new URLSearchParams();
@@ -124,31 +126,25 @@ export async function fetchCatalogFacets(params: {
   params.tags?.forEach((tag) => search.append('tag', tag));
   params.publishers?.forEach((publisher) => search.append('publisher', publisher));
   if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
-  if (params.os) search.set('os', params.os);
+  params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
-  return requestJson<CatalogFacets>(`/api/apps/facets?${search.toString()}`);
+  return requestJson<CatalogFacets>(`/api/v1/apps/facets?${search.toString()}`);
 }
 
 export async function fetchCatalogStats(): Promise<CatalogStats> {
-  return requestJson<CatalogStats>('/api/apps/stats');
+  return requestJson<CatalogStats>('/api/v1/apps/stats');
 }
 
 export async function fetchAppDetails(appId: string): Promise<AppDetails> {
-  return requestJson<AppDetails>(`/api/apps/${encodeURIComponent(appId)}`);
-}
-
-export function downloadUrl(appId: string, optionId?: string): string {
-  const query = optionId ? `?optionId=${encodeURIComponent(optionId)}` : '';
-  return `${API_BASE}/api/apps/${encodeURIComponent(appId)}/download${query}`;
+  return requestJson<AppDetails>(`/api/v1/apps/${encodeURIComponent(appId)}`);
 }
 
 export async function createDownloadJob(
-  appIds: string[],
-  notifyWhenReady = true,
+  request: { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean } | { bundleId: string; notifyWhenReady?: boolean },
 ): Promise<DownloadJob> {
   return requestJson<DownloadJob>('/api/v1/download-jobs', {
     method: 'POST',
-    body: JSON.stringify({ appIds, notifyWhenReady }),
+    body: JSON.stringify(request),
   });
 }
 
@@ -255,11 +251,11 @@ export async function fetchBundles(params: {
   search.set('page', String(params.page ?? 1));
   search.set('pageSize', String(params.pageSize ?? 12));
   search.set('sort', params.sort ?? 'updated');
-  return requestJson<BundleResponse>(`/api/bundles?${search.toString()}`);
+  return requestJson<BundleResponse>(`/api/v1/bundles?${search.toString()}`);
 }
 
 export async function fetchBundle(slug: string): Promise<BundleDetails> {
-  return requestJson<BundleDetails>(`/api/bundles/${encodeURIComponent(slug)}`);
+  return requestJson<BundleDetails>(`/api/v1/bundles/${encodeURIComponent(slug)}`);
 }
 
 export async function createAdminBundle(payload: Record<string, unknown>): Promise<BundleDetails> {
@@ -445,6 +441,13 @@ export async function clearPendingScraperQueueItems(): Promise<ScraperQueueMaint
 export async function clearAllScraperQueueItems(): Promise<ScraperQueueMaintenanceResult> {
   return requestJson<ScraperQueueMaintenanceResult>(
     '/api/admin/scraper/queues/clear-all',
+    { method: 'POST' },
+  );
+}
+
+export async function enqueueMissingScraperDescriptions(): Promise<ContentEnqueueResult> {
+  return requestJson<ContentEnqueueResult>(
+    '/api/admin/scraper/descriptions/enqueue-missing',
     { method: 'POST' },
   );
 }

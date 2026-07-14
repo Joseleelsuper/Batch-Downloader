@@ -12,6 +12,7 @@ const app: AppDetails = {
   description: 'Dynamic mathematics app.',
   longDescription: 'GeoGebra Graphing Calculator permite crear graficas y explorar funciones.',
   tags: ['math', 'graphing'],
+  operatingSystems: ['windows'],
   latestVersion: '6.0.920',
   sourceLabel: 'Sitio oficial',
   resolutionStatus: 'direct',

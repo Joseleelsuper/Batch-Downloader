@@ -192,9 +192,15 @@
 
 .scraper-pipeline {
   display: grid;
-  grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1.3fr) minmax(110px, 0.7fr) minmax(0, 1.3fr) minmax(110px, 0.7fr);
+  grid-template-columns:
+    minmax(88px, 0.75fr) minmax(110px, 1.25fr)
+    minmax(88px, 0.75fr) minmax(110px, 1.25fr)
+    minmax(88px, 0.75fr) minmax(110px, 1.25fr)
+    minmax(88px, 0.75fr) minmax(110px, 1.25fr)
+    minmax(88px, 0.75fr);
   gap: 12px;
   align-items: stretch;
+  overflow-x: auto;
 }
 
 .pipeline-stage,

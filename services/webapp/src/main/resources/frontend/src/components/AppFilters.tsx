@@ -11,8 +11,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { FilterKey } from '../types/catalog';
+import type { FilterKey, OperatingSystem } from '../types/catalog';
 import { t } from '../services/i18n';
+import { OperatingSystemIcon, operatingSystemLabel } from './OperatingSystemIcons';
 
 const filters: Array<{
   key: FilterKey;
@@ -40,6 +41,8 @@ interface Props {
   onRemoveTag?: (tag: string) => void;
   onRemovePublisher?: (publisher: string) => void;
   onClearFacets?: () => void;
+  operatingSystems?: OperatingSystem[];
+  onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
 }
 
 export function AppFilters({
@@ -57,11 +60,13 @@ export function AppFilters({
   onRemoveTag,
   onRemovePublisher,
   onClearFacets,
+  operatingSystems = ['windows', 'linux', 'macos'],
+  onToggleOperatingSystem,
 }: Props) {
   const facetSearch = catalogSearch ? `?${catalogSearch}` : '';
   const activeFacetCount = selectedTags.length + selectedPublishers.length;
   return (
-    <aside className="filter-rail">
+    <aside className="filter-rail" id="catalog-filters">
       <div className="filter-header">
         <span>{t('catalog.filters')}</span>
         <SlidersHorizontal size={18} />
@@ -120,6 +125,31 @@ export function AppFilters({
             ))}
           </div>
         ) : null}
+      </section>
+      <section className="platform-filter" aria-label={t('catalog.platforms')}>
+        <span>S.O.</span>
+        <div>
+          {(['windows', 'linux', 'macos'] as OperatingSystem[]).map((operatingSystem) => {
+            const active = operatingSystems.includes(operatingSystem);
+            const lastActive = active && operatingSystems.length === 1;
+            return (
+              <button
+                key={operatingSystem}
+                className={`platform-filter-button ${active ? 'platform-filter-button-active' : ''}`}
+                type="button"
+                aria-pressed={active}
+                aria-disabled={lastActive || undefined}
+                title={operatingSystemLabel(operatingSystem)}
+                aria-label={operatingSystemLabel(operatingSystem)}
+                onClick={() => {
+                  if (!lastActive) onToggleOperatingSystem?.(operatingSystem);
+                }}
+              >
+                <OperatingSystemIcon operatingSystem={operatingSystem} decorative />
+              </button>
+            );
+          })}
+        </div>
       </section>
       <section className="selection-panel">
         <div>

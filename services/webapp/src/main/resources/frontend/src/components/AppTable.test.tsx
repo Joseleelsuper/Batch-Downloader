@@ -11,6 +11,7 @@ const app: CatalogApp = {
   publisher: 'Epic Games, Inc.',
   description: 'Game store',
   tags: ['games'],
+  operatingSystems: ['windows', 'macos'],
   latestVersion: '1.0.0',
   sourceLabel: 'Sitio oficial',
   resolutionStatus: 'direct',
@@ -31,6 +32,7 @@ describe('AppTable', () => {
     fireEvent.click(screen.getByText('Epic Games Launcher'));
 
     expect(onSelect).toHaveBeenCalledWith(app);
+    expect(screen.getByLabelText('Disponible para Windows, macOS')).toBeInTheDocument();
   });
 
   it('toggles selection without selecting the row', () => {

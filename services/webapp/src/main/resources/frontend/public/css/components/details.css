@@ -1,4 +1,5 @@
 ﻿.details-drawer {
+  grid-area: details;
   position: relative;
   min-height: 0;
   overflow-y: auto;

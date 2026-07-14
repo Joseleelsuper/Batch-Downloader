@@ -10,6 +10,9 @@ function job(status: DownloadJob['status']): DownloadJob {
     id: 'a51d185b-1966-4c51-83e2-9b2f523f47ce',
     status,
     progress: status === 'READY' ? 100 : 35,
+    requestedCount: 1,
+    acceptedCount: 1,
+    omittedCount: 0,
     createdAt: '2026-07-11T08:00:00Z',
     expiresAt: '2026-07-12T08:00:00Z',
     items: [
