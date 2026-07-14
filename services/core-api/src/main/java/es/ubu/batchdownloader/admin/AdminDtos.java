@@ -86,7 +86,8 @@ public class AdminDtos {
             int unavailable,
             int queuedSearcherFilter,
             int queuedFilterScraper,
-            int queuedScraperDescriptor,
+            int queuedScraperSoFilter,
+            int queuedSoFilterDescriptor,
             LocalDateTime capturedAt) {}
 
     public record ScraperSnapshotItem(

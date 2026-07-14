@@ -11,6 +11,7 @@ import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class BundleRepository {
+    private static final int MAX_BUNDLE_APPS = 100;
     private final JdbcTemplate jdbc;
     private final CatalogRepository catalog;
 
@@ -51,14 +53,82 @@ public class BundleRepository {
         return count == null ? 0 : count;
     }
 
-    public BundleDetails details(String publicId) {
-        List<BundleDetails> bundles = jdbc.query(
+    public List<BundleSummary> listForAdministration(String type, String sort, int page, int pageSize) {
+        String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
+        String sql = """
+                SELECT * FROM bundles
+                WHERE (? IS NULL OR type = ?)
+                ORDER BY %s
+                LIMIT ? OFFSET ?
+                """.formatted(order);
+        return jdbc.query(
+                sql,
+                (rs, rowNum) -> summary(rs),
+                blankToNull(type),
+                blankToNull(type),
+                pageSize,
+                (page - 1) * pageSize);
+    }
+
+    public long countForAdministration(String type) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM bundles WHERE (? IS NULL OR type = ?)",
+                Long.class,
+                blankToNull(type),
+                blankToNull(type));
+        return count == null ? 0 : count;
+    }
+
+    public BundleDetails details(String publicId, String username, boolean administrator) {
+        BundleRecord bundle = findBundle(publicId);
+        if (!isVisibleTo(bundle, username, administrator)) {
+            // Do not reveal whether a private id or slug exists.
+            throw new NotFoundException("bundle_not_found", "El bundle no existe.");
+        }
+        return bundle.details();
+    }
+
+    public BundleDetails detailsInternal(String publicId) {
+        return findBundle(publicId).details();
+    }
+
+    public List<UUID> appIdsForDownload(String publicId, String username, boolean administrator) {
+        BundleRecord bundle = findBundle(publicId);
+        if (!isVisibleTo(bundle, username, administrator)) {
+            throw new NotFoundException("bundle_not_found", "El bundle no existe.");
+        }
+        if (bundle.details().appCount() > MAX_BUNDLE_APPS) {
+            throw new ConflictException(
+                    "bundle_too_large",
+                    "Este bundle supera el máximo de " + MAX_BUNDLE_APPS + " aplicaciones y debe reducirse antes de descargarse.");
+        }
+        List<UUID> appIds = jdbc.query(
+                """
+                SELECT software_app_id FROM bundle_items
+                WHERE bundle_id = ?
+                ORDER BY sort_order ASC
+                """,
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("software_app_id")),
+                UuidBytes.fromUuid(UUID.fromString(bundle.details().id())));
+        if (appIds.size() > MAX_BUNDLE_APPS) {
+            throw new ConflictException(
+                    "bundle_too_large",
+                    "Este bundle supera el máximo de " + MAX_BUNDLE_APPS + " aplicaciones y debe reducirse antes de descargarse.");
+        }
+        return List.copyOf(appIds);
+    }
+
+    private BundleRecord findBundle(String publicId) {
+        List<BundleRecord> bundles = jdbc.query(
                 """
                 SELECT * FROM bundles
                 WHERE (? IS NOT NULL AND id = ?) OR slug = ?
                 LIMIT 1
                 """,
-                (rs, rowNum) -> detailsFromRow(rs),
+                (rs, rowNum) -> new BundleRecord(
+                        detailsFromRow(rs),
+                        nullableUuid(rs, "owner_id"),
+                        rs.getString("owner_username")),
                 uuidBytesOrNull(publicId),
                 uuidBytesOrNull(publicId),
                 publicId);
@@ -69,7 +139,7 @@ public class BundleRepository {
     }
 
     @Transactional
-    public BundleDetails create(UpsertBundleRequest request) {
+    public BundleDetails create(UpsertBundleRequest request, String ownerUsername) {
         String requestedSlug = normalizeSlug(request.slug() == null || request.slug().isBlank() ? request.name() : request.slug());
         if (request.slug() != null && !request.slug().isBlank() && existsSlug(requestedSlug)) {
             throw new ConflictException("bundle_slug_exists", "Ya existe un bundle con ese slug.");
@@ -78,12 +148,13 @@ public class BundleRepository {
                 ? uniqueSlug(requestedSlug)
                 : requestedSlug;
         UUID id = UUID.randomUUID();
+        UUID ownerId = userId(ownerUsername);
         LocalDateTime now = LocalDateTime.now();
         jdbc.update(
                 """
                 INSERT INTO bundles
-                (id, slug, name, description, type, visibility, owner_username, star_count, app_count, created_at, updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0)
+                (id, slug, name, description, type, visibility, owner_username, owner_id, star_count, app_count, created_at, updated_at, version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0)
                 """,
                 UuidBytes.fromUuid(id),
                 slug,
@@ -91,12 +162,13 @@ public class BundleRepository {
                 request.description(),
                 normalizedType(request.type()),
                 normalizedVisibility(request.visibility()),
-                "admin",
+                ownerUsername == null || ownerUsername.isBlank() ? "admin" : ownerUsername,
+                ownerId,
                 now,
                 now);
         replaceTags(id, request.tags());
         replaceItems(id, request.appIds());
-        return details(slug);
+        return detailsInternal(slug);
     }
 
     @Transactional
@@ -122,7 +194,7 @@ public class BundleRepository {
                 UuidBytes.fromUuid(id));
         replaceTags(id, request.tags());
         replaceItems(id, request.appIds());
-        return details(nextSlug);
+        return detailsInternal(nextSlug);
     }
 
     @Transactional
@@ -151,22 +223,33 @@ public class BundleRepository {
     }
 
     private void replaceItems(UUID bundleId, List<String> appIds) {
+        List<String> requested = appIds == null
+                ? List.of()
+                : appIds.stream()
+                        .filter(value -> value != null && !value.isBlank())
+                        .map(String::trim)
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new))
+                        .stream()
+                        .toList();
+        if (requested.size() > MAX_BUNDLE_APPS) {
+            throw new ConflictException(
+                    "bundle_too_large",
+                    "Un bundle no puede contener más de " + MAX_BUNDLE_APPS + " aplicaciones.");
+        }
+        List<UUID> softwareAppIds = requested.stream().map(catalog::softwareAppId).toList();
         jdbc.update("DELETE FROM bundle_items WHERE bundle_id = ?", UuidBytes.fromUuid(bundleId));
         int order = 0;
-        if (appIds != null) {
-            for (String appId : appIds) {
-                UUID softwareAppId = catalog.softwareAppId(appId);
-                jdbc.update(
-                        """
-                        INSERT IGNORE INTO bundle_items (id, bundle_id, software_app_id, sort_order, created_at)
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                        UuidBytes.fromUuid(UUID.randomUUID()),
-                        UuidBytes.fromUuid(bundleId),
-                        UuidBytes.fromUuid(softwareAppId),
-                        order++,
-                        LocalDateTime.now());
-            }
+        for (UUID softwareAppId : softwareAppIds) {
+            jdbc.update(
+                    """
+                    INSERT INTO bundle_items (id, bundle_id, software_app_id, sort_order, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    UuidBytes.fromUuid(UUID.randomUUID()),
+                    UuidBytes.fromUuid(bundleId),
+                    UuidBytes.fromUuid(softwareAppId),
+                    order++,
+                    LocalDateTime.now());
         }
         jdbc.update("UPDATE bundles SET app_count = ? WHERE id = ?", order, UuidBytes.fromUuid(bundleId));
     }
@@ -199,22 +282,24 @@ public class BundleRepository {
                 rs.getInt("star_count"),
                 rs.getInt("app_count"),
                 tags(id),
-                previewApps(id, 100),
+                previewApps(id, 0),
                 rs.getTimestamp("updated_at").toLocalDateTime());
     }
 
     private List<AppListItem> previewApps(UUID bundleId, int limit) {
+        String sql = """
+                SELECT a.id FROM bundle_items bi
+                JOIN software_apps a ON a.id = bi.software_app_id
+                WHERE bi.bundle_id = ?
+                ORDER BY bi.sort_order ASC
+                """ + (limit > 0 ? " LIMIT ?" : "");
+        Object[] parameters = limit > 0
+                ? new Object[] {UuidBytes.fromUuid(bundleId), limit}
+                : new Object[] {UuidBytes.fromUuid(bundleId)};
         return jdbc.query(
-                        """
-                        SELECT a.id FROM bundle_items bi
-                        JOIN software_apps a ON a.id = bi.software_app_id
-                        WHERE bi.bundle_id = ?
-                        ORDER BY bi.sort_order ASC
-                        LIMIT ?
-                        """,
+                        sql,
                         (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")).toString(),
-                        UuidBytes.fromUuid(bundleId),
-                        limit)
+                        parameters)
                 .stream()
                 .map(catalog::details)
                 .map(details -> new AppListItem(
@@ -226,6 +311,7 @@ public class BundleRepository {
                         details.description(),
                         details.longDescription(),
                         details.tags(),
+                        details.operatingSystems(),
                         details.iconUrl(),
                         details.latestVersion(),
                         details.sourceLabel(),
@@ -319,4 +405,37 @@ public class BundleRepository {
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
     }
+
+    private boolean isVisibleTo(BundleRecord bundle, String username, boolean administrator) {
+        String visibility = bundle.details().visibility();
+        if ("public".equals(visibility) || "official".equals(visibility) || administrator) {
+            return true;
+        }
+        if (username == null || username.isBlank()) {
+            return false;
+        }
+        UUID userId = userId(username);
+        if (bundle.ownerId() != null && bundle.ownerId().equals(userId)) {
+            return true;
+        }
+        return bundle.ownerUsername() != null && bundle.ownerUsername().equalsIgnoreCase(username.trim());
+    }
+
+    private UUID userId(String username) {
+        if (username == null || username.isBlank()) {
+            return null;
+        }
+        List<UUID> ids = jdbc.query(
+                "SELECT id FROM core_users WHERE normalized_username = ? LIMIT 1",
+                (rs, rowNum) -> UUID.fromString(rs.getString("id")),
+                username.trim().toLowerCase(Locale.ROOT));
+        return ids.isEmpty() ? null : ids.get(0);
+    }
+
+    private UUID nullableUuid(ResultSet row, String column) throws SQLException {
+        String value = row.getString(column);
+        return value == null || value.isBlank() ? null : UUID.fromString(value);
+    }
+
+    private record BundleRecord(BundleDetails details, UUID ownerId, String ownerUsername) {}
 }

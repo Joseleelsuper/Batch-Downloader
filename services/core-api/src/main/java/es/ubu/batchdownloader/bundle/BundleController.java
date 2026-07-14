@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -29,7 +30,7 @@ public class BundleController {
         this.audit = audit;
     }
 
-    @GetMapping("/api/bundles")
+    @GetMapping({"/api/v1/bundles", "/api/bundles"})
     public BundleSearchResponse listBundles(
             @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "1") int page,
@@ -41,9 +42,9 @@ public class BundleController {
         return new BundleSearchResponse(data, safePage, safePageSize, bundles.count(type));
     }
 
-    @GetMapping("/api/bundles/{bundleId}")
-    public BundleDetails getBundle(@PathVariable String bundleId) {
-        return bundles.details(bundleId);
+    @GetMapping({"/api/v1/bundles/{bundleId}", "/api/bundles/{bundleId}"})
+    public BundleDetails getBundle(@PathVariable String bundleId, Authentication authentication) {
+        return bundles.details(bundleId, actor(authentication), isAdmin(authentication));
     }
 
     @GetMapping("/api/admin/bundles")
@@ -52,7 +53,13 @@ public class BundleController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(defaultValue = "updated") String sort) {
-        return listBundles(type, page, pageSize, sort);
+        int safePage = Math.max(page, 1);
+        int safePageSize = Math.max(1, Math.min(pageSize, 60));
+        return new BundleSearchResponse(
+                bundles.listForAdministration(type, sort, safePage, safePageSize),
+                safePage,
+                safePageSize,
+                bundles.countForAdministration(type));
     }
 
     @PostMapping("/api/admin/bundles")
@@ -60,7 +67,7 @@ public class BundleController {
     public BundleDetails createBundle(
             @Valid @RequestBody UpsertBundleRequest request,
         Principal principal) {
-        BundleDetails created = bundles.create(request);
+        BundleDetails created = bundles.create(request, actor(principal));
         audit.record(actor(principal), "bundle.create", "bundle", created.id(), null);
         return created;
     }
@@ -83,6 +90,11 @@ public class BundleController {
     }
 
     private String actor(Principal principal) {
-        return principal == null ? "admin" : principal.getName();
+        return principal == null ? null : principal.getName();
+    }
+
+    private boolean isAdmin(Authentication authentication) {
+        return authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()));
     }
 }

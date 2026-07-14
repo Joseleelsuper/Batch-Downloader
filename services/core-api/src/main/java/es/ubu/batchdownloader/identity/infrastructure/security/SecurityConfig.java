@@ -37,11 +37,11 @@ public class SecurityConfig {
         http.csrf(csrf -> csrf.csrfTokenRepository(csrfRepository))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/download-jobs/**").authenticated()
+                        .requestMatchers("/api/v1/download-jobs/**").permitAll()
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/auth/preferences").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers("/api/v1/auth/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/apps/**", "/api/apps/**", "/api/bundles/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/apps/**", "/api/apps/**", "/api/v1/bundles/**", "/api/bundles/**").permitAll()
                         .requestMatchers("/api/health", "/actuator/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().permitAll())
                 .requestCache(cache -> cache.disable())

@@ -36,6 +36,12 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    @ExceptionHandler(RateLimitException.class)
+    ResponseEntity<ApiError> rateLimited(RateLimitException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
     @ExceptionHandler(DuplicateKeyException.class)
     ResponseEntity<ApiError> duplicate(DuplicateKeyException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

@@ -1,7 +1,5 @@
 package es.ubu.batchdownloader.admin;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.admin.AdminDtos.PatchAppRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.ReplaceTagsRequest;
@@ -12,21 +10,14 @@ import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
 import jakarta.validation.Valid;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -45,22 +36,17 @@ public class AdminAppController {
     private final CatalogRepository catalog;
     private final AdminAppRepository adminApps;
     private final AdminAuditService audit;
-    private final String scraperApiUrl;
-    private final HttpClient httpClient;
-    private final ObjectMapper objectMapper;
+    private final ScraperInternalClient scraperClient;
 
     public AdminAppController(
             CatalogRepository catalog,
             AdminAppRepository adminApps,
             AdminAuditService audit,
-            @Value("${app.scraper-api-url}") String scraperApiUrl,
-            ObjectMapper objectMapper) {
+            ScraperInternalClient scraperClient) {
         this.catalog = catalog;
         this.adminApps = adminApps;
         this.audit = audit;
-        this.scraperApiUrl = scraperApiUrl.replaceAll("/+$", "");
-        this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newHttpClient();
+        this.scraperClient = scraperClient;
     }
 
     @GetMapping("/api/admin/apps")
@@ -80,10 +66,10 @@ public class AdminAppController {
                 ? List.of()
                 : Arrays.stream(tags.split(",")).map(String::trim).filter(value -> !value.isBlank()).toList();
         return new AppSearchResponse(
-                catalog.search(query, status, operatingSystem, architecture, tagList, List.of(), null, tagMode, sort, safePage, safePageSize),
+                catalog.search(query, status, operatingSystem == null || operatingSystem.isBlank() ? List.of() : List.of(operatingSystem), architecture, tagList, List.of(), null, tagMode, sort, safePage, safePageSize),
                 safePage,
                 safePageSize,
-                catalog.count(query, status, operatingSystem, architecture, tagList, List.of(), null, tagMode));
+                catalog.count(query, status, operatingSystem == null || operatingSystem.isBlank() ? List.of() : List.of(operatingSystem), architecture, tagList, List.of(), null, tagMode));
     }
 
     @GetMapping(value = "/api/admin/apps/export.csv", produces = "text/csv")
@@ -165,41 +151,22 @@ public class AdminAppController {
     }
 
     @PostMapping("/api/admin/apps/{appId}/generate-description")
-    public ResponseEntity<Map<String, Object>> generateDescription(
+    public ResponseEntity<ScraperInternalClient.DescriptionGeneration> generateDescription(
             @PathVariable String appId,
-            Principal principal) throws Exception {
-        String body = objectMapper.writeValueAsString(Map.of("appId", appId));
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(scraperApiUrl + "/api/internal/descriptions/generate"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 400) {
-            throw new ConflictException(
-                    "description_generation_failed",
-                    "No se pudo generar la descripcion con IA.");
-        }
-        Map<String, Object> payload = objectMapper.readValue(
-                response.body(),
-                new TypeReference<Map<String, Object>>() {});
+            Principal principal) {
+        ScraperInternalClient.DescriptionGeneration payload = scraperClient.generateDescription(appId);
         audit.record(
                 actor(principal),
                 "app.description.generate",
                 "app",
                 appId,
                 Map.of(
-                        "jobId", String.valueOf(payload.get("jobId")),
-                        "status", String.valueOf(payload.get("status"))));
-        return ResponseEntity.status(response.statusCode()).body(payload);
+                        "jobId", payload.jobId(),
+                        "status", payload.status()));
+        return ResponseEntity.accepted().body(payload);
     }
 
     private String actor(Principal principal) {
         return principal == null ? "admin" : principal.getName();
-    }
-
-    @SuppressWarnings("unused")
-    private String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 }

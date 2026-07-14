@@ -9,16 +9,10 @@ import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueMaintenanceResult;
 import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueState;
 import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunSummary;
 import es.ubu.batchdownloader.admin.AdminDtos.ScraperSnapshotItem;
-import es.ubu.batchdownloader.common.ConflictException;
 import jakarta.validation.Valid;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,17 +25,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminScraperController {
     private final AdminScraperRepository scraper;
     private final AdminAuditService audit;
-    private final String scraperApiUrl;
-    private final HttpClient httpClient;
+    private final ScraperInternalClient scraperClient;
 
     public AdminScraperController(
             AdminScraperRepository scraper,
             AdminAuditService audit,
-            @Value("${app.scraper-api-url}") String scraperApiUrl) {
+            ScraperInternalClient scraperClient) {
         this.scraper = scraper;
         this.audit = audit;
-        this.scraperApiUrl = scraperApiUrl.replaceAll("/+$", "");
-        this.httpClient = HttpClient.newHttpClient();
+        this.scraperClient = scraperClient;
     }
 
     @GetMapping("/api/admin/scraper/runs")
@@ -118,7 +110,7 @@ public class AdminScraperController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, String> command(
             @Valid @RequestBody ScraperCommandRequest request,
-            Principal principal) throws Exception {
+            Principal principal) {
         String actor = actor(principal);
         scraper.enqueueCommand(request.command(), actor);
         if ("force_stop".equals(request.command())) {
@@ -133,17 +125,26 @@ public class AdminScraperController {
             return Map.of("status", "accepted", "command", request.command());
         }
         if ("run_once".equals(request.command())) {
-            HttpRequest httpRequest = HttpRequest.newBuilder()
-                    .uri(URI.create(scraperApiUrl + "/api/internal/scraper/run-once"))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) {
-                throw new ConflictException("scraper_run_once_failed", "No se pudo lanzar el scraper.");
-            }
+            scraperClient.triggerRunOnce();
         }
         audit.record(actor, "scraper.command", "scraper", request.command(), null);
         return Map.of("status", "accepted", "command", request.command());
+    }
+
+    @PostMapping("/api/admin/scraper/descriptions/enqueue-missing")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ScraperInternalClient.ContentEnqueueResult enqueueMissingDescriptions(Principal principal) {
+        ScraperInternalClient.ContentEnqueueResult result = scraperClient.enqueueMissingDescriptions();
+        audit.record(
+                actor(principal),
+                "scraper.description.enqueue_missing",
+                "scraper",
+                "descriptions",
+                Map.of(
+                        "matched", result.matched(),
+                        "enqueued", result.enqueued(),
+                        "alreadyActive", result.alreadyActive()));
+        return result;
     }
 
     @GetMapping("/api/admin/audit")
