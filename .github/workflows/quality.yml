@@ -31,13 +31,47 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: api/scraper/requirements.txt
       - run: pip install -r requirements.txt ruff mypy pytest-cov
       - run: ruff check .
       - run: mypy app --ignore-missing-imports
       - run: pytest --cov=app --cov-report=term-missing --cov-report=xml
+
+  scraper-free-threaded:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the verified CPython 3.14t image
+        run: docker build -t batch-downloader-scraper:3.14t api/scraper
+      - name: Verify GIL state, native imports, Chromium and repeated concurrency
+        run: >-
+          docker run --rm --entrypoint python
+          batch-downloader-scraper:3.14t
+          /app/scripts/verify_free_threading.py
+      - name: Run a bounded free-threaded benchmark smoke test
+        run: >-
+          docker run --rm --entrypoint python
+          batch-downloader-scraper:3.14t
+          /app/scripts/benchmark_free_threading.py
+          --tasks 20 --repetitions 2
+
+  semantic:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/semantic-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: services/semantic-service/pyproject.toml
+      - run: pip install -e ".[test]" ruff==0.15.22
+      - run: ruff check .
+      - run: pytest
 
   frontend:
     runs-on: ubuntu-latest
@@ -69,7 +103,7 @@ jobs:
 
   sonar:
     if: github.event_name == 'push'
-    needs: [java, scraper, frontend, contracts]
+    needs: [java, scraper, scraper-free-threaded, semantic, frontend, contracts]
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -85,7 +119,7 @@ jobs:
           cache: maven
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

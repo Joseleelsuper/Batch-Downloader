@@ -3,6 +3,7 @@ name: batch-downloader
 services:
   mysql:
     image: mysql:8.4
+    command: ["--log-bin-trust-function-creators=1"]
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -97,6 +98,7 @@ services:
       SCRAPPER_SO_FILTER_CONCURRENCY: ${SCRAPPER_SO_FILTER_CONCURRENCY}
       SCRAPPER_SO_FILTER_MAX_ATTEMPTS: ${SCRAPPER_SO_FILTER_MAX_ATTEMPTS}
       SCRAPPER_SCRAPE_CONCURRENCY: ${SCRAPPER_SCRAPE_CONCURRENCY}
+      SCRAPPER_CPU_THREAD_WORKERS: ${SCRAPPER_CPU_THREAD_WORKERS}
       SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE}
       SCRAPPER_SCHEDULER_HOUR: ${SCRAPPER_SCHEDULER_HOUR}
       SCRAPPER_SCHEDULER_MINUTE: ${SCRAPPER_SCHEDULER_MINUTE}
@@ -155,6 +157,7 @@ services:
       SCRAPPER_SO_FILTER_CONCURRENCY: ${SCRAPPER_SO_FILTER_CONCURRENCY}
       SCRAPPER_SO_FILTER_MAX_ATTEMPTS: ${SCRAPPER_SO_FILTER_MAX_ATTEMPTS}
       SCRAPPER_SCRAPE_CONCURRENCY: ${SCRAPPER_SCRAPE_CONCURRENCY}
+      SCRAPPER_CPU_THREAD_WORKERS: ${SCRAPPER_CPU_THREAD_WORKERS}
       SCRAPPER_SCHEDULER_TIMEZONE: ${SCRAPPER_SCHEDULER_TIMEZONE}
       SCRAPPER_SCHEDULER_HOUR: ${SCRAPPER_SCHEDULER_HOUR}
       SCRAPPER_SCHEDULER_MINUTE: ${SCRAPPER_SCHEDULER_MINUTE}
@@ -207,6 +210,9 @@ services:
       CORE_API_JWT_SECRET: ${CORE_API_JWT_SECRET}
       CORE_API_JWT_TTL_SECONDS: ${CORE_API_JWT_TTL_SECONDS}
       CORE_API_SCRAPER_API_URL: ${CORE_API_SCRAPER_API_URL}
+      CORE_API_SEMANTIC_SERVICE_URL: ${CORE_API_SEMANTIC_SERVICE_URL}
+      CORE_API_SEMANTIC_REQUEST_TIMEOUT: ${CORE_API_SEMANTIC_REQUEST_TIMEOUT}
+      CORE_API_SEMANTIC_WEIGHT: ${CORE_API_SEMANTIC_WEIGHT}
       SCRAPPER_INTERNAL_SERVICE_TOKEN: ${SCRAPPER_INTERNAL_SERVICE_TOKEN}
       SCRAPPER_URL_PROTECTION_SECRET: ${SCRAPPER_URL_PROTECTION_SECRET}
       CORE_API_REQUIRE_HTTPS: "${CORE_API_REQUIRE_HTTPS}"
@@ -218,7 +224,6 @@ services:
       DOWNLOAD_ANONYMOUS_MAX_ACTIVE_JOBS: ${DOWNLOAD_ANONYMOUS_MAX_ACTIVE_JOBS}
       DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR: ${DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR}
       DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR: ${DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR}
-      DOWNLOAD_SOURCE_REVALIDATION_MAX_AGE: ${DOWNLOAD_SOURCE_REVALIDATION_MAX_AGE}
       RABBITMQ_HOST: ${RABBITMQ_HOST}
       RABBITMQ_PORT: ${RABBITMQ_PORT}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
@@ -237,6 +242,10 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      scraper-api:
+        condition: service_healthy
+      semantic-service:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
 
@@ -244,12 +253,155 @@ services:
     build:
       context: ./services/semantic-service
     environment:
-      POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_HOST_PORT}/${POSTGRES_DB}
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPPER_INTERNAL_SERVICE_TOKEN}
+      SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
+      SEMANTIC_MODEL_CACHE_DIR: /models
+      SEMANTIC_REPORTS_DIR: /reports
+      SEMANTIC_DEVICE: ${SEMANTIC_DEVICE}
+      SEMANTIC_INITIAL_MODEL_VERSION: ${SEMANTIC_INITIAL_MODEL_VERSION}
+      SEMANTIC_CANDIDATE_LIMIT: ${SEMANTIC_CANDIDATE_LIMIT}
+      SEMANTIC_MINIMUM_SIMILARITY: ${SEMANTIC_MINIMUM_SIMILARITY}
+      SEMANTIC_INDEX_BATCH_SIZE: ${SEMANTIC_INDEX_BATCH_SIZE}
+      SEMANTIC_INDEX_INTERVAL_SECONDS: ${SEMANTIC_INDEX_INTERVAL_SECONDS}
+      SEMANTIC_INDEX_LEASE_SECONDS: ${SEMANTIC_INDEX_LEASE_SECONDS}
+      SEMANTIC_SEARCH_TIMEOUT_SECONDS: ${SEMANTIC_SEARCH_TIMEOUT_SECONDS}
     ports:
       - "${SEMANTIC_SERVICE_HOST_PORT}:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - semantic_models:/models
+      - semantic_reports:/reports
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/semantic/health', timeout=3)); assert data['database']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  semantic-indexer:
+    build:
+      context: ./services/semantic-service
+    command: ["python", "-m", "app.indexer", "--loop"]
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPPER_INTERNAL_SERVICE_TOKEN}
+      SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
+      SEMANTIC_MODEL_CACHE_DIR: /models
+      SEMANTIC_REPORTS_DIR: /reports
+      SEMANTIC_DEVICE: ${SEMANTIC_DEVICE}
+      SEMANTIC_INITIAL_MODEL_VERSION: ${SEMANTIC_INITIAL_MODEL_VERSION}
+      SEMANTIC_INDEX_BATCH_SIZE: ${SEMANTIC_INDEX_BATCH_SIZE}
+      SEMANTIC_INDEX_INTERVAL_SECONDS: ${SEMANTIC_INDEX_INTERVAL_SECONDS}
+      SEMANTIC_INDEX_LEASE_SECONDS: ${SEMANTIC_INDEX_LEASE_SECONDS}
+    depends_on:
+      semantic-service:
+        condition: service_healthy
+      scraper-api:
+        condition: service_healthy
+    volumes:
+      - semantic_models:/models
+      - semantic_reports:/reports
+    restart: unless-stopped
+
+  semantic-trainer:
+    profiles: ["training"]
+    build:
+      context: ./services/semantic-service
+    command: ["python", "-m", "app.trainer"]
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPPER_INTERNAL_SERVICE_TOKEN}
+      SEMANTIC_MODEL_CACHE_DIR: /models
+      SEMANTIC_REPORTS_DIR: /reports
+      SEMANTIC_DEVICE: ${SEMANTIC_TRAINER_DEVICE}
+      SEMANTIC_TRAINER_SEED: ${SEMANTIC_TRAINER_SEED}
+      SEMANTIC_TRAINER_EPOCHS: ${SEMANTIC_TRAINER_EPOCHS}
+      SEMANTIC_TRAINER_BATCH_SIZE: ${SEMANTIC_TRAINER_BATCH_SIZE}
+      SEMANTIC_TRAINER_MAX_STEPS: ${SEMANTIC_TRAINER_MAX_STEPS}
+      SEMANTIC_TRAINER_MODELS: ${SEMANTIC_TRAINER_MODELS}
+    depends_on:
+      semantic-service:
+        condition: service_healthy
+    volumes:
+      - semantic_models:/models
+      - semantic_reports:/reports
+
+  scraper-python314t-benchmark:
+    profiles: ["benchmark"]
+    build:
+      context: ./api/scraper
+    entrypoint: ["python", "/app/scripts/benchmark_free_threading.py"]
+    command:
+      [
+        "--repetitions",
+        "5",
+        "--html",
+        "/app/scripts/fixtures/benchmark_catalog.html",
+        "--output",
+        "/reports/python314t.json",
+      ]
+    volumes:
+      - semantic_reports:/reports
+
+  scraper-python314-control:
+    profiles: ["benchmark"]
+    build:
+      context: ./api/scraper
+      dockerfile: Dockerfile.python314-standard
+    command:
+      [
+        "--repetitions",
+        "5",
+        "--html",
+        "/app/scripts/fixtures/benchmark_catalog.html",
+        "--output",
+        "/reports/python314-standard.json",
+      ]
+    volumes:
+      - semantic_reports:/reports
+
+  scraper-python314-benchmark-report:
+    profiles: ["benchmark"]
+    build:
+      context: ./api/scraper
+      dockerfile: Dockerfile.python314-standard
+    entrypoint: ["python", "/app/scripts/compare_threading_benchmarks.py"]
+    command:
+      [
+        "--standard",
+        "/reports/python314-standard.json",
+        "--free-threaded",
+        "/reports/python314t.json",
+        "--output-dir",
+        "/reports",
+      ]
+    depends_on:
+      scraper-python314t-benchmark:
+        condition: service_completed_successfully
+      scraper-python314-control:
+        condition: service_completed_successfully
+    volumes:
+      - semantic_reports:/reports
 
   mailpit:
     image: axllent/mailpit:v1.30.0
@@ -365,3 +517,5 @@ volumes:
   minio_data:
   notification_service_data:
   download_worker_data:
+  semantic_models:
+  semantic_reports:
