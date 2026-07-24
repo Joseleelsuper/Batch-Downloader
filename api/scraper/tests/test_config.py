@@ -12,7 +12,7 @@ def test_database_url_is_built_from_components_without_parsing_password() -> Non
 
     url = settings.database_url
 
-    assert url.drivername == "mysql+asyncmy"
+    assert url.drivername == "mysql+aiomysql"
     assert url.host == "mysql"
     assert url.port == 3306
     assert url.database == "batch_downloader"

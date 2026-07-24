@@ -15,7 +15,7 @@ from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.base import Base
 from app.db.enums import ResolutionStatus, ValidationStatus
-from app.db.models import DownloadSource, ResolvedSource, SoftwareApp
+from app.db.models import DownloadSource, ResolvedSource, SoftwareApp, SoftwareAppTag
 from app.db.session import get_session
 from app.scraper.validator import ValidationConfidence, ValidationResult
 
@@ -50,6 +50,7 @@ class InternalApiFixture:
             architecture="x86_64",
             resolution_status=ResolutionStatus.DIRECT.value,
             validation_status=ValidationStatus.VALID.value,
+            catalog_downloadable_count=1,
         )
         download_url = f"https://downloads.example.test/{identifier}/AppSetup.exe"
         resolved = ResolvedSource(
@@ -245,6 +246,70 @@ async def test_internal_resolution_keeps_failed_revalidation_secret(
 
 
 @pytest.mark.asyncio
+async def test_internal_resolution_does_not_invalidate_on_transient_revalidation_failure(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    _app, resolved, _download_url = await internal_api.add_source(
+        confidence="validated",
+        expires_in_hours=-1,
+    )
+    previous_checked_at = resolved.checked_at
+    previous_metadata = dict(resolved.metadata_json or {})
+
+    async def validate(_validator, candidate):
+        return ValidationResult(ok=False, url=candidate.url, reason="http_503")
+
+    monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
+
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": {"code": "source_revalidation_transient"}}
+    assert resolved.validation_status == ValidationStatus.VALID.value
+    assert resolved.checked_at == previous_checked_at
+    assert resolved.metadata_json == previous_metadata
+
+
+@pytest.mark.asyncio
+async def test_internal_resolution_rechecks_candidate_after_acquiring_lock(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    _app, resolved, download_url = await internal_api.add_source(
+        confidence="validated",
+        expires_in_hours=-1,
+    )
+
+    async def lock_after_other_request_renewed(_catalog, _source_ref):
+        resolved.expires_at = utc_after(hours=1)
+        return resolved
+
+    async def validation_must_not_run(_validator, _candidate):
+        raise AssertionError("the refreshed candidate must be reused")
+
+    monkeypatch.setattr(
+        "app.api.internal_routes.CatalogRepository.get_resolved_source_by_ref_for_update",
+        lock_after_other_request_renewed,
+    )
+    monkeypatch.setattr(
+        "app.api.internal_routes.DownloadValidator.validate",
+        validation_must_not_run,
+    )
+
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["url"] == download_url
+
+
+@pytest.mark.asyncio
 async def test_internal_resolution_never_reveals_http_url(
     internal_api: InternalApiFixture,
 ) -> None:
@@ -263,6 +328,76 @@ async def test_internal_resolution_never_reveals_http_url(
     assert response.status_code == 409
     assert response.json()["url"] is None
     assert insecure_url not in response.text
+    assert resolved.validation_status == ValidationStatus.EXPIRED.value
+    assert resolved.metadata_json["last_revalidation_error"] == "source_not_https"
+
+
+@pytest.mark.asyncio
+async def test_internal_resolution_invalidates_unreadable_encrypted_url(
+    internal_api: InternalApiFixture,
+) -> None:
+    _app, resolved, _download_url = await internal_api.add_source(
+        confidence="validated",
+    )
+    resolved.resolved_url_encrypted = "not-a-valid-encrypted-url"
+    await internal_api.session.commit()
+
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["url"] is None
+    assert resolved.validation_status == ValidationStatus.EXPIRED.value
+    assert resolved.metadata_json["last_revalidation_error"] == "source_url_unreadable"
+
+
+@pytest.mark.asyncio
+async def test_internal_resolution_rejects_http_attested_candidate(
+    internal_api: InternalApiFixture,
+) -> None:
+    _app, resolved, download_url = await internal_api.add_source(
+        confidence="validated",
+    )
+    resolved.metadata_json = {
+        **(resolved.metadata_json or {}),
+        "transport_security": "http_winstall_verified",
+    }
+    await internal_api.session.commit()
+
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["trustStatus"] == "ATTESTED"
+    assert response.json()["url"] is None
+    assert download_url not in response.text
+
+
+@pytest.mark.asyncio
+async def test_internal_resolution_rechecks_parent_source_state(
+    internal_api: InternalApiFixture,
+) -> None:
+    app, resolved, download_url = await internal_api.add_source(
+        confidence="validated",
+    )
+    source = app.sources[0]
+    source.resolution_status = ResolutionStatus.BROKEN.value
+    source.validation_status = ValidationStatus.INVALID.value
+    await internal_api.session.commit()
+
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["trustStatus"] == "UNRESOLVED"
+    assert response.json()["url"] is None
+    assert download_url not in response.text
 
 
 @pytest.mark.asyncio
@@ -277,3 +412,78 @@ async def test_internal_resolution_returns_not_found_for_unknown_reference(
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_semantic_feed_is_authenticated_canonical_and_paginated(
+    internal_api: InternalApiFixture,
+) -> None:
+    first = SoftwareApp(
+        id=UUID(int=1),
+        winstall_id="Vendor.Editor",
+        slug="vendor-editor",
+        name="Editor",
+        normalized_name="editor",
+        publisher="Vendor",
+        description="Edita texto",
+        long_description="Editor para desarrollo",
+        official_url="https://downloads.vendor.example/full/path?token=secret",
+        latest_version="2.0",
+        operating_systems=["windows"],
+        app_status="active",
+    )
+    first.tags = [
+        SoftwareAppTag(
+            id=uuid4(),
+            software_app_id=first.id,
+            tag="Desarrollo",
+            normalized_tag="desarrollo",
+        )
+    ]
+    first.sources = [
+        DownloadSource(
+            id=uuid4(),
+            software_app_id=first.id,
+            operating_system="windows",
+            architecture="x86_64",
+        )
+    ]
+    second = SoftwareApp(
+        id=UUID(int=2),
+        winstall_id="Vendor.Other",
+        slug="vendor-other",
+        name="Other",
+        normalized_name="other",
+        app_status="active",
+    )
+    internal_api.session.add_all([first, second])
+    await internal_api.session.commit()
+
+    response = await internal_api.client.get(
+        "/internal/v1/semantic/documents",
+        params={"limit": 1},
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["documents"]) == 1
+    assert body["nextAfterAppId"] == body["documents"][0]["appId"]
+    document = body["documents"][0]
+    assert len(document["contentHash"]) == 64
+    assert "Package ID: Vendor.Editor" in document["content"]
+    assert "Arquitecturas: x86_64" in document["content"]
+    assert "/full/path" not in document["content"]
+    assert "token=secret" not in response.text
+
+    initial_hash = document["contentHash"]
+    first.description = "Edita texto y código con búsqueda avanzada"
+    await internal_api.session.commit()
+    changed_response = await internal_api.client.get(
+        "/internal/v1/semantic/documents",
+        params={"limit": 1},
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert changed_response.status_code == 200
+    assert changed_response.json()["documents"][0]["contentHash"] != initial_hash

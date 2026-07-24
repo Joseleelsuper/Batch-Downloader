@@ -55,6 +55,7 @@ def test_details_exposes_download_options_and_primary_candidate() -> None:
         expires_at=utc_after(hours=1),
         metadata_json={"is_primary": True},
     )
+    primary.catalog_downloadable = True
     alternative = ResolvedSource(
         id=uuid4(),
         download_source_id=source.id,
@@ -69,6 +70,7 @@ def test_details_exposes_download_options_and_primary_candidate() -> None:
         expires_at=utc_after(hours=1),
         metadata_json={"is_primary": False},
     )
+    alternative.catalog_downloadable = True
     source.resolved_sources = [alternative, primary]
     app.sources = [source]
 
@@ -82,6 +84,8 @@ def test_details_exposes_download_options_and_primary_candidate() -> None:
         "GeoGebraSuite.exe",
     ]
     assert details.download_options[0].is_primary is True
+    assert details.downloadable is True
+    assert details.updated_at == app.updated_at
 
 
 def test_expired_valid_sources_remain_downloadable_candidates() -> None:
@@ -118,6 +122,7 @@ def test_expired_valid_sources_remain_downloadable_candidates() -> None:
         expires_at=utc_after(hours=-1),
         metadata_json={"is_primary": True},
     )
+    resolved.catalog_downloadable = True
     source.resolved_sources = [resolved]
     app.sources = [source]
     app.tags = []
@@ -127,3 +132,57 @@ def test_expired_valid_sources_remain_downloadable_candidates() -> None:
     assert best_resolved_source(app) == resolved
     assert details.download_options[0].filename == "VendorApp.exe"
     assert details.resolution_status == ResolutionStatus.FALLBACK.value
+    assert details.downloadable is True
+
+
+def test_mapper_fails_closed_when_projection_marks_candidate_unavailable() -> None:
+    now = utc_now()
+    app = SoftwareApp(
+        id=uuid4(),
+        winstall_id="Vendor.Untrusted",
+        slug="vendor-untrusted",
+        name="Vendor Untrusted",
+        normalized_name="vendor untrusted",
+        app_status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    source = DownloadSource(
+        id=uuid4(),
+        software_app_id=app.id,
+        operating_system="windows",
+        architecture="x86_64",
+        resolution_status=ResolutionStatus.DIRECT.value,
+        validation_status=ValidationStatus.VALID.value,
+    )
+    projected_unavailable = ResolvedSource(
+        id=uuid4(),
+        download_source_id=source.id,
+        resolved_url_encrypted="encrypted",
+        final_domain="edge.example.test",
+        filename="unsafe.exe",
+        extension=".exe",
+        score=100,
+        status=ResolutionStatus.DIRECT.value,
+        validation_status=ValidationStatus.VALID.value,
+        checked_at=now,
+        expires_at=utc_after(hours=1),
+        metadata_json={
+            "validation_confidence": "validated",
+        },
+    )
+    projected_unavailable.catalog_downloadable = False
+    source.resolved_sources = [projected_unavailable]
+    app.sources = [source]
+    app.tags = []
+
+    details = to_details(app)
+
+    assert best_resolved_source(app) is None
+    assert details.downloadable is False
+    assert details.resolution_status == ResolutionStatus.MISSING.value
+    assert details.download_options == []
+
+
+def test_query_expression_does_not_add_generated_column_to_sqlite_metadata() -> None:
+    assert "catalog_downloadable" not in ResolvedSource.__table__.c

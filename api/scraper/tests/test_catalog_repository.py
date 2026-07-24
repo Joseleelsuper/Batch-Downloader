@@ -1,9 +1,10 @@
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.api.app_mapper import to_details
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.base import Base
@@ -63,7 +64,7 @@ def make_app_with_source(
     return app
 
 
-def test_current_available_installer_requires_valid_unexpired_resolved_source() -> None:
+def test_available_installer_requires_structurally_valid_resolved_source() -> None:
     app = make_app_with_source(
         ResolutionStatus.DIRECT,
         resolved_status=ResolutionStatus.DIRECT,
@@ -72,14 +73,14 @@ def test_current_available_installer_requires_valid_unexpired_resolved_source() 
     assert has_current_available_installer(app) is True
 
 
-def test_current_available_installer_rejects_expired_sources() -> None:
+def test_available_installer_keeps_stale_valid_source_selectable() -> None:
     app = make_app_with_source(
         ResolutionStatus.FALLBACK,
         resolved_status=ResolutionStatus.FALLBACK,
         expires_in_hours=-1,
     )
 
-    assert has_current_available_installer(app) is False
+    assert has_current_available_installer(app) is True
 
 
 def test_current_available_installer_rejects_review_or_missing_statuses() -> None:
@@ -94,6 +95,44 @@ def test_current_available_installer_rejects_review_or_missing_statuses() -> Non
 
     assert has_current_available_installer(review_app) is False
     assert has_current_available_installer(missing_app) is False
+
+
+@pytest.mark.asyncio
+async def test_public_load_reads_database_catalog_downloadable_projection() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+        # SQLite deliberately does not receive this column from SQLAlchemy
+        # metadata; emulate Alembic 0010 so the public loader can be exercised.
+        await connection.execute(
+            text(
+                "ALTER TABLE resolved_sources "
+                "ADD COLUMN catalog_downloadable BOOLEAN NOT NULL DEFAULT 0"
+            )
+        )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    app = make_app_with_source(
+        ResolutionStatus.DIRECT,
+        resolved_status=ResolutionStatus.DIRECT,
+    )
+    async with session_factory() as session:
+        session.add(app)
+        await session.commit()
+        await session.execute(
+            text("UPDATE resolved_sources SET catalog_downloadable = 1")
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        loaded = await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).get_app_by_public_id(str(app.id))
+
+        assert loaded is not None
+        assert loaded.sources[0].resolved_sources[0].catalog_downloadable is True
+        assert to_details(loaded).downloadable is True
+    await engine.dispose()
 
 
 def test_platform_repair_keeps_macos_tar_gz_out_of_linux() -> None:
@@ -174,6 +213,31 @@ async def test_description_enrichment_prioritizes_completed_apps_missing_long_de
     assert "Vendor.CompletedMissing" in ordered_ids
     assert "Vendor.Pending" in ordered_ids
     assert "Vendor.Completed" not in ordered_ids
+
+
+@pytest.mark.asyncio
+async def test_public_details_never_return_disabled_apps() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        disabled = software_app(
+            "Vendor.Disabled",
+            long_description_status="completed",
+            long_description="No visible",
+        )
+        disabled.app_status = "disabled"
+        session.add(disabled)
+        await session.commit()
+
+        result = await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).get_app_by_public_id(str(disabled.id))
+
+        assert result is None
+    await engine.dispose()
 
 
 @pytest.mark.asyncio
