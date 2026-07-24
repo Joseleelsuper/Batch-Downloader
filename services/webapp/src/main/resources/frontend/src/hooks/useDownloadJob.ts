@@ -10,7 +10,7 @@ import type { OperatingSystem } from '../types/catalog';
 const TERMINAL_STATUSES = new Set(['READY', 'PARTIAL', 'FAILED', 'CANCELLED', 'EXPIRED']);
 export type DownloadJobRequest =
   | { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean }
-  | { bundleId: string; notifyWhenReady?: boolean };
+  | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean };
 
 export function useDownloadJob() {
   const [job, setJob] = useState<DownloadJob | null>(null);

@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetails } from '../types/catalog';
 import { AppDetailsDrawer } from './AppDetailsDrawer';
 
@@ -58,6 +58,8 @@ const app: AppDetails = {
 };
 
 describe('AppDetailsDrawer', () => {
+  afterEach(cleanup);
+
   it('shows multiple detected installers when available', () => {
     render(<AppDetailsDrawer app={app} onClose={vi.fn()} />);
 
@@ -84,5 +86,17 @@ describe('AppDetailsDrawer', () => {
     );
 
     expect(screen.getByText('Descripción IA pendiente de generar.')).toBeInTheDocument();
+  });
+
+  it('keeps review applications non-selectable even with an inconsistent downloadable flag', () => {
+    render(
+      <AppDetailsDrawer
+        app={{ ...app, resolutionStatus: 'requires_manual_review', downloadable: true }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Revisión')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Descargar' })).toBeDisabled();
   });
 });

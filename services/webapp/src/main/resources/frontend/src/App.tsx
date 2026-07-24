@@ -25,7 +25,7 @@
   Wand2,
   X,
 } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   connectCatalogEvents,
@@ -69,12 +69,18 @@ import {
   DEFAULT_CATALOG_FILTERS,
   effectiveTagMatchMin,
   nextFilters,
+  normalizeCatalogStatus,
   parseCatalogFilters,
+  preferredCatalogSearchMode,
   toggleValue,
   toggleOperatingSystem,
   type CatalogFilterState,
 } from './catalogFilters';
-import { mergeSelectedAppIntoPage } from './catalogSelection';
+import {
+  inspectCatalogSelectionRefresh,
+  isCatalogAppSelectable,
+  validateCatalogSelection,
+} from './catalogSelection';
 import { AppDetailsDrawer } from './components/AppDetailsDrawer';
 import { AppFilters } from './components/AppFilters';
 import { AppSearchBar } from './components/AppSearchBar';
@@ -114,6 +120,7 @@ const DEFAULT_COUNTS: Record<FilterKey, number> = {
 };
 
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
+const CATALOG_REFRESH_INTERVAL_MS = 5_000;
 
 export default function App() {
   const [auth, setAuth] = useState<AuthUser | null>(null);
@@ -216,27 +223,56 @@ function HomePage() {
   const [communityTotal, setCommunityTotal] = useState(0);
   const [apps, setApps] = useState<CatalogApp[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadingOfficial, setLoadingOfficial] = useState(true);
+  const [loadingCommunity, setLoadingCommunity] = useState(true);
+  const [loadingApps, setLoadingApps] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      fetchBundles({ type: 'official', pageSize: 3 }),
-      fetchBundles({ type: 'community', pageSize: 3 }),
-      fetchApps({ query: '', filter: 'available', sort: 'updated', page: 1, pageSize: 6 }),
-    ])
-      .then(([official, community, catalog]) => {
+    const controller = new AbortController();
+    const handleError = (requestError: unknown) => {
+      if (!cancelled && !isAbortError(requestError)) setError(t('home.loadError'));
+    };
+
+    setError(null);
+    void fetchBundles({ type: 'official', pageSize: 3 }, controller.signal)
+      .then((official) => {
         if (cancelled) return;
         setOfficialBundles(official.data);
         setOfficialTotal(official.total);
+      })
+      .catch(handleError)
+      .finally(() => {
+        if (!cancelled) setLoadingOfficial(false);
+      });
+
+    void fetchBundles({ type: 'community', pageSize: 3 }, controller.signal)
+      .then((community) => {
+        if (cancelled) return;
         setCommunityBundles(community.data);
         setCommunityTotal(community.total);
+      })
+      .catch(handleError)
+      .finally(() => {
+        if (!cancelled) setLoadingCommunity(false);
+      });
+
+    void fetchApps(
+      { query: '', filter: 'available', sort: 'updated', page: 1, pageSize: 6 },
+      controller.signal,
+    )
+      .then((catalog) => {
+        if (cancelled) return;
         setApps(catalog.data);
       })
-      .catch(() => {
-        if (!cancelled) setError(t('home.loadError'));
+      .catch(handleError)
+      .finally(() => {
+        if (!cancelled) setLoadingApps(false);
       });
+
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, []);
 
@@ -257,18 +293,21 @@ function HomePage() {
         bundles={officialBundles}
         total={officialTotal}
         type="official"
+        loading={loadingOfficial}
       />
       <BundleSection
         title={t('home.bundleCommunity')}
         bundles={communityBundles}
         total={communityTotal}
         type="community"
+        loading={loadingCommunity}
       />
       <section className="home-section">
         <div className="section-heading">
           <h2>{t('home.appsRecent')}</h2>
           {apps.length > 5 ? <Link to="/catalog">{t('common.viewAll')}</Link> : null}
         </div>
+        {loadingApps ? <p className="loading-label">{t('common.loading')}</p> : null}
         <div className="app-compact-grid">
           {apps.map((app) => (
             <AppCompactCard app={app} key={app.id} />
@@ -284,11 +323,13 @@ function BundleSection({
   bundles,
   total,
   type,
+  loading,
 }: {
   title: string;
   bundles: BundleSummary[];
   total: number;
   type: 'official' | 'community';
+  loading: boolean;
 }) {
   return (
     <section className="home-section">
@@ -297,7 +338,9 @@ function BundleSection({
         {total > bundles.length ? <Link to={`/catalog?bundleType=${type}`}>{t('common.viewAll')}</Link> : null}
       </div>
       <div className="bundle-grid">
-        {bundles.length ? (
+        {loading ? (
+          <p className="loading-label">{t('common.loading')}</p>
+        ) : bundles.length ? (
           bundles.map((bundle) => <BundleCard bundle={bundle} key={bundle.id} />)
         ) : (
           <p className="empty-state">{t('home.emptyBundles')}</p>
@@ -328,7 +371,12 @@ function BundleCard({ bundle }: { bundle: BundleSummary }) {
           {bundle.appCount > 5 ? <span className="mini-more">+{bundle.appCount - 5}</span> : null}
         </div>
       </Link>
-      <BundleDownloadButton bundleId={bundle.id} appCount={bundle.appCount} compact />
+      <BundleDownloadButton
+        bundleId={bundle.id}
+        appCount={bundle.appCount}
+        operatingSystems={bundle.operatingSystems}
+        compact
+      />
     </article>
   );
 }
@@ -355,23 +403,42 @@ function CatalogPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchKey = searchParams.toString();
-  const filters = useMemo(() => parseCatalogFilters(searchKey), [searchKey]);
+  const preferredSearchMode = useMemo(
+    () => preferredCatalogSearchMode(
+      searchKey,
+      localStorage.getItem('catalog.search.mode'),
+    ),
+    [searchKey],
+  );
+  const canonicalSearchKey = useMemo(
+    () => normalizeCatalogStatus(searchKey, preferredSearchMode),
+    [preferredSearchMode, searchKey],
+  );
+  const catalogStatusCanonical = canonicalSearchKey === searchKey;
+  const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
   const [query, setQuery] = useState(filters.query);
   const [apps, setApps] = useState<CatalogApp[]>([]);
   const [total, setTotal] = useState(0);
+  const [loadingApps, setLoadingApps] = useState(true);
   const [stats, setStats] = useState<CatalogStats | null>(null);
   const [selected, setSelected] = useState<AppDetails | null>(null);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchNotice, setSearchNotice] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [filtersVisible, setFiltersVisible] = useState(() => localStorage.getItem('catalog.filters.open') !== 'false');
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
+  const [validatingSelection, setValidatingSelection] = useState(false);
   const downloadJob = useDownloadJob();
-  const visibleApps = useMemo(
-    () => mergeSelectedAppIntoPage(apps, appId ? selected : null, filters.pageSize),
-    [apps, appId, selected, filters.pageSize],
-  );
+  const selectedDownloadIdsRef = useRef<Set<string>>(new Set());
+  const lastLoadedPage = useRef<{ searchKey: string; apps: CatalogApp[] } | null>(null);
+
+  useEffect(() => {
+    if (!catalogStatusCanonical) {
+      setSearchParams(canonicalSearchKey, { replace: true });
+    }
+  }, [canonicalSearchKey, catalogStatusCanonical, setSearchParams]);
 
   useEffect(() => {
     setQuery(filters.query);
@@ -380,6 +447,25 @@ function CatalogPage() {
   function updateFilters(patch: Partial<CatalogFilterState>, resetPage = true, replace = false) {
     const params = catalogFiltersToSearchParams(nextFilters(filters, patch, resetPage));
     setSearchParams(params, { replace });
+  }
+
+  function commitDownloadSelection(next: Set<string>) {
+    selectedDownloadIdsRef.current = next;
+    setSelectedDownloadIds(next);
+  }
+
+  function removeDownloadSelections(ids: readonly string[]) {
+    if (ids.length === 0) return;
+    const next = new Set(selectedDownloadIdsRef.current);
+    let changed = false;
+    ids.forEach((id) => {
+      changed = next.delete(id) || changed;
+    });
+    if (changed) commitDownloadSelection(next);
+  }
+
+  function clearDownloadSelection() {
+    commitDownloadSelection(new Set());
   }
 
   useEffect(() => {
@@ -392,11 +478,38 @@ function CatalogPage() {
   }, [query, filters]);
 
   useEffect(() => {
-    return connectCatalogEvents(() => setRefreshToken((value) => value + 1));
+    let refreshTimer: number | undefined;
+    const disconnect = connectCatalogEvents(() => {
+      if (refreshTimer !== undefined) return;
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined;
+        setRefreshToken((value) => value + 1);
+      }, CATALOG_REFRESH_INTERVAL_MS);
+    });
+    return () => {
+      disconnect();
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+    };
   }, []);
 
   useEffect(() => {
+    if (!catalogStatusCanonical) {
+      setApps([]);
+      setTotal(0);
+      setLoadingApps(true);
+      return undefined;
+    }
     let cancelled = false;
+    const controller = new AbortController();
+    const previousPage = lastLoadedPage.current?.searchKey === canonicalSearchKey
+      ? lastLoadedPage.current.apps
+      : null;
+    const replacingQuery = previousPage === null;
+    if (replacingQuery) {
+      setApps([]);
+      setTotal(0);
+      setLoadingApps(true);
+    }
     setError(null);
     fetchApps({
       query: filters.query,
@@ -409,31 +522,53 @@ function CatalogPage() {
       tagMatchMin: filters.tagMatchMin,
       operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
       architecture: filters.architecture,
-    })
-      .then((response) => {
+      searchMode: filters.searchMode,
+    }, controller.signal)
+      .then(async (response) => {
         if (cancelled) return;
+        const refreshInspection = previousPage
+          ? inspectCatalogSelectionRefresh(
+            selectedDownloadIdsRef.current,
+            previousPage,
+            response.data,
+          )
+          : null;
+        if (refreshInspection) removeDownloadSelections(refreshInspection.invalidIds);
         setApps(response.data);
         setTotal(response.total);
+        setSearchNotice(response.degradedReason ? t('catalog.search.degraded') : null);
+        lastLoadedPage.current = { searchKey: canonicalSearchKey, apps: response.data };
+        if (refreshInspection?.missingIds.length) {
+          const validation = await validateCatalogSelection(
+            refreshInspection.missingIds,
+            (id) => fetchAppDetails(id, controller.signal),
+          );
+          if (!cancelled) removeDownloadSelections(validation.invalidIds);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setError(t('catalog.error.load'));
+      .catch((requestError: unknown) => {
+        if (!cancelled && !isAbortError(requestError)) setError(t('catalog.error.load'));
+      })
+      .finally(() => {
+        if (!cancelled && replacingQuery) setLoadingApps(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [filters, refreshToken]);
+  }, [canonicalSearchKey, catalogStatusCanonical, filters, refreshToken]);
 
   useEffect(() => {
     let cancelled = false;
-    fetchCatalogStats()
+    const controller = new AbortController();
+    fetchCatalogStats(controller.signal)
       .then((response) => {
         if (!cancelled) setStats(response);
       })
-      .catch(() => {
-        if (!cancelled) setStats(null);
-      });
+      .catch(() => undefined);
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [refreshToken]);
 
@@ -473,29 +608,45 @@ function CatalogPage() {
   }
 
   function toggleDownloadSelection(app: CatalogApp) {
-    if (!app.downloadable) return;
-    setSelectedDownloadIds((current) => {
-      const next = new Set(current);
-      if (next.has(app.id)) {
-        next.delete(app.id);
-        return next;
-      }
-      if (next.size >= 100) return next;
+    if (!isCatalogAppSelectable(app)) return;
+    const next = new Set(selectedDownloadIdsRef.current);
+    if (next.has(app.id)) {
+      next.delete(app.id);
+    } else {
+      if (next.size >= 100) return;
       next.add(app.id);
-      return next;
-    });
+    }
+    commitDownloadSelection(next);
   }
 
   async function downloadSelection() {
-    if (selectedDownloadIds.size < 1) return;
+    if (validatingSelection || selectedDownloadIdsRef.current.size < 1) return;
+    setValidatingSelection(true);
     setError(null);
     try {
+      const validation = await validateCatalogSelection(
+        Array.from(selectedDownloadIdsRef.current),
+        fetchAppDetails,
+      );
+      removeDownloadSelections(validation.invalidIds);
+      if (validation.unresolvedIds.length > 0) {
+        setError(t('catalog.error.zip'));
+        return;
+      }
+      const validIds = validation.validIds
+        .filter((id) => selectedDownloadIdsRef.current.has(id));
+      if (validIds.length < 1) {
+        setError(t('catalog.error.zip'));
+        return;
+      }
       await downloadJob.start({
-        appIds: Array.from(selectedDownloadIds),
+        appIds: validIds,
         operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
       });
     } catch {
       setError(t('catalog.error.zip'));
+    } finally {
+      setValidatingSelection(false);
     }
   }
 
@@ -510,7 +661,7 @@ function CatalogPage() {
           tagMatchMin={effectiveTagMatchMin(filters)}
           catalogSearch={searchKey}
           selectedCount={selectedDownloadIds.size}
-          downloading={downloadJob.starting}
+          downloading={downloadJob.starting || validatingSelection}
           operatingSystems={filters.operatingSystems}
           onChange={(nextFilter) => {
             updateFilters({ filter: nextFilter });
@@ -524,7 +675,7 @@ function CatalogPage() {
           })}
           onClearFacets={() => updateFilters({ tags: [], publishers: [], tagMatchMin: undefined })}
           onDownloadSelected={() => void downloadSelection()}
-          onClearSelection={() => setSelectedDownloadIds(new Set())}
+          onClearSelection={clearDownloadSelection}
         />
       </div>
       <button
@@ -549,11 +700,17 @@ function CatalogPage() {
         <AppSearchBar
           value={query}
           sort={filters.sort}
+          searchMode={filters.searchMode}
           onChange={setQuery}
           onSortChange={(nextSort) => {
             updateFilters({ sort: nextSort });
           }}
+          onSearchModeChange={(nextMode) => {
+            localStorage.setItem('catalog.search.mode', nextMode);
+            updateFilters({ searchMode: nextMode });
+          }}
         />
+        {searchNotice ? <p className="semantic-notice">{searchNotice}</p> : null}
         {error ? <p className="error-banner">{error}</p> : null}
         {downloadJob.job ? (
           <DownloadJobPanel
@@ -564,7 +721,8 @@ function CatalogPage() {
           />
         ) : null}
         <AppTable
-          apps={visibleApps}
+          apps={apps}
+          loading={loadingApps}
           selectedId={selectedId}
           selectedIds={selectedDownloadIds}
           selectedCount={selectedDownloadIds.size}
@@ -597,7 +755,19 @@ function CatalogPage() {
 function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchKey = searchParams.toString();
-  const filters = useMemo(() => parseCatalogFilters(searchKey), [searchKey]);
+  const preferredSearchMode = useMemo(
+    () => preferredCatalogSearchMode(
+      searchKey,
+      localStorage.getItem('catalog.search.mode'),
+    ),
+    [searchKey],
+  );
+  const canonicalSearchKey = useMemo(
+    () => normalizeCatalogStatus(searchKey, preferredSearchMode),
+    [preferredSearchMode, searchKey],
+  );
+  const catalogStatusCanonical = canonicalSearchKey === searchKey;
+  const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
   const [facets, setFacets] = useState<CatalogFacets>({ tags: [], publishers: [] });
   const [activeLetter, setActiveLetter] = useState('A');
   const [loading, setLoading] = useState(false);
@@ -611,6 +781,17 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
   const subtitle = kind === 'tags' ? t('facet.tags.subtitle') : t('facet.publishers.subtitle');
 
   useEffect(() => {
+    if (!catalogStatusCanonical) {
+      setSearchParams(canonicalSearchKey, { replace: true });
+    }
+  }, [canonicalSearchKey, catalogStatusCanonical, setSearchParams]);
+
+  useEffect(() => {
+    if (!catalogStatusCanonical) {
+      setFacets({ tags: [], publishers: [] });
+      setLoading(true);
+      return undefined;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -622,6 +803,7 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
       tagMatchMin: filters.tagMatchMin,
       operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
       architecture: filters.architecture,
+      searchMode: filters.searchMode,
     })
       .then((response) => {
         if (!cancelled) setFacets(response);
@@ -635,7 +817,7 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
     return () => {
       cancelled = true;
     };
-  }, [filters]);
+  }, [catalogStatusCanonical, filters]);
 
   useEffect(() => {
     if (!items.length || lettersWithItems.has(activeLetter)) return;
@@ -673,7 +855,7 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
           <h2>{title}</h2>
           <p>{subtitle}</p>
         </div>
-        <Link className="secondary-button facet-back-link" to={{ pathname: '/catalog', search: searchKey }}>
+        <Link className="secondary-button facet-back-link" to={{ pathname: '/catalog', search: canonicalSearchKey }}>
           {t('facet.backToCatalog')}
         </Link>
       </section>
@@ -767,7 +949,11 @@ function BundleDetailPage() {
         </div>
         <div className="bundle-detail-actions">
           <span>{t('bundle.appsCount', { count: bundle.appCount })}</span>
-          <BundleDownloadButton bundleId={bundle.id} appCount={bundle.appCount} />
+          <BundleDownloadButton
+            bundleId={bundle.id}
+            appCount={bundle.appCount}
+            operatingSystems={bundle.operatingSystems}
+          />
         </div>
       </section>
       <div className="bundle-app-list">
@@ -779,7 +965,7 @@ function BundleDetailPage() {
               <small>{app.publisher || '-'}</small>
             </div>
             <AppStatusBadge status={app.resolutionStatus} />
-            <DownloadButton appId={app.id} disabled={!app.downloadable} />
+            <DownloadButton appId={app.id} disabled={!isCatalogAppSelectable(app)} />
           </div>
         ))}
       </div>
@@ -1797,6 +1983,10 @@ function metadataNumber(metadata: Record<string, unknown>, key: string): number 
 function metadataBoolean(metadata: Record<string, unknown>, key: string): boolean | undefined {
   const value = metadata[key];
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
 }
 
 async function handleLogout(setAuth: (value: AuthUser | null) => void) {

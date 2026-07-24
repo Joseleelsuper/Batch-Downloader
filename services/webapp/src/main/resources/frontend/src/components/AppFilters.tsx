@@ -78,12 +78,13 @@ export function AppFilters({
             <button
               key={filter.key}
               className={`filter-item ${active === filter.key ? 'filter-item-active' : ''}`}
+              aria-pressed={active === filter.key}
               onClick={() => onChange(filter.key)}
               type="button"
             >
               <Icon size={20} />
               <span>{filter.label}</span>
-              <strong>{counts[filter.key].toLocaleString('es-ES')}</strong>
+              <strong>{(counts[filter.key] ?? 0).toLocaleString('es-ES')}</strong>
             </button>
           );
         })}
@@ -131,19 +132,15 @@ export function AppFilters({
         <div>
           {(['windows', 'linux', 'macos'] as OperatingSystem[]).map((operatingSystem) => {
             const active = operatingSystems.includes(operatingSystem);
-            const lastActive = active && operatingSystems.length === 1;
             return (
               <button
                 key={operatingSystem}
                 className={`platform-filter-button ${active ? 'platform-filter-button-active' : ''}`}
                 type="button"
                 aria-pressed={active}
-                aria-disabled={lastActive || undefined}
                 title={operatingSystemLabel(operatingSystem)}
                 aria-label={operatingSystemLabel(operatingSystem)}
-                onClick={() => {
-                  if (!lastActive) onToggleOperatingSystem?.(operatingSystem);
-                }}
+                onClick={() => onToggleOperatingSystem?.(operatingSystem)}
               >
                 <OperatingSystemIcon operatingSystem={operatingSystem} decorative />
               </button>

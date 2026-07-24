@@ -17,6 +17,10 @@ export function DownloadJobPanel({ job, cancelling = false, onCancel, onClose }:
   const completed = job.items.filter((item) => item.status === 'COMPLETED').length;
   const failed = job.items.filter((item) => item.status === 'FAILED').length;
   const statusKey = `download.job.status.${job.status.toLowerCase()}`;
+  const failureCodes = Array.from(new Set([
+    job.failureCode,
+    ...job.items.filter((item) => item.status === 'FAILED').map((item) => item.errorCode),
+  ].filter((code): code is string => Boolean(code))));
 
   return (
     <section className="download-job-panel" aria-live="polite" aria-label={t('download.job.title')}>
@@ -38,6 +42,13 @@ export function DownloadJobPanel({ job, cancelling = false, onCancel, onClose }:
           omitted: job.omittedCount,
         })}` : null}
       </p>
+      {failureCodes.length ? (
+        <ul className="download-job-failures">
+          {failureCodes.map((code) => (
+            <li key={code}>{t('download.job.failureCode', { code })}</li>
+          ))}
+        </ul>
+      ) : null}
       <div className="download-job-actions">
         {DOWNLOADABLE_STATUSES.has(job.status) ? (
           <a className="primary-button compact-button" href={downloadJobFileUrl(job.id)}>

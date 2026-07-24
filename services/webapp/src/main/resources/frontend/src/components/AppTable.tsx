@@ -1,5 +1,6 @@
-import type { CatalogApp } from '../types/catalog';
+import { isCatalogAppSelectable } from '../catalogSelection';
 import { t } from '../services/i18n';
+import type { CatalogApp } from '../types/catalog';
 import { AppStatusBadge } from './AppStatusBadge';
 import { OperatingSystemList } from './OperatingSystemIcons';
 
@@ -8,6 +9,7 @@ interface Props {
   selectedId?: string;
   selectedIds?: Set<string>;
   selectedCount?: number;
+  loading?: boolean;
   onSelect: (app: CatalogApp) => void;
   onToggleSelection?: (app: CatalogApp) => void;
 }
@@ -17,11 +19,12 @@ export function AppTable({
   selectedId,
   selectedIds = new Set(),
   selectedCount = 0,
+  loading = false,
   onSelect,
   onToggleSelection,
 }: Props) {
   return (
-    <div className="table-card">
+    <div className="table-card" aria-busy={loading}>
       <table className="app-table">
         <thead>
           <tr>
@@ -38,7 +41,7 @@ export function AppTable({
         <tbody>
           {apps.map((app) => {
             const checked = selectedIds.has(app.id);
-            const disabled = !app.downloadable || (!checked && selectedCount >= 100);
+            const disabled = !isCatalogAppSelectable(app) || (!checked && selectedCount >= 100);
             return (
               <tr
                 key={app.id}
@@ -71,7 +74,8 @@ export function AppTable({
           })}
         </tbody>
       </table>
-      {apps.length === 0 ? <p className="empty-state">{t('catalog.empty')}</p> : null}
+      {loading ? <p className="loading-label">{t('common.loading')}</p> : null}
+      {!loading && apps.length === 0 ? <p className="empty-state">{t('catalog.empty')}</p> : null}
     </div>
   );
 }

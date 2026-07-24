@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { ScraperQueues } from './App';
 import * as catalogApi from './api/catalog';
-import type { ScraperQueueState } from './types/catalog';
+import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, ScraperQueueState } from './types/catalog';
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -17,13 +17,48 @@ function memoryStorage(): Storage {
   };
 }
 
+const catalogApp: CatalogApp = {
+  id: 'app-1',
+  slug: 'app-one',
+  packageId: 'Example.App',
+  name: 'Aplicación reciente',
+  publisher: 'Example',
+  tags: [],
+  operatingSystems: ['windows'],
+  sourceLabel: 'Winstall',
+  resolutionStatus: 'direct',
+  validationStatus: 'valid',
+  downloadable: true,
+  updatedAt: '2026-07-16T08:00:00Z',
+};
+
+const officialBundle: BundleSummary = {
+  id: 'bundle-1',
+  slug: 'launchers',
+  name: 'Launchers',
+  description: 'Launchers de videojuegos',
+  type: 'official',
+  visibility: 'public',
+  starCount: 0,
+  appCount: 1,
+  tags: ['juegos'],
+  operatingSystems: ['windows'],
+  previewApps: [catalogApp],
+  updatedAt: '2026-07-16T08:00:00Z',
+};
+
+function LocationProbe() {
+  return <output data-testid="location-search">{useLocation().search}</output>;
+}
+
 describe('catalog workspace', () => {
   beforeEach(() => {
     const storage = memoryStorage();
     Object.defineProperty(window, 'localStorage', { configurable: true, value: storage });
     vi.stubGlobal('localStorage', storage);
-    vi.spyOn(catalogApi, 'me').mockRejectedValue(new Error('anonymous'));
+    vi.spyOn(catalogApi, 'me').mockResolvedValue(null);
     vi.spyOn(catalogApi, 'connectCatalogEvents').mockReturnValue(() => undefined);
+    vi.spyOn(catalogApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
     vi.spyOn(catalogApi, 'fetchApps').mockResolvedValue({
       data: [],
       page: 1,
@@ -39,6 +74,7 @@ describe('catalog workspace', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -68,6 +104,378 @@ describe('catalog workspace', () => {
     expect(workspace?.children[0]).not.toHaveAttribute('hidden');
     expect(window.localStorage.getItem('catalog.filters.open')).toBe('true');
     await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalled());
+  });
+
+  it('renders catalog totals even when the app page request fails', async () => {
+    vi.mocked(catalogApi.fetchApps).mockRejectedValue(new Error('request_failed_500'));
+    vi.mocked(catalogApi.fetchCatalogStats).mockResolvedValue({
+      total: 13_493,
+      filters: { all: 13_493, available: 13_404, review: 88, missing: 1 },
+      lastScrape: null,
+      generatedAt: '2026-07-16T08:00:00Z',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findAllByText('13.493')).toHaveLength(1);
+    expect(screen.getByText('13.404')).toBeInTheDocument();
+    expect(screen.getByText('88')).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(await screen.findByText('No se pudo cargar el catálogo.')).toBeInTheDocument();
+  });
+
+  it('defaults a first visit to hybrid and persists an explicit literal choice', async () => {
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    const hybrid = await screen.findByRole('button', { name: 'Híbrida' });
+    expect(hybrid).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search')).toHaveTextContent('searchMode=hybrid');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Literal' }));
+
+    expect(window.localStorage.getItem('catalog.search.mode')).toBe('lexical');
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search')).toHaveTextContent('searchMode=lexical');
+    });
+  });
+
+  it('shows a brief notice when a hybrid request degrades as a whole', async () => {
+    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+      data: [],
+      page: 1,
+      pageSize: 12,
+      total: 0,
+      requestedMode: 'hybrid',
+      appliedMode: 'lexical',
+      degradedReason: 'semantic_index_unavailable',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog?searchMode=hybrid&query=editor']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(
+      'La búsqueda semántica no está disponible temporalmente; se muestran resultados literales.',
+    )).toBeInTheDocument();
+    expect(window.localStorage.getItem('catalog.search.mode')).toBeNull();
+  });
+
+  it('coalesces bursts of catalog events into a single refresh', async () => {
+    vi.useFakeTimers();
+    let notifyCatalogChanged: (() => void) | undefined;
+    vi.mocked(catalogApi.connectCatalogEvents).mockImplementation((onEvent) => {
+      notifyCatalogChanged = () => onEvent({
+        type: 'catalog.changed',
+        version: '1',
+        generatedAt: '2026-07-16T08:00:00Z',
+      });
+      return () => undefined;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await act(async () => Promise.resolve());
+    expect(catalogApi.fetchApps).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      notifyCatalogChanged?.();
+      notifyCatalogChanged?.();
+      notifyCatalogChanged?.();
+    });
+    expect(catalogApi.fetchApps).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(catalogApi.fetchApps).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('removes a selected app deleted during a catalog refresh', async () => {
+    vi.useFakeTimers();
+    let notifyCatalogChanged: (() => void) | undefined;
+    vi.mocked(catalogApi.connectCatalogEvents).mockImplementation((onEvent) => {
+      notifyCatalogChanged = () => onEvent({
+        type: 'catalog.changed',
+        version: '2',
+        generatedAt: '2026-07-18T12:00:00Z',
+      });
+      return () => undefined;
+    });
+    vi.mocked(catalogApi.fetchApps)
+      .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 1 })
+      .mockResolvedValueOnce({ data: [], page: 1, pageSize: 12, total: 0 });
+    vi.spyOn(catalogApi, 'fetchAppDetails').mockRejectedValue(new Error('request_failed_404'));
+
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
+    expect(screen.getByText('1 / 100')).toBeInTheDocument();
+
+    act(() => notifyCatalogChanged?.());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.resolve();
+    });
+    vi.useRealTimers();
+
+    await waitFor(() => expect(screen.getByText('0 / 100')).toBeInTheDocument());
+    expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1', expect.any(AbortSignal));
+  });
+
+  it('preserves selections when navigating to another catalog page', async () => {
+    const secondPageApp: CatalogApp = {
+      ...catalogApp,
+      id: 'app-2',
+      name: 'Aplicación de la segunda página',
+    };
+    vi.mocked(catalogApi.fetchApps)
+      .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 13 })
+      .mockResolvedValueOnce({ data: [secondPageApp], page: 2, pageSize: 12, total: 13 });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
+    const pagination = screen.getByText(/Mostrando 1 a 12 de 13 resultados/).closest('footer');
+    expect(pagination).not.toBeNull();
+    fireEvent.click(within(pagination!).getAllByRole('button')[1]);
+
+    expect(await screen.findByText('Aplicación de la segunda página')).toBeInTheDocument();
+    expect(screen.getByText('1 / 100')).toBeInTheDocument();
+  });
+
+  it('revalidates selected apps before sending a download job', async () => {
+    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+      data: [catalogApp],
+      page: 1,
+      pageSize: 12,
+      total: 1,
+    });
+    vi.spyOn(catalogApi, 'fetchAppDetails').mockResolvedValue({
+      ...catalogApp,
+      resolutionStatus: 'requires_manual_review',
+      validationStatus: 'unchecked',
+      downloadable: false,
+      notes: '',
+    });
+    const createDownloadJob = vi.spyOn(catalogApi, 'createDownloadJob');
+
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar ZIP' }));
+
+    await waitFor(() => expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
+    await waitFor(() => expect(screen.getByText('0 / 100')).toBeInTheDocument());
+    expect(createDownloadJob).not.toHaveBeenCalled();
+  });
+
+  it('sends only apps that remain selectable after validation', async () => {
+    const staleApp: CatalogApp = {
+      ...catalogApp,
+      id: 'app-2',
+      name: 'Aplicación obsoleta',
+    };
+    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+      data: [catalogApp, staleApp],
+      page: 1,
+      pageSize: 12,
+      total: 2,
+    });
+    vi.spyOn(catalogApi, 'fetchAppDetails').mockImplementation(async (id) => ({
+      ...(id === catalogApp.id ? catalogApp : staleApp),
+      resolutionStatus: id === catalogApp.id ? 'direct' : 'requires_manual_review',
+      validationStatus: id === catalogApp.id ? 'valid' : 'unchecked',
+      downloadable: id === catalogApp.id,
+      notes: '',
+    }));
+    const createDownloadJob = vi.spyOn(catalogApi, 'createDownloadJob').mockResolvedValue({
+      id: 'job-1',
+      status: 'QUEUED',
+      failureCode: null,
+      progress: 0,
+      requestedCount: 1,
+      acceptedCount: 1,
+      omittedCount: 0,
+      items: [],
+      createdAt: '2026-07-18T12:00:00Z',
+      expiresAt: '2026-07-19T12:00:00Z',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Aplicación obsoleta')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación obsoleta' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar ZIP' }));
+
+    await waitFor(() => expect(createDownloadJob).toHaveBeenCalledWith({
+      appIds: ['app-1'],
+      operatingSystems: undefined,
+    }));
+    expect(screen.getByText('1 / 100')).toBeInTheDocument();
+  });
+
+  it('removes legacy pending status from the URL and loads Todas', async () => {
+    render(
+      <MemoryRouter initialEntries={['/catalog?status=pending&query=editor']}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('?query=editor'));
+    expect(screen.queryByText('Pendientes')).not.toBeInTheDocument();
+    expect(catalogApi.fetchApps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filter: 'all', query: 'editor' }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('hides the previous page while a different filter is loading', async () => {
+    let resolveReview!: (response: CatalogResponse) => void;
+    vi.mocked(catalogApi.fetchApps)
+      .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 1 })
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveReview = resolve;
+      }));
+
+    render(
+      <MemoryRouter initialEntries={['/catalog?status=available']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Revisión/ }));
+
+    await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('Aplicación reciente')).not.toBeInTheDocument();
+    expect(screen.getByText('Cargando...')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveReview({ data: [], page: 1, pageSize: 12, total: 0 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(await screen.findByText('No hay aplicaciones que coincidan con la búsqueda.')).toBeInTheDocument();
+  });
+
+  it('keeps an opened detail drawer without injecting it into a filtered page', async () => {
+    const reviewApp: CatalogApp = {
+      ...catalogApp,
+      id: 'review-app',
+      name: 'Aplicación en revisión',
+      resolutionStatus: 'requires_manual_review',
+      validationStatus: 'unchecked',
+      downloadable: false,
+    };
+    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+      data: [reviewApp],
+      page: 1,
+      pageSize: 12,
+      total: 1,
+    });
+    vi.spyOn(catalogApi, 'fetchAppDetails').mockResolvedValue({
+      ...catalogApp,
+      id: 'detail-app',
+      name: 'Detalle disponible',
+      notes: '',
+      downloadOptions: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog/app/detail-app?status=review']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Detalle disponible' })).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Aplicación en revisión')).toBeInTheDocument();
+    expect(within(table).queryByText('Detalle disponible')).not.toBeInTheDocument();
+  });
+});
+
+describe('home loading', () => {
+  beforeEach(() => {
+    vi.spyOn(catalogApi, 'me').mockResolvedValue(null);
+    vi.spyOn(catalogApi, 'fetchBundles').mockImplementation(async (params) => ({
+      data: params.type === 'official' ? [officialBundle] : [],
+      page: 1,
+      pageSize: 3,
+      total: params.type === 'official' ? 1 : 0,
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps successful bundles visible when the recent-app request fails', async () => {
+    vi.spyOn(catalogApi, 'fetchApps').mockRejectedValue(new Error('request_failed_500'));
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Launchers')).toBeInTheDocument();
+    expect(screen.getByText('Launchers de videojuegos')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Windows' })).toBeInTheDocument();
+    expect(await screen.findByText('No se pudo cargar la página principal.')).toBeInTheDocument();
+  });
+
+  it('muestra el selector de SO del bundle en su detalle', async () => {
+    vi.spyOn(catalogApi, 'fetchBundle').mockResolvedValue({
+      ...officialBundle,
+      apps: [catalogApp],
+    } satisfies BundleDetails);
+
+    render(
+      <MemoryRouter initialEntries={['/bundles/launchers']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Windows' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: 'Linux' })).not.toBeInTheDocument();
   });
 });
 

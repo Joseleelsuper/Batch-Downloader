@@ -67,4 +67,24 @@ describe('AppTable', () => {
 
     expect(screen.getByRole('checkbox', { name: 'Seleccionar Epic Games Launcher' })).toBeDisabled();
   });
+
+  it('disables inconsistent rows even when the payload marks them downloadable', () => {
+    render(
+      <AppTable
+        apps={[{ ...app, resolutionStatus: 'requires_manual_review', downloadable: true }]}
+        onSelect={vi.fn()}
+        onToggleSelection={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar Epic Games Launcher' })).toBeDisabled();
+    expect(screen.getByText('Revisión')).toBeInTheDocument();
+  });
+
+  it('hides the empty result message while a replacement page is loading', () => {
+    render(<AppTable apps={[]} loading onSelect={vi.fn()} />);
+
+    expect(screen.getByText('Cargando...')).toBeInTheDocument();
+    expect(screen.queryByText('No hay aplicaciones que coincidan con la búsqueda.')).not.toBeInTheDocument();
+  });
 });

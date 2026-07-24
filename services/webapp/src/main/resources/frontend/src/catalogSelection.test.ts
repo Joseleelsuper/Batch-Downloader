@@ -1,26 +1,78 @@
-import { describe, expect, it } from 'vitest';
-import { mergeSelectedAppIntoPage } from './catalogSelection';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  inspectCatalogSelectionRefresh,
+  isCatalogAppSelectable,
+  validateCatalogSelection,
+} from './catalogSelection';
 import type { CatalogApp } from './types/catalog';
 
-const selected = app('selected', 'GOG GALAXY');
-const first = app('first', 'BMDesk');
-const second = app('second', 'hyperdu');
-
-describe('mergeSelectedAppIntoPage', () => {
-  it('keeps the current page when the selected app is already visible', () => {
-    const apps = [first, selected, second];
-
-    expect(mergeSelectedAppIntoPage(apps, selected, 12)).toBe(apps);
+describe('isCatalogAppSelectable', () => {
+  it('accepts only downloadable direct or fallback applications', () => {
+    expect(isCatalogAppSelectable({
+      ...app('direct', 'Directa'),
+      resolutionStatus: 'direct',
+      validationStatus: 'valid',
+      downloadable: true,
+    })).toBe(true);
+    expect(isCatalogAppSelectable({
+      ...app('fallback', 'Fallback'),
+      resolutionStatus: 'fallback',
+      validationStatus: 'valid',
+      downloadable: true,
+    })).toBe(true);
+    expect(isCatalogAppSelectable({
+      ...app('review', 'Revisión'),
+      resolutionStatus: 'requires_manual_review',
+      downloadable: true,
+    })).toBe(false);
+    expect(isCatalogAppSelectable({
+      ...app('missing', 'Sin instalador'),
+      resolutionStatus: 'direct',
+      downloadable: false,
+    })).toBe(false);
   });
 
-  it('pins the selected app when a detail route points outside the loaded page', () => {
-    expect(mergeSelectedAppIntoPage([first, second], selected, 2)).toEqual([selected, first]);
+  it('inspects only selections affected by the refreshed page', () => {
+    const previousPage = [app('page-1', 'Página uno'), app('gone', 'Desaparece')];
+    const nextPage = [{
+      ...previousPage[0],
+      resolutionStatus: 'requires_manual_review' as const,
+      downloadable: false,
+    }];
+
+    expect(inspectCatalogSelectionRefresh(
+      new Set(['page-1', 'gone', 'another-page']),
+      previousPage,
+      nextPage,
+    )).toEqual({
+      invalidIds: ['page-1'],
+      missingIds: ['gone'],
+    });
   });
 
-  it('does not change the page without a selected app', () => {
-    const apps = [first, second];
+  it('validates stale selections without treating transient errors as deletions', async () => {
+    const loadApp = vi.fn(async (id: string) => {
+      if (id === 'invalid') return app(id, 'Sin instalador');
+      if (id === 'deleted') throw new Error('request_failed_404');
+      if (id === 'temporary') throw new Error('request_failed_503');
+      return {
+        ...app(id, 'Disponible'),
+        resolutionStatus: 'direct' as const,
+        validationStatus: 'valid' as const,
+        downloadable: true,
+      };
+    });
 
-    expect(mergeSelectedAppIntoPage(apps, null, 12)).toBe(apps);
+    await expect(validateCatalogSelection(
+      ['valid', 'invalid', 'deleted', 'temporary', 'valid'],
+      loadApp,
+      2,
+    )).resolves.toEqual({
+      validIds: ['valid'],
+      invalidIds: ['invalid', 'deleted'],
+      unresolvedIds: ['temporary'],
+    });
+    expect(loadApp).toHaveBeenCalledTimes(4);
   });
 });
 

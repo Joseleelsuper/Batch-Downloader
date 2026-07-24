@@ -14,6 +14,18 @@ const counts: Record<FilterKey, number> = {
 describe('AppFilters', () => {
   afterEach(() => cleanup());
 
+  it('shows only the four public catalog filters', () => {
+    render(
+      <MemoryRouter>
+        <AppFilters active="all" counts={counts} onChange={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole('button').filter((button) => button.classList.contains('filter-item'))).toHaveLength(4);
+    expect(screen.queryByText('Pendientes')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Todas/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('renders facet links and active facet chips', () => {
     const onRemoveTag = vi.fn();
     const onRemovePublisher = vi.fn();
@@ -46,7 +58,7 @@ describe('AppFilters', () => {
     expect(onRemovePublisher).toHaveBeenCalledWith('ACME, Inc.');
   });
 
-  it('exposes platform toggle state and keeps the last active platform enabled', () => {
+  it('exposes platform toggle state and lets the last active platform restore the other two', () => {
     const onToggleOperatingSystem = vi.fn();
     render(
       <MemoryRouter>
@@ -62,12 +74,10 @@ describe('AppFilters', () => {
 
     const windows = screen.getByRole('button', { name: 'Windows' });
     expect(windows).toHaveAttribute('aria-pressed', 'true');
-    expect(windows).toHaveAttribute('aria-disabled', 'true');
 
     fireEvent.click(windows);
-    fireEvent.click(screen.getByRole('button', { name: 'Linux' }));
 
     expect(onToggleOperatingSystem).toHaveBeenCalledTimes(1);
-    expect(onToggleOperatingSystem).toHaveBeenCalledWith('linux');
+    expect(onToggleOperatingSystem).toHaveBeenCalledWith('windows');
   });
 });

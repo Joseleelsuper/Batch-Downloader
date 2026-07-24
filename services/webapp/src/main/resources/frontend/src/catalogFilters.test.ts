@@ -3,7 +3,9 @@ import {
   catalogFiltersToSearchParams,
   effectiveTagMatchMin,
   nextFilters,
+  normalizeCatalogStatus,
   parseCatalogFilters,
+  preferredCatalogSearchMode,
   toggleOperatingSystem,
   toggleValue,
 } from './catalogFilters';
@@ -33,6 +35,7 @@ describe('catalogFilters', () => {
       publishers: ['ACME, Inc.'],
       tagMatchMin: 2,
       operatingSystems: ['windows', 'linux'],
+      searchMode: 'hybrid',
     });
 
     expect(params.getAll('tag')).toEqual(['.NET', 'runtime']);
@@ -52,6 +55,7 @@ describe('catalogFilters', () => {
       publishers: [],
       tagMatchMin: 3,
       operatingSystems: ['windows', 'linux', 'macos'],
+      searchMode: 'hybrid',
     }, { tags: ['a', 'b'] });
 
     expect(filters.page).toBe(1);
@@ -63,7 +67,15 @@ describe('catalogFilters', () => {
     expect(toggleValue(['a', 'b'], 'a')).toEqual(['b']);
   });
 
-  it('parses repeated operating systems, omits all active systems and protects the last one', () => {
+  it('normalizes removed and unknown public statuses without discarding other filters', () => {
+    expect(normalizeCatalogStatus('query=editor&status=pending&tag=.NET')).toBe('query=editor&tag=.NET');
+    expect(normalizeCatalogStatus('status=unknown&page=2')).toBe('page=2');
+    expect(normalizeCatalogStatus('status=review&page=2')).toBe('status=review&page=2');
+    expect(parseCatalogFilters('status=pending').filter).toBe('all');
+    expect(parseCatalogFilters('status=unknown').filter).toBe('all');
+  });
+
+  it('parses repeated operating systems, omits all active systems and restores alternatives from one active system', () => {
     expect(parseCatalogFilters('os=linux&os=windows').operatingSystems).toEqual(['windows', 'linux']);
     expect(catalogFiltersToSearchParams({
       query: '',
@@ -74,8 +86,18 @@ describe('catalogFilters', () => {
       tags: [],
       publishers: [],
       operatingSystems: ['windows', 'linux', 'macos'],
+      searchMode: 'hybrid',
     }).getAll('os')).toEqual([]);
-    expect(toggleOperatingSystem(['windows'], 'windows')).toEqual(['windows']);
+    expect(toggleOperatingSystem(['windows'], 'windows')).toEqual(['linux', 'macos']);
     expect(toggleOperatingSystem(['windows'], 'linux')).toEqual(['windows', 'linux']);
+  });
+
+  it('prioritizes URL mode, then the stored choice, then hybrid for a first visit', () => {
+    expect(preferredCatalogSearchMode('searchMode=lexical', 'hybrid')).toBe('lexical');
+    expect(preferredCatalogSearchMode('', 'lexical')).toBe('lexical');
+    expect(preferredCatalogSearchMode('', null)).toBe('hybrid');
+    expect(normalizeCatalogStatus('query=editor', 'hybrid')).toBe(
+      'query=editor&searchMode=hybrid',
+    );
   });
 });

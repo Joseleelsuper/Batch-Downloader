@@ -1,4 +1,4 @@
-import type { FilterKey, OperatingSystem, SortKey } from './types/catalog';
+import type { FilterKey, OperatingSystem, SearchMode, SortKey } from './types/catalog';
 
 export const ALL_OPERATING_SYSTEMS: OperatingSystem[] = ['windows', 'linux', 'macos'];
 
@@ -13,10 +13,12 @@ export interface CatalogFilterState {
   tagMatchMin?: number;
   operatingSystems: OperatingSystem[];
   architecture?: string;
+  searchMode: SearchMode;
 }
 
 const filterKeys: FilterKey[] = ['all', 'available', 'review', 'missing'];
 const sortKeys: SortKey[] = ['updated', 'name'];
+const searchModes: SearchMode[] = ['lexical', 'hybrid'];
 
 export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
   query: '',
@@ -27,6 +29,7 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
   tags: [],
   publishers: [],
   operatingSystems: ALL_OPERATING_SYSTEMS,
+  searchMode: 'hybrid',
 };
 
 export function parseCatalogFilters(search: URLSearchParams | string): CatalogFilterState {
@@ -45,7 +48,38 @@ export function parseCatalogFilters(search: URLSearchParams | string): CatalogFi
     tagMatchMin,
     operatingSystems: parseOperatingSystems(params.getAll('os')),
     architecture: optionalParam(params.get('architecture')),
+    searchMode: enumParam(params.get('searchMode'), searchModes, DEFAULT_CATALOG_FILTERS.searchMode),
   };
+}
+
+export function normalizeCatalogStatus(
+  search: URLSearchParams | string,
+  preferredSearchMode?: SearchMode,
+): string {
+  const params = new URLSearchParams(typeof search === 'string' ? search : search.toString());
+  const status = params.get('status');
+  if (status !== null && !filterKeys.includes(status as FilterKey)) {
+    params.delete('status');
+  }
+  const mode = params.get('searchMode');
+  if (mode !== null && !searchModes.includes(mode as SearchMode)) {
+    params.delete('searchMode');
+  }
+  if (!params.has('searchMode') && preferredSearchMode) {
+    params.set('searchMode', preferredSearchMode);
+  }
+  return params.toString();
+}
+
+export function preferredCatalogSearchMode(
+  search: URLSearchParams | string,
+  storedPreference: string | null,
+): SearchMode {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : search;
+  const urlMode = params.get('searchMode');
+  if (searchModes.includes(urlMode as SearchMode)) return urlMode as SearchMode;
+  if (searchModes.includes(storedPreference as SearchMode)) return storedPreference as SearchMode;
+  return 'hybrid';
 }
 
 export function catalogFiltersToSearchParams(filters: CatalogFilterState): URLSearchParams {
@@ -66,6 +100,7 @@ export function catalogFiltersToSearchParams(filters: CatalogFilterState): URLSe
     filters.operatingSystems.forEach((operatingSystem) => params.append('os', operatingSystem));
   }
   if (filters.architecture) params.set('architecture', filters.architecture);
+  params.set('searchMode', filters.searchMode);
   return params;
 }
 
@@ -74,9 +109,11 @@ export function toggleOperatingSystem(
   operatingSystem: OperatingSystem,
 ): OperatingSystem[] {
   if (values.includes(operatingSystem)) {
-    // At least one platform must remain selected. A completely disabled filter
-    // is ambiguous and makes the bookmark state inaccessible to keyboard users.
-    return values.length === 1 ? values : values.filter((value) => value !== operatingSystem);
+    // Turning off the last selected platform restores the other two. This keeps
+    // the filter useful without trapping the user on a single operating system.
+    return values.length === 1
+      ? ALL_OPERATING_SYSTEMS.filter((value) => value !== operatingSystem)
+      : values.filter((value) => value !== operatingSystem);
   }
   return ALL_OPERATING_SYSTEMS.filter((value) => values.includes(value) || value === operatingSystem);
 }

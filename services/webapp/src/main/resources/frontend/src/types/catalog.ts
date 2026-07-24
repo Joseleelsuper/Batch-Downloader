@@ -8,6 +8,7 @@ export type ResolutionStatus =
 export type ValidationStatus = 'unchecked' | 'valid' | 'invalid' | 'expired';
 
 export type OperatingSystem = 'windows' | 'linux' | 'macos';
+export type SearchMode = 'lexical' | 'hybrid';
 
 export interface CatalogApp {
   id: string;
@@ -33,6 +34,11 @@ export interface CatalogResponse {
   page: number;
   pageSize: number;
   total: number;
+  requestedMode?: SearchMode;
+  appliedMode?: SearchMode;
+  modelVersion?: string | null;
+  indexVersion?: string | null;
+  degradedReason?: string | null;
 }
 
 export interface FacetItem {
@@ -46,6 +52,11 @@ export interface FacetItem {
 export interface CatalogFacets {
   tags: FacetItem[];
   publishers: FacetItem[];
+  requestedMode?: SearchMode;
+  appliedMode?: SearchMode;
+  modelVersion?: string | null;
+  indexVersion?: string | null;
+  degradedReason?: string | null;
 }
 
 export interface CatalogStats {
@@ -110,6 +121,7 @@ export interface DownloadJobItem {
 export interface DownloadJob {
   id: string;
   status: DownloadJobStatus;
+  failureCode: string | null;
   progress: number;
   requestedCount: number;
   acceptedCount: number;
@@ -148,6 +160,8 @@ export interface BundleSummary {
   starCount: number;
   appCount: number;
   tags: string[];
+  /** Platforms with a verified installer for every app in this bundle. */
+  operatingSystems: OperatingSystem[];
   previewApps: CatalogApp[];
   updatedAt: string;
 }

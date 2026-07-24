@@ -20,6 +20,7 @@ import type {
   ScraperSnapshotItem,
   SoftwareRequestItem,
   OperatingSystem,
+  SearchMode,
   SortKey,
 } from '../types/catalog';
 
@@ -96,7 +97,8 @@ export async function fetchApps(params: {
   tagMatchMin?: number;
   operatingSystems?: OperatingSystem[];
   architecture?: string;
-}): Promise<CatalogResponse> {
+  searchMode?: SearchMode;
+}, signal?: AbortSignal): Promise<CatalogResponse> {
   const search = new URLSearchParams();
   if (params.query.trim()) search.set('query', params.query.trim());
   if (params.filter !== 'all') search.set('status', params.filter);
@@ -105,10 +107,11 @@ export async function fetchApps(params: {
   if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
   params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
+  if (params.searchMode) search.set('searchMode', params.searchMode);
   search.set('sort', params.sort);
   search.set('page', String(params.page));
   search.set('pageSize', String(params.pageSize));
-  return requestJson<CatalogResponse>(`/api/v1/apps?${search.toString()}`);
+  return requestJson<CatalogResponse>(`/api/v1/apps?${search.toString()}`, { signal });
 }
 
 export async function fetchCatalogFacets(params: {
@@ -119,6 +122,7 @@ export async function fetchCatalogFacets(params: {
   tagMatchMin?: number;
   operatingSystems?: OperatingSystem[];
   architecture?: string;
+  searchMode?: SearchMode;
 }): Promise<CatalogFacets> {
   const search = new URLSearchParams();
   if (params.query.trim()) search.set('query', params.query.trim());
@@ -128,19 +132,21 @@ export async function fetchCatalogFacets(params: {
   if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
   params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
+  if (params.searchMode) search.set('searchMode', params.searchMode);
   return requestJson<CatalogFacets>(`/api/v1/apps/facets?${search.toString()}`);
 }
 
-export async function fetchCatalogStats(): Promise<CatalogStats> {
-  return requestJson<CatalogStats>('/api/v1/apps/stats');
+export async function fetchCatalogStats(signal?: AbortSignal): Promise<CatalogStats> {
+  return requestJson<CatalogStats>('/api/v1/apps/stats', { signal });
 }
 
-export async function fetchAppDetails(appId: string): Promise<AppDetails> {
-  return requestJson<AppDetails>(`/api/v1/apps/${encodeURIComponent(appId)}`);
+export async function fetchAppDetails(appId: string, signal?: AbortSignal): Promise<AppDetails> {
+  return requestJson<AppDetails>('/api/v1/apps/' + encodeURIComponent(appId), { signal });
 }
 
 export async function createDownloadJob(
-  request: { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean } | { bundleId: string; notifyWhenReady?: boolean },
+  request: { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean }
+    | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean },
 ): Promise<DownloadJob> {
   return requestJson<DownloadJob>('/api/v1/download-jobs', {
     method: 'POST',
@@ -245,13 +251,13 @@ export async function fetchBundles(params: {
   page?: number;
   pageSize?: number;
   sort?: string;
-}): Promise<BundleResponse> {
+}, signal?: AbortSignal): Promise<BundleResponse> {
   const search = new URLSearchParams();
   if (params.type) search.set('type', params.type);
   search.set('page', String(params.page ?? 1));
   search.set('pageSize', String(params.pageSize ?? 12));
   search.set('sort', params.sort ?? 'updated');
-  return requestJson<BundleResponse>(`/api/v1/bundles?${search.toString()}`);
+  return requestJson<BundleResponse>(`/api/v1/bundles?${search.toString()}`, { signal });
 }
 
 export async function fetchBundle(slug: string): Promise<BundleDetails> {
@@ -283,8 +289,9 @@ export async function logout(): Promise<void> {
   await requestJson<void>('/api/v1/auth/logout', { method: 'POST' });
 }
 
-export async function me(): Promise<AuthUser> {
-  return requestJson<AuthUser>('/api/v1/auth/me');
+export async function me(): Promise<AuthUser | null> {
+  const identity = await requestJson<AuthUser | undefined>('/api/v1/auth/me');
+  return identity ?? null;
 }
 
 export async function fetchAdminApps(params: {

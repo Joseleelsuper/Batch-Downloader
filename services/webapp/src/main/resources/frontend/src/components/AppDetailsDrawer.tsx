@@ -1,6 +1,7 @@
 import { Copy, ExternalLink, ShieldCheck, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { isCatalogAppSelectable } from '../catalogSelection';
 import type { AppDetails, DownloadOption } from '../types/catalog';
 import { t } from '../services/i18n';
 import { AppStatusBadge } from './AppStatusBadge';
@@ -122,7 +123,11 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
             </DetailBlock>
           ) : null}
           {selectedOption ? (
-            <DownloadButton appId={app.id} disabled={!app.downloadable} />
+            <DownloadButton
+              appId={app.id}
+              disabled={!isCatalogAppSelectable(app)}
+              showTerminalDetails
+            />
           ) : null}
           <DetailBlock label={t('app.details.notes')}>{app.notes}</DetailBlock>
           {app.originUrl ? (
