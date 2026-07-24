@@ -10,7 +10,6 @@ import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
-import es.ubu.batchdownloader.common.FernetUrlProtector;
 import java.sql.ResultSet;
 import java.util.List;
 import java.util.Map;
@@ -25,8 +24,7 @@ class AdminAppRepositoryTest {
         when(jdbc.queryForList(anyString())).thenReturn(List.of(Map.of("id", new byte[16])));
         AdminAppRepository repository = new AdminAppRepository(
                 jdbc,
-                mock(CatalogRepository.class),
-                "test-secret");
+                mock(CatalogRepository.class));
 
         assertThatThrownBy(repository::deleteAll)
                 .isInstanceOf(ConflictException.class)
@@ -41,8 +39,7 @@ class AdminAppRepositoryTest {
         when(jdbc.queryForObject("SELECT COUNT(*) FROM software_apps", Integer.class)).thenReturn(0);
         AdminAppRepository repository = new AdminAppRepository(
                 jdbc,
-                mock(CatalogRepository.class),
-                "test-secret");
+                mock(CatalogRepository.class));
 
         assertThat(repository.deleteAll()).isZero();
 
@@ -52,9 +49,50 @@ class AdminAppRepositoryTest {
     }
 
     @Test
-    void exportCsvUsesBestUrlsPerPlatformAndNoneForMissingValues() throws Exception {
+    void deleteAllUsesPrimaryKeyBatchesInsteadOfTriggerConflictingSubqueries() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        FernetUrlProtector protector = new FernetUrlProtector("test-secret");
+        when(jdbc.queryForList(anyString())).thenReturn(List.of());
+        when(jdbc.queryForObject("SELECT COUNT(*) FROM software_apps", Integer.class)).thenReturn(1);
+        byte[] appId = new byte[16];
+        byte[] sourceId = new byte[16];
+        byte[] resolvedId = new byte[16];
+        appId[0] = 1;
+        sourceId[0] = 2;
+        resolvedId[0] = 3;
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            if (sql.equals("SELECT id FROM software_apps")) {
+                return List.of(appId);
+            }
+            if (sql.startsWith("SELECT id FROM download_sources")) {
+                return List.of(sourceId);
+            }
+            if (sql.startsWith("SELECT id FROM resolved_sources")) {
+                return List.of(resolvedId);
+            }
+            return List.of();
+        });
+        AdminAppRepository repository = new AdminAppRepository(
+                jdbc,
+                mock(CatalogRepository.class));
+
+        assertThat(repository.deleteAll()).isEqualTo(1);
+
+        List<String> deleteStatements = org.mockito.Mockito.mockingDetails(jdbc).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("update"))
+                .map(invocation -> invocation.getArgument(0, String.class))
+                .filter(sql -> sql.startsWith("DELETE FROM "))
+                .toList();
+        assertThat(deleteStatements).contains(
+                "DELETE FROM resolved_sources WHERE id IN (?)",
+                "DELETE FROM download_sources WHERE id IN (?)",
+                "DELETE FROM software_apps WHERE id IN (?)");
+        assertThat(deleteStatements).allMatch(sql -> !sql.contains("SELECT"));
+    }
+
+    @Test
+    void exportCsvUsesSourceRefsAndNeverRevealsResolvedUrls() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class))).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             RowMapper<Object> mapper = invocation.getArgument(1);
@@ -66,7 +104,7 @@ class AdminAppRepositoryTest {
                             "https://store.steampowered.com/about/",
                             "windows",
                             ".exe",
-                            protector.protect("https://cdn.example.com/SteamSetup.exe")),
+                            "00000000-0000-0000-0000-000000000001"),
                             0),
                     mapper.mapRow(row(
                             "1",
@@ -75,7 +113,7 @@ class AdminAppRepositoryTest {
                             "https://store.steampowered.com/about/",
                             "linux",
                             ".deb",
-                            protector.protect("https://cdn.example.com/steam.deb")),
+                            "00000000-0000-0000-0000-000000000002"),
                             1),
                     mapper.mapRow(row(
                             "2",
@@ -84,22 +122,23 @@ class AdminAppRepositoryTest {
                             null,
                             "windows",
                             ".msi",
-                            protector.protect("https://cdn.example.com/comma.msi")),
+                            "00000000-0000-0000-0000-000000000003"),
                             2));
         });
         AdminAppRepository repository = new AdminAppRepository(
                 jdbc,
-                mock(CatalogRepository.class),
-                "test-secret");
+                mock(CatalogRepository.class));
 
         AdminAppRepository.AppCsvExport export = repository.exportCsv();
 
         assertThat(export.rowCount()).isEqualTo(2);
-        assertThat(export.content()).startsWith("Nombre,Winstall,URL,Windows,Linux,MacOS\r\n");
+        assertThat(export.content()).startsWith(
+                "Nombre,Winstall,URL,WindowsSourceRef,LinuxSourceRef,MacOSSourceRef\r\n");
         assertThat(export.content()).contains(
-                "Steam,https://winstall.app/apps/Valve.Steam,https://store.steampowered.com/about/,https://cdn.example.com/SteamSetup.exe,https://cdn.example.com/steam.deb,None\r\n");
+                "Steam,https://winstall.app/apps/Valve.Steam,https://store.steampowered.com/about/,00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002,None\r\n");
         assertThat(export.content()).contains(
-                "\"Comma, App\",None,None,https://cdn.example.com/comma.msi,None,None\r\n");
+                "\"Comma, App\",None,None,00000000-0000-0000-0000-000000000003,None,None\r\n");
+        assertThat(export.content()).doesNotContain("cdn.example.com", "resolved_url_encrypted");
     }
 
     private ResultSet row(
@@ -109,7 +148,7 @@ class AdminAppRepositoryTest {
             String officialUrl,
             String operatingSystem,
             String extension,
-            String encryptedUrl) throws Exception {
+            String sourceRef) throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(rs.getString("app_key")).thenReturn(appKey);
         when(rs.getString("name")).thenReturn(name);
@@ -117,7 +156,7 @@ class AdminAppRepositoryTest {
         when(rs.getString("official_url")).thenReturn(officialUrl);
         when(rs.getString("operating_system")).thenReturn(operatingSystem);
         when(rs.getString("extension")).thenReturn(extension);
-        when(rs.getString("resolved_url_encrypted")).thenReturn(encryptedUrl);
+        when(rs.getString("source_ref")).thenReturn(sourceRef);
         return rs;
     }
 }

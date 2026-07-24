@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 class ApiExceptionHandlerTest {
     private final ApiExceptionHandler handler = new ApiExceptionHandler();
@@ -23,5 +24,10 @@ class ApiExceptionHandlerTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
         assertThat(response.getBody().code()).isEqualTo("invalid_json");
+    }
+
+    @Test
+    void ignoresExpectedClientDisconnectsWithoutCreatingAnotherResponse() {
+        handler.clientDisconnected(new AsyncRequestNotUsableException("Broken pipe"));
     }
 }
