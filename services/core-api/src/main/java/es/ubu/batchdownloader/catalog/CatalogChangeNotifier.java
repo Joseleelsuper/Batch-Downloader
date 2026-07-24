@@ -23,10 +23,13 @@ public class CatalogChangeNotifier extends TextWebSocketHandler {
     }
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+    public synchronized void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        boolean firstSession = sessions.isEmpty();
         sessions.add(session);
         var event = catalog.changeEvent();
-        lastVersion = event.version();
+        if (firstSession) {
+            lastVersion = event.version();
+        }
         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(event)));
     }
 
@@ -36,7 +39,7 @@ public class CatalogChangeNotifier extends TextWebSocketHandler {
     }
 
     @Scheduled(fixedDelayString = "${app.catalog-events.poll-ms:3000}")
-    public void publishIfChanged() throws Exception {
+    public synchronized void publishIfChanged() throws Exception {
         if (sessions.isEmpty()) {
             return;
         }

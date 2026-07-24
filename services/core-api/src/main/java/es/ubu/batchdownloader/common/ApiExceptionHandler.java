@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -83,6 +84,11 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> authentication(AuthenticationException exception) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiError.of("invalid_credentials", "Credenciales incorrectas o cuenta sin verificar."));
+    }
+
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    void clientDisconnected(AsyncRequestNotUsableException exception) {
+        log.debug("Client disconnected before the response completed: {}", exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

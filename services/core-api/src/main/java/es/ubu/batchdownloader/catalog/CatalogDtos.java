@@ -23,7 +23,20 @@ public class CatalogDtos {
             boolean downloadable,
             LocalDateTime updatedAt) {}
 
-    public record AppSearchResponse(List<AppListItem> data, int page, int pageSize, long total) {}
+    public record AppSearchResponse(
+            List<AppListItem> data,
+            int page,
+            int pageSize,
+            long total,
+            String requestedMode,
+            String appliedMode,
+            String modelVersion,
+            String indexVersion,
+            String degradedReason) {
+        public AppSearchResponse(List<AppListItem> data, int page, int pageSize, long total) {
+            this(data, page, pageSize, total, "lexical", "lexical", null, null, null);
+        }
+    }
 
     public record FacetItem(
             String label,
@@ -32,7 +45,18 @@ public class CatalogDtos {
             String letter,
             long count) {}
 
-    public record CatalogFacetsResponse(List<FacetItem> tags, List<FacetItem> publishers) {}
+    public record CatalogFacetsResponse(
+            List<FacetItem> tags,
+            List<FacetItem> publishers,
+            String requestedMode,
+            String appliedMode,
+            String modelVersion,
+            String indexVersion,
+            String degradedReason) {
+        public CatalogFacetsResponse(List<FacetItem> tags, List<FacetItem> publishers) {
+            this(tags, publishers, "lexical", "lexical", null, null, null);
+        }
+    }
 
     public record DownloadOption(
             String id,
@@ -70,6 +94,8 @@ public class CatalogDtos {
             Integer score,
             String resolutionStatus,
             String validationStatus,
+            boolean downloadable,
+            LocalDateTime updatedAt,
             String sourceLabel,
             LocalDateTime checkedAt,
             LocalDateTime expiresAt,

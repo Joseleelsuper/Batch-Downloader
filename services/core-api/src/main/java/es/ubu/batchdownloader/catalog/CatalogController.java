@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,9 +22,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class CatalogController {
     private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
     private final CatalogRepository catalog;
+    private final SemanticSearchClient semanticSearch;
 
-    public CatalogController(CatalogRepository catalog) {
+    @Autowired
+    public CatalogController(CatalogRepository catalog, SemanticSearchClient semanticSearch) {
         this.catalog = catalog;
+        this.semanticSearch = semanticSearch;
+    }
+
+    CatalogController(CatalogRepository catalog) {
+        this(catalog, SemanticSearchClient.disabled());
     }
 
     @GetMapping("/apps")
@@ -39,7 +47,62 @@ public class CatalogController {
             @RequestParam(defaultValue = "all") String tagMode,
             @RequestParam(defaultValue = "name") String sort,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(defaultValue = "lexical") String searchMode) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        List<String> systems = normalizedOperatingSystems(operatingSystems);
+        List<String> tagList = parseRepeatedAndCsv(tag, tags);
+        List<String> publisherList = parseRepeated(publisher);
+        HybridCandidateSet candidates = semanticSearch.resolve(
+                CatalogSearchMode.parse(searchMode),
+                query);
+        return new AppSearchResponse(
+                catalog.search(
+                        query,
+                        status,
+                        systems,
+                        architecture,
+                        tagList,
+                        publisherList,
+                        tagMatchMin,
+                        tagMode,
+                        sort,
+                        safePage,
+                        safePageSize,
+                        candidates),
+                safePage,
+                safePageSize,
+                catalog.count(
+                        query,
+                        status,
+                        systems,
+                        architecture,
+                        tagList,
+                        publisherList,
+                        tagMatchMin,
+                        tagMode,
+                        candidates),
+                candidates.requestedMode().wireValue(),
+                candidates.appliedMode().wireValue(),
+                candidates.modelVersion(),
+                candidates.indexVersion(),
+                candidates.degradedReason());
+    }
+
+    AppSearchResponse apps(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tag,
+            String tags,
+            List<String> publisher,
+            Integer tagMatchMin,
+            String tagMode,
+            String sort,
+            int page,
+            int pageSize) {
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(pageSize, 100));
         List<String> systems = normalizedOperatingSystems(operatingSystems);
@@ -60,7 +123,15 @@ public class CatalogController {
                         safePageSize),
                 safePage,
                 safePageSize,
-                catalog.count(query, status, systems, architecture, tagList, publisherList, tagMatchMin, tagMode));
+                catalog.count(
+                        query,
+                        status,
+                        systems,
+                        architecture,
+                        tagList,
+                        publisherList,
+                        tagMatchMin,
+                        tagMode));
     }
 
     @GetMapping("/apps/stats")
@@ -78,7 +149,41 @@ public class CatalogController {
             @RequestParam(required = false) String tags,
             @RequestParam(required = false) List<String> publisher,
             @RequestParam(required = false) Integer tagMatchMin,
-            @RequestParam(defaultValue = "all") String tagMode) {
+            @RequestParam(defaultValue = "all") String tagMode,
+            @RequestParam(defaultValue = "lexical") String searchMode) {
+        HybridCandidateSet candidates = semanticSearch.resolve(
+                CatalogSearchMode.parse(searchMode),
+                query);
+        CatalogFacetsResponse facets = catalog.facets(
+                query,
+                status,
+                normalizedOperatingSystems(operatingSystems),
+                architecture,
+                parseRepeatedAndCsv(tag, tags),
+                parseRepeated(publisher),
+                tagMatchMin,
+                tagMode,
+                candidates);
+        return new CatalogFacetsResponse(
+                facets.tags(),
+                facets.publishers(),
+                candidates.requestedMode().wireValue(),
+                candidates.appliedMode().wireValue(),
+                candidates.modelVersion(),
+                candidates.indexVersion(),
+                candidates.degradedReason());
+    }
+
+    CatalogFacetsResponse facets(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tag,
+            String tags,
+            List<String> publisher,
+            Integer tagMatchMin,
+            String tagMode) {
         return catalog.facets(
                 query,
                 status,

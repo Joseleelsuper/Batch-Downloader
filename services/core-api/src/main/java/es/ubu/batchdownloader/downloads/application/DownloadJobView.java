@@ -14,6 +14,7 @@ public record DownloadJobView(
         int requestedCount,
         int acceptedCount,
         int omittedCount,
+        String failureCode,
         List<Item> items,
         Instant createdAt,
         Instant expiresAt) {
@@ -34,6 +35,7 @@ public record DownloadJobView(
                 job.requestedCount(),
                 job.acceptedCount(),
                 job.omittedCount(),
+                job.failureCode(),
                 job.items().stream().map(item -> new Item(
                         item.id(), item.appId(), item.status(), item.bytesDownloaded(), item.sha256(), item.errorCode()))
                         .toList(),

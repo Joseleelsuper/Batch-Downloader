@@ -16,6 +16,7 @@ public class BundleDtos {
             String visibility,
             int starCount,
             int appCount,
+            List<String> operatingSystems,
             List<String> tags,
             List<AppListItem> previewApps,
             LocalDateTime updatedAt) {}
@@ -29,6 +30,7 @@ public class BundleDtos {
             String visibility,
             int starCount,
             int appCount,
+            List<String> operatingSystems,
             List<String> tags,
             List<AppListItem> apps,
             LocalDateTime updatedAt) {}

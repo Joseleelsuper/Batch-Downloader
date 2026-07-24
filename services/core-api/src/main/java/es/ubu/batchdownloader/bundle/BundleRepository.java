@@ -104,9 +104,12 @@ public class BundleRepository {
         }
         List<UUID> appIds = jdbc.query(
                 """
-                SELECT software_app_id FROM bundle_items
-                WHERE bundle_id = ?
-                ORDER BY sort_order ASC
+                SELECT item.software_app_id
+                FROM bundle_items item
+                JOIN software_apps app ON app.id = item.software_app_id
+                WHERE item.bundle_id = ?
+                  AND app.app_status = 'active'
+                ORDER BY item.sort_order ASC
                 """,
                 (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("software_app_id")),
                 UuidBytes.fromUuid(UUID.fromString(bundle.details().id())));
@@ -264,7 +267,8 @@ public class BundleRepository {
                 rs.getString("type"),
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
-                rs.getInt("app_count"),
+                activeAppCount(id),
+                commonOperatingSystems(id),
                 tags(id),
                 previewApps(id, 6),
                 rs.getTimestamp("updated_at").toLocalDateTime());
@@ -280,7 +284,8 @@ public class BundleRepository {
                 rs.getString("type"),
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
-                rs.getInt("app_count"),
+                activeAppCount(id),
+                commonOperatingSystems(id),
                 tags(id),
                 previewApps(id, 0),
                 rs.getTimestamp("updated_at").toLocalDateTime());
@@ -291,6 +296,7 @@ public class BundleRepository {
                 SELECT a.id FROM bundle_items bi
                 JOIN software_apps a ON a.id = bi.software_app_id
                 WHERE bi.bundle_id = ?
+                  AND a.app_status = 'active'
                 ORDER BY bi.sort_order ASC
                 """ + (limit > 0 ? " LIMIT ?" : "");
         Object[] parameters = limit > 0
@@ -317,8 +323,8 @@ public class BundleRepository {
                         details.sourceLabel(),
                         details.resolutionStatus(),
                         details.validationStatus(),
-                        "direct".equals(details.resolutionStatus()) || "fallback".equals(details.resolutionStatus()),
-                        details.checkedAt() == null ? LocalDateTime.now() : details.checkedAt()))
+                        details.downloadable(),
+                        details.updatedAt()))
                 .toList();
     }
 
@@ -327,6 +333,58 @@ public class BundleRepository {
                 "SELECT tag FROM bundle_tags WHERE bundle_id = ? ORDER BY tag",
                 String.class,
                 UuidBytes.fromUuid(bundleId));
+    }
+
+    /**
+     * Returns only systems for which every application in the complete bundle
+     * has a selectable installer. The query deliberately mirrors the
+     * catalog and job dispatch predicates; an expired resolver URL is
+     * revalidated by the scraper before a worker receives it.
+     */
+    List<String> commonOperatingSystems(UUID bundleId) {
+        return jdbc.query(
+                """
+                SELECT source.operating_system
+                FROM bundle_items item
+                JOIN software_apps app ON app.id = item.software_app_id
+                JOIN download_sources source ON source.software_app_id = item.software_app_id
+                JOIN resolved_sources artifact ON artifact.download_source_id = source.id
+                WHERE item.bundle_id = ?
+                  AND app.app_status = 'active'
+                  AND app.catalog_status = 'available'
+                  AND source.resolution_status IN ('direct', 'fallback')
+                  AND source.validation_status = 'valid'
+                  AND source.catalog_available = 1
+                  AND artifact.catalog_downloadable = 1
+                  AND source.operating_system IN ('windows', 'linux', 'macos')
+                GROUP BY source.operating_system
+                HAVING COUNT(DISTINCT item.software_app_id) = (
+                    SELECT COUNT(*)
+                    FROM bundle_items expected_item
+                    JOIN software_apps expected_app
+                      ON expected_app.id = expected_item.software_app_id
+                    WHERE expected_item.bundle_id = ?
+                      AND expected_app.app_status = 'active'
+                )
+                ORDER BY FIELD(source.operating_system, 'windows', 'linux', 'macos')
+                """,
+                (rs, rowNum) -> rs.getString("operating_system"),
+                UuidBytes.fromUuid(bundleId),
+                UuidBytes.fromUuid(bundleId));
+    }
+
+    private int activeAppCount(UUID bundleId) {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM bundle_items item
+                JOIN software_apps app ON app.id = item.software_app_id
+                WHERE item.bundle_id = ?
+                  AND app.app_status = 'active'
+                """,
+                Integer.class,
+                UuidBytes.fromUuid(bundleId));
+        return count == null ? 0 : count;
     }
 
     private UUID idByPublicId(String publicId) {

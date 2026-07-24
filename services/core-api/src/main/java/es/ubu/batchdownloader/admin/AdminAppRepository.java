@@ -6,7 +6,6 @@ import es.ubu.batchdownloader.admin.AdminDtos.UpsertAppRequest;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
-import es.ubu.batchdownloader.common.FernetUrlProtector;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
@@ -17,24 +16,19 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class AdminAppRepository {
+    private static final int DELETE_BATCH_SIZE = 500;
     private final JdbcTemplate jdbc;
     private final CatalogRepository catalog;
-    private final FernetUrlProtector urlProtector;
 
-    public AdminAppRepository(
-            JdbcTemplate jdbc,
-            CatalogRepository catalog,
-            @Value("${app.url-protection-secret}") String urlProtectionSecret) {
+    public AdminAppRepository(JdbcTemplate jdbc, CatalogRepository catalog) {
         this.jdbc = jdbc;
         this.catalog = catalog;
-        this.urlProtector = new FernetUrlProtector(urlProtectionSecret);
     }
 
     @Transactional
@@ -131,11 +125,12 @@ public class AdminAppRepository {
         List<ExportCandidate> candidates = jdbc.query(
                 """
                 SELECT HEX(a.id) AS app_key, a.name, a.winstall_id, a.official_url,
-                       ds.operating_system, rs.extension, rs.resolved_url_encrypted
+                       ds.operating_system, rs.extension, BIN_TO_UUID(rs.id) AS source_ref
                 FROM software_apps a
                 LEFT JOIN download_sources ds ON ds.software_app_id = a.id
+                    AND ds.catalog_available = 1
                 LEFT JOIN resolved_sources rs ON rs.download_source_id = ds.id
-                    AND rs.validation_status = 'valid'
+                    AND rs.catalog_downloadable = 1
                 WHERE a.app_status = 'active'
                 ORDER BY a.normalized_name ASC,
                          a.id ASC,
@@ -153,13 +148,13 @@ public class AdminAppRepository {
                     winstallUrl(candidate.winstallId()),
                     blankToNone(candidate.officialUrl())));
             String platform = platformKey(candidate.operatingSystem(), candidate.extension());
-            String url = urlProtector.reveal(candidate.encryptedUrl());
-            if (platform != null && url != null && !url.isBlank()) {
-                row.putIfMissing(platform, url);
+            if (platform != null && candidate.sourceRef() != null && !candidate.sourceRef().isBlank()) {
+                row.putIfMissing(platform, candidate.sourceRef());
             }
         }
 
-        StringBuilder csv = new StringBuilder("Nombre,Winstall,URL,Windows,Linux,MacOS\r\n");
+        StringBuilder csv = new StringBuilder(
+                "Nombre,Winstall,URL,WindowsSourceRef,LinuxSourceRef,MacOSSourceRef\r\n");
         for (ExportRow row : rows.values()) {
             csv.append(csvCell(row.name()))
                     .append(',')
@@ -218,22 +213,67 @@ public class AdminAppRepository {
                 rs.getString("official_url"),
                 rs.getString("operating_system"),
                 rs.getString("extension"),
-                rs.getString("resolved_url_encrypted"));
+                rs.getString("source_ref"));
     }
 
     private void deleteApps(String appWhereClause, List<Object> appWhereParams) {
         String scopedApps = appWhereClause.isBlank()
                 ? "SELECT id FROM software_apps"
                 : "SELECT id FROM software_apps " + appWhereClause;
-        String scopedSources = "SELECT id FROM download_sources WHERE software_app_id IN (" + scopedApps + ")";
-        Object[] params = appWhereParams.toArray();
+        List<byte[]> appIds = jdbc.query(
+                scopedApps,
+                (rs, rowNum) -> rs.getBytes("id"),
+                appWhereParams.toArray());
+        if (appIds.isEmpty()) {
+            return;
+        }
 
-        jdbc.update("DELETE FROM resolver_logs WHERE download_source_id IN (" + scopedSources + ")", params);
-        jdbc.update("DELETE FROM resolved_sources WHERE download_source_id IN (" + scopedSources + ")", params);
-        jdbc.update("DELETE FROM download_sources WHERE software_app_id IN (" + scopedApps + ")", params);
-        jdbc.update("DELETE FROM software_app_tags WHERE software_app_id IN (" + scopedApps + ")", params);
-        jdbc.update("DELETE FROM bundle_items WHERE software_app_id IN (" + scopedApps + ")", params);
-        jdbc.update("DELETE FROM software_apps " + appWhereClause, params);
+        List<byte[]> sourceIds = selectIdsByForeignKey("download_sources", "software_app_id", appIds);
+        List<byte[]> resolvedIds = selectIdsByForeignKey("resolved_sources", "download_source_id", sourceIds);
+
+        // Triggered tables are always deleted by their own primary keys. A
+        // DELETE ... IN (SELECT ... FROM download_sources) would make the
+        // resolved-source trigger update a table already used by the statement,
+        // which MySQL rejects. The bounded ID batches also keep large resets
+        // below the driver/server placeholder limits.
+        deleteByForeignKey("resolver_logs", "download_source_id", sourceIds);
+        deleteByIds("resolved_sources", resolvedIds);
+        deleteByIds("download_sources", sourceIds);
+        deleteByForeignKey("software_app_tags", "software_app_id", appIds);
+        deleteByForeignKey("bundle_items", "software_app_id", appIds);
+        deleteByIds("software_apps", appIds);
+    }
+
+    private List<byte[]> selectIdsByForeignKey(String table, String foreignKey, List<byte[]> ownerIds) {
+        if (ownerIds.isEmpty()) {
+            return List.of();
+        }
+        List<byte[]> ids = new java.util.ArrayList<>();
+        forEachDeleteBatch(ownerIds, batch -> ids.addAll(jdbc.query(
+                "SELECT id FROM " + table + " WHERE " + foreignKey + " IN (" + placeholders(batch.size()) + ")",
+                (rs, rowNum) -> rs.getBytes("id"),
+                batch.toArray())));
+        return List.copyOf(ids);
+    }
+
+    private void deleteByIds(String table, List<byte[]> ids) {
+        deleteByForeignKey(table, "id", ids);
+    }
+
+    private void deleteByForeignKey(String table, String column, List<byte[]> ids) {
+        forEachDeleteBatch(ids, batch -> jdbc.update(
+                "DELETE FROM " + table + " WHERE " + column + " IN (" + placeholders(batch.size()) + ")",
+                batch.toArray()));
+    }
+
+    private void forEachDeleteBatch(List<byte[]> ids, java.util.function.Consumer<List<byte[]>> operation) {
+        for (int start = 0; start < ids.size(); start += DELETE_BATCH_SIZE) {
+            operation.accept(ids.subList(start, Math.min(start + DELETE_BATCH_SIZE, ids.size())));
+        }
+    }
+
+    private String placeholders(int count) {
+        return String.join(", ", java.util.Collections.nCopies(count, "?"));
     }
 
     private void assertScraperIdleForDeletion() {
@@ -392,7 +432,7 @@ public class AdminAppRepository {
             String officialUrl,
             String operatingSystem,
             String extension,
-            String encryptedUrl) {}
+            String sourceRef) {}
 
     private static final class ExportRow {
         private final String name;

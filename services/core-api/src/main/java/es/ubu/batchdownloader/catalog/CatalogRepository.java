@@ -8,14 +8,12 @@ import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.DownloadOption;
 import es.ubu.batchdownloader.catalog.CatalogDtos.FacetItem;
 import es.ubu.batchdownloader.catalog.CatalogDtos.LastScrapeRun;
+import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.text.Normalizer;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.Clock;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -25,25 +23,22 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class CatalogRepository {
-    private final JdbcTemplate jdbc;
-    private final Clock clock;
-    private final Duration revalidationMaxAge;
+    private static final String REVIEW_LAST_ORDER =
+            "CASE WHEN a.catalog_status = 'review' THEN 1 ELSE 0 END ASC";
+    private static final Set<String> CATALOG_STATUSES = Set.of("all", "available", "review", "missing");
 
-    public CatalogRepository(
-            JdbcTemplate jdbc,
-            Clock clock,
-            @Value("${app.download.source-revalidation-max-age}") Duration revalidationMaxAge) {
+    private final JdbcTemplate jdbc;
+
+    public CatalogRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
-        this.clock = clock;
-        this.revalidationMaxAge = revalidationMaxAge;
     }
 
     public List<AppListItem> search(
@@ -58,6 +53,50 @@ public class CatalogRepository {
             String sort,
             int page,
             int pageSize) {
+        return search(
+                query,
+                status,
+                operatingSystems,
+                architecture,
+                tags,
+                publishers,
+                tagMatchMin,
+                tagMode,
+                sort,
+                page,
+                pageSize,
+                HybridCandidateSet.lexical());
+    }
+
+    public List<AppListItem> search(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode,
+            String sort,
+            int page,
+            int pageSize,
+            HybridCandidateSet candidates) {
+        if (candidates.hybrid()) {
+            return hybridSearch(
+                    query,
+                    status,
+                    operatingSystems,
+                    architecture,
+                    tags,
+                    publishers,
+                    tagMatchMin,
+                    tagMode,
+                    sort,
+                    page,
+                    pageSize,
+                    candidates);
+        }
+        status = normalizeCatalogStatus(status);
         SearchRanking ranking = SearchRanking.from(query);
         String innerOrderBy = orderBy(sort, ranking.innerPrefix());
         String outerOrderBy = orderBy(sort, ranking.outerPrefix());
@@ -91,7 +130,8 @@ public class CatalogRepository {
                         app,
                         systemsByApp.getOrDefault(app.dbId(), List.of()),
                         tagsByApp.getOrDefault(app.dbId(), List.of()),
-                        sourcesByApp.getOrDefault(app.dbId(), SourceSnapshot.empty())))
+                        sourcesByApp.getOrDefault(app.dbId(), SourceSnapshot.empty())
+                                .effectiveFor(app.catalogStatus())))
                 .toList();
     }
 
@@ -104,6 +144,41 @@ public class CatalogRepository {
             List<String> publishers,
             Integer tagMatchMin,
             String tagMode) {
+        return count(
+                query,
+                status,
+                operatingSystems,
+                architecture,
+                tags,
+                publishers,
+                tagMatchMin,
+                tagMode,
+                HybridCandidateSet.lexical());
+    }
+
+    public long count(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode,
+            HybridCandidateSet candidates) {
+        if (candidates.hybrid()) {
+            return hybridCount(
+                    query,
+                    status,
+                    operatingSystems,
+                    architecture,
+                    tags,
+                    publishers,
+                    tagMatchMin,
+                    tagMode,
+                    candidates);
+        }
+        status = normalizeCatalogStatus(status);
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*)
                 FROM software_apps a
@@ -124,9 +199,306 @@ public class CatalogRepository {
             List<String> publishers,
             Integer tagMatchMin,
             String tagMode) {
+        return facets(
+                query,
+                status,
+                operatingSystems,
+                architecture,
+                tags,
+                publishers,
+                tagMatchMin,
+                tagMode,
+                HybridCandidateSet.lexical());
+    }
+
+    public CatalogFacetsResponse facets(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode,
+            HybridCandidateSet candidates) {
+        if (candidates.hybrid()) {
+            return hybridFacets(
+                    query,
+                    status,
+                    operatingSystems,
+                    architecture,
+                    tags,
+                    publishers,
+                    tagMatchMin,
+                    tagMode,
+                    candidates);
+        }
+        status = normalizeCatalogStatus(status);
         return new CatalogFacetsResponse(
                 tagFacets(query, status, operatingSystems, architecture, publishers),
                 publisherFacets(query, status, operatingSystems, architecture, tags, tagMatchMin, tagMode));
+    }
+
+    private List<AppListItem> hybridSearch(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode,
+            String sort,
+            int page,
+            int pageSize,
+            HybridCandidateSet candidates) {
+        status = normalizeCatalogStatus(status);
+        List<Object> params = new ArrayList<>();
+        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        sql.append("""
+                SELECT a.*
+                FROM software_apps a
+                JOIN (
+                    SELECT a.id, ranked.rrf_score
+                    FROM software_apps a
+                    JOIN hybrid_candidates ranked ON ranked.id = a.id
+                    WHERE a.app_status = 'active'
+                """);
+        appendStructuredFilters(
+                sql,
+                params,
+                status,
+                operatingSystems,
+                architecture,
+                tags,
+                publishers,
+                tagMatchMin,
+                tagMode);
+        sql.append(" ORDER BY ")
+                .append(orderBy(sort, "ranked.rrf_score DESC, "))
+                .append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ")
+                .append(orderBy(sort, "page.rrf_score DESC, "));
+        params.add(pageSize);
+        params.add((page - 1) * pageSize);
+        List<AppBasics> apps = jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> readBasics(rs),
+                params.toArray());
+        List<UUID> appIds = apps.stream().map(AppBasics::dbId).toList();
+        Map<UUID, List<String>> systemsByApp = operatingSystemsFor(appIds);
+        Map<UUID, List<String>> tagsByApp = tagsFor(appIds);
+        Map<UUID, SourceSnapshot> sourcesByApp = sourcesFor(appIds);
+        return apps.stream()
+                .map(app -> mapListItem(
+                        app,
+                        systemsByApp.getOrDefault(app.dbId(), List.of()),
+                        tagsByApp.getOrDefault(app.dbId(), List.of()),
+                        sourcesByApp.getOrDefault(app.dbId(), SourceSnapshot.empty())
+                                .effectiveFor(app.catalogStatus())))
+                .toList();
+    }
+
+    private long hybridCount(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode,
+            HybridCandidateSet candidates) {
+        status = normalizeCatalogStatus(status);
+        List<Object> params = new ArrayList<>();
+        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        sql.append("""
+                SELECT COUNT(*)
+                FROM software_apps a
+                JOIN hybrid_candidates ranked ON ranked.id = a.id
+                WHERE a.app_status = 'active'
+                """);
+        appendStructuredFilters(
+                sql,
+                params,
+                status,
+                operatingSystems,
+                architecture,
+                tags,
+                publishers,
+                tagMatchMin,
+                tagMode);
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
+        return count == null ? 0 : count;
+    }
+
+    private CatalogFacetsResponse hybridFacets(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode,
+            HybridCandidateSet candidates) {
+        status = normalizeCatalogStatus(status);
+        return new CatalogFacetsResponse(
+                hybridTagFacets(
+                        query,
+                        status,
+                        operatingSystems,
+                        architecture,
+                        publishers,
+                        candidates),
+                hybridPublisherFacets(
+                        query,
+                        status,
+                        operatingSystems,
+                        architecture,
+                        tags,
+                        tagMatchMin,
+                        tagMode,
+                        candidates));
+    }
+
+    private List<FacetItem> hybridTagFacets(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> publishers,
+            HybridCandidateSet candidates) {
+        List<Object> params = new ArrayList<>();
+        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        sql.append("""
+                SELECT MIN(t.tag) AS label, t.normalized_tag AS normalized_value,
+                       COUNT(DISTINCT a.id) AS app_count
+                FROM software_app_tags t
+                JOIN software_apps a ON a.id = t.software_app_id
+                JOIN hybrid_candidates ranked ON ranked.id = a.id
+                WHERE a.app_status = 'active'
+                """);
+        appendStructuredFilters(
+                sql,
+                params,
+                status,
+                operatingSystems,
+                architecture,
+                List.of(),
+                publishers,
+                null,
+                "all");
+        sql.append("""
+                GROUP BY t.normalized_tag
+                ORDER BY app_count DESC, label ASC
+                """);
+        return jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> facetItem(
+                        rs.getString("label"),
+                        rs.getString("normalized_value"),
+                        rs.getLong("app_count")),
+                params.toArray());
+    }
+
+    private List<FacetItem> hybridPublisherFacets(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            Integer tagMatchMin,
+            String tagMode,
+            HybridCandidateSet candidates) {
+        List<Object> params = new ArrayList<>();
+        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        sql.append("""
+                SELECT a.publisher AS label, LOWER(TRIM(a.publisher)) AS normalized_value,
+                       COUNT(DISTINCT a.id) AS app_count
+                FROM software_apps a
+                JOIN hybrid_candidates ranked ON ranked.id = a.id
+                WHERE a.app_status = 'active'
+                  AND a.publisher IS NOT NULL
+                  AND TRIM(a.publisher) <> ''
+                """);
+        appendStructuredFilters(
+                sql,
+                params,
+                status,
+                operatingSystems,
+                architecture,
+                tags,
+                List.of(),
+                tagMatchMin,
+                tagMode);
+        sql.append("""
+                GROUP BY a.publisher
+                ORDER BY app_count DESC, label ASC
+                """);
+        return jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> facetItem(
+                        rs.getString("label"),
+                        rs.getString("normalized_value"),
+                        rs.getLong("app_count")),
+                params.toArray());
+    }
+
+    private String hybridCandidateCte(
+            String query,
+            HybridCandidateSet candidates,
+            List<Object> params) {
+        SearchRanking ranking = SearchRanking.from(query);
+        if (!ranking.active()) {
+            throw new IllegalArgumentException("hybrid_search_requires_query");
+        }
+        StringBuilder sql = new StringBuilder("""
+                WITH semantic_candidates AS (
+                    SELECT UUID_TO_BIN(candidate.app_id) AS id,
+                           candidate.semantic_rank
+                    FROM JSON_TABLE(
+                        ?,
+                        '$[*]' COLUMNS(
+                            app_id VARCHAR(36) PATH '$.appId',
+                            semantic_rank INT PATH '$.rank'
+                        )
+                    ) AS candidate
+                ),
+                lexical_ranked AS (
+                    SELECT a.id,
+                           ROW_NUMBER() OVER (
+                               ORDER BY
+                """);
+        params.add(candidates.candidatesJson());
+        sql.append(ranking.scoreSql()).append(" DESC, a.id ASC) AS lexical_rank\n");
+        params.addAll(ranking.params());
+        sql.append("""
+                    FROM software_apps a
+                    WHERE a.app_status = 'active'
+                """);
+        appendLexicalFilter(sql, params, query);
+        sql.append("""
+                ),
+                hybrid_candidates AS (
+                    SELECT lexical.id,
+                           (
+                               1.0 / (60 + lexical.lexical_rank)
+                               + CASE WHEN semantic.semantic_rank IS NULL THEN 0
+                                      ELSE ? / (60 + semantic.semantic_rank) END
+                           ) AS rrf_score
+                    FROM lexical_ranked lexical
+                    LEFT JOIN semantic_candidates semantic ON semantic.id = lexical.id
+                    UNION ALL
+                    SELECT semantic.id,
+                           ? / (60 + semantic.semantic_rank) AS rrf_score
+                    FROM semantic_candidates semantic
+                    LEFT JOIN lexical_ranked lexical ON lexical.id = semantic.id
+                    WHERE lexical.id IS NULL
+                )
+                """);
+        params.add(candidates.semanticWeight());
+        params.add(candidates.semanticWeight());
+        return sql.toString();
     }
 
     private List<FacetItem> tagFacets(
@@ -217,67 +589,23 @@ public class CatalogRepository {
     }
 
     public CatalogStatsResponse stats() {
-        long total = scalarLong("SELECT COUNT(*) FROM software_apps WHERE app_status = 'active'");
+        StatsSnapshot snapshot = jdbc.queryForObject("""
+                SELECT total_count, available_count, review_count, missing_count
+                FROM catalog_counters
+                WHERE id = ?
+                """, (rs, rowNum) -> new StatsSnapshot(
+                        rs.getLong("total_count"),
+                        rs.getLong("available_count"),
+                        rs.getLong("review_count"),
+                        rs.getLong("missing_count")),
+                1);
         Map<String, Long> filters = new LinkedHashMap<>();
-        filters.put("all", total);
-        filters.put("available", scalarLong("""
-                SELECT COUNT(*) FROM software_apps a
-                WHERE a.app_status = 'active'
-                  AND EXISTS (
-                    SELECT 1 FROM download_sources ds
-                    WHERE ds.software_app_id = a.id
-                      AND ds.resolution_status IN ('direct', 'fallback')
-                      AND ds.validation_status = 'valid'
-                      AND EXISTS (
-                        SELECT 1 FROM resolved_sources rs
-                        WHERE rs.download_source_id = ds.id
-                          AND rs.status IN ('direct', 'fallback')
-                          AND rs.validation_status = 'valid'
-                          AND rs.checked_at >= ?
-                          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.validation_confidence')), '')
-                              IN ('', 'validated', 'verified')
-                          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.transport_security')), '')
-                              NOT IN ('https_winstall_edge_attested', 'http_winstall_verified')
-                      )
-                  )
-                """, revalidationCutoff()));
-        filters.put("review", scalarLong("""
-                SELECT COUNT(*) FROM software_apps a
-                WHERE a.app_status = 'active'
-                  AND EXISTS (
-                    SELECT 1 FROM download_sources ds
-                    WHERE ds.software_app_id = a.id
-                      AND ds.resolution_status = 'requires_manual_review'
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1 FROM download_sources valid_source
-                    WHERE valid_source.software_app_id = a.id
-                      AND valid_source.resolution_status IN ('direct', 'fallback')
-                      AND valid_source.validation_status = 'valid'
-                  )
-                """));
-        filters.put("missing", scalarLong("""
-                SELECT COUNT(*) FROM software_apps a
-                WHERE a.app_status = 'active'
-                  AND EXISTS (
-                    SELECT 1 FROM download_sources ds
-                    WHERE ds.software_app_id = a.id
-                      AND ds.resolution_status IN ('missing', 'broken')
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1 FROM download_sources valid_source
-                    WHERE valid_source.software_app_id = a.id
-                      AND valid_source.resolution_status IN ('direct', 'fallback')
-                      AND valid_source.validation_status = 'valid'
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1 FROM download_sources review_source
-                    WHERE review_source.software_app_id = a.id
-                      AND review_source.resolution_status = 'requires_manual_review'
-                  )
-                """));
+        filters.put("all", snapshot.total());
+        filters.put("available", snapshot.available());
+        filters.put("review", snapshot.review());
+        filters.put("missing", snapshot.missing());
         LastScrapeRun last = latestRun();
-        return new CatalogStatsResponse(total, filters, last, LocalDateTime.now());
+        return new CatalogStatsResponse(snapshot.total(), filters, last, LocalDateTime.now());
     }
 
     public CatalogChangeEvent changeEvent() {
@@ -292,6 +620,14 @@ public class CatalogRepository {
                 WHERE app_status = 'active'
                 """,
                 String.class);
+        String catalogToken = jdbc.queryForObject(
+                """
+                SELECT CONCAT(version, ':', total_count, ':', available_count, ':', review_count, ':', missing_count)
+                FROM catalog_counters
+                WHERE id = ?
+                """,
+                String.class,
+                1);
         List<String> runTokens = jdbc.query(
                 """
                 SELECT CONCAT(
@@ -307,7 +643,9 @@ public class CatalogRepository {
                 LIMIT 1
                 """,
                 (rs, rowNum) -> rs.getString("token"));
-        return Integer.toHexString(((appToken == null ? "" : appToken) + "|" + (runTokens.isEmpty() ? "" : runTokens.get(0))).hashCode());
+        return Integer.toHexString(((appToken == null ? "" : appToken)
+                + "|" + (catalogToken == null ? "" : catalogToken)
+                + "|" + (runTokens.isEmpty() ? "" : runTokens.get(0))).hashCode());
     }
 
     private void appendFilters(
@@ -321,6 +659,23 @@ public class CatalogRepository {
             List<String> publishers,
             Integer tagMatchMin,
             String tagMode) {
+        appendLexicalFilter(sql, params, query);
+        appendStructuredFilters(
+                sql,
+                params,
+                status,
+                operatingSystems,
+                architecture,
+                tags,
+                publishers,
+                tagMatchMin,
+                tagMode);
+    }
+
+    private void appendLexicalFilter(
+            StringBuilder sql,
+            List<Object> params,
+            String query) {
         if (query != null && !query.isBlank()) {
             String normalized = normalizeSearchQuery(query);
             String normalizedLike = "%" + normalized + "%";
@@ -349,6 +704,18 @@ public class CatalogRepository {
             params.add(compactLike);
             params.add(normalizedLike);
         }
+    }
+
+    private void appendStructuredFilters(
+            StringBuilder sql,
+            List<Object> params,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            Integer tagMatchMin,
+            String tagMode) {
         appendSourceFilter(sql, params, status, operatingSystems, architecture);
         List<String> normalizedPublishers = normalizedDistinct(publishers);
         if (!normalizedPublishers.isEmpty()) {
@@ -375,7 +742,7 @@ public class CatalogRepository {
             String status,
             List<String> operatingSystems,
             String architecture) {
-        boolean hasStatus = status != null && !status.isBlank() && !"all".equals(status);
+        boolean hasStatus = !"all".equals(status);
         boolean hasOperatingSystem = operatingSystems != null && !operatingSystems.isEmpty();
         boolean hasArchitecture = architecture != null && !architecture.isBlank();
         if (hasOperatingSystem) {
@@ -387,106 +754,20 @@ public class CatalogRepository {
             }
             sql.append(")");
         }
-        if (!hasStatus && !hasArchitecture) {
-            return;
-        }
-
-        sql.append("""
-                AND EXISTS (
-                    SELECT 1 FROM download_sources ds
-                    WHERE ds.software_app_id = a.id
-                """);
         if (hasStatus) {
-            if ("available".equals(status)) {
-                appendVerifiedSourceConditions(sql, params, "ds", List.of(), architecture);
-            } else if ("review".equals(status)) {
-                sql.append(" AND ds.resolution_status = 'requires_manual_review'");
-            } else if ("missing".equals(status)) {
-                sql.append(" AND ds.resolution_status IN ('missing', 'broken')");
-            } else {
-                sql.append(" AND ds.resolution_status = ?");
-                params.add(status);
-            }
+            sql.append(" AND a.catalog_status = ?");
+            params.add(status);
         }
-        if (!"available".equals(status)) {
-            appendSourcePlatformFilters(sql, params, "ds", List.of(), architecture);
-        }
-        sql.append(")");
-        if ("review".equals(status)) {
-            appendNoAvailableSource(sql, params, List.of(), architecture);
-        } else if ("missing".equals(status)) {
-            appendNoAvailableSource(sql, params, List.of(), architecture);
-            appendNoReviewSource(sql, params, List.of(), architecture);
-        }
-    }
-
-    private void appendSourcePlatformFilters(
-            StringBuilder sql,
-            List<Object> params,
-            String alias,
-            List<String> operatingSystems,
-            String architecture) {
-        if (operatingSystems != null && !operatingSystems.isEmpty()) {
-            sql.append(" AND ").append(alias).append(".operating_system IN (");
-            appendPlaceholders(sql, operatingSystems.size());
-            sql.append(")");
-            params.addAll(operatingSystems);
-        }
-        if (architecture != null && !architecture.isBlank()) {
-            sql.append(" AND ").append(alias).append(".architecture = ?");
+        if (hasArchitecture) {
+            sql.append("""
+                    AND EXISTS (
+                        SELECT 1 FROM download_sources architecture_source
+                        WHERE architecture_source.software_app_id = a.id
+                          AND architecture_source.architecture = ?
+                    )
+                    """);
             params.add(architecture);
         }
-    }
-
-    private void appendNoAvailableSource(
-            StringBuilder sql,
-            List<Object> params,
-            List<String> operatingSystems,
-            String architecture) {
-        sql.append("""
-                AND NOT EXISTS (
-                    SELECT 1 FROM download_sources valid_source
-                    WHERE valid_source.software_app_id = a.id
-                      AND valid_source.resolution_status IN ('direct', 'fallback')
-                      AND valid_source.validation_status = 'valid'
-                """);
-        appendSourcePlatformFilters(sql, params, "valid_source", operatingSystems, architecture);
-        sql.append(")");
-    }
-
-    private void appendNoReviewSource(
-            StringBuilder sql,
-            List<Object> params,
-            List<String> operatingSystems,
-            String architecture) {
-        sql.append("""
-                AND NOT EXISTS (
-                    SELECT 1 FROM download_sources review_source
-                    WHERE review_source.software_app_id = a.id
-                      AND review_source.resolution_status = 'requires_manual_review'
-                """);
-        appendSourcePlatformFilters(sql, params, "review_source", operatingSystems, architecture);
-        sql.append(")");
-    }
-
-    private void appendVerifiedSourceConditions(
-            StringBuilder sql,
-            List<Object> params,
-            String sourceAlias,
-            List<String> operatingSystems,
-            String architecture) {
-        sql.append(" AND ").append(sourceAlias)
-                .append(".resolution_status IN ('direct', 'fallback') AND ")
-                .append(sourceAlias).append(".validation_status = 'valid'")
-                .append(" AND EXISTS (SELECT 1 FROM resolved_sources verified_artifact WHERE verified_artifact.download_source_id = ")
-                .append(sourceAlias).append(".id")
-                .append(" AND verified_artifact.status IN ('direct', 'fallback')")
-                .append(" AND verified_artifact.validation_status = 'valid'")
-                .append(" AND verified_artifact.checked_at >= ?")
-                .append(" AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(verified_artifact.metadata_json, '$.validation_confidence')), '') IN ('', 'validated', 'verified')")
-                .append(" AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(verified_artifact.metadata_json, '$.transport_security')), '') NOT IN ('https_winstall_edge_attested', 'http_winstall_verified'))");
-        params.add(revalidationCutoff());
-        appendSourcePlatformFilters(sql, params, sourceAlias, operatingSystems, architecture);
     }
 
     private AppListItem mapListItem(
@@ -515,7 +796,7 @@ public class CatalogRepository {
 
     private AppDetails mapDetails(ResultSet rs) throws SQLException {
         AppBasics app = readBasics(rs);
-        SourceSnapshot source = sourceFor(app.dbId());
+        SourceSnapshot source = sourceFor(app.dbId()).effectiveFor(app.catalogStatus());
         List<DownloadOption> options = downloadOptions(app.dbId());
         return new AppDetails(
                 app.dbId().toString(),
@@ -539,6 +820,8 @@ public class CatalogRepository {
                 source.score(),
                 source.resolutionStatus(),
                 source.validationStatus(),
+                source.downloadable(),
+                app.updatedAt(),
                 source.sourceLabel(),
                 source.checkedAt(),
                 source.expiresAt(),
@@ -558,6 +841,7 @@ public class CatalogRepository {
                 rs.getString("icon_url"),
                 rs.getString("official_url"),
                 rs.getString("latest_version"),
+                rs.getString("catalog_status"),
                 rs.getTimestamp("updated_at").toLocalDateTime());
     }
 
@@ -572,22 +856,18 @@ public class CatalogRepository {
                        rs.release_rank, rs.is_latest
                 FROM download_sources ds
                 LEFT JOIN resolved_sources rs ON rs.download_source_id = ds.id
-                    AND rs.status IN ('direct', 'fallback')
-                    AND rs.validation_status = 'valid'
-                    AND rs.checked_at >= ?
-                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.validation_confidence')), '')
-                        IN ('', 'validated', 'verified')
-                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.transport_security')), '')
-                        NOT IN ('https_winstall_edge_attested', 'http_winstall_verified')
+                    AND rs.catalog_downloadable = 1
                 WHERE ds.software_app_id = ?
-                ORDER BY rs.is_latest DESC,
+                ORDER BY ds.catalog_available DESC,
+                         (ds.resolution_status = 'requires_manual_review') DESC,
+                         (ds.resolution_status IN ('missing', 'broken')) DESC,
+                         rs.is_latest DESC,
                          COALESCE(rs.release_rank, 9999) ASC,
                          (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
-                         rs.score DESC, rs.checked_at DESC
+                         rs.score DESC, rs.checked_at DESC, ds.id ASC, rs.id ASC
                 LIMIT 1
                 """,
                 (rs, rowNum) -> readSourceSnapshot(rs),
-                revalidationCutoff(),
                 UuidBytes.fromUuid(appId));
         return snapshots.isEmpty()
                 ? SourceSnapshot.empty()
@@ -608,26 +888,23 @@ public class CatalogRepository {
                        rs.release_rank, rs.is_latest
                 FROM download_sources ds
                 LEFT JOIN resolved_sources rs ON rs.download_source_id = ds.id
-                    AND rs.status IN ('direct', 'fallback')
-                    AND rs.validation_status = 'valid'
-                    AND rs.checked_at >= ?
-                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.validation_confidence')), '')
-                        IN ('', 'validated', 'verified')
-                    AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.transport_security')), '')
-                        NOT IN ('https_winstall_edge_attested', 'http_winstall_verified')
+                    AND rs.catalog_downloadable = 1
                 WHERE ds.software_app_id IN (
                 """);
         appendPlaceholders(sql, ids.size());
         sql.append("""
                 )
-                ORDER BY ds.software_app_id, rs.is_latest DESC,
+                ORDER BY ds.software_app_id,
+                         ds.catalog_available DESC,
+                         (ds.resolution_status = 'requires_manual_review') DESC,
+                         (ds.resolution_status IN ('missing', 'broken')) DESC,
+                         rs.is_latest DESC,
                          COALESCE(rs.release_rank, 9999) ASC,
                          (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
-                         rs.score DESC, rs.checked_at DESC
+                         rs.score DESC, rs.checked_at DESC, ds.id ASC, rs.id ASC
                 """);
         Map<UUID, SourceSnapshot> result = new HashMap<>();
-        List<Object> parameters = new ArrayList<>(ids.size() + 1);
-        parameters.add(revalidationCutoff());
+        List<Object> parameters = new ArrayList<>(ids.size());
         ids.stream().map(UuidBytes::fromUuid).forEach(parameters::add);
         jdbc.query(sql.toString(), (RowCallbackHandler) rs -> result.putIfAbsent(
                 UuidBytes.toUuid(rs.getBytes("software_app_id")), readSourceSnapshot(rs)),
@@ -665,7 +942,9 @@ public class CatalogRepository {
                        rs.release_rank
                 FROM download_sources ds
                 JOIN resolved_sources rs ON rs.download_source_id = ds.id
-                WHERE ds.software_app_id = ? AND rs.validation_status = 'valid'
+                WHERE ds.software_app_id = ?
+                  AND ds.catalog_available = 1
+                  AND rs.catalog_downloadable = 1
                 ORDER BY rs.is_latest DESC,
                          COALESCE(rs.release_rank, 9999) ASC,
                          (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
@@ -765,20 +1044,22 @@ public class CatalogRepository {
         return runs.isEmpty() ? null : runs.get(0);
     }
 
-    private long scalarLong(String sql, Object... parameters) {
-        Long value = jdbc.queryForObject(sql, Long.class, parameters);
-        return value == null ? 0 : value;
-    }
-
-    private Timestamp revalidationCutoff() {
-        return Timestamp.from(clock.instant().minus(revalidationMaxAge));
-    }
-
     private String orderBy(String sort, String prefix) {
         String tieBreaker = "updated".equals(sort)
                 ? "a.updated_at DESC, a.normalized_name ASC, a.id ASC"
                 : "a.normalized_name ASC, a.id ASC";
-        return prefix == null || prefix.isBlank() ? tieBreaker : prefix + tieBreaker;
+        String relevanceOrder = prefix == null || prefix.isBlank() ? "" : prefix;
+        return reviewLastOrder() + ", " + relevanceOrder + tieBreaker;
+    }
+
+    /**
+     * Keeps apps that only have a manual-review source out of the main catalog
+     * pages. The predicate deliberately matches the review filter semantics:
+     * an app with any valid direct or fallback source remains in its natural
+     * name/update position.
+     */
+    private String reviewLastOrder() {
+        return REVIEW_LAST_ORDER;
     }
 
     private void appendPlaceholders(StringBuilder sql, int count) {
@@ -813,6 +1094,18 @@ public class CatalogRepository {
                 .toLowerCase(Locale.ROOT)
                 .trim();
         return normalized.replaceAll("\\s+", " ");
+    }
+
+    static String normalizeCatalogStatus(String status) {
+        String normalized = status == null || status.isBlank()
+                ? "all"
+                : status.trim().toLowerCase(Locale.ROOT);
+        if (!CATALOG_STATUSES.contains(normalized)) {
+            throw new BadRequestException(
+                    "invalid_catalog_status",
+                    "El estado de catálogo indicado no es válido.");
+        }
+        return normalized;
     }
 
     private static String compactSearchQuery(String normalized) {
@@ -869,6 +1162,9 @@ public class CatalogRepository {
         }
         if ("fallback".equals(status)) {
             return "Fallback Winstall";
+        }
+        if ("requires_manual_review".equals(status)) {
+            return "Revisión";
         }
         return "No disponible";
     }
@@ -1022,6 +1318,7 @@ public class CatalogRepository {
             String iconUrl,
             String officialUrl,
             String latestVersion,
+            String catalogStatus,
             LocalDateTime updatedAt) {}
 
     private record SourceSnapshot(
@@ -1038,10 +1335,35 @@ public class CatalogRepository {
             LocalDateTime checkedAt,
             LocalDateTime expiresAt,
             boolean downloadable) {
+        SourceSnapshot effectiveFor(String catalogStatus) {
+            if ("available".equals(catalogStatus) && downloadable) {
+                return this;
+            }
+            if ("review".equals(catalogStatus)) {
+                if ("requires_manual_review".equals(resolutionStatus)) {
+                    return this;
+                }
+                return new SourceSnapshot(
+                        "requires_manual_review", "unchecked", "Revisión", originUrl,
+                        null, null, null, null, null, null, null, null, false);
+            }
+            if ("missing".equals(catalogStatus)) {
+                if (("missing".equals(resolutionStatus) || "broken".equals(resolutionStatus)) && !downloadable) {
+                    return this;
+                }
+                return new SourceSnapshot(
+                        "missing", "unchecked", "No disponible", originUrl,
+                        null, null, null, null, null, null, null, null, false);
+            }
+            return this;
+        }
+
         static SourceSnapshot empty() {
             return new SourceSnapshot(
                     "missing", "unchecked", "No disponible", null, null, null, null,
                     null, null, null, null, null, false);
         }
     }
+
+    private record StatsSnapshot(long total, long available, long review, long missing) {}
 }

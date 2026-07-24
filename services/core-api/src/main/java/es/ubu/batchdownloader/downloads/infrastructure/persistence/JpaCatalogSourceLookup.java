@@ -3,16 +3,12 @@ package es.ubu.batchdownloader.downloads.infrastructure.persistence;
 import es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
-import java.sql.Timestamp;
-import java.time.Clock;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -20,16 +16,9 @@ import org.springframework.stereotype.Repository;
 class JpaCatalogSourceLookup implements CatalogSourceLookup {
     private static final List<String> DEFAULT_OPERATING_SYSTEMS = List.of("windows", "linux", "macos");
     private final JdbcTemplate jdbc;
-    private final Clock clock;
-    private final Duration revalidationMaxAge;
 
-    JpaCatalogSourceLookup(
-            JdbcTemplate jdbc,
-            Clock clock,
-            @Value("${app.download.source-revalidation-max-age}") Duration revalidationMaxAge) {
+    JpaCatalogSourceLookup(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
-        this.clock = clock;
-        this.revalidationMaxAge = revalidationMaxAge;
     }
 
     @Override
@@ -45,41 +34,38 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         List<String> systems = normalizedSystems(operatingSystems);
         StringBuilder sql = new StringBuilder("""
                 SELECT ds.software_app_id, rs.id AS source_ref, ds.operating_system, ds.architecture
-                FROM download_sources ds
+                FROM software_apps app
+                JOIN download_sources ds ON ds.software_app_id = app.id
                 JOIN resolved_sources rs ON rs.download_source_id = ds.id
                 WHERE ds.software_app_id IN (
                 """);
         appendPlaceholders(sql, ids.size());
         sql.append("""
                 )
+                  AND app.app_status = 'active'
+                  AND app.catalog_status = 'available'
                   AND ds.resolution_status IN ('direct', 'fallback')
                   AND ds.validation_status = 'valid'
-                  AND rs.status IN ('direct', 'fallback')
-                  AND rs.validation_status = 'valid'
-                  AND rs.checked_at >= ?
-                  AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.validation_confidence')), '')
-                      IN ('', 'validated', 'verified')
-                  AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.transport_security')), '')
-                      NOT IN ('https_winstall_edge_attested', 'http_winstall_verified')
+                  AND ds.catalog_available = 1
+                  AND rs.catalog_downloadable = 1
                   AND ds.operating_system IN (
                 """);
         appendPlaceholders(sql, systems.size());
         sql.append("""
                 )
                 ORDER BY ds.software_app_id,
-                         (rs.expires_at > NOW()) DESC,
+                         FIELD(ds.operating_system, 'windows', 'linux', 'macos') ASC,
                          (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
                          rs.is_latest DESC,
                          COALESCE(rs.release_rank, 2147483647) ASC,
                          rs.score DESC,
-                         rs.checked_at DESC
+                         rs.checked_at DESC,
+                         rs.id ASC
                 """);
-        List<Object> parameters = new ArrayList<>(ids.size() + systems.size() + 1);
+        List<Object> parameters = new ArrayList<>(ids.size() + systems.size());
         ids.forEach(id -> parameters.add(UuidBytes.fromUuid(id)));
-        // A recently verified but TTL-expired resolution remains only a candidate:
-        // the scraper's internal endpoint must revalidate it before the worker sees
-        // the URL, and the worker validates the binary again while downloading.
-        parameters.add(Timestamp.from(clock.instant().minus(revalidationMaxAge)));
+        // Expiry only triggers the scraper's mandatory JIT revalidation. It does
+        // not remove an otherwise valid candidate from the public catalog.
         parameters.addAll(systems);
         Map<UUID, VerifiedSource> selected = new LinkedHashMap<>();
         jdbc.query(sql.toString(), (ResultSet row) -> {
@@ -97,9 +83,13 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         if (operatingSystems == null || operatingSystems.isEmpty()) {
             return DEFAULT_OPERATING_SYSTEMS;
         }
-        List<String> filtered = operatingSystems.stream()
-                .filter(DEFAULT_OPERATING_SYSTEMS::contains)
-                .distinct()
+        // Keep the preference stable regardless of the order in which an HTTP
+        // client serializes the selected systems. The job model stores one
+        // executable per app, so a request with several systems selects the
+        // first verified platform in this canonical order; apps with none of
+        // those platforms are omitted by the application service.
+        List<String> filtered = DEFAULT_OPERATING_SYSTEMS.stream()
+                .filter(operatingSystems::contains)
                 .toList();
         return filtered.isEmpty() ? DEFAULT_OPERATING_SYSTEMS : filtered;
     }

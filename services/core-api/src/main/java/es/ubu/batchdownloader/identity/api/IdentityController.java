@@ -71,8 +71,11 @@ public class IdentityController {
     }
 
     @GetMapping("/me")
-    IdentityView me(Principal principal) {
-        return identities.findByUsername(principal.getName());
+    ResponseEntity<IdentityView> me(Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(identities.findByUsername(principal.getName()));
     }
 
     @GetMapping("/csrf")
