@@ -109,6 +109,8 @@ class AppDetails(BaseModel):
     score: int | None = None
     resolution_status: str = Field(alias="resolutionStatus")
     validation_status: str = Field(alias="validationStatus")
+    downloadable: bool
+    updated_at: datetime = Field(alias="updatedAt")
     source_label: str = Field(alias="sourceLabel")
     checked_at: datetime | None = Field(default=None, alias="checkedAt")
     expires_at: datetime | None = Field(default=None, alias="expiresAt")

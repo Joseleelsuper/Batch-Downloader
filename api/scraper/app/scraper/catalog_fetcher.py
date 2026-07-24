@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.cpu_pool import run_cpu_bound
 from app.core.json_safe import json_safe
 from app.core.logging import get_logger
 from app.core.url_protector import UrlProtector
@@ -377,7 +378,7 @@ class SearcherWorker:
                         if page_links and page_links.official_url
                         else app.homepage
                     )
-                    payload = {
+                    payload: dict[str, Any] = {
                         "package_id": app.package_id,
                         "winstall_url": f"{self.settings.winstall_base_url}/apps/{app.package_id}",
                         "official_url": official_url,
@@ -580,23 +581,14 @@ class FilterWorker:
         app: WinstallApp,
         candidates: list[InstallerCandidate],
     ) -> bool:
-        expanded_candidates = [
-            variant
-            for candidate in dedupe_candidates(candidates)
-            for variant in candidate_variants(candidate)
-        ]
-        scored = [
-            score_candidate(
-                candidate,
-                app_name=app.name,
-                package_id=app.package_id,
-                publisher=app.publisher,
-                version=app.latest_version,
-            )
-            for candidate in dedupe_candidates(expanded_candidates)
-            if is_download_candidate(candidate)
-        ]
-        scored.sort(key=lambda candidate: candidate.score, reverse=True)
+        scored = await run_cpu_bound(
+            prepare_scored_candidates,
+            candidates,
+            app.name,
+            app.package_id,
+            app.publisher,
+            app.latest_version,
+        )
         for candidate in scored[:48]:
             if candidate.score <= 0:
                 continue
@@ -1113,7 +1105,11 @@ class PlatformScraperWorker:
             )
             await session.commit()
 
-        candidates = extract_candidates(html, official_url) if html else []
+        candidates = (
+            await run_cpu_bound(extract_candidates, html, official_url)
+            if html
+            else []
+        )
         candidates.extend(await self._collect_download_landing_candidates(official_url, candidates))
         if not any(is_actionable_installer_candidate(candidate) for candidate in candidates):
             try:
@@ -1231,7 +1227,10 @@ class PlatformScraperWorker:
         self,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        return await FilterWorker._collect_winstall_parent_index_candidates(self, candidates)
+        return await FilterWorker._collect_winstall_parent_index_candidates(
+            self,  # type: ignore[arg-type]
+            candidates,
+        )
 
     async def _validate_installers(
         self,
@@ -2052,6 +2051,32 @@ def dedupe_candidates(candidates: list[InstallerCandidate]) -> list[InstallerCan
     return list(deduped.values())
 
 
+def prepare_scored_candidates(
+    candidates: list[InstallerCandidate],
+    app_name: str | None,
+    package_id: str | None,
+    publisher: str | None,
+    version: str | None,
+) -> list[InstallerCandidate]:
+    expanded = [
+        variant
+        for candidate in dedupe_candidates(candidates)
+        for variant in candidate_variants(candidate)
+    ]
+    scored = [
+        score_candidate(
+            candidate,
+            app_name=app_name,
+            package_id=package_id,
+            publisher=publisher,
+            version=version,
+        )
+        for candidate in dedupe_candidates(expanded)
+        if is_download_candidate(candidate)
+    ]
+    return sorted(scored, key=lambda candidate: candidate.score, reverse=True)
+
+
 def dedupe_valid_installers(installers: list[ValidInstaller]) -> list[ValidInstaller]:
     deduped: dict[tuple[str, str, str], ValidInstaller] = {}
     for installer in installers:
@@ -2182,7 +2207,7 @@ def resolved_metadata(installer: ValidInstaller, is_latest: bool) -> dict:
 
 
 def scrape_app_failure_metadata(exc: Exception, winstall_id: str) -> dict:
-    metadata = {
+    metadata: dict[str, object] = {
         "winstall_id": winstall_id,
         "error": exc.__class__.__name__,
         "detail": exception_detail(exc),
@@ -2200,7 +2225,7 @@ def exception_detail(exc: Exception) -> str:
 
 
 def is_transient_mysql_lock_error(exc: OperationalError) -> bool:
-    args = getattr(exc.orig, "args", ())
+    args: tuple[object, ...] = getattr(exc.orig, "args", ())
     return bool(args) and args[0] in {1205, 1213}
 
 

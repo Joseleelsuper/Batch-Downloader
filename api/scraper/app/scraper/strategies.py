@@ -22,7 +22,8 @@ CandidateResolverCallback = Callable[
 
 
 class ResolverStrategy(Protocol):
-    name: str
+    @property
+    def name(self) -> str: ...
 
     def supports(self, url: str) -> bool: ...
 

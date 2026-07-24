@@ -4,15 +4,16 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 import tldextract
-from sqlalchemy import Select, case, func, or_, select
+from sqlalchemy import Boolean, Select, case, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, with_expression
 
 from app.core.json_safe import json_safe
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.enums import AppStatus, LongDescriptionStatus, ResolutionStatus, ValidationStatus
 from app.db.models import (
+    CatalogCounter,
     DownloadSource,
     ResolvedSource,
     ScrapeRun,
@@ -26,6 +27,10 @@ AVAILABLE_RESOLUTION_STATUSES = {
     ResolutionStatus.DIRECT.value,
     ResolutionStatus.FALLBACK.value,
 }
+CATALOG_DOWNLOADABLE_COLUMN = literal_column(
+    "resolved_sources.catalog_downloadable",
+    Boolean,
+)
 
 
 @dataclass(frozen=True)
@@ -82,7 +87,7 @@ class CatalogRepository:
         )
         repaired = 0
         affected_sources: set[uuid.UUID] = set()
-        for resolved in list(result.unique()):
+        for resolved in result.unique():
             source = resolved.source
             target_os = inferred_platform_for_resolved_source(resolved)
             if not source or not target_os or target_os == source.operating_system:
@@ -196,9 +201,9 @@ class CatalogRepository:
             )
             changed = True
 
-        for normalized, tag in existing_tags.items():
+        for normalized, existing_tag in existing_tags.items():
             if normalized not in normalized_to_tag:
-                await self.session.delete(tag)
+                await self.session.delete(existing_tag)
                 changed = True
 
         if changed:
@@ -532,6 +537,31 @@ class CatalogRepository:
         result = await self.session.scalars(stmt)
         return list(result.unique())
 
+    async def semantic_documents(
+        self,
+        *,
+        after_app_id: uuid.UUID | None,
+        limit: int,
+    ) -> tuple[list[SoftwareApp], str | None]:
+        """Return one stable page for the rebuildable semantic projection."""
+        stmt = (
+            select(SoftwareApp)
+            .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+            .options(
+                selectinload(SoftwareApp.tags),
+                selectinload(SoftwareApp.sources),
+            )
+            .order_by(SoftwareApp.id)
+            .limit(limit + 1)
+        )
+        if after_app_id is not None:
+            stmt = stmt.where(SoftwareApp.id > after_app_id)
+        result = list((await self.session.scalars(stmt)).unique())
+        has_more = len(result) > limit
+        page = result[:limit]
+        next_after = str(page[-1].id) if has_more and page else None
+        return page, next_after
+
     async def mark_long_description_pending(self, software_app_id: uuid.UUID) -> None:
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if not software_app:
@@ -631,50 +661,26 @@ class CatalogRepository:
             .limit(page_size)
             .options(
                 selectinload(SoftwareApp.tags),
-                selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
+                _public_resolved_sources_loader(),
             )
         )
         return list(result.unique()), int(total or 0)
 
     async def catalog_stats(self) -> dict:
-        active = SoftwareApp.app_status == AppStatus.ACTIVE.value
-        total = await self.session.scalar(select(func.count(SoftwareApp.id)).where(active))
-
-        async def count_sources(statuses: list[str]) -> int:
-            return int(
-                await self.session.scalar(
-                    select(func.count(func.distinct(DownloadSource.software_app_id)))
-                    .join(SoftwareApp, SoftwareApp.id == DownloadSource.software_app_id)
-                    .where(active)
-                    .where(DownloadSource.resolution_status.in_(statuses))
-                )
-                or 0
-            )
-
-        available = await count_sources(
-            [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value]
-        )
-        review = await count_sources([ResolutionStatus.REQUIRES_MANUAL_REVIEW.value])
-        missing_sources = await count_sources(
-            [ResolutionStatus.MISSING.value, ResolutionStatus.BROKEN.value]
-        )
-        apps_with_sources = await self.session.scalar(
-            select(func.count(func.distinct(DownloadSource.software_app_id)))
-            .join(SoftwareApp, SoftwareApp.id == DownloadSource.software_app_id)
-            .where(active)
-        )
-        missing = missing_sources + max(0, int(total or 0) - int(apps_with_sources or 0))
+        counters = await self.session.get(CatalogCounter, 1)
+        if counters is None:
+            raise RuntimeError("catalog_projection_not_initialized")
 
         latest_run = await self.session.scalar(
             select(ScrapeRun).order_by(ScrapeRun.started_at.desc()).limit(1)
         )
         return {
-            "total": int(total or 0),
+            "total": int(counters.total_count),
             "filters": {
-                "all": int(total or 0),
-                "available": available,
-                "review": review,
-                "missing": missing,
+                "all": int(counters.total_count),
+                "available": int(counters.available_count),
+                "review": int(counters.review_count),
+                "missing": int(counters.missing_count),
             },
             "last_run": latest_run,
         }
@@ -688,9 +694,10 @@ class CatalogRepository:
         stmt = (
             select(SoftwareApp)
             .options(
-                selectinload(SoftwareApp.sources).selectinload(DownloadSource.resolved_sources),
+                _public_resolved_sources_loader(),
                 selectinload(SoftwareApp.tags),
             )
+            .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
             .where(or_(*conditions))
         )
         return await self.session.scalar(stmt)
@@ -704,6 +711,24 @@ class CatalogRepository:
             select(ResolvedSource)
             .options(selectinload(ResolvedSource.source))
             .where(ResolvedSource.id == resolved_source_id)
+        )
+
+    async def get_resolved_source_by_ref_for_update(
+        self,
+        source_ref: str,
+    ) -> ResolvedSource | None:
+        """Lock and refresh one candidate before an immediate revalidation."""
+        try:
+            resolved_source_id = uuid.UUID(source_ref)
+        except (TypeError, ValueError):
+            return None
+        return await self.session.scalar(
+            select(ResolvedSource)
+            .join(ResolvedSource.source)
+            .where(ResolvedSource.id == resolved_source_id)
+            .with_for_update()
+            .options(selectinload(ResolvedSource.source))
+            .execution_options(populate_existing=True)
         )
 
     def reveal_url(self, resolved_source: ResolvedSource) -> str | None:
@@ -724,29 +749,22 @@ class CatalogRepository:
                     SoftwareApp.tags.any(SoftwareAppTag.normalized_tag.like(q)),
                 )
             )
-        if status:
-            stmt = stmt.join(DownloadSource)
-            if status == "available":
-                stmt = stmt.where(
-                    DownloadSource.resolution_status.in_(
-                        [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value]
-                    )
-                )
-            elif status == "review":
-                stmt = stmt.where(
-                    DownloadSource.resolution_status
-                    == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
-                )
-            elif status == "missing":
-                stmt = stmt.where(
-                    DownloadSource.resolution_status.in_(
-                        [ResolutionStatus.MISSING.value, ResolutionStatus.BROKEN.value]
-                    )
-                )
-            else:
-                stmt = stmt.where(DownloadSource.resolution_status == status)
-            stmt = stmt.distinct()
+        if status and status != "all":
+            stmt = stmt.where(SoftwareApp.catalog_status == status)
         return stmt
+
+
+def _public_resolved_sources_loader():
+    return (
+        selectinload(SoftwareApp.sources)
+        .selectinload(DownloadSource.resolved_sources)
+        .options(
+            with_expression(
+                ResolvedSource.catalog_downloadable,
+                CATALOG_DOWNLOADABLE_COLUMN,
+            )
+        )
+    )
 
 
 def has_icon_url(value: str | None) -> bool:
@@ -764,7 +782,8 @@ def has_verified_binary_history(
         and resolution_status
         in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
         and confidence in {"", "validated", "verified"}
-        and metadata.get("transport_security") != "https_winstall_edge_attested"
+        and metadata.get("transport_security")
+        not in {"https_winstall_edge_attested", "http_winstall_verified"}
     )
 
 
@@ -788,7 +807,9 @@ def has_current_available_installer(
     app: SoftwareApp,
     now: datetime | None = None,
 ) -> bool:
-    checked_at = now or utc_now()
+    # ``now`` remains in the signature for callers from before the persistent
+    # projection. Time alone no longer removes a valid candidate from catalog.
+    del now
     for source in app.sources:
         if source.resolution_status not in AVAILABLE_RESOLUTION_STATUSES:
             continue
@@ -797,9 +818,11 @@ def has_current_available_installer(
         for resolved in source.resolved_sources:
             if resolved.status not in AVAILABLE_RESOLUTION_STATUSES:
                 continue
-            if resolved.validation_status != ValidationStatus.VALID.value:
-                continue
-            if resolved.expires_at > checked_at:
+            if has_verified_binary_history(
+                resolved.validation_status,
+                resolved.status,
+                resolved.metadata_json or {},
+            ):
                 return True
     return False
 

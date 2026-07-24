@@ -12,6 +12,7 @@ from selectolax.parser import HTMLParser
 
 from app.api.app_mapper import best_resolved_source
 from app.core.config import Settings
+from app.core.cpu_pool import run_cpu_bound
 from app.core.logging import get_logger
 from app.db.enums import LongDescriptionStatus
 from app.db.models import SoftwareApp
@@ -485,19 +486,84 @@ def description_evidence(app: SoftwareApp, page_metadata: dict[str, str]) -> dic
     }
 
 
+def build_embedding_metadata(app: SoftwareApp) -> dict[str, Any]:
+    """Build the allow-listed metadata shared by indexing and training.
+
+    Relationship values are deliberately read from ``__dict__`` so callers that
+    did not eagerly load them never trigger implicit async database I/O.
+    """
+    tags = sorted(
+        tag.tag.strip()
+        for tag in app.__dict__.get("tags", [])
+        if tag.tag and tag.tag.strip()
+    )
+    sources = app.__dict__.get("sources", [])
+    systems = sorted(
+        {
+            str(system).strip().lower()
+            for system in (app.operating_systems or [])
+            if str(system).strip()
+        }
+        | {
+            source.operating_system.strip().lower()
+            for source in sources
+            if source.operating_system and source.operating_system.strip()
+        }
+    )
+    architectures = sorted(
+        {
+            source.architecture.strip().lower()
+            for source in sources
+            if source.architecture and source.architecture.strip()
+        }
+    )
+    return {
+        "schemaVersion": 1,
+        "name": app.name.strip(),
+        "packageId": app.winstall_id.strip(),
+        "publisher": (app.publisher or "").strip() or None,
+        "tags": tags,
+        "shortDescription": (app.description or "").strip() or None,
+        "longDescription": (app.long_description or "").strip() or None,
+        "operatingSystems": systems,
+        "architectures": architectures,
+        "version": (app.latest_version or "").strip() or None,
+        "officialDomain": (
+            registered_domain(app.official_url) if app.official_url else None
+        ),
+    }
+
+
 def build_embedding_text(app: SoftwareApp) -> str:
-    tags = ", ".join(sorted(tag.tag for tag in app.tags))
+    metadata = build_embedding_metadata(app)
     parts = [
-        f"Nombre: {app.name}",
-        f"Editor: {app.publisher or '-'}",
-        f"Tags: {tags or '-'}",
-        f"Descripcion corta: {app.description or '-'}",
-        f"Descripcion larga: {app.long_description or app.description or '-'}",
-        f"Version: {app.latest_version or '-'}",
-        "Web oficial: "
-        f"{(registered_domain(app.official_url) if app.official_url else None) or '-'}",
+        f"Nombre: {metadata['name']}",
+        f"Package ID: {metadata['packageId']}",
+        f"Editor: {metadata['publisher'] or '-'}",
+        f"Tags: {', '.join(metadata['tags']) or '-'}",
+        f"Descripcion corta: {metadata['shortDescription'] or '-'}",
+        "Descripcion larga: "
+        f"{metadata['longDescription'] or metadata['shortDescription'] or '-'}",
+        f"Sistemas: {', '.join(metadata['operatingSystems']) or '-'}",
+        f"Arquitecturas: {', '.join(metadata['architectures']) or '-'}",
+        f"Version: {metadata['version'] or '-'}",
+        f"Dominio oficial: {metadata['officialDomain'] or '-'}",
     ]
     return "\n".join(parts)
+
+
+def embedding_content_hash(app: SoftwareApp) -> str:
+    canonical = {
+        "content": build_embedding_text(app),
+        "metadata": build_embedding_metadata(app),
+    }
+    raw = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def build_description_prompt(evidence: dict[str, Any]) -> str:
@@ -555,7 +621,11 @@ async def fetch_safe_page_metadata(url: str | None, timeout: float) -> dict[str,
     content_type = response.headers.get("content-type", "")
     if content_type and "html" not in content_type:
         return {}
-    parser = HTMLParser(response.text)
+    return await run_cpu_bound(_parse_safe_page_metadata, response.text)
+
+
+def _parse_safe_page_metadata(html: str) -> dict[str, str]:
+    parser = HTMLParser(html)
     metadata: dict[str, str] = {}
     title = parser.css_first("title")
     if title:

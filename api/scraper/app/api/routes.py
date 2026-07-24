@@ -1,13 +1,11 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.app_mapper import best_resolved_source, to_details, to_list_item
+from app.api.app_mapper import to_details, to_list_item
 from app.core.config import Settings, get_settings
 from app.core.time import utc_now
 from app.core.url_protector import UrlProtector
-from app.db.enums import ResolutionStatus
 from app.db.session import AsyncSessionLocal, get_session
 from app.repositories.catalog import CatalogRepository
 from app.repositories.pipeline import PipelineRepository
@@ -15,12 +13,12 @@ from app.schemas.apps import (
     AppDetails,
     AppSearchResponse,
     CatalogStatsResponse,
-    ErrorResponse,
     LastScrapeRun,
 )
 from app.scraper.catalog_fetcher import CatalogFetcher, DescriptorWorker, enqueue_descriptor_for_app
 
 router = APIRouter(prefix="/api")
+PUBLIC_CATALOG_STATUSES = {"all", "available", "review", "missing"}
 
 
 class GenerateDescriptionRequest(BaseModel):
@@ -42,10 +40,16 @@ async def search_apps(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> AppSearchResponse:
+    normalized_status = status.strip().lower() if status else None
+    if normalized_status and normalized_status not in PUBLIC_CATALOG_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_catalog_status"},
+        )
     catalog = _catalog(session, settings)
     apps, total = await catalog.search_apps(
         query=query,
-        status=status,
+        status=normalized_status,
         page=page,
         page_size=page_size,
         sort=sort,
@@ -87,69 +91,6 @@ async def get_app(
     if not app:
         raise HTTPException(status_code=404, detail={"code": "app_not_found", "status": "missing"})
     return to_details(app)
-
-
-@router.get(
-    "/apps/{app_id}/download",
-    responses={409: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
-)
-async def download_app(
-    app_id: str,
-    option_id: str | None = Query(default=None, alias="optionId"),
-    session: AsyncSession = Depends(get_session),
-    settings: Settings = Depends(get_settings),
-):
-    catalog = _catalog(session, settings)
-    app = await catalog.get_app_by_public_id(app_id)
-    if not app:
-        return JSONResponse(
-            status_code=404,
-            content=ErrorResponse(
-                code="app_not_found",
-                status=ResolutionStatus.MISSING.value,
-                message="La aplicacion no existe.",
-            ).model_dump(),
-        )
-
-    resolved = selected_resolved_source(app, option_id) if option_id else best_resolved_source(app)
-    if not resolved:
-        status, _ = next(
-            ((source.resolution_status, source.validation_status) for source in app.sources),
-            (ResolutionStatus.MISSING.value, "unchecked"),
-        )
-        return JSONResponse(
-            status_code=409,
-            content=ErrorResponse(
-                code="installer_unavailable",
-                status=status,
-                message="El instalador necesita revision manual."
-                if status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
-                else "No hay un instalador disponible.",
-            ).model_dump(),
-        )
-
-    url = catalog.reveal_url(resolved)
-    if not url:
-        return JSONResponse(
-            status_code=409,
-            content=ErrorResponse(
-                code="installer_unavailable",
-                status=ResolutionStatus.BROKEN.value,
-                message="No se pudo descifrar la URL del instalador.",
-            ).model_dump(),
-        )
-    return RedirectResponse(url=url, status_code=307)
-
-
-def selected_resolved_source(app, option_id: str):
-    for source in app.sources:
-        for resolved in source.resolved_sources:
-            if (
-                str(resolved.id) == option_id
-                and resolved.validation_status == "valid"
-            ):
-                return resolved
-    return None
 
 
 @router.post("/internal/scraper/run-once", status_code=202)

@@ -8,7 +8,10 @@ def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
         resolved
         for source in app.sources
         for resolved in source.resolved_sources
-        if resolved.validation_status == ValidationStatus.VALID.value
+        if source.resolution_status
+        in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
+        and source.validation_status == ValidationStatus.VALID.value
+        and resolved.catalog_downloadable is True
     ]
     latest_by_file: dict[
         tuple[str, str | None, str | None, str, str, str | None],
@@ -57,14 +60,39 @@ def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, int, int, ob
 
 
 def source_status(app: SoftwareApp) -> tuple[str, str]:
-    source = app.sources[0] if app.sources else None
-    if not source:
-        return ResolutionStatus.MISSING.value, ValidationStatus.UNCHECKED.value
-    return source.resolution_status, source.validation_status
+    review = next(
+        (
+            source
+            for source in app.sources
+            if source.resolution_status
+            == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+        ),
+        None,
+    )
+    if review is not None:
+        return review.resolution_status, review.validation_status
+    unavailable = next(
+        (
+            source
+            for source in app.sources
+            if source.resolution_status
+            in {ResolutionStatus.MISSING.value, ResolutionStatus.BROKEN.value}
+        ),
+        None,
+    )
+    if unavailable is not None:
+        return unavailable.resolution_status, unavailable.validation_status
+    return ResolutionStatus.MISSING.value, ValidationStatus.UNCHECKED.value
 
 
 def source_label(status: str) -> str:
-    return "Sitio oficial" if status == ResolutionStatus.DIRECT.value else "Fallback Winstall"
+    if status == ResolutionStatus.DIRECT.value:
+        return "Sitio oficial"
+    if status == ResolutionStatus.FALLBACK.value:
+        return "Fallback Winstall"
+    if status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value:
+        return "Revisión"
+    return "No disponible"
 
 
 def winstall_app_url(package_id: str) -> str:
@@ -105,7 +133,11 @@ def to_details(app: SoftwareApp) -> AppDetails:
     resolved_options = valid_resolved_sources(app)
     resolved = resolved_options[0] if resolved_options else None
     resolution_status, validation_status = source_status(app)
-    notes = "El instalador necesita revision manual."
+    notes = (
+        "El instalador necesita revisión manual."
+        if resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+        else "No hay un instalador disponible."
+    )
     if resolved:
         resolution_status = resolved.status
         validation_status = resolved.validation_status
@@ -142,6 +174,8 @@ def to_details(app: SoftwareApp) -> AppDetails:
         score=resolved.score if resolved else None,
         resolutionStatus=resolution_status,
         validationStatus=validation_status,
+        downloadable=resolved is not None,
+        updatedAt=app.updated_at,
         sourceLabel=source_label(resolution_status),
         checkedAt=resolved.checked_at if resolved else None,
         expiresAt=resolved.expires_at if resolved else None,

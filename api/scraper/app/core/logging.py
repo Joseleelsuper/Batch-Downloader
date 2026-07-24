@@ -5,6 +5,7 @@ import structlog
 
 
 def configure_logging() -> None:
+    """Configura el registro de logs."""
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

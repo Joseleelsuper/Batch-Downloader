@@ -7,12 +7,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.free_threading import assert_free_threaded_runtime
 from app.core.logging import configure_logging, get_logger
 from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ScrapeRunStatus, ValidationStatus
 from app.db.models import ScrapeRun
 from app.db.session import AsyncSessionLocal
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.catalog_projection import CatalogProjectionRepository
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
     QUEUE_FILTER_SCRAPER,
@@ -182,6 +184,19 @@ async def repair_source_statuses() -> None:
     logger.info("source_status_repair_finished", repaired=repaired)
 
 
+async def maintain_catalog_projection(*, repair: bool) -> None:
+    async with AsyncSessionLocal() as session:
+        projection = CatalogProjectionRepository(session)
+        report = await projection.repair() if repair else await projection.check()
+    logger.info(
+        "catalog_projection_checked",
+        repair=repair,
+        **report.log_fields(),
+    )
+    if not report.consistent:
+        raise RuntimeError("catalog_projection_inconsistent")
+
+
 async def repair_known_apps() -> None:
     settings = get_settings()
     repaired = 0
@@ -308,6 +323,7 @@ async def run_scheduler() -> None:
 
 def main() -> None:
     configure_logging()
+    assert_free_threaded_runtime()
     parser = argparse.ArgumentParser(description="Batch Downloader scraper worker")
     parser.add_argument(
         "command",
@@ -317,6 +333,8 @@ def main() -> None:
             "repair-platforms",
             "repair-source-statuses",
             "repair-known-apps",
+            "catalog-projection-check",
+            "catalog-projection-repair",
         ),
     )
     args = parser.parse_args()
@@ -328,6 +346,10 @@ def main() -> None:
         asyncio.run(repair_source_statuses())
     elif args.command == "repair-known-apps":
         asyncio.run(repair_known_apps())
+    elif args.command == "catalog-projection-check":
+        asyncio.run(maintain_catalog_projection(repair=False))
+    elif args.command == "catalog-projection-repair":
+        asyncio.run(maintain_catalog_projection(repair=True))
     else:
         asyncio.run(run_scheduler())
 

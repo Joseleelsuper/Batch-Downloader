@@ -11,6 +11,7 @@ from selectolax.parser import HTMLParser
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import Settings
+from app.core.cpu_pool import run_cpu_bound
 from app.scraper.candidates import detect_extension
 from app.scraper.text import normalize_text
 
@@ -123,7 +124,8 @@ class WinstallClient:
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
         if not response.is_success:
             return WinstallPageLinks(official_url=None, source_code_url=None, downloads=[])
-        return extract_winstall_page_links(
+        return await run_cpu_bound(
+            extract_winstall_page_links,
             response.text,
             f"{self.settings.winstall_base_url}/apps/{package_id}",
         )
@@ -156,14 +158,14 @@ class WinstallClient:
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps")
         if not response.is_success:
             return None
-        return extract_next_data(response.text, "data")
+        return await run_cpu_bound(extract_next_data, response.text, "data")
 
     async def _fetch_app_from_page(self, package_id: str) -> dict[str, Any] | None:
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
         if not response.is_success:
             return None
-        return extract_next_data(response.text, "app")
+        return await run_cpu_bound(extract_next_data, response.text, "app")
 
 
 def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
@@ -218,7 +220,11 @@ def extract_winstall_page_links(html: str, base_url: str) -> WinstallPageLinks:
             continue
         downloads.setdefault(
             url,
-            WinstallDownload(url=url, label=label or None, context=node.html[:500]),
+            WinstallDownload(
+                url=url,
+                label=label or None,
+                context=(node.html or "")[:500],
+            ),
         )
 
     return WinstallPageLinks(

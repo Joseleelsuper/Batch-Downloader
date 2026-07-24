@@ -118,7 +118,7 @@ class IconResolver:
     ) -> IconResult | None:
         for node in parser.css(selector):
             if not allow_rel_any:
-                rel = node.attributes.get("rel", "")
+                rel = node.attributes.get("rel") or ""
                 if node.tag == "link" and "icon" not in rel.lower():
                     continue
             value = node.attributes.get(attr)

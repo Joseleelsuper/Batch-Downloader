@@ -168,7 +168,7 @@ class PipelineRepository:
             )
         )
         await self.session.flush()
-        return int(result.rowcount or 0)
+        return statement_rowcount(result)
 
     async def clear_pending(self) -> int:
         result = await self.session.execute(
@@ -179,12 +179,12 @@ class PipelineRepository:
             )
         )
         await self.session.flush()
-        return int(result.rowcount or 0)
+        return statement_rowcount(result)
 
     async def clear_all(self) -> int:
         result = await self.session.execute(delete(ScraperWorkItem))
         await self.session.flush()
-        return int(result.rowcount or 0)
+        return statement_rowcount(result)
 
     async def enqueue(
         self,
@@ -452,7 +452,7 @@ class PipelineRepository:
             )
         )
         await self.session.flush()
-        return int(result.rowcount or 0)
+        return statement_rowcount(result)
 
     async def latest_snapshots(self) -> list[WorkerSnapshotView]:
         snapshots: list[WorkerSnapshotView] = []
@@ -619,3 +619,8 @@ def truncate(value: str | None, max_length: int) -> str | None:
     if value is None:
         return None
     return value if len(value) <= max_length else value[: max_length - 3] + "..."
+
+
+def statement_rowcount(result: object) -> int:
+    """Return the affected-row count exposed by SQLAlchemy DML cursor results."""
+    return int(getattr(result, "rowcount", 0) or 0)

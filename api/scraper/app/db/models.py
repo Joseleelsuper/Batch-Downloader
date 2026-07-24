@@ -5,6 +5,8 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -13,7 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, query_expression, relationship
 
 from app.core.time import utc_now
 from app.db.base import Base
@@ -72,11 +74,34 @@ class SoftwareApp(Base, TimestampMixin):
     )
     operating_systems_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
     version: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    catalog_available_source_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    catalog_review_source_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    catalog_status: Mapped[str | None] = mapped_column(
+        String(16),
+        Computed(
+            "CASE "
+            "WHEN app_status <> 'active' THEN NULL "
+            "WHEN catalog_available_source_count > 0 THEN 'available' "
+            "WHEN catalog_review_source_count > 0 THEN 'review' "
+            "ELSE 'missing' END",
+            persisted=True,
+        ),
+    )
 
-    sources: Mapped[list["DownloadSource"]] = relationship(
+    sources: Mapped[list[DownloadSource]] = relationship(
         back_populates="software_app", cascade="all, delete-orphan"
     )
-    tags: Mapped[list["SoftwareAppTag"]] = relationship(
+    tags: Mapped[list[SoftwareAppTag]] = relationship(
         back_populates="software_app", cascade="all, delete-orphan"
     )
 
@@ -91,7 +116,6 @@ class DownloadSource(Base, TimestampMixin):
         GUID(), ForeignKey("software_apps.id"), nullable=False
     )
     operating_system: Mapped[str] = mapped_column(String(32), default="windows", nullable=False)
-    # Never invent a CPU family when the provider did not expose one.
     architecture: Mapped[str] = mapped_column(String(32), default="UNKNOWN", nullable=False)
     initial_url: Mapped[str | None] = mapped_column(String(2048))
     resolver_type: Mapped[str] = mapped_column(String(50), default="generic_http", nullable=False)
@@ -103,9 +127,25 @@ class DownloadSource(Base, TimestampMixin):
         String(32), default=ValidationStatus.UNCHECKED.value, index=True, nullable=False
     )
     version: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    catalog_downloadable_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    catalog_available: Mapped[bool] = mapped_column(
+        Boolean,
+        Computed(
+            "CASE WHEN resolution_status IN ('direct', 'fallback') "
+            "AND validation_status = 'valid' "
+            "AND catalog_downloadable_count > 0 "
+            "THEN 1 ELSE 0 END",
+            persisted=True,
+        ),
+    )
 
     software_app: Mapped[SoftwareApp] = relationship(back_populates="sources")
-    resolved_sources: Mapped[list["ResolvedSource"]] = relationship(
+    resolved_sources: Mapped[list[ResolvedSource]] = relationship(
         back_populates="source", cascade="all, delete-orphan"
     )
 
@@ -140,6 +180,28 @@ class SoftwareAppTag(Base):
     )
 
 
+class CatalogCounter(Base):
+    """Singleton read model maintained by the catalog projection triggers."""
+
+    __tablename__ = "catalog_counters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    total_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    available_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    review_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    missing_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    version: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_catalog_counters_singleton"),
+        CheckConstraint(
+            "total_count = available_count + review_count + missing_count",
+            name="ck_catalog_counters_partition",
+        ),
+    )
+
+
 class ResolvedSource(Base):
     __tablename__ = "resolved_sources"
 
@@ -163,6 +225,9 @@ class ResolvedSource(Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSON)
+    # Alembic 0010 owns the physical generated column. Mapping it only as a
+    # query expression keeps SQLite's metadata-based test schema unchanged.
+    catalog_downloadable: Mapped[bool | None] = query_expression()
 
     source: Mapped[DownloadSource] = relationship(back_populates="resolved_sources")
 

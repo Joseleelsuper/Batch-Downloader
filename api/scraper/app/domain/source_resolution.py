@@ -19,10 +19,23 @@ def source_trust_status(
     metadata: Mapping[str, object],
     now: datetime,
 ) -> SourceTrustStatus:
+    """Determina la confianza según los estados de validación y resolución.
+
+    Args:
+        validation_status (str): El estado de validación de la fuente.
+        resolution_status (str): El estado de resolución de la fuente.
+        expires_at (datetime): La fecha de vencimiento de la fuente.
+        metadata (Mapping[str, object]): Los metadatos de la fuente.
+        now (datetime): La fecha y hora actuales.
+
+    Returns:
+        SourceTrustStatus: El estado de confianza de la fuente.
+    """
     confidence = str(metadata.get("validation_confidence") or "").lower()
-    if confidence == "attested" or metadata.get("transport_security") == (
-        "https_winstall_edge_attested"
-    ):
+    if confidence == "attested" or metadata.get("transport_security") in {
+        "https_winstall_edge_attested",
+        "http_winstall_verified",
+    }:
         return SourceTrustStatus.ATTESTED
     if (
         validation_status != "valid"
@@ -32,6 +45,6 @@ def source_trust_status(
         return SourceTrustStatus.UNRESOLVED
     if confidence and confidence not in {"validated", "verified"}:
         return SourceTrustStatus.UNRESOLVED
-    # Rows created before confidence became explicit were only persisted after
-    # successful binary validation, except for the edge-attested marker above.
+    # Las filas creadas antes de que la confianza fuera explícita solo se persistieron después
+    # de una validación binaria exitosa, excepto por el marcador edge-attested anterior.
     return SourceTrustStatus.VERIFIED

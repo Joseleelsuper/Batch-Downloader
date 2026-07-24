@@ -3,11 +3,13 @@ set -eu
 
 python - <<'PY'
 import asyncio
+from app.core.free_threading import assert_free_threaded_runtime
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 from app.core.config import get_settings
 
 async def main():
+    assert_free_threaded_runtime()
     engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
     last_error = None
     for _ in range(60):

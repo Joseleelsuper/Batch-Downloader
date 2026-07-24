@@ -123,7 +123,7 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
                     url=safe_urljoin(base_url, href) or "",
                     source="href",
                     label=node.text(separator=" ", strip=True),
-                    context=node.html[:500],
+                    context=(node.html or "")[:500],
                     referer=base_url,
                 )
             )
@@ -136,7 +136,7 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
                     url=safe_urljoin(base_url, action) or "",
                     source="form",
                     label=node.attributes.get("aria-label") or node.text(separator=" ", strip=True),
-                    context=node.html[:500],
+                    context=(node.html or "")[:500],
                     referer=base_url,
                 )
             )
@@ -152,7 +152,7 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
                     url=safe_urljoin(base_url, match) or "",
                     source="button",
                     label=node.text(separator=" ", strip=True),
-                    context=node.html[:500],
+                    context=(node.html or "")[:500],
                     referer=base_url,
                 )
             )
@@ -171,7 +171,7 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
                         url=safe_urljoin(base_url, embedded_url) or "",
                         source=f"attribute:{attribute}",
                         label=label,
-                        context=node.html[:500],
+                        context=(node.html or "")[:500],
                         referer=base_url,
                     )
                 )

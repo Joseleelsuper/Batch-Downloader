@@ -24,3 +24,19 @@ class ContentEnqueueResult(BaseModel):
     matched: int
     enqueued: int
     already_active: int = Field(alias="alreadyActive")
+
+
+class SemanticDocument(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    app_id: str = Field(alias="appId")
+    content_hash: str = Field(alias="contentHash")
+    content: str
+    metadata: dict[str, object]
+
+
+class SemanticDocumentPage(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    documents: list[SemanticDocument]
+    next_after_app_id: str | None = Field(alias="nextAfterAppId")

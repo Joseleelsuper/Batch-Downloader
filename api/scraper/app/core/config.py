@@ -8,7 +8,7 @@ from sqlalchemy import URL, make_url
 
 
 class GroqDescriptionModel(StrEnum):
-    """Groq models approved for Spanish catalog-description generation."""
+    """Modelos de Groq para generar descripciones de aplicaciones."""
 
     LLAMA_3_3_70B = "llama-3.3-70b-versatile"
     GPT_OSS_120B = "openai/gpt-oss-120b"
@@ -27,6 +27,8 @@ DEFAULT_GROQ_DESCRIPTION_FALLBACKS = (
 
 
 class Settings(BaseSettings):
+    """Opciones de la aplicación"""
+
     model_config = SettingsConfigDict(env_file=".env", env_prefix="SCRAPPER_", extra="ignore")
 
     app_name: str = Field(
@@ -57,6 +59,7 @@ class Settings(BaseSettings):
     scrape_app_timeout_seconds: float = 90
     scrape_searcher_backpressure_limit: int = 250
     scrape_searcher_backpressure_sleep_seconds: float = 2
+    cpu_thread_workers: int = 4
     scheduler_timezone: str = "Europe/Madrid"
     scheduler_hour: int = 3
     scheduler_minute: int = 0
@@ -83,15 +86,24 @@ class Settings(BaseSettings):
 
     @property
     def scheduler_zoneinfo(self) -> ZoneInfo:
+        """Recupera la zona horaria del programador como un objeto ZoneInfo.
+
+        Returns:
+            ZoneInfo: La zona horaria del programador.
+        """
         return ZoneInfo(self.scheduler_timezone)
 
     @property
     def database_url(self) -> URL:
-        """Build the DSN safely without parsing credentials as URL syntax."""
+        """Construye los componentes de la URL de la base de datos en un objeto URL de SQLAlchemy.
+
+        Returns:
+            URL: La URL de la base de datos.
+        """
         if self.database_url_override:
             return make_url(self.database_url_override)
         return URL.create(
-            drivername="mysql+asyncmy",
+            drivername="mysql+aiomysql",
             username=self.database_username,
             password=self.database_password.get_secret_value(),
             host=self.database_host,
@@ -102,4 +114,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Recupera las opciones de configuración de la aplicación desde la caché.
+
+    Returns:
+        Settings: Las opciones de configuración de la aplicación.
+    """
     return Settings()

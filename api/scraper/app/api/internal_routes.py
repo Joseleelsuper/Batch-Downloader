@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime
 from typing import Annotated
 from urllib.parse import urlparse
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,10 +23,20 @@ from app.repositories.pipeline import (
     QUEUE_SO_FILTER_DESCRIPTOR,
     PipelineRepository,
 )
-from app.schemas.internal import ContentEnqueueResult, InternalSourceResolution
+from app.schemas.internal import (
+    ContentEnqueueResult,
+    InternalSourceResolution,
+    SemanticDocument,
+    SemanticDocumentPage,
+)
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.catalog_fetcher import enqueue_descriptor_for_app
-from app.scraper.validator import DownloadValidator, ValidationConfidence
+from app.scraper.description_enricher import (
+    build_embedding_metadata,
+    build_embedding_text,
+    embedding_content_hash,
+)
+from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 
 INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token"
 
@@ -44,10 +57,50 @@ async def require_internal_service_token(
 
 
 @internal_router.get(
+    "/semantic/documents",
+    response_model=SemanticDocumentPage,
+    response_model_by_alias=True,
+    responses={401: {}},
+)
+async def semantic_documents(
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    after_app_id: Annotated[
+        UUID | None,
+        Query(alias="afterAppId"),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+) -> SemanticDocumentPage:
+    catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
+    apps, next_after = await catalog.semantic_documents(
+        after_app_id=after_app_id,
+        limit=limit,
+    )
+    return SemanticDocumentPage(
+        documents=[
+            SemanticDocument(
+                appId=str(software_app.id),
+                contentHash=embedding_content_hash(software_app),
+                content=build_embedding_text(software_app),
+                metadata=build_embedding_metadata(software_app),
+            )
+            for software_app in apps
+        ],
+        nextAfterAppId=next_after,
+    )
+
+
+@internal_router.get(
     "/sources/{source_ref}/resolution",
     response_model=InternalSourceResolution,
     response_model_by_alias=True,
-    responses={401: {}, 404: {}, 409: {"model": InternalSourceResolution}},
+    responses={
+        401: {},
+        404: {},
+        409: {"model": InternalSourceResolution},
+        503: {},
+    },
 )
 async def get_source_resolution(
     source_ref: str,
@@ -56,17 +109,23 @@ async def get_source_resolution(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> InternalSourceResolution | JSONResponse:
     catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
-    resolved = await catalog.get_resolved_source_by_ref(source_ref)
+    # Lock both the candidate and its parent source. A sourceRef can spend time
+    # queued; the parent may have become broken/review/invalid in the meantime.
+    resolved = await catalog.get_resolved_source_by_ref_for_update(source_ref)
     if resolved is None:
         raise HTTPException(status_code=404, detail={"code": "source_not_found"})
 
     metadata = resolved.metadata_json or {}
-    trust_status = source_trust_status(
-        validation_status=resolved.validation_status,
-        resolution_status=resolved.status,
-        expires_at=resolved.expires_at,
-        metadata=metadata,
-        now=utc_now(),
+    trust_status = (
+        source_trust_status(
+            validation_status=resolved.validation_status,
+            resolution_status=resolved.status,
+            expires_at=resolved.expires_at,
+            metadata=metadata,
+            now=utc_now(),
+        )
+        if _parent_source_is_available(resolved)
+        else SourceTrustStatus.UNRESOLVED
     )
     url = catalog.reveal_url(resolved) if trust_status == SourceTrustStatus.VERIFIED else None
     if trust_status == SourceTrustStatus.UNRESOLVED and _can_revalidate_expired(resolved, metadata):
@@ -77,8 +136,10 @@ async def get_source_resolution(
     if trust_status == SourceTrustStatus.VERIFIED and (
         url is None or urlparse(url).scheme != "https"
     ):
-        url = None
-        trust_status = SourceTrustStatus.UNRESOLVED
+        url = await _invalidate_unusable_source(resolved, catalog, session)
+        if url is None:
+            metadata = resolved.metadata_json or {}
+            trust_status = SourceTrustStatus.UNRESOLVED
     sha256 = metadata.get("sha256") or metadata.get("expected_sha256")
     expected_sha256 = (
         sha256.lower()
@@ -97,25 +158,40 @@ async def get_source_resolution(
         expectedMime=resolved.content_type,
         operatingSystem=resolved.source.operating_system,
         architecture=resolved.source.architecture,
-        trustStatus=trust_status.value,
+        trustStatus=trust_status,
     )
     if trust_status != SourceTrustStatus.VERIFIED:
+        await session.commit()
         return JSONResponse(
             status_code=409,
             content=response.model_dump(by_alias=True, mode="json"),
         )
+    await session.commit()
     return response
 
 
 def _can_revalidate_expired(resolved: ResolvedSource, metadata: dict) -> bool:
     confidence = str(metadata.get("validation_confidence") or "").lower()
     return (
-        resolved.validation_status == ValidationStatus.VALID.value
+        _parent_source_is_available(resolved)
+        and resolved.validation_status == ValidationStatus.VALID.value
         and resolved.status
         in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
         and resolved.expires_at <= utc_now()
         and confidence in {"", "validated", "verified"}
-        and metadata.get("transport_security") != "https_winstall_edge_attested"
+        and metadata.get("transport_security")
+        not in {"https_winstall_edge_attested", "http_winstall_verified"}
+    )
+
+
+def _parent_source_is_available(resolved: ResolvedSource) -> bool:
+    source = resolved.source
+    return (
+        source is not None
+        and source.catalog_available is True
+        and source.resolution_status
+        in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
+        and source.validation_status == ValidationStatus.VALID.value
     )
 
 
@@ -132,10 +208,42 @@ async def _revalidate_expired_source(
     validation succeeds; the download worker performs its own final network and
     binary validation afterwards.
     """
+    # A current read under a row lock prevents duplicate network validation.
+    # ``populate_existing`` in the repository also observes a renewal or a
+    # terminal invalidation committed while this request was waiting.
+    locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
+    if locked is None:
+        await session.commit()
+        return None
+    resolved = locked
+    metadata = dict(resolved.metadata_json or {})
+    if not _parent_source_is_available(resolved):
+        await session.commit()
+        return None
+    trust_status = source_trust_status(
+        validation_status=resolved.validation_status,
+        resolution_status=resolved.status,
+        expires_at=resolved.expires_at,
+        metadata=metadata,
+        now=utc_now(),
+    )
+    if trust_status == SourceTrustStatus.VERIFIED:
+        url = catalog.reveal_url(resolved)
+        await session.commit()
+        return url
+    if not _can_revalidate_expired(resolved, metadata):
+        await session.commit()
+        return None
+
     protected_url = catalog.reveal_url(resolved)
     if protected_url is None:
+        await _expire_terminal_candidate(
+            resolved,
+            metadata,
+            "source_url_unreadable",
+            session,
+        )
         return None
-    metadata = dict(resolved.metadata_json or {})
     candidate = InstallerCandidate(
         url=protected_url,
         source=str(metadata.get("candidate_source") or "internal_revalidation"),
@@ -143,26 +251,36 @@ async def _revalidate_expired_source(
         asset_kind=str(metadata.get("asset_kind") or "") or None,
         referer=resolved.source.initial_url,
     )
-    result = await DownloadValidator(settings).validate(candidate)
+    try:
+        result = await DownloadValidator(settings).validate(candidate)
+    except httpx.RequestError as exc:
+        await session.commit()
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "source_revalidation_transient"},
+        ) from exc
     now = utc_now()
-    resolved.checked_at = now
     final_url = result.final_url or protected_url
     if (
         not result.ok
         or result.confidence != ValidationConfidence.VALIDATED
         or urlparse(final_url).scheme != "https"
     ):
-        resolved.validation_status = ValidationStatus.EXPIRED.value
-        resolved.expires_at = now
-        metadata["last_revalidation_error"] = (
+        reason = (
             result.reason
             or ("source_not_https" if urlparse(final_url).scheme != "https" else None)
             or "source_not_verified"
         )
-        resolved.metadata_json = metadata
-        await session.commit()
+        if _is_transient_revalidation_failure(result, reason):
+            await session.commit()
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "source_revalidation_transient"},
+            )
+        await _expire_terminal_candidate(resolved, metadata, reason, session, now=now)
         return None
 
+    resolved.checked_at = now
     resolved.resolved_url_encrypted = catalog.url_protector.protect(final_url)
     resolved.final_domain = result.final_domain or resolved.final_domain
     resolved.filename = result.filename or resolved.filename
@@ -184,6 +302,62 @@ async def _revalidate_expired_source(
     resolved.metadata_json = metadata
     await session.commit()
     return final_url
+
+
+async def _invalidate_unusable_source(
+    resolved: ResolvedSource,
+    catalog: CatalogRepository,
+    session: AsyncSession,
+) -> str | None:
+    locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
+    if locked is None:
+        await session.commit()
+        return None
+    url = catalog.reveal_url(locked)
+    if url is not None and urlparse(url).scheme == "https":
+        await session.commit()
+        return url
+    await _expire_terminal_candidate(
+        locked,
+        dict(locked.metadata_json or {}),
+        "source_url_unreadable" if url is None else "source_not_https",
+        session,
+    )
+    return None
+
+
+async def _expire_terminal_candidate(
+    resolved: ResolvedSource,
+    metadata: dict,
+    reason: str,
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> None:
+    invalidated_at = now or utc_now()
+    resolved.checked_at = invalidated_at
+    resolved.validation_status = ValidationStatus.EXPIRED.value
+    resolved.expires_at = invalidated_at
+    metadata["last_revalidation_error"] = reason
+    resolved.metadata_json = metadata
+    await session.commit()
+
+
+def _is_transient_revalidation_failure(
+    result: ValidationResult,
+    reason: str,
+) -> bool:
+    if result.ok and result.confidence == ValidationConfidence.ATTESTED:
+        return True
+    if reason in {"no_response", "source_not_verified"}:
+        return True
+    if not reason.startswith("http_"):
+        return False
+    try:
+        status_code = int(reason.removeprefix("http_"))
+    except ValueError:
+        return False
+    return status_code in {408, 425, 429} or status_code >= 500
 
 
 @internal_router.post(

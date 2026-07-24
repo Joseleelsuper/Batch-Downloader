@@ -558,7 +558,7 @@ async def domain_has_public_dns(hostname: str | None) -> bool:
 
 async def resolve_public_dns(hostname: str) -> bool:
     for attempt in range(3):
-        addresses: list[ipaddress._BaseAddress] = []
+        addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
         transient_failure = False
         for record_type in ("A", "AAAA"):
             try:
@@ -584,7 +584,7 @@ async def resolve_public_dns(hostname: str) -> bool:
     return False
 
 
-def is_public_ip(ip: ipaddress._BaseAddress) -> bool:
+def is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return not (
         ip.is_private
         or ip.is_loopback

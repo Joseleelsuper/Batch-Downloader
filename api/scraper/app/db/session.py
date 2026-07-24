@@ -11,5 +11,14 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=As
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
+    """Recupera una sesión de base de datos.
+
+    Returns:
+        AsyncIterator[AsyncSession]: Iterador asíncrono que produce sesiones de base de datos.
+
+    Yields:
+        Iterator[AsyncIterator[AsyncSession]]: Un iterador que produce sesiones
+        de base de datos asíncronas.
+    """
     async with AsyncSessionLocal() as session:
         yield session

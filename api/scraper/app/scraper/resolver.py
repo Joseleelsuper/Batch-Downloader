@@ -5,6 +5,7 @@ import uuid
 import httpx
 
 from app.core.config import Settings
+from app.core.cpu_pool import run_cpu_bound
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import DownloadSource
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
@@ -105,7 +106,9 @@ class InstallerResolver:
 
         candidates: list[InstallerCandidate] = []
         if html:
-            candidates.extend(extract_candidates(html, official_url))
+            candidates.extend(
+                await run_cpu_bound(extract_candidates, html, official_url)
+            )
             await self.logs.add(
                 phase="official_http",
                 status="candidates",
@@ -294,19 +297,13 @@ class InstallerResolver:
         status: ResolutionStatus,
         app: WinstallApp,
     ) -> bool:
-        scored = sorted(
-            (
-                score_candidate(
-                    candidate,
-                    app_name=app.name,
-                    package_id=app.package_id,
-                    publisher=app.publisher,
-                    version=app.latest_version,
-                )
-                for candidate in candidates
-            ),
-            key=lambda candidate: candidate.score,
-            reverse=True,
+        scored = await run_cpu_bound(
+            score_and_dedupe_candidates,
+            candidates,
+            app.name,
+            app.package_id,
+            app.publisher,
+            app.latest_version,
         )
         valid_results: list[tuple[InstallerCandidate, ValidationResult]] = []
         for candidate in scored[:24]:
@@ -409,6 +406,30 @@ class InstallerResolver:
             if "html" not in content_type and content_type:
                 return ""
             return response.text
+
+
+def score_and_dedupe_candidates(
+    candidates: list[InstallerCandidate],
+    app_name: str | None,
+    package_id: str | None,
+    publisher: str | None,
+    version: str | None,
+) -> list[InstallerCandidate]:
+    deduped = {candidate.url: candidate for candidate in candidates if candidate.url}
+    return sorted(
+        (
+            score_candidate(
+                candidate,
+                app_name=app_name,
+                package_id=package_id,
+                publisher=publisher,
+                version=version,
+            )
+            for candidate in deduped.values()
+        ),
+        key=lambda candidate: candidate.score,
+        reverse=True,
+    )
 
 
 def resolved_metadata(

@@ -8,6 +8,14 @@ from typing import Any
 
 
 def json_safe(value: Any) -> Any:
+    """Convierte recursivamente un objeto a un tipo de dato seguro para JSON.
+
+    Args:
+        value (Any): El valor que se desea convertir a un tipo de dato seguro para JSON.
+
+    Returns:
+        Any: El valor convertido a un tipo de dato seguro para JSON.
+    """
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, bytes):
@@ -23,4 +31,3 @@ def json_safe(value: Any) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [json_safe(item) for item in value]
     return str(value)
-
