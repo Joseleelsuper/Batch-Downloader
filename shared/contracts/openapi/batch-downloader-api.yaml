@@ -151,10 +151,18 @@ paths:
           schema:
             type: string
             maxLength: 180
+        - name: searchMode
+          in: query
+          description: El valor omitido conserva la búsqueda literal para clientes existentes.
+          schema:
+            $ref: '#/components/schemas/SearchMode'
+            default: lexical
         - name: status
           in: query
           schema:
             type: string
+            enum: [all, available, review, missing]
+            default: all
         - name: os
           in: query
           style: form
@@ -196,10 +204,18 @@ paths:
           schema:
             type: string
             maxLength: 180
+        - name: searchMode
+          in: query
+          description: Aplica la misma enumeración híbrida que la página de aplicaciones.
+          schema:
+            $ref: '#/components/schemas/SearchMode'
+            default: lexical
         - name: status
           in: query
           schema:
             type: string
+            enum: [all, available, review, missing]
+            default: all
         - name: os
           in: query
           style: form
@@ -230,7 +246,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/CatalogStats'
         '400':
           $ref: '#/components/responses/BadRequest'
   /apps/{appId}:
@@ -246,7 +262,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/App'
+                $ref: '#/components/schemas/AppDetails'
         '404':
           $ref: '#/components/responses/NotFound'
   /download-jobs:
@@ -540,7 +556,7 @@ components:
           type: boolean
     App:
       type: object
-      required: [id, slug, packageId, name, tags, operatingSystems, downloadable]
+      required: [id, slug, packageId, name, tags, operatingSystems, downloadable, updatedAt]
       properties:
         id:
           type: string
@@ -579,10 +595,80 @@ components:
         validationStatus:
           type: string
         downloadable:
+          description: Indica que la aplicación puede incorporarse a un trabajo; la URL se revalida justo antes de descargar.
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    AppDetails:
+      allOf:
+        - $ref: '#/components/schemas/App'
+        - type: object
+          required: [originUrl, downloadOptions, notes]
+          properties:
+            officialUrl:
+              type: [string, 'null']
+              format: uri
+            originUrl:
+              type: string
+              format: uri
+            installerFilename:
+              type: [string, 'null']
+            installerType:
+              type: [string, 'null']
+            contentType:
+              type: [string, 'null']
+            sizeBytes:
+              type: [integer, 'null']
+              format: int64
+            finalDomain:
+              type: [string, 'null']
+            score:
+              type: [integer, 'null']
+            checkedAt:
+              type: [string, 'null']
+              format: date-time
+            expiresAt:
+              type: [string, 'null']
+              format: date-time
+            downloadOptions:
+              type: array
+              items:
+                $ref: '#/components/schemas/DownloadOption'
+            notes:
+              type: string
+    DownloadOption:
+      type: object
+      required: [id, operatingSystem, architecture, isLatest, sourceLabel, score, isPrimary]
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: [string, 'null']
+        extension:
+          type: [string, 'null']
+        operatingSystem:
+          type: string
+        architecture:
+          type: string
+        version:
+          type: [string, 'null']
+        isLatest:
+          type: boolean
+        versionStatus:
+          type: [string, 'null']
+        sourceLabel:
+          type: string
+        score:
+          type: integer
+        finalDomain:
+          type: [string, 'null']
+        isPrimary:
           type: boolean
     AppPage:
       type: object
-      required: [data, page, pageSize, total]
+      required: [data, page, pageSize, total, requestedMode, appliedMode]
       properties:
         data:
           type: array
@@ -595,6 +681,47 @@ components:
         total:
           type: integer
           format: int64
+        requestedMode:
+          $ref: '#/components/schemas/SearchMode'
+        appliedMode:
+          $ref: '#/components/schemas/SearchMode'
+        modelVersion:
+          type: [string, 'null']
+        indexVersion:
+          type: [string, 'null']
+        degradedReason:
+          type: [string, 'null']
+    SearchMode:
+      type: string
+      enum: [lexical, hybrid]
+    CatalogStats:
+      type: object
+      required: [total, filters, lastScrape, generatedAt]
+      properties:
+        total:
+          type: integer
+          format: int64
+        filters:
+          type: object
+          required: [all, available, review, missing]
+          properties:
+            all:
+              type: integer
+              format: int64
+            available:
+              type: integer
+              format: int64
+            review:
+              type: integer
+              format: int64
+            missing:
+              type: integer
+              format: int64
+        lastScrape:
+          type: [object, 'null']
+        generatedAt:
+          type: string
+          format: date-time
     CreateDownloadJobRequest:
       type: object
       additionalProperties: false
@@ -647,7 +774,7 @@ components:
           type: [string, 'null']
     DownloadJob:
       type: object
-      required: [id, status, progress, requestedCount, acceptedCount, omittedCount, items, createdAt, expiresAt]
+      required: [id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode, items, createdAt, expiresAt]
       properties:
         id:
           type: string
@@ -667,6 +794,8 @@ components:
         omittedCount:
           type: integer
           minimum: 0
+        failureCode:
+          type: [string, 'null']
         items:
           type: array
           items:
@@ -694,7 +823,7 @@ components:
           format: int64
     CatalogFacets:
       type: object
-      required: [tags, publishers]
+      required: [tags, publishers, requestedMode, appliedMode]
       properties:
         tags:
           type: array
@@ -704,9 +833,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/FacetItem'
+        requestedMode:
+          $ref: '#/components/schemas/SearchMode'
+        appliedMode:
+          $ref: '#/components/schemas/SearchMode'
+        modelVersion:
+          type: [string, 'null']
+        indexVersion:
+          type: [string, 'null']
+        degradedReason:
+          type: [string, 'null']
     BundleSummary:
       type: object
-      required: [id, slug, name, type, visibility, starCount, appCount, tags, previewApps, updatedAt]
+      required: [id, slug, name, type, visibility, starCount, appCount, operatingSystems, tags, previewApps, updatedAt]
       properties:
         id:
           type: string
@@ -727,6 +866,14 @@ components:
           type: integer
         appCount:
           type: integer
+        operatingSystems:
+          description: Sistemas con un instalador seleccionable para cada aplicación activa del bundle; la antigüedad se resuelve mediante revalidación JIT.
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [windows, linux, macos]
         tags:
           type: array
           items:
