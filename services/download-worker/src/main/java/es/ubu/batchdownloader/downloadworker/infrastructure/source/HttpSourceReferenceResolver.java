@@ -48,7 +48,11 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
             throw new DownloadRejectedException("source_not_verified");
         }
         if (response.statusCode() >= 500) {
-            throw new InfrastructureException(
+            // Resolution is scoped to one installer. Treat an upstream 5xx as
+            // an item failure so the remaining bundle can still be produced.
+            // Re-throwing it as infrastructure used to retry the whole event
+            // and left the Core job active after Rabbit exhausted its retries.
+            throw new DownloadRejectedException(
                     "source_resolver_unavailable",
                     new IllegalStateException("HTTP " + response.statusCode()));
         }
