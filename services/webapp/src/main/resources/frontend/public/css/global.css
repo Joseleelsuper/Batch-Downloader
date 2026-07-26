@@ -10,7 +10,7 @@
 
 @import url("./components/forms.css");
 
-@import url("./components/catalog.css");
+@import url("./components/catalog.css?v=20260726-2");
 
 @import url("./components/details.css");
 
@@ -22,7 +22,7 @@
 
 @import url("./pages/admin.css");
 
-@import url("./responsive.css");
+@import url("./responsive.css?v=20260726-2");
 
 
 

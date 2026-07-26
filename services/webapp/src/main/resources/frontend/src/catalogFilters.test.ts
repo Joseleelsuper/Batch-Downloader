@@ -115,11 +115,16 @@ describe('catalogFilters', () => {
     }).has('status')).toBe(false);
   });
 
-  it('parses and serializes the most-downloaded sort order', () => {
+  it('uses most-downloaded as the default and only serializes an alternative order', () => {
+    expect(parseCatalogFilters('').sort).toBe('downloads');
     expect(parseCatalogFilters('sort=downloads').sort).toBe('downloads');
     expect(catalogFiltersToSearchParams({
       ...parseCatalogFilters(''),
       sort: 'downloads',
-    }).get('sort')).toBe('downloads');
+    }).has('sort')).toBe(false);
+    expect(catalogFiltersToSearchParams({
+      ...parseCatalogFilters(''),
+      sort: 'updated',
+    }).get('sort')).toBe('updated');
   });
 });

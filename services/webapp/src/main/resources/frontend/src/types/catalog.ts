@@ -160,7 +160,7 @@ export interface BundleSummary {
   starCount: number;
   appCount: number;
   tags: string[];
-  /** Platforms with a verified installer for every app in this bundle. */
+  /** Platforms with a selectable installer for at least one active app. */
   operatingSystems: OperatingSystem[];
   previewApps: CatalogApp[];
   updatedAt: string;

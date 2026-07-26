@@ -176,7 +176,7 @@
   "bundle.fallbackDescription": "",
   "bundle.loadError": "",
   "bundle.loading": "",
-  "bundle.noCommonPlatform": "",
+  "bundle.noAvailablePlatform": "",
   "bundle.platforms": "",
   "bundle.downloadAll": "",
   "bundle.tooLarge": "",

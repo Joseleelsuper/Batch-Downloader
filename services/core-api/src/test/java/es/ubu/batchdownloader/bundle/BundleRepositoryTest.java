@@ -23,7 +23,7 @@ class BundleRepositoryTest {
                 jdbc,
                 org.mockito.Mockito.mock(CatalogRepository.class));
 
-        assertThat(repository.commonOperatingSystems(UUID.randomUUID())).containsExactly("windows");
+        assertThat(repository.availableOperatingSystems(UUID.randomUUID())).containsExactly("windows");
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
@@ -32,10 +32,10 @@ class BundleRepositoryTest {
         assertThat(sql.getValue()).contains("artifact.catalog_downloadable = 1");
         assertThat(sql.getValue()).contains("app.app_status = 'active'");
         assertThat(sql.getValue()).contains("app.catalog_status = 'available'");
-        assertThat(sql.getValue()).contains("expected_app.app_status = 'active'");
         assertThat(sql.getValue()).doesNotContain("artifact.checked_at >= ?", "artifact.expires_at > NOW()");
-        assertThat(sql.getValue()).contains("COUNT(DISTINCT item.software_app_id)");
+        assertThat(sql.getValue()).contains("SELECT DISTINCT source.operating_system");
+        assertThat(sql.getValue()).doesNotContain("HAVING", "expected_item");
         assertThat(sql.getValue()).contains("FIELD(source.operating_system, 'windows', 'linux', 'macos')");
-        assertThat(parameters.getValue()).hasSize(2);
+        assertThat(parameters.getValue()).hasSize(1);
     }
 }

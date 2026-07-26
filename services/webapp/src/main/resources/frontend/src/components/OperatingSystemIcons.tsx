@@ -15,7 +15,7 @@ export function OperatingSystemIcon({
   return (
     <img
       className={`platform-icon platform-icon-${operatingSystem}`}
-      src={`/assets/platforms/${operatingSystem}.svg`}
+      src={`/assets/platforms/${operatingSystem}.svg?v=20260726-2`}
       width={size}
       height={size}
       alt={decorative ? '' : operatingSystemLabel(operatingSystem)}

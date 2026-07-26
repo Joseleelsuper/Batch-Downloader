@@ -65,7 +65,7 @@ export function BundleDownloadButton({
           </div>
         </div>
       ) : (
-        <p className="bundle-platform-empty">{t('bundle.noCommonPlatform')}</p>
+        <p className="bundle-platform-empty">{t('bundle.noAvailablePlatform')}</p>
       )}
       <button
         className="primary-button compact-button"
@@ -75,7 +75,7 @@ export function BundleDownloadButton({
         title={overLimit
           ? t('bundle.tooLarge')
           : !hasCompatiblePlatform
-            ? t('bundle.noCommonPlatform')
+            ? t('bundle.noAvailablePlatform')
             : error
               ? t('download.job.error')
               : undefined}

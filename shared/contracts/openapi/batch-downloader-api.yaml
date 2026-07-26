@@ -874,7 +874,7 @@ components:
         appCount:
           type: integer
         operatingSystems:
-          description: Sistemas con un instalador seleccionable para cada aplicación activa del bundle; la antigüedad se resuelve mediante revalidación JIT.
+          description: Sistemas con un instalador seleccionable para al menos una aplicación activa del bundle. Al crear un trabajo para un sistema, se omiten las aplicaciones sin fuente compatible.
           type: array
           maxItems: 3
           uniqueItems: true

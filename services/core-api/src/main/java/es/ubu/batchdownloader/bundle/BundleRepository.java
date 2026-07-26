@@ -268,7 +268,7 @@ public class BundleRepository {
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
                 activeAppCount(id),
-                commonOperatingSystems(id),
+                availableOperatingSystems(id),
                 tags(id),
                 previewApps(id, 6),
                 rs.getTimestamp("updated_at").toLocalDateTime());
@@ -285,7 +285,7 @@ public class BundleRepository {
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
                 activeAppCount(id),
-                commonOperatingSystems(id),
+                availableOperatingSystems(id),
                 tags(id),
                 previewApps(id, 0),
                 rs.getTimestamp("updated_at").toLocalDateTime());
@@ -336,15 +336,14 @@ public class BundleRepository {
     }
 
     /**
-     * Returns only systems for which every application in the complete bundle
-     * has a selectable installer. The query deliberately mirrors the
-     * catalog and job dispatch predicates; an expired resolver URL is
-     * revalidated by the scraper before a worker receives it.
+     * Returns each system for which at least one active bundle application has
+     * a selectable installer. Job creation applies the selected system again
+     * and reports applications without a compatible source as omitted.
      */
-    List<String> commonOperatingSystems(UUID bundleId) {
+    List<String> availableOperatingSystems(UUID bundleId) {
         return jdbc.query(
                 """
-                SELECT source.operating_system
+                SELECT DISTINCT source.operating_system
                 FROM bundle_items item
                 JOIN software_apps app ON app.id = item.software_app_id
                 JOIN download_sources source ON source.software_app_id = item.software_app_id
@@ -357,19 +356,9 @@ public class BundleRepository {
                   AND source.catalog_available = 1
                   AND artifact.catalog_downloadable = 1
                   AND source.operating_system IN ('windows', 'linux', 'macos')
-                GROUP BY source.operating_system
-                HAVING COUNT(DISTINCT item.software_app_id) = (
-                    SELECT COUNT(*)
-                    FROM bundle_items expected_item
-                    JOIN software_apps expected_app
-                      ON expected_app.id = expected_item.software_app_id
-                    WHERE expected_item.bundle_id = ?
-                      AND expected_app.app_status = 'active'
-                )
                 ORDER BY FIELD(source.operating_system, 'windows', 'linux', 'macos')
                 """,
                 (rs, rowNum) -> rs.getString("operating_system"),
-                UuidBytes.fromUuid(bundleId),
                 UuidBytes.fromUuid(bundleId));
     }
 

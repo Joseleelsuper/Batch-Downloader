@@ -23,7 +23,7 @@ const searchModes: SearchMode[] = ['lexical', 'semantic'];
 export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
   query: '',
   filter: 'available',
-  sort: 'updated',
+  sort: 'downloads',
   page: 1,
   pageSize: 12,
   tags: [],

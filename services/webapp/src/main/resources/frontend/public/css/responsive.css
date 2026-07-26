@@ -108,8 +108,15 @@
   }
 
   .search-row {
+    grid-template-columns: 1fr;
     align-items: stretch;
-    flex-direction: column;
+  }
+
+  .sort-menu-popover {
+    right: auto;
+    left: 0;
+    width: min(340px, 100%);
+    transform-origin: top left;
   }
 
   .catalog-panel {

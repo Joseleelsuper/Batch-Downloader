@@ -48,7 +48,7 @@ describe('BundleDownloadButton', () => {
     expect(screen.getByText(/1 omitida/i)).toBeInTheDocument();
   });
 
-  it('muestra solo los sistemas compatibles y envía el elegido al crear el trabajo', () => {
+  it('muestra los sistemas disponibles y envía solo el elegido al crear el trabajo', () => {
     const start = vi.fn().mockResolvedValue(undefined);
     hooks.useDownloadJob.mockReturnValue({
       job: null,
@@ -72,7 +72,7 @@ describe('BundleDownloadButton', () => {
     expect(start).toHaveBeenCalledWith({ bundleId: 'bundle-1', operatingSystems: ['linux'] });
   });
 
-  it('bloquea la descarga si no hay una plataforma común en todo el bundle', () => {
+  it('bloquea la descarga si ninguna aplicación tiene una plataforma disponible', () => {
     hooks.useDownloadJob.mockReturnValue({
       job: null,
       starting: false,
@@ -85,7 +85,7 @@ describe('BundleDownloadButton', () => {
 
     render(<BundleDownloadButton bundleId="bundle-1" appCount={3} operatingSystems={[]} />);
 
-    expect(screen.getByText('No hay un sistema operativo compatible con todas las aplicaciones del bundle.')).toBeInTheDocument();
+    expect(screen.getByText('Ninguna aplicación del bundle tiene un instalador disponible.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Descargar todas' })).toBeDisabled();
   });
 });

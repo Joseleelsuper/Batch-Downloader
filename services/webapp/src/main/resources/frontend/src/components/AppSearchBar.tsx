@@ -22,7 +22,7 @@ export function AppSearchBar({
 }: Props) {
   const [sortOpen, setSortOpen] = useState(false);
   const sortMenuRef = useRef<HTMLDivElement>(null);
-  const sortOptions: SortKey[] = ['updated', 'downloads', 'name'];
+  const sortOptions: SortKey[] = ['downloads', 'updated', 'name'];
 
   useEffect(() => {
     if (!sortOpen) return;
@@ -75,8 +75,8 @@ export function AppSearchBar({
           aria-haspopup="listbox"
           aria-expanded={sortOpen}
         >
-          {t(`catalog.sort.${sort}`)}
-          <ChevronDown size={17} aria-hidden="true" />
+          <span>{t(`catalog.sort.${sort}`)}</span>
+          <ChevronDown className="sort-menu-chevron" size={17} aria-hidden="true" />
         </button>
         {sortOpen ? (
           <div className="sort-menu-popover" role="listbox" aria-label={t('catalog.sort.toggle')}>
@@ -96,7 +96,11 @@ export function AppSearchBar({
                   <strong>{t(`catalog.sort.${option}`)}</strong>
                   <small>{t(`catalog.sort.${option}.description`)}</small>
                 </span>
-                {sort === option ? <Check size={17} aria-hidden="true" /> : null}
+                {sort === option ? (
+                  <span className="sort-option-check" aria-hidden="true">
+                    <Check size={15} />
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
