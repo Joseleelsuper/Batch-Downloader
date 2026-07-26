@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     postgres_dsn_override: str | None = Field(default=None, exclude=True)
     internal_service_token: SecretStr = SecretStr("")
     scraper_api_url: str = "http://scraper-api:8000"
+    service_url: str = "http://semantic-service:8000"
     model_cache_dir: str = "/models"
     reports_dir: str = "/reports"
     device: str = "cpu"
@@ -34,6 +35,10 @@ class Settings(BaseSettings):
     index_interval_seconds: float = 300.0
     index_lease_seconds: int = 900
     search_timeout_seconds: float = 3.0
+    operation_poll_seconds: float = 2.0
+    operation_lease_seconds: int = 300
+    model_max_bytes: int = 16_106_127_360
+    model_min_free_bytes: int = 10_737_418_240
     trainer_seed: int = 20260723
     trainer_epochs: float = 1.0
     trainer_batch_size: int = 8

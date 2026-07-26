@@ -30,7 +30,14 @@
 
 ## Modelos semánticos y Python
 - El baseline inicial es E5-base zero-shot. MiniLM, E5-base y BGE-M3 se registran con revisión HF inmutable, dimensiones y prefijos; el entrenamiento solo se ejecuta mediante `semantic-trainer`, nunca en el arranque.
-- La promoción y el rollback son atómicos y requieren cobertura completa del `contentHash`. Conserva el adaptador PEFT, el modelo fusionado para inferencia, dataset, semilla, configuración e informes JSON/CSV/Markdown; no registres un artefacto hasta validar su recarga y dimensión.
+- La administración vive bajo `/api/admin/semantic/**`: el navegador nunca llama directamente a `semantic-service`; Core exige rol `ADMIN`, CSRF, auditoría e inyecta `X-Internal-Service-Token`.
+- `semantic-model-worker` es el único ejecutor de descargas, benchmarks, preparación, activación y eliminación. Conserva operaciones duraderas, claves de idempotencia, leases recuperables y cancelación cooperativa; la concurrencia pesada predeterminada es uno.
+- Descarga solo modelos públicos SentenceTransformers con revisión SHA, `safetensors`, sin pickle, `auto_map`, archivos Python ni `trust_remote_code`. No uses tokens HF, modelos gated/privados, LoRA o entrenamiento desde la interfaz administrativa.
+- Ningún indexador, benchmark o descarga promociona modelos. Activación y rollback son explícitos y atómicos y requieren benchmark `full` comparable y vigente, configuración idéntica, warm-up y cobertura completa del `contentHash`; un fallo conserva el activo anterior.
+- Conserva dataset, semilla, huella de hardware, configuración e informes JSON/CSV/Markdown. `smoke`, variantes históricas híbridas/RRF y benchmarks de otro catálogo son diagnósticos no elegibles.
+- Cada modelo guarda `queryPrefix`, `passagePrefix` y `minimumSimilarity`; cualquier cambio invalida su benchmark y preparación. E5 conserva `0.82`.
+- Al cambiar documentos, marca como `stale` las preparaciones inactivas. MySQL sigue siendo la autoridad y pgvector una proyección reconstruible.
+- Conserva el adaptador PEFT y el modelo fusionado de los flujos históricos de entrenamiento; no registres un artefacto hasta validar su recarga y dimensión.
 - El scraper de producción es CPython 3.14.6 free-threaded compilado con `--disable-gil`. No uses `PYTHON_GIL=0`; el arranque debe comprobar `Py_GIL_DISABLED == 1` y `sys._is_gil_enabled() is False` tras importar extensiones.
 - Instala SQLAlchemy desde fuente con `DISABLE_SQLALCHEMY_CEXT=1` en las imágenes 3.14 y 3.14t; su wheel C actual reactiva el GIL y debe hacer fallar el guard.
 - No compartas sesiones SQLAlchemy, clientes HTTP, objetos Playwright, eventos, locks ni cachés mutables entre hilos. Solo las funciones puras de parseo, normalización, scoring y deduplicación pasan al executor acotado.
@@ -52,6 +59,7 @@
 mvn -B verify
 docker compose --env-file .env run --rm scraper-api pytest /app/tests
 docker compose --env-file .env run --rm semantic-indexer python -m app.indexer
+docker compose --env-file .env logs -f semantic-model-worker
 docker compose --env-file .env --profile training run --rm semantic-trainer
 docker compose --env-file .env --profile benchmark up --build --exit-code-from scraper-python314-benchmark-report scraper-python314-benchmark-report
 cd services/webapp/src/main/resources/frontend; npm ci; npm test -- --run; npm run build

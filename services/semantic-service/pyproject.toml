@@ -7,6 +7,7 @@ dependencies = [
   "datasets==5.0.0",
   "fastapi==0.139.2",
   "httpx==0.28.1",
+  "huggingface-hub==1.24.0",
   "numpy==2.5.1",
   "peft==0.19.1",
   "psutil==7.2.2",
@@ -32,7 +33,7 @@ test = [
 
 [project.scripts]
 semantic-indexer = "app.indexer:main"
-semantic-model = "app.model_admin:main"
+semantic-model-worker = "app.model_worker:main"
 semantic-trainer = "app.trainer:main"
 
 [build-system]

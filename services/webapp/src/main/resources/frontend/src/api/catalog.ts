@@ -53,7 +53,17 @@ async function ensureCsrfToken(forceRefresh = false): Promise<string | undefined
   return cachedCsrfToken;
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+export class ApiRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+  ) {
+    super(code);
+    this.name = 'ApiRequestError';
+  }
+}
+
+export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase();
   const headers = new Headers(init?.headers);
   if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
@@ -79,7 +89,17 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       headers: retryHeaders,
     });
   }
-  if (!response.ok) throw new Error(`request_failed_${response.status}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as {
+      code?: string;
+      detail?: { code?: string } | string;
+    } | null;
+    const detailCode = typeof payload?.detail === 'object' ? payload.detail.code : undefined;
+    throw new ApiRequestError(
+      response.status,
+      payload?.code ?? detailCode ?? `request_failed_${response.status}`,
+    );
+  }
   if (response.status === 204) return undefined as T;
   const text = await response.text();
   if (!text) return null as T;

@@ -421,6 +421,300 @@ paths:
                 $ref: '#/components/schemas/Bundle'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/admin/semantic/overview:
+    servers:
+      - url: /
+    get:
+      operationId: getSemanticAdminOverview
+      summary: Consultar salud, modelo activo, cobertura, disco y operaciones semanticas
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Resumen operativo del servicio semantico.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticOverview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/admin/semantic/models:
+    servers:
+      - url: /
+    get:
+      operationId: listSemanticModels
+      summary: Listar el inventario de modelos semanticos
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Modelos descargados y reconciliados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SemanticModel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/admin/semantic/models/{modelId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/SemanticModelId'
+    get:
+      operationId: getSemanticModel
+      summary: Consultar un modelo semantico
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Modelo solicitado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticModel'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteSemanticModel
+      summary: Encolar la eliminacion de pesos e indice de un modelo inactivo
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/admin/semantic/models/{modelId}/prepare:
+    servers:
+      - url: /
+    post:
+      operationId: prepareSemanticModel
+      summary: Preparar embeddings e indice sin cambiar el modelo activo
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/SemanticModelId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/admin/semantic/models/{modelId}/activate:
+    servers:
+      - url: /
+    post:
+      operationId: activateSemanticModel
+      summary: Calentar y activar atomicamente el modelo, indice y umbral
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/SemanticModelId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivateSemanticModelRequest'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/admin/semantic/benchmarks:
+    servers:
+      - url: /
+    get:
+      operationId: listSemanticBenchmarks
+      summary: Listar benchmarks y su elegibilidad
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Ejecuciones conservadas, incluidas las diagnosticas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SemanticBenchmarkRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: benchmarkSemanticModels
+      summary: Encolar un benchmark comparable de dos a cuatro modelos
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modelIds]
+              properties:
+                modelIds:
+                  type: array
+                  minItems: 2
+                  maxItems: 4
+                  uniqueItems: true
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/admin/semantic/hugging-face/models:
+    servers:
+      - url: /
+    get:
+      operationId: searchHuggingFaceModels
+      summary: Buscar modelos publicos de SentenceTransformers
+      tags: [Semantic admin]
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Resultados compatibles para inspeccion.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HuggingFaceModelSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/admin/semantic/hugging-face/model:
+    servers:
+      - url: /
+    get:
+      operationId: getHuggingFaceModel
+      summary: Resolver revision y analizar seguridad y compatibilidad
+      tags: [Semantic admin]
+      parameters:
+        - name: repository
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: revision
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detalle resuelto a una revision inmutable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HuggingFaceModelDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/semantic/downloads:
+    servers:
+      - url: /
+    post:
+      operationId: downloadSemanticModel
+      summary: Encolar descarga, validacion offline y microbenchmark
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DownloadSemanticModelRequest'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/admin/semantic/operations:
+    servers:
+      - url: /
+    get:
+      operationId: listSemanticOperations
+      summary: Listar operaciones duraderas
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Operaciones recientes y recuperables.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SemanticOperation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/admin/semantic/operations/{operationId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/SemanticOperationId'
+    get:
+      operationId: getSemanticOperation
+      summary: Consultar una operacion duradera
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Estado y progreso de la operacion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticOperation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: cancelSemanticOperation
+      summary: Solicitar cancelacion cooperativa
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Cancelacion solicitada o estado terminal actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticOperation'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/admin/semantic/operations/{operationId}/retry:
+    servers:
+      - url: /
+    post:
+      operationId: retrySemanticOperation
+      summary: Reintentar una operacion fallida o cancelada
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/SemanticOperationId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /locales/es:
     get:
       operationId: getSpanishLocale
@@ -487,6 +781,34 @@ components:
       schema:
         type: string
         format: uuid
+    SemanticModelId:
+      name: modelId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SemanticOperationId:
+      name: operationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CsrfToken:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 200
   responses:
     BadRequest:
       description: Entrada no válida.
@@ -512,6 +834,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    SemanticOperationAccepted:
+      description: Trabajo asincrono aceptado o deduplicado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SemanticOperationAccepted'
   schemas:
     RegisterRequest:
       type: object
@@ -919,6 +1247,539 @@ components:
         total:
           type: integer
           format: int64
+    SemanticArtifactState:
+      type: string
+      enum: [downloading, validating, ready, incompatible, failed]
+    SemanticDeploymentState:
+      type: string
+      enum: [not_prepared, preparing, ready, active, stale, failed]
+    SemanticOperationKind:
+      type: string
+      enum: [download, benchmark, prepare, activate, delete]
+    SemanticOperationStatus:
+      type: string
+      enum: [queued, running, cancel_requested, cancelled, succeeded, failed]
+    SemanticIndexState:
+      type: object
+      required: [expected, indexed, complete]
+      properties:
+        indexVersion:
+          type: [string, 'null']
+        snapshotHash:
+          type: [string, 'null']
+        expected:
+          type: integer
+          minimum: 0
+        indexed:
+          type: integer
+          minimum: 0
+        complete:
+          type: boolean
+        builtAt:
+          type: [string, 'null']
+          format: date-time
+    SemanticBenchmarkMetric:
+      type: object
+      required:
+        - modelId
+        - modelKey
+        - modelVersion
+        - repository
+        - variant
+        - stage
+        - scope
+        - eligible
+        - ndcgAt10
+        - mrrAt10
+        - mapAt10
+        - recallAt10
+        - recallAt20
+        - exactMrrAt1
+        - p50Ms
+        - p95Ms
+        - p99Ms
+        - throughputQps
+        - embeddingBuildMs
+        - hnswBuildMs
+        - indexBuildMs
+        - hnswRecallAt20
+        - vectorBytes
+        - hnswIndexBytes
+        - indexBytes
+        - rssBytes
+        - vramBytes
+        - totalScore
+        - minimumSimilarity
+      properties:
+        modelId:
+          type: string
+          format: uuid
+        modelKey:
+          type: string
+        modelVersion:
+          type: string
+        repository:
+          type: string
+        variant:
+          type: string
+        stage:
+          type: string
+        scope:
+          type: string
+          enum: [legacy, smoke, full]
+        eligible:
+          type: boolean
+        recommended:
+          type: boolean
+        ndcgAt10:
+          type: number
+        mrrAt10:
+          type: number
+        mapAt10:
+          type: number
+        recallAt10:
+          type: number
+        recallAt20:
+          type: number
+        exactMrrAt1:
+          type: number
+        p50Ms:
+          type: number
+        p95Ms:
+          type: number
+        p99Ms:
+          type: number
+        throughputQps:
+          type: number
+        embeddingBuildMs:
+          type: number
+        hnswBuildMs:
+          type: number
+        indexBuildMs:
+          type: number
+        hnswRecallAt20:
+          type: number
+        vectorBytes:
+          type: integer
+          format: int64
+        hnswIndexBytes:
+          type: integer
+          format: int64
+        indexBytes:
+          type: integer
+          format: int64
+        rssBytes:
+          type: integer
+          format: int64
+        vramBytes:
+          type: integer
+          format: int64
+        totalScore:
+          type: number
+        minimumSimilarity:
+          type: number
+        loadMs:
+          type: number
+        warmupMs:
+          type: number
+        dimensions:
+          type: integer
+          minimum: 1
+          maximum: 2000
+        artifactBytes:
+          type: integer
+          format: int64
+    SemanticBenchmarkRun:
+      type: object
+      required:
+        - id
+        - datasetHash
+        - seed
+        - configuration
+        - metrics
+        - modelIds
+        - scope
+        - documentCount
+        - queryCount
+        - metricsSchemaVersion
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        datasetHash:
+          type: string
+        seed:
+          type: integer
+        configuration:
+          type: object
+          additionalProperties: true
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/SemanticBenchmarkMetric'
+        selectedModelVersion:
+          type: [string, 'null']
+        modelIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        scope:
+          type: string
+          enum: [legacy, smoke, full]
+        hardwareFingerprint:
+          type: [string, 'null']
+        documentCount:
+          type: integer
+          minimum: 0
+        queryCount:
+          type: integer
+          minimum: 0
+        metricsSchemaVersion:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+    SemanticModel:
+      type: object
+      required:
+        - id
+        - displayName
+        - repository
+        - revision
+        - artifactState
+        - deploymentState
+        - artifactBytes
+        - queryPrefix
+        - passagePrefix
+        - minimumSimilarity
+        - metadata
+        - active
+        - createdAt
+        - index
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        repository:
+          type: string
+        revision:
+          type: string
+        artifactState:
+          $ref: '#/components/schemas/SemanticArtifactState'
+        deploymentState:
+          $ref: '#/components/schemas/SemanticDeploymentState'
+        artifactBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        dimensions:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 2000
+        queryPrefix:
+          type: string
+        passagePrefix:
+          type: string
+        minimumSimilarity:
+          type: number
+          minimum: -1
+          maximum: 1
+        metadata:
+          type: object
+          additionalProperties: true
+        validationMessage:
+          type: [string, 'null']
+        modelVersion:
+          type: [string, 'null']
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        downloadedAt:
+          type: [string, 'null']
+          format: date-time
+        validatedAt:
+          type: [string, 'null']
+          format: date-time
+        activatedAt:
+          type: [string, 'null']
+          format: date-time
+        index:
+          $ref: '#/components/schemas/SemanticIndexState'
+        lastBenchmark:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, datasetHash, scope, current, createdAt]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                datasetHash:
+                  type: string
+                scope:
+                  type: string
+                  enum: [legacy, smoke, full]
+                hardwareFingerprint:
+                  type: [string, 'null']
+                metric:
+                  oneOf:
+                    - type: 'null'
+                    - $ref: '#/components/schemas/SemanticBenchmarkMetric'
+                current:
+                  type: boolean
+                createdAt:
+                  type: string
+                  format: date-time
+    SemanticOverview:
+      type: object
+      required: [service, searchReady, disk, activeOperations]
+      properties:
+        service:
+          type: string
+        searchReady:
+          type: boolean
+        activeModel:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/SemanticModel'
+        disk:
+          type: object
+          required:
+            [modelBytes, freeBytes, totalBytes, reservedBytes, maximumModelBytes]
+          properties:
+            modelBytes:
+              type: integer
+              format: int64
+            freeBytes:
+              type: integer
+              format: int64
+            totalBytes:
+              type: integer
+              format: int64
+            reservedBytes:
+              type: integer
+              format: int64
+            maximumModelBytes:
+              type: integer
+              format: int64
+        activeOperations:
+          type: integer
+          minimum: 0
+    HuggingFaceModelSummary:
+      type: object
+      required: [repository, displayName, downloads, likes]
+      properties:
+        repository:
+          type: string
+        displayName:
+          type: string
+        pipelineTag:
+          type: [string, 'null']
+        libraryName:
+          type: [string, 'null']
+        downloads:
+          type: integer
+          format: int64
+        likes:
+          type: integer
+          format: int64
+        lastModified:
+          type: [string, 'null']
+          format: date-time
+    HuggingFaceModelDetail:
+      allOf:
+        - $ref: '#/components/schemas/HuggingFaceModelSummary'
+        - type: object
+          required:
+            - sha
+            - gated
+            - private
+            - languages
+            - estimatedBytes
+            - files
+            - compatible
+            - securityStatus
+          properties:
+            sha:
+              type: string
+            gated:
+              type: boolean
+            private:
+              type: boolean
+            license:
+              type: [string, 'null']
+            languages:
+              type: array
+              items:
+                type: string
+            architecture:
+              type: [string, 'null']
+            parameterCount:
+              type: [integer, 'null']
+              format: int64
+            maxSequenceLength:
+              type: [integer, 'null']
+            estimatedBytes:
+              type: integer
+              format: int64
+            files:
+              type: array
+              items:
+                type: object
+                required: [path, size]
+                properties:
+                  path:
+                    type: string
+                  size:
+                    type: integer
+                    format: int64
+            compatible:
+              type: boolean
+            compatibilityReason:
+              type: [string, 'null']
+            securityStatus:
+              type: string
+            suggestedQueryPrefix:
+              type: [string, 'null']
+            suggestedPassagePrefix:
+              type: [string, 'null']
+            suggestedMinimumSimilarity:
+              type: [number, 'null']
+              minimum: -1
+              maximum: 1
+    SemanticOperation:
+      type: object
+      required:
+        - id
+        - kind
+        - status
+        - phase
+        - progress
+        - result
+        - actor
+        - attempts
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/SemanticOperationKind'
+        status:
+          $ref: '#/components/schemas/SemanticOperationStatus'
+        phase:
+          type: string
+        modelId:
+          type: [string, 'null']
+          format: uuid
+        modelIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        modelVersion:
+          type: [string, 'null']
+        repository:
+          type: [string, 'null']
+        revision:
+          type: [string, 'null']
+        progress:
+          type: object
+          required: [current, total, unit]
+          properties:
+            current:
+              type: number
+            total:
+              type: number
+            unit:
+              type: string
+        message:
+          type: [string, 'null']
+        errorCode:
+          type: [string, 'null']
+        result:
+          type: object
+          additionalProperties: true
+        actor:
+          type: string
+        attempts:
+          type: integer
+          minimum: 0
+        leaseOwner:
+          type: [string, 'null']
+        leaseUntil:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: [string, 'null']
+          format: date-time
+    SemanticOperationAccepted:
+      type: object
+      required: [operationId, status]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/SemanticOperationStatus'
+        modelId:
+          type: string
+          format: uuid
+    DownloadSemanticModelRequest:
+      type: object
+      required: [repository, queryPrefix, passagePrefix, minimumSimilarity]
+      properties:
+        repository:
+          type: string
+          pattern: '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
+        revision:
+          type: [string, 'null']
+        queryPrefix:
+          type: string
+          maxLength: 100
+        passagePrefix:
+          type: string
+          maxLength: 100
+        minimumSimilarity:
+          type: number
+          minimum: -1
+          maximum: 1
+        acknowledgeUnknownLicense:
+          type: boolean
+          default: false
+        acknowledgeMissingConfiguration:
+          type: boolean
+          default: false
+    ActivateSemanticModelRequest:
+      type: object
+      required: [benchmarkRunId]
+      properties:
+        benchmarkRunId:
+          type: string
+          format: uuid
+        expectedCurrentModelId:
+          type: [string, 'null']
+          format: uuid
+        confirmRegression:
+          type: boolean
+          default: false
     Problem:
       type: object
       required: [code, message, correlationId]

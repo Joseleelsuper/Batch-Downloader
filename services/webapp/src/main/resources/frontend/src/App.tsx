@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  BrainCircuit,
   Building2,
   Boxes,
   ClipboardList,
@@ -93,6 +94,7 @@ import { DownloadJobPanel } from './components/DownloadJobPanel';
 import { OperatingSystemList } from './components/OperatingSystemIcons';
 import { Pagination } from './components/Pagination';
 import { useDownloadJob } from './hooks/useDownloadJob';
+import { SemanticAiPage } from './pages/admin/SemanticAiPage';
 import { t } from './services/i18n';
 import type {
   AppDetails,
@@ -158,6 +160,8 @@ export default function App() {
         <Route path="apps" element={<AdminAppsPage />} />
         <Route path="bundles" element={<AdminBundlesPage />} />
         <Route path="scraper" element={<AdminScraperPage />} />
+        <Route path="semantic" element={<Navigate to="/admin/semantic/models" replace />} />
+        <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
         <Route path="requests" element={<AdminRequestsPage />} />
         <Route path="audit" element={<AdminAuditPage />} />
       </Route>
@@ -1070,6 +1074,7 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
           <NavLink to="/admin/apps"><PackagePlus size={18} />{t('admin.layout.apps')}</NavLink>
           <NavLink to="/admin/bundles"><Boxes size={18} />{t('admin.layout.bundles')}</NavLink>
           <NavLink to="/admin/scraper"><Play size={18} />{t('admin.layout.scraper')}</NavLink>
+          <NavLink to="/admin/semantic"><BrainCircuit size={18} />{t('admin.layout.semantic')}</NavLink>
           <NavLink to="/admin/requests"><ClipboardList size={18} />{t('admin.layout.requests')}</NavLink>
           <NavLink to="/admin/audit"><ListFilter size={18} />{t('admin.layout.audit')}</NavLink>
         </nav>

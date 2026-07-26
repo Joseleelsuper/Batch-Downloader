@@ -74,8 +74,8 @@ class SemanticStore:
                 """
                 SELECT model_version
                 FROM embedding_models
-                WHERE lifecycle_state IN ('selected', 'active')
-                ORDER BY CASE lifecycle_state WHEN 'selected' THEN 0 ELSE 1 END, created_at DESC
+                WHERE active = TRUE OR lifecycle_state = 'selected'
+                ORDER BY CASE WHEN active THEN 0 ELSE 1 END, created_at DESC
                 LIMIT 1
                 """
             ).fetchone()
@@ -206,6 +206,21 @@ class SemanticStore:
                 # so an active model can never serve a partially current sweep.
                 connection.execute(
                     """
+                    UPDATE embedding_models model
+                    SET deployment_state = CASE
+                            WHEN model.active THEN 'active'
+                            ELSE 'stale'
+                        END
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM semantic_index_state state
+                        WHERE state.model_version = model.model_version
+                          AND state.complete = TRUE
+                    )
+                    """
+                )
+                connection.execute(
+                    """
                     UPDATE semantic_index_state
                     SET complete = FALSE, built_at = now()
                     WHERE complete = TRUE
@@ -225,6 +240,21 @@ class SemanticStore:
                 (seen_at,),
             )
             if result.rowcount:
+                connection.execute(
+                    """
+                    UPDATE embedding_models model
+                    SET deployment_state = CASE
+                            WHEN model.active THEN 'active'
+                            ELSE 'stale'
+                        END
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM semantic_index_state state
+                        WHERE state.model_version = model.model_version
+                          AND state.complete = TRUE
+                    )
+                    """
+                )
                 connection.execute(
                     """
                     UPDATE semantic_index_state
@@ -333,6 +363,12 @@ class SemanticStore:
         )
 
     def coverage_and_promote(self, model_version: str) -> dict[str, Any]:
+        """Publish coverage without changing the production model.
+
+        The historical name is kept for callers, but promotion is now an
+        explicit administrative operation after benchmark and warm-up.
+        """
+
         def mutate(connection):
             coverage = connection.execute(
                 """
@@ -400,39 +436,23 @@ class SemanticStore:
                     complete,
                 ),
             )
-            if complete:
-                lifecycle = connection.execute(
-                    "SELECT lifecycle_state FROM embedding_models WHERE model_version = %s",
-                    (model_version,),
-                ).fetchone()
-                if lifecycle and lifecycle["lifecycle_state"] in {"selected", "active"}:
-                    connection.execute(
-                        """
-                        UPDATE embedding_models
-                        SET active = FALSE,
-                            lifecycle_state = CASE
-                                WHEN active THEN 'retired' ELSE lifecycle_state END
-                        WHERE active = TRUE AND model_version <> %s
-                        """,
-                        (model_version,),
-                    )
-                    connection.execute(
-                        """
-                        UPDATE embedding_models
-                        SET active = TRUE, lifecycle_state = 'active',
-                            activated_at = COALESCE(activated_at, now())
-                        WHERE model_version = %s
-                        """,
-                        (model_version,),
-                    )
-                    connection.execute(
-                        """
-                        UPDATE semantic_index_state
-                        SET activated_at = COALESCE(activated_at, now())
-                        WHERE model_version = %s
-                        """,
-                        (model_version,),
-                    )
+            connection.execute(
+                """
+                UPDATE embedding_models
+                SET deployment_state = CASE
+                        WHEN active THEN 'active'
+                        WHEN %s THEN 'ready'
+                        ELSE 'preparing'
+                    END,
+                    lifecycle_state = CASE
+                        WHEN active THEN 'active'
+                        WHEN lifecycle_state = 'selected' AND %s THEN 'registered'
+                        ELSE lifecycle_state
+                    END
+                WHERE model_version = %s
+                """,
+                (complete, complete, model_version),
+            )
             return {
                 "expected": expected,
                 "indexed": indexed,

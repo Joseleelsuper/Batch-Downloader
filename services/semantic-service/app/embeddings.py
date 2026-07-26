@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class RegisteredModel:
     model_version: str
+    artifact_id: str | None
     model_key: str
     hf_repository: str
     hf_revision: str
@@ -22,11 +23,17 @@ class RegisteredModel:
     passage_prefix: str
     artifact_path: str | None = None
     rrf_weight: float = 1.0
+    minimum_similarity: float = 0.0
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> RegisteredModel:
         return cls(
             model_version=row["model_version"],
+            artifact_id=(
+                str(row["artifact_id"])
+                if row.get("artifact_id") is not None
+                else None
+            ),
             model_key=row["model_key"],
             hf_repository=row["hf_repository"],
             hf_revision=row["hf_revision"],
@@ -35,6 +42,7 @@ class RegisteredModel:
             passage_prefix=row["passage_prefix"],
             artifact_path=row.get("artifact_path"),
             rrf_weight=float(row.get("rrf_weight") or 1.0),
+            minimum_similarity=float(row.get("minimum_similarity") or 0.0),
         )
 
 
@@ -77,6 +85,7 @@ class EmbeddingRuntime:
                 device=self.device,
                 cache_folder=self.cache_dir,
                 trust_remote_code=False,
+                local_files_only=bool(self.registered.artifact_path),
             )
             actual = self._model.get_embedding_dimension()
             if actual != self.registered.dimensions:
@@ -88,6 +97,9 @@ class EmbeddingRuntime:
 
     def encode_query(self, query: str) -> list[float]:
         return self._encode([self.registered.query_prefix + query])[0].tolist()
+
+    def load(self) -> None:
+        self._load()
 
     def warmup(self) -> None:
         with self._lock:

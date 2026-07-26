@@ -4,6 +4,7 @@ import argparse
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 import httpx
@@ -29,7 +30,13 @@ class SemanticIndexer:
     def close(self) -> None:
         self.database.close()
 
-    def run_once(self, requested_model_version: str | None = None) -> dict[str, object]:
+    def run_once(
+        self,
+        requested_model_version: str | None = None,
+        *,
+        progress: Callable[[str, int, int], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
         model_version = requested_model_version or self.store.selected_model_version(
             self.settings.initial_model_version
         )
@@ -49,6 +56,8 @@ class SemanticIndexer:
             timeout=30,
         ) as client:
             while True:
+                if cancelled and cancelled():
+                    raise InterruptedError("semantic_operation_cancelled")
                 params: dict[str, object] = {"limit": 500}
                 if next_after:
                     params["afterAppId"] = next_after
@@ -65,6 +74,8 @@ class SemanticIndexer:
                     seen_at=sweep_started,
                 )
                 seen += len(documents)
+                if progress:
+                    progress("syncing", seen, 0)
                 next_after = page.get("nextAfterAppId")
                 if not next_after:
                     break
@@ -77,7 +88,10 @@ class SemanticIndexer:
         )
         owner = f"indexer-{uuid.uuid4()}"
         embedded = 0
+        expected = len(self.store.active_documents())
         while True:
+            if cancelled and cancelled():
+                raise InterruptedError("semantic_operation_cancelled")
             jobs = self.store.claim_jobs(
                 model_version=model_version,
                 owner=owner,
@@ -94,10 +108,18 @@ class SemanticIndexer:
                     embeddings=vectors,
                 )
                 embedded += len(jobs)
+                if progress:
+                    progress("indexing", embedded, expected)
             except Exception as exception:
                 self.store.fail_jobs(jobs, exception.__class__.__name__)
                 raise
         coverage = self.store.coverage_and_promote(model_version)
+        if progress:
+            progress(
+                "finalizing",
+                int(coverage["indexed"]),
+                int(coverage["expected"]),
+            )
         return {
             "modelVersion": model_version,
             "seen": seen,

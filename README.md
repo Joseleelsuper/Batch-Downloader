@@ -50,7 +50,7 @@ guardada.
 El filtro inicial de la interfaz es `available`. La URL tiene prioridad sobre la
 última selección de estado guardada en `localStorage`.
 
-El indexador descarga pesos de Hugging Face, pero las descripciones, metadatos y
+Los pesos se descargan desde Hugging Face, pero las descripciones, metadatos y
 consultas permanecen dentro del despliegue local:
 
 `SEMANTIC_MINIMUM_SIMILARITY=0.82` es el umbral inicial medido para E5-base; se
@@ -74,22 +74,51 @@ El entrenador crea un snapshot inmutable por aplicación, divide
 train/validation/test, mina negativos difíciles, ajusta con LoRA +
 `MultipleNegativesRankingLoss` y genera informes JSON, CSV y Markdown en el
 volumen `semantic_reports`. La selección usa 70 % nDCG@10, 20 % latencia inversa
-y 10 % RAM/VRAM/índice, sin empeorar MRR@1 literal. El ganador solo se activa
-cuando todos los documentos activos conservan el `contentHash` indexado.
+y 10 % RAM/VRAM/índice, sin empeorar MRR@1 literal. Ningún benchmark, descarga o
+indexación activa automáticamente su ganador.
 Cada versión ajustada conserva el adaptador PEFT y una copia fusionada para
 inferencia; el artefacto solo se registra después de recargarlo, comprobar su
 dimensión y escribir el marcador de finalización.
 El modo `--smoke` usa un paso y un subconjunto determinista y nunca selecciona
 ni activa un modelo; sirve únicamente para verificar el flujo reproducible.
 
-La versión anterior no se borra. Para una promoción o rollback atómico con
-cobertura completa:
+## Administración de modelos semánticos
 
-```bash
-docker compose --env-file .env run --rm semantic-trainer \
-  python -m app.model_admin activate \
-  'multilingual-e5-base@REVISION:zero-shot' --rrf-weight 1.0
-```
+Un administrador puede abrir `/admin/semantic/models`,
+`/admin/semantic/benchmarks` y `/admin/semantic/hugging-face`. El navegador solo
+habla con Core API; Core aplica sesión `ADMIN`, CSRF y auditoría y usa el token
+interno únicamente al comunicarse con `semantic-service`.
+
+`semantic-model-worker` se inicia siempre con Compose y ejecuta una operación
+pesada cada vez. Las operaciones se guardan en PostgreSQL con lease, reintentos,
+progreso e idempotencia, por lo que continúan después de recargar el navegador o
+reiniciar el worker. El flujo de producción es deliberadamente explícito:
+
+1. Descargar una revisión pública e inmutable, exclusivamente con
+   `safetensors`, y validarla offline con `trust_remote_code=False`.
+2. Compararla con el modelo activo mediante un benchmark completo y vigente.
+3. Preparar embeddings e índice para todos los `contentHash` actuales.
+4. Calentar el candidato sin cambiar producción.
+5. Activar o hacer rollback atómicamente desde la interfaz.
+
+El descubrimiento usa
+[`HfApi`](https://huggingface.co/docs/huggingface_hub/en/package_reference/hf_api)
+y fija cada descarga a la revisión SHA resuelta antes de llamar a
+[`snapshot_download`](https://huggingface.co/docs/huggingface_hub/main/en/package_reference/file_download).
+La ficha muestra licencia y estado de los
+[escaneos de seguridad del Hub](https://huggingface.co/docs/hub/security).
+
+Los benchmarks `smoke`, heredados o con un catálogo/configuración diferente se
+muestran como diagnóstico, pero nunca habilitan preparación o recomendación.
+Cambiar el catálogo marca las preparaciones inactivas como `stale`. E5 conserva
+su umbral `0.82`; cada modelo nuevo guarda sus propios `queryPrefix`,
+`passagePrefix` y `minimumSimilarity`.
+
+Las cuotas se controlan con `SEMANTIC_MODEL_MAX_BYTES` y
+`SEMANTIC_MODEL_MIN_FREE_BYTES`; el lease con
+`SEMANTIC_OPERATION_LEASE_SECONDS`. No se admiten repositorios privados o
+gated, tokens de Hugging Face, pesos pickle, código remoto, LoRA ni entrenamiento
+desde esta interfaz.
 
 ## Scraper CPython 3.14t
 

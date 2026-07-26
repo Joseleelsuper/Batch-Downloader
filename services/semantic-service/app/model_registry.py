@@ -52,3 +52,10 @@ MODELS_BY_VERSION = {model.zero_shot_version: model for model in MODEL_DEFINITIO
 def model_index_name(model_version: str) -> str:
     digest = hashlib.sha256(model_version.encode("utf-8")).hexdigest()[:16]
     return f"ix_embeddings_{digest}_hnsw"
+
+
+def downloaded_model_identity(repository: str, revision: str) -> tuple[str, str]:
+    """Return stable identities without putting a slash in model-version URLs."""
+
+    model_key = repository.replace("/", "--")
+    return model_key, f"{model_key}@{revision}:zero-shot"
