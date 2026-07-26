@@ -57,6 +57,12 @@
   flex: 1;
 }
 
+.bundle-app-row .os-icons {
+  flex: 0 0 auto;
+  min-width: 64px;
+  justify-content: flex-end;
+}
+
 .bundle-app-row small {
   color: var(--muted);
 }

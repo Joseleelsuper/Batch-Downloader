@@ -148,6 +148,32 @@ class CatalogRepositoryTest {
     }
 
     @Test
+    void mostDownloadedSortUsesPersistentCompletedDownloadCount() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        CatalogRepository repository = repository(jdbc);
+
+        repository.search(
+                "",
+                "available",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                "all",
+                "downloads",
+                1,
+                12);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue())
+                .contains("a.download_count DESC, a.normalized_name ASC, a.id ASC")
+                .doesNotContain("JOIN download_job_items");
+    }
+
+    @Test
     void reviewFilterUsesThePersistentExclusiveProjection() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());

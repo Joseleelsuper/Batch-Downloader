@@ -184,6 +184,13 @@ paths:
             type: array
             items:
               type: string
+        - name: sort
+          in: query
+          description: Orden de presentación del catálogo.
+          schema:
+            type: string
+            enum: [name, updated, downloads]
+            default: name
       responses:
         '200':
           description: Página de aplicaciones.

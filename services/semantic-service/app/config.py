@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     initial_model_version: str = (
         "multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a:zero-shot"
     )
-    candidate_limit: int = 2000
+    candidate_limit: int = 20000
     minimum_similarity: float = 0.82
     index_batch_size: int = 32
     index_interval_seconds: float = 300.0

@@ -148,7 +148,7 @@ export interface AppDetails extends CatalogApp {
 
 export type FilterKey = 'all' | 'available' | 'review' | 'missing';
 
-export type SortKey = 'name' | 'updated';
+export type SortKey = 'name' | 'updated' | 'downloads';
 
 export interface BundleSummary {
   id: string;

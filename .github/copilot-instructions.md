@@ -24,7 +24,7 @@
 - En el scraper conserva `WinstallClient` (API, `__NEXT_DATA__`, HTML), `DownloadValidator` para DNS/IP/redirecciones/MIME/tamaño y URLs cifradas mediante `SCRAPPER_URL_PROTECTION_SECRET`.
 - Nunca registres URLs firmadas o resueltas, cookies, tokens, prompts/respuestas LLM ni contenido de instaladores.
 - El catálogo es server-side: filtros, facetas, paginación y ranking viven en Core; evita una consulta por fila y conserva la semántica OR de `operatingSystems`.
-- `searchMode` solo admite `lexical` y `semantic`; omitirlo en la API equivale a `lexical`. El modo semántico debe ordenar exclusivamente la colección producida por embeddings y degradar la petición completa a literal ante timeout, 401, 5xx, índice incompleto o más de 2.000 candidatos.
+- `searchMode` solo admite `lexical` y `semantic`; omitirlo en la API equivale a `lexical`. El modo semántico debe ordenar exclusivamente la colección producida por embeddings y degradar la petición completa a literal ante timeout, 401, 5xx, índice incompleto o más de 20.000 candidatos. Ese techo debe mantenerse por encima del catálogo público para que MySQL pueda aplicar filtros, facetas y paginación sobre una enumeración semántica completa.
 - No mezcles ranking literal y semántico en las consultas del catálogo ni publiques totales o facetas con un alcance semántico parcial.
 - La propiedad anónima de jobs depende de la cookie HttpOnly `BATCH_DOWNLOAD_OWNER`; no pongas tokens en URLs ni relajes CSRF.
 

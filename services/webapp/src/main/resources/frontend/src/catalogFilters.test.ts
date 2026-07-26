@@ -114,4 +114,12 @@ describe('catalogFilters', () => {
       filter: 'available',
     }).has('status')).toBe(false);
   });
+
+  it('parses and serializes the most-downloaded sort order', () => {
+    expect(parseCatalogFilters('sort=downloads').sort).toBe('downloads');
+    expect(catalogFiltersToSearchParams({
+      ...parseCatalogFilters(''),
+      sort: 'downloads',
+    }).get('sort')).toBe('downloads');
+  });
 });

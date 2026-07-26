@@ -1011,9 +1011,11 @@ public class CatalogRepository {
     }
 
     private String orderBy(String sort, String prefix) {
-        String tieBreaker = "updated".equals(sort)
-                ? "a.updated_at DESC, a.normalized_name ASC, a.id ASC"
-                : "a.normalized_name ASC, a.id ASC";
+        String tieBreaker = switch (sort) {
+            case "updated" -> "a.updated_at DESC, a.normalized_name ASC, a.id ASC";
+            case "downloads" -> "a.download_count DESC, a.normalized_name ASC, a.id ASC";
+            default -> "a.normalized_name ASC, a.id ASC";
+        };
         String relevanceOrder = prefix == null || prefix.isBlank() ? "" : prefix;
         return reviewLastOrder() + ", " + relevanceOrder + tieBreaker;
     }

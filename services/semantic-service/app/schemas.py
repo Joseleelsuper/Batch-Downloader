@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class SemanticSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
-    limit: int = Field(default=2000, ge=1, le=2001)
+    limit: int = Field(default=20000, ge=1, le=20000)
     minimum_similarity: float | None = Field(
         default=None,
         alias="minimumSimilarity",

@@ -15,7 +15,11 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class SemanticSearchClient {
-    private static final int FUNCTIONAL_CANDIDATE_LIMIT = 2000;
+    /**
+     * The semantic response must enumerate the complete public catalog because
+     * MySQL remains authoritative for status, facets and pagination.
+     */
+    private static final int FUNCTIONAL_CANDIDATE_LIMIT = 20000;
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;

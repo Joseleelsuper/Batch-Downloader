@@ -43,7 +43,7 @@ modo de la URL, última elección de `localStorage` y, en la primera visita,
 El modo semántico ordena exclusivamente la enumeración producida por el modelo
 de embeddings. Los filtros, estados, facetas, totales y paginación se aplican
 en MySQL. Si el índice no tiene
-cobertura completa, supera 2.000 candidatos, expira o devuelve un error, toda la
+cobertura completa, supera 20.000 candidatos, expira o devuelve un error, toda la
 petición pasa a literal y la interfaz muestra un aviso sin cambiar la preferencia
 guardada.
 

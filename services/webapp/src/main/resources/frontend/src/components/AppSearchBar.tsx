@@ -1,4 +1,5 @@
-import { Search } from 'lucide-react';
+import { Check, ChevronDown, Search } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { t } from '../services/i18n';
 import type { SearchMode, SortKey } from '../types/catalog';
 
@@ -19,7 +20,25 @@ export function AppSearchBar({
   onSortChange,
   onSearchModeChange,
 }: Props) {
-  const nextSort = sort === 'updated' ? 'name' : 'updated';
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  const sortOptions: SortKey[] = ['updated', 'downloads', 'name'];
+
+  useEffect(() => {
+    if (!sortOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!sortMenuRef.current?.contains(event.target as Node)) setSortOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSortOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [sortOpen]);
 
   return (
     <div className="search-row">
@@ -47,14 +66,42 @@ export function AppSearchBar({
           </button>
         ))}
       </div>
-      <button
-        className="secondary-button"
-        onClick={() => onSortChange(nextSort)}
-        type="button"
-        aria-label={t('catalog.sort.toggle')}
-      >
-        {sort === 'updated' ? t('catalog.sort.updated') : t('catalog.sort.name')}
-      </button>
+      <div className="sort-menu" ref={sortMenuRef}>
+        <button
+          className="secondary-button sort-menu-trigger"
+          onClick={() => setSortOpen((open) => !open)}
+          type="button"
+          aria-label={t('catalog.sort.toggle')}
+          aria-haspopup="listbox"
+          aria-expanded={sortOpen}
+        >
+          {t(`catalog.sort.${sort}`)}
+          <ChevronDown size={17} aria-hidden="true" />
+        </button>
+        {sortOpen ? (
+          <div className="sort-menu-popover" role="listbox" aria-label={t('catalog.sort.toggle')}>
+            {sortOptions.map((option) => (
+              <button
+                className="sort-option"
+                key={option}
+                type="button"
+                role="option"
+                aria-selected={sort === option}
+                onClick={() => {
+                  onSortChange(option);
+                  setSortOpen(false);
+                }}
+              >
+                <span className="sort-option-copy">
+                  <strong>{t(`catalog.sort.${option}`)}</strong>
+                  <small>{t(`catalog.sort.${option}.description`)}</small>
+                </span>
+                {sort === option ? <Check size={17} aria-hidden="true" /> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

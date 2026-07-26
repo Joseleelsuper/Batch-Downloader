@@ -17,7 +17,7 @@ export interface CatalogFilterState {
 }
 
 const filterKeys: FilterKey[] = ['all', 'available', 'review', 'missing'];
-const sortKeys: SortKey[] = ['updated', 'name'];
+const sortKeys: SortKey[] = ['updated', 'downloads', 'name'];
 const searchModes: SearchMode[] = ['lexical', 'semantic'];
 
 export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {

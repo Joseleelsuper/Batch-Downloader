@@ -90,6 +90,7 @@ import { AppTable } from './components/AppTable';
 import { DownloadButton } from './components/DownloadButton';
 import { BundleDownloadButton } from './components/BundleDownloadButton';
 import { DownloadJobPanel } from './components/DownloadJobPanel';
+import { OperatingSystemList } from './components/OperatingSystemIcons';
 import { Pagination } from './components/Pagination';
 import { useDownloadJob } from './hooks/useDownloadJob';
 import { t } from './services/i18n';
@@ -980,6 +981,7 @@ function BundleDetailPage() {
               <strong>{app.name}</strong>
               <small>{app.publisher || '-'}</small>
             </div>
+            <OperatingSystemList operatingSystems={app.operatingSystems} />
             <AppStatusBadge status={app.resolutionStatus} />
             <DownloadButton appId={app.id} disabled={!isCatalogAppSelectable(app)} />
           </div>
