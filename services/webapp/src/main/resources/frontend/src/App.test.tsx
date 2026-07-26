@@ -479,6 +479,60 @@ describe('home loading', () => {
   });
 });
 
+describe('admin bundle editor', () => {
+  const candidateApp: CatalogApp = {
+    ...catalogApp,
+    id: 'app-2',
+    slug: 'app-two',
+    packageId: 'Example.AppTwo',
+    name: 'Aplicación candidata',
+  };
+
+  beforeEach(() => {
+    vi.spyOn(catalogApi, 'me').mockResolvedValue({ username: 'admin', role: 'admin' });
+    vi.spyOn(catalogApi, 'fetchBundles').mockResolvedValue({
+      data: [officialBundle],
+      page: 1,
+      pageSize: 30,
+      total: 1,
+    });
+    vi.spyOn(catalogApi, 'fetchBundle').mockResolvedValue({
+      ...officialBundle,
+      apps: [catalogApp],
+    });
+    vi.spyOn(catalogApi, 'fetchAdminApps').mockResolvedValue({
+      data: [catalogApp, candidateApp],
+      page: 1,
+      pageSize: 12,
+      total: 2,
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('oculta del selector las aplicaciones que ya pertenecen al bundle', async () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={['/admin/bundles']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /Launchers/ }));
+    await screen.findByText(catalogApp.name);
+
+    const picker = container.querySelector('.app-picker-results');
+    expect(picker).not.toBeNull();
+    expect(within(picker as HTMLElement).queryByText(catalogApp.name)).not.toBeInTheDocument();
+    expect(within(picker as HTMLElement).getByText('Aplicación candidata')).toBeInTheDocument();
+
+    fireEvent.click(within(picker as HTMLElement).getByRole('button', { name: /Aplicación candidata/ }));
+    expect(within(picker as HTMLElement).queryByText('Aplicación candidata')).not.toBeInTheDocument();
+  });
+});
+
 function queue(queueName: string, appName: string): ScraperQueueState {
   return {
     queue: queueName,

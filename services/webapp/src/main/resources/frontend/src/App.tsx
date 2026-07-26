@@ -1346,6 +1346,10 @@ function AdminBundlesPage() {
   const [appQuery, setAppQuery] = useState('');
   const [appResults, setAppResults] = useState<CatalogApp[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const availableAppResults = useMemo(() => {
+    const selectedAppIds = new Set(bundleApps.map((app) => app.id));
+    return appResults.filter((app) => !selectedAppIds.has(app.id));
+  }, [appResults, bundleApps]);
 
   useEffect(() => {
     void loadBundles();
@@ -1507,7 +1511,7 @@ function AdminBundlesPage() {
             placeholder={t('admin.bundle.searchApps')}
           />
           <div className="app-picker-results">
-            {appResults.map((app) => (
+            {availableAppResults.map((app) => (
               <button type="button" key={app.id} onClick={() => addBundleApp(app)}>
                 <AppMiniIcon app={app} />
                 <span>{app.name}</span>
