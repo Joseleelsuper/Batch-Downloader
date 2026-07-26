@@ -128,7 +128,7 @@ describe('catalog workspace', () => {
     expect(await screen.findByText('No se pudo cargar el catálogo.')).toBeInTheDocument();
   });
 
-  it('defaults a first visit to hybrid and persists an explicit literal choice', async () => {
+  it('defaults to semantic and available, then persists explicit search and status choices', async () => {
     render(
       <MemoryRouter initialEntries={['/catalog']}>
         <App />
@@ -136,33 +136,41 @@ describe('catalog workspace', () => {
       </MemoryRouter>,
     );
 
-    const hybrid = await screen.findByRole('button', { name: 'Híbrida' });
-    expect(hybrid).toHaveAttribute('aria-pressed', 'true');
+    const semantic = await screen.findByRole('button', { name: 'IA semántica' });
+    expect(semantic).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Disponibles/ })).toHaveClass('filter-item-active');
     await waitFor(() => {
-      expect(screen.getByTestId('location-search')).toHaveTextContent('searchMode=hybrid');
+      expect(screen.getByTestId('location-search')).toHaveTextContent('searchMode=semantic');
     });
+    const latestFetchAppsCall = vi.mocked(catalogApi.fetchApps).mock.calls[
+      vi.mocked(catalogApi.fetchApps).mock.calls.length - 1
+    ];
+    expect(latestFetchAppsCall?.[0].filter).toBe('available');
 
     fireEvent.click(screen.getByRole('button', { name: 'Literal' }));
+    fireEvent.click(screen.getByRole('button', { name: /Todas/ }));
 
     expect(window.localStorage.getItem('catalog.search.mode')).toBe('lexical');
+    expect(window.localStorage.getItem('catalog.filter.status')).toBe('all');
     await waitFor(() => {
       expect(screen.getByTestId('location-search')).toHaveTextContent('searchMode=lexical');
+      expect(screen.getByTestId('location-search')).toHaveTextContent('status=all');
     });
   });
 
-  it('shows a brief notice when a hybrid request degrades as a whole', async () => {
+  it('shows a brief notice when a semantic request degrades as a whole', async () => {
     vi.mocked(catalogApi.fetchApps).mockResolvedValue({
       data: [],
       page: 1,
       pageSize: 12,
       total: 0,
-      requestedMode: 'hybrid',
+      requestedMode: 'semantic',
       appliedMode: 'lexical',
       degradedReason: 'semantic_index_unavailable',
     });
 
     render(
-      <MemoryRouter initialEntries={['/catalog?searchMode=hybrid&query=editor']}>
+      <MemoryRouter initialEntries={['/catalog?searchMode=semantic&query=editor']}>
         <App />
       </MemoryRouter>,
     );
@@ -171,6 +179,26 @@ describe('catalog workspace', () => {
       'La búsqueda semántica no está disponible temporalmente; se muestran resultados literales.',
     )).toBeInTheDocument();
     expect(window.localStorage.getItem('catalog.search.mode')).toBeNull();
+  });
+
+  it('restores the saved catalog status when the URL does not choose one', async () => {
+    window.localStorage.setItem('catalog.filter.status', 'review');
+
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search')).toHaveTextContent('status=review');
+    });
+    expect(screen.getByRole('button', { name: /Revisión/ })).toHaveClass('filter-item-active');
+    expect(catalogApi.fetchApps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filter: 'review' }),
+      expect.any(AbortSignal),
+    );
   });
 
   it('coalesces bursts of catalog events into a single refresh', async () => {
@@ -350,7 +378,7 @@ describe('catalog workspace', () => {
     expect(screen.getByText('1 / 100')).toBeInTheDocument();
   });
 
-  it('removes legacy pending status from the URL and loads Todas', async () => {
+  it('removes legacy pending status from the URL and loads Disponibles', async () => {
     render(
       <MemoryRouter initialEntries={['/catalog?status=pending&query=editor']}>
         <App />
@@ -361,7 +389,7 @@ describe('catalog workspace', () => {
     await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('?query=editor'));
     expect(screen.queryByText('Pendientes')).not.toBeInTheDocument();
     expect(catalogApi.fetchApps).toHaveBeenLastCalledWith(
-      expect.objectContaining({ filter: 'all', query: 'editor' }),
+      expect.objectContaining({ filter: 'available', query: 'editor' }),
       expect.any(AbortSignal),
     );
   });

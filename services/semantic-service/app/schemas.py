@@ -28,7 +28,6 @@ class SemanticSearchResponse(BaseModel):
     candidates: list[SemanticCandidate]
     model_version: str = Field(alias="modelVersion")
     index_version: str = Field(alias="indexVersion")
-    rrf_weight: float = Field(alias="rrfWeight", gt=0, le=10)
     truncated: bool
 
     model_config = ConfigDict(populate_by_name=True)

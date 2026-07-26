@@ -207,7 +207,7 @@
   "catalog.searchPlaceholder": "Buscar aplicaciones",
   "catalog.search.mode": "Modo de búsqueda",
   "catalog.search.mode.lexical": "Literal",
-  "catalog.search.mode.hybrid": "Híbrida",
+  "catalog.search.mode.semantic": "IA semántica",
   "catalog.search.degraded": "La búsqueda semántica no está disponible temporalmente; se muestran resultados literales.",
   "catalog.select": "Seleccionar",
   "catalog.selectApp": "Seleccionar {name}",

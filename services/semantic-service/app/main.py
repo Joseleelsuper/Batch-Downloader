@@ -121,6 +121,5 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
         candidates=rows[:functional_limit],
         modelVersion=model.model_version,
         indexVersion=index_version,
-        rrfWeight=model.rrf_weight,
         truncated=truncated,
     )

@@ -8,7 +8,7 @@ export type ResolutionStatus =
 export type ValidationStatus = 'unchecked' | 'valid' | 'invalid' | 'expired';
 
 export type OperatingSystem = 'windows' | 'linux' | 'macos';
-export type SearchMode = 'lexical' | 'hybrid';
+export type SearchMode = 'lexical' | 'semantic';
 
 export interface CatalogApp {
   id: string;

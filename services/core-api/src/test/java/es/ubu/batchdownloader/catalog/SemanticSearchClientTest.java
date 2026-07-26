@@ -35,27 +35,25 @@ class SemanticSearchClientTest {
                   ],
                   "modelVersion": "e5-v1",
                   "indexVersion": "index-v1",
-                  "rrfWeight": 1.5,
                   "truncated": false
                 }
                 """);
 
-        HybridCandidateSet result = client(Duration.ofSeconds(1))
-                .resolve(CatalogSearchMode.HYBRID, "editor de código");
+        SemanticCandidateSet result = client(Duration.ofSeconds(1))
+                .resolve(CatalogSearchMode.SEMANTIC, "editor de código");
 
-        assertThat(result.hybrid()).isTrue();
+        assertThat(result.semantic()).isTrue();
         assertThat(result.modelVersion()).isEqualTo("e5-v1");
         assertThat(result.indexVersion()).isEqualTo("index-v1");
         assertThat(result.candidatesJson()).contains("\"rank\":1");
-        assertThat(result.semanticWeight()).isEqualTo(1.5);
     }
 
     @Test
     void authorizationFailureDegradesTheWholeRequestToLexical() throws Exception {
         startServer(401, "{}");
 
-        HybridCandidateSet result = client(Duration.ofSeconds(1))
-                .resolve(CatalogSearchMode.HYBRID, "editor");
+        SemanticCandidateSet result = client(Duration.ofSeconds(1))
+                .resolve(CatalogSearchMode.SEMANTIC, "editor");
 
         assertThat(result.appliedMode()).isEqualTo(CatalogSearchMode.LEXICAL);
         assertThat(result.degradedReason()).isEqualTo("semantic_unauthorized");
@@ -63,7 +61,7 @@ class SemanticSearchClientTest {
     }
 
     @Test
-    void truncatedEnumerationNeverPublishesAPartialHybridScope() throws Exception {
+    void truncatedEnumerationNeverPublishesAPartialSemanticScope() throws Exception {
         startServer(200, """
                 {
                   "candidates": [],
@@ -73,8 +71,8 @@ class SemanticSearchClientTest {
                 }
                 """);
 
-        HybridCandidateSet result = client(Duration.ofSeconds(1))
-                .resolve(CatalogSearchMode.HYBRID, "editor");
+        SemanticCandidateSet result = client(Duration.ofSeconds(1))
+                .resolve(CatalogSearchMode.SEMANTIC, "editor");
 
         assertThat(result.appliedMode()).isEqualTo(CatalogSearchMode.LEXICAL);
         assertThat(result.degradedReason()).isEqualTo("semantic_candidates_truncated");
@@ -87,7 +85,6 @@ class SemanticSearchClientTest {
                 "http://127.0.0.1:" + server.getAddress().getPort(),
                 "internal-token",
                 timeout,
-                1.25,
                 true);
     }
 

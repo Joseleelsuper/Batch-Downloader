@@ -54,7 +54,7 @@ public class CatalogController {
         List<String> systems = normalizedOperatingSystems(operatingSystems);
         List<String> tagList = parseRepeatedAndCsv(tag, tags);
         List<String> publisherList = parseRepeated(publisher);
-        HybridCandidateSet candidates = semanticSearch.resolve(
+        SemanticCandidateSet candidates = semanticSearch.resolve(
                 CatalogSearchMode.parse(searchMode),
                 query);
         return new AppSearchResponse(
@@ -151,7 +151,7 @@ public class CatalogController {
             @RequestParam(required = false) Integer tagMatchMin,
             @RequestParam(defaultValue = "all") String tagMode,
             @RequestParam(defaultValue = "lexical") String searchMode) {
-        HybridCandidateSet candidates = semanticSearch.resolve(
+        SemanticCandidateSet candidates = semanticSearch.resolve(
                 CatalogSearchMode.parse(searchMode),
                 query);
         CatalogFacetsResponse facets = catalog.facets(

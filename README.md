@@ -35,17 +35,20 @@ El Compose GHCR usa imágenes como
 
 ## Búsqueda literal y semántica
 
-El catálogo admite `searchMode=lexical|hybrid`. Si el parámetro no se envía, la
+El catálogo admite `searchMode=lexical|semantic`. Si el parámetro no se envía, la
 API mantiene `lexical` por compatibilidad. En la interfaz, la precedencia es:
 modo de la URL, última elección de `localStorage` y, en la primera visita,
-`hybrid`.
+`semantic`.
 
-El modo híbrido combina en Core el ranking literal de MySQL y una enumeración
-semántica exacta mediante RRF (`k=60`). Los filtros, estados, facetas, totales,
-orden `review-last` y paginación se aplican en MySQL. Si el índice no tiene
+El modo semántico ordena exclusivamente la enumeración producida por el modelo
+de embeddings. Los filtros, estados, facetas, totales y paginación se aplican
+en MySQL. Si el índice no tiene
 cobertura completa, supera 2.000 candidatos, expira o devuelve un error, toda la
 petición pasa a literal y la interfaz muestra un aviso sin cambiar la preferencia
 guardada.
+
+El filtro inicial de la interfaz es `available`. La URL tiene prioridad sobre la
+última selección de estado guardada en `localStorage`.
 
 El indexador descarga pesos de Hugging Face, pero las descripciones, metadatos y
 consultas permanecen dentro del despliegue local:

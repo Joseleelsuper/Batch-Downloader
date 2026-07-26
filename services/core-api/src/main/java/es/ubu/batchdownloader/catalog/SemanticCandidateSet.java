@@ -2,37 +2,35 @@ package es.ubu.batchdownloader.catalog;
 
 import java.util.Objects;
 
-public record HybridCandidateSet(
+public record SemanticCandidateSet(
         CatalogSearchMode requestedMode,
         CatalogSearchMode appliedMode,
         String candidatesJson,
         String modelVersion,
         String indexVersion,
-        String degradedReason,
-        double semanticWeight) {
+        String degradedReason) {
 
-    public HybridCandidateSet {
+    public SemanticCandidateSet {
         Objects.requireNonNull(requestedMode);
         Objects.requireNonNull(appliedMode);
         candidatesJson = candidatesJson == null ? "[]" : candidatesJson;
     }
 
-    public static HybridCandidateSet lexical(CatalogSearchMode requestedMode, String degradedReason) {
-        return new HybridCandidateSet(
+    public static SemanticCandidateSet lexical(CatalogSearchMode requestedMode, String degradedReason) {
+        return new SemanticCandidateSet(
                 requestedMode,
                 CatalogSearchMode.LEXICAL,
                 "[]",
                 null,
                 null,
-                degradedReason,
-                1.0);
+                degradedReason);
     }
 
-    public static HybridCandidateSet lexical() {
+    public static SemanticCandidateSet lexical() {
         return lexical(CatalogSearchMode.LEXICAL, null);
     }
 
-    public boolean hybrid() {
-        return appliedMode == CatalogSearchMode.HYBRID;
+    public boolean semantic() {
+        return appliedMode == CatalogSearchMode.SEMANTIC;
     }
 }

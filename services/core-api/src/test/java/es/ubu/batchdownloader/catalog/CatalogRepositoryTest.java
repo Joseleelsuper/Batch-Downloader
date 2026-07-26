@@ -66,19 +66,18 @@ class CatalogRepositoryTest {
     }
 
     @Test
-    void hybridSearchBuildsOneJsonCandidateScopeAndRrfBeforeStructuredFilters() {
+    void semanticSearchUsesOnlyEmbeddingCandidatesBeforeStructuredFilters() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
                 .thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
-        HybridCandidateSet candidates = new HybridCandidateSet(
-                CatalogSearchMode.HYBRID,
-                CatalogSearchMode.HYBRID,
+        SemanticCandidateSet candidates = new SemanticCandidateSet(
+                CatalogSearchMode.SEMANTIC,
+                CatalogSearchMode.SEMANTIC,
                 "[{\"appId\":\"00000000-0000-0000-0000-000000000001\",\"rank\":1,\"similarity\":0.9}]",
                 "model-v1",
                 "index-v1",
-                null,
-                1.25);
+                null);
 
         repository.search(
                 "editor de código",
@@ -98,12 +97,11 @@ class CatalogRepositoryTest {
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
         assertThat(sql.getValue())
-                .contains("JSON_TABLE", "ROW_NUMBER() OVER", "hybrid_candidates", "rrf_score")
-                .contains("1.0 / (60 + lexical.lexical_rank)")
-                .contains("? / (60 + semantic.semantic_rank)")
+                .contains("JSON_TABLE", "semantic_candidates", "semantic_rank")
+                .doesNotContain("lexical_ranked", "search_score", "rrf")
                 .contains("a.catalog_status = ?", "JSON_CONTAINS");
         assertThat(params.getValue()[0]).isEqualTo(candidates.candidatesJson());
-        assertThat(params.getValue()).contains(1.25, "available", "windows", "x86_64");
+        assertThat(params.getValue()).contains("available", "windows", "x86_64");
     }
 
     @Test

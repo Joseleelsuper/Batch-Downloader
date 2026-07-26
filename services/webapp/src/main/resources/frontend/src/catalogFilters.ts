@@ -18,18 +18,18 @@ export interface CatalogFilterState {
 
 const filterKeys: FilterKey[] = ['all', 'available', 'review', 'missing'];
 const sortKeys: SortKey[] = ['updated', 'name'];
-const searchModes: SearchMode[] = ['lexical', 'hybrid'];
+const searchModes: SearchMode[] = ['lexical', 'semantic'];
 
 export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
   query: '',
-  filter: 'all',
+  filter: 'available',
   sort: 'updated',
   page: 1,
   pageSize: 12,
   tags: [],
   publishers: [],
   operatingSystems: ALL_OPERATING_SYSTEMS,
-  searchMode: 'hybrid',
+  searchMode: 'semantic',
 };
 
 export function parseCatalogFilters(search: URLSearchParams | string): CatalogFilterState {
@@ -55,6 +55,7 @@ export function parseCatalogFilters(search: URLSearchParams | string): CatalogFi
 export function normalizeCatalogStatus(
   search: URLSearchParams | string,
   preferredSearchMode?: SearchMode,
+  preferredFilter?: FilterKey,
 ): string {
   const params = new URLSearchParams(typeof search === 'string' ? search : search.toString());
   const status = params.get('status');
@@ -68,6 +69,9 @@ export function normalizeCatalogStatus(
   if (!params.has('searchMode') && preferredSearchMode) {
     params.set('searchMode', preferredSearchMode);
   }
+  if (!params.has('status') && preferredFilter && preferredFilter !== DEFAULT_CATALOG_FILTERS.filter) {
+    params.set('status', preferredFilter);
+  }
   return params.toString();
 }
 
@@ -79,7 +83,18 @@ export function preferredCatalogSearchMode(
   const urlMode = params.get('searchMode');
   if (searchModes.includes(urlMode as SearchMode)) return urlMode as SearchMode;
   if (searchModes.includes(storedPreference as SearchMode)) return storedPreference as SearchMode;
-  return 'hybrid';
+  return 'semantic';
+}
+
+export function preferredCatalogFilter(
+  search: URLSearchParams | string,
+  storedPreference: string | null,
+): FilterKey {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : search;
+  const urlFilter = params.get('status');
+  if (filterKeys.includes(urlFilter as FilterKey)) return urlFilter as FilterKey;
+  if (filterKeys.includes(storedPreference as FilterKey)) return storedPreference as FilterKey;
+  return DEFAULT_CATALOG_FILTERS.filter;
 }
 
 export function catalogFiltersToSearchParams(filters: CatalogFilterState): URLSearchParams {

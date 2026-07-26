@@ -5,7 +5,7 @@ import java.util.Locale;
 
 public enum CatalogSearchMode {
     LEXICAL("lexical"),
-    HYBRID("hybrid");
+    SEMANTIC("semantic");
 
     private final String wireValue;
 

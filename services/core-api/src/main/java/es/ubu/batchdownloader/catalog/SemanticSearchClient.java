@@ -22,7 +22,6 @@ public class SemanticSearchClient {
     private final String serviceUrl;
     private final String internalServiceToken;
     private final Duration requestTimeout;
-    private final double semanticWeight;
     private final boolean enabled;
 
     @Autowired
@@ -30,15 +29,13 @@ public class SemanticSearchClient {
             ObjectMapper objectMapper,
             @Value("${app.semantic-service-url}") String serviceUrl,
             @Value("${app.semantic-internal-service-token}") String internalServiceToken,
-            @Value("${app.semantic-request-timeout}") Duration requestTimeout,
-            @Value("${app.semantic-weight}") double semanticWeight) {
+            @Value("${app.semantic-request-timeout}") Duration requestTimeout) {
         this(
                 HttpClient.newBuilder().connectTimeout(requestTimeout).build(),
                 objectMapper,
                 serviceUrl,
                 internalServiceToken,
                 requestTimeout,
-                semanticWeight,
                 true);
     }
 
@@ -48,14 +45,12 @@ public class SemanticSearchClient {
             String serviceUrl,
             String internalServiceToken,
             Duration requestTimeout,
-            double semanticWeight,
             boolean enabled) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
         this.serviceUrl = serviceUrl == null ? "" : serviceUrl.replaceAll("/+$", "");
         this.internalServiceToken = internalServiceToken == null ? "" : internalServiceToken;
         this.requestTimeout = requestTimeout;
-        this.semanticWeight = semanticWeight;
         this.enabled = enabled;
     }
 
@@ -66,20 +61,19 @@ public class SemanticSearchClient {
                 "",
                 "",
                 Duration.ofSeconds(1),
-                1.0,
                 false);
     }
 
-    public HybridCandidateSet resolve(CatalogSearchMode requestedMode, String query) {
+    public SemanticCandidateSet resolve(CatalogSearchMode requestedMode, String query) {
         if (requestedMode == CatalogSearchMode.LEXICAL) {
-            return HybridCandidateSet.lexical();
+            return SemanticCandidateSet.lexical();
         }
         if (query == null || query.isBlank()) {
-            return HybridCandidateSet.lexical(CatalogSearchMode.HYBRID, null);
+            return SemanticCandidateSet.lexical(CatalogSearchMode.SEMANTIC, null);
         }
         if (!enabled) {
-            return HybridCandidateSet.lexical(
-                    CatalogSearchMode.HYBRID,
+            return SemanticCandidateSet.lexical(
+                    CatalogSearchMode.SEMANTIC,
                     "semantic_service_unavailable");
         }
         try {
@@ -104,19 +98,13 @@ public class SemanticSearchClient {
             if (semantic.modelVersion() == null || semantic.indexVersion() == null) {
                 return fallback("semantic_index_incomplete");
             }
-            double calibratedWeight = semantic.rrfWeight() != null
-                            && Double.isFinite(semantic.rrfWeight())
-                            && semantic.rrfWeight() > 0
-                    ? semantic.rrfWeight()
-                    : semanticWeight;
-            return new HybridCandidateSet(
-                    CatalogSearchMode.HYBRID,
-                    CatalogSearchMode.HYBRID,
+            return new SemanticCandidateSet(
+                    CatalogSearchMode.SEMANTIC,
+                    CatalogSearchMode.SEMANTIC,
                     objectMapper.writeValueAsString(semantic.candidates()),
                     semantic.modelVersion(),
                     semantic.indexVersion(),
-                    null,
-                    calibratedWeight);
+                    null);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return fallback("semantic_request_interrupted");
@@ -137,8 +125,8 @@ public class SemanticSearchClient {
                 .build();
     }
 
-    private HybridCandidateSet fallback(String reason) {
-        return HybridCandidateSet.lexical(CatalogSearchMode.HYBRID, reason);
+    private SemanticCandidateSet fallback(String reason) {
+        return SemanticCandidateSet.lexical(CatalogSearchMode.SEMANTIC, reason);
     }
 
     private record SemanticRequest(String query, int limit) {}
@@ -147,7 +135,6 @@ public class SemanticSearchClient {
             List<SemanticCandidate> candidates,
             String modelVersion,
             String indexVersion,
-            Double rrfWeight,
             boolean truncated) {
         private SemanticResponse {
             candidates = candidates == null ? List.of() : List.copyOf(candidates);

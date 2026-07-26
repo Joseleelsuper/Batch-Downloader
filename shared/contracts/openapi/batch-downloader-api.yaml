@@ -693,7 +693,7 @@ components:
           type: [string, 'null']
     SearchMode:
       type: string
-      enum: [lexical, hybrid]
+      enum: [lexical, semantic]
     CatalogStats:
       type: object
       required: [total, filters, lastScrape, generatedAt]

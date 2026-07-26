@@ -1,4 +1,4 @@
-﻿import {
+import {
   ArrowDown,
   ArrowUp,
   Building2,
@@ -71,6 +71,7 @@ import {
   nextFilters,
   normalizeCatalogStatus,
   parseCatalogFilters,
+  preferredCatalogFilter,
   preferredCatalogSearchMode,
   toggleValue,
   toggleOperatingSystem,
@@ -410,9 +411,16 @@ function CatalogPage() {
     ),
     [searchKey],
   );
+  const preferredFilter = useMemo(
+    () => preferredCatalogFilter(
+      searchKey,
+      localStorage.getItem('catalog.filter.status'),
+    ),
+    [searchKey],
+  );
   const canonicalSearchKey = useMemo(
-    () => normalizeCatalogStatus(searchKey, preferredSearchMode),
-    [preferredSearchMode, searchKey],
+    () => normalizeCatalogStatus(searchKey, preferredSearchMode, preferredFilter),
+    [preferredFilter, preferredSearchMode, searchKey],
   );
   const catalogStatusCanonical = canonicalSearchKey === searchKey;
   const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
@@ -664,6 +672,7 @@ function CatalogPage() {
           downloading={downloadJob.starting || validatingSelection}
           operatingSystems={filters.operatingSystems}
           onChange={(nextFilter) => {
+            localStorage.setItem('catalog.filter.status', nextFilter);
             updateFilters({ filter: nextFilter });
           }}
           onToggleOperatingSystem={(operatingSystem) => {
@@ -762,9 +771,16 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
     ),
     [searchKey],
   );
+  const preferredFilter = useMemo(
+    () => preferredCatalogFilter(
+      searchKey,
+      localStorage.getItem('catalog.filter.status'),
+    ),
+    [searchKey],
+  );
   const canonicalSearchKey = useMemo(
-    () => normalizeCatalogStatus(searchKey, preferredSearchMode),
-    [preferredSearchMode, searchKey],
+    () => normalizeCatalogStatus(searchKey, preferredSearchMode, preferredFilter),
+    [preferredFilter, preferredSearchMode, searchKey],
   );
   const catalogStatusCanonical = canonicalSearchKey === searchKey;
   const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);

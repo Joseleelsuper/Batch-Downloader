@@ -33,7 +33,7 @@ export function AppSearchBar({
         />
       </label>
       <div className="search-mode-toggle" role="group" aria-label={t('catalog.search.mode')}>
-        {(['lexical', 'hybrid'] as const).map((mode) => (
+        {(['lexical', 'semantic'] as const).map((mode) => (
           <button
             key={mode}
             className={searchMode === mode ? 'search-mode-active' : ''}
@@ -43,7 +43,7 @@ export function AppSearchBar({
           >
             {mode === 'lexical'
               ? t('catalog.search.mode.lexical')
-              : t('catalog.search.mode.hybrid')}
+              : t('catalog.search.mode.semantic')}
           </button>
         ))}
       </div>

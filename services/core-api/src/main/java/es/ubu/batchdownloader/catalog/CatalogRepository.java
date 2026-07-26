@@ -65,7 +65,7 @@ public class CatalogRepository {
                 sort,
                 page,
                 pageSize,
-                HybridCandidateSet.lexical());
+                SemanticCandidateSet.lexical());
     }
 
     public List<AppListItem> search(
@@ -80,9 +80,9 @@ public class CatalogRepository {
             String sort,
             int page,
             int pageSize,
-            HybridCandidateSet candidates) {
-        if (candidates.hybrid()) {
-            return hybridSearch(
+            SemanticCandidateSet candidates) {
+        if (candidates.semantic()) {
+            return semanticSearch(
                     query,
                     status,
                     operatingSystems,
@@ -153,7 +153,7 @@ public class CatalogRepository {
                 publishers,
                 tagMatchMin,
                 tagMode,
-                HybridCandidateSet.lexical());
+                SemanticCandidateSet.lexical());
     }
 
     public long count(
@@ -165,9 +165,9 @@ public class CatalogRepository {
             List<String> publishers,
             Integer tagMatchMin,
             String tagMode,
-            HybridCandidateSet candidates) {
-        if (candidates.hybrid()) {
-            return hybridCount(
+            SemanticCandidateSet candidates) {
+        if (candidates.semantic()) {
+            return semanticCount(
                     query,
                     status,
                     operatingSystems,
@@ -208,7 +208,7 @@ public class CatalogRepository {
                 publishers,
                 tagMatchMin,
                 tagMode,
-                HybridCandidateSet.lexical());
+                SemanticCandidateSet.lexical());
     }
 
     public CatalogFacetsResponse facets(
@@ -220,9 +220,9 @@ public class CatalogRepository {
             List<String> publishers,
             Integer tagMatchMin,
             String tagMode,
-            HybridCandidateSet candidates) {
-        if (candidates.hybrid()) {
-            return hybridFacets(
+            SemanticCandidateSet candidates) {
+        if (candidates.semantic()) {
+            return semanticFacets(
                     query,
                     status,
                     operatingSystems,
@@ -239,7 +239,7 @@ public class CatalogRepository {
                 publisherFacets(query, status, operatingSystems, architecture, tags, tagMatchMin, tagMode));
     }
 
-    private List<AppListItem> hybridSearch(
+    private List<AppListItem> semanticSearch(
             String query,
             String status,
             List<String> operatingSystems,
@@ -251,17 +251,17 @@ public class CatalogRepository {
             String sort,
             int page,
             int pageSize,
-            HybridCandidateSet candidates) {
+            SemanticCandidateSet candidates) {
         status = normalizeCatalogStatus(status);
         List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        StringBuilder sql = new StringBuilder(semanticCandidateCte(query, candidates, params));
         sql.append("""
                 SELECT a.*
                 FROM software_apps a
                 JOIN (
-                    SELECT a.id, ranked.rrf_score
+                    SELECT a.id, ranked.semantic_rank
                     FROM software_apps a
-                    JOIN hybrid_candidates ranked ON ranked.id = a.id
+                    JOIN semantic_candidates ranked ON ranked.id = a.id
                     WHERE a.app_status = 'active'
                 """);
         appendStructuredFilters(
@@ -275,9 +275,9 @@ public class CatalogRepository {
                 tagMatchMin,
                 tagMode);
         sql.append(" ORDER BY ")
-                .append(orderBy(sort, "ranked.rrf_score DESC, "))
+                .append(orderBy(sort, "ranked.semantic_rank ASC, "))
                 .append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ")
-                .append(orderBy(sort, "page.rrf_score DESC, "));
+                .append(orderBy(sort, "page.semantic_rank ASC, "));
         params.add(pageSize);
         params.add((page - 1) * pageSize);
         List<AppBasics> apps = jdbc.query(
@@ -298,7 +298,7 @@ public class CatalogRepository {
                 .toList();
     }
 
-    private long hybridCount(
+    private long semanticCount(
             String query,
             String status,
             List<String> operatingSystems,
@@ -307,14 +307,14 @@ public class CatalogRepository {
             List<String> publishers,
             Integer tagMatchMin,
             String tagMode,
-            HybridCandidateSet candidates) {
+            SemanticCandidateSet candidates) {
         status = normalizeCatalogStatus(status);
         List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        StringBuilder sql = new StringBuilder(semanticCandidateCte(query, candidates, params));
         sql.append("""
                 SELECT COUNT(*)
                 FROM software_apps a
-                JOIN hybrid_candidates ranked ON ranked.id = a.id
+                JOIN semantic_candidates ranked ON ranked.id = a.id
                 WHERE a.app_status = 'active'
                 """);
         appendStructuredFilters(
@@ -331,7 +331,7 @@ public class CatalogRepository {
         return count == null ? 0 : count;
     }
 
-    private CatalogFacetsResponse hybridFacets(
+    private CatalogFacetsResponse semanticFacets(
             String query,
             String status,
             List<String> operatingSystems,
@@ -340,17 +340,17 @@ public class CatalogRepository {
             List<String> publishers,
             Integer tagMatchMin,
             String tagMode,
-            HybridCandidateSet candidates) {
+            SemanticCandidateSet candidates) {
         status = normalizeCatalogStatus(status);
         return new CatalogFacetsResponse(
-                hybridTagFacets(
+                semanticTagFacets(
                         query,
                         status,
                         operatingSystems,
                         architecture,
                         publishers,
                         candidates),
-                hybridPublisherFacets(
+                semanticPublisherFacets(
                         query,
                         status,
                         operatingSystems,
@@ -361,21 +361,21 @@ public class CatalogRepository {
                         candidates));
     }
 
-    private List<FacetItem> hybridTagFacets(
+    private List<FacetItem> semanticTagFacets(
             String query,
             String status,
             List<String> operatingSystems,
             String architecture,
             List<String> publishers,
-            HybridCandidateSet candidates) {
+            SemanticCandidateSet candidates) {
         List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        StringBuilder sql = new StringBuilder(semanticCandidateCte(query, candidates, params));
         sql.append("""
                 SELECT MIN(t.tag) AS label, t.normalized_tag AS normalized_value,
                        COUNT(DISTINCT a.id) AS app_count
                 FROM software_app_tags t
                 JOIN software_apps a ON a.id = t.software_app_id
-                JOIN hybrid_candidates ranked ON ranked.id = a.id
+                JOIN semantic_candidates ranked ON ranked.id = a.id
                 WHERE a.app_status = 'active'
                 """);
         appendStructuredFilters(
@@ -401,7 +401,7 @@ public class CatalogRepository {
                 params.toArray());
     }
 
-    private List<FacetItem> hybridPublisherFacets(
+    private List<FacetItem> semanticPublisherFacets(
             String query,
             String status,
             List<String> operatingSystems,
@@ -409,14 +409,14 @@ public class CatalogRepository {
             List<String> tags,
             Integer tagMatchMin,
             String tagMode,
-            HybridCandidateSet candidates) {
+            SemanticCandidateSet candidates) {
         List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(hybridCandidateCte(query, candidates, params));
+        StringBuilder sql = new StringBuilder(semanticCandidateCte(query, candidates, params));
         sql.append("""
                 SELECT a.publisher AS label, LOWER(TRIM(a.publisher)) AS normalized_value,
                        COUNT(DISTINCT a.id) AS app_count
                 FROM software_apps a
-                JOIN hybrid_candidates ranked ON ranked.id = a.id
+                JOIN semantic_candidates ranked ON ranked.id = a.id
                 WHERE a.app_status = 'active'
                   AND a.publisher IS NOT NULL
                   AND TRIM(a.publisher) <> ''
@@ -444,15 +444,15 @@ public class CatalogRepository {
                 params.toArray());
     }
 
-    private String hybridCandidateCte(
+    private String semanticCandidateCte(
             String query,
-            HybridCandidateSet candidates,
+            SemanticCandidateSet candidates,
             List<Object> params) {
-        SearchRanking ranking = SearchRanking.from(query);
-        if (!ranking.active()) {
-            throw new IllegalArgumentException("hybrid_search_requires_query");
+        if (query == null || query.isBlank()) {
+            throw new IllegalArgumentException("semantic_search_requires_query");
         }
-        StringBuilder sql = new StringBuilder("""
+        params.add(candidates.candidatesJson());
+        return """
                 WITH semantic_candidates AS (
                     SELECT UUID_TO_BIN(candidate.app_id) AS id,
                            candidate.semantic_rank
@@ -463,42 +463,8 @@ public class CatalogRepository {
                             semantic_rank INT PATH '$.rank'
                         )
                     ) AS candidate
-                ),
-                lexical_ranked AS (
-                    SELECT a.id,
-                           ROW_NUMBER() OVER (
-                               ORDER BY
-                """);
-        params.add(candidates.candidatesJson());
-        sql.append(ranking.scoreSql()).append(" DESC, a.id ASC) AS lexical_rank\n");
-        params.addAll(ranking.params());
-        sql.append("""
-                    FROM software_apps a
-                    WHERE a.app_status = 'active'
-                """);
-        appendLexicalFilter(sql, params, query);
-        sql.append("""
-                ),
-                hybrid_candidates AS (
-                    SELECT lexical.id,
-                           (
-                               1.0 / (60 + lexical.lexical_rank)
-                               + CASE WHEN semantic.semantic_rank IS NULL THEN 0
-                                      ELSE ? / (60 + semantic.semantic_rank) END
-                           ) AS rrf_score
-                    FROM lexical_ranked lexical
-                    LEFT JOIN semantic_candidates semantic ON semantic.id = lexical.id
-                    UNION ALL
-                    SELECT semantic.id,
-                           ? / (60 + semantic.semantic_rank) AS rrf_score
-                    FROM semantic_candidates semantic
-                    LEFT JOIN lexical_ranked lexical ON lexical.id = semantic.id
-                    WHERE lexical.id IS NULL
                 )
-                """);
-        params.add(candidates.semanticWeight());
-        params.add(candidates.semanticWeight());
-        return sql.toString();
+                """;
     }
 
     private List<FacetItem> tagFacets(

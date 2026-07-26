@@ -5,6 +5,7 @@ import {
   nextFilters,
   normalizeCatalogStatus,
   parseCatalogFilters,
+  preferredCatalogFilter,
   preferredCatalogSearchMode,
   toggleOperatingSystem,
   toggleValue,
@@ -35,7 +36,7 @@ describe('catalogFilters', () => {
       publishers: ['ACME, Inc.'],
       tagMatchMin: 2,
       operatingSystems: ['windows', 'linux'],
-      searchMode: 'hybrid',
+      searchMode: 'semantic',
     });
 
     expect(params.getAll('tag')).toEqual(['.NET', 'runtime']);
@@ -55,7 +56,7 @@ describe('catalogFilters', () => {
       publishers: [],
       tagMatchMin: 3,
       operatingSystems: ['windows', 'linux', 'macos'],
-      searchMode: 'hybrid',
+      searchMode: 'semantic',
     }, { tags: ['a', 'b'] });
 
     expect(filters.page).toBe(1);
@@ -71,8 +72,8 @@ describe('catalogFilters', () => {
     expect(normalizeCatalogStatus('query=editor&status=pending&tag=.NET')).toBe('query=editor&tag=.NET');
     expect(normalizeCatalogStatus('status=unknown&page=2')).toBe('page=2');
     expect(normalizeCatalogStatus('status=review&page=2')).toBe('status=review&page=2');
-    expect(parseCatalogFilters('status=pending').filter).toBe('all');
-    expect(parseCatalogFilters('status=unknown').filter).toBe('all');
+    expect(parseCatalogFilters('status=pending').filter).toBe('available');
+    expect(parseCatalogFilters('status=unknown').filter).toBe('available');
   });
 
   it('parses repeated operating systems, omits all active systems and restores alternatives from one active system', () => {
@@ -86,18 +87,31 @@ describe('catalogFilters', () => {
       tags: [],
       publishers: [],
       operatingSystems: ['windows', 'linux', 'macos'],
-      searchMode: 'hybrid',
+      searchMode: 'semantic',
     }).getAll('os')).toEqual([]);
     expect(toggleOperatingSystem(['windows'], 'windows')).toEqual(['linux', 'macos']);
     expect(toggleOperatingSystem(['windows'], 'linux')).toEqual(['windows', 'linux']);
   });
 
-  it('prioritizes URL mode, then the stored choice, then hybrid for a first visit', () => {
-    expect(preferredCatalogSearchMode('searchMode=lexical', 'hybrid')).toBe('lexical');
+  it('prioritizes URL mode, then the stored choice, then semantic for a first visit', () => {
+    expect(preferredCatalogSearchMode('searchMode=lexical', 'semantic')).toBe('lexical');
     expect(preferredCatalogSearchMode('', 'lexical')).toBe('lexical');
-    expect(preferredCatalogSearchMode('', null)).toBe('hybrid');
-    expect(normalizeCatalogStatus('query=editor', 'hybrid')).toBe(
-      'query=editor&searchMode=hybrid',
+    expect(preferredCatalogSearchMode('', null)).toBe('semantic');
+    expect(normalizeCatalogStatus('query=editor', 'semantic')).toBe(
+      'query=editor&searchMode=semantic',
     );
+  });
+
+  it('defaults to available and prioritizes the URL over the stored status choice', () => {
+    expect(preferredCatalogFilter('status=review', 'all')).toBe('review');
+    expect(preferredCatalogFilter('', 'all')).toBe('all');
+    expect(preferredCatalogFilter('', null)).toBe('available');
+    expect(normalizeCatalogStatus('query=editor', 'semantic', 'all')).toBe(
+      'query=editor&searchMode=semantic&status=all',
+    );
+    expect(catalogFiltersToSearchParams({
+      ...parseCatalogFilters(''),
+      filter: 'available',
+    }).has('status')).toBe(false);
   });
 });
