@@ -7,6 +7,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.internal_routes import INTERNAL_SERVICE_TOKEN_HEADER, internal_router
@@ -15,8 +16,16 @@ from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.base import Base
 from app.db.enums import ResolutionStatus, ValidationStatus
-from app.db.models import DownloadSource, ResolvedSource, SoftwareApp, SoftwareAppTag
+from app.db.models import (
+    DownloadSource,
+    ManualInstallerInspection,
+    ResolvedSource,
+    ScraperWorkItem,
+    SoftwareApp,
+    SoftwareAppTag,
+)
 from app.db.session import get_session
+from app.scraper.manual_installer import ValidatedManualInstaller
 from app.scraper.validator import ValidationConfidence, ValidationResult
 
 INTERNAL_TOKEN = "worker-test-token"
@@ -78,6 +87,23 @@ class InternalApiFixture:
         await self.session.commit()
         return app, resolved, download_url
 
+    async def add_unresolved_app(self) -> SoftwareApp:
+        identifier = uuid4()
+        app = SoftwareApp(
+            id=uuid4(),
+            winstall_id=f"manual.{identifier}",
+            slug=f"manual-{identifier}",
+            name="Manual App",
+            normalized_name=f"manual app {identifier}",
+            publisher="Manual Vendor",
+            description="Existing description",
+            latest_version="1.0.0",
+            app_status="active",
+        )
+        self.session.add(app)
+        await self.session.commit()
+        return app
+
 
 @pytest_asyncio.fixture
 async def internal_api() -> InternalApiFixture:
@@ -129,6 +155,249 @@ async def test_internal_resolution_requires_constant_time_service_token(
     assert missing.status_code == 401
     assert invalid.status_code == 401
     assert comparisons == [("", INTERNAL_TOKEN), ("wrong-token", INTERNAL_TOKEN)]
+
+
+@pytest.mark.asyncio
+async def test_manual_inspection_is_idempotent_encrypted_and_never_echoes_installer_url(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    app = await internal_api.add_unresolved_app()
+    installer_url = "https://downloads.example.test/ManualSetup.exe?token=secret"
+    source_page_url = "https://example.test/download"
+
+    async def public_url(url: str) -> str:
+        return url
+
+    monkeypatch.setattr(
+        "app.scraper.manual_installer.validate_public_https_url",
+        public_url,
+    )
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    path = f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections"
+    first = await internal_api.client.post(
+        path,
+        headers=headers,
+        json={
+            "installerUrl": installer_url,
+            "sourcePageUrl": source_page_url,
+        },
+    )
+    repeated = await internal_api.client.post(
+        path,
+        headers=headers,
+        json={
+            "installerUrl": installer_url,
+            "sourcePageUrl": source_page_url,
+        },
+    )
+
+    assert first.status_code == 202
+    assert repeated.status_code == 202
+    assert repeated.json()["id"] == first.json()["id"]
+    assert installer_url not in first.text
+    assert "secret" not in first.text
+
+    inspection = await internal_api.session.scalar(select(ManualInstallerInspection))
+    assert inspection is not None
+    assert installer_url not in inspection.installer_url_encrypted
+    assert UrlProtector(URL_SECRET).reveal(inspection.installer_url_encrypted) == installer_url
+    work_item = await internal_api.session.scalar(select(ScraperWorkItem))
+    assert work_item is not None
+    assert work_item.payload_json == {"inspection_id": str(inspection.id)}
+    assert installer_url not in str(work_item.payload_json)
+
+    conflict = await internal_api.client.post(
+        path,
+        headers=headers,
+        json={
+            "installerUrl": "https://downloads.example.test/OtherSetup.exe",
+            "sourcePageUrl": source_page_url,
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "inspection_already_active"
+
+
+@pytest.mark.asyncio
+async def test_manual_inspection_requires_fresh_analysis_after_the_app_changes(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    app = await internal_api.add_unresolved_app()
+    installer_url = "https://downloads.example.test/ManualSetup.exe"
+    source_page_url = "https://example.test/download"
+
+    async def public_url(url: str) -> str:
+        return url
+
+    monkeypatch.setattr(
+        "app.scraper.manual_installer.validate_public_https_url",
+        public_url,
+    )
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    path = f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections"
+    payload = {
+        "installerUrl": installer_url,
+        "sourcePageUrl": source_page_url,
+    }
+    first = await internal_api.client.post(path, headers=headers, json=payload)
+    assert first.status_code == 202
+
+    app.version += 1
+    await internal_api.session.commit()
+    second = await internal_api.client.post(path, headers=headers, json=payload)
+
+    assert second.status_code == 202
+    assert second.json()["id"] != first.json()["id"]
+    stale = await internal_api.session.get(
+        ManualInstallerInspection,
+        UUID(first.json()["id"]),
+    )
+    assert stale is not None
+    assert stale.status == "expired"
+    assert stale.error_code == "app_changed_reinspect_required"
+
+
+@pytest.mark.asyncio
+async def test_manual_apply_revalidates_and_persists_only_an_encrypted_candidate(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    app = await internal_api.add_unresolved_app()
+    installer_url = "https://downloads.example.test/ManualSetup-1.2.0.exe"
+    source_page_url = "https://example.test/download"
+
+    async def public_url(url: str) -> str:
+        return url
+
+    monkeypatch.setattr(
+        "app.scraper.manual_installer.validate_public_https_url",
+        public_url,
+    )
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    create_response = await internal_api.client.post(
+        f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections",
+        headers=headers,
+        json={
+            "installerUrl": installer_url,
+            "sourcePageUrl": source_page_url,
+        },
+    )
+    inspection_id = UUID(create_response.json()["id"])
+    inspection = await internal_api.session.get(ManualInstallerInspection, inspection_id)
+    assert inspection is not None
+    inspection.status = "ready"
+    inspection.phase = "ready"
+    inspection.result_json = {
+        "suggestions": {
+            "longDescription": {
+                "value": "Generated long description",
+                "source": "generated_ai",
+            }
+        },
+        "installer": {
+            "finalDomain": "example.test",
+            "filename": "ManualSetup-1.2.0.exe",
+            "extension": ".exe",
+            "contentType": "application/x-msdownload",
+            "sizeBytes": 4096,
+            "version": "1.2.0",
+            "operatingSystem": "windows",
+            "architecture": "x86_64",
+            "platformRequired": False,
+        },
+        "ai": {
+            "status": "ready",
+            "provider": "groq",
+            "model": "model-test",
+        },
+    }
+    await internal_api.session.commit()
+
+    validation_calls = 0
+
+    async def validate_installer(_inspector, _installer_url, _source_page_url):
+        nonlocal validation_calls
+        validation_calls += 1
+        return ValidatedManualInstaller(
+            result=ValidationResult(
+                ok=True,
+                url=installer_url,
+                final_url=installer_url,
+                final_domain="example.test",
+                filename="ManualSetup-1.2.0.exe",
+                extension=".exe",
+                content_type="application/x-msdownload",
+                size_bytes=4096,
+                confidence=ValidationConfidence.VALIDATED,
+            ),
+            final_url=installer_url,
+            version="1.2.0",
+            operating_system="windows",
+            architecture="x86_64",
+        )
+
+    monkeypatch.setattr(
+        "app.scraper.manual_installer.ManualInstallerInspector.validate_installer",
+        validate_installer,
+    )
+    apply_payload = {
+        "expectedAppVersion": inspection.captured_app_version,
+        "name": "Manual App",
+        "publisher": "Manual Vendor",
+        "officialUrl": "https://example.test",
+        "latestVersion": "1.2.0",
+        "description": "Existing description",
+        "longDescription": "Generated long description",
+        "iconUrl": None,
+        "operatingSystem": None,
+    }
+    apply_path = (
+        f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections/"
+        f"{inspection_id}/apply"
+    )
+    response = await internal_api.client.post(
+        apply_path,
+        headers=headers,
+        json=apply_payload,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["catalogStatus"] == "available"
+    assert response.json()["warnings"] == []
+    assert installer_url not in response.text
+    source_ref = UUID(response.json()["sourceRef"])
+    resolved = await internal_api.session.get(ResolvedSource, source_ref)
+    assert resolved is not None
+    assert installer_url not in resolved.resolved_url_encrypted
+    assert UrlProtector(URL_SECRET).reveal(resolved.resolved_url_encrypted) == installer_url
+    source = await internal_api.session.get(DownloadSource, resolved.download_source_id)
+    assert source is not None
+    assert source.initial_url == source_page_url
+    assert source.resolver_config == {"source": "admin_manual"}
+    await internal_api.session.refresh(app)
+    assert app.long_description_source == "groq"
+    assert app.long_description_model == "model-test"
+    await internal_api.session.refresh(inspection)
+    assert inspection.applied_app_version == app.version
+    assert validation_calls == 1
+
+    # SQLite does not install the MySQL catalog projection triggers exercised by
+    # the integration test, so mirror their final status before the idempotency check.
+    app.catalog_available_source_count = 1
+    await internal_api.session.commit()
+    await internal_api.session.refresh(app)
+    assert app.catalog_status == "available"
+    repeated = await internal_api.client.post(
+        apply_path,
+        headers=headers,
+        json=apply_payload,
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["sourceRef"] == str(source_ref)
+    assert repeated.json()["appVersion"] == app.version
+    assert validation_calls == 1
 
 
 @pytest.mark.asyncio

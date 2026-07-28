@@ -19,6 +19,25 @@ import org.springframework.jdbc.core.RowMapper;
 
 class CatalogRepositoryTest {
     @Test
+    void manualAppsExposeTheirSourcePageInsteadOfAFakeWinstallUrl() {
+        assertThat(CatalogRepository.originUrl(
+                        "manual.example-app",
+                        "https://example.com",
+                        "https://example.com/download"))
+                .isEqualTo("https://example.com/download");
+        assertThat(CatalogRepository.originUrl(
+                        "manual.example-app",
+                        "https://example.com",
+                        null))
+                .isEqualTo("https://example.com");
+        assertThat(CatalogRepository.originUrl(
+                        "Valve.Steam",
+                        "https://store.steampowered.com/about/",
+                        "https://cdn.example.com/steam"))
+                .isEqualTo("https://winstall.app/apps/Valve.Steam");
+    }
+
+    @Test
     void facetLetterGroupsLatinLettersAndNonLatinPrefixes() {
         assertThat(CatalogRepository.facetLetter(".NET")).isEqualTo("N");
         assertThat(CatalogRepository.facetLetter("Álvaro Tools")).isEqualTo("A");
@@ -196,6 +215,37 @@ class CatalogRepositoryTest {
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sql.getValue()).contains("a.catalog_status = ?");
         assertThat(sql.getValue()).doesNotContain("download_sources ds", "resolved_sources");
+    }
+
+    @Test
+    void unresolvedFilterUsesTheTwoPersistentAdministrativeStates() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+        CatalogRepository repository = repository(jdbc);
+
+        repository.search(
+                "",
+                "unresolved",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                "all",
+                "updated",
+                1,
+                12);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
+        assertThat(sql.getValue())
+                .contains("a.catalog_status IN ('review', 'missing')")
+                .doesNotContain("a.catalog_status = ?");
+        assertThat(params.getValue()).doesNotContain("unresolved");
+        assertThat(CatalogRepository.normalizeCatalogStatus("unresolved"))
+                .isEqualTo("unresolved");
     }
 
     @Test

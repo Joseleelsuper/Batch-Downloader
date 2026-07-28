@@ -8,12 +8,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
+import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -139,6 +143,37 @@ class AdminAppRepositoryTest {
         assertThat(export.content()).contains(
                 "\"Comma, App\",None,None,00000000-0000-0000-0000-000000000003,None,None\r\n");
         assertThat(export.content()).doesNotContain("cdn.example.com", "resolved_url_encrypted");
+    }
+
+    @Test
+    void patchSourceScopesTheMutationToItsOwningApplication() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        CatalogRepository catalog = mock(CatalogRepository.class);
+        UUID applicationId = UUID.randomUUID();
+        UUID sourceId = UUID.randomUUID();
+        when(catalog.softwareAppId("app-public-id")).thenReturn(applicationId);
+        when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+        AdminAppRepository repository = new AdminAppRepository(jdbc, catalog);
+
+        repository.patchSource(
+                "app-public-id",
+                sourceId.toString(),
+                new PatchSourceRequest(
+                        "windows",
+                        "x86_64",
+                        null,
+                        null,
+                        null,
+                        null));
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(sql.capture(), parameters.capture());
+        assertThat(sql.getValue()).contains("WHERE id = ? AND software_app_id = ?");
+        assertThat((byte[]) parameters.getValue()[7])
+                .containsExactly(UuidBytes.fromUuid(sourceId));
+        assertThat((byte[]) parameters.getValue()[8])
+                .containsExactly(UuidBytes.fromUuid(applicationId));
     }
 
     private ResultSet row(

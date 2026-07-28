@@ -18,6 +18,26 @@ pytest
 El scheduler debe ejecutarse como proceso separado de FastAPI para evitar trabajos
 duplicados cuando existan varias replicas.
 
+## Inspecciones manuales de instaladores
+
+Core es la única fachada para el navegador. Los endpoints equivalentes del
+scraper viven bajo
+`/internal/v1/admin/apps/{appId}/manual-installer-inspections` y requieren
+`X-Internal-Service-Token`. Las URLs del instalador y de su página se cifran en
+`manual_installer_inspections`; `result_json`, respuestas y
+`manual_installer_enrichment.payload_json` nunca incluyen la URL final.
+
+El scheduler mantiene un único consumidor de esa cola con lease, reintentos y
+backoff. Una inspección caduca por defecto a las 24 horas. Página, icono e IA
+pueden producir avisos; un binario sin HTTPS público, firma coherente o
+confianza `validated` siempre bloquea la publicación. `apply` vuelve a validar
+el artefacto y comprueba `expectedAppVersion` antes de escribir metadatos,
+fuente y candidato dentro de una sola transacción.
+
+Configuración: `SCRAPPER_MANUAL_INSPECTION_TTL_HOURS`,
+`SCRAPPER_MANUAL_INSPECTION_MAX_ATTEMPTS` y
+`SCRAPPER_MANUAL_PAGE_MAX_BYTES`.
+
 ## Generacion de descripciones
 
 La clave `SCRAPPER_LLM_GROQ_API_KEY` activa Groq. El modelo primario se configura

@@ -147,8 +147,87 @@ export interface AppDetails extends CatalogApp {
 }
 
 export type FilterKey = 'all' | 'available' | 'review' | 'missing';
+export type AdminAppFilter = FilterKey | 'unresolved';
 
 export type SortKey = 'name' | 'updated' | 'downloads';
+
+export type ManualSuggestionSource =
+  | 'current'
+  | 'json_ld'
+  | 'open_graph'
+  | 'twitter'
+  | 'canonical'
+  | 'filename'
+  | 'generated_ai'
+  | 'manual'
+  | 'source_page'
+  | 'unavailable';
+
+export interface ManualFieldSuggestion {
+  value?: string | null;
+  source: ManualSuggestionSource;
+}
+
+export interface ManualInstallerSuggestions {
+  name: ManualFieldSuggestion;
+  publisher: ManualFieldSuggestion;
+  officialUrl: ManualFieldSuggestion;
+  latestVersion: ManualFieldSuggestion;
+  description: ManualFieldSuggestion;
+  longDescription: ManualFieldSuggestion;
+  iconUrl: ManualFieldSuggestion;
+}
+
+export interface ManualInstallerTechnicalData {
+  finalDomain?: string | null;
+  filename?: string | null;
+  extension?: string | null;
+  contentType?: string | null;
+  sizeBytes?: number | null;
+  version?: string | null;
+  operatingSystem?: OperatingSystem | null;
+  architecture: string;
+  platformRequired: boolean;
+}
+
+export interface ManualInstallerInspection {
+  id: string;
+  appId: string;
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'applied' | 'expired';
+  phase: string;
+  expectedAppVersion: number;
+  warnings: string[];
+  suggestions?: ManualInstallerSuggestions | null;
+  installer?: ManualInstallerTechnicalData | null;
+  ai?: {
+    status: 'ready' | 'unavailable' | 'failed';
+    provider?: string | null;
+    model?: string | null;
+  } | null;
+  errorCode?: string | null;
+  sourceRef?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface ManualInstallerApplyRequest {
+  expectedAppVersion: number;
+  name: string;
+  publisher: string | null;
+  officialUrl: string | null;
+  latestVersion: string | null;
+  description: string | null;
+  longDescription: string | null;
+  iconUrl: string | null;
+  operatingSystem?: OperatingSystem | null;
+}
+
+export interface ManualInstallerApplyResponse {
+  application: AppDetails;
+  sourceRef: string;
+  warnings: string[];
+}
 
 export interface BundleSummary {
   id: string;

@@ -99,6 +99,21 @@ def winstall_app_url(package_id: str) -> str:
     return f"https://winstall.app/apps/{package_id}"
 
 
+def app_origin_url(app: SoftwareApp) -> str | None:
+    if not app.winstall_id.startswith("manual."):
+        return winstall_app_url(app.winstall_id)
+    source_page = next(
+        (
+            source.initial_url
+            for source in app.sources
+            if source.initial_url
+            and (source.resolver_config or {}).get("source") == "admin_manual"
+        ),
+        None,
+    )
+    return source_page or app.official_url
+
+
 def app_tags(app: SoftwareApp) -> list[str]:
     return sorted({tag.tag for tag in app.tags}, key=str.casefold)
 
@@ -146,7 +161,7 @@ def to_details(app: SoftwareApp) -> AppDetails:
             if resolved.status == ResolutionStatus.DIRECT.value
             else "Instalador obtenido desde el fallback de Winstall."
         )
-    origin_url = winstall_app_url(app.winstall_id)
+    origin_url = app_origin_url(app)
 
     return AppDetails(
         id=str(app.id),

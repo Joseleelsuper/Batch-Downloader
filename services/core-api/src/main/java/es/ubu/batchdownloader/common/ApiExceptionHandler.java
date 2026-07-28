@@ -37,6 +37,18 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    @ExceptionHandler(UnprocessableEntityException.class)
+    ResponseEntity<ApiError> unprocessable(UnprocessableEntityException exception) {
+        return ResponseEntity.unprocessableEntity()
+                .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
+    @ExceptionHandler(ServiceUnavailableException.class)
+    ResponseEntity<ApiError> unavailable(ServiceUnavailableException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
     @ExceptionHandler(RateLimitException.class)
     ResponseEntity<ApiError> rateLimited(RateLimitException exception) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)

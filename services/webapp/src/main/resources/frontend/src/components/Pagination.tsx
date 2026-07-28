@@ -39,7 +39,12 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
         })}
       </span>
       <div className="pagination-controls">
-        <button disabled={page <= 1} onClick={() => onPageChange(page - 1)} type="button">
+        <button
+          aria-label={t('catalog.pagination.previous')}
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          type="button"
+        >
           <ChevronLeft size={18} />
         </button>
         <label className="page-input-label">
@@ -56,7 +61,12 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
           />
           <span>/ {pages}</span>
         </label>
-        <button disabled={page >= pages} onClick={() => onPageChange(page + 1)} type="button">
+        <button
+          aria-label={t('catalog.pagination.next')}
+          disabled={page >= pages}
+          onClick={() => onPageChange(page + 1)}
+          type="button"
+        >
           <ChevronRight size={18} />
         </button>
       </div>

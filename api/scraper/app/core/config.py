@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     max_redirects: int = 5
     max_download_size_bytes: int = 1_500_000_000
     icon_max_bytes: int = 5_000_000
+    manual_inspection_ttl_hours: int = 24
+    manual_inspection_max_attempts: int = 4
+    manual_page_max_bytes: int = 1_000_000
     so_filter_concurrency: int = 2
     so_filter_max_attempts: int = 4
     scrape_concurrency: int = 6

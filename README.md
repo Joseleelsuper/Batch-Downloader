@@ -50,6 +50,29 @@ guardada.
 El filtro inicial de la interfaz es `available`. La URL tiene prioridad sobre la
 última selección de estado guardada en `localStorage`.
 
+## Banco de resolución manual
+
+`/admin/apps` abre por defecto la vista administrativa **Por resolver**, que
+combina `review` y `missing` sin añadir un estado público nuevo. La mesa
+maestro/detalle permite buscar y paginar aplicaciones, recuperar un análisis
+abierto tras recargar y continuar usando la creación o edición ordinaria.
+
+Para resolver una aplicación, el administrador proporciona únicamente dos URLs
+HTTPS: el instalador y su página de origen. Core exige sesión `ADMIN`, CSRF y
+audita la operación; el scraper guarda ambas URLs cifradas y encola solamente el
+identificador de inspección en `manual_installer_enrichment`. El trabajo valida
+DNS, redirects, tamaño, formato y firma, obtiene metadatos allowlisted de
+JSON-LD/OpenGraph/Twitter y genera una descripción larga en español cuando hay
+un proveedor de IA configurado.
+
+La previsualización es editable y muestra la procedencia de cada sugerencia. No
+se modifica el catálogo hasta pulsar **Guardar y publicar**. En ese momento se
+revalida el binario, se comprueba la versión optimista de la aplicación y una
+transacción crea o reutiliza la fuente, cifra el candidato `direct`/`valid` y
+deja que las proyecciones MySQL cambien `review|missing` a `available`. Un
+formato neutral exige seleccionar plataforma; nunca se inventa. La URL final
+del ejecutable no aparece en respuestas, auditorías, logs ni cargas de cola.
+
 Los pesos se descargan desde Hugging Face, pero las descripciones, metadatos y
 consultas permanecen dentro del despliegue local:
 

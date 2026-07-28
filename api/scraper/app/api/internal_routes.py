@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,17 +25,31 @@ from app.repositories.pipeline import (
 )
 from app.schemas.internal import (
     ContentEnqueueResult,
+    GenerateDescriptionRequest,
+    GenerateDescriptionResult,
     InternalSourceResolution,
+    ManualInstallerApplyRequest,
+    ManualInstallerApplyResult,
+    ManualInstallerInspectionRequest,
+    ManualInstallerInspectionView,
     SemanticDocument,
     SemanticDocumentPage,
 )
 from app.scraper.candidates import InstallerCandidate
-from app.scraper.catalog_fetcher import enqueue_descriptor_for_app
+from app.scraper.catalog_fetcher import DescriptorWorker, enqueue_descriptor_for_app
 from app.scraper.description_enricher import (
     build_embedding_metadata,
     build_embedding_text,
     embedding_content_hash,
 )
+from app.scraper.manual_installer import (
+    ManualInstallerError,
+    ManualInstallerInspectionRepository,
+    ManualInstallerTransientError,
+    apply_manual_installer,
+    inspection_view,
+)
+from app.scraper.safe_http import SafeHttpError
 from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 
 INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token"
@@ -397,3 +411,172 @@ async def enqueue_missing_descriptions(
         enqueued=enqueued,
         alreadyActive=already_active,
     )
+
+
+@internal_router.post(
+    "/content/descriptions/generate",
+    status_code=202,
+    response_model=GenerateDescriptionResult,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}, 409: {}},
+)
+async def generate_description(
+    request: GenerateDescriptionRequest,
+    background_tasks: BackgroundTasks,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> GenerateDescriptionResult:
+    catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
+    app = await catalog.get_app_by_public_id(request.app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail={"code": "app_not_found"})
+    item = await enqueue_descriptor_for_app(
+        catalog,
+        PipelineRepository(session),
+        None,
+        app,
+        force=True,
+        priority=100,
+    )
+    if not item:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "description_already_current"},
+        )
+    await session.commit()
+    background_tasks.add_task(_run_descriptor_once_background)
+    return GenerateDescriptionResult(jobId=str(item.id), status=item.status)
+
+
+@internal_router.post(
+    "/admin/apps/{app_id}/manual-installer-inspections",
+    status_code=202,
+    response_model=ManualInstallerInspectionView,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}, 409: {}, 422: {}},
+)
+async def create_manual_installer_inspection(
+    app_id: UUID,
+    request: ManualInstallerInspectionRequest,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ManualInstallerInspectionView:
+    repository = ManualInstallerInspectionRepository(
+        session,
+        UrlProtector(settings.url_protection_secret),
+        settings,
+    )
+    try:
+        inspection, _created = await repository.create_or_reuse(
+            app_id,
+            request.installer_url,
+            request.source_page_url,
+        )
+    except (ManualInstallerError, SafeHttpError) as exc:
+        raise_manual_installer_http_error(exc)
+    await session.commit()
+    return ManualInstallerInspectionView.model_validate(inspection_view(inspection))
+
+
+@internal_router.get(
+    "/admin/apps/{app_id}/manual-installer-inspections/current",
+    response_model=ManualInstallerInspectionView,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}},
+)
+async def current_manual_installer_inspection(
+    app_id: UUID,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ManualInstallerInspectionView:
+    repository = ManualInstallerInspectionRepository(
+        session,
+        UrlProtector(settings.url_protection_secret),
+        settings,
+    )
+    inspection = await repository.current(app_id)
+    if inspection is None:
+        raise HTTPException(status_code=404, detail={"code": "inspection_not_found"})
+    await session.commit()
+    return ManualInstallerInspectionView.model_validate(inspection_view(inspection))
+
+
+@internal_router.get(
+    "/admin/apps/{app_id}/manual-installer-inspections/{inspection_id}",
+    response_model=ManualInstallerInspectionView,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}},
+)
+async def get_manual_installer_inspection(
+    app_id: UUID,
+    inspection_id: UUID,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ManualInstallerInspectionView:
+    repository = ManualInstallerInspectionRepository(
+        session,
+        UrlProtector(settings.url_protection_secret),
+        settings,
+    )
+    inspection = await repository.get(app_id, inspection_id)
+    if inspection is None:
+        raise HTTPException(status_code=404, detail={"code": "inspection_not_found"})
+    await session.commit()
+    return ManualInstallerInspectionView.model_validate(inspection_view(inspection))
+
+
+@internal_router.post(
+    "/admin/apps/{app_id}/manual-installer-inspections/{inspection_id}/apply",
+    response_model=ManualInstallerApplyResult,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}, 409: {}, 422: {}, 503: {}},
+)
+async def apply_manual_installer_inspection(
+    app_id: UUID,
+    inspection_id: UUID,
+    request: ManualInstallerApplyRequest,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ManualInstallerApplyResult:
+    try:
+        app, source_ref, warnings = await apply_manual_installer(
+            session,
+            settings,
+            app_id,
+            inspection_id,
+            request,
+        )
+    except (ManualInstallerError, ManualInstallerTransientError, SafeHttpError) as exc:
+        raise_manual_installer_http_error(exc)
+    await session.commit()
+    return ManualInstallerApplyResult(
+        appId=str(app.id),
+        sourceRef=str(source_ref),
+        appVersion=app.version,
+        catalogStatus="available",
+        warnings=warnings,
+    )
+
+
+def raise_manual_installer_http_error(
+    error: ManualInstallerError | ManualInstallerTransientError | SafeHttpError,
+) -> None:
+    if isinstance(error, ManualInstallerError):
+        status_code = error.status_code
+        code = error.code
+    elif isinstance(error, ManualInstallerTransientError):
+        status_code = 503
+        code = error.code
+    else:
+        status_code = 503 if error.transient else 422
+        code = error.code
+    raise HTTPException(status_code=status_code, detail={"code": code}) from error
+
+
+async def _run_descriptor_once_background() -> None:
+    await DescriptorWorker(get_settings()).process_one()

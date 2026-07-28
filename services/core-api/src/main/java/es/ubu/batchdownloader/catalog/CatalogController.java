@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1")
 public class CatalogController {
     private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
+    private static final Set<String> PUBLIC_CATALOG_STATUSES =
+            Set.of("all", "available", "review", "missing");
     private final CatalogRepository catalog;
     private final SemanticSearchClient semanticSearch;
 
@@ -49,6 +51,7 @@ public class CatalogController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(defaultValue = "lexical") String searchMode) {
+        status = publicCatalogStatus(status);
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(pageSize, 100));
         List<String> systems = normalizedOperatingSystems(operatingSystems);
@@ -103,6 +106,7 @@ public class CatalogController {
             String sort,
             int page,
             int pageSize) {
+        status = publicCatalogStatus(status);
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(pageSize, 100));
         List<String> systems = normalizedOperatingSystems(operatingSystems);
@@ -151,6 +155,7 @@ public class CatalogController {
             @RequestParam(required = false) Integer tagMatchMin,
             @RequestParam(defaultValue = "all") String tagMode,
             @RequestParam(defaultValue = "lexical") String searchMode) {
+        status = publicCatalogStatus(status);
         SemanticCandidateSet candidates = semanticSearch.resolve(
                 CatalogSearchMode.parse(searchMode),
                 query);
@@ -184,6 +189,7 @@ public class CatalogController {
             List<String> publisher,
             Integer tagMatchMin,
             String tagMode) {
+        status = publicCatalogStatus(status);
         return catalog.facets(
                 query,
                 status,
@@ -198,6 +204,18 @@ public class CatalogController {
     @GetMapping("/apps/{appId}")
     public AppDetails details(@PathVariable String appId) {
         return catalog.details(appId);
+    }
+
+    private static String publicCatalogStatus(String status) {
+        String normalized = status == null || status.isBlank()
+                ? "all"
+                : status.trim().toLowerCase(Locale.ROOT);
+        if (!PUBLIC_CATALOG_STATUSES.contains(normalized)) {
+            throw new BadRequestException(
+                    "invalid_catalog_status",
+                    "El estado de catálogo indicado no es válido.");
+        }
+        return normalized;
     }
 
     private List<String> normalizedOperatingSystems(List<String> operatingSystems) {

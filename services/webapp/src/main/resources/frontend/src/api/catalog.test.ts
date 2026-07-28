@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDownloadJob, me } from './catalog';
+import { createDownloadJob, fetchAdminApps, me } from './catalog';
 
 describe('current identity', () => {
   afterEach(() => {
@@ -54,5 +54,28 @@ describe('current identity', () => {
       method: 'POST',
       body: JSON.stringify({ bundleId: 'bundle-1', operatingSystems: ['linux'] }),
     }));
+  });
+
+  it('envía explícitamente el filtro all al listado administrativo', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [],
+      page: 1,
+      pageSize: 12,
+      total: 0,
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+
+    await fetchAdminApps({
+      query: '',
+      filter: 'all',
+      sort: 'updated',
+      page: 1,
+      pageSize: 12,
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/admin/apps?status=all&sort=updated&page=1&pageSize=12',
+      expect.objectContaining({ credentials: 'include' }),
+    );
   });
 });

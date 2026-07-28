@@ -1,6 +1,11 @@
 package es.ubu.batchdownloader.admin;
 
+import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -37,6 +42,82 @@ public class AdminDtos {
             String resolverType,
             String resolutionStatus,
             String validationStatus) {}
+
+    public record ManualInstallerInspectionRequest(
+            @NotBlank
+            @Size(max = 2048)
+            @Pattern(regexp = "(?i)^https://.+")
+            String installerUrl,
+            @NotBlank
+            @Size(max = 2048)
+            @Pattern(regexp = "(?i)^https://.+")
+            String sourcePageUrl) {}
+
+    public record ManualFieldSuggestion(String value, String source) {}
+
+    public record ManualInstallerSuggestions(
+            ManualFieldSuggestion name,
+            ManualFieldSuggestion publisher,
+            ManualFieldSuggestion officialUrl,
+            ManualFieldSuggestion latestVersion,
+            ManualFieldSuggestion description,
+            ManualFieldSuggestion longDescription,
+            ManualFieldSuggestion iconUrl) {}
+
+    public record ManualInstallerTechnicalData(
+            String finalDomain,
+            String filename,
+            String extension,
+            String contentType,
+            Long sizeBytes,
+            String version,
+            String operatingSystem,
+            String architecture,
+            boolean platformRequired) {}
+
+    public record ManualInstallerAiState(
+            String status,
+            String provider,
+            String model) {}
+
+    public record ManualInstallerInspection(
+            String id,
+            String appId,
+            String status,
+            String phase,
+            long expectedAppVersion,
+            List<String> warnings,
+            ManualInstallerSuggestions suggestions,
+            ManualInstallerTechnicalData installer,
+            ManualInstallerAiState ai,
+            String errorCode,
+            String sourceRef,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            LocalDateTime expiresAt) {}
+
+    public record ManualInstallerApplyRequest(
+            @NotNull @PositiveOrZero Long expectedAppVersion,
+            @NotBlank @Size(max = 180) String name,
+            @Size(max = 180) String publisher,
+            @Size(max = 2048) String officialUrl,
+            @Size(max = 100) String latestVersion,
+            @Size(max = 4000) String description,
+            @Size(max = 12000) String longDescription,
+            @Size(max = 2048) String iconUrl,
+            @Pattern(regexp = "^(windows|macos|linux)$") String operatingSystem) {}
+
+    public record ManualInstallerApplyResult(
+            String appId,
+            String sourceRef,
+            long appVersion,
+            String catalogStatus,
+            List<String> warnings) {}
+
+    public record ManualInstallerApplyResponse(
+            AppDetails application,
+            String sourceRef,
+            List<String> warnings) {}
 
     public record ScraperRunSummary(
             String id,

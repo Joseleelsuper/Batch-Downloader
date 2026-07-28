@@ -76,6 +76,8 @@ class DownloadValidator:
     async def validate(
         self,
         candidate: InstallerCandidate,
+        *,
+        require_signature: bool = False,
     ) -> ValidationResult:
         try:
             parsed = urlparse(candidate.url)
@@ -86,6 +88,8 @@ class DownloadValidator:
             return self._fail(candidate.url, "unsupported_scheme")
         if not hostname:
             return self._fail(candidate.url, "missing_domain")
+        if parsed.username is not None or parsed.password is not None:
+            return self._fail(candidate.url, "url_credentials_forbidden")
         if is_github_source_archive(candidate.url):
             return self._fail(candidate.url, "github_source_archive")
         if (
@@ -106,12 +110,20 @@ class DownloadValidator:
         )
         try:
             try:
-                return await self._validate_http(client, candidate)
+                return await self._validate_http(
+                    client,
+                    candidate,
+                    require_signature=require_signature,
+                )
             except httpx.ConnectError as exc:
                 http_candidate = winstall_http_tls_fallback(candidate, exc)
                 if http_candidate is None:
                     raise
-                return await self._validate_http(client, http_candidate)
+                return await self._validate_http(
+                    client,
+                    http_candidate,
+                    require_signature=require_signature,
+                )
         finally:
             if owns_client:
                 await client.aclose()
@@ -120,6 +132,8 @@ class DownloadValidator:
         self,
         client: httpx.AsyncClient,
         candidate: InstallerCandidate,
+        *,
+        require_signature: bool,
     ) -> ValidationResult:
         current_url = candidate.url
         previous_url: str | None = None
@@ -150,6 +164,8 @@ class DownloadValidator:
                     return self._fail(current_url, "redirect_unsupported_scheme")
                 if not hostname:
                     return self._fail(current_url, "redirect_missing_domain")
+                if parsed.username is not None or parsed.password is not None:
+                    return self._fail(current_url, "redirect_url_credentials_forbidden")
                 if is_github_source_archive(current_url):
                     return self._fail(current_url, "redirect_github_source_archive")
                 if (
@@ -220,6 +236,32 @@ class DownloadValidator:
                 return self._fail(current_url, "missing_installer_extension")
             filename = filename or filename_for_inferred_extension(current_url, extension)
             looks_binary = True
+        if require_signature:
+            artifact_format = self.formats.get(extension)
+            if artifact_format is None:
+                return self._fail(current_url, "unsupported_installer_format")
+            signature_response = signature_response or response
+            if artifact_format.signatures:
+                if not signature_response.content:
+                    signature_response = await request_partial(
+                        client,
+                        current_url,
+                        referer=previous_url
+                        or same_site_referer(current_url, candidate.referer),
+                    )
+                if signature_response.status_code >= 400:
+                    return self._fail(
+                        current_url,
+                        f"http_{signature_response.status_code}",
+                    )
+                if not self.formats.matches_signature(extension, signature_response.content):
+                    return self._fail(current_url, "installer_signature_mismatch")
+            elif (
+                content_type not in set(artifact_format.media_types)
+                and content_type not in GENERIC_BINARY_MEDIA_TYPES
+                and "attachment" not in disposition
+            ):
+                return self._fail(current_url, "installer_content_type_mismatch")
         if not looks_binary:
             signature_response = signature_response or response
             if not signature_response.content:

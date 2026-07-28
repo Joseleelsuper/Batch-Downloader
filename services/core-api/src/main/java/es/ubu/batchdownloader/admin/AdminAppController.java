@@ -4,6 +4,11 @@ import es.ubu.batchdownloader.admin.AdminDtos.PatchAppRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.ReplaceTagsRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.UpsertAppRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyResponse;
+import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyResult;
+import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
+import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspectionRequest;
 import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
@@ -52,7 +57,7 @@ public class AdminAppController {
     @GetMapping("/api/admin/apps")
     public AppSearchResponse listApps(
             @RequestParam(required = false) String query,
-            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "unresolved") String status,
             @RequestParam(required = false, name = "os") String operatingSystem,
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false) String tags,
@@ -146,7 +151,7 @@ public class AdminAppController {
             @PathVariable String sourceId,
             @RequestBody PatchSourceRequest request,
             Principal principal) {
-        adminApps.patchSource(sourceId, request);
+        adminApps.patchSource(appId, sourceId, request);
         audit.record(actor(principal), "app.source.update", "source", sourceId, Map.of("appId", appId));
     }
 
@@ -164,6 +169,62 @@ public class AdminAppController {
                         "jobId", payload.jobId(),
                         "status", payload.status()));
         return ResponseEntity.accepted().body(payload);
+    }
+
+    @PostMapping("/api/admin/apps/{appId}/manual-installer-inspections")
+    public ResponseEntity<ManualInstallerInspection> createManualInstallerInspection(
+            @PathVariable String appId,
+            @Valid @RequestBody ManualInstallerInspectionRequest request,
+            Principal principal) {
+        ManualInstallerInspection inspection =
+                scraperClient.createManualInstallerInspection(appId, request);
+        audit.record(
+                actor(principal),
+                "app.manual_installer.inspect",
+                "app",
+                appId,
+                Map.of(
+                        "inspectionId", inspection.id(),
+                        "status", inspection.status()));
+        return ResponseEntity.accepted().body(inspection);
+    }
+
+    @GetMapping("/api/admin/apps/{appId}/manual-installer-inspections/current")
+    public ManualInstallerInspection currentManualInstallerInspection(
+            @PathVariable String appId) {
+        return scraperClient.currentManualInstallerInspection(appId);
+    }
+
+    @GetMapping("/api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}")
+    public ManualInstallerInspection manualInstallerInspection(
+            @PathVariable String appId,
+            @PathVariable String inspectionId) {
+        return scraperClient.manualInstallerInspection(appId, inspectionId);
+    }
+
+    @PostMapping(
+            "/api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply")
+    public ManualInstallerApplyResponse applyManualInstallerInspection(
+            @PathVariable String appId,
+            @PathVariable String inspectionId,
+            @Valid @RequestBody ManualInstallerApplyRequest request,
+            Principal principal) {
+        ManualInstallerApplyResult result =
+                scraperClient.applyManualInstallerInspection(appId, inspectionId, request);
+        AppDetails application = catalog.details(result.appId());
+        audit.record(
+                actor(principal),
+                "app.manual_installer.apply",
+                "app",
+                result.appId(),
+                Map.of(
+                        "inspectionId", inspectionId,
+                        "sourceRef", result.sourceRef(),
+                        "catalogStatus", result.catalogStatus()));
+        return new ManualInstallerApplyResponse(
+                application,
+                result.sourceRef(),
+                result.warnings());
     }
 
     private String actor(Principal principal) {

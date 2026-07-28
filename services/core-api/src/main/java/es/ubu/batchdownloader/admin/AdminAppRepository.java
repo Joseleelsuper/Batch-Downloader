@@ -173,7 +173,8 @@ public class AdminAppRepository {
     }
 
     @Transactional
-    public void patchSource(String sourceId, PatchSourceRequest request) {
+    public void patchSource(String appId, String sourceId, PatchSourceRequest request) {
+        UUID applicationId = softwareAppId(appId);
         UUID id = parseUuid(sourceId);
         int updated = jdbc.update(
                 """
@@ -186,7 +187,7 @@ public class AdminAppRepository {
                     validation_status = COALESCE(?, validation_status),
                     updated_at = ?,
                     version = version + 1
-                WHERE id = ?
+                WHERE id = ? AND software_app_id = ?
                 """,
                 blankToNull(request.operatingSystem()),
                 blankToNull(request.architecture()),
@@ -195,7 +196,8 @@ public class AdminAppRepository {
                 blankToNull(request.resolutionStatus()),
                 blankToNull(request.validationStatus()),
                 LocalDateTime.now(),
-                UuidBytes.fromUuid(id));
+                UuidBytes.fromUuid(id),
+                UuidBytes.fromUuid(applicationId));
         if (updated == 0) {
             throw new NotFoundException("source_not_found", "La fuente no existe.");
         }

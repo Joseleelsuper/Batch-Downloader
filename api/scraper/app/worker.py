@@ -35,6 +35,7 @@ from app.scraper.catalog_fetcher import (
     known_official_candidates,
     resolved_metadata,
 )
+from app.scraper.manual_installer import ManualInstallerWorker
 from app.scraper.validator import DownloadValidator
 from app.scraper.winstall import WinstallClient
 
@@ -60,7 +61,16 @@ class ContentEnrichmentSupervisor:
                 orphaned=orphaned,
             )
 
-        workers = [asyncio.create_task(self._consume_descriptions(), name="descriptor-supervisor")]
+        workers = [
+            asyncio.create_task(
+                self._consume_descriptions(),
+                name="descriptor-supervisor",
+            ),
+            asyncio.create_task(
+                self._consume_manual_installers(),
+                name="manual-installer-supervisor",
+            ),
+        ]
         workers.extend(
             asyncio.create_task(
                 self._consume_so_filters(index),
@@ -84,6 +94,13 @@ class ContentEnrichmentSupervisor:
             if not worker.llm.has_provider():
                 await asyncio.sleep(15)
                 continue
+            processed = await worker.process_one()
+            if not processed:
+                await asyncio.sleep(1)
+
+    async def _consume_manual_installers(self) -> None:
+        worker = ManualInstallerWorker(self.settings)
+        while True:
             processed = await worker.process_one()
             if not processed:
                 await asyncio.sleep(1)

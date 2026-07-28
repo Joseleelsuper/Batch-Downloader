@@ -746,6 +746,160 @@ paths:
           description: El catálogo no ha cambiado.
         '400':
           $ref: '#/components/responses/BadRequest'
+  /api/admin/apps:
+    servers:
+      - url: /
+    get:
+      operationId: listAdminApps
+      summary: Listar aplicaciones para la mesa de administración
+      tags: [Apps admin]
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: unresolved se resuelve internamente como review OR missing.
+          schema:
+            type: string
+            enum: [all, unresolved, available, review, missing]
+            default: unresolved
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, updated, downloads]
+            default: updated
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Página administrativa de aplicaciones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/admin/apps/{appId}/manual-installer-inspections:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    post:
+      operationId: createManualInstallerInspection
+      summary: Encolar una inspección manual de instalador
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualInstallerInspectionRequest'
+      responses:
+        '202':
+          description: Inspección encolada o envío idéntico reutilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerInspection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/apps/{appId}/manual-installer-inspections/current:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      operationId: getCurrentManualInstallerInspection
+      summary: Recuperar la inspección manual abierta más reciente
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Inspección abierta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerInspection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+      - $ref: '#/components/parameters/InspectionId'
+    get:
+      operationId: getManualInstallerInspection
+      summary: Consultar progreso y previsualización de una inspección manual
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Estado seguro de la inspección; nunca contiene la URL final.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerInspection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+      - $ref: '#/components/parameters/InspectionId'
+    post:
+      operationId: applyManualInstallerInspection
+      summary: Revalidar, guardar y publicar una inspección manual
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualInstallerApplyRequest'
+      responses:
+        '200':
+          description: Aplicación publicada atómicamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerApplyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   securitySchemes:
     sessionCookie:
@@ -795,6 +949,13 @@ components:
       schema:
         type: string
         format: uuid
+    InspectionId:
+      name: inspectionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     CsrfToken:
       name: X-XSRF-TOKEN
       in: header
@@ -822,6 +983,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: La sesión no tiene permisos de administración.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     NotFound:
       description: Recurso no encontrado.
       content:
@@ -830,6 +997,18 @@ components:
             $ref: '#/components/schemas/Problem'
     Conflict:
       description: El estado actual impide la operación.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnprocessableEntity:
+      description: La URL o el instalador no superan la validación segura.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Un fallo transitorio impide completar la operación.
       content:
         application/problem+json:
           schema:
@@ -972,6 +1151,230 @@ components:
                 $ref: '#/components/schemas/DownloadOption'
             notes:
               type: string
+    ManualInstallerInspectionRequest:
+      type: object
+      additionalProperties: false
+      required: [installerUrl, sourcePageUrl]
+      properties:
+        installerUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: URI del ejecutable. Se cifra y nunca se devuelve.
+        sourcePageUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: Página superior de la que procede el instalador.
+    ManualFieldSuggestion:
+      type: object
+      additionalProperties: false
+      required: [value, source]
+      properties:
+        value:
+          type: [string, 'null']
+        source:
+          type: string
+          enum:
+            - current
+            - json_ld
+            - open_graph
+            - twitter
+            - canonical
+            - filename
+            - generated_ai
+            - manual
+            - source_page
+            - unavailable
+    ManualInstallerSuggestions:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - publisher
+        - officialUrl
+        - latestVersion
+        - description
+        - longDescription
+        - iconUrl
+      properties:
+        name:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        publisher:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        officialUrl:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        latestVersion:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        description:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        longDescription:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        iconUrl:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+    ManualInstallerTechnicalData:
+      type: object
+      additionalProperties: false
+      required:
+        - finalDomain
+        - filename
+        - extension
+        - contentType
+        - sizeBytes
+        - version
+        - operatingSystem
+        - architecture
+        - platformRequired
+      properties:
+        finalDomain:
+          type: [string, 'null']
+        filename:
+          type: [string, 'null']
+        extension:
+          type: [string, 'null']
+        contentType:
+          type: [string, 'null']
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+        version:
+          type: [string, 'null']
+        operatingSystem:
+          type: [string, 'null']
+          enum: [windows, macos, linux, null]
+        architecture:
+          type: string
+          enum: [x86_64, x86, aarch64, unknown]
+        platformRequired:
+          type: boolean
+    ManualInstallerAiState:
+      type: object
+      additionalProperties: false
+      required: [status, provider, model]
+      properties:
+        status:
+          type: string
+          enum: [ready, unavailable, failed]
+        provider:
+          type: [string, 'null']
+        model:
+          type: [string, 'null']
+    ManualInstallerInspection:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - appId
+        - status
+        - phase
+        - expectedAppVersion
+        - warnings
+        - suggestions
+        - installer
+        - ai
+        - errorCode
+        - sourceRef
+        - createdAt
+        - updatedAt
+        - expiresAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        appId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, ready, failed, applied, expired]
+        phase:
+          type: string
+        expectedAppVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        warnings:
+          type: array
+          items:
+            type: string
+        suggestions:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerSuggestions'
+            - type: 'null'
+        installer:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerTechnicalData'
+            - type: 'null'
+        ai:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerAiState'
+            - type: 'null'
+        errorCode:
+          type: [string, 'null']
+        sourceRef:
+          type: [string, 'null']
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    ManualInstallerApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedAppVersion, name]
+      properties:
+        expectedAppVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        publisher:
+          type: [string, 'null']
+          maxLength: 180
+        officialUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        latestVersion:
+          type: [string, 'null']
+          maxLength: 100
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        longDescription:
+          type: [string, 'null']
+          maxLength: 12000
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        operatingSystem:
+          type: [string, 'null']
+          enum: [windows, macos, linux, null]
+    ManualInstallerApplyResponse:
+      type: object
+      additionalProperties: false
+      required: [application, sourceRef, warnings]
+      properties:
+        application:
+          $ref: '#/components/schemas/AppDetails'
+        sourceRef:
+          type: string
+          format: uuid
+        warnings:
+          type: array
+          items:
+            type: string
     DownloadOption:
       type: object
       required: [id, operatingSystem, architecture, isLatest, sourceLabel, score, isPrimary]

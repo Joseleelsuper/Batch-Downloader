@@ -289,6 +289,49 @@ class ScraperCommand(Base):
     __table_args__ = (Index("ix_scraper_commands_status_created", "status", "created_at"),)
 
 
+class ManualInstallerInspection(Base, TimestampMixin):
+    """Persisted, recoverable preview for an administrator-supplied installer.
+
+    Input URLs are deliberately kept outside ``result_json`` so API serializers,
+    queue payloads, logs, and snapshots cannot expose them accidentally.
+    """
+
+    __tablename__ = "manual_installer_inspections"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    software_app_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("software_apps.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    captured_app_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    installer_url_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    source_page_url_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    result_json: Mapped[dict | None] = mapped_column(JSON)
+    warnings_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    applied_app_version: Mapped[int | None] = mapped_column(BigInteger)
+    source_ref: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(),
+        ForeignKey("resolved_sources.id", ondelete="SET NULL"),
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_manual_installer_inspections_app_status",
+            "software_app_id",
+            "status",
+            "created_at",
+        ),
+        Index("ix_manual_installer_inspections_expires", "expires_at"),
+    )
+
+
 class ScraperWorkItem(Base, TimestampMixin):
     __tablename__ = "scraper_work_items"
 

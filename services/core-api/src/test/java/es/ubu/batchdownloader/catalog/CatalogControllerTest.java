@@ -1,5 +1,6 @@
 package es.ubu.batchdownloader.catalog;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -8,6 +9,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import es.ubu.batchdownloader.common.BadRequestException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -77,5 +79,27 @@ class CatalogControllerTest {
                 eq(List.of("Code Sector")),
                 eq(1),
                 eq("all"));
+    }
+
+    @Test
+    void unresolvedRemainsAnAdministrativeFilterAndIsRejectedPublicly() {
+        CatalogController controller = new CatalogController(catalog);
+
+        assertThatThrownBy(() -> controller.apps(
+                        null,
+                        "unresolved",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "all",
+                        "name",
+                        1,
+                        20))
+                .isInstanceOf(BadRequestException.class)
+                .extracting(exception -> ((BadRequestException) exception).code())
+                .isEqualTo("invalid_catalog_status");
     }
 }

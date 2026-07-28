@@ -115,6 +115,122 @@ async def test_validator_accepts_github_release_asset_redirect(monkeypatch) -> N
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_validator_blocks_a_public_to_private_redirect(monkeypatch) -> None:
+    async def public_dns(hostname: str | None) -> bool:
+        return hostname == "downloads.example.com"
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            302,
+            headers={"location": "https://127.0.0.1/private/AppSetup.exe"},
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="admin_manual", label="installer setup"),
+        require_signature=True,
+    )
+
+    assert result.ok is False
+    assert result.reason == "redirect_dns_not_public"
+    assert len(respx.calls) == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_validator_rejects_redirect_credentials_before_following(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            302,
+            headers={
+                "location": "https://user:secret@cdn.example.com/AppSetup.exe",
+            },
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="admin_manual", label="installer setup"),
+        require_signature=True,
+    )
+
+    assert result.ok is False
+    assert result.reason == "redirect_url_credentials_forbidden"
+    assert len(respx.calls) == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_manual_validator_requires_a_signature_even_for_binary_content_type(
+    monkeypatch,
+) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/octet-stream", "content-length": "4096"},
+        )
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            206,
+            headers={"content-type": "application/octet-stream"},
+            content=b"<html>not an executable</html>",
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="admin_manual", label="installer setup"),
+        require_signature=True,
+    )
+
+    assert result.ok is False
+    assert result.reason == "installer_signature_mismatch"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_manual_validator_accepts_a_matching_signature(monkeypatch) -> None:
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.example.com/AppSetup.exe"
+    respx.head(url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "application/octet-stream", "content-length": "4096"},
+        )
+    )
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            206,
+            headers={"content-type": "application/octet-stream"},
+            content=b"MZ" + b"\x00" * 32,
+        )
+    )
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(url=url, source="admin_manual", label="installer setup"),
+        require_signature=True,
+    )
+
+    assert result.ok is True
+    assert result.confidence == ValidationConfidence.VALIDATED
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_validator_preserves_candidate_filename_when_redirect_hides_it(monkeypatch) -> None:
     async def public_dns(_hostname: str | None) -> bool:
         return True

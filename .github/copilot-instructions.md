@@ -4,7 +4,7 @@
 - Monorepo: `services/core-api` (Spring API pública), `api/scraper` (FastAPI + scheduler), `services/download-worker`, `notification-service`, `translation-service`, `semantic-service` y React/Vite bajo `services/webapp/src/main/resources/frontend`.
 - Nginx expone `http://localhost:3000` y enruta `/api/*` a Core; el scraper solo se consume mediante `/internal/v1/*` con `X-Internal-Service-Token`.
 - Alembic (`api/scraper/alembic`) es dueño de catálogo, fuentes y pipeline; Flyway (`services/core-api/.../db/migration`) es dueño de identidad, bundles, jobs y outbox. No mezcles propietarios en una migración.
-- Pipeline persistente: `searcher_filter -> filter_scraper -> scraper_so_filter -> so_filter_descriptor`. Cada etapa usa leases/reintentos; una parada es cooperativa y conserva las colas.
+- Pipeline persistente: `searcher_filter -> filter_scraper -> scraper_so_filter -> so_filter_descriptor`, más `manual_installer_enrichment` con concurrencia uno. Cada etapa usa leases/reintentos; una parada es cooperativa y conserva las colas.
 - `SO Filter` proyecta `software_apps.operating_systems_json`; Core lo usa para iconos y filtro OR. La disponibilidad y creación de jobs siguen exigiendo una fuente previamente `VALIDATED`.
 - Los iconos GitHub se resuelven dentro del scraper normal; no recrees una cola, worker ni botón administrativo de iconos.
 - Descargas: Core persiste job+items+outbox, RabbitMQ transporta solo IDs, el worker pide la URL al scraper (revalidación inmediata), genera ZIP en MinIO y Core entrega un `303` firmado con `MINIO_PUBLIC_ENDPOINT`.
@@ -23,6 +23,8 @@
 - Mantén `/api/v1` coordinado entre controladores, `shared/contracts/openapi`, tipos TypeScript y traducciones `es.json`/`template.json` (deben tener exactamente las mismas claves).
 - En el scraper conserva `WinstallClient` (API, `__NEXT_DATA__`, HTML), `DownloadValidator` para DNS/IP/redirecciones/MIME/tamaño y URLs cifradas mediante `SCRAPPER_URL_PROTECTION_SECRET`.
 - Nunca registres URLs firmadas o resueltas, cookies, tokens, prompts/respuestas LLM ni contenido de instaladores.
+- La resolución manual vive detrás de Core en `/api/admin/apps/**`; el scraper expone solo equivalentes autenticados bajo `/internal/v1/**`. Cifra las dos URLs de entrada y transporta únicamente `inspection_id` en la cola. La previsualización no escribe catálogo y `apply` debe revalidar, comprobar `expectedAppVersion` y publicar en una transacción.
+- `unresolved` es un filtro administrativo calculado como `review OR missing`; nunca lo aceptes como estado de `/api/v1/apps` ni lo persistas en `catalog_status`.
 - El catálogo es server-side: filtros, facetas, paginación y ranking viven en Core; evita una consulta por fila y conserva la semántica OR de `operatingSystems`.
 - `searchMode` solo admite `lexical` y `semantic`; omitirlo en la API equivale a `lexical`. El modo semántico debe ordenar exclusivamente la colección producida por embeddings y degradar la petición completa a literal ante timeout, 401, 5xx, índice incompleto o más de 20.000 candidatos. Ese techo debe mantenerse por encima del catálogo público para que MySQL pueda aplicar filtros, facetas y paginación sobre una enumeración semántica completa.
 - No mezcles ranking literal y semántico en las consultas del catálogo ni publiques totales o facetas con un alcance semántico parcial.

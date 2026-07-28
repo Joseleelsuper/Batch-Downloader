@@ -1,5 +1,6 @@
 import type {
   AppDetails,
+  AdminAppFilter,
   AuditItem,
   AuthUser,
   BundleDetails,
@@ -20,6 +21,9 @@ import type {
   ScraperSnapshotItem,
   SoftwareRequestItem,
   OperatingSystem,
+  ManualInstallerApplyRequest,
+  ManualInstallerApplyResponse,
+  ManualInstallerInspection,
   SearchMode,
   SortKey,
 } from '../types/catalog';
@@ -316,18 +320,19 @@ export async function me(): Promise<AuthUser | null> {
 
 export async function fetchAdminApps(params: {
   query: string;
-  filter: FilterKey;
+  filter: AdminAppFilter;
   sort: SortKey;
   page: number;
   pageSize: number;
-}): Promise<CatalogResponse> {
+}, signal?: AbortSignal): Promise<CatalogResponse> {
   const search = new URLSearchParams();
   if (params.query.trim()) search.set('query', params.query.trim());
-  if (params.filter !== 'all') search.set('status', params.filter);
+  // The admin endpoint defaults to `unresolved`, so `all` must be explicit.
+  search.set('status', params.filter);
   search.set('sort', params.sort);
   search.set('page', String(params.page));
   search.set('pageSize', String(params.pageSize));
-  return requestJson<CatalogResponse>(`/api/admin/apps?${search.toString()}`);
+  return requestJson<CatalogResponse>(`/api/admin/apps?${search.toString()}`, { signal });
 }
 
 export async function createAdminApp(payload: Record<string, unknown>): Promise<AppDetails> {
@@ -410,6 +415,54 @@ export async function generateAdminDescription(appId: string): Promise<{ jobId: 
   return requestJson<{ jobId: string; status: string }>(
     `/api/admin/apps/${encodeURIComponent(appId)}/generate-description`,
     { method: 'POST' },
+  );
+}
+
+export async function createManualInstallerInspection(
+  appId: string,
+  payload: { installerUrl: string; sourcePageUrl: string },
+): Promise<ManualInstallerInspection> {
+  return requestJson<ManualInstallerInspection>(
+    `/api/admin/apps/${encodeURIComponent(appId)}/manual-installer-inspections`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function fetchCurrentManualInstallerInspection(
+  appId: string,
+  signal?: AbortSignal,
+): Promise<ManualInstallerInspection> {
+  return requestJson<ManualInstallerInspection>(
+    `/api/admin/apps/${encodeURIComponent(appId)}/manual-installer-inspections/current`,
+    { signal },
+  );
+}
+
+export async function fetchManualInstallerInspection(
+  appId: string,
+  inspectionId: string,
+  signal?: AbortSignal,
+): Promise<ManualInstallerInspection> {
+  return requestJson<ManualInstallerInspection>(
+    `/api/admin/apps/${encodeURIComponent(appId)}/manual-installer-inspections/${encodeURIComponent(inspectionId)}`,
+    { signal },
+  );
+}
+
+export async function applyManualInstallerInspection(
+  appId: string,
+  inspectionId: string,
+  payload: ManualInstallerApplyRequest,
+): Promise<ManualInstallerApplyResponse> {
+  return requestJson<ManualInstallerApplyResponse>(
+    `/api/admin/apps/${encodeURIComponent(appId)}/manual-installer-inspections/${encodeURIComponent(inspectionId)}/apply`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
   );
 }
 

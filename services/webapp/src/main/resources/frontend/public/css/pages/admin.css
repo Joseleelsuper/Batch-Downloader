@@ -386,4 +386,933 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-apps-page {
+  display: grid;
+  gap: 14px;
+  min-height: calc(100vh - 48px);
+}
+
+.admin-apps-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.admin-apps-toolbar h2,
+.admin-apps-toolbar p {
+  margin: 0;
+}
+
+.admin-apps-toolbar h2 {
+  color: #14243d;
+  font-size: clamp(28px, 3vw, 36px);
+  letter-spacing: -0.025em;
+}
+
+.admin-apps-toolbar p {
+  max-width: 68ch;
+  margin-top: 4px;
+  color: #526175;
+  line-height: 1.5;
+}
+
+.admin-apps-notice,
+.admin-apps-error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.admin-apps-notice {
+  color: #075f59;
+  background: #e6f8f6;
+  border: 1px solid #9edbd6;
+}
+
+.admin-apps-error {
+  color: #8f2438;
+  background: #fff1f3;
+  border: 1px solid #f6b8c4;
+}
+
+.admin-apps-workbench {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.82fr) minmax(470px, 1.18fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.admin-apps-master,
+.admin-apps-detail {
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #dbe4ea;
+  border-radius: 14px;
+}
+
+.admin-apps-master {
+  display: grid;
+  grid-template-rows: auto auto minmax(280px, 1fr) auto;
+  height: calc(100vh - 158px);
+  min-height: 560px;
+  overflow: hidden;
+}
+
+.admin-app-filters {
+  display: flex;
+  gap: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid #e3eaef;
+}
+
+.admin-app-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px;
+  color: #3b4a5f;
+  white-space: nowrap;
+  background: #f4f7f9;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.admin-app-filters button strong {
+  min-width: 20px;
+  padding: 2px 6px;
+  color: #526175;
+  background: #ffffff;
+  border-radius: 999px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.admin-app-filters .admin-app-filter-active {
+  color: #075f59;
+  background: #dff5f3;
+  border-color: #91d5cf;
+}
+
+.admin-app-search {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 12px;
+  padding: 0 11px;
+  color: #526175;
+  background: #f8fafb;
+  border: 1px solid #cdd9e0;
+  border-radius: 9px;
+}
+
+.admin-app-search input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0;
+  color: #152238;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.admin-app-search:focus-within {
+  border-color: var(--teal);
+  outline: 3px solid rgb(15 139 133 / 18%);
+  outline-offset: 1px;
+}
+
+.admin-app-list {
+  min-height: 0;
+  padding: 0 8px 8px;
+  overflow-y: auto;
+}
+
+.admin-app-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 12px;
+  width: 100%;
+  min-height: 62px;
+  padding: 8px 10px;
+  color: #14243d;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #edf1f4;
+  border-radius: 9px;
+}
+
+.admin-app-row-icon {
+  display: grid;
+  grid-column: 1;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  background: #f3f7f8;
+  border: 1px solid #e1e9ed;
+  border-radius: 9px;
+}
+
+.app-mini-icon {
+  display: block;
+  width: 32px;
+  height: 32px;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+.app-mini-icon-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #075f59;
+  background: #dff5f3;
+  font-size: 14px;
+  font-weight: 780;
+}
+
+.admin-app-row:hover {
+  background: #f4f9f9;
+}
+
+.admin-app-row[aria-selected="true"] {
+  background: #e1f5f3;
+  box-shadow: inset 0 0 0 1px #8ccfca;
+}
+
+.admin-app-row-copy {
+  display: grid;
+  grid-column: 2;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.admin-app-row > .status-badge {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.admin-app-row-copy strong,
+.admin-app-row-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app-row-copy strong {
+  font-size: 14px;
+}
+
+.admin-app-row-copy small {
+  color: #5a687a;
+  font-size: 12px;
+}
+
+.admin-app-list-state {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 260px;
+  padding: 28px;
+  color: #526175;
+  text-align: center;
+}
+
+.admin-app-list-state strong,
+.admin-app-list-state p {
+  margin: 0;
+}
+
+.admin-app-list-state strong {
+  color: #1d2d45;
+}
+
+.admin-apps-master .pagination {
+  border-top: 1px solid #e3eaef;
+  border-radius: 0;
+}
+
+.admin-apps-detail {
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  animation: admin-detail-enter 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes admin-detail-enter {
+  from {
+    opacity: 0.96;
+    filter: blur(2px);
+    transform: translateY(5px);
+  }
+}
+
+.admin-app-detail-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 420px;
+  padding: 40px;
+  color: #526175;
+  text-align: center;
+}
+
+.admin-app-detail-empty h3,
+.admin-app-detail-empty p {
+  margin: 0;
+}
+
+.admin-app-detail-empty h3 {
+  color: #1d2d45;
+}
+
+.admin-app-detail-empty p {
+  max-width: 48ch;
+  line-height: 1.55;
+}
+
+.admin-app-editor {
+  display: grid;
+  gap: 0;
+}
+
+.admin-app-editor-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #e3eaef;
+}
+
+.admin-app-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.admin-app-editor-title div {
+  min-width: 0;
+}
+
+.admin-app-editor-title span {
+  color: #5b697b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-app-editor-title h3 {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #14243d;
+  font-size: 21px;
+  letter-spacing: -0.018em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app-editor-header > small {
+  max-width: 150px;
+  overflow: hidden;
+  color: #69778a;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-editor-icon {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 11px;
+}
+
+.admin-editor-icon-fallback {
+  display: grid;
+  place-items: center;
+  color: #075f59;
+  background: #dff5f3;
+  font-size: 18px;
+  font-weight: 780;
+}
+
+.admin-app-back {
+  display: none;
+}
+
+.admin-app-editor-section {
+  display: grid;
+  gap: 13px;
+  min-width: 0;
+  margin: 0;
+  padding: 18px 20px 20px;
+  border: 0;
+  border-bottom: 1px solid #e8edf1;
+}
+
+.admin-app-editor-section legend {
+  padding: 18px 0 0;
+  color: #26364d;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.admin-app-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.admin-app-form-grid .admin-app-field:last-child {
+  grid-column: 1 / -1;
+}
+
+.admin-app-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #34445a;
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.admin-app-field > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.admin-app-field input,
+.admin-app-field textarea,
+.manual-installer-form input,
+.manual-platform-field select,
+.admin-danger-dialog input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 11px;
+  color: #152238;
+  background: #ffffff;
+  border: 1px solid #cbd6de;
+  border-radius: 8px;
+  outline: 0;
+}
+
+.admin-app-field textarea {
+  min-height: 96px;
+  padding-top: 10px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.admin-app-field input:focus,
+.admin-app-field textarea:focus,
+.manual-installer-form input:focus,
+.manual-platform-field select:focus,
+.admin-danger-dialog input:focus {
+  border-color: var(--teal);
+  outline: 3px solid rgb(15 139 133 / 18%);
+  outline-offset: 1px;
+}
+
+.provenance-badge {
+  padding: 2px 7px;
+  color: #526175;
+  white-space: nowrap;
+  background: #eef2f5;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.provenance-generated_ai {
+  color: #5b2b83;
+  background: #f2e9fb;
+}
+
+.provenance-current {
+  color: #365164;
+  background: #edf3f6;
+}
+
+.provenance-manual {
+  color: #7a4b0c;
+  background: #fff1d6;
+}
+
+.admin-app-field input:disabled,
+.admin-app-field textarea:disabled {
+  color: #687785;
+  background: #f3f6f7;
+  cursor: wait;
+}
+
+.manual-installer-panel {
+  display: grid;
+  gap: 14px;
+  margin: 18px 20px;
+  padding: 18px;
+  color: #25364b;
+  background: #eff9f8;
+  border: 1px solid #addbd7;
+  border-radius: 13px;
+}
+
+.manual-installer-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.manual-installer-heading span {
+  color: #19736d;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.manual-installer-heading h4,
+.manual-installer-panel > p {
+  margin: 0;
+}
+
+.manual-installer-heading h4 {
+  margin-top: 2px;
+  color: #143e3b;
+  font-size: 18px;
+  letter-spacing: -0.012em;
+}
+
+.manual-installer-panel > p {
+  max-width: 68ch;
+  color: #45615f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.inspection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  color: #46566b;
+  white-space: nowrap;
+  background: #ffffff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 730;
+}
+
+.inspection-status-ready,
+.inspection-status-applied {
+  color: #08635b;
+  background: #d9f3ef;
+}
+
+.inspection-status-failed,
+.inspection-status-expired {
+  color: #92283b;
+  background: #ffe4e9;
+}
+
+.manual-installer-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.manual-installer-steps span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #627271;
+  font-size: 11px;
+  font-weight: 660;
+}
+
+.manual-installer-steps strong {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  color: #526b69;
+  background: #dceae9;
+  border-radius: 999px;
+}
+
+.manual-installer-steps .is-current {
+  color: #075f59;
+}
+
+.manual-installer-steps .is-current strong {
+  color: #ffffff;
+  background: var(--teal);
+}
+
+.manual-installer-steps .is-complete strong {
+  color: #075f59;
+  background: #bce5e1;
+}
+
+.manual-installer-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.42fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.manual-installer-form label {
+  color: #304a48;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.manual-installer-form small {
+  grid-column: 2;
+  color: #58706e;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.manual-installer-form button {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 4px;
+}
+
+.inspection-progress,
+.inspection-failure,
+.inspection-warnings {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  background: #ffffff;
+  border-radius: 9px;
+}
+
+.inspection-progress div,
+.inspection-failure {
+  display: grid;
+  gap: 2px;
+}
+
+.inspection-progress strong,
+.inspection-failure strong,
+.inspection-warnings strong {
+  color: #264643;
+  font-size: 12px;
+}
+
+.inspection-progress span,
+.inspection-failure span,
+.inspection-warnings li {
+  color: #58706e;
+  font-size: 11px;
+}
+
+.inspection-failure {
+  color: #8f2438;
+  background: #fff0f3;
+}
+
+.inspection-failure strong,
+.inspection-failure span {
+  color: inherit;
+}
+
+.inspection-warnings {
+  display: block;
+}
+
+.inspection-warnings ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.installer-evidence {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid #c3e1de;
+}
+
+.installer-evidence > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.installer-evidence h5 {
+  margin: 0;
+  color: #214a46;
+  font-size: 13px;
+}
+
+.installer-evidence > div > span {
+  color: #075f59;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.installer-evidence dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  background: #d9e8e6;
+  border-radius: 9px;
+}
+
+.installer-evidence dl div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: #ffffff;
+}
+
+.installer-evidence dt {
+  color: #667875;
+  font-size: 10px;
+}
+
+.installer-evidence dd {
+  margin: 0;
+  overflow: hidden;
+  color: #263d3a;
+  font-size: 12px;
+  font-weight: 690;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-provenance {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #583275;
+  font-size: 11px;
+}
+
+.manual-platform-field {
+  display: grid;
+  gap: 6px;
+  max-width: 320px;
+  color: #304a48;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.manual-platform-field small {
+  color: #58706e;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.manual-publish-button {
+  justify-self: start;
+}
+
+.admin-app-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 18px 20px 20px;
+}
+
+.admin-app-write-lock {
+  flex-basis: 100%;
+  margin: 0;
+  color: #476461;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-apps-page button:focus-visible,
+.admin-apps-page input:focus-visible,
+.admin-apps-page textarea:focus-visible,
+.admin-apps-page select:focus-visible,
+.admin-danger-dialog button:focus-visible {
+  outline: 3px solid rgb(15 139 133 / 28%);
+  outline-offset: 2px;
+}
+
+.admin-danger-dialog {
+  width: min(480px, calc(100vw - 32px));
+  padding: 0;
+  color: #27354a;
+  background: #ffffff;
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgb(24 35 52 / 28%);
+}
+
+.admin-danger-dialog::backdrop {
+  background: rgb(20 32 50 / 52%);
+}
+
+.admin-danger-dialog form {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+
+.admin-danger-dialog h3,
+.admin-danger-dialog p {
+  margin: 0;
+}
+
+.admin-danger-dialog h3 {
+  color: #8f2438;
+}
+
+.admin-danger-dialog p {
+  margin-top: 6px;
+  color: #5f3c45;
+  line-height: 1.5;
+}
+
+.admin-danger-dialog label {
+  color: #3c4658;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.spin {
+  animation: admin-spin 900ms linear infinite;
+}
+
+@keyframes admin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 980px) {
+  .admin-apps-workbench {
+    display: block;
+  }
+
+  .admin-apps-master {
+    height: auto;
+    min-height: 520px;
+  }
+
+  .admin-apps-detail {
+    display: none;
+    position: static;
+    max-height: none;
+  }
+
+  .admin-apps-detail-open .admin-apps-master {
+    display: none;
+  }
+
+  .admin-apps-detail-open .admin-apps-detail {
+    display: block;
+  }
+
+  .admin-app-back {
+    display: inline-flex;
+    align-items: center;
+    grid-column: 1 / -1;
+    gap: 7px;
+    justify-self: start;
+    min-height: 34px;
+    padding: 0;
+    color: #075f59;
+    background: transparent;
+    border: 0;
+    font-weight: 700;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-apps-toolbar,
+  .manual-installer-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-apps-toolbar .button-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-apps-toolbar .danger-button {
+    grid-column: 1 / -1;
+  }
+
+  .admin-app-form-grid,
+  .installer-evidence dl {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-app-editor-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-app-editor-header > small {
+    display: none;
+  }
+
+  .manual-installer-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-installer-form {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-installer-form small,
+  .manual-installer-form button {
+    grid-column: 1;
+  }
+
+  .admin-app-editor-actions {
+    display: grid;
+  }
+
+  .admin-app-editor-actions button,
+  .manual-publish-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-apps-detail {
+    animation: none;
+  }
+
+  .spin {
+    animation: none;
+  }
+}
+
 

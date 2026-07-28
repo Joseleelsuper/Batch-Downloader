@@ -7,7 +7,6 @@ import {
   ClipboardList,
   ChevronLeft,
   ChevronRight,
-  FileDown,
   Globe2,
   Home,
   ListFilter,
@@ -33,12 +32,8 @@ import {
   connectScraperEvents,
   clearAllScraperQueueItems,
   clearPendingScraperQueueItems,
-  createAdminApp,
   createAdminBundle,
-  deleteAdminApp,
-  deleteAllAdminApps,
   enqueueMissingScraperDescriptions,
-  exportAdminAppsCsv,
   fetchAdminApps,
   fetchAdminAudit,
   fetchAdminCurrentRun,
@@ -54,11 +49,9 @@ import {
   fetchBundles,
   fetchCatalogFacets,
   fetchCatalogStats,
-  generateAdminDescription,
   login,
   logout,
   me,
-  patchAdminApp,
   pruneTerminalScraperQueueItems,
   recoverStuckScraperQueueItems,
   retryFailedScraperQueueItems,
@@ -94,6 +87,7 @@ import { DownloadJobPanel } from './components/DownloadJobPanel';
 import { OperatingSystemList } from './components/OperatingSystemIcons';
 import { Pagination } from './components/Pagination';
 import { useDownloadJob } from './hooks/useDownloadJob';
+import { AdminAppsPage as AdminAppsWorkbenchPage } from './pages/admin/AdminAppsPage';
 import { SemanticAiPage } from './pages/admin/SemanticAiPage';
 import { t } from './services/i18n';
 import type {
@@ -157,7 +151,7 @@ export default function App() {
         }
       >
         <Route index element={<AdminDashboard />} />
-        <Route path="apps" element={<AdminAppsPage />} />
+        <Route path="apps" element={<AdminAppsWorkbenchPage />} />
         <Route path="bundles" element={<AdminBundlesPage />} />
         <Route path="scraper" element={<AdminScraperPage />} />
         <Route path="semantic" element={<Navigate to="/admin/semantic/models" replace />} />
@@ -1120,244 +1114,6 @@ function Metric({ label, value }: { label: string; value: number }) {
       <span>{label}</span>
       <strong>{value.toLocaleString('es-ES')}</strong>
     </div>
-  );
-}
-
-function AdminAppsPage() {
-  const [query, setQuery] = useState('');
-  const [apps, setApps] = useState<CatalogApp[]>([]);
-  const [selected, setSelected] = useState<AppDetails | null>(null);
-  const [form, setForm] = useState({
-    name: '',
-    publisher: '',
-    officialUrl: '',
-    description: '',
-    longDescription: '',
-    latestVersion: '',
-  });
-  const [message, setMessage] = useState<string | null>(null);
-  const [dangerConfirm, setDangerConfirm] = useState('');
-  const [exportingCsv, setExportingCsv] = useState(false);
-  const [deletingAll, setDeletingAll] = useState(false);
-
-  useEffect(() => {
-    void loadApps();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
-
-  async function loadApps() {
-    try {
-      const response = await fetchAdminApps({ query, filter: 'all', sort: 'updated', page: 1, pageSize: 30 });
-      setApps(response.data);
-    } catch {
-      setMessage(t('admin.message.loadAppsError'));
-    }
-  }
-
-  function fillForm(app?: AppDetails | null) {
-    setForm({
-      name: app?.name ?? '',
-      publisher: app?.publisher ?? '',
-      officialUrl: app?.officialUrl ?? '',
-      description: app?.description ?? '',
-      longDescription: app?.longDescription ?? '',
-      latestVersion: app?.latestVersion ?? '',
-    });
-  }
-
-  async function select(app: CatalogApp) {
-    const details = await fetchAppDetails(app.id);
-    setSelected(details);
-    fillForm(details);
-    setMessage(null);
-  }
-
-  function startNewApp() {
-    setSelected(null);
-    fillForm(null);
-    setMessage(null);
-  }
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage(null);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        publisher: form.publisher.trim() || null,
-        officialUrl: form.officialUrl.trim() || null,
-        description: form.description.trim() || null,
-        longDescription: form.longDescription.trim() || null,
-        latestVersion: form.latestVersion.trim() || null,
-      };
-      if (!payload.name) {
-        setMessage(t('admin.app.validation.nameRequired'));
-        return;
-      }
-      let saved: AppDetails;
-      if (selected) {
-        saved = await patchAdminApp(selected.id, payload);
-      } else {
-        saved = await createAdminApp(payload);
-      }
-      setSelected(saved);
-      fillForm(saved);
-      await loadApps();
-      setMessage(t('admin.message.appSaved'));
-    } catch {
-      setMessage(t('admin.message.saveAppError'));
-    }
-  }
-
-  async function generateDescription() {
-    if (!selected) return;
-    setMessage(t('admin.message.descriptionGenerating'));
-    try {
-      await generateAdminDescription(selected.id);
-      setMessage(t('admin.message.descriptionQueued'));
-    } catch {
-      setMessage(t('admin.message.generateDescriptionError'));
-    }
-  }
-
-  async function removeSelectedApp() {
-    if (!selected) return;
-    if (!window.confirm(t('admin.app.confirm.deleteOne', { name: selected.name }))) return;
-    setMessage(null);
-    try {
-      await deleteAdminApp(selected.id);
-      setSelected(null);
-      fillForm(null);
-      await loadApps();
-      setMessage(t('admin.message.appDeleted'));
-    } catch {
-      setMessage(t('admin.message.deleteAppError'));
-    }
-  }
-
-  async function removeAllApps() {
-    if (deletingAll) return;
-    if (dangerConfirm !== 'DELETE_ALL') {
-      setMessage(t('admin.message.confirmDeleteAll'));
-      return;
-    }
-    if (!window.confirm(t('admin.app.confirm.deleteAll'))) return;
-    setDeletingAll(true);
-    setMessage(null);
-    try {
-      const result = await deleteAllAdminApps();
-      setSelected(null);
-      fillForm(null);
-      setApps([]);
-      setDangerConfirm('');
-      setMessage(t('admin.message.allAppsDeleted', { count: result.deleted }));
-    } catch {
-      setMessage(t('admin.message.deleteAllAppsError'));
-    } finally {
-      setDeletingAll(false);
-    }
-  }
-
-  async function exportCsv() {
-    setExportingCsv(true);
-    setMessage(null);
-    try {
-      await exportAdminAppsCsv();
-    } catch {
-      setMessage(t('admin.message.exportCsvError'));
-    } finally {
-      setExportingCsv(false);
-    }
-  }
-
-  return (
-    <section className="admin-panel two-column-admin">
-      <div>
-        <div className="admin-section-heading">
-          <h2>{t('admin.app.title')}</h2>
-          <div className="button-row">
-            <button className="secondary-button compact-button" type="button" onClick={() => void exportCsv()} disabled={exportingCsv}>
-              <FileDown size={17} />
-              {exportingCsv ? t('admin.app.exportingCsv') : t('admin.app.exportCsv')}
-            </button>
-            <button className="secondary-button compact-button" type="button" onClick={startNewApp}>
-              <Plus size={17} />
-              {t('admin.app.new')}
-            </button>
-          </div>
-        </div>
-        <input
-          className="admin-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={t('common.searchApps')}
-        />
-        <div className="admin-list">
-          {apps.map((app) => (
-            <button
-              type="button"
-              key={app.id}
-              className={selected?.id === app.id ? 'admin-list-active' : ''}
-              onClick={() => void select(app)}
-            >
-              <AppMiniIcon app={app} />
-              <span>{app.name}</span>
-              <AppStatusBadge status={app.resolutionStatus} />
-            </button>
-          ))}
-        </div>
-      </div>
-      <form className="admin-card editor-form" onSubmit={save}>
-        <div className="editor-header">
-          <div>
-            <span>{selected ? t('admin.app.editing') : t('admin.app.newApp')}</span>
-            <h3>{selected ? selected.name : t('admin.app.titleCreate')}</h3>
-          </div>
-          {selected ? <small>{selected.id}</small> : null}
-        </div>
-        <fieldset className="editor-section">
-          <legend>{t('admin.app.primaryData')}</legend>
-          <label>{t('admin.field.name')}<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label>{t('admin.field.publisher')}<input value={form.publisher} onChange={(e) => setForm({ ...form, publisher: e.target.value })} /></label>
-          <label>{t('admin.field.officialUrl')}<input value={form.officialUrl} onChange={(e) => setForm({ ...form, officialUrl: e.target.value })} /></label>
-          <label>{t('admin.field.latestVersion')}<input value={form.latestVersion} onChange={(e) => setForm({ ...form, latestVersion: e.target.value })} /></label>
-        </fieldset>
-        <fieldset className="editor-section">
-          <legend>{t('admin.app.form.description')}</legend>
-          <label>{t('admin.app.shortDescription')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-          <label>{t('admin.app.longDescription')}<textarea className="long-editor" value={form.longDescription} onChange={(e) => setForm({ ...form, longDescription: e.target.value })} /></label>
-        </fieldset>
-        {message ? <span className="form-message">{message}</span> : null}
-        <div className="button-row">
-          <button className="primary-button" type="submit">
-            <Save size={17} />
-            {selected ? t('common.saveChanges') : t('admin.app.titleCreate')}
-          </button>
-          <button type="button" className="secondary-button" onClick={generateDescription} disabled={!selected}>
-            <Wand2 size={17} />
-            {t('admin.app.generateDescription')}
-          </button>
-          <button type="button" className="danger-button" onClick={removeSelectedApp} disabled={!selected}>
-            <Trash2 size={17} />
-            {t('admin.app.deleteOne')}
-          </button>
-        </div>
-        <div className="danger-zone">
-          <h4>{t('admin.app.danger.title')}</h4>
-          <p>{t('admin.app.danger.description')}</p>
-          <input
-            value={dangerConfirm}
-            onChange={(event) => setDangerConfirm(event.target.value)}
-            placeholder={t('common.deleteAllConfirmation')}
-            disabled={deletingAll}
-          />
-          <button type="button" className="danger-button" onClick={removeAllApps} disabled={deletingAll}>
-            <Trash2 size={17} />
-            {t('admin.app.deleteAll')}
-          </button>
-        </div>
-      </form>
-    </section>
   );
 }
 

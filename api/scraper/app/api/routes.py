@@ -1,5 +1,4 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.app_mapper import to_details, to_list_item
@@ -8,23 +7,16 @@ from app.core.time import utc_now
 from app.core.url_protector import UrlProtector
 from app.db.session import AsyncSessionLocal, get_session
 from app.repositories.catalog import CatalogRepository
-from app.repositories.pipeline import PipelineRepository
 from app.schemas.apps import (
     AppDetails,
     AppSearchResponse,
     CatalogStatsResponse,
     LastScrapeRun,
 )
-from app.scraper.catalog_fetcher import CatalogFetcher, DescriptorWorker, enqueue_descriptor_for_app
+from app.scraper.catalog_fetcher import CatalogFetcher
 
 router = APIRouter(prefix="/api")
 PUBLIC_CATALOG_STATUSES = {"all", "available", "review", "missing"}
-
-
-class GenerateDescriptionRequest(BaseModel):
-    appId: str
-
-
 @router.get("/health")
 async def health(settings: Settings = Depends(get_settings)) -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
@@ -99,35 +91,6 @@ async def run_scraper_once(background_tasks: BackgroundTasks) -> dict[str, bool]
     return {"accepted": True}
 
 
-@router.post("/internal/descriptions/generate", status_code=202)
-async def generate_description(
-    request: GenerateDescriptionRequest,
-    background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_session),
-    settings: Settings = Depends(get_settings),
-) -> dict[str, str | None]:
-    catalog = _catalog(session, settings)
-    app = await catalog.get_app_by_public_id(request.appId)
-    if not app:
-        raise HTTPException(status_code=404, detail={"code": "app_not_found"})
-    item = await enqueue_descriptor_for_app(
-        catalog,
-        PipelineRepository(session),
-        None,
-        app,
-        force=True,
-        priority=100,
-    )
-    if not item:
-        raise HTTPException(status_code=409, detail={"code": "description_already_current"})
-    await session.commit()
-    background_tasks.add_task(_run_descriptor_once_background)
-    return {
-        "jobId": str(item.id),
-        "status": item.status,
-    }
-
-
 def _catalog(session: AsyncSession, settings: Settings) -> CatalogRepository:
     return CatalogRepository(session, UrlProtector(settings.url_protection_secret))
 
@@ -136,8 +99,3 @@ async def _run_scrape_once_background() -> None:
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         await CatalogFetcher(settings, session).scrape_once(recover_running=True)
-
-
-async def _run_descriptor_once_background() -> None:
-    settings = get_settings()
-    await DescriptorWorker(settings).process_one()

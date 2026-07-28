@@ -33,7 +33,8 @@ import org.springframework.stereotype.Repository;
 public class CatalogRepository {
     private static final String REVIEW_LAST_ORDER =
             "CASE WHEN a.catalog_status = 'review' THEN 1 ELSE 0 END ASC";
-    private static final Set<String> CATALOG_STATUSES = Set.of("all", "available", "review", "missing");
+    private static final Set<String> CATALOG_STATUSES =
+            Set.of("all", "available", "review", "missing", "unresolved");
 
     private final JdbcTemplate jdbc;
 
@@ -721,8 +722,12 @@ public class CatalogRepository {
             sql.append(")");
         }
         if (hasStatus) {
-            sql.append(" AND a.catalog_status = ?");
-            params.add(status);
+            if ("unresolved".equals(status)) {
+                sql.append(" AND a.catalog_status IN ('review', 'missing')");
+            } else {
+                sql.append(" AND a.catalog_status = ?");
+                params.add(status);
+            }
         }
         if (hasArchitecture) {
             sql.append("""
@@ -776,7 +781,7 @@ public class CatalogRepository {
                 operatingSystemsFor(List.of(app.dbId())).getOrDefault(app.dbId(), List.of()),
                 app.iconUrl(),
                 app.officialUrl(),
-                winstallAppUrl(app.winstallId()),
+                originUrl(app.winstallId(), app.officialUrl(), source.originUrl()),
                 app.latestVersion(),
                 source.filename(),
                 source.extension() == null ? null : source.extension().replace(".", "").toUpperCase(Locale.ROOT),
@@ -1137,7 +1142,15 @@ public class CatalogRepository {
         return "No disponible";
     }
 
-    private String winstallAppUrl(String winstallId) {
+    static String originUrl(
+            String winstallId,
+            String officialUrl,
+            String sourceOriginUrl) {
+        if (winstallId != null && winstallId.startsWith("manual.")) {
+            return sourceOriginUrl == null || sourceOriginUrl.isBlank()
+                    ? officialUrl
+                    : sourceOriginUrl;
+        }
         return "https://winstall.app/apps/" + winstallId;
     }
 
