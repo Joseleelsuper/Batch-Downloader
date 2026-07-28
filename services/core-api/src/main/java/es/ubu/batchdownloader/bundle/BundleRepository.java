@@ -166,7 +166,7 @@ public class BundleRepository {
                 normalizedType(request.type()),
                 normalizedVisibility(request.visibility()),
                 ownerUsername == null || ownerUsername.isBlank() ? "admin" : ownerUsername,
-                ownerId,
+                ownerId == null ? null : ownerId.toString(),
                 now,
                 now);
         replaceTags(id, request.tags());

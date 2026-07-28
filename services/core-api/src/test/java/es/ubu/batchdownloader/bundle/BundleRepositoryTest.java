@@ -1,11 +1,15 @@
 package es.ubu.batchdownloader.bundle;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import es.ubu.batchdownloader.bundle.BundleDtos.UpsertBundleRequest;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import java.util.List;
 import java.util.UUID;
@@ -15,6 +19,36 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
 class BundleRepositoryTest {
+    @Test
+    void writesAuthenticatedBundleOwnerAsTextUuid() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        UUID ownerId = UUID.randomUUID();
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of(ownerId));
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
+        doThrow(new RuntimeException("stop after bundle insert"))
+                .when(jdbc)
+                .update(anyString(), any(Object[].class));
+        BundleRepository repository = new BundleRepository(
+                jdbc,
+                org.mockito.Mockito.mock(CatalogRepository.class));
+
+        assertThatThrownBy(() -> repository.create(
+                        new UpsertBundleRequest(
+                                "Programas de desarrollo",
+                                "Programas de desarrollo.",
+                                null,
+                                "official",
+                                "official",
+                                List.of("trabajo"),
+                                List.of()),
+                        "admin"))
+                .hasMessage("stop after bundle insert");
+
+        ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(anyString(), parameters.capture());
+        assertThat(parameters.getValue()[7]).isEqualTo(ownerId.toString());
+    }
+
     @Test
     void exposesPlatformsWithASelectableInstallerRegardlessOfAge() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
