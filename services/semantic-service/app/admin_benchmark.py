@@ -13,14 +13,13 @@ from typing import Any
 import torch
 
 from app.admin_store import SemanticAdminStore
+from app.benchmark_snapshot import evaluation_snapshot
 from app.config import get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
 from app.trainer import (
-    build_query_snapshot,
-    prepare_runtime_evaluation,
     evaluate_prepared_runtime,
-    write_snapshot,
+    prepare_runtime_evaluation,
 )
 
 
@@ -41,23 +40,36 @@ def run_admin_benchmark(
         documents = semantic.active_documents()
         if len(documents) < 2:
             raise RuntimeError("semantic_benchmark_requires_two_documents")
-        all_queries = build_query_snapshot(documents, settings.trainer_seed)
-        queries = [row for row in all_queries if row["split"] != "train"]
-        if not queries:
-            queries = all_queries
-        dataset_hash, snapshot_dir = write_snapshot(
-            documents,
-            all_queries,
-            root=Path(settings.model_cache_dir),
-            seed=settings.trainer_seed,
+        admin.update_operation(
+            operation_id,
+            phase="benchmarking",
+            message="Preparando el dataset reproducible",
         )
-        catalog_snapshot_hash = _catalog_snapshot_hash(documents)
+        dataset_hash, snapshot_dir, queries, catalog_snapshot_hash = (
+            evaluation_snapshot(
+                documents,
+                root=Path(settings.model_cache_dir),
+                seed=settings.trainer_seed,
+            )
+        )
+        if not queries:
+            raise RuntimeError("semantic_benchmark_queries_required")
         metrics: list[dict[str, Any]] = []
         model_configurations: dict[str, dict[str, Any]] = {}
         total = len(model_ids)
         for index, model_id in enumerate(model_ids, start=1):
             if admin.cancel_requested(operation_id):
                 raise InterruptedError("semantic_operation_cancelled")
+            completed_before_model = (index - 1) * len(queries)
+            total_query_work = total * len(queries)
+            admin.update_operation(
+                operation_id,
+                phase="benchmarking",
+                current=completed_before_model,
+                total=total_query_work,
+                unit="queries",
+                message=f"Cargando el modelo {index} de {total}",
+            )
             artifact = admin.artifact(model_id)
             model_version = artifact.get("model_version")
             if not model_version or artifact["artifact_state"] != "ready":
@@ -79,6 +91,18 @@ def run_admin_benchmark(
                 documents,
                 queries,
                 benchmark_store=semantic,
+                include_lexical=False,
+                progress=lambda stage, current, stage_total: admin.update_operation(
+                    operation_id,
+                    phase="benchmarking",
+                    current=completed_before_model + current,
+                    total=total_query_work,
+                    unit="queries",
+                    message=(
+                        f"Evaluando el modelo {index} de {total}: "
+                        f"{_progress_message(stage, current, stage_total)}"
+                    ),
+                ),
             )
             metric = evaluate_prepared_runtime(
                 prepared,
@@ -112,9 +136,9 @@ def run_admin_benchmark(
             admin.update_operation(
                 operation_id,
                 phase="benchmarking",
-                current=index,
-                total=total,
-                unit="models",
+                current=index * len(queries),
+                total=total_query_work,
+                unit="queries",
                 message=f"Evaluado {index} de {total}",
             )
             del prepared, runtime
@@ -162,12 +186,12 @@ def run_admin_benchmark(
         database.close()
 
 
-def _catalog_snapshot_hash(documents: list[dict[str, Any]]) -> str:
-    payload = "|".join(
-        f"{row['app_id']}:{row['content_hash']}"
-        for row in sorted(documents, key=lambda value: value["app_id"])
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
+def _progress_message(stage: str, current: int, total: int) -> str:
+    if stage == "embedding-documents":
+        return "creando los embeddings del catálogo"
+    if stage == "embedding-queries":
+        return "creando los embeddings de las consultas"
+    return f"ordenando consultas {current} de {total}"
 
 
 def _score(metrics: list[dict[str, Any]]) -> None:

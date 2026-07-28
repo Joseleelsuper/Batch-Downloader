@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import psutil
@@ -66,6 +66,7 @@ class PreparedRuntimeEvaluation:
     document_vector_bytes: int
     index_metrics: dict[str, float | int]
     latency_sample_size: int
+    includes_lexical: bool = True
 
 
 @dataclass
@@ -566,8 +567,12 @@ def prepare_runtime_evaluation(
     queries: list[dict[str, Any]],
     *,
     benchmark_store: SemanticStore | None = None,
+    include_lexical: bool = True,
+    progress: Callable[[str, int, int], None] | None = None,
 ) -> PreparedRuntimeEvaluation:
     """Build one immutable evaluation index and reuse it for every RRF weight."""
+    if progress is not None:
+        progress("embedding-documents", 0, len(queries))
     index_started = time.perf_counter()
     document_vectors = np.asarray(
         runtime.encode_documents([document["content"] for document in documents]),
@@ -579,6 +584,8 @@ def prepare_runtime_evaluation(
     lexical_rankings: list[list[str]] = []
     semantic_latencies_ms: list[float] = []
     lexical_latencies_ms: list[float] = []
+    if progress is not None:
+        progress("embedding-queries", 0, len(queries))
     query_vectors = np.asarray(
         runtime.encode_queries([query["query"] for query in queries]),
         dtype=np.float32,
@@ -594,6 +601,7 @@ def prepare_runtime_evaluation(
         if query_encoding_latencies_ms
         else 0.0
     )
+    progress_interval = max(1, len(queries) // 100)
     for query_index, query in enumerate(queries):
         before = time.perf_counter()
         query_vector = query_vectors[query_index]
@@ -614,12 +622,21 @@ def prepare_runtime_evaluation(
             + ranking_latency
         )
         semantic_rankings.append(semantic)
-        before = time.perf_counter()
-        lexical = lexical_rank(query["query"], documents)[
-            :EVALUATION_CANDIDATE_LIMIT
-        ]
-        lexical_latencies_ms.append((time.perf_counter() - before) * 1000)
-        lexical_rankings.append(lexical)
+        if include_lexical:
+            before = time.perf_counter()
+            lexical = lexical_rank(query["query"], documents)[
+                :EVALUATION_CANDIDATE_LIMIT
+            ]
+            lexical_latencies_ms.append((time.perf_counter() - before) * 1000)
+            lexical_rankings.append(lexical)
+        else:
+            lexical_latencies_ms.append(0.0)
+            lexical_rankings.append([])
+        completed = query_index + 1
+        if progress is not None and (
+            completed == len(queries) or completed % progress_interval == 0
+        ):
+            progress("ranking", completed, len(queries))
     index_metrics: dict[str, float | int] = {
         "hnswRecallAt20": 0.0,
         "hnswBuildMs": 0.0,
@@ -642,6 +659,7 @@ def prepare_runtime_evaluation(
         document_vector_bytes=int(document_vectors.nbytes),
         index_metrics=index_metrics,
         latency_sample_size=latency_sample_size,
+        includes_lexical=include_lexical,
     )
 
 
@@ -659,6 +677,8 @@ def evaluate_prepared_runtime(
             ranked = semantic
             latency = prepared.semantic_latencies_ms[index]
         else:
+            if not prepared.includes_lexical:
+                raise RuntimeError("lexical_rankings_not_prepared")
             before = time.perf_counter()
             ranked = reciprocal_rank_fusion(
                 prepared.lexical_rankings[index],

@@ -1,3 +1,5 @@
+import pytest
+
 from app.evaluation import ndcg, reciprocal_rank_fusion
 from app.model_registry import MODEL_DEFINITIONS
 from app.trainer import (
@@ -148,6 +150,62 @@ def test_rrf_weights_reuse_one_embedding_evaluation() -> None:
     assert runtime.query_calls == 2
     assert semantic["ndcgAt10"] == 1.0
     assert hybrid["ndcgAt10"] == 1.0
+
+
+def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
+    class FakeRuntime:
+        registered = type("Registered", (), {"dimensions": 2})()
+
+        def encode_documents(self, _values: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0], [0.0, 1.0]]
+
+        def encode_query(self, _query: str) -> list[float]:
+            return [1.0, 0.0]
+
+        def encode_queries(self, queries: list[str]) -> list[list[float]]:
+            return [self.encode_query(query) for query in queries]
+
+    monkeypatch.setattr(
+        "app.trainer.lexical_rank",
+        lambda *_args, **_kwargs: pytest.fail(
+            "semantic-only benchmarks must not calculate literal rankings"
+        ),
+    )
+    progress: list[tuple[str, int, int]] = []
+    prepared = prepare_runtime_evaluation(
+        FakeRuntime(),
+        [
+            {"app_id": "a", "content": "primera"},
+            {"app_id": "b", "content": "segunda"},
+        ],
+        [
+            {
+                "query": "primera",
+                "positiveAppId": "a",
+                "relevantAppIds": ["a"],
+                "kind": "navigation-name",
+            }
+        ],
+        include_lexical=False,
+        progress=lambda stage, current, total: progress.append(
+            (stage, current, total)
+        ),
+    )
+
+    semantic = evaluate_prepared_runtime(
+        prepared,
+        variant="semantic",
+        semantic_weight=None,
+    )
+
+    assert semantic["ndcgAt10"] == 1.0
+    assert progress[-1] == ("ranking", 1, 1)
+    with pytest.raises(RuntimeError, match="lexical_rankings_not_prepared"):
+        evaluate_prepared_runtime(
+            prepared,
+            variant="hybrid",
+            semantic_weight=1.0,
+        )
 
 
 def test_snapshot_persists_catalog_and_is_immutable(tmp_path) -> None:
