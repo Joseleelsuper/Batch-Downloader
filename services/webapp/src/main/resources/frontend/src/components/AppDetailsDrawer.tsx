@@ -47,9 +47,11 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
 
   return (
     <aside className="details-drawer" aria-busy={loading ? 'true' : 'false'}>
-      <button className="drawer-close" onClick={onClose} type="button" aria-label={t('common.close')}>
-        <X size={22} />
-      </button>
+      {loading || app ? (
+        <button className="drawer-close" onClick={onClose} type="button" aria-label={t('common.close')}>
+          <X size={22} />
+        </button>
+      ) : null}
       {loading && !app ? <DetailsSkeleton /> : null}
       {app ? (
         <div className={`drawer-content ${loading ? 'drawer-content-busy' : ''}`}>

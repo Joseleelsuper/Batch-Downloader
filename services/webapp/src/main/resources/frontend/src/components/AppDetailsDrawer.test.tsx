@@ -60,6 +60,13 @@ const app: AppDetails = {
 describe('AppDetailsDrawer', () => {
   afterEach(cleanup);
 
+  it('centers the empty message without showing a close button', () => {
+    render(<AppDetailsDrawer onClose={vi.fn()} />);
+
+    expect(screen.getByText(/^Selecciona una aplicaci/)).toHaveClass('drawer-empty');
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).not.toBeInTheDocument();
+  });
+
   it('shows multiple detected installers when available', () => {
     render(<AppDetailsDrawer app={app} onClose={vi.fn()} />);
 

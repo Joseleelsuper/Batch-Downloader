@@ -31,6 +31,16 @@
   border: 0;
 }
 
+.drawer-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+}
+
 .details-drawer h2 {
   margin: 0 42px 26px 0;
   font-size: 24px;
