@@ -26,6 +26,7 @@ QUEUE_FILTER_SCRAPER = "filter_scraper"
 QUEUE_SCRAPER_SO_FILTER = "scraper_so_filter"
 QUEUE_SO_FILTER_DESCRIPTOR = "so_filter_descriptor"
 QUEUE_MANUAL_INSTALLER_ENRICHMENT = "manual_installer_enrichment"
+QUEUE_WEBSITE_APP_DISCOVERY = "website_app_discovery"
 
 # Snapshots back the live admin monitor; they are previews, never an archive of
 # an official web page. Bound the raw input before sanitizing so a large page

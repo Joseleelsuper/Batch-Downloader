@@ -308,7 +308,10 @@ class ManualInstallerInspection(Base, TimestampMixin):
     phase: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
     captured_app_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
     input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    installer_url_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    installer_url_encrypted: Mapped[str | None] = mapped_column(Text)
+    windows_installer_url_encrypted: Mapped[str | None] = mapped_column(Text)
+    macos_installer_url_encrypted: Mapped[str | None] = mapped_column(Text)
+    linux_installer_url_encrypted: Mapped[str | None] = mapped_column(Text)
     source_page_url_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     result_json: Mapped[dict | None] = mapped_column(JSON)
     warnings_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
@@ -329,6 +332,79 @@ class ManualInstallerInspection(Base, TimestampMixin):
             "created_at",
         ),
         Index("ix_manual_installer_inspections_expires", "expires_at"),
+    )
+
+
+class WebsiteAppDiscovery(Base, TimestampMixin):
+    """Recoverable metadata and installer discovery started from an official site."""
+
+    __tablename__ = "website_app_discoveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    status: Mapped[str] = mapped_column(String(16), default="queued", nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    official_url_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    windows_installer_url_encrypted: Mapped[str | None] = mapped_column(Text)
+    macos_installer_url_encrypted: Mapped[str | None] = mapped_column(Text)
+    linux_installer_url_encrypted: Mapped[str | None] = mapped_column(Text)
+    result_json: Mapped[dict | None] = mapped_column(JSON)
+    warnings_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+    applied_app_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(),
+        ForeignKey("software_apps.id", ondelete="SET NULL"),
+    )
+
+    installers: Mapped[list[WebsiteAppDiscoveryInstaller]] = relationship(
+        back_populates="discovery",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_website_app_discoveries_hash_status",
+            "input_hash",
+            "status",
+            "created_at",
+        ),
+        Index("ix_website_app_discoveries_expires", "expires_at"),
+    )
+
+
+class WebsiteAppDiscoveryInstaller(Base, TimestampMixin):
+    """Validated installer evidence whose executable URL remains encrypted."""
+
+    __tablename__ = "website_app_discovery_installers"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    discovery_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("website_app_discoveries.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    installer_url_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    final_domain: Mapped[str | None] = mapped_column(String(255))
+    filename: Mapped[str | None] = mapped_column(String(255))
+    extension: Mapped[str | None] = mapped_column(String(32))
+    content_type: Mapped[str | None] = mapped_column(String(255))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    version: Mapped[str | None] = mapped_column(String(100))
+    operating_system: Mapped[str] = mapped_column(String(32), nullable=False)
+    architecture: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    discovery: Mapped[WebsiteAppDiscovery] = relationship(back_populates="installers")
+
+    __table_args__ = (
+        Index(
+            "ix_website_app_discovery_installers_discovery",
+            "discovery_id",
+            "operating_system",
+            "architecture",
+        ),
     )
 
 

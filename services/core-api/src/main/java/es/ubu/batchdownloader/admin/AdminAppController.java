@@ -9,6 +9,11 @@ import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyResponse;
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyResult;
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspectionRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyResponse;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyResult;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryRequest;
 import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
@@ -220,10 +225,56 @@ public class AdminAppController {
                 Map.of(
                         "inspectionId", inspectionId,
                         "sourceRef", result.sourceRef(),
+                        "sourceRefs", result.sourceRefs(),
                         "catalogStatus", result.catalogStatus()));
         return new ManualInstallerApplyResponse(
                 application,
                 result.sourceRef(),
+                result.sourceRefs(),
+                result.warnings());
+    }
+
+    @PostMapping("/api/admin/app-discoveries")
+    public ResponseEntity<WebsiteAppDiscovery> createWebsiteAppDiscovery(
+            @Valid @RequestBody WebsiteAppDiscoveryRequest request,
+            Principal principal) {
+        WebsiteAppDiscovery discovery =
+                scraperClient.createWebsiteAppDiscovery(request);
+        audit.record(
+                actor(principal),
+                "app.website_discovery.inspect",
+                "website_app_discovery",
+                discovery.id(),
+                Map.of("status", discovery.status()));
+        return ResponseEntity.accepted().body(discovery);
+    }
+
+    @GetMapping("/api/admin/app-discoveries/{discoveryId}")
+    public WebsiteAppDiscovery websiteAppDiscovery(
+            @PathVariable String discoveryId) {
+        return scraperClient.websiteAppDiscovery(discoveryId);
+    }
+
+    @PostMapping("/api/admin/app-discoveries/{discoveryId}/apply")
+    public WebsiteAppDiscoveryApplyResponse applyWebsiteAppDiscovery(
+            @PathVariable String discoveryId,
+            @Valid @RequestBody WebsiteAppDiscoveryApplyRequest request,
+            Principal principal) {
+        WebsiteAppDiscoveryApplyResult result =
+                scraperClient.applyWebsiteAppDiscovery(discoveryId, request);
+        AppDetails application = catalog.details(result.appId());
+        audit.record(
+                actor(principal),
+                "app.website_discovery.apply",
+                "app",
+                result.appId(),
+                Map.of(
+                        "discoveryId", discoveryId,
+                        "catalogStatus", result.catalogStatus(),
+                        "installerCount", result.installerCount()));
+        return new WebsiteAppDiscoveryApplyResponse(
+                application,
+                result.installerCount(),
                 result.warnings());
     }
 

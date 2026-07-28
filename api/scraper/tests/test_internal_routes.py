@@ -23,6 +23,8 @@ from app.db.models import (
     ScraperWorkItem,
     SoftwareApp,
     SoftwareAppTag,
+    WebsiteAppDiscovery,
+    WebsiteAppDiscoveryInstaller,
 )
 from app.db.session import get_session
 from app.scraper.manual_installer import ValidatedManualInstaller
@@ -260,12 +262,70 @@ async def test_manual_inspection_requires_fresh_analysis_after_the_app_changes(
 
 
 @pytest.mark.asyncio
-async def test_manual_apply_revalidates_and_persists_only_an_encrypted_candidate(
+async def test_manual_inspection_encrypts_optional_platform_urls_and_requires_one(
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
     app = await internal_api.add_unresolved_app()
-    installer_url = "https://downloads.example.test/ManualSetup-1.2.0.exe"
+    windows_url = "https://downloads.example.test/ManualSetup.exe"
+    linux_url = "https://downloads.example.test/manual-setup.AppImage"
+    source_page_url = "https://example.test/download"
+
+    async def public_url(url: str) -> str:
+        return url
+
+    monkeypatch.setattr(
+        "app.scraper.manual_installer.validate_public_https_url",
+        public_url,
+    )
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    path = f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections"
+    response = await internal_api.client.post(
+        path,
+        headers=headers,
+        json={
+            "installerUrls": {
+                "windows": windows_url,
+                "macos": None,
+                "linux": linux_url,
+            },
+            "sourcePageUrl": source_page_url,
+        },
+    )
+
+    assert response.status_code == 202
+    assert windows_url not in response.text
+    assert linux_url not in response.text
+    inspection = await internal_api.session.get(
+        ManualInstallerInspection,
+        UUID(response.json()["id"]),
+    )
+    assert inspection is not None
+    assert inspection.installer_url_encrypted is None
+    protector = UrlProtector(URL_SECRET)
+    assert protector.reveal(inspection.windows_installer_url_encrypted) == windows_url
+    assert protector.reveal(inspection.linux_installer_url_encrypted) == linux_url
+    assert inspection.macos_installer_url_encrypted is None
+
+    rejected = await internal_api.client.post(
+        path,
+        headers=headers,
+        json={
+            "installerUrls": {"windows": None, "macos": None, "linux": None},
+            "sourcePageUrl": source_page_url,
+        },
+    )
+    assert rejected.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidates(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    app = await internal_api.add_unresolved_app()
+    windows_url = "https://downloads.example.test/ManualSetup-1.2.0.exe"
+    linux_url = "https://downloads.example.test/manual-setup-1.2.0.AppImage"
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
@@ -280,7 +340,11 @@ async def test_manual_apply_revalidates_and_persists_only_an_encrypted_candidate
         f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections",
         headers=headers,
         json={
-            "installerUrl": installer_url,
+            "installerUrls": {
+                "windows": windows_url,
+                "macos": None,
+                "linux": linux_url,
+            },
             "sourcePageUrl": source_page_url,
         },
     )
@@ -307,6 +371,30 @@ async def test_manual_apply_revalidates_and_persists_only_an_encrypted_candidate
             "architecture": "x86_64",
             "platformRequired": False,
         },
+        "installers": [
+            {
+                "finalDomain": "example.test",
+                "filename": "ManualSetup-1.2.0.exe",
+                "extension": ".exe",
+                "contentType": "application/x-msdownload",
+                "sizeBytes": 4096,
+                "version": "1.2.0",
+                "operatingSystem": "windows",
+                "architecture": "x86_64",
+                "platformRequired": False,
+            },
+            {
+                "finalDomain": "example.test",
+                "filename": "manual-setup-1.2.0.AppImage",
+                "extension": ".appimage",
+                "contentType": "application/octet-stream",
+                "sizeBytes": 8192,
+                "version": "1.2.0",
+                "operatingSystem": "linux",
+                "architecture": "x86_64",
+                "platformRequired": False,
+            },
+        ],
         "ai": {
             "status": "ready",
             "provider": "groq",
@@ -315,26 +403,43 @@ async def test_manual_apply_revalidates_and_persists_only_an_encrypted_candidate
     }
     await internal_api.session.commit()
 
-    validation_calls = 0
+    validation_calls: list[tuple[str, str | None]] = []
 
-    async def validate_installer(_inspector, _installer_url, _source_page_url):
-        nonlocal validation_calls
-        validation_calls += 1
+    async def validate_installer(
+        _inspector,
+        installer_url,
+        _source_page_url,
+        expected_operating_system=None,
+    ):
+        validation_calls.append((installer_url, expected_operating_system))
+        is_linux = expected_operating_system == "linux"
+        filename = (
+            "manual-setup-1.2.0.AppImage"
+            if is_linux
+            else "ManualSetup-1.2.0.exe"
+        )
+        extension = ".appimage" if is_linux else ".exe"
+        content_type = (
+            "application/octet-stream"
+            if is_linux
+            else "application/x-msdownload"
+        )
+        size_bytes = 8192 if is_linux else 4096
         return ValidatedManualInstaller(
             result=ValidationResult(
                 ok=True,
                 url=installer_url,
                 final_url=installer_url,
                 final_domain="example.test",
-                filename="ManualSetup-1.2.0.exe",
-                extension=".exe",
-                content_type="application/x-msdownload",
-                size_bytes=4096,
+                filename=filename,
+                extension=extension,
+                content_type=content_type,
+                size_bytes=size_bytes,
                 confidence=ValidationConfidence.VALIDATED,
             ),
             final_url=installer_url,
             version="1.2.0",
-            operating_system="windows",
+            operating_system=expected_operating_system,
             architecture="x86_64",
         )
 
@@ -366,26 +471,50 @@ async def test_manual_apply_revalidates_and_persists_only_an_encrypted_candidate
     assert response.status_code == 200
     assert response.json()["catalogStatus"] == "available"
     assert response.json()["warnings"] == []
-    assert installer_url not in response.text
-    source_ref = UUID(response.json()["sourceRef"])
-    resolved = await internal_api.session.get(ResolvedSource, source_ref)
-    assert resolved is not None
-    assert installer_url not in resolved.resolved_url_encrypted
-    assert UrlProtector(URL_SECRET).reveal(resolved.resolved_url_encrypted) == installer_url
-    source = await internal_api.session.get(DownloadSource, resolved.download_source_id)
-    assert source is not None
-    assert source.initial_url == source_page_url
-    assert source.resolver_config == {"source": "admin_manual"}
+    assert windows_url not in response.text
+    assert linux_url not in response.text
+    source_refs = [UUID(value) for value in response.json()["sourceRefs"]]
+    assert len(source_refs) == 2
+    assert response.json()["sourceRef"] == str(source_refs[0])
+    resolved_sources = [
+        await internal_api.session.get(ResolvedSource, source_ref)
+        for source_ref in source_refs
+    ]
+    assert all(resolved is not None for resolved in resolved_sources)
+    revealed_urls = {
+        UrlProtector(URL_SECRET).reveal(resolved.resolved_url_encrypted)
+        for resolved in resolved_sources
+        if resolved is not None
+    }
+    assert revealed_urls == {windows_url, linux_url}
+    download_sources = [
+        await internal_api.session.get(DownloadSource, resolved.download_source_id)
+        for resolved in resolved_sources
+        if resolved is not None
+    ]
+    assert {source.operating_system for source in download_sources if source} == {
+        "windows",
+        "linux",
+    }
+    assert all(source.initial_url == source_page_url for source in download_sources if source)
+    assert all(
+        source.resolver_config == {"source": "admin_manual"}
+        for source in download_sources
+        if source
+    )
     await internal_api.session.refresh(app)
     assert app.long_description_source == "groq"
     assert app.long_description_model == "model-test"
     await internal_api.session.refresh(inspection)
     assert inspection.applied_app_version == app.version
-    assert validation_calls == 1
+    assert validation_calls == [
+        (windows_url, "windows"),
+        (linux_url, "linux"),
+    ]
 
     # SQLite does not install the MySQL catalog projection triggers exercised by
     # the integration test, so mirror their final status before the idempotency check.
-    app.catalog_available_source_count = 1
+    app.catalog_available_source_count = 2
     await internal_api.session.commit()
     await internal_api.session.refresh(app)
     assert app.catalog_status == "available"
@@ -395,8 +524,301 @@ async def test_manual_apply_revalidates_and_persists_only_an_encrypted_candidate
         json=apply_payload,
     )
     assert repeated.status_code == 200
-    assert repeated.json()["sourceRef"] == str(source_ref)
+    assert repeated.json()["sourceRefs"] == [str(value) for value in source_refs]
     assert repeated.json()["appVersion"] == app.version
+    assert len(validation_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_website_discovery_is_idempotent_encrypted_and_url_free(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    official_url = "https://example.test/product"
+    windows_installer_url = "https://downloads.example.test/Product.exe"
+
+    async def public_url(url: str) -> str:
+        return url
+
+    monkeypatch.setattr(
+        "app.scraper.website_discovery.validate_public_https_url",
+        public_url,
+    )
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    path = "/internal/v1/admin/app-discoveries"
+    first = await internal_api.client.post(
+        path,
+        headers=headers,
+        json={
+            "officialUrl": official_url,
+            "installerUrls": {
+                "windows": windows_installer_url,
+                "macos": None,
+                "linux": None,
+            },
+        },
+    )
+    repeated = await internal_api.client.post(
+        path,
+        headers=headers,
+        json={
+            "officialUrl": official_url,
+            "installerUrls": {
+                "windows": windows_installer_url,
+                "macos": None,
+                "linux": None,
+            },
+        },
+    )
+
+    assert first.status_code == 202
+    assert repeated.status_code == 202
+    assert repeated.json()["id"] == first.json()["id"]
+    assert official_url not in first.text
+    assert windows_installer_url not in first.text
+    assert first.json()["providedInstallerPlatforms"] == ["windows"]
+
+    discovery = await internal_api.session.scalar(select(WebsiteAppDiscovery))
+    assert discovery is not None
+    assert official_url not in discovery.official_url_encrypted
+    assert UrlProtector(URL_SECRET).reveal(discovery.official_url_encrypted) == official_url
+    assert windows_installer_url not in discovery.windows_installer_url_encrypted
+    assert (
+        UrlProtector(URL_SECRET).reveal(
+            discovery.windows_installer_url_encrypted
+        )
+        == windows_installer_url
+    )
+    work_item = await internal_api.session.scalar(
+        select(ScraperWorkItem).where(
+            ScraperWorkItem.queue == "website_app_discovery"
+        )
+    )
+    assert work_item is not None
+    assert work_item.payload_json == {"discovery_id": str(discovery.id)}
+    assert official_url not in str(work_item.payload_json)
+
+
+@pytest.mark.asyncio
+async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_is_valid(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    official_url = "https://example.test/product"
+
+    async def public_url(url: str) -> str:
+        return url
+
+    monkeypatch.setattr(
+        "app.scraper.website_discovery.validate_public_https_url",
+        public_url,
+    )
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    created = await internal_api.client.post(
+        "/internal/v1/admin/app-discoveries",
+        headers=headers,
+        json={"officialUrl": official_url},
+    )
+    discovery = await internal_api.session.get(
+        WebsiteAppDiscovery,
+        UUID(created.json()["id"]),
+    )
+    assert discovery is not None
+    discovery.status = "ready"
+    discovery.phase = "ready"
+    discovery.result_json = {
+        "suggestions": {
+            "name": {"value": "Example Desktop", "source": "json_ld"},
+            "publisher": {"value": "Example Vendor", "source": "json_ld"},
+            "officialUrl": {"value": official_url, "source": "source_page"},
+            "latestVersion": {"value": "2.4.1", "source": "json_ld"},
+            "description": {
+                "value": "Cliente de escritorio para Example.",
+                "source": "json_ld",
+            },
+            "longDescription": {
+                "value": "DescripciÃ³n generada",
+                "source": "generated_ai",
+            },
+            "iconUrl": {"value": None, "source": "unavailable"},
+        },
+        "ai": {
+            "status": "ready",
+            "provider": "groq",
+            "model": "model-test",
+        },
+        "installerCount": 0,
+    }
+    await internal_api.session.commit()
+
+    response = await internal_api.client.post(
+        f"/internal/v1/admin/app-discoveries/{discovery.id}/apply",
+        headers=headers,
+        json={
+            "name": "Example Desktop",
+            "publisher": "Example Vendor",
+            "officialUrl": official_url,
+            "latestVersion": "2.4.1",
+            "description": "Cliente de escritorio para Example.",
+            "longDescription": "DescripciÃ³n generada",
+            "iconUrl": None,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["catalogStatus"] == "missing"
+    assert response.json()["installerCount"] == 0
+    assert official_url not in response.text
+    app = await internal_api.session.get(
+        SoftwareApp,
+        UUID(response.json()["appId"]),
+    )
+    assert app is not None
+    assert app.name == "Example Desktop"
+    assert app.official_url == official_url
+    assert app.long_description_source == "groq"
+    assert app.winstall_id.startswith("manual.")
+    source_ids = list(
+        await internal_api.session.scalars(
+            select(DownloadSource.id).where(
+                DownloadSource.software_app_id == app.id
+            )
+        )
+    )
+    assert source_ids == []
+
+
+@pytest.mark.asyncio
+async def test_website_discovery_apply_revalidates_and_encrypts_found_installers(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    official_url = "https://example.test/product"
+    installer_url = "https://downloads.example.test/Example-3.1.0.exe"
+    validation_calls = 0
+
+    async def public_url(url: str) -> str:
+        return url
+
+    async def validate_installer(_validator, candidate, *, require_signature=False):
+        nonlocal validation_calls
+        validation_calls += 1
+        assert require_signature is True
+        assert candidate.url == installer_url
+        return ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url=candidate.url,
+            final_domain="example.test",
+            filename="Example-3.1.0.exe",
+            extension=".exe",
+            content_type="application/x-msdownload",
+            size_bytes=8192,
+            confidence=ValidationConfidence.VALIDATED,
+        )
+
+    monkeypatch.setattr(
+        "app.scraper.website_discovery.validate_public_https_url",
+        public_url,
+    )
+    monkeypatch.setattr(
+        "app.scraper.website_discovery.DownloadValidator.validate",
+        validate_installer,
+    )
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    created = await internal_api.client.post(
+        "/internal/v1/admin/app-discoveries",
+        headers=headers,
+        json={"officialUrl": official_url},
+    )
+    discovery = await internal_api.session.get(
+        WebsiteAppDiscovery,
+        UUID(created.json()["id"]),
+    )
+    assert discovery is not None
+    discovery.status = "ready"
+    discovery.phase = "ready"
+    discovery.result_json = {
+        "suggestions": {
+            "name": {"value": "Example Desktop", "source": "json_ld"},
+            "publisher": {"value": "Example Vendor", "source": "json_ld"},
+            "officialUrl": {"value": official_url, "source": "source_page"},
+            "latestVersion": {"value": "3.1.0", "source": "filename"},
+            "description": {"value": None, "source": "unavailable"},
+            "longDescription": {"value": None, "source": "unavailable"},
+            "iconUrl": {"value": None, "source": "unavailable"},
+        },
+        "ai": {"status": "unavailable", "provider": None, "model": None},
+        "installerCount": 1,
+    }
+    internal_api.session.add(
+        WebsiteAppDiscoveryInstaller(
+            discovery_id=discovery.id,
+            installer_url_encrypted=UrlProtector(URL_SECRET).protect(installer_url),
+            final_domain="example.test",
+            filename="Example-3.1.0.exe",
+            extension=".exe",
+            content_type="application/x-msdownload",
+            size_bytes=8192,
+            version="3.1.0",
+            operating_system="windows",
+            architecture="x86_64",
+            score=150,
+        )
+    )
+    await internal_api.session.commit()
+    internal_api.session.expire(discovery, ["installers"])
+
+    response = await internal_api.client.post(
+        f"/internal/v1/admin/app-discoveries/{discovery.id}/apply",
+        headers=headers,
+        json={
+            "name": "Example Desktop",
+            "publisher": "Example Vendor",
+            "officialUrl": official_url,
+            "latestVersion": "3.1.0",
+            "description": None,
+            "longDescription": None,
+            "iconUrl": None,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["installerCount"] == 1
+    assert installer_url not in response.text
+    app_id = UUID(response.json()["appId"])
+    source = await internal_api.session.scalar(
+        select(DownloadSource).where(DownloadSource.software_app_id == app_id)
+    )
+    assert source is not None
+    assert source.initial_url == official_url
+    resolved = await internal_api.session.scalar(
+        select(ResolvedSource).where(
+            ResolvedSource.download_source_id == source.id
+        )
+    )
+    assert resolved is not None
+    assert installer_url not in resolved.resolved_url_encrypted
+    assert UrlProtector(URL_SECRET).reveal(resolved.resolved_url_encrypted) == installer_url
+    assert resolved.validation_status == ValidationStatus.VALID.value
+    assert validation_calls == 1
+
+    repeated = await internal_api.client.post(
+        f"/internal/v1/admin/app-discoveries/{discovery.id}/apply",
+        headers=headers,
+        json={
+            "name": "Example Desktop",
+            "publisher": "Example Vendor",
+            "officialUrl": official_url,
+            "latestVersion": "3.1.0",
+            "description": None,
+            "longDescription": None,
+            "iconUrl": None,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["appId"] == str(app_id)
+    assert repeated.json()["installerCount"] == 1
     assert validation_calls == 1
 
 

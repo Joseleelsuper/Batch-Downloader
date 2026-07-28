@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
@@ -85,6 +86,7 @@ class AdminAppSecurityTest {
                         List.of(),
                         null,
                         null,
+                        List.of(),
                         null,
                         null,
                         null,
@@ -102,11 +104,64 @@ class AdminAppSecurityTest {
                 .andExpect(status().isAccepted());
     }
 
+    @Test
+    void websiteDiscoveryCreationRequiresCsrf() throws Exception {
+        mvc.perform(post("/api/admin/app-discoveries")
+                .with(user("admin").roles("ADMIN"))
+                .contentType("application/json")
+                .content(websiteDiscoveryRequest()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void websiteDiscoveryCreationAcceptsAnAdministratorWithCsrf() throws Exception {
+        LocalDateTime now = LocalDateTime.now();
+        when(scraperClient.createWebsiteAppDiscovery(any()))
+                .thenReturn(new WebsiteAppDiscovery(
+                        "00000000-0000-0000-0000-000000000003",
+                        "queued",
+                        "queued",
+                        List.of(),
+                        List.of("windows"),
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        now,
+                        now,
+                        now.plusHours(24)));
+
+        mvc.perform(post("/api/admin/app-discoveries")
+                .with(user("admin").roles("ADMIN"))
+                .with(csrf())
+                .contentType("application/json")
+                .content(websiteDiscoveryRequest()))
+                .andExpect(status().isAccepted());
+    }
+
     private String validRequest() {
         return """
                 {
-                  "installerUrl":"https://downloads.example.test/App.exe",
+                  "installerUrls":{
+                    "windows":"https://downloads.example.test/App.exe",
+                    "macos":null,
+                    "linux":"https://downloads.example.test/app.AppImage"
+                  },
                   "sourcePageUrl":"https://example.test/download"
+                }
+                """;
+    }
+
+    private String websiteDiscoveryRequest() {
+        return """
+                {
+                  "officialUrl":"https://example.test/product",
+                  "installerUrls":{
+                    "windows":"https://downloads.example.test/Product.exe",
+                    "macos":null,
+                    "linux":null
+                  }
                 }
                 """;
     }

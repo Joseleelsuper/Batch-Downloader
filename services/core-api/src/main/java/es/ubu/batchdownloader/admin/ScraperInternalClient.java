@@ -6,6 +6,10 @@ import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyResult;
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspectionRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyResult;
+import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryRequest;
 import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.NotFoundException;
@@ -96,9 +100,39 @@ public class ScraperInternalClient {
                 "manual_installer_apply_failed");
     }
 
+    public WebsiteAppDiscovery createWebsiteAppDiscovery(
+            WebsiteAppDiscoveryRequest request) {
+        return post(
+                websiteDiscoveryPath(),
+                write(request),
+                WebsiteAppDiscovery.class,
+                "website_app_discovery_failed");
+    }
+
+    public WebsiteAppDiscovery websiteAppDiscovery(String discoveryId) {
+        return get(
+                websiteDiscoveryPath() + "/" + uuidSegment(discoveryId),
+                WebsiteAppDiscovery.class,
+                "website_app_discovery_failed");
+    }
+
+    public WebsiteAppDiscoveryApplyResult applyWebsiteAppDiscovery(
+            String discoveryId,
+            WebsiteAppDiscoveryApplyRequest request) {
+        return post(
+                websiteDiscoveryPath() + "/" + uuidSegment(discoveryId) + "/apply",
+                write(request),
+                WebsiteAppDiscoveryApplyResult.class,
+                "website_app_discovery_apply_failed");
+    }
+
     private String manualInspectionPath(String appId) {
         return "/internal/v1/admin/apps/" + uuidSegment(appId)
                 + "/manual-installer-inspections";
+    }
+
+    private String websiteDiscoveryPath() {
+        return "/internal/v1/admin/app-discoveries";
     }
 
     private String uuidSegment(String value) {

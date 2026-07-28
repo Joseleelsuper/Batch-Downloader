@@ -37,6 +37,7 @@ from app.scraper.catalog_fetcher import (
 )
 from app.scraper.manual_installer import ManualInstallerWorker
 from app.scraper.validator import DownloadValidator
+from app.scraper.website_discovery import WebsiteAppDiscoveryWorker
 from app.scraper.winstall import WinstallClient
 
 logger = get_logger(__name__)
@@ -70,6 +71,10 @@ class ContentEnrichmentSupervisor:
                 self._consume_manual_installers(),
                 name="manual-installer-supervisor",
             ),
+            asyncio.create_task(
+                self._consume_website_discoveries(),
+                name="website-discovery-supervisor",
+            ),
         ]
         workers.extend(
             asyncio.create_task(
@@ -100,6 +105,13 @@ class ContentEnrichmentSupervisor:
 
     async def _consume_manual_installers(self) -> None:
         worker = ManualInstallerWorker(self.settings)
+        while True:
+            processed = await worker.process_one()
+            if not processed:
+                await asyncio.sleep(1)
+
+    async def _consume_website_discoveries(self) -> None:
+        worker = WebsiteAppDiscoveryWorker(self.settings)
         while True:
             processed = await worker.process_one()
             if not processed:

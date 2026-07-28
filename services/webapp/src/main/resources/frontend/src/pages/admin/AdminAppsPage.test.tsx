@@ -5,6 +5,7 @@ import type {
   AppDetails,
   CatalogApp,
   ManualInstallerInspection,
+  WebsiteAppDiscovery,
 } from '../../types/catalog';
 import { AdminAppsPage } from './AdminAppsPage';
 
@@ -49,6 +50,17 @@ function inspection(
   status: ManualInstallerInspection['status'],
   overrides: Partial<ManualInstallerInspection> = {},
 ): ManualInstallerInspection {
+  const primaryInstaller = status === 'ready' ? {
+    finalDomain: 'example.com',
+    filename: 'Example-1.2.0.exe',
+    extension: '.exe',
+    contentType: 'application/x-msdownload',
+    sizeBytes: 4096,
+    version: '1.2.0',
+    operatingSystem: 'windows' as const,
+    architecture: 'x86_64',
+    platformRequired: false,
+  } : null;
   return {
     id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     appId: unresolvedApp.id,
@@ -68,17 +80,7 @@ function inspection(
       },
       iconUrl: { value: 'https://example.com/icon.png', source: 'open_graph' },
     } : null,
-    installer: status === 'ready' ? {
-      finalDomain: 'example.com',
-      filename: 'Example-1.2.0.exe',
-      extension: '.exe',
-      contentType: 'application/x-msdownload',
-      sizeBytes: 4096,
-      version: '1.2.0',
-      operatingSystem: 'windows',
-      architecture: 'x86_64',
-      platformRequired: false,
-    } : null,
+    installer: primaryInstaller,
     ai: status === 'ready' ? {
       status: 'ready',
       provider: 'groq',
@@ -90,11 +92,64 @@ function inspection(
     updatedAt: '2026-07-28T08:00:01Z',
     expiresAt: '2026-07-29T08:00:00Z',
     ...overrides,
+    installers: overrides.installers
+      ?? ('installer' in overrides
+        ? (overrides.installer ? [overrides.installer] : [])
+        : (primaryInstaller ? [primaryInstaller] : [])),
+  };
+}
+
+function websiteDiscovery(
+  status: WebsiteAppDiscovery['status'] = 'ready',
+): WebsiteAppDiscovery {
+  return {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    status,
+    phase: status === 'ready' ? 'ready' : 'searching_installers',
+    warnings: [],
+    providedInstallerPlatforms: ['windows'],
+    suggestions: status === 'ready' ? {
+      name: { value: 'Website Desktop', source: 'json_ld' },
+      publisher: { value: 'Website Vendor', source: 'open_graph' },
+      officialUrl: { value: 'https://website.example/product', source: 'source_page' },
+      latestVersion: { value: '3.1.0', source: 'filename' },
+      description: {
+        value: 'Aplicación descubierta desde su web oficial.',
+        source: 'open_graph',
+      },
+      longDescription: {
+        value: 'Descripción larga generada automáticamente en español.',
+        source: 'generated_ai',
+      },
+      iconUrl: { value: 'https://website.example/icon.png', source: 'open_graph' },
+    } : null,
+    installers: status === 'ready' ? [{
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      finalDomain: 'website.example',
+      filename: 'WebsiteDesktop-3.1.0.exe',
+      extension: '.exe',
+      contentType: 'application/x-msdownload',
+      sizeBytes: 8192,
+      version: '3.1.0',
+      operatingSystem: 'windows',
+      architecture: 'x86_64',
+    }] : [],
+    ai: status === 'ready' ? {
+      status: 'ready',
+      provider: 'groq',
+      model: 'model-test',
+    } : null,
+    errorCode: null,
+    appliedAppId: null,
+    createdAt: '2026-07-28T08:00:00Z',
+    updatedAt: '2026-07-28T08:00:01Z',
+    expiresAt: '2026-07-29T08:00:00Z',
   };
 }
 
 describe('AdminAppsPage', () => {
   beforeEach(() => {
+    window.sessionStorage.clear();
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
     vi.spyOn(catalogApi, 'fetchAdminApps').mockResolvedValue({
       data: [unresolvedApp, secondApp],
@@ -120,6 +175,7 @@ describe('AdminAppsPage', () => {
     vi.spyOn(catalogApi, 'applyManualInstallerInspection').mockResolvedValue({
       application: { ...details(unresolvedApp), downloadable: true },
       sourceRef: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      sourceRefs: ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],
       warnings: [],
     });
     vi.spyOn(catalogApi, 'createManualInstallerInspection').mockResolvedValue(
@@ -130,6 +186,22 @@ describe('AdminAppsPage', () => {
       ...payload,
     } as AppDetails));
     vi.spyOn(catalogApi, 'createAdminApp').mockResolvedValue(details(unresolvedApp));
+    vi.spyOn(catalogApi, 'createWebsiteAppDiscovery').mockResolvedValue(
+      websiteDiscovery(),
+    );
+    vi.spyOn(catalogApi, 'fetchWebsiteAppDiscovery').mockResolvedValue(
+      websiteDiscovery(),
+    );
+    vi.spyOn(catalogApi, 'applyWebsiteAppDiscovery').mockResolvedValue({
+      application: {
+        ...details(unresolvedApp),
+        id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        name: 'Website Desktop',
+        officialUrl: 'https://website.example/product',
+      },
+      installerCount: 1,
+      warnings: [],
+    });
     vi.spyOn(catalogApi, 'generateAdminDescription').mockResolvedValue({
       jobId: 'job',
       status: 'queued',
@@ -196,6 +268,161 @@ describe('AdminAppsPage', () => {
     expect(iconCell?.contains(copyColumn)).toBe(false);
   });
 
+  it('creates a new app from its website and optional OS installers', async () => {
+    render(<AdminAppsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Nueva' }));
+    expect(screen.getByRole('heading', { name: 'Crear aplicación' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Web oficial')).toBeInTheDocument();
+    expect(screen.getByLabelText('Windows')).toBeInTheDocument();
+    expect(screen.getByLabelText('macOS')).toBeInTheDocument();
+    expect(screen.getByLabelText('Linux')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Nombre')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Descripción larga/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Web oficial'), {
+      target: { value: 'https://website.example/product' },
+    });
+    fireEvent.change(screen.getByLabelText('Windows'), {
+      target: { value: 'https://downloads.website.example/WebsiteDesktop.exe' },
+    });
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Analizar web y buscar instaladores',
+    }));
+
+    expect(await screen.findByDisplayValue('Website Desktop')).toBeInTheDocument();
+    expect(catalogApi.createWebsiteAppDiscovery).toHaveBeenCalledWith({
+      officialUrl: 'https://website.example/product',
+      installerUrls: {
+        windows: 'https://downloads.website.example/WebsiteDesktop.exe',
+        macos: null,
+        linux: null,
+      },
+    });
+    expect(screen.getByDisplayValue('Website Vendor')).toBeInTheDocument();
+    expect(screen.getByText('WebsiteDesktop-3.1.0.exe')).toBeInTheDocument();
+    expect(screen.getByText('Generado con IA')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^Nombre/), {
+      target: { value: 'Website Desktop revisada' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Crear aplicación' }));
+
+    await waitFor(() => {
+      expect(catalogApi.applyWebsiteAppDiscovery).toHaveBeenCalledWith(
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        expect.objectContaining({
+          name: 'Website Desktop revisada',
+          officialUrl: 'https://website.example/product',
+          latestVersion: '3.1.0',
+        }),
+      );
+    });
+  });
+
+  it('clears a completed website analysis when Nueva is clicked explicitly', async () => {
+    render(<AdminAppsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Nueva' }));
+    fireEvent.change(screen.getByLabelText('Web oficial'), {
+      target: { value: 'https://website.example/product' },
+    });
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Analizar web y buscar instaladores',
+    }));
+
+    expect(await screen.findByDisplayValue('Website Desktop')).toBeInTheDocument();
+    expect(window.sessionStorage.getItem(
+      'batch-downloader.admin.website-discovery.v1',
+    )).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nueva' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Web oficial')).toHaveValue('');
+      expect(screen.queryByDisplayValue('Website Desktop')).not.toBeInTheDocument();
+    });
+    expect(window.sessionStorage.getItem(
+      'batch-downloader.admin.website-discovery.v1',
+    )).toBeNull();
+  });
+
+  it('ignores a website analysis response that finishes after Nueva resets the form', async () => {
+    let resolveDiscovery: ((value: WebsiteAppDiscovery) => void) | undefined;
+    vi.mocked(catalogApi.createWebsiteAppDiscovery).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveDiscovery = resolve;
+      }),
+    );
+    render(<AdminAppsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Nueva' }));
+    fireEvent.change(screen.getByLabelText('Web oficial'), {
+      target: { value: 'https://website.example/product' },
+    });
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Analizar web y buscar instaladores',
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Nueva' }));
+    resolveDiscovery?.(websiteDiscovery());
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Web oficial')).toHaveValue('');
+      expect(screen.queryByDisplayValue('Website Desktop')).not.toBeInTheDocument();
+    });
+    expect(window.sessionStorage.getItem(
+      'batch-downloader.admin.website-discovery.v1',
+    )).toBeNull();
+  });
+
+  it('recovers a website analysis only when the page is reloaded', async () => {
+    window.sessionStorage.setItem(
+      'batch-downloader.admin.website-discovery.v1',
+      JSON.stringify({
+        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        officialUrl: 'https://website.example/product',
+      }),
+    );
+
+    render(<AdminAppsPage />);
+
+    expect(await screen.findByDisplayValue('Website Desktop')).toBeInTheDocument();
+    expect(catalogApi.fetchWebsiteAppDiscovery).toHaveBeenCalledWith(
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('accepts optional installer URI slots per operating system for unresolved apps', async () => {
+    render(<AdminAppsPage />);
+
+    fireEvent.click(await screen.findByRole('option', { name: /Example App/ }));
+    fireEvent.change(await screen.findByLabelText(/^Página de origen/), {
+      target: { value: 'https://example.com/downloads' },
+    });
+    fireEvent.change(screen.getByLabelText('Windows'), {
+      target: { value: 'https://downloads.example.com/Example.exe' },
+    });
+    fireEvent.change(screen.getByLabelText('Linux'), {
+      target: { value: 'https://downloads.example.com/example.AppImage' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Analizar instaladores' }));
+
+    await waitFor(() => {
+      expect(catalogApi.createManualInstallerInspection).toHaveBeenCalledWith(
+        unresolvedApp.id,
+        {
+          installerUrls: {
+            windows: 'https://downloads.example.com/Example.exe',
+            macos: null,
+            linux: 'https://downloads.example.com/example.AppImage',
+          },
+          sourcePageUrl: 'https://example.com/downloads',
+        },
+      );
+    });
+  });
+
   it('recovers a running inspection and hydrates the editable preview when ready', async () => {
     vi.mocked(catalogApi.fetchCurrentManualInstallerInspection).mockResolvedValue(
       inspection('running'),
@@ -203,7 +430,7 @@ describe('AdminAppsPage', () => {
     render(<AdminAppsPage />);
 
     fireEvent.click(await screen.findByRole('option', { name: /Example App/ }));
-    expect(await screen.findByText('Analizando el instalador')).toBeInTheDocument();
+    expect(await screen.findByText('Analizando los instaladores')).toBeInTheDocument();
 
     await waitFor(
       () => expect(catalogApi.fetchManualInstallerInspection).toHaveBeenCalled(),

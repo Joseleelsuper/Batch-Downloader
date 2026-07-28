@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from app.core.config import Settings
 from app.scraper.manual_installer import (
+    ManualInstallerError,
+    ManualInstallerInspector,
     description_provenance,
     parse_page_evidence,
     reviewed_field_sources,
@@ -13,6 +16,7 @@ from app.scraper.safe_http import (
     has_sensitive_query,
     validate_public_https_syntax,
 )
+from app.scraper.validator import ValidationConfidence, ValidationResult
 
 
 def test_page_evidence_prefers_allowlisted_software_application_json_ld() -> None:
@@ -45,6 +49,7 @@ def test_page_evidence_prefers_allowlisted_software_application_json_ld() -> Non
         "name": "Trusted Product",
         "name_source": "json_ld",
         "publisher": "Trusted Vendor",
+        "publisher_source": "json_ld",
         "version": "3.2.1",
         "description": "Product description",
         "description_source": "json_ld",
@@ -76,6 +81,28 @@ def test_page_evidence_records_open_graph_name_provenance() -> None:
 
     assert evidence["name"] == "Metadata Product"
     assert evidence["name_source"] == "open_graph"
+
+
+def test_page_evidence_uses_title_site_name_and_linked_icon_as_safe_fallbacks() -> None:
+    evidence = parse_page_evidence(
+        b"""
+        <html>
+          <head>
+            <title>Example Desktop</title>
+            <meta property="og:site_name" content="Example Vendor">
+            <link rel="icon" href="/assets/favicon.png">
+          </head>
+        </html>
+        """,
+        "https://example.com/downloads",
+    )
+
+    assert evidence["name"] == "Example Desktop"
+    assert evidence["name_source"] == "source_page"
+    assert evidence["publisher"] == "Example Vendor"
+    assert evidence["publisher_source"] == "open_graph"
+    assert evidence["icon"] == "https://example.com/assets/favicon.png"
+    assert evidence["icon_source"] == "source_page"
 
 
 @pytest.mark.parametrize(
@@ -129,6 +156,65 @@ def test_reviewed_field_sources_marks_only_changed_values_as_manual() -> None:
         "name": "json_ld",
         "longDescription": "manual",
     }
+
+
+@pytest.mark.asyncio
+async def test_manual_installer_rejects_a_deterministic_platform_mismatch(
+    monkeypatch,
+) -> None:
+    inspector = ManualInstallerInspector(Settings(_env_file=None))
+
+    async def validate(*_args, **_kwargs):
+        return ValidationResult(
+            ok=True,
+            url="https://example.com/App.exe",
+            final_url="https://example.com/App.exe",
+            filename="App.exe",
+            extension=".exe",
+            content_type="application/x-msdownload",
+            size_bytes=4096,
+            confidence=ValidationConfidence.VALIDATED,
+        )
+
+    monkeypatch.setattr(inspector.validator, "validate", validate)
+
+    with pytest.raises(ManualInstallerError) as error:
+        await inspector.validate_installer(
+            "https://example.com/App.exe",
+            "https://example.com/download",
+            "macos",
+        )
+
+    assert error.value.code == "installer_operating_system_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_manual_installer_assigns_an_explicit_slot_to_a_neutral_archive(
+    monkeypatch,
+) -> None:
+    inspector = ManualInstallerInspector(Settings(_env_file=None))
+
+    async def validate(*_args, **_kwargs):
+        return ValidationResult(
+            ok=True,
+            url="https://example.com/App.zip",
+            final_url="https://example.com/App.zip",
+            filename="App.zip",
+            extension=".zip",
+            content_type="application/zip",
+            size_bytes=4096,
+            confidence=ValidationConfidence.VALIDATED,
+        )
+
+    monkeypatch.setattr(inspector.validator, "validate", validate)
+
+    validated = await inspector.validate_installer(
+        "https://example.com/App.zip",
+        "https://example.com/download",
+        "linux",
+    )
+
+    assert validated.operating_system == "linux"
 
 
 @pytest.mark.parametrize(

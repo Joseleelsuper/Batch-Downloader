@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.source_resolution import SourceTrustStatus
 
@@ -58,11 +58,36 @@ class SemanticDocumentPage(BaseModel):
     next_after_app_id: str | None = Field(alias="nextAfterAppId")
 
 
+class ManualInstallerUrls(BaseModel):
+    windows: str | None = Field(default=None, max_length=2048)
+    macos: str | None = Field(default=None, max_length=2048)
+    linux: str | None = Field(default=None, max_length=2048)
+
+
 class ManualInstallerInspectionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    installer_url: str = Field(alias="installerUrl", min_length=1, max_length=2048)
+    installer_url: str | None = Field(
+        alias="installerUrl",
+        default=None,
+        max_length=2048,
+    )
+    installer_urls: ManualInstallerUrls = Field(
+        alias="installerUrls",
+        default_factory=ManualInstallerUrls,
+    )
     source_page_url: str = Field(alias="sourcePageUrl", min_length=1, max_length=2048)
+
+    @model_validator(mode="after")
+    def require_an_installer_url(self):
+        if self.installer_url and self.installer_url.strip():
+            return self
+        if any(
+            value and value.strip()
+            for value in self.installer_urls.model_dump().values()
+        ):
+            return self
+        raise ValueError("at_least_one_installer_url_required")
 
 
 class ManualFieldSuggestion(BaseModel):
@@ -126,6 +151,7 @@ class ManualInstallerInspectionView(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     suggestions: ManualInstallerSuggestions | None = None
     installer: ManualInstallerTechnicalData | None = None
+    installers: list[ManualInstallerTechnicalData] = Field(default_factory=list)
     ai: ManualInstallerAiState | None = None
     error_code: str | None = Field(alias="errorCode", default=None)
     source_ref: str | None = Field(alias="sourceRef", default=None)
@@ -160,6 +186,84 @@ class ManualInstallerApplyResult(BaseModel):
 
     app_id: str = Field(alias="appId")
     source_ref: str = Field(alias="sourceRef")
+    source_refs: list[str] = Field(alias="sourceRefs", default_factory=list)
     app_version: int = Field(alias="appVersion")
     catalog_status: Literal["available"] = Field(alias="catalogStatus", default="available")
+    warnings: list[str] = Field(default_factory=list)
+
+
+class WebsiteAppInstallerUrls(BaseModel):
+    windows: str | None = Field(default=None, max_length=2048)
+    macos: str | None = Field(default=None, max_length=2048)
+    linux: str | None = Field(default=None, max_length=2048)
+
+
+class WebsiteAppDiscoveryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    official_url: str = Field(alias="officialUrl", min_length=1, max_length=2048)
+    installer_urls: WebsiteAppInstallerUrls = Field(
+        alias="installerUrls",
+        default_factory=WebsiteAppInstallerUrls,
+    )
+
+
+class WebsiteAppDiscoveryInstallerView(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    final_domain: str | None = Field(alias="finalDomain", default=None)
+    filename: str | None = None
+    extension: str | None = None
+    content_type: str | None = Field(alias="contentType", default=None)
+    size_bytes: int | None = Field(alias="sizeBytes", default=None)
+    version: str | None = None
+    operating_system: str = Field(alias="operatingSystem")
+    architecture: str
+
+
+class WebsiteAppDiscoveryView(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    status: Literal["queued", "running", "ready", "failed", "applied", "expired"]
+    phase: str
+    warnings: list[str] = Field(default_factory=list)
+    provided_installer_platforms: list[str] = Field(
+        alias="providedInstallerPlatforms",
+        default_factory=list,
+    )
+    suggestions: ManualInstallerSuggestions | None = None
+    installers: list[WebsiteAppDiscoveryInstallerView] = Field(default_factory=list)
+    ai: ManualInstallerAiState | None = None
+    error_code: str | None = Field(alias="errorCode", default=None)
+    applied_app_id: str | None = Field(alias="appliedAppId", default=None)
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    expires_at: datetime = Field(alias="expiresAt")
+
+
+class WebsiteAppDiscoveryApplyRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=180)
+    publisher: str | None = Field(default=None, max_length=180)
+    official_url: str = Field(alias="officialUrl", min_length=1, max_length=2048)
+    latest_version: str | None = Field(alias="latestVersion", default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=4000)
+    long_description: str | None = Field(
+        alias="longDescription",
+        default=None,
+        max_length=12000,
+    )
+    icon_url: str | None = Field(alias="iconUrl", default=None, max_length=2048)
+
+
+class WebsiteAppDiscoveryApplyResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    app_id: str = Field(alias="appId")
+    app_version: int = Field(alias="appVersion")
+    catalog_status: Literal["available", "review", "missing"] = Field(alias="catalogStatus")
+    installer_count: int = Field(alias="installerCount")
     warnings: list[str] = Field(default_factory=list)

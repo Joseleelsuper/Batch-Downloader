@@ -1,6 +1,8 @@
 package es.ubu.batchdownloader.admin;
 
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -44,14 +46,32 @@ public class AdminDtos {
             String validationStatus) {}
 
     public record ManualInstallerInspectionRequest(
-            @NotBlank
             @Size(max = 2048)
             @Pattern(regexp = "(?i)^https://.+")
             String installerUrl,
+            @Valid WebsiteAppInstallerUrls installerUrls,
             @NotBlank
             @Size(max = 2048)
             @Pattern(regexp = "(?i)^https://.+")
-            String sourcePageUrl) {}
+            String sourcePageUrl) {
+        public ManualInstallerInspectionRequest {
+            if (installerUrls == null) {
+                installerUrls = new WebsiteAppInstallerUrls(null, null, null);
+            }
+        }
+
+        @AssertTrue(message = "Debe indicarse al menos una URI de instalador.")
+        public boolean hasInstallerUrl() {
+            return hasText(installerUrl)
+                    || hasText(installerUrls.windows())
+                    || hasText(installerUrls.macos())
+                    || hasText(installerUrls.linux());
+        }
+
+        private static boolean hasText(String value) {
+            return value != null && !value.isBlank();
+        }
+    }
 
     public record ManualFieldSuggestion(String value, String source) {}
 
@@ -89,12 +109,20 @@ public class AdminDtos {
             List<String> warnings,
             ManualInstallerSuggestions suggestions,
             ManualInstallerTechnicalData installer,
+            List<ManualInstallerTechnicalData> installers,
             ManualInstallerAiState ai,
             String errorCode,
             String sourceRef,
             LocalDateTime createdAt,
             LocalDateTime updatedAt,
-            LocalDateTime expiresAt) {}
+            LocalDateTime expiresAt) {
+        public ManualInstallerInspection {
+            warnings = warnings == null ? List.of() : List.copyOf(warnings);
+            installers = installers == null
+                    ? (installer == null ? List.of() : List.of(installer))
+                    : List.copyOf(installers);
+        }
+    }
 
     public record ManualInstallerApplyRequest(
             @NotNull @PositiveOrZero Long expectedAppVersion,
@@ -110,13 +138,90 @@ public class AdminDtos {
     public record ManualInstallerApplyResult(
             String appId,
             String sourceRef,
+            List<String> sourceRefs,
             long appVersion,
             String catalogStatus,
-            List<String> warnings) {}
+            List<String> warnings) {
+        public ManualInstallerApplyResult {
+            sourceRefs = sourceRefs == null
+                    ? (sourceRef == null ? List.of() : List.of(sourceRef))
+                    : List.copyOf(sourceRefs);
+            warnings = warnings == null ? List.of() : List.copyOf(warnings);
+        }
+    }
 
     public record ManualInstallerApplyResponse(
             AppDetails application,
             String sourceRef,
+            List<String> sourceRefs,
+            List<String> warnings) {}
+
+    public record WebsiteAppDiscoveryRequest(
+            @NotBlank
+            @Size(max = 2048)
+            @Pattern(regexp = "(?i)^https://.+")
+            String officialUrl,
+            @Valid WebsiteAppInstallerUrls installerUrls) {
+        public WebsiteAppDiscoveryRequest {
+            if (installerUrls == null) {
+                installerUrls = new WebsiteAppInstallerUrls(null, null, null);
+            }
+        }
+    }
+
+    public record WebsiteAppInstallerUrls(
+            @Size(max = 2048) @Pattern(regexp = "(?i)^https://.+") String windows,
+            @Size(max = 2048) @Pattern(regexp = "(?i)^https://.+") String macos,
+            @Size(max = 2048) @Pattern(regexp = "(?i)^https://.+") String linux) {}
+
+    public record WebsiteAppDiscoveryInstaller(
+            String id,
+            String finalDomain,
+            String filename,
+            String extension,
+            String contentType,
+            Long sizeBytes,
+            String version,
+            String operatingSystem,
+            String architecture) {}
+
+    public record WebsiteAppDiscovery(
+            String id,
+            String status,
+            String phase,
+            List<String> warnings,
+            List<String> providedInstallerPlatforms,
+            ManualInstallerSuggestions suggestions,
+            List<WebsiteAppDiscoveryInstaller> installers,
+            ManualInstallerAiState ai,
+            String errorCode,
+            String appliedAppId,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            LocalDateTime expiresAt) {}
+
+    public record WebsiteAppDiscoveryApplyRequest(
+            @NotBlank @Size(max = 180) String name,
+            @Size(max = 180) String publisher,
+            @NotBlank
+            @Size(max = 2048)
+            @Pattern(regexp = "(?i)^https://.+")
+            String officialUrl,
+            @Size(max = 100) String latestVersion,
+            @Size(max = 4000) String description,
+            @Size(max = 12000) String longDescription,
+            @Size(max = 2048) String iconUrl) {}
+
+    public record WebsiteAppDiscoveryApplyResult(
+            String appId,
+            long appVersion,
+            String catalogStatus,
+            int installerCount,
+            List<String> warnings) {}
+
+    public record WebsiteAppDiscoveryApplyResponse(
+            AppDetails application,
+            int installerCount,
             List<String> warnings) {}
 
     public record ScraperRunSummary(

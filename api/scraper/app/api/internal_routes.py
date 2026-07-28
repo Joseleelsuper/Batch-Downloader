@@ -34,6 +34,10 @@ from app.schemas.internal import (
     ManualInstallerInspectionView,
     SemanticDocument,
     SemanticDocumentPage,
+    WebsiteAppDiscoveryApplyRequest,
+    WebsiteAppDiscoveryApplyResult,
+    WebsiteAppDiscoveryRequest,
+    WebsiteAppDiscoveryView,
 )
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.catalog_fetcher import DescriptorWorker, enqueue_descriptor_for_app
@@ -51,6 +55,13 @@ from app.scraper.manual_installer import (
 )
 from app.scraper.safe_http import SafeHttpError
 from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
+from app.scraper.website_discovery import (
+    WebsiteAppDiscoveryRepository,
+    WebsiteDiscoveryError,
+    WebsiteDiscoveryTransientError,
+    apply_website_app_discovery,
+    website_discovery_view,
+)
 
 INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token"
 
@@ -473,6 +484,7 @@ async def create_manual_installer_inspection(
             app_id,
             request.installer_url,
             request.source_page_url,
+            request.installer_urls.model_dump(),
         )
     except (ManualInstallerError, SafeHttpError) as exc:
         raise_manual_installer_http_error(exc)
@@ -544,7 +556,7 @@ async def apply_manual_installer_inspection(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerApplyResult:
     try:
-        app, source_ref, warnings = await apply_manual_installer(
+        app, source_refs, warnings = await apply_manual_installer(
             session,
             settings,
             app_id,
@@ -556,9 +568,106 @@ async def apply_manual_installer_inspection(
     await session.commit()
     return ManualInstallerApplyResult(
         appId=str(app.id),
-        sourceRef=str(source_ref),
+        sourceRef=str(source_refs[0]),
+        sourceRefs=[str(source_ref) for source_ref in source_refs],
         appVersion=app.version,
         catalogStatus="available",
+        warnings=warnings,
+    )
+
+
+@internal_router.post(
+    "/admin/app-discoveries",
+    status_code=202,
+    response_model=WebsiteAppDiscoveryView,
+    response_model_by_alias=True,
+    responses={401: {}, 409: {}, 422: {}},
+)
+async def create_website_app_discovery(
+    request: WebsiteAppDiscoveryRequest,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> WebsiteAppDiscoveryView:
+    repository = WebsiteAppDiscoveryRepository(
+        session,
+        UrlProtector(settings.url_protection_secret),
+        settings,
+    )
+    try:
+        discovery, _created = await repository.create_or_reuse(
+            request.official_url,
+            request.installer_urls.model_dump(),
+        )
+    except (WebsiteDiscoveryError, SafeHttpError) as exc:
+        raise_website_discovery_http_error(exc)
+    await session.commit()
+    return WebsiteAppDiscoveryView.model_validate(
+        website_discovery_view(discovery)
+    )
+
+
+@internal_router.get(
+    "/admin/app-discoveries/{discovery_id}",
+    response_model=WebsiteAppDiscoveryView,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}},
+)
+async def get_website_app_discovery(
+    discovery_id: UUID,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> WebsiteAppDiscoveryView:
+    repository = WebsiteAppDiscoveryRepository(
+        session,
+        UrlProtector(settings.url_protection_secret),
+        settings,
+    )
+    discovery = await repository.get(discovery_id)
+    if discovery is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "website_discovery_not_found"},
+        )
+    await session.commit()
+    return WebsiteAppDiscoveryView.model_validate(
+        website_discovery_view(discovery)
+    )
+
+
+@internal_router.post(
+    "/admin/app-discoveries/{discovery_id}/apply",
+    response_model=WebsiteAppDiscoveryApplyResult,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}, 409: {}, 422: {}, 503: {}},
+)
+async def apply_website_app_discovery_route(
+    discovery_id: UUID,
+    request: WebsiteAppDiscoveryApplyRequest,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> WebsiteAppDiscoveryApplyResult:
+    try:
+        app, installer_count, warnings = await apply_website_app_discovery(
+            session,
+            settings,
+            discovery_id,
+            request,
+        )
+    except (
+        WebsiteDiscoveryError,
+        WebsiteDiscoveryTransientError,
+        SafeHttpError,
+    ) as exc:
+        raise_website_discovery_http_error(exc)
+    await session.commit()
+    return WebsiteAppDiscoveryApplyResult(
+        appId=str(app.id),
+        appVersion=app.version,
+        catalogStatus=app.catalog_status or "missing",
+        installerCount=installer_count,
         warnings=warnings,
     )
 
@@ -570,6 +679,21 @@ def raise_manual_installer_http_error(
         status_code = error.status_code
         code = error.code
     elif isinstance(error, ManualInstallerTransientError):
+        status_code = 503
+        code = error.code
+    else:
+        status_code = 503 if error.transient else 422
+        code = error.code
+    raise HTTPException(status_code=status_code, detail={"code": code}) from error
+
+
+def raise_website_discovery_http_error(
+    error: WebsiteDiscoveryError | WebsiteDiscoveryTransientError | SafeHttpError,
+) -> None:
+    if isinstance(error, WebsiteDiscoveryError):
+        status_code = error.status_code
+        code = error.code
+    elif isinstance(error, WebsiteDiscoveryTransientError):
         status_code = 503
         code = error.code
     else:

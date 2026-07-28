@@ -199,6 +199,7 @@ export interface ManualInstallerInspection {
   warnings: string[];
   suggestions?: ManualInstallerSuggestions | null;
   installer?: ManualInstallerTechnicalData | null;
+  installers: ManualInstallerTechnicalData[];
   ai?: {
     status: 'ready' | 'unavailable' | 'failed';
     provider?: string | null;
@@ -209,6 +210,11 @@ export interface ManualInstallerInspection {
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
+}
+
+export interface ManualInstallerInspectionRequest {
+  installerUrls: Record<OperatingSystem, string | null>;
+  sourcePageUrl: string;
 }
 
 export interface ManualInstallerApplyRequest {
@@ -226,6 +232,56 @@ export interface ManualInstallerApplyRequest {
 export interface ManualInstallerApplyResponse {
   application: AppDetails;
   sourceRef: string;
+  sourceRefs: string[];
+  warnings: string[];
+}
+
+export interface WebsiteAppDiscoveryInstaller {
+  id: string;
+  finalDomain?: string | null;
+  filename?: string | null;
+  extension?: string | null;
+  contentType?: string | null;
+  sizeBytes?: number | null;
+  version?: string | null;
+  operatingSystem: OperatingSystem;
+  architecture: string;
+}
+
+export interface WebsiteAppDiscovery {
+  id: string;
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'applied' | 'expired';
+  phase: string;
+  warnings: string[];
+  providedInstallerPlatforms: OperatingSystem[];
+  suggestions?: ManualInstallerSuggestions | null;
+  installers: WebsiteAppDiscoveryInstaller[];
+  ai?: ManualInstallerInspection['ai'];
+  errorCode?: string | null;
+  appliedAppId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface WebsiteAppDiscoveryRequest {
+  officialUrl: string;
+  installerUrls: Record<OperatingSystem, string | null>;
+}
+
+export interface WebsiteAppDiscoveryApplyRequest {
+  name: string;
+  publisher: string | null;
+  officialUrl: string;
+  latestVersion: string | null;
+  description: string | null;
+  longDescription: string | null;
+  iconUrl: string | null;
+}
+
+export interface WebsiteAppDiscoveryApplyResponse {
+  application: AppDetails;
+  installerCount: number;
   warnings: string[];
 }
 

@@ -786,6 +786,94 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/admin/app-discoveries:
+    servers:
+      - url: /
+    post:
+      operationId: createWebsiteAppDiscovery
+      summary: Analizar una web oficial y buscar instaladores verificables
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebsiteAppDiscoveryRequest'
+      responses:
+        '202':
+          description: Descubrimiento encolado o envío idéntico reutilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteAppDiscovery'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/app-discoveries/{discoveryId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/WebsiteDiscoveryId'
+    get:
+      operationId: getWebsiteAppDiscovery
+      summary: Consultar el progreso y la previsualización de un alta automática
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Evidencia segura; nunca contiene las URL de los ejecutables.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteAppDiscovery'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/app-discoveries/{discoveryId}/apply:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/WebsiteDiscoveryId'
+    post:
+      operationId: applyWebsiteAppDiscovery
+      summary: Revalidar instaladores y crear la aplicación desde la previsualización
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebsiteAppDiscoveryApplyRequest'
+      responses:
+        '200':
+          description: Aplicación creada; queda disponible solo con instaladores válidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteAppDiscoveryApplyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/admin/apps/{appId}/manual-installer-inspections:
     servers:
       - url: /
@@ -793,7 +881,7 @@ paths:
       - $ref: '#/components/parameters/AppId'
     post:
       operationId: createManualInstallerInspection
-      summary: Encolar una inspección manual de instalador
+      summary: Encolar una inspección manual de instaladores
       tags: [Apps admin]
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -852,7 +940,7 @@ paths:
       tags: [Apps admin]
       responses:
         '200':
-          description: Estado seguro de la inspección; nunca contiene la URL final.
+          description: Estado seguro de la inspección; nunca contiene las URL finales.
           content:
             application/json:
               schema:
@@ -871,7 +959,7 @@ paths:
       - $ref: '#/components/parameters/InspectionId'
     post:
       operationId: applyManualInstallerInspection
-      summary: Revalidar, guardar y publicar una inspección manual
+      summary: Revalidar, guardar y publicar los instaladores de una inspección manual
       tags: [Apps admin]
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -951,6 +1039,13 @@ components:
         format: uuid
     InspectionId:
       name: inspectionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WebsiteDiscoveryId:
+      name: discoveryId
       in: path
       required: true
       schema:
@@ -1154,20 +1249,43 @@ components:
     ManualInstallerInspectionRequest:
       type: object
       additionalProperties: false
-      required: [installerUrl, sourcePageUrl]
+      required: [sourcePageUrl]
+      anyOf:
+        - required: [installerUrl]
+        - required: [installerUrls]
       properties:
         installerUrl:
-          type: string
+          type: [string, 'null']
           format: uri
           pattern: '^https://'
           maxLength: 2048
-          description: URI del ejecutable. Se cifra y nunca se devuelve.
+          description: Compatibilidad con clientes anteriores; se cifra y nunca se devuelve.
+        installerUrls:
+          $ref: '#/components/schemas/ManualInstallerUrls'
         sourcePageUrl:
           type: string
           format: uri
           pattern: '^https://'
           maxLength: 2048
-          description: Página superior de la que procede el instalador.
+          description: Página superior común de la que proceden los instaladores.
+    ManualInstallerUrls:
+      allOf:
+        - $ref: '#/components/schemas/WebsiteAppInstallerUrls'
+        - type: object
+          description: Debe incluir al menos una URI HTTPS no nula; los huecos son opcionales.
+          anyOf:
+            - required: [windows]
+              properties:
+                windows:
+                  type: string
+            - required: [macos]
+              properties:
+                macos:
+                  type: string
+            - required: [linux]
+              properties:
+                linux:
+                  type: string
     ManualFieldSuggestion:
       type: object
       additionalProperties: false
@@ -1273,6 +1391,7 @@ components:
         - warnings
         - suggestions
         - installer
+        - installers
         - ai
         - errorCode
         - sourceRef
@@ -1307,6 +1426,12 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ManualInstallerTechnicalData'
             - type: 'null'
+        installers:
+          type: array
+          minItems: 0
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/ManualInstallerTechnicalData'
         ai:
           oneOf:
             - $ref: '#/components/schemas/ManualInstallerAiState'
@@ -1364,13 +1489,196 @@ components:
     ManualInstallerApplyResponse:
       type: object
       additionalProperties: false
-      required: [application, sourceRef, warnings]
+      required: [application, sourceRef, sourceRefs, warnings]
       properties:
         application:
           $ref: '#/components/schemas/AppDetails'
         sourceRef:
           type: string
           format: uuid
+        sourceRefs:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        warnings:
+          type: array
+          items:
+            type: string
+    WebsiteAppInstallerUrls:
+      type: object
+      additionalProperties: false
+      properties:
+        windows:
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+        macos:
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+        linux:
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+      description: URI directas opcionales, cifradas y vinculadas al sistema operativo indicado.
+    WebsiteAppDiscoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [officialUrl]
+      properties:
+        officialUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: Web pública del producto; se cifra durante el trabajo.
+        installerUrls:
+          $ref: '#/components/schemas/WebsiteAppInstallerUrls'
+    WebsiteAppDiscoveryInstaller:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - finalDomain
+        - filename
+        - extension
+        - contentType
+        - sizeBytes
+        - version
+        - operatingSystem
+        - architecture
+      properties:
+        id:
+          type: string
+          format: uuid
+        finalDomain:
+          type: [string, 'null']
+        filename:
+          type: [string, 'null']
+        extension:
+          type: [string, 'null']
+        contentType:
+          type: [string, 'null']
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+        version:
+          type: [string, 'null']
+        operatingSystem:
+          type: string
+          enum: [windows, macos, linux]
+        architecture:
+          type: string
+          enum: [x86_64, x86, aarch64, unknown]
+    WebsiteAppDiscovery:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - phase
+        - warnings
+        - providedInstallerPlatforms
+        - suggestions
+        - installers
+        - ai
+        - errorCode
+        - appliedAppId
+        - createdAt
+        - updatedAt
+        - expiresAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, ready, failed, applied, expired]
+        phase:
+          type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        providedInstallerPlatforms:
+          type: array
+          items:
+            type: string
+            enum: [windows, macos, linux]
+          description: Sistemas con una URI opcional aportada; nunca expone esas URI.
+        suggestions:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerSuggestions'
+            - type: 'null'
+        installers:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebsiteAppDiscoveryInstaller'
+        ai:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerAiState'
+            - type: 'null'
+        errorCode:
+          type: [string, 'null']
+        appliedAppId:
+          type: [string, 'null']
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    WebsiteAppDiscoveryApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [name, officialUrl]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        publisher:
+          type: [string, 'null']
+          maxLength: 180
+        officialUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+        latestVersion:
+          type: [string, 'null']
+          maxLength: 100
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        longDescription:
+          type: [string, 'null']
+          maxLength: 12000
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+    WebsiteAppDiscoveryApplyResponse:
+      type: object
+      additionalProperties: false
+      required: [application, installerCount, warnings]
+      properties:
+        application:
+          $ref: '#/components/schemas/AppDetails'
+        installerCount:
+          type: integer
+          minimum: 0
         warnings:
           type: array
           items:

@@ -57,21 +57,43 @@ combina `review` y `missing` sin añadir un estado público nuevo. La mesa
 maestro/detalle permite buscar y paginar aplicaciones, recuperar un análisis
 abierto tras recargar y continuar usando la creación o edición ordinaria.
 
-Para resolver una aplicación, el administrador proporciona únicamente dos URLs
-HTTPS: el instalador y su página de origen. Core exige sesión `ADMIN`, CSRF y
-audita la operación; el scraper guarda ambas URLs cifradas y encola solamente el
-identificador de inspección en `manual_installer_enrichment`. El trabajo valida
-DNS, redirects, tamaño, formato y firma, obtiene metadatos allowlisted de
-JSON-LD/OpenGraph/Twitter y genera una descripción larga en español cuando hay
-un proveedor de IA configurado.
+El alta de una aplicación nueva parte de su **web oficial** y admite, de forma
+opcional, una URI directa para Windows, macOS y Linux. Los huecos se buscan
+automáticamente. El scraper mantiene un trabajo recuperable en
+`website_app_discovery`, extrae
+nombre, editor, versión, icono y descripciones desde evidencia allowlisted,
+genera la descripción larga en español y recorre enlaces de descarga para
+buscar instaladores. Solo conserva candidatos cuya red, redirects, formato y
+firma quedan validados. La previsualización resultante es totalmente editable y
+no devuelve las URL de los ejecutables. Las URI aportadas se validan contra
+SSRF, se cifran y se vinculan al sistema operativo indicado. Si una web bloquea
+con 401/403 una variante con parámetros no sensibles, el scraper puede
+reintentar exactamente la misma ruta sin la query manteniendo HTTPS, DNS
+público y redirects seguros.
+
+Al confirmar el alta se revalidan los instaladores y se crean aplicación,
+fuentes y candidatos en una transacción. Si ya no queda ningún instalador
+válido, la aplicación se conserva como `missing`; nunca se publica una descarga
+dudosa para forzar `available`.
+
+Para resolver una aplicación, el administrador proporciona una página HTTPS de
+origen y al menos una URI HTTPS directa de instalador en los huecos de Windows,
+macOS o Linux; los sistemas no disponibles se dejan vacíos. Core exige sesión
+`ADMIN`, CSRF y audita la operación. El scraper cifra por separado todas las URI
+y encola solamente el identificador de inspección en
+`manual_installer_enrichment`. El trabajo valida cada binario contra el sistema
+indicado —además de DNS, redirects, tamaño, formato y firma—, obtiene metadatos
+allowlisted de JSON-LD/OpenGraph/Twitter y genera una descripción larga en
+español cuando hay un proveedor de IA configurado.
 
 La previsualización es editable y muestra la procedencia de cada sugerencia. No
 se modifica el catálogo hasta pulsar **Guardar y publicar**. En ese momento se
-revalida el binario, se comprueba la versión optimista de la aplicación y una
-transacción crea o reutiliza la fuente, cifra el candidato `direct`/`valid` y
-deja que las proyecciones MySQL cambien `review|missing` a `available`. Un
-formato neutral exige seleccionar plataforma; nunca se inventa. La URL final
-del ejecutable no aparece en respuestas, auditorías, logs ni cargas de cola.
+revalidan todos los binarios, se comprueba la versión optimista de la aplicación
+y una transacción crea o reutiliza sus fuentes, cifra los candidatos
+`direct`/`valid` y deja que las proyecciones MySQL cambien `review|missing` a
+`available`. Un archivo neutral hereda únicamente el hueco de plataforma elegido
+explícitamente; nunca se inventa. Las URL finales de los ejecutables no aparecen
+en respuestas, auditorías, logs ni cargas de cola.
 
 Los pesos se descargan desde Hugging Face, pero las descripciones, metadatos y
 consultas permanecen dentro del despliegue local:

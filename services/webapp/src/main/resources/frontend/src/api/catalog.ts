@@ -24,6 +24,11 @@ import type {
   ManualInstallerApplyRequest,
   ManualInstallerApplyResponse,
   ManualInstallerInspection,
+  ManualInstallerInspectionRequest,
+  WebsiteAppDiscovery,
+  WebsiteAppDiscoveryRequest,
+  WebsiteAppDiscoveryApplyRequest,
+  WebsiteAppDiscoveryApplyResponse,
   SearchMode,
   SortKey,
 } from '../types/catalog';
@@ -420,7 +425,7 @@ export async function generateAdminDescription(appId: string): Promise<{ jobId: 
 
 export async function createManualInstallerInspection(
   appId: string,
-  payload: { installerUrl: string; sourcePageUrl: string },
+  payload: ManualInstallerInspectionRequest,
 ): Promise<ManualInstallerInspection> {
   return requestJson<ManualInstallerInspection>(
     `/api/admin/apps/${encodeURIComponent(appId)}/manual-installer-inspections`,
@@ -459,6 +464,38 @@ export async function applyManualInstallerInspection(
 ): Promise<ManualInstallerApplyResponse> {
   return requestJson<ManualInstallerApplyResponse>(
     `/api/admin/apps/${encodeURIComponent(appId)}/manual-installer-inspections/${encodeURIComponent(inspectionId)}/apply`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function createWebsiteAppDiscovery(
+  payload: WebsiteAppDiscoveryRequest,
+): Promise<WebsiteAppDiscovery> {
+  return requestJson<WebsiteAppDiscovery>('/api/admin/app-discoveries', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchWebsiteAppDiscovery(
+  discoveryId: string,
+  signal?: AbortSignal,
+): Promise<WebsiteAppDiscovery> {
+  return requestJson<WebsiteAppDiscovery>(
+    `/api/admin/app-discoveries/${encodeURIComponent(discoveryId)}`,
+    { signal },
+  );
+}
+
+export async function applyWebsiteAppDiscovery(
+  discoveryId: string,
+  payload: WebsiteAppDiscoveryApplyRequest,
+): Promise<WebsiteAppDiscoveryApplyResponse> {
+  return requestJson<WebsiteAppDiscoveryApplyResponse>(
+    `/api/admin/app-discoveries/${encodeURIComponent(discoveryId)}/apply`,
     {
       method: 'POST',
       body: JSON.stringify(payload),

@@ -60,6 +60,12 @@ from app.scraper.validator import (
 
 INSPECTION_ACTIVE_STATUSES = ("queued", "running", "ready")
 INSPECTION_VISIBLE_STATUSES = ("queued", "running", "ready", "failed")
+MANUAL_INSTALLER_PLATFORMS = ("windows", "macos", "linux")
+MANUAL_INSTALLER_URL_COLUMNS = {
+    "windows": "windows_installer_url_encrypted",
+    "macos": "macos_installer_url_encrypted",
+    "linux": "linux_installer_url_encrypted",
+}
 TRANSIENT_VALIDATION_REASONS = {
     "no_response",
     "source_not_verified",
@@ -113,10 +119,21 @@ class ManualInstallerInspectionRepository:
     async def create_or_reuse(
         self,
         app_id: uuid.UUID,
-        installer_url: str,
+        installer_url: str | None,
         source_page_url: str,
+        installer_urls: dict[str, str | None] | None = None,
     ) -> tuple[ManualInstallerInspection, bool]:
-        installer_url = await validate_public_https_url(installer_url)
+        installer_url = clean_optional(installer_url)
+        if installer_url:
+            installer_url = await validate_public_https_url(installer_url)
+        safe_installer_urls = await validate_manual_installer_urls(
+            installer_urls or {}
+        )
+        if not installer_url and not safe_installer_urls:
+            raise ManualInstallerError(
+                "at_least_one_installer_url_required",
+                422,
+            )
         source_page_url = await validate_public_https_url(source_page_url)
         if has_sensitive_query(source_page_url):
             raise ManualInstallerError("source_page_query_credentials_forbidden", 422)
@@ -138,6 +155,7 @@ class ManualInstallerInspectionRepository:
             installer_url,
             source_page_url,
             self.settings.url_protection_secret,
+            safe_installer_urls,
         )
         active = await self.session.scalar(
             select(ManualInstallerInspection)
@@ -178,7 +196,22 @@ class ManualInstallerInspectionRepository:
             phase="queued",
             captured_app_version=app.version,
             input_hash=input_hash,
-            installer_url_encrypted=self.protector.protect(installer_url),
+            installer_url_encrypted=protect_optional_url(
+                self.protector,
+                installer_url,
+            ),
+            windows_installer_url_encrypted=protect_optional_url(
+                self.protector,
+                safe_installer_urls.get("windows"),
+            ),
+            macos_installer_url_encrypted=protect_optional_url(
+                self.protector,
+                safe_installer_urls.get("macos"),
+            ),
+            linux_installer_url_encrypted=protect_optional_url(
+                self.protector,
+                safe_installer_urls.get("linux"),
+            ),
             source_page_url_encrypted=self.protector.protect(source_page_url),
             warnings_json=[],
             expires_at=utc_after(hours=self.settings.manual_inspection_ttl_hours),
@@ -279,6 +312,7 @@ class ManualInstallerInspector:
         self,
         installer_url: str,
         source_page_url: str,
+        expected_operating_system: str | None = None,
     ) -> ValidatedManualInstaller:
         candidate = InstallerCandidate(
             url=installer_url,
@@ -303,11 +337,21 @@ class ManualInstallerInspector:
         artifact_format = DEFAULT_ARTIFACT_FORMAT_REGISTRY.get(extension)
         if artifact_format is None:
             raise ManualInstallerError("unsupported_installer_format", 422)
-        operating_system = (
+        inferred_operating_system = (
             artifact_format.platforms[0].value
             if len(artifact_format.platforms) == 1
             else None
         )
+        if (
+            inferred_operating_system
+            and expected_operating_system
+            and inferred_operating_system != expected_operating_system
+        ):
+            raise ManualInstallerError(
+                "installer_operating_system_mismatch",
+                422,
+            )
+        operating_system = inferred_operating_system or expected_operating_system
         evidence_candidate = InstallerCandidate(
             url=installer_url,
             source="admin_manual",
@@ -329,13 +373,31 @@ class ManualInstallerInspector:
     async def inspect(
         self,
         app: SoftwareApp,
-        installer_url: str,
+        installer_inputs: list[tuple[str | None, str]],
         source_page_url: str,
         *,
         set_phase: PhaseCallback,
     ) -> tuple[dict, list[str]]:
         await set_phase("validating_installer")
-        validated = await self.validate_installer(installer_url, source_page_url)
+        validated_installers = [
+            await self.validate_installer(
+                installer_url,
+                source_page_url,
+                expected_operating_system,
+            )
+            for expected_operating_system, installer_url in installer_inputs
+        ]
+        validated = validated_installers[0]
+        detected_installer_versions = {
+            item.version
+            for item in validated_installers
+            if item.version
+        }
+        deterministic_installer_version = (
+            next(iter(detected_installer_versions))
+            if len(detected_installer_versions) == 1
+            else None
+        )
 
         warnings: list[str] = []
         page_evidence: dict[str, str] = {}
@@ -355,7 +417,7 @@ class ManualInstallerInspector:
         version_value, version_source = suggested_version(
             app.latest_version,
             page_evidence.get("version"),
-            validated.version,
+            deterministic_installer_version,
         )
         name_value, name_source = first_non_empty(
             (app.name, "current"),
@@ -395,12 +457,15 @@ class ManualInstallerInspector:
                         "publisher": publisher_value,
                         "short_description": description_value,
                         "latest_version": version_value,
-                        "installer": {
-                            "filename": validated.result.filename,
-                            "extension": validated.result.extension,
-                            "operating_system": validated.operating_system,
-                            "architecture": validated.architecture,
-                        },
+                        "installers": [
+                            {
+                                "filename": item.result.filename,
+                                "extension": item.result.extension,
+                                "operating_system": item.operating_system,
+                                "architecture": item.architecture,
+                            }
+                            for item in validated_installers
+                        ],
                         "source_page_metadata": {
                             key: value
                             for key, value in page_evidence.items()
@@ -421,6 +486,20 @@ class ManualInstallerInspector:
         elif not long_description:
             warnings.append("ai:provider_not_configured")
 
+        technical_installers = [
+            {
+                "finalDomain": item.result.final_domain,
+                "filename": item.result.filename,
+                "extension": item.result.extension,
+                "contentType": item.result.content_type,
+                "sizeBytes": item.result.size_bytes,
+                "version": item.version,
+                "operatingSystem": item.operating_system,
+                "architecture": item.architecture,
+                "platformRequired": item.operating_system is None,
+            }
+            for item in validated_installers
+        ]
         result = {
             "suggestions": {
                 "name": field_suggestion(name_value, name_source),
@@ -434,17 +513,8 @@ class ManualInstallerInspector:
                 ),
                 "iconUrl": field_suggestion(icon_value, icon_source),
             },
-            "installer": {
-                "finalDomain": validated.result.final_domain,
-                "filename": validated.result.filename,
-                "extension": validated.result.extension,
-                "contentType": validated.result.content_type,
-                "sizeBytes": validated.result.size_bytes,
-                "version": validated.version,
-                "operatingSystem": validated.operating_system,
-                "architecture": validated.architecture,
-                "platformRequired": validated.operating_system is None,
-            },
+            "installer": technical_installers[0],
+            "installers": technical_installers,
             "ai": ai_state,
         }
         return json_safe(result), warnings
@@ -496,9 +566,12 @@ class ManualInstallerWorker:
 
             app = await session.get(SoftwareApp, inspection.software_app_id)
             protector = UrlProtector(self.settings.url_protection_secret)
-            installer_url = protector.reveal(inspection.installer_url_encrypted)
+            installer_inputs = reveal_manual_installer_inputs(
+                inspection,
+                protector,
+            )
             source_page_url = protector.reveal(inspection.source_page_url_encrypted)
-            if app is None or not installer_url or not source_page_url:
+            if app is None or not installer_inputs or not source_page_url:
                 inspection.status = "failed"
                 inspection.phase = "failed"
                 inspection.error_code = (
@@ -535,7 +608,7 @@ class ManualInstallerWorker:
             try:
                 result, warnings = await inspector.inspect(
                     app,
-                    installer_url,
+                    installer_inputs,
                     source_page_url,
                     set_phase=set_phase,
                 )
@@ -620,7 +693,7 @@ async def apply_manual_installer(
     app_id: uuid.UUID,
     inspection_id: uuid.UUID,
     request: ManualInstallerApplyRequest,
-) -> tuple[SoftwareApp, uuid.UUID, list[str]]:
+) -> tuple[SoftwareApp, list[uuid.UUID], list[str]]:
     protector = UrlProtector(settings.url_protection_secret)
     repository = ManualInstallerInspectionRepository(session, protector, settings)
     inspection = await repository.get(app_id, inspection_id, for_update=True)
@@ -637,15 +710,25 @@ async def apply_manual_installer(
             or app.catalog_status != "available"
         ):
             raise ManualInstallerError("app_changed_reinspect_required", 409)
-        return app, inspection.source_ref, list(inspection.warnings_json or [])
+        applied_source_refs = [
+            uuid.UUID(value)
+            for value in (inspection.result_json or {}).get(
+                "appliedSourceRefs",
+                [str(inspection.source_ref)],
+            )
+        ]
+        return app, applied_source_refs, list(inspection.warnings_json or [])
     if inspection.status == "expired":
         raise ManualInstallerError("inspection_expired", 409)
     if inspection.status != "ready" or not inspection.result_json:
         raise ManualInstallerError("inspection_not_ready", 409)
 
-    installer_url = protector.reveal(inspection.installer_url_encrypted)
+    installer_inputs = reveal_manual_installer_inputs(
+        inspection,
+        protector,
+    )
     source_page_url = protector.reveal(inspection.source_page_url_encrypted)
-    if not installer_url or not source_page_url:
+    if not installer_inputs or not source_page_url:
         raise ManualInstallerError("inspection_url_unreadable", 409)
 
     if not request.name.strip():
@@ -676,9 +759,25 @@ async def apply_manual_installer(
         )
 
     inspector = ManualInstallerInspector(settings)
-    validated = await inspector.validate_installer(installer_url, source_page_url)
-    technical = inspection.result_json.get("installer") or {}
-    if not same_installer_evidence(technical, validated):
+    validated_installers = [
+        await inspector.validate_installer(
+            installer_url,
+            source_page_url,
+            expected_operating_system,
+        )
+        for expected_operating_system, installer_url in installer_inputs
+    ]
+    technical_installers = inspection.result_json.get("installers") or [
+        inspection.result_json.get("installer") or {}
+    ]
+    if len(technical_installers) != len(validated_installers) or any(
+        not same_installer_evidence(technical, validated)
+        for technical, validated in zip(
+            technical_installers,
+            validated_installers,
+            strict=True,
+        )
+    ):
         raise ManualInstallerError("installer_changed_reinspect_required", 409)
 
     app = await session.scalar(
@@ -699,16 +798,23 @@ async def apply_manual_installer(
     }:
         raise ManualInstallerError("app_no_longer_unresolved", 409)
 
-    operating_system = validated.operating_system
-    if operating_system is None:
-        operating_system = request.operating_system
-    if operating_system is None:
-        raise ManualInstallerError("operating_system_required", 422)
-    architecture = (
-        "UNKNOWN"
-        if validated.architecture == ArtifactArchitecture.UNKNOWN.value
-        else validated.architecture
-    )
+    resolved_platform_installers: list[
+        tuple[ValidatedManualInstaller, str, str]
+    ] = []
+    for validated in validated_installers:
+        operating_system = validated.operating_system
+        if operating_system is None and len(validated_installers) == 1:
+            operating_system = request.operating_system
+        if operating_system is None:
+            raise ManualInstallerError("operating_system_required", 422)
+        architecture = (
+            "UNKNOWN"
+            if validated.architecture == ArtifactArchitecture.UNKNOWN.value
+            else validated.architecture
+        )
+        resolved_platform_installers.append(
+            (validated, operating_system, architecture)
+        )
 
     app.name = request.name.strip()
     app.normalized_name = normalize_text(app.name)
@@ -784,58 +890,75 @@ async def apply_manual_installer(
     app.metadata_json = json_safe(metadata)
 
     catalog = CatalogRepository(session, protector)
-    source = await catalog.source_for_platform(app.id, operating_system, architecture)
-    if source is None:
-        source = DownloadSource(
-            software_app_id=app.id,
-            operating_system=operating_system,
-            architecture=architecture,
-            initial_url=source_page_url,
-            resolver_type="manual_http",
-            resolver_config={"source": "admin_manual"},
-            resolution_status=ResolutionStatus.MISSING.value,
-            validation_status=ValidationStatus.UNCHECKED.value,
+    source_ids: set[uuid.UUID] = set()
+    resolved_ids: list[uuid.UUID] = []
+    for index, (
+        validated,
+        operating_system,
+        architecture,
+    ) in enumerate(resolved_platform_installers):
+        source = await catalog.source_for_platform(
+            app.id,
+            operating_system,
+            architecture,
         )
-        session.add(source)
-        await session.flush()
-    else:
-        source.initial_url = source_page_url
-        source.resolver_type = "manual_http"
-        source.resolver_config = {"source": "admin_manual"}
-        source.updated_at = utc_now()
+        if source is None:
+            source = DownloadSource(
+                software_app_id=app.id,
+                operating_system=operating_system,
+                architecture=architecture,
+                initial_url=source_page_url,
+                resolver_type="manual_http",
+                resolver_config={"source": "admin_manual"},
+                resolution_status=ResolutionStatus.MISSING.value,
+                validation_status=ValidationStatus.UNCHECKED.value,
+            )
+            session.add(source)
+            await session.flush()
+        else:
+            source.initial_url = source_page_url
+            source.resolver_type = "manual_http"
+            source.resolver_config = {"source": "admin_manual"}
+            source.updated_at = utc_now()
 
-    await catalog.expire_valid_resolved_sources(source.id)
-    resolved = await catalog.save_resolved_source(
-        ResolvedSourceCreate(
-            source_id=source.id,
-            url=validated.final_url,
-            final_domain=validated.result.final_domain or registered_domain(validated.final_url)
-            or urlparse(validated.final_url).hostname
-            or "unknown",
-            filename=validated.result.filename,
-            extension=validated.result.extension,
-            content_type=validated.result.content_type,
-            size_bytes=validated.result.size_bytes,
-            version=validated.version or app.latest_version,
-            release_rank=0,
-            is_latest=True,
-            version_status="latest",
-            score=100,
-            status=ResolutionStatus.DIRECT,
-            validation_status=ValidationStatus.VALID,
-            metadata={
-                "candidate_source": "admin_manual",
-                "inspection_id": str(inspection.id),
-                "validation_confidence": ValidationConfidence.VALIDATED.value,
-                "operating_system": operating_system,
-                "architecture": architecture,
-                "is_primary": True,
-                "is_latest": True,
-            },
+        source_ids.add(source.id)
+        await catalog.expire_valid_resolved_sources(source.id)
+        resolved = await catalog.save_resolved_source(
+            ResolvedSourceCreate(
+                source_id=source.id,
+                url=validated.final_url,
+                final_domain=validated.result.final_domain
+                or registered_domain(validated.final_url)
+                or urlparse(validated.final_url).hostname
+                or "unknown",
+                filename=validated.result.filename,
+                extension=validated.result.extension,
+                content_type=validated.result.content_type,
+                size_bytes=validated.result.size_bytes,
+                version=validated.version or app.latest_version,
+                release_rank=0,
+                is_latest=True,
+                version_status="latest",
+                score=100,
+                status=ResolutionStatus.DIRECT,
+                validation_status=ValidationStatus.VALID,
+                metadata={
+                    "candidate_source": "admin_manual",
+                    "inspection_id": str(inspection.id),
+                    "validation_confidence": (
+                        ValidationConfidence.VALIDATED.value
+                    ),
+                    "operating_system": operating_system,
+                    "architecture": architecture,
+                    "is_primary": index == 0,
+                    "is_latest": True,
+                },
+            )
         )
-    )
-    await session.flush()
-    await catalog.refresh_source_statuses({source.id})
+        await session.flush()
+        resolved_ids.append(resolved.id)
+
+    await catalog.refresh_source_statuses(source_ids)
     await catalog.refresh_operating_systems(app.id)
     await session.refresh(
         app,
@@ -846,14 +969,21 @@ async def apply_manual_installer(
     inspection.phase = "applied"
     inspection.applied_at = utc_now()
     inspection.applied_app_version = app.version
-    inspection.source_ref = resolved.id
+    inspection.source_ref = resolved_ids[0]
+    inspection.result_json = {
+        **inspection.result_json,
+        "appliedSourceRefs": [str(source_ref) for source_ref in resolved_ids],
+    }
     inspection.updated_at = utc_now()
     await session.flush()
-    return app, resolved.id, list(inspection.warnings_json or [])
+    return app, resolved_ids, list(inspection.warnings_json or [])
 
 
 def inspection_view(inspection: ManualInstallerInspection) -> dict:
     result = inspection.result_json or {}
+    installers = result.get("installers") or (
+        [result["installer"]] if result.get("installer") else []
+    )
     return {
         "id": str(inspection.id),
         "appId": str(inspection.software_app_id),
@@ -862,7 +992,8 @@ def inspection_view(inspection: ManualInstallerInspection) -> dict:
         "expectedAppVersion": inspection.captured_app_version,
         "warnings": list(inspection.warnings_json or []),
         "suggestions": result.get("suggestions"),
-        "installer": result.get("installer"),
+        "installer": installers[0] if installers else None,
+        "installers": installers,
         "ai": result.get("ai"),
         "errorCode": inspection.error_code,
         "sourceRef": str(inspection.source_ref) if inspection.source_ref else None,
@@ -901,6 +1032,8 @@ def parse_page_evidence(content: bytes, page_url: str) -> dict[str, str]:
             nested_name(json_ld.get("publisher")) or nested_name(json_ld.get("author")),
             180,
         )
+        if evidence["publisher"]:
+            evidence["publisher_source"] = "json_ld"
         evidence["version"] = safe_value(
             json_ld.get("softwareVersion") or json_ld.get("version"),
             100,
@@ -920,6 +1053,15 @@ def parse_page_evidence(content: bytes, page_url: str) -> dict[str, str]:
         elif metadata.get("twitter:title"):
             evidence["name"] = metadata["twitter:title"]
             evidence["name_source"] = "twitter"
+        else:
+            title = parser.css_first("title")
+            document_title = safe_value(title.text() if title else None, 180)
+            if document_title:
+                evidence["name"] = document_title
+                evidence["name_source"] = "source_page"
+    if not evidence.get("publisher") and metadata.get("og:site_name"):
+        evidence["publisher"] = metadata["og:site_name"]
+        evidence["publisher_source"] = "open_graph"
     if not evidence.get("description"):
         if metadata.get("og:description"):
             evidence["description"] = metadata["og:description"]
@@ -937,6 +1079,11 @@ def parse_page_evidence(content: bytes, page_url: str) -> dict[str, str]:
             evidence["icon_source"] = (
                 "open_graph" if metadata.get("og:image") else "twitter"
             )
+        else:
+            linked_icon = page_icon_url(parser, page_url)
+            if linked_icon:
+                evidence["icon"] = linked_icon
+                evidence["icon_source"] = "source_page"
 
     canonical = canonical_url(parser, page_url)
     if canonical:
@@ -977,6 +1124,7 @@ def meta_values(parser: HTMLParser) -> dict[str, str]:
         "og:title",
         "og:description",
         "og:image",
+        "og:site_name",
         "twitter:title",
         "twitter:description",
         "twitter:image",
@@ -991,6 +1139,20 @@ def meta_values(parser: HTMLParser) -> dict[str, str]:
         if normalized in allowlist and normalized not in values:
             values[normalized] = safe_value(content, 4000)
     return values
+
+
+def page_icon_url(parser: HTMLParser, page_url: str) -> str | None:
+    for node in parser.css("link")[:100]:
+        rel = (node.attributes.get("rel") or "").casefold().split()
+        href = node.attributes.get("href")
+        if not href or not ({"icon", "apple-touch-icon"} & set(rel)):
+            continue
+        candidate = safe_join(page_url, href)
+        try:
+            return validate_public_https_syntax(candidate)
+        except SafeHttpError:
+            continue
+    return None
 
 
 def canonical_url(parser: HTMLParser, page_url: str) -> str | None:
@@ -1035,16 +1197,65 @@ async def validate_icon(icon_url: str, settings: Settings) -> tuple[str | None, 
 
 
 def inspection_input_hash(
-    installer_url: str,
+    installer_url: str | None,
     source_page_url: str,
     secret: str,
+    installer_urls: dict[str, str] | None = None,
 ) -> str:
-    raw = "\n".join((installer_url, source_page_url))
+    raw = "\n".join(
+        [
+            installer_url or "",
+            source_page_url,
+            *[
+                f"{operating_system}={(installer_urls or {}).get(operating_system, '')}"
+                for operating_system in MANUAL_INSTALLER_PLATFORMS
+            ],
+        ]
+    )
     return hmac.new(
         secret.encode("utf-8"),
         raw.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
+
+
+async def validate_manual_installer_urls(
+    installer_urls: dict[str, str | None],
+) -> dict[str, str]:
+    validated: dict[str, str] = {}
+    for operating_system in MANUAL_INSTALLER_PLATFORMS:
+        value = clean_optional(installer_urls.get(operating_system))
+        if value:
+            validated[operating_system] = await validate_public_https_url(value)
+    return validated
+
+
+def protect_optional_url(
+    protector: UrlProtector,
+    value: str | None,
+) -> str | None:
+    return protector.protect(value) if value else None
+
+
+def reveal_manual_installer_inputs(
+    inspection: ManualInstallerInspection,
+    protector: UrlProtector,
+) -> list[tuple[str | None, str]] | None:
+    installer_inputs: list[tuple[str | None, str]] = []
+    if inspection.installer_url_encrypted:
+        installer_url = protector.reveal(inspection.installer_url_encrypted)
+        if not installer_url:
+            return None
+        installer_inputs.append((None, installer_url))
+    for operating_system, column_name in MANUAL_INSTALLER_URL_COLUMNS.items():
+        protected_url = getattr(inspection, column_name)
+        if not protected_url:
+            continue
+        installer_url = protector.reveal(protected_url)
+        if not installer_url:
+            return None
+        installer_inputs.append((operating_system, installer_url))
+    return installer_inputs
 
 
 def validation_failure_is_transient(reason: str) -> bool:
