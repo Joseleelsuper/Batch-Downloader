@@ -186,7 +186,7 @@ paths:
               type: string
         - name: sort
           in: query
-          description: Orden de presentación del catálogo.
+          description: Orden principal de presentación, también cuando query y búsqueda semántica están activos.
           schema:
             type: string
             enum: [name, updated, downloads]

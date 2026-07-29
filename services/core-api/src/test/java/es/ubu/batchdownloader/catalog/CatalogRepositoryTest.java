@@ -54,7 +54,7 @@ class CatalogRepositoryTest {
     }
 
     @Test
-    void searchWithQueryKeepsReviewAppsAfterVerifiedResults() {
+    void searchWithQueryAppliesSelectedSortBeforeLiteralRelevance() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
@@ -78,8 +78,10 @@ class CatalogRepositoryTest {
         assertThat(sql.getValue()).contains("AS search_score");
         assertThat(sql.getValue()).contains("CASE WHEN a.catalog_status = 'review'");
         assertThat(sql.getValue()).contains("ORDER BY CASE WHEN a.catalog_status");
-        assertThat(sql.getValue()).contains("END ASC, search_score DESC, a.updated_at DESC");
-        assertThat(sql.getValue()).contains("END ASC, page.search_score DESC, a.updated_at DESC");
+        assertThat(sql.getValue()).contains(
+                "END ASC, a.updated_at DESC, search_score DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).contains(
+                "END ASC, a.updated_at DESC, page.search_score DESC, a.normalized_name ASC");
         assertThat(params.getValue()[0]).isEqualTo("epic games");
         assertThat(params.getValue()).contains("epic games%");
     }
@@ -118,7 +120,11 @@ class CatalogRepositoryTest {
         assertThat(sql.getValue())
                 .contains("JSON_TABLE", "semantic_candidates", "semantic_rank")
                 .doesNotContain("lexical_ranked", "search_score", "rrf")
-                .contains("a.catalog_status = ?", "JSON_CONTAINS");
+                .contains("a.catalog_status = ?", "JSON_CONTAINS")
+                .contains(
+                        "END ASC, a.updated_at DESC, ranked.semantic_rank ASC, a.normalized_name ASC")
+                .contains(
+                        "END ASC, a.updated_at DESC, page.semantic_rank ASC, a.normalized_name ASC");
         assertThat(params.getValue()[0]).isEqualTo(candidates.candidatesJson());
         assertThat(params.getValue()).contains("available", "windows", "x86_64");
     }
@@ -190,6 +196,33 @@ class CatalogRepositoryTest {
         assertThat(sql.getValue())
                 .contains("a.download_count DESC, a.normalized_name ASC, a.id ASC")
                 .doesNotContain("JOIN download_job_items");
+    }
+
+    @Test
+    void mostDownloadedSortRemainsPrimaryWhenSearching() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        CatalogRepository repository = repository(jdbc);
+
+        repository.search(
+                "launcher",
+                "available",
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                "all",
+                "downloads",
+                1,
+                12);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue()).contains(
+                "END ASC, a.download_count DESC, search_score DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).contains(
+                "END ASC, a.download_count DESC, page.search_score DESC, a.normalized_name ASC");
     }
 
     @Test

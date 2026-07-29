@@ -1054,14 +1054,17 @@ public class CatalogRepository {
         return runs.isEmpty() ? null : runs.get(0);
     }
 
-    private String orderBy(String sort, String prefix) {
-        String tieBreaker = switch (sort) {
-            case "updated" -> "a.updated_at DESC, a.normalized_name ASC, a.id ASC";
-            case "downloads" -> "a.download_count DESC, a.normalized_name ASC, a.id ASC";
-            default -> "a.normalized_name ASC, a.id ASC";
+    private String orderBy(String sort, String relevancePrefix) {
+        String relevanceOrder =
+                relevancePrefix == null || relevancePrefix.isBlank() ? "" : relevancePrefix;
+        String selectedOrder = switch (sort) {
+            case "updated" ->
+                    "a.updated_at DESC, " + relevanceOrder + "a.normalized_name ASC, a.id ASC";
+            case "downloads" ->
+                    "a.download_count DESC, " + relevanceOrder + "a.normalized_name ASC, a.id ASC";
+            default -> "a.normalized_name ASC, " + relevanceOrder + "a.id ASC";
         };
-        String relevanceOrder = prefix == null || prefix.isBlank() ? "" : prefix;
-        return reviewLastOrder() + ", " + relevanceOrder + tieBreaker;
+        return reviewLastOrder() + ", " + selectedOrder;
     }
 
     /**
