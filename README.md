@@ -33,6 +33,28 @@ El Compose GHCR usa imágenes como
 `ghcr.io/joseleelsuper/batch-downloader-webapp:main`. Para arrancar sin
 `docker login ghcr.io`, los paquetes de GHCR deben estar marcados como públicos.
 
+## Descargas por lotes
+
+Core crea y conserva cada trabajo, y publica por SSE el resultado de cada
+aplicación conforme termina. El progreso de items llega hasta el 90 %; el estado
+`PACKAGING` representa la generación real del ZIP y el 100 % solo se publica
+cuando el archivo ya está disponible.
+
+La interfaz mantiene los trabajos en un overlay global recuperable durante la
+sesión, incluso después de navegar o recargar. Al alcanzar `READY`, `PARTIAL` o
+`MANUAL_ONLY` solicita una descarga automática una sola vez y conserva siempre
+el enlace manual. Los fallos muestran la aplicación afectada y, cuando existe
+una página oficial HTTPS segura, el ZIP incluye
+`Descargas manuales/<aplicación>.url`.
+
+RabbitMQ transporta exclusivamente identificadores. El worker obtiene la URL
+temporal del instalador desde el scraper y solo si hay fallos consulta una vez
+el endpoint autenticado de Core para recuperar nombre y página oficial. Nunca
+se incorporan URLs resueltas de instaladores a eventos, manifests o logs.
+
+El orden compatible de despliegue es Core —incluida su migración Flyway—,
+worker y, por último, frontend.
+
 ## Búsqueda literal y semántica
 
 El catálogo admite `searchMode=lexical|semantic`. Si el parámetro no se envía, la

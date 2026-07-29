@@ -32,10 +32,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class DownloadJobService {
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobService.class);
+    private static final int MAX_METADATA_ITEMS = 100;
     private final DownloadJobStore jobs;
     private final CatalogSourceLookup sources;
     private final UserAccountStore users;
@@ -102,7 +105,12 @@ public class DownloadJobService {
         List<DownloadJobItem> items = appIds.stream()
                 .map(selected::get)
                 .filter(Objects::nonNull)
-                .map(source -> DownloadJobItem.queued(source.appId(), source.sourceRef(), now))
+                .map(source -> DownloadJobItem.queued(
+                        source.appId(),
+                        source.sourceRef(),
+                        source.appName(),
+                        source.officialPageUrl(),
+                        now))
                 .toList();
         int omittedCount = appIds.size() - items.size();
         if (items.isEmpty()) {
@@ -128,6 +136,33 @@ public class DownloadJobService {
         return DownloadJobView.from(accessibleJob(owner, jobId));
     }
 
+    @Transactional(readOnly = true)
+    public List<DownloadItemMetadata> itemMetadata(UUID jobId, List<UUID> requestedItemIds) {
+        if (requestedItemIds == null
+                || requestedItemIds.isEmpty()
+                || requestedItemIds.size() > MAX_METADATA_ITEMS
+                || requestedItemIds.stream().anyMatch(Objects::isNull)
+                || new LinkedHashSet<>(requestedItemIds).size() != requestedItemIds.size()) {
+            throw new BadRequestException(
+                    "invalid_download_item_ids",
+                    "Indica entre 1 y " + MAX_METADATA_ITEMS + " identificadores de item únicos.");
+        }
+        DownloadJob job = requireJob(jobId);
+        Map<UUID, DownloadJobItem> itemsById = job.items().stream()
+                .collect(java.util.stream.Collectors.toMap(DownloadJobItem::id, item -> item));
+        if (!itemsById.keySet().containsAll(requestedItemIds)) {
+            throw new NotFoundException("download_job_not_found", "No existe el trabajo.");
+        }
+        return requestedItemIds.stream()
+                .map(itemsById::get)
+                .map(item -> new DownloadItemMetadata(
+                        item.id(),
+                        item.appId(),
+                        item.appName(),
+                        item.officialPageUrl()))
+                .toList();
+    }
+
     @Transactional
     public DownloadJobView cancel(RequestOwner owner, UUID jobId) {
         DownloadJob job = accessibleJob(owner, jobId);
@@ -136,7 +171,7 @@ public class DownloadJobService {
             events.cancellationRequested(job);
         }
         DownloadJobView view = DownloadJobView.from(job);
-        notifier.changed(view);
+        notifyAfterCommit(view);
         return view;
     }
 
@@ -232,7 +267,20 @@ public class DownloadJobService {
     }
 
     private void notifyAfterSave(DownloadJob job) {
-        notifier.changed(DownloadJobView.from(job));
+        notifyAfterCommit(DownloadJobView.from(job));
+    }
+
+    private void notifyAfterCommit(DownloadJobView view) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            notifier.changed(view);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                notifier.changed(view);
+            }
+        });
     }
 
     private void requestTerminalNotification(DownloadJob job) {
@@ -243,4 +291,10 @@ public class DownloadJobService {
                 .filter(UserAccount::notifyOnJobCompletion)
                 .ifPresent(owner -> events.terminalNotificationRequested(owner, job));
     }
+
+    public record DownloadItemMetadata(
+            UUID itemId,
+            UUID appId,
+            String appName,
+            String officialPageUrl) {}
 }

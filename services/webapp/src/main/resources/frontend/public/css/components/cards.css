@@ -44,7 +44,7 @@
 
 .bundle-platform-picker {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
@@ -58,16 +58,25 @@
 }
 
 .bundle-platform-option {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-rows: 18px auto;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
+  gap: 1px;
+  width: 38px;
+  min-height: 42px;
+  padding: 4px 3px 3px;
   color: var(--teal-dark);
   background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 5px;
+}
+
+.bundle-platform-option small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1;
 }
 
 .bundle-platform-option:hover:not(:disabled),
@@ -75,6 +84,11 @@
   color: #ffffff;
   background: var(--teal);
   border-color: var(--teal);
+}
+
+.bundle-platform-option:hover:not(:disabled) small,
+.bundle-platform-option-active small {
+  color: inherit;
 }
 
 .bundle-platform-option:focus-visible {
@@ -97,10 +111,6 @@
   width: 100%;
 }
 
-.bundle-download-action-compact .download-job-panel {
-  margin-bottom: 0;
-}
-
 .bundle-icon {
   display: inline-flex;
   align-items: center;
@@ -116,6 +126,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: 32px;
 }
 
 .mini-icon,

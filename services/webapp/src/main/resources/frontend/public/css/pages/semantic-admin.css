@@ -185,6 +185,8 @@
 }
 
 .semantic-section {
+  container-name: semantic-section;
+  container-type: inline-size;
   min-width: 0;
   padding: 20px;
   background: #ffffff;
@@ -348,6 +350,51 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 7px;
+}
+
+@container semantic-section (max-width: 980px) {
+  .semantic-model-row {
+    grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1fr) 96px;
+  }
+
+  .semantic-model-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    justify-content: stretch;
+    padding-left: 47px;
+  }
+
+  .semantic-model-actions > :not(.semantic-delete-action) {
+    width: 100%;
+  }
+}
+
+@container semantic-section (max-width: 560px) {
+  .semantic-model-row {
+    grid-template-columns: 1fr;
+  }
+
+  .semantic-model-actions {
+    grid-column: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-left: 0;
+  }
+
+  .semantic-delete-action {
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
+@container semantic-section (max-width: 400px) {
+  .semantic-model-actions > :not(.semantic-delete-action) {
+    grid-column: 1 / -1;
+  }
+
+  .semantic-delete-action {
+    grid-column: 1 / -1;
+  }
 }
 
 .semantic-delete-action {
@@ -742,10 +789,13 @@
 
 .semantic-operation-progress span {
   display: block;
+  width: 100%;
   height: 100%;
   background: var(--teal);
   border-radius: inherit;
-  transition: width 180ms ease-out;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 180ms ease-out;
 }
 
 .semantic-operation-meta {

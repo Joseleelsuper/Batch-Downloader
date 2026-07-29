@@ -97,6 +97,7 @@ export type DownloadJobStatus =
   | 'PACKAGING'
   | 'READY'
   | 'PARTIAL'
+  | 'MANUAL_ONLY'
   | 'FAILED'
   | 'CANCELLED'
   | 'EXPIRED';
@@ -112,6 +113,8 @@ export type DownloadItemStatus =
 export interface DownloadJobItem {
   id: string;
   appId: string;
+  appName: string;
+  officialPageUrl?: string | null;
   status: DownloadItemStatus;
   bytesDownloaded: number;
   sha256?: string | null;
@@ -297,8 +300,15 @@ export interface BundleSummary {
   tags: string[];
   /** Platforms with a selectable installer for at least one active app. */
   operatingSystems: OperatingSystem[];
+  platformAvailability: BundlePlatformAvailability[];
   previewApps: CatalogApp[];
   updatedAt: string;
+}
+
+export interface BundlePlatformAvailability {
+  operatingSystem: OperatingSystem;
+  downloadableAppCount: number;
+  previewApps: CatalogApp[];
 }
 
 export interface BundleDetails extends BundleSummary {

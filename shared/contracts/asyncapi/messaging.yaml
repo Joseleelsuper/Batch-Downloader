@@ -6,7 +6,8 @@ info:
   description: >-
     Contratos RabbitMQ entre Core, scraper, workers y notificaciones. Los
     comandos de descarga solo contienen identificadores; el worker obtiene la
-    URL temporal y la plataforma del endpoint interno autenticado del scraper.
+    URL temporal y la plataforma del endpoint interno autenticado del scraper
+    y consulta Core únicamente para los metadatos públicos de items fallidos.
 defaultContentType: application/json
 servers:
   local:

@@ -727,7 +727,11 @@ class CatalogRepository:
             .join(ResolvedSource.source)
             .where(ResolvedSource.id == resolved_source_id)
             .with_for_update()
-            .options(selectinload(ResolvedSource.source))
+            .options(
+                selectinload(ResolvedSource.source).selectinload(
+                    DownloadSource.software_app
+                )
+            )
             .execution_options(populate_existing=True)
         )
 

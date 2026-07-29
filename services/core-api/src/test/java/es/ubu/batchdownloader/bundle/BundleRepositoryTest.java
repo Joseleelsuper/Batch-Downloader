@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +18,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 
 class BundleRepositoryTest {
@@ -51,23 +54,35 @@ class BundleRepositoryTest {
 
     @Test
     void exposesPlatformsWithASelectableInstallerRegardlessOfAge() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
-        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of("windows"));
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        UUID appId = UUID.randomUUID();
+        doAnswer(invocation -> {
+                    RowCallbackHandler handler = invocation.getArgument(1);
+                    java.sql.ResultSet row = mock(java.sql.ResultSet.class);
+                    when(row.getString("operating_system")).thenReturn("windows");
+                    when(row.getBytes("software_app_id"))
+                            .thenReturn(es.ubu.batchdownloader.common.UuidBytes.fromUuid(appId));
+                    handler.processRow(row);
+                    return null;
+                })
+                .when(jdbc)
+                .query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
         BundleRepository repository = new BundleRepository(
                 jdbc,
-                org.mockito.Mockito.mock(CatalogRepository.class));
+                mock(CatalogRepository.class));
 
         assertThat(repository.availableOperatingSystems(UUID.randomUUID())).containsExactly("windows");
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
-        verify(jdbc).query(sql.capture(), any(RowMapper.class), parameters.capture());
+        verify(jdbc).query(sql.capture(), any(RowCallbackHandler.class), parameters.capture());
         assertThat(sql.getValue()).contains("source.catalog_available = 1");
         assertThat(sql.getValue()).contains("artifact.catalog_downloadable = 1");
         assertThat(sql.getValue()).contains("app.app_status = 'active'");
         assertThat(sql.getValue()).contains("app.catalog_status = 'available'");
         assertThat(sql.getValue()).doesNotContain("artifact.checked_at >= ?", "artifact.expires_at > NOW()");
-        assertThat(sql.getValue()).contains("SELECT DISTINCT source.operating_system");
+        assertThat(sql.getValue()).contains("SELECT source.operating_system, app.id AS software_app_id");
+        assertThat(sql.getValue()).contains("GROUP BY source.operating_system, app.id");
         assertThat(sql.getValue()).doesNotContain("HAVING", "expected_item");
         assertThat(sql.getValue()).contains("FIELD(source.operating_system, 'windows', 'linux', 'macos')");
         assertThat(parameters.getValue()).hasSize(1);

@@ -15,7 +15,6 @@
   grid-area: filters;
   min-width: 0;
   overflow: hidden;
-  transition: width 160ms ease;
 }
 
 .workspace.filters-hidden .filter-rail-shell {
@@ -279,10 +278,79 @@
   border: 0;
 }
 
+.download-job-overlay {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  display: grid;
+  width: min(420px, calc(100vw - 36px));
+  max-height: min(76vh, 720px);
+  overflow: hidden;
+  color: #1f2937;
+  background: #ffffff;
+  border: 1px solid #b8c7d1;
+  border-radius: 8px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.2);
+}
+
+.download-job-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.download-job-overlay-header > div,
+.download-job-start-error,
+.download-job-connection-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.download-job-overlay-header > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  color: var(--teal-dark);
+  background: var(--teal-soft);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.download-job-overlay-list {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.download-job-start-error {
+  padding: 10px 12px;
+  color: #9f1239;
+  background: #fff1f2;
+  border-bottom: 1px solid #fecdd3;
+}
+
+.download-job-start-error p {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+}
+
 .download-job-panel {
   display: grid;
   gap: 10px;
-  margin: 0 0 16px;
+  margin: 0;
   padding: 14px 16px;
   color: #1f2937;
   background: #f0fdfa;
@@ -301,6 +369,20 @@
 .download-job-heading > div {
   display: grid;
   gap: 3px;
+  min-width: 0;
+}
+
+.download-job-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-job-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
 }
 
 .download-job-heading span,
@@ -312,11 +394,80 @@
 
 .download-job-failures {
   display: grid;
-  gap: 4px;
+  gap: 8px;
   margin: 0;
-  padding-left: 18px;
-  color: #9f1239;
+  padding: 0;
   font-size: 13px;
+}
+
+.download-job-failure,
+.download-job-global-failure {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  color: #7f1d1d;
+  background: #fff7f7;
+  border: 1px solid #fecaca;
+  border-radius: 5px;
+}
+
+.download-job-failure > div {
+  display: grid;
+  gap: 2px;
+}
+
+.download-job-failure a {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 5px;
+  color: #075985;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.download-job-failure a:hover {
+  text-decoration: underline;
+}
+
+.download-job-failure small {
+  color: #7f1d1d;
+}
+
+.download-job-failure details,
+.download-job-global-failure details {
+  color: #64748b;
+}
+
+.download-job-failure code,
+.download-job-global-failure code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.download-job-summary,
+.download-job-auto-notice {
+  line-height: 1.45;
+}
+
+.download-job-auto-notice {
+  padding: 8px 10px;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  border-radius: 5px;
+}
+
+.download-job-connection-warning,
+.download-job-action-error {
+  color: #9a3412 !important;
+}
+
+.download-job-panel-restoring {
+  min-height: 96px;
+}
+
+.download-job-panel-minimized {
+  gap: 7px;
 }
 
 .download-job-panel progress {
@@ -326,7 +477,23 @@
 }
 
 .download-job-actions {
+  flex-wrap: wrap;
   justify-content: flex-start;
+}
+
+@media (max-width: 640px) {
+  .download-job-overlay {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: 72dvh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 10px 10px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 .search-row {

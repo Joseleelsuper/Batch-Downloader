@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.bundle;
 
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleDetails;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSummary;
+import es.ubu.batchdownloader.bundle.BundleDtos.PlatformAvailability;
 import es.ubu.batchdownloader.bundle.BundleDtos.UpsertBundleRequest;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppListItem;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
@@ -12,8 +13,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -259,6 +262,7 @@ public class BundleRepository {
 
     private BundleSummary summary(ResultSet rs) throws SQLException {
         UUID id = UuidBytes.toUuid(rs.getBytes("id"));
+        List<PlatformAvailability> availability = platformAvailability(id);
         return new BundleSummary(
                 id.toString(),
                 rs.getString("slug"),
@@ -268,7 +272,8 @@ public class BundleRepository {
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
                 activeAppCount(id),
-                availableOperatingSystems(id),
+                availability.stream().map(PlatformAvailability::operatingSystem).toList(),
+                availability,
                 tags(id),
                 previewApps(id, 6),
                 rs.getTimestamp("updated_at").toLocalDateTime());
@@ -276,6 +281,7 @@ public class BundleRepository {
 
     private BundleDetails detailsFromRow(ResultSet rs) throws SQLException {
         UUID id = UuidBytes.toUuid(rs.getBytes("id"));
+        List<PlatformAvailability> availability = platformAvailability(id);
         return new BundleDetails(
                 id.toString(),
                 rs.getString("slug"),
@@ -285,7 +291,8 @@ public class BundleRepository {
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
                 activeAppCount(id),
-                availableOperatingSystems(id),
+                availability.stream().map(PlatformAvailability::operatingSystem).toList(),
+                availability,
                 tags(id),
                 previewApps(id, 0),
                 rs.getTimestamp("updated_at").toLocalDateTime());
@@ -302,29 +309,14 @@ public class BundleRepository {
         Object[] parameters = limit > 0
                 ? new Object[] {UuidBytes.fromUuid(bundleId), limit}
                 : new Object[] {UuidBytes.fromUuid(bundleId)};
-        return jdbc.query(
+        List<UUID> appIds = jdbc.query(
                         sql,
-                        (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")).toString(),
-                        parameters)
-                .stream()
-                .map(catalog::details)
-                .map(details -> new AppListItem(
-                        details.id(),
-                        details.slug(),
-                        details.packageId(),
-                        details.name(),
-                        details.publisher(),
-                        details.description(),
-                        details.longDescription(),
-                        details.tags(),
-                        details.operatingSystems(),
-                        details.iconUrl(),
-                        details.latestVersion(),
-                        details.sourceLabel(),
-                        details.resolutionStatus(),
-                        details.validationStatus(),
-                        details.downloadable(),
-                        details.updatedAt()))
+                        (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                        parameters);
+        Map<UUID, AppListItem> apps = catalog.listItems(appIds);
+        return appIds.stream()
+                .map(apps::get)
+                .filter(java.util.Objects::nonNull)
                 .toList();
     }
 
@@ -341,9 +333,16 @@ public class BundleRepository {
      * and reports applications without a compatible source as omitted.
      */
     List<String> availableOperatingSystems(UUID bundleId) {
-        return jdbc.query(
+        return platformAvailability(bundleId).stream()
+                .map(PlatformAvailability::operatingSystem)
+                .toList();
+    }
+
+    private List<PlatformAvailability> platformAvailability(UUID bundleId) {
+        Map<String, List<UUID>> appIdsBySystem = new LinkedHashMap<>();
+        jdbc.query(
                 """
-                SELECT DISTINCT source.operating_system
+                SELECT source.operating_system, app.id AS software_app_id, MIN(item.sort_order) AS app_order
                 FROM bundle_items item
                 JOIN software_apps app ON app.id = item.software_app_id
                 JOIN download_sources source ON source.software_app_id = item.software_app_id
@@ -356,10 +355,26 @@ public class BundleRepository {
                   AND source.catalog_available = 1
                   AND artifact.catalog_downloadable = 1
                   AND source.operating_system IN ('windows', 'linux', 'macos')
-                ORDER BY FIELD(source.operating_system, 'windows', 'linux', 'macos')
+                GROUP BY source.operating_system, app.id
+                ORDER BY FIELD(source.operating_system, 'windows', 'linux', 'macos'), app_order
                 """,
-                (rs, rowNum) -> rs.getString("operating_system"),
+                (org.springframework.jdbc.core.RowCallbackHandler) row -> appIdsBySystem
+                        .computeIfAbsent(row.getString("operating_system"), ignored -> new java.util.ArrayList<>())
+                        .add(UuidBytes.toUuid(row.getBytes("software_app_id"))),
                 UuidBytes.fromUuid(bundleId));
+        LinkedHashSet<UUID> previewIds = new LinkedHashSet<>();
+        appIdsBySystem.values().forEach(ids -> ids.stream().limit(6).forEach(previewIds::add));
+        Map<UUID, AppListItem> previewApps = catalog.listItems(previewIds);
+        return appIdsBySystem.entrySet().stream()
+                .map(entry -> new PlatformAvailability(
+                        entry.getKey(),
+                        entry.getValue().size(),
+                        entry.getValue().stream()
+                                .limit(6)
+                                .map(previewApps::get)
+                                .filter(java.util.Objects::nonNull)
+                                .toList()))
+                .toList();
     }
 
     private int activeAppCount(UUID bundleId) {

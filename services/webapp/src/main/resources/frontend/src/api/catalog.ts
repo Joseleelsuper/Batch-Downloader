@@ -197,12 +197,19 @@ export function downloadJobFileUrl(jobId: string): string {
   return `${API_BASE}/api/v1/download-jobs/${encodeURIComponent(jobId)}/file`;
 }
 
-const TERMINAL_DOWNLOAD_STATUSES = new Set(['READY', 'PARTIAL', 'FAILED', 'CANCELLED', 'EXPIRED']);
+const TERMINAL_DOWNLOAD_STATUSES = new Set([
+  'READY',
+  'PARTIAL',
+  'MANUAL_ONLY',
+  'FAILED',
+  'CANCELLED',
+  'EXPIRED',
+]);
 
 export function connectDownloadJobEvents(
   jobId: string,
   onJob: (job: DownloadJob) => void,
-  onError?: () => void,
+  onError?: (cause?: unknown) => void,
 ): () => void {
   let stopped = false;
   let pollingTimer: number | undefined;
@@ -225,8 +232,8 @@ export function connectDownloadJobEvents(
       if (!TERMINAL_DOWNLOAD_STATUSES.has(job.status)) {
         pollingTimer = window.setTimeout(poll, 2500);
       }
-    } catch {
-      onError?.();
+    } catch (cause) {
+      onError?.(cause);
       pollingTimer = window.setTimeout(poll, 4000);
     }
   };

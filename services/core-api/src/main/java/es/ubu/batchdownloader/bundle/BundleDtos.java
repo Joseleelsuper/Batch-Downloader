@@ -7,6 +7,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public class BundleDtos {
+    public record PlatformAvailability(
+            String operatingSystem,
+            int downloadableAppCount,
+            List<AppListItem> previewApps) {}
+
     public record BundleSummary(
             String id,
             String slug,
@@ -17,6 +22,7 @@ public class BundleDtos {
             int starCount,
             int appCount,
             List<String> operatingSystems,
+            List<PlatformAvailability> platformAvailability,
             List<String> tags,
             List<AppListItem> previewApps,
             LocalDateTime updatedAt) {}
@@ -31,6 +37,7 @@ public class BundleDtos {
             int starCount,
             int appCount,
             List<String> operatingSystems,
+            List<PlatformAvailability> platformAvailability,
             List<String> tags,
             List<AppListItem> apps,
             LocalDateTime updatedAt) {}

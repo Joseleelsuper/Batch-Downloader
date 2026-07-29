@@ -43,6 +43,11 @@ const officialBundle: BundleSummary = {
   appCount: 1,
   tags: ['juegos'],
   operatingSystems: ['windows'],
+  platformAvailability: [{
+    operatingSystem: 'windows',
+    downloadableAppCount: 1,
+    previewApps: [catalogApp],
+  }],
   previewApps: [catalogApp],
   updatedAt: '2026-07-16T08:00:00Z',
 };
@@ -50,6 +55,10 @@ const officialBundle: BundleSummary = {
 function LocationProbe() {
   return <output data-testid="location-search">{useLocation().search}</output>;
 }
+
+beforeEach(() => {
+  window.sessionStorage.clear();
+});
 
 describe('catalog workspace', () => {
   beforeEach(() => {
@@ -486,8 +495,49 @@ describe('home loading', () => {
 
     expect(await screen.findByText('Launchers')).toBeInTheDocument();
     expect(screen.getByText('Launchers de videojuegos')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Windows' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Windows: 1 aplicaciones disponibles' })).toBeInTheDocument();
     expect(await screen.findByText('No se pudo cargar la página principal.')).toBeInTheDocument();
+  });
+
+  it('calcula el indicador restante a partir de las miniaturas que realmente muestra', async () => {
+    const previewApps = Array.from({ length: 6 }, (_, index) => ({
+      ...catalogApp,
+      id: `app-${index + 1}`,
+      slug: `app-${index + 1}`,
+      packageId: `Example.App${index + 1}`,
+      name: `Aplicación ${index + 1}`,
+    }));
+    const bundleWithOverflow = {
+      ...officialBundle,
+      appCount: 17,
+      platformAvailability: [{
+        operatingSystem: 'windows',
+        downloadableAppCount: 17,
+        previewApps,
+      }],
+      previewApps,
+    } satisfies BundleSummary;
+    vi.mocked(catalogApi.fetchBundles).mockImplementation(async (params) => ({
+      data: params.type === 'official' ? [bundleWithOverflow] : [],
+      page: 1,
+      pageSize: 3,
+      total: params.type === 'official' ? 1 : 0,
+    }));
+    vi.spyOn(catalogApi, 'fetchApps').mockResolvedValue({
+      data: [],
+      page: 1,
+      pageSize: 6,
+      total: 0,
+    });
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('+12')).toBeInTheDocument();
+    expect(container.querySelectorAll('.bundle-card .mini-apps .mini-icon')).toHaveLength(5);
   });
 
   it('muestra el selector de SO del bundle en su detalle', async () => {
@@ -502,7 +552,7 @@ describe('home loading', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('button', { name: 'Windows' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('button', { name: 'Windows: 1 aplicaciones disponibles' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('button', { name: 'Linux' })).not.toBeInTheDocument();
   });
 });

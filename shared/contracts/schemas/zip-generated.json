@@ -15,17 +15,41 @@
     "payload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["jobId", "status", "objectKey", "sizeBytes", "sha256", "expiresAt"],
+      "required": ["jobId", "status", "objectKey", "sizeBytes", "sha256", "successfulItems", "failedItems", "expiresAt"],
       "properties": {
         "jobId": { "type": "string", "format": "uuid" },
-        "status": { "enum": ["READY", "PARTIAL"] },
+        "status": { "enum": ["READY", "PARTIAL", "MANUAL_ONLY"] },
         "objectKey": { "type": "string", "minLength": 1 },
         "sizeBytes": { "type": "integer", "minimum": 1 },
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "successfulItems": { "type": "integer", "minimum": 1 },
+        "successfulItems": { "type": "integer", "minimum": 0 },
         "failedItems": { "type": "integer", "minimum": 0 },
         "expiresAt": { "type": "string", "format": "date-time" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "MANUAL_ONLY" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "successfulItems": { "const": 0 },
+              "failedItems": { "minimum": 1 }
+            }
+          },
+          "else": {
+            "properties": {
+              "successfulItems": { "minimum": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "READY" } }, "required": ["status"] },
+          "then": { "properties": { "failedItems": { "const": 0 } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "PARTIAL" } }, "required": ["status"] },
+          "then": { "properties": { "failedItems": { "minimum": 1 } } }
+        }
+      ]
     }
   }
 }

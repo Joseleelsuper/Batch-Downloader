@@ -39,8 +39,13 @@ from app.schemas.internal import (
     WebsiteAppDiscoveryRequest,
     WebsiteAppDiscoveryView,
 )
-from app.scraper.candidates import InstallerCandidate
-from app.scraper.catalog_fetcher import DescriptorWorker, enqueue_descriptor_for_app
+from app.scraper.candidates import InstallerCandidate, infer_operating_system
+from app.scraper.catalog_fetcher import (
+    DescriptorWorker,
+    enqueue_descriptor_for_app,
+    infer_validated_operating_system,
+    known_official_candidates_for_package,
+)
 from app.scraper.description_enricher import (
     build_embedding_metadata,
     build_embedding_text,
@@ -276,16 +281,33 @@ async def _revalidate_expired_source(
         asset_kind=str(metadata.get("asset_kind") or "") or None,
         referer=resolved.source.initial_url,
     )
+    validation_error: httpx.RequestError | None = None
     try:
         result = await DownloadValidator(settings).validate(candidate)
     except httpx.RequestError as exc:
+        validation_error = exc
+        result = None
+
+    if result is None or not _is_verified_https_result(result, candidate.url):
+        official = await _validate_known_official_recovery(resolved, settings)
+        if official is not None:
+            candidate, result = official
+        elif validation_error is not None:
+            await session.commit()
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "source_revalidation_transient"},
+            ) from validation_error
+
+    if result is None:
         await session.commit()
         raise HTTPException(
             status_code=503,
             detail={"code": "source_revalidation_transient"},
-        ) from exc
+        )
+
     now = utc_now()
-    final_url = result.final_url or protected_url
+    final_url = result.final_url or candidate.url
     if (
         not result.ok
         or result.confidence != ValidationConfidence.VALIDATED
@@ -316,8 +338,18 @@ async def _revalidate_expired_source(
     )
     resolved.validation_status = ValidationStatus.VALID.value
     resolved.expires_at = utc_after(hours=24)
+    if candidate.source == "official_known_endpoint":
+        resolved.status = ResolutionStatus.DIRECT.value
+        resolved.release_rank = 0
+        resolved.is_latest = True
+        resolved.version_status = "latest"
     resolved.source.resolution_status = resolved.status
     resolved.source.validation_status = ValidationStatus.VALID.value
+    metadata["candidate_source"] = candidate.source
+    if candidate.label:
+        metadata["candidate_label"] = candidate.label
+    if candidate.asset_kind:
+        metadata["asset_kind"] = candidate.asset_kind
     metadata["validation_confidence"] = ValidationConfidence.VALIDATED.value
     metadata.pop("last_revalidation_error", None)
     if result.transport_security:
@@ -327,6 +359,42 @@ async def _revalidate_expired_source(
     resolved.metadata_json = metadata
     await session.commit()
     return final_url
+
+
+def _is_verified_https_result(result: ValidationResult, candidate_url: str) -> bool:
+    final_url = result.final_url or candidate_url
+    return (
+        result.ok
+        and result.confidence == ValidationConfidence.VALIDATED
+        and urlparse(final_url).scheme == "https"
+    )
+
+
+async def _validate_known_official_recovery(
+    resolved: ResolvedSource,
+    settings: Settings,
+) -> tuple[InstallerCandidate, ValidationResult] | None:
+    source = resolved.source
+    app = source.software_app if source is not None else None
+    if app is None:
+        return None
+    candidates = known_official_candidates_for_package(
+        app.winstall_id,
+        app.latest_version,
+    )
+    for candidate in candidates:
+        if infer_operating_system(candidate) != source.operating_system:
+            continue
+        try:
+            result = await DownloadValidator(settings).validate(candidate)
+        except httpx.RequestError:
+            continue
+        if not _is_verified_https_result(result, candidate.url):
+            continue
+        if infer_validated_operating_system(candidate, result) != source.operating_system:
+            continue
+        return candidate, result
+    return None
 
 
 async def _invalidate_unusable_source(

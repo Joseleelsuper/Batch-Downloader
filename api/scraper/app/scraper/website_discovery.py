@@ -116,15 +116,18 @@ async def fetch_official_page(
     official_url: str,
     settings: Settings,
 ) -> tuple[SafeHttpResponse, str | None]:
-    fetch_options = {
-        "timeout": settings.request_timeout_seconds,
-        "max_redirects": settings.max_redirects,
-        "max_bytes": settings.manual_page_max_bytes,
-        "accept": "text/html,application/xhtml+xml;q=0.9",
-    }
+    async def fetch(url: str) -> SafeHttpResponse:
+        return await fetch_public_resource(
+            url,
+            timeout=settings.request_timeout_seconds,
+            max_redirects=settings.max_redirects,
+            max_bytes=settings.manual_page_max_bytes,
+            accept="text/html,application/xhtml+xml;q=0.9",
+        )
+
     try:
         return (
-            await fetch_public_resource(official_url, **fetch_options),
+            await fetch(official_url),
             None,
         )
     except SafeHttpError as exc:
@@ -137,7 +140,7 @@ async def fetch_official_page(
             raise
         queryless_url = urlunparse(parsed._replace(query=""))
         return (
-            await fetch_public_resource(queryless_url, **fetch_options),
+            await fetch(queryless_url),
             f"official_url:query_removed_after_{exc.code}",
         )
 
@@ -1176,11 +1179,11 @@ def domain_name(url: str) -> str:
 
 
 def best_installer_version(installers: list[DiscoveredInstaller]) -> str | None:
-    versions = [
-        clean_optional(installer.version)
-        for installer in installers
-        if clean_optional(installer.version)
-    ]
+    versions: list[str] = []
+    for installer in installers:
+        version = clean_optional(installer.version)
+        if version is not None:
+            versions.append(version)
     if not versions:
         return None
 

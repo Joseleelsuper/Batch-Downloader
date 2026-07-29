@@ -98,6 +98,12 @@ public class ApiExceptionHandler {
                 .body(ApiError.of("invalid_credentials", "Credenciales incorrectas o cuenta sin verificar."));
     }
 
+    @ExceptionHandler(UnauthorizedException.class)
+    ResponseEntity<ApiError> unauthorized(UnauthorizedException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     void clientDisconnected(AsyncRequestNotUsableException exception) {
         log.debug("Client disconnected before the response completed: {}", exception.getMessage());

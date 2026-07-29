@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.common.RateLimitException;
+import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup;
 import es.ubu.batchdownloader.downloads.application.port.DownloadArtifactCleaner;
@@ -17,6 +18,7 @@ import es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
+import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import java.net.URI;
@@ -26,6 +28,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +36,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class DownloadJobServiceTest {
@@ -74,7 +79,12 @@ class DownloadJobServiceTest {
         UUID sourceRef = UUID.randomUUID();
         when(sources.findVerifiedSources(any(), eq(List.of("windows"))))
                 .thenReturn(Map.of(acceptedApp, new CatalogSourceLookup.VerifiedSource(
-                        acceptedApp, sourceRef, "windows", "x86_64")));
+                        acceptedApp,
+                        sourceRef,
+                        "windows",
+                        "x86_64",
+                        "Aplicación aceptada",
+                        "https://example.com/app")));
 
         DownloadJobView view = service.create(
                 new RequestOwner(null, "browser-hash", "ip-hash"),
@@ -85,6 +95,8 @@ class DownloadJobServiceTest {
         assertThat(view.requestedCount()).isEqualTo(2);
         assertThat(view.acceptedCount()).isOne();
         assertThat(view.omittedCount()).isOne();
+        assertThat(view.items().getFirst().appName()).isEqualTo("Aplicación aceptada");
+        assertThat(view.items().getFirst().officialPageUrl()).isEqualTo("https://example.com/app");
         ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
         verify(events).jobRequested(job.capture());
         assertThat(job.getValue().notifyWhenReady()).isFalse();
@@ -104,6 +116,37 @@ class DownloadJobServiceTest {
                 .hasMessageContaining("m\u00e1ximo");
 
         verify(sources, never()).findVerifiedSources(any(), any());
+    }
+
+    @Test
+    void publishesReadyStateOnlyAfterTheSurroundingTransactionCommits() {
+        DownloadJob job = DownloadJob.queue(
+                UUID.randomUUID(),
+                null,
+                null,
+                List.of(DownloadJobItem.queued(
+                        UUID.randomUUID(), UUID.randomUUID(), NOW)),
+                1,
+                0,
+                false,
+                NOW,
+                NOW.plusSeconds(3600));
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.applyReady(
+                    job.id(),
+                    DownloadJobStatus.READY,
+                    "jobs/example/bundle.zip",
+                    NOW.plusSeconds(3600));
+
+            verify(notifier, never()).changed(any());
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+            verify(notifier).changed(any(DownloadJobView.class));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test
@@ -127,5 +170,35 @@ class DownloadJobServiceTest {
         assertThat(ready.status()).isEqualTo(DownloadJobStatus.EXPIRED);
         verify(artifacts).deleteJobArtifacts(ready.id());
         verify(notifier).changed(any(DownloadJobView.class));
+    }
+
+    @Test
+    void returnsAllRequestedItemMetadataWithoutPartialResponses() {
+        DownloadJob job = DownloadJob.queue(
+                UUID.randomUUID(),
+                null,
+                null,
+                List.of(
+                        DownloadJobItem.queued(
+                                UUID.randomUUID(), UUID.randomUUID(), "Primera", "https://example.com/one", NOW),
+                        DownloadJobItem.queued(
+                                UUID.randomUUID(), UUID.randomUUID(), "Segunda", null, NOW)),
+                2,
+                0,
+                false,
+                NOW,
+                NOW.plusSeconds(3600));
+        UUID firstId = job.items().get(0).id();
+        UUID secondId = job.items().get(1).id();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        assertThat(service.itemMetadata(job.id(), List.of(secondId, firstId)))
+                .extracting(DownloadJobService.DownloadItemMetadata::appName)
+                .containsExactly("Segunda", "Primera");
+
+        UUID foreignItem = UUID.randomUUID();
+        assertThatThrownBy(() -> service.itemMetadata(job.id(), List.of(firstId, foreignItem)))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessage("No existe el trabajo.");
     }
 }

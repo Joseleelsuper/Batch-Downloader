@@ -2,7 +2,6 @@ package es.ubu.batchdownloader.downloads.infrastructure.messaging;
 
 import es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
-import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.messaging.OutboxWriter;
 import java.util.LinkedHashMap;
@@ -45,7 +44,7 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
 
     @Override
     public void terminalNotificationRequested(UserAccount owner, DownloadJob job) {
-        boolean downloadable = job.status() == DownloadJobStatus.READY || job.status() == DownloadJobStatus.PARTIAL;
+        boolean downloadable = job.status().downloadable();
         String template = downloadable ? "DOWNLOAD_READY" : "DOWNLOAD_FAILED";
         Map<String, Object> parameters = new LinkedHashMap<>();
         parameters.put("jobId", job.id().toString());

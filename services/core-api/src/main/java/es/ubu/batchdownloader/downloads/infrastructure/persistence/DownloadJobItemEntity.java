@@ -33,6 +33,10 @@ class DownloadJobItemEntity {
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "source_ref", length = 36, nullable = false)
     private UUID sourceRef;
+    @Column(name = "app_name", length = 180)
+    private String appName;
+    @Column(name = "official_url", length = 2048)
+    private String officialPageUrl;
     @Enumerated(EnumType.STRING)
     @Column(length = 24, nullable = false)
     private DownloadItemStatus status;
@@ -63,6 +67,8 @@ class DownloadJobItemEntity {
     void updateFrom(DownloadJobItem item) {
         appId = item.appId();
         sourceRef = item.sourceRef();
+        appName = item.appName();
+        officialPageUrl = item.officialPageUrl();
         status = item.status();
         bytesDownloaded = item.bytesDownloaded();
         sha256 = item.sha256();
@@ -73,7 +79,8 @@ class DownloadJobItemEntity {
 
     DownloadJobItem toDomain() {
         return DownloadJobItem.rehydrate(
-                id, appId, sourceRef, status, bytesDownloaded, sha256, errorCode, createdAt, updatedAt, version);
+                id, appId, sourceRef, appName, officialPageUrl,
+                status, bytesDownloaded, sha256, errorCode, createdAt, updatedAt, version);
     }
 
     UUID id() { return id; }

@@ -25,7 +25,7 @@ class ZipArchiveBuilderTest {
 
         new ZipArchiveBuilder().build(zip, List.of(new DownloadedArtifact(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                "App.exe", installer, 6, "sha", "key")), manifest);
+                "App.exe", installer, 6, "sha", "key")), List.of(), manifest);
 
         try (ZipFile opened = new ZipFile(zip.toFile())) {
             assertThat(opened.getEntry("App.exe")).isNotNull();

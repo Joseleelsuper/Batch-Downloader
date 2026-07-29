@@ -110,7 +110,9 @@ public final class DownloadJob {
         item.progress(itemStatus, bytesDownloaded, sha256, errorCode, now);
         long terminalItems = items.stream().filter(candidate -> candidate.status().terminal()).count();
         progress = Math.max(progress, (int) ((terminalItems * 90L) / items.size()));
-        DownloadJobStatus next = deriveActiveStatus(itemStatus);
+        DownloadJobStatus next = terminalItems == items.size()
+                ? DownloadJobStatus.PACKAGING
+                : deriveActiveStatus(itemStatus);
         if (activeStage(next) >= activeStage(status)) {
             status = next;
         }
@@ -167,7 +169,7 @@ public final class DownloadJob {
             case RESOLVING -> 1;
             case DOWNLOADING -> 2;
             case PACKAGING -> 3;
-            case READY, PARTIAL, FAILED, CANCELLED, EXPIRED -> 4;
+            case READY, PARTIAL, MANUAL_ONLY, FAILED, CANCELLED, EXPIRED -> 4;
         };
     }
 

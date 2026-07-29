@@ -7,7 +7,7 @@
 - Pipeline persistente: `searcher_filter -> filter_scraper -> scraper_so_filter -> so_filter_descriptor`, más `manual_installer_enrichment` y `website_app_discovery` con concurrencia uno. Cada etapa usa leases/reintentos; una parada es cooperativa y conserva las colas.
 - `SO Filter` proyecta `software_apps.operating_systems_json`; Core lo usa para iconos y filtro OR. La disponibilidad y creación de jobs siguen exigiendo una fuente previamente `VALIDATED`.
 - Los iconos GitHub se resuelven dentro del scraper normal; no recrees una cola, worker ni botón administrativo de iconos.
-- Descargas: Core persiste job+items+outbox, RabbitMQ transporta solo IDs, el worker pide la URL al scraper (revalidación inmediata), genera ZIP en MinIO y Core entrega un `303` firmado con `MINIO_PUBLIC_ENDPOINT`.
+- Descargas: Core persiste job+items+outbox, RabbitMQ transporta solo IDs, el worker pide la URL al scraper (revalidación inmediata) y consulta una sola vez a Core si necesita nombre/página oficial para fallos. Los items terminan uno a uno, `PACKAGING` cubre la creación real del ZIP y `READY|PARTIAL|MANUAL_ONLY` son descargables. El ZIP añade `.url` únicamente para fallos aceptados con página oficial HTTPS pública y Core entrega un `303` firmado con `MINIO_PUBLIC_ENDPOINT`.
 - MySQL sigue siendo la autoridad de filtros, estados, facetas y paginación. PostgreSQL/pgvector es una proyección semántica reconstruible alimentada únicamente por `/internal/v1/semantic/documents`.
 - Los textos semánticos solo pueden contener nombre, package ID, editor, tags, descripciones, sistemas, arquitecturas, versión y dominio registrado. No incluyas URLs completas, secretos ni metadatos crudos.
 

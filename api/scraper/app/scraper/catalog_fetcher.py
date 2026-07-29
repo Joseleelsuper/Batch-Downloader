@@ -1869,7 +1869,41 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
 
 
 def known_official_candidates(app: WinstallApp) -> list[InstallerCandidate]:
-    if app.package_id == "EpicGames.EpicGamesLauncher":
+    return known_official_candidates_for_package(
+        app.package_id,
+        getattr(app, "latest_version", None),
+    )
+
+
+def known_official_candidates_for_package(
+    package_id: str,
+    latest_version: str | None = None,
+) -> list[InstallerCandidate]:
+    if package_id == "ItchIo.Itch":
+        return [
+            InstallerCandidate(
+                url="https://itch.io/app/download?platform=windows",
+                source="official_known_endpoint",
+                label="itch Windows installer",
+                context="Official itch app Windows download endpoint.",
+                asset_kind="installer",
+            ),
+            InstallerCandidate(
+                url="https://itch.io/app/download?platform=osx",
+                source="official_known_endpoint",
+                label="itch macOS installer",
+                context="Official itch app macOS download endpoint.",
+                asset_kind="installer",
+            ),
+            InstallerCandidate(
+                url="https://itch.io/app/download?platform=linux",
+                source="official_known_endpoint",
+                label="itch Linux installer",
+                context="Official itch app Linux download endpoint.",
+                asset_kind="installer",
+            ),
+        ]
+    if package_id == "EpicGames.EpicGamesLauncher":
         return [
             InstallerCandidate(
                 url=(
@@ -1882,8 +1916,8 @@ def known_official_candidates(app: WinstallApp) -> list[InstallerCandidate]:
                 asset_kind="installer",
             )
         ]
-    if app.package_id == "115.115Chrome" and app.latest_version:
-        version = app.latest_version.strip().removeprefix("v")
+    if package_id == "115.115Chrome" and latest_version:
+        version = latest_version.strip().removeprefix("v")
         return [
             InstallerCandidate(
                 url=f"https://down.115.com/client/win/115br_v{version}_x64.exe",
@@ -1914,8 +1948,8 @@ def known_official_candidates(app: WinstallApp) -> list[InstallerCandidate]:
                 asset_kind="installer",
             ),
         ]
-    if app.package_id == "123.123pan" and app.latest_version:
-        version = normalized_123pan_version(app.latest_version)
+    if package_id == "123.123pan" and latest_version:
+        version = normalized_123pan_version(latest_version)
         compact_version = "".join(character for character in version if character.isdigit())
         if compact_version:
             return [
@@ -1939,6 +1973,7 @@ def use_only_known_official_candidates(
 ) -> bool:
     return bool(known_candidates) and app.package_id in {
         "EpicGames.EpicGamesLauncher",
+        "ItchIo.Itch",
         "115.115Chrome",
         "123.123pan",
     }

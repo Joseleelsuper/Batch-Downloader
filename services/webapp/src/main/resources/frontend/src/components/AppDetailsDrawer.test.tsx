@@ -3,6 +3,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetails } from '../types/catalog';
 import { AppDetailsDrawer } from './AppDetailsDrawer';
 
+vi.mock('../hooks/useDownloadJob', () => ({
+  useDownloadJob: () => ({
+    job: null,
+    starting: false,
+    cancelling: false,
+    error: false,
+    start: vi.fn(),
+    cancel: vi.fn(),
+    clear: vi.fn(),
+  }),
+}));
+
 const app: AppDetails = {
   id: '22222222-2222-4222-8222-222222222222',
   slug: 'geogebra-graphing-calculator',

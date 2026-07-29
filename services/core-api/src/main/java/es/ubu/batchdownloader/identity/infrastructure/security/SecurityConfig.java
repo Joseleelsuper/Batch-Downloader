@@ -23,6 +23,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 @Configuration
 @EnableWebSecurity
@@ -34,9 +37,15 @@ public class SecurityConfig {
             @Value("${app.security.require-https}") boolean requireHttps) throws Exception {
         CookieCsrfTokenRepository csrfRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrfRepository.setCookiePath("/");
-        http.csrf(csrf -> csrf.csrfTokenRepository(csrfRepository))
+        RequestMatcher internalDownloadMetadata = new AntPathRequestMatcher(
+                "/internal/v1/download-jobs/*/item-metadata",
+                HttpMethod.POST.name());
+        http.csrf(csrf -> csrf
+                        .csrfTokenRepository(csrfRepository)
+                        .ignoringRequestMatchers(internalDownloadMetadata))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers(internalDownloadMetadata).permitAll()
                         .requestMatchers("/api/v1/download-jobs/**").permitAll()
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/auth/preferences").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").permitAll()
@@ -62,7 +71,9 @@ public class SecurityConfig {
                                     new ApiError("forbidden", "No tienes permisos para esta operación.", Map.of()));
                         }));
         if (requireHttps) {
-            http.requiresChannel(channel -> channel.anyRequest().requiresSecure());
+            http.requiresChannel(channel -> channel
+                    .requestMatchers(new NegatedRequestMatcher(internalDownloadMetadata))
+                    .requiresSecure());
         }
         return http.build();
     }

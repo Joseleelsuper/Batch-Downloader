@@ -1,61 +1,60 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  cancelDownloadJob,
-  connectDownloadJobEvents,
-  createDownloadJob,
-} from '../api/catalog';
-import type { DownloadJob } from '../types/catalog';
-import type { OperatingSystem } from '../types/catalog';
+  TERMINAL_DOWNLOAD_STATUSES,
+  type DownloadJobRequest,
+  useDownloadJobs,
+} from '../downloads/DownloadJobsContext';
 
-const TERMINAL_STATUSES = new Set(['READY', 'PARTIAL', 'FAILED', 'CANCELLED', 'EXPIRED']);
-export type DownloadJobRequest =
-  | { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean }
-  | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean };
+export type { DownloadJobRequest };
 
 export function useDownloadJob() {
-  const [job, setJob] = useState<DownloadJob | null>(null);
+  const downloads = useDownloadJobs();
+  const [jobId, setJobId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [error, setError] = useState(false);
+  const [localError, setLocalError] = useState(false);
+  const entry = jobId ? downloads.jobs.find((candidate) => candidate.id === jobId) : undefined;
 
-  useEffect(() => {
-    if (!job || TERMINAL_STATUSES.has(job.status)) return undefined;
-    return connectDownloadJobEvents(job.id, setJob, () => setError(true));
-  }, [job?.id, job?.status]);
-
-  const start = useCallback(async (request: DownloadJobRequest) => {
+  const start = useCallback(async (request: DownloadJobRequest, label?: string) => {
     setStarting(true);
-    setError(false);
+    setLocalError(false);
     try {
-      const created = await createDownloadJob(request);
-      setJob(created);
+      const created = await downloads.start(request, label);
+      setJobId(created.id);
       return created;
     } catch (cause) {
-      setError(true);
+      setLocalError(true);
       throw cause;
     } finally {
       setStarting(false);
     }
-  }, []);
+  }, [downloads]);
 
   const cancel = useCallback(async () => {
-    if (!job || TERMINAL_STATUSES.has(job.status)) return;
-    setCancelling(true);
-    setError(false);
+    if (!entry?.job || TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status)) return;
+    setLocalError(false);
     try {
-      setJob(await cancelDownloadJob(job.id));
+      await downloads.cancel(entry.id);
     } catch (cause) {
-      setError(true);
+      setLocalError(true);
       throw cause;
-    } finally {
-      setCancelling(false);
     }
-  }, [job]);
+  }, [downloads, entry]);
 
   const clear = useCallback(() => {
-    setJob(null);
-    setError(false);
-  }, []);
+    if (entry?.job && TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status)) {
+      downloads.dismiss(entry.id);
+      setJobId(null);
+    }
+    setLocalError(false);
+  }, [downloads, entry]);
 
-  return { job, starting, cancelling, error, start, cancel, clear };
+  return {
+    job: entry?.job ?? null,
+    starting,
+    cancelling: entry?.cancelling ?? false,
+    error: localError || Boolean(entry?.connectionError || entry?.actionError),
+    start,
+    cancel,
+    clear,
+  };
 }

@@ -1060,7 +1060,7 @@ function OperationTray({
               {active ? (
                 <>
                   <span className="semantic-operation-progress" aria-hidden="true">
-                    <span style={{ width: `${percent * 100}%` }} />
+                    <span style={{ transform: `scaleX(${percent})` }} />
                   </span>
                   <div className="semantic-operation-meta">
                     <span>

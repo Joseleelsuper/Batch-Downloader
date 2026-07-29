@@ -22,6 +22,8 @@ public record DownloadJobView(
     public record Item(
             UUID id,
             UUID appId,
+            String appName,
+            String officialPageUrl,
             DownloadItemStatus status,
             long bytesDownloaded,
             String sha256,
@@ -37,7 +39,8 @@ public record DownloadJobView(
                 job.omittedCount(),
                 job.failureCode(),
                 job.items().stream().map(item -> new Item(
-                        item.id(), item.appId(), item.status(), item.bytesDownloaded(), item.sha256(), item.errorCode()))
+                        item.id(), item.appId(), item.appName(), item.officialPageUrl(),
+                        item.status(), item.bytesDownloaded(), item.sha256(), item.errorCode()))
                         .toList(),
                 job.createdAt(),
                 job.expiresAt());

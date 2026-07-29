@@ -230,7 +230,7 @@ async def repair_known_apps() -> None:
     settings = get_settings()
     repaired = 0
     async with WinstallClient(settings) as winstall:
-        for package_id in ("EpicGames.EpicGamesLauncher",):
+        for package_id in ("EpicGames.EpicGamesLauncher", "ItchIo.Itch"):
             app = await winstall.get_app(package_id)
             candidates = known_official_candidates(app)
             if not candidates:
@@ -308,6 +308,17 @@ async def repair_known_apps() -> None:
     logger.info("known_apps_repair_finished", repaired=repaired)
 
 
+async def run_startup_scrape() -> None:
+    try:
+        await repair_known_apps()
+    except Exception as exc:
+        logger.warning(
+            "startup_known_apps_repair_failed",
+            error=exc.__class__.__name__,
+        )
+    await scrape_once(recover_running=True)
+
+
 async def run_scheduler() -> None:
     settings = get_settings()
     scheduler = AsyncIOScheduler(timezone=settings.scheduler_zoneinfo)
@@ -334,9 +345,8 @@ async def run_scheduler() -> None:
     )
     if settings.run_on_startup:
         scheduler.add_job(
-            scrape_once,
+            run_startup_scrape,
             trigger="date",
-            kwargs={"recover_running": True},
             id="startup-winstall-scrape",
             replace_existing=True,
             max_instances=1,

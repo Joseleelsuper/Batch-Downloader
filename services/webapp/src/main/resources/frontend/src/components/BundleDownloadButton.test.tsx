@@ -30,7 +30,7 @@ function activeJob(): DownloadJob {
 }
 
 describe('BundleDownloadButton', () => {
-  it('mantiene el progreso y la cancelación accesibles en una tarjeta compacta', () => {
+  it('deja el progreso en el disparador y reserva los detalles para el overlay global', () => {
     hooks.useDownloadJob.mockReturnValue({
       job: activeJob(),
       starting: false,
@@ -43,9 +43,9 @@ describe('BundleDownloadButton', () => {
 
     render(<BundleDownloadButton bundleId="bundle-1" appCount={3} operatingSystems={['windows']} compact />);
 
-    expect(screen.getByLabelText('Trabajo de descarga')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeInTheDocument();
-    expect(screen.getByText(/1 omitida/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '35%' })).toBeDisabled();
+    expect(screen.queryByText('Trabajo de descarga')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).not.toBeInTheDocument();
   });
 
   it('muestra los sistemas disponibles y envía solo el elegido al crear el trabajo', () => {
@@ -62,14 +62,17 @@ describe('BundleDownloadButton', () => {
 
     render(<BundleDownloadButton bundleId="bundle-1" appCount={3} operatingSystems={['windows', 'linux']} />);
 
-    expect(screen.getByRole('button', { name: 'Windows' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Linux' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Windows: 3 aplicaciones disponibles' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Linux: 3 aplicaciones disponibles' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByRole('button', { name: 'macOS' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Linux' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Descargar todas' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Linux: 3 aplicaciones disponibles' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar 3' }));
 
-    expect(start).toHaveBeenCalledWith({ bundleId: 'bundle-1', operatingSystems: ['linux'] });
+    expect(start).toHaveBeenCalledWith(
+      { bundleId: 'bundle-1', operatingSystems: ['linux'] },
+      'Bundle bundle-1',
+    );
   });
 
   it('bloquea la descarga si ninguna aplicación tiene una plataforma disponible', () => {
@@ -86,6 +89,34 @@ describe('BundleDownloadButton', () => {
     render(<BundleDownloadButton bundleId="bundle-1" appCount={3} operatingSystems={[]} />);
 
     expect(screen.getByText('Ninguna aplicación del bundle tiene un instalador disponible.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Descargar todas' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Descargar 0' })).toBeDisabled();
+  });
+
+  it('muestra bajo cada sistema la cantidad real que se descargará', () => {
+    hooks.useDownloadJob.mockReturnValue({
+      job: null,
+      starting: false,
+      cancelling: false,
+      error: false,
+      start: vi.fn(),
+      cancel: vi.fn(),
+      clear: vi.fn(),
+    });
+
+    render(
+      <BundleDownloadButton
+        bundleId="bundle-1"
+        appCount={17}
+        operatingSystems={['windows', 'linux']}
+        platformAvailability={[
+          { operatingSystem: 'windows', downloadableAppCount: 16, previewApps: [] },
+          { operatingSystem: 'linux', downloadableAppCount: 3, previewApps: [] },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Windows: 16 aplicaciones disponibles' })).toHaveTextContent('16');
+    expect(screen.getByRole('button', { name: 'Linux: 3 aplicaciones disponibles' })).toHaveTextContent('3');
+    expect(screen.getByRole('button', { name: 'Descargar 16' })).toBeEnabled();
   });
 });

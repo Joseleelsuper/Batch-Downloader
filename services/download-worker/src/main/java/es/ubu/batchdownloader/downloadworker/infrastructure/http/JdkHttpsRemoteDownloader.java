@@ -47,9 +47,6 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
             DownloadBudget totalBudget,
             long requestedMaxFileBytes) {
         long maxFileBytes = Math.min(requestedMaxFileBytes, properties.maxFileSize().toBytes());
-        if (item.expectedSizeBytes() != null && item.expectedSizeBytes() > maxFileBytes) {
-            throw new DownloadRejectedException("file_size_limit_exceeded");
-        }
         URI current = item.url();
         for (int redirects = 0; redirects <= properties.maxRedirects(); redirects++) {
             uriPolicy.validate(current);
@@ -72,8 +69,8 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
                 closeQuietly(response.body());
                 throw new DownloadRejectedException("remote_http_" + response.statusCode());
             }
-            verifyDeclaredSize(response, item, maxFileBytes);
-            verifyResponseMetadata(response, item);
+            verifyDeclaredSize(response, maxFileBytes);
+            verifyResponseMetadata(response);
             return streamToDisk(item, filename, target, response.body(), totalBudget, maxFileBytes);
         }
         throw new DownloadRejectedException("too_many_redirects");
@@ -99,23 +96,16 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
 
     private void verifyDeclaredSize(
             HttpResponse<InputStream> response,
-            ResolvedDownloadItem item,
             long maxFileBytes) {
         response.headers().firstValueAsLong("content-length").ifPresent(length -> {
             if (length > maxFileBytes) {
                 closeQuietly(response.body());
                 throw new DownloadRejectedException("file_size_limit_exceeded");
             }
-            if (item.expectedSizeBytes() != null && length != item.expectedSizeBytes()) {
-                closeQuietly(response.body());
-                throw new DownloadRejectedException("source_size_mismatch");
-            }
         });
     }
 
-    private void verifyResponseMetadata(
-            HttpResponse<InputStream> response,
-            ResolvedDownloadItem item) {
+    private void verifyResponseMetadata(HttpResponse<InputStream> response) {
         String contentEncoding = response.headers().firstValue("content-encoding").orElse("identity");
         if (!contentEncoding.equalsIgnoreCase("identity")) {
             closeQuietly(response.body());
@@ -127,13 +117,6 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         if (contentType.startsWith("text/html") || contentType.startsWith("application/json")) {
             closeQuietly(response.body());
             throw new DownloadRejectedException("unexpected_download_content_type");
-        }
-        if (item.expectedMime() != null
-                && !item.expectedMime().isBlank()
-                && !contentType.isBlank()
-                && !contentType.split(";", 2)[0].strip().equalsIgnoreCase(item.expectedMime())) {
-            closeQuietly(response.body());
-            throw new DownloadRejectedException("source_mime_mismatch");
         }
     }
 
@@ -168,9 +151,6 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
                 }
             }
             String sha256 = HexFormat.of().formatHex(digest.digest());
-            if (item.expectedSizeBytes() != null && fileBytes != item.expectedSizeBytes()) {
-                throw new DownloadRejectedException("source_size_mismatch");
-            }
             if (item.expectedSha256() != null && !sha256.equalsIgnoreCase(item.expectedSha256())) {
                 throw new DownloadRejectedException("source_sha256_mismatch");
             }

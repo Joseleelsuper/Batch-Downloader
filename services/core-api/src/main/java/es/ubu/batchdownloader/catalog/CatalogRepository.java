@@ -536,6 +536,45 @@ public class CatalogRepository {
         return matches.get(0);
     }
 
+    public Map<UUID, AppListItem> listItems(Collection<UUID> requestedIds) {
+        if (requestedIds == null || requestedIds.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = requestedIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        StringBuilder sql = new StringBuilder("""
+                SELECT a.*
+                FROM software_apps a
+                WHERE a.app_status = 'active'
+                  AND a.id IN (
+                """);
+        appendPlaceholders(sql, ids.size());
+        sql.append(")");
+        List<AppBasics> apps = jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> readBasics(rs),
+                ids.stream().map(UuidBytes::fromUuid).toArray());
+        List<UUID> foundIds = apps.stream().map(AppBasics::dbId).toList();
+        Map<UUID, List<String>> systemsByApp = operatingSystemsFor(foundIds);
+        Map<UUID, List<String>> tagsByApp = tagsFor(foundIds);
+        Map<UUID, SourceSnapshot> sourcesByApp = sourcesFor(foundIds);
+        Map<UUID, AppListItem> result = new LinkedHashMap<>();
+        for (AppBasics app : apps) {
+            result.put(app.dbId(), mapListItem(
+                    app,
+                    systemsByApp.getOrDefault(app.dbId(), List.of()),
+                    tagsByApp.getOrDefault(app.dbId(), List.of()),
+                    sourcesByApp.getOrDefault(app.dbId(), SourceSnapshot.empty())
+                            .effectiveFor(app.catalogStatus())));
+        }
+        return Map.copyOf(result);
+    }
+
     public UUID softwareAppId(String publicId) {
         UUID parsed = parseUuid(publicId);
         List<UUID> ids = jdbc.query(

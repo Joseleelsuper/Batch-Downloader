@@ -33,7 +33,8 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         }
         List<String> systems = normalizedSystems(operatingSystems);
         StringBuilder sql = new StringBuilder("""
-                SELECT ds.software_app_id, rs.id AS source_ref, ds.operating_system, ds.architecture
+                SELECT ds.software_app_id, rs.id AS source_ref, ds.operating_system, ds.architecture,
+                       app.name AS app_name, app.official_url
                 FROM software_apps app
                 JOIN download_sources ds ON ds.software_app_id = app.id
                 JOIN resolved_sources rs ON rs.download_source_id = ds.id
@@ -74,7 +75,9 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
                     appId,
                     UuidBytes.toUuid(row.getBytes("source_ref")),
                     row.getString("operating_system"),
-                    row.getString("architecture")));
+                    row.getString("architecture"),
+                    row.getString("app_name"),
+                    row.getString("official_url")));
         }, parameters.toArray());
         return Map.copyOf(selected);
     }

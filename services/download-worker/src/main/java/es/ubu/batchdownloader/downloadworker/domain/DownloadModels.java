@@ -42,16 +42,30 @@ public final class DownloadModels {
             String errorCode) {
     }
 
+    public record DownloadItemMetadata(
+            UUID itemId,
+            UUID appId,
+            String appName,
+            String officialPageUrl) {
+    }
+
+    public record ArchiveEntry(
+            String path,
+            Path source) {
+    }
+
     public record ManifestItem(
             UUID itemId,
             UUID appId,
             UUID sourceRef,
+            String appName,
             String filename,
             String status,
             Long sizeBytes,
             String sha256,
             String objectKey,
-            String error) {
+            String error,
+            String manualShortcut) {
     }
 
     public record DownloadManifest(

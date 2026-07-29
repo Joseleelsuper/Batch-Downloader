@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy import (
     JSON,
@@ -86,7 +87,7 @@ class SoftwareApp(Base, TimestampMixin):
         server_default="0",
         nullable=False,
     )
-    catalog_status: Mapped[str | None] = mapped_column(
+    catalog_status: Mapped[Literal["available", "review", "missing"] | None] = mapped_column(
         String(16),
         Computed(
             "CASE "

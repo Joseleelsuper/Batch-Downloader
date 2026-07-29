@@ -7,7 +7,17 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface CatalogSourceLookup {
-    record VerifiedSource(UUID appId, UUID sourceRef, String operatingSystem, String architecture) {}
+    record VerifiedSource(
+            UUID appId,
+            UUID sourceRef,
+            String operatingSystem,
+            String architecture,
+            String appName,
+            String officialPageUrl) {
+        public VerifiedSource(UUID appId, UUID sourceRef, String operatingSystem, String architecture) {
+            this(appId, sourceRef, operatingSystem, architecture, appId.toString(), null);
+        }
+    }
 
     Map<UUID, VerifiedSource> findVerifiedSources(Collection<UUID> appIds, List<String> operatingSystems);
 

@@ -9,7 +9,7 @@ import app.scraper.catalog_fetcher as catalog_fetcher
 from app.core.config import Settings
 from app.core.time import utc_now
 from app.db.enums import ResolutionStatus
-from app.scraper.candidates import InstallerCandidate
+from app.scraper.candidates import InstallerCandidate, infer_operating_system
 from app.scraper.catalog_fetcher import (
     CatalogFetcher,
     FilterWorker,
@@ -283,6 +283,25 @@ def test_epic_games_launcher_has_known_official_candidate() -> None:
 
     assert candidates[0].source == "official_known_endpoint"
     assert candidates[0].url.endswith("EpicGamesLauncherInstaller.exe")
+
+
+def test_itch_has_known_official_cross_platform_installers() -> None:
+    app = SimpleNamespace(package_id="ItchIo.Itch")
+
+    candidates = known_official_candidates(app)
+
+    assert [candidate.url for candidate in candidates] == [
+        "https://itch.io/app/download?platform=windows",
+        "https://itch.io/app/download?platform=osx",
+        "https://itch.io/app/download?platform=linux",
+    ]
+    assert [infer_operating_system(candidate) for candidate in candidates] == [
+        "windows",
+        "macos",
+        "linux",
+    ]
+    assert all(candidate.asset_kind == "installer" for candidate in candidates)
+    assert use_only_known_official_candidates(app, candidates)
 
 
 def test_115_browser_has_known_cross_platform_official_candidates() -> None:

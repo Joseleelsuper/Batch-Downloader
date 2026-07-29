@@ -7,7 +7,9 @@ from app.core.config import Settings
 from app.scraper.safe_http import SafeHttpError, SafeHttpResponse
 from app.scraper.validator import ValidationConfidence, ValidationResult
 from app.scraper.website_discovery import (
+    DiscoveredInstaller,
     WebsiteAppDiscoverer,
+    best_installer_version,
     fetch_official_page,
     website_discovery_input_hash,
 )
@@ -35,6 +37,33 @@ def test_website_discovery_input_hash_is_keyed_and_url_free() -> None:
         "secret-a",
         {"windows": "https://downloads.example.com/Product.exe"},
     )
+
+
+def test_best_installer_version_ignores_nulls_and_normalizes_once() -> None:
+    def installer(version: str | None) -> DiscoveredInstaller:
+        return DiscoveredInstaller(
+            url="https://downloads.example.com/app.exe",
+            final_domain="downloads.example.com",
+            filename="app.exe",
+            extension=".exe",
+            content_type="application/x-msdownload",
+            size_bytes=1024,
+            version=version,
+            operating_system="windows",
+            architecture="x86_64",
+            score=100,
+        )
+
+    assert best_installer_version(
+        [installer(None), installer("   "), installer("2.9.9"), installer(" v2.10.0 ")]
+    ) == "v2.10.0"
+    assert (
+        best_installer_version(
+            [installer(None), installer(" beta "), installer("release")]
+        )
+        == "beta"
+    )
+    assert best_installer_version([installer(None), installer(" ")]) is None
 
 
 @pytest.mark.asyncio

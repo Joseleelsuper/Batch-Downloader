@@ -9,6 +9,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class FilenamePolicy {
     private static final int MAX_FILENAME_LENGTH = 180;
+    private static final Set<String> WINDOWS_RESERVED_NAMES = Set.of(
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9");
 
     public String filenameFor(ResolvedDownloadItem item, Set<String> usedNames) {
         String requested = item.filename();
@@ -21,6 +25,11 @@ public class FilenamePolicy {
         return new HashSet<>();
     }
 
+    public String manualShortcutFilename(String appName, Set<String> usedNames) {
+        String normalizedName = appName == null || appName.isBlank() ? "Aplicacion" : appName;
+        return unique(sanitize(normalizedName + ".url"), usedNames);
+    }
+
     String sanitize(String value) {
         String sanitized = value == null ? "installer.bin" : value
                 .replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]+", "-")
@@ -29,6 +38,10 @@ public class FilenamePolicy {
                 .replaceAll("^[. -]+|[. ]+$", "");
         if (sanitized.isBlank() || sanitized.equals(".") || sanitized.equals("..")) {
             sanitized = "installer.bin";
+        }
+        ExtensionParts initialParts = extensionParts(sanitized);
+        if (WINDOWS_RESERVED_NAMES.contains(initialParts.base().toUpperCase(Locale.ROOT))) {
+            sanitized = "_" + sanitized;
         }
         if (sanitized.length() > MAX_FILENAME_LENGTH) {
             ExtensionParts parts = extensionParts(sanitized);

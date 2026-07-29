@@ -1,6 +1,9 @@
 package es.ubu.batchdownloader.downloadworker.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.ubu.batchdownloader.downloadworker.messaging.DownloadJobFailureRecoverer;
+import es.ubu.batchdownloader.downloadworker.ports.EventPublisher;
+import java.time.Clock;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
@@ -10,7 +13,6 @@ import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
@@ -91,14 +93,18 @@ public class RabbitTopologyConfiguration {
     }
 
     @Bean
-    RetryOperationsInterceptor downloadRetryInterceptor(MessagingProperties properties) {
+    RetryOperationsInterceptor downloadRetryInterceptor(
+            MessagingProperties properties,
+            ObjectMapper objectMapper,
+            EventPublisher eventPublisher,
+            Clock clock) {
         return RetryInterceptorBuilder.stateless()
                 .maxAttempts(properties.retryAttempts())
                 .backOffOptions(
                         properties.retryInitialInterval().toMillis(),
                         properties.retryMultiplier(),
                         properties.retryMaxInterval().toMillis())
-                .recoverer(new RejectAndDontRequeueRecoverer())
+                .recoverer(new DownloadJobFailureRecoverer(objectMapper, eventPublisher, clock))
                 .build();
     }
 

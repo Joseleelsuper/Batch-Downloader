@@ -8,11 +8,13 @@ import es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriP
 import es.ubu.batchdownloader.downloadworker.infrastructure.messaging.RabbitEventPublisher;
 import es.ubu.batchdownloader.downloadworker.infrastructure.persistence.JdbcInboxRepository;
 import es.ubu.batchdownloader.downloadworker.infrastructure.storage.MinioArtifactStore;
+import es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpJobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpSourceReferenceResolver;
 import es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
 import es.ubu.batchdownloader.downloadworker.ports.EventPublisher;
 import es.ubu.batchdownloader.downloadworker.ports.InboxRepository;
+import es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver;
 import io.minio.MinioClient;
@@ -34,7 +36,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
     DownloadProperties.class,
     MessagingProperties.class,
     StorageProperties.class,
-    SourceResolverProperties.class
+    SourceResolverProperties.class,
+    CoreApiProperties.class
 })
 public class WorkerConfiguration {
     @Bean
@@ -82,6 +85,22 @@ public class WorkerConfiguration {
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             SourceResolverProperties properties) {
         return new HttpSourceReferenceResolver(sourceResolverHttpClient, objectMapper, properties);
+    }
+
+    @Bean
+    HttpClient coreApiHttpClient(CoreApiProperties properties) {
+        return HttpClient.newBuilder()
+                .connectTimeout(properties.timeout())
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+    }
+
+    @Bean
+    JobItemMetadataLookup jobItemMetadataLookup(
+            @Qualifier("coreApiHttpClient") HttpClient coreApiHttpClient,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            CoreApiProperties properties) {
+        return new HttpJobItemMetadataLookup(coreApiHttpClient, objectMapper, properties);
     }
 
     @Bean

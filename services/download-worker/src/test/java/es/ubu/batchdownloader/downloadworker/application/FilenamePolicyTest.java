@@ -28,6 +28,15 @@ class FilenamePolicyTest {
         assertThat(policy.filenameFor(item("two", "tool.tar.gz"), names)).isEqualTo("tool-2.tar.gz");
     }
 
+    @Test
+    void sanitizesAndDeduplicatesManualShortcutNames() {
+        Set<String> names = policy.newNameSet();
+
+        assertThat(policy.manualShortcutFilename("../CON", names)).isEqualTo("_CON.url");
+        assertThat(policy.manualShortcutFilename("Mi/App", names)).isEqualTo("Mi-App.url");
+        assertThat(policy.manualShortcutFilename("mi-app", names)).isEqualTo("mi-app-2.url");
+    }
+
     private ResolvedDownloadItem item(String id, String filename) {
         return new ResolvedDownloadItem(
                 UUID.nameUUIDFromBytes(("item-" + id).getBytes()),

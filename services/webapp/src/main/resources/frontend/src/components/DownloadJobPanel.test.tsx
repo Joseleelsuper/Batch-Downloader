@@ -20,6 +20,7 @@ function job(status: DownloadJob['status']): DownloadJob {
       {
         id: '143089b4-8494-4fa7-a365-47dc882c6b72',
         appId: '53184a90-ab4b-4609-bbce-456f913fe691',
+        appName: 'Aplicación de ejemplo',
         status: status === 'READY' ? 'COMPLETED' : 'DOWNLOADING',
         bytesDownloaded: 1024,
       },
@@ -57,6 +58,8 @@ describe('DownloadJobPanel', () => {
       {
         id: '243089b4-8494-4fa7-a365-47dc882c6b72',
         appId: '63184a90-ab4b-4609-bbce-456f913fe691',
+        appName: 'Aplicación fallida',
+        officialPageUrl: 'https://example.com/download',
         status: 'FAILED',
         bytesDownloaded: 0,
         errorCode: 'source_revalidation_failed',
@@ -66,7 +69,14 @@ describe('DownloadJobPanel', () => {
     render(<DownloadJobPanel job={partial} onCancel={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('Completado parcialmente')).toBeInTheDocument();
-    expect(screen.getByText('Código de error: source_revalidation_failed.')).toBeInTheDocument();
+    expect(screen.getByText('Aplicación fallida')).toBeInTheDocument();
+    expect(screen.getByText('No se pudo obtener un instalador válido desde la fuente configurada.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir página oficial' })).toHaveAttribute(
+      'href',
+      'https://example.com/download',
+    );
+    fireEvent.click(screen.getByText('Detalles técnicos'));
+    expect(screen.getByText('source_revalidation_failed')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Obtener ZIP/i })).toBeInTheDocument();
   });
 
@@ -76,7 +86,41 @@ describe('DownloadJobPanel', () => {
     render(<DownloadJobPanel job={failed} onCancel={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('Fallido')).toBeInTheDocument();
-    expect(screen.getByText('Código de error: all_items_failed.')).toBeInTheDocument();
+    expect(screen.getByText('Problema del servicio de descarga')).toBeInTheDocument();
+    expect(screen.getByText('La aplicación no pudo descargarse por un error inesperado.')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Obtener ZIP/i })).not.toBeInTheDocument();
+  });
+
+  it('mantiene disponible el ZIP cuando solo contiene accesos manuales', () => {
+    const manual = job('MANUAL_ONLY');
+    manual.progress = 100;
+    manual.items = [{
+      ...manual.items[0],
+      status: 'FAILED',
+      bytesDownloaded: 0,
+      errorCode: 'remote_unavailable',
+      officialPageUrl: 'https://example.com',
+    }];
+
+    render(<DownloadJobPanel job={manual} onCancel={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.getByText('Descarga manual necesaria')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Obtener ZIP/i })).toBeInTheDocument();
+  });
+
+  it('no convierte una página oficial insegura en un enlace', () => {
+    const partial = job('PARTIAL');
+    partial.items = [{
+      ...partial.items[0],
+      status: 'FAILED',
+      bytesDownloaded: 0,
+      errorCode: 'source_not_verified',
+      officialPageUrl: 'javascript:alert(1)',
+    }];
+
+    render(<DownloadJobPanel job={partial} onCancel={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.queryByRole('link', { name: 'Abrir página oficial' })).not.toBeInTheDocument();
+    expect(screen.getByText('Esta aplicación no tiene una página oficial segura disponible.')).toBeInTheDocument();
   });
 });

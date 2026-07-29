@@ -966,6 +966,61 @@ async def test_internal_resolution_does_not_invalidate_on_transient_revalidation
 
 
 @pytest.mark.asyncio
+async def test_internal_resolution_recovers_itch_from_official_windows_endpoint(
+    internal_api: InternalApiFixture,
+    monkeypatch,
+) -> None:
+    app, resolved, stale_url = await internal_api.add_source(
+        confidence="validated",
+        expires_in_hours=-1,
+    )
+    app.winstall_id = "ItchIo.Itch"
+    app.latest_version = "26.5.0"
+    official_endpoint = "https://itch.io/app/download?platform=windows"
+    current_url = "https://cdn.example.test/itch-setup.exe"
+    validation_urls: list[str] = []
+    await internal_api.session.commit()
+
+    async def validate(_validator, candidate):
+        validation_urls.append(candidate.url)
+        if candidate.url == stale_url:
+            return ValidationResult(
+                ok=True,
+                url=candidate.url,
+                final_url=candidate.url,
+                confidence=ValidationConfidence.ATTESTED,
+            )
+        assert candidate.url == official_endpoint
+        return ValidationResult(
+            ok=True,
+            url=candidate.url,
+            final_url=current_url,
+            final_domain="example.test",
+            filename="itch-setup.exe",
+            extension=".exe",
+            content_type="application/octet-stream",
+            size_bytes=18_678_744,
+            confidence=ValidationConfidence.VALIDATED,
+        )
+
+    monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
+
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["url"] == current_url
+    assert response.json()["expectedFilename"] == "itch-setup.exe"
+    assert response.json()["expectedSizeBytes"] == 18_678_744
+    assert validation_urls == [stale_url, official_endpoint]
+    assert resolved.metadata_json["candidate_source"] == "official_known_endpoint"
+    assert resolved.is_latest is True
+    assert stale_url not in response.text
+
+
+@pytest.mark.asyncio
 async def test_internal_resolution_rechecks_candidate_after_acquiring_lock(
     internal_api: InternalApiFixture,
     monkeypatch,

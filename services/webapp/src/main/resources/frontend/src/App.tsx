@@ -83,9 +83,10 @@ import { AppStatusBadge } from './components/AppStatusBadge';
 import { AppTable } from './components/AppTable';
 import { DownloadButton } from './components/DownloadButton';
 import { BundleDownloadButton } from './components/BundleDownloadButton';
-import { DownloadJobPanel } from './components/DownloadJobPanel';
 import { OperatingSystemList } from './components/OperatingSystemIcons';
 import { Pagination } from './components/Pagination';
+import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
+import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
 import { useDownloadJob } from './hooks/useDownloadJob';
 import { AdminAppsPage as AdminAppsWorkbenchPage } from './pages/admin/AdminAppsPage';
 import { SemanticAiPage } from './pages/admin/SemanticAiPage';
@@ -132,35 +133,38 @@ export default function App() {
   }, []);
 
   return (
-    <Routes>
-      <Route element={<PublicLayout auth={auth} onLogout={() => handleLogout(setAuth)} />}>
-        <Route index element={<HomePage />} />
-        <Route path="catalog" element={<CatalogPage />} />
-        <Route path="catalog/app/:appId" element={<CatalogPage />} />
-        <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
-        <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
-        <Route path="bundles/:slug" element={<BundleDetailPage />} />
-        <Route path="login" element={<LoginPage onLogin={setAuth} />} />
-      </Route>
-      <Route
-        path="admin"
-        element={
-          <RequireAdmin auth={auth} checking={checkingAuth}>
-            <AdminLayout onLogout={() => handleLogout(setAuth)} />
-          </RequireAdmin>
-        }
-      >
-        <Route index element={<AdminDashboard />} />
-        <Route path="apps" element={<AdminAppsWorkbenchPage />} />
-        <Route path="bundles" element={<AdminBundlesPage />} />
-        <Route path="scraper" element={<AdminScraperPage />} />
-        <Route path="semantic" element={<Navigate to="/admin/semantic/models" replace />} />
-        <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
-        <Route path="requests" element={<AdminRequestsPage />} />
-        <Route path="audit" element={<AdminAuditPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <DownloadJobsProvider>
+      <Routes>
+        <Route element={<PublicLayout auth={auth} onLogout={() => handleLogout(setAuth)} />}>
+          <Route index element={<HomePage />} />
+          <Route path="catalog" element={<CatalogPage />} />
+          <Route path="catalog/app/:appId" element={<CatalogPage />} />
+          <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
+          <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
+          <Route path="bundles/:slug" element={<BundleDetailPage />} />
+          <Route path="login" element={<LoginPage onLogin={setAuth} />} />
+        </Route>
+        <Route
+          path="admin"
+          element={
+            <RequireAdmin auth={auth} checking={checkingAuth}>
+              <AdminLayout onLogout={() => handleLogout(setAuth)} />
+            </RequireAdmin>
+          }
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="apps" element={<AdminAppsWorkbenchPage />} />
+          <Route path="bundles" element={<AdminBundlesPage />} />
+          <Route path="scraper" element={<AdminScraperPage />} />
+          <Route path="semantic" element={<Navigate to="/admin/semantic/models" replace />} />
+          <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
+          <Route path="requests" element={<AdminRequestsPage />} />
+          <Route path="audit" element={<AdminAuditPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      <GlobalDownloadJobOverlay />
+    </DownloadJobsProvider>
   );
 }
 
@@ -351,6 +355,26 @@ function BundleSection({
 }
 
 function BundleCard({ bundle }: { bundle: BundleSummary }) {
+  const availability = bundle.platformAvailability.length
+    ? bundle.platformAvailability
+    : bundle.operatingSystems.map((operatingSystem) => ({
+      operatingSystem,
+      downloadableAppCount: bundle.appCount,
+      previewApps: bundle.previewApps,
+    }));
+  const [selectedOperatingSystem, setSelectedOperatingSystem] = useState(
+    availability[0]?.operatingSystem ?? null,
+  );
+  const selectedAvailability = availability.find(
+    (item) => item.operatingSystem === selectedOperatingSystem,
+  ) ?? availability[0];
+  const previewApps = selectedAvailability?.previewApps ?? [];
+  const visibleApps = previewApps.slice(0, 5);
+  const hiddenAppCount = Math.max(
+    0,
+    (selectedAvailability?.downloadableAppCount ?? 0) - visibleApps.length,
+  );
+
   return (
     <article className="bundle-card">
       <Link className="bundle-card-link" to={`/bundles/${bundle.id}`}>
@@ -365,16 +389,20 @@ function BundleCard({ bundle }: { bundle: BundleSummary }) {
         </div>
         <p>{bundle.description || t('bundle.fallbackDescription')}</p>
         <div className="mini-apps">
-          {bundle.previewApps.slice(0, 5).map((app) => (
+          {visibleApps.map((app) => (
             <AppMiniIcon app={app} key={app.id} />
           ))}
-          {bundle.appCount > 5 ? <span className="mini-more">+{bundle.appCount - 5}</span> : null}
+          {hiddenAppCount > 0 ? <span className="mini-more">+{hiddenAppCount}</span> : null}
         </div>
       </Link>
       <BundleDownloadButton
         bundleId={bundle.id}
+        bundleName={bundle.name}
         appCount={bundle.appCount}
         operatingSystems={bundle.operatingSystems}
+        platformAvailability={availability}
+        selectedOperatingSystem={selectedAvailability?.operatingSystem ?? null}
+        onOperatingSystemChange={setSelectedOperatingSystem}
         compact
       />
     </article>
@@ -649,7 +677,7 @@ function CatalogPage() {
       await downloadJob.start({
         appIds: validIds,
         operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
-      });
+      }, t('download.job.selectionLabel', { count: validIds.length }));
     } catch {
       setError(t('catalog.error.zip'));
     } finally {
@@ -720,14 +748,6 @@ function CatalogPage() {
         />
         {searchNotice ? <p className="semantic-notice">{searchNotice}</p> : null}
         {error ? <p className="error-banner">{error}</p> : null}
-        {downloadJob.job ? (
-          <DownloadJobPanel
-            job={downloadJob.job}
-            cancelling={downloadJob.cancelling}
-            onCancel={() => void downloadJob.cancel().catch(() => setError(t('download.job.error')))}
-            onClose={downloadJob.clear}
-          />
-        ) : null}
         <AppTable
           apps={apps}
           loading={loadingApps}
@@ -966,8 +986,10 @@ function BundleDetailPage() {
           <span>{t('bundle.appsCount', { count: bundle.appCount })}</span>
           <BundleDownloadButton
             bundleId={bundle.id}
+            bundleName={bundle.name}
             appCount={bundle.appCount}
             operatingSystems={bundle.operatingSystems}
+            platformAvailability={bundle.platformAvailability}
           />
         </div>
       </section>
@@ -981,7 +1003,7 @@ function BundleDetailPage() {
             </div>
             <OperatingSystemList operatingSystems={app.operatingSystems} />
             <AppStatusBadge status={app.resolutionStatus} />
-            <DownloadButton appId={app.id} disabled={!isCatalogAppSelectable(app)} />
+            <DownloadButton appId={app.id} appName={app.name} disabled={!isCatalogAppSelectable(app)} />
           </div>
         ))}
       </div>

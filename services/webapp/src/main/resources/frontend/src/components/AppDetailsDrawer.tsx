@@ -127,8 +127,8 @@ export function AppDetailsDrawer({ app, loading, onClose }: Readonly<Props>) {
           {selectedOption ? (
             <DownloadButton
               appId={app.id}
+              appName={app.name}
               disabled={!isCatalogAppSelectable(app)}
-              showTerminalDetails
             />
           ) : null}
           <DetailBlock label={t('app.details.notes')}>{app.notes}</DetailBlock>

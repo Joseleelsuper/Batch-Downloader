@@ -32,7 +32,11 @@ class JpaDownloadJobStore implements DownloadJobStore {
     @Override
     public List<DownloadJob> findDownloadableExpiredBefore(Instant now) {
         return repository.findByStatusInAndExpiresAtLessThanEqual(
-                        List.of(DownloadJobStatus.READY, DownloadJobStatus.PARTIAL), now)
+                        List.of(
+                                DownloadJobStatus.READY,
+                                DownloadJobStatus.PARTIAL,
+                                DownloadJobStatus.MANUAL_ONLY),
+                        now)
                 .stream().map(DownloadJobEntity::toDomain).toList();
     }
 
@@ -43,6 +47,7 @@ class JpaDownloadJobStore implements DownloadJobStore {
                 List.of(
                         DownloadJobStatus.READY,
                         DownloadJobStatus.PARTIAL,
+                        DownloadJobStatus.MANUAL_ONLY,
                         DownloadJobStatus.FAILED,
                         DownloadJobStatus.CANCELLED,
                         DownloadJobStatus.EXPIRED));
