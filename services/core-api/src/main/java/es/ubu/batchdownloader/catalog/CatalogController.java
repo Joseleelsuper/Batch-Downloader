@@ -16,13 +16,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Versioned public read API. ZIP creation is intentionally handled by download jobs. */
+/**
+ * Versioned public read API. ZIP creation is intentionally handled by download
+ * jobs.
+ */
 @RestController
 @RequestMapping("/api/v1")
 public class CatalogController {
     private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
-    private static final Set<String> PUBLIC_CATALOG_STATUSES =
-            Set.of("all", "available", "review", "missing");
+    private static final Set<String> PUBLIC_CATALOG_STATUSES = Set.of("all", "available", "review", "missing");
     private final CatalogRepository catalog;
     private final SemanticSearchClient semanticSearch;
 
@@ -53,7 +55,7 @@ public class CatalogController {
             @RequestParam(defaultValue = "lexical") String searchMode) {
         status = publicCatalogStatus(status);
         int safePage = Math.max(1, page);
-        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        int safePageSize = Math.clamp(pageSize, 1, 100);
         List<String> systems = normalizedOperatingSystems(operatingSystems);
         List<String> tagList = parseRepeatedAndCsv(tag, tags);
         List<String> publisherList = parseRepeated(publisher);
@@ -108,7 +110,7 @@ public class CatalogController {
             int pageSize) {
         status = publicCatalogStatus(status);
         int safePage = Math.max(1, page);
-        int safePageSize = Math.max(1, Math.min(pageSize, 100));
+        int safePageSize = Math.clamp(pageSize, 1, 100);
         List<String> systems = normalizedOperatingSystems(operatingSystems);
         List<String> tagList = parseRepeatedAndCsv(tag, tags);
         List<String> publisherList = parseRepeated(publisher);

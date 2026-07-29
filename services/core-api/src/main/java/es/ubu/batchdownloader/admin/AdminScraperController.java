@@ -21,6 +21,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Controlador de administración para el scraper.
+ * 
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @version 1.0
+ * @since 1.0
+ * @apiNote Este controlador proporciona endpoints para la administración del scraper, incluyendo la visualización de ejecuciones, logs, colas y métricas, así como la ejecución de comandos administrativos.
+ * @category Controlador de administración
+ */
 @RestController
 public class AdminScraperController {
     private final AdminScraperRepository scraper;
@@ -36,6 +45,14 @@ public class AdminScraperController {
         this.scraperClient = scraperClient;
     }
 
+    /**
+     * Obtiene un resumen de las ejecuciones del scraper.
+     * 
+     * @param limit El número máximo de ejecuciones a recuperar. Por defecto es 30.
+     * @return Una lista de resúmenes de ejecuciones del scraper.
+     * @throws IllegalArgumentException Si el parámetro limit es negativo.
+     * @since 1.0
+     */
     @GetMapping("/api/admin/scraper/runs")
     public List<ScraperRunSummary> runs(@RequestParam(defaultValue = "30") int limit) {
         return scraper.runs(limit);

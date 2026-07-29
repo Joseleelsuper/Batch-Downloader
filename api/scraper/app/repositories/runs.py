@@ -55,6 +55,17 @@ class ScrapeRunRepository:
         return run
 
     async def recover_running(self, error_summary: str) -> int:
+        """_summary_
+
+        Args:
+            error_summary (str): _description_
+
+        Returns:
+            int: _description_
+            
+        Throws:
+            sqlalchemy.exc.IntegrityError: If a concurrent coordinator inserted the singleton active lock first.
+        """
         result = await self.session.scalars(
             select(ScrapeRun).where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
         )

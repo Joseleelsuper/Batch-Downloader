@@ -118,9 +118,13 @@ public class AdminDtos {
             LocalDateTime expiresAt) {
         public ManualInstallerInspection {
             warnings = warnings == null ? List.of() : List.copyOf(warnings);
-            installers = installers == null
-                    ? (installer == null ? List.of() : List.of(installer))
-                    : List.copyOf(installers);
+                        List<ManualInstallerTechnicalData> normalizedInstallers;
+                        if (installers == null) {
+                                normalizedInstallers = installer == null ? List.of() : List.of(installer);
+                        } else {
+                                normalizedInstallers = List.copyOf(installers);
+                        }
+                        installers = normalizedInstallers;
         }
     }
 
