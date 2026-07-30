@@ -180,10 +180,19 @@ paths:
             type: string
         - name: tag
           in: query
+          description: Puede repetirse; la aplicación debe contener todas las tags indicadas.
+          style: form
+          explode: true
           schema:
             type: array
+            uniqueItems: true
             items:
               type: string
+        - name: publisher
+          in: query
+          description: Editor único que debe coincidir con la aplicación.
+          schema:
+            type: string
         - name: sort
           in: query
           description: Orden principal de presentación, también cuando query y búsqueda semántica están activos.
@@ -233,9 +242,28 @@ paths:
             items:
               type: string
               enum: [windows, linux, macos]
+        - name: architecture
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          description: Puede repetirse; las facetas se calculan sobre aplicaciones que contienen todas las tags indicadas.
+          style: form
+          explode: true
+          schema:
+            type: array
+            uniqueItems: true
+            items:
+              type: string
+        - name: publisher
+          in: query
+          description: Editor único aplicado también al cálculo de tags y editores disponibles.
+          schema:
+            type: string
       responses:
         '200':
-          description: Tags y editores disponibles para el filtro actual.
+          description: Tags y editores de las aplicaciones que cumplen conjuntamente búsqueda, estado, SO, arquitectura, tags y editor.
           content:
             application/json:
               schema:

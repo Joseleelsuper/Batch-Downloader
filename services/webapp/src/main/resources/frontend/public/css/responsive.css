@@ -128,8 +128,7 @@
     padding: 22px 16px 34px;
   }
 
-  .facet-header,
-  .facet-match-panel {
+  .facet-header {
     align-items: stretch;
     flex-direction: column;
   }

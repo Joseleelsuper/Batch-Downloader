@@ -57,14 +57,13 @@ class CatalogRepositoryTest {
     }
 
     /**
-     * Comprueba el escenario {@code requiredTagMatchesDefaultsToAllAndClampsExplicitValues}.
+     * Comprueba el escenario {@code requiredTagMatchesPreservesAdminAnyAndAllModes}.
      */
     @Test
-    void requiredTagMatchesDefaultsToAllAndClampsExplicitValues() {
-        assertThat(CatalogRepository.requiredTagMatches(3, null, "all")).isEqualTo(3);
-        assertThat(CatalogRepository.requiredTagMatches(3, null, "any")).isEqualTo(1);
-        assertThat(CatalogRepository.requiredTagMatches(3, 9, "all")).isEqualTo(3);
-        assertThat(CatalogRepository.requiredTagMatches(3, 0, "all")).isEqualTo(1);
+    void requiredTagMatchesPreservesAdminAnyAndAllModes() {
+        assertThat(CatalogRepository.requiredTagMatches(3, "all")).isEqualTo(3);
+        assertThat(CatalogRepository.requiredTagMatches(3, "any")).isEqualTo(1);
+        assertThat(CatalogRepository.requiredTagMatches(0, "all")).isZero();
     }
 
     /**
@@ -83,7 +82,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                null,
                 "all",
                 "updated",
                 1,
@@ -128,7 +126,6 @@ class CatalogRepositoryTest {
                 "x86_64",
                 List.of("desarrollo"),
                 List.of("Vendor"),
-                1,
                 "all",
                 "updated",
                 1,
@@ -151,6 +148,74 @@ class CatalogRepositoryTest {
     }
 
     /**
+     * Comprueba que las facetas literales aplican conjuntamente tags y editor.
+     */
+    @Test
+    void lexicalFacetsApplyTagsAndPublisherToBothLists() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+        CatalogRepository repository = repository(jdbc);
+
+        repository.facets(
+                "editor",
+                "available",
+                List.of("windows"),
+                "x64",
+                List.of("automation", "cli"),
+                List.of("ACME"),
+                "all");
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc, org.mockito.Mockito.times(2))
+                .query(sql.capture(), any(RowMapper.class), params.capture());
+
+        assertThat(sql.getAllValues()).allSatisfy(statement -> assertThat(statement)
+                .contains("LOWER(TRIM(COALESCE(a.publisher, ''))) IN")
+                .contains("SELECT COUNT(DISTINCT t.normalized_tag)")
+                .contains(">= ?"));
+        assertThat(params.getAllValues()).allSatisfy(arguments -> assertThat(arguments)
+                .contains("acme", "automation", "cli", 2));
+    }
+
+    /**
+     * Comprueba que las facetas semánticas usan los mismos filtros estructurados.
+     */
+    @Test
+    void semanticFacetsApplyTagsAndPublisherToBothLists() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+        CatalogRepository repository = repository(jdbc);
+        SemanticCandidateSet candidates = new SemanticCandidateSet(
+                CatalogSearchMode.SEMANTIC,
+                CatalogSearchMode.SEMANTIC,
+                "[{\"appId\":\"00000000-0000-0000-0000-000000000001\",\"rank\":1}]",
+                "model-v1",
+                "index-v1",
+                null);
+
+        repository.facets(
+                "automatización",
+                "all",
+                List.of(),
+                null,
+                List.of("automation"),
+                List.of("ACME"),
+                "all",
+                candidates);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc, org.mockito.Mockito.times(2))
+                .query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getAllValues()).allSatisfy(statement -> assertThat(statement)
+                .contains("semantic_candidates")
+                .contains("LOWER(TRIM(COALESCE(a.publisher, ''))) IN")
+                .contains("SELECT COUNT(DISTINCT t.normalized_tag)"));
+    }
+
+    /**
      * Comprueba el escenario {@code searchWithoutQueryKeepsReviewAppsAfterBothPlainSortOrders}.
      */
     @Test
@@ -166,7 +231,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                null,
                 "all",
                 "updated",
                 1,
@@ -185,7 +249,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                null,
                 "all",
                 "name",
                 1,
@@ -212,7 +275,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                null,
                 "all",
                 "downloads",
                 1,
@@ -241,7 +303,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                null,
                 "all",
                 "downloads",
                 1,
@@ -271,7 +332,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                null,
                 "all",
                 "updated",
                 1,
@@ -300,7 +360,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                null,
                 "all",
                 "updated",
                 1,
@@ -326,7 +385,7 @@ class CatalogRepositoryTest {
         CatalogRepository repository = repository(jdbc);
 
         assertThatThrownBy(() -> repository.search(
-                "", "pending", null, null, List.of(), List.of(), null, "all", "updated", 1, 12))
+                "", "pending", null, null, List.of(), List.of(), "all", "updated", 1, 12))
                 .isInstanceOf(BadRequestException.class)
                 .extracting(exception -> ((BadRequestException) exception).code())
                 .isEqualTo("invalid_catalog_status");
@@ -343,7 +402,7 @@ class CatalogRepositoryTest {
 
         repository.search(
                 "", "available", List.of("windows"), null, List.of(), List.of(),
-                null, "all", "updated", 1, 12);
+                "all", "updated", 1, 12);
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);

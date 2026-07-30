@@ -80,6 +80,10 @@ describe('catalog workspace', () => {
       lastScrape: null,
       generatedAt: '2026-07-13T12:00:00Z',
     });
+    vi.spyOn(catalogApi, 'fetchCatalogFacets').mockResolvedValue({
+      tags: [],
+      publishers: [],
+    });
   });
 
   afterEach(() => {
@@ -208,6 +212,87 @@ describe('catalog workspace', () => {
       expect.objectContaining({ filter: 'review' }),
       expect.any(AbortSignal),
     );
+  });
+
+  it('chains selected tags with AND while refreshing the compatible directory', async () => {
+    vi.mocked(catalogApi.fetchCatalogFacets).mockImplementation(async ({ tags }) => ({
+      tags: tags?.includes('automation')
+        ? [{ label: 'cli', value: 'cli', normalizedValue: 'cli', letter: 'C', count: 4 }]
+        : [{ label: 'automation', value: 'automation', normalizedValue: 'automation', letter: 'A', count: 8 }],
+      publishers: [],
+    }));
+
+    render(
+      <MemoryRouter initialEntries={['/catalog/tags?status=all&searchMode=lexical']}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /automation/i }));
+    await waitFor(() => expect(catalogApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tags: ['automation'], publisher: undefined }),
+    ));
+    expect(await screen.findByRole('button', { name: /cli/i })).toBeInTheDocument();
+    expect(screen.queryByText('Coincidencias mínimas')).not.toBeInTheDocument();
+  });
+
+  it('replaces and then removes the singular editor selection', async () => {
+    vi.mocked(catalogApi.fetchCatalogFacets).mockResolvedValue({
+      tags: [],
+      publishers: [
+        { label: 'ACME', value: 'ACME', normalizedValue: 'acme', letter: 'A', count: 8 },
+        { label: 'Beta', value: 'Beta', normalizedValue: 'beta', letter: 'B', count: 3 },
+      ],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog/editors?status=all&searchMode=lexical']}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    const acme = await screen.findByRole('button', { name: /ACME/ });
+    fireEvent.click(acme);
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('publisher=ACME'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+    fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
+    await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('publisher=Beta'));
+
+    fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
+    await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('publisher='));
+    expect(catalogApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ publisher: undefined }),
+    );
+  });
+
+  it('recovers empty facets by clearing only tags and editor', async () => {
+    vi.mocked(catalogApi.fetchCatalogFacets).mockResolvedValue({ tags: [], publishers: [] });
+
+    render(
+      <MemoryRouter initialEntries={[
+        '/catalog/tags?query=editor&status=review&os=linux&architecture=x64&tag=automation&publisher=ACME&searchMode=semantic',
+      ]}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('No hay filtros compatibles con la selección actual.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Restablecer tags y editor' }));
+
+    await waitFor(() => {
+      const search = screen.getByTestId('location-search').textContent ?? '';
+      expect(search).toContain('query=editor');
+      expect(search).toContain('status=review');
+      expect(search).toContain('os=linux');
+      expect(search).toContain('architecture=x64');
+      expect(search).toContain('searchMode=semantic');
+      expect(search).not.toContain('tag=');
+      expect(search).not.toContain('publisher=');
+    });
   });
 
   it('coalesces bursts of catalog events into a single refresh', async () => {

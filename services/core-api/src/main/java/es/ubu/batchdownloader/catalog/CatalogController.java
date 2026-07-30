@@ -73,8 +73,6 @@ public class CatalogController {
      * @param tag Valor de {@code tag} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
-     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @param page Número de página solicitado.
      * @param pageSize Número máximo de elementos incluidos en una página.
@@ -89,9 +87,7 @@ public class CatalogController {
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false, name = "tag") List<String> tag,
             @RequestParam(required = false) String tags,
-            @RequestParam(required = false) List<String> publisher,
-            @RequestParam(required = false) Integer tagMatchMin,
-            @RequestParam(defaultValue = "all") String tagMode,
+            @RequestParam(required = false) String publisher,
             @RequestParam(defaultValue = "name") String sort,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -101,7 +97,7 @@ public class CatalogController {
         int safePageSize = Math.clamp(pageSize, 1, 100);
         List<String> systems = normalizedOperatingSystems(operatingSystems);
         List<String> tagList = parseRepeatedAndCsv(tag, tags);
-        List<String> publisherList = parseRepeated(publisher);
+        List<String> publisherList = optionalPublisher(publisher);
         SemanticCandidateSet candidates = semanticSearch.resolve(
                 CatalogSearchMode.parse(searchMode),
                 query);
@@ -113,8 +109,7 @@ public class CatalogController {
                         architecture,
                         tagList,
                         publisherList,
-                        tagMatchMin,
-                        tagMode,
+                        "all",
                         sort,
                         safePage,
                         safePageSize,
@@ -128,8 +123,7 @@ public class CatalogController {
                         architecture,
                         tagList,
                         publisherList,
-                        tagMatchMin,
-                        tagMode,
+                        "all",
                         candidates),
                 candidates.requestedMode().wireValue(),
                 candidates.appliedMode().wireValue(),
@@ -148,8 +142,6 @@ public class CatalogController {
      * @param tag Valor de {@code tag} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
-     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @param page Número de página solicitado.
      * @param pageSize Número máximo de elementos incluidos en una página.
@@ -162,9 +154,7 @@ public class CatalogController {
             String architecture,
             List<String> tag,
             String tags,
-            List<String> publisher,
-            Integer tagMatchMin,
-            String tagMode,
+            String publisher,
             String sort,
             int page,
             int pageSize) {
@@ -173,7 +163,7 @@ public class CatalogController {
         int safePageSize = Math.clamp(pageSize, 1, 100);
         List<String> systems = normalizedOperatingSystems(operatingSystems);
         List<String> tagList = parseRepeatedAndCsv(tag, tags);
-        List<String> publisherList = parseRepeated(publisher);
+        List<String> publisherList = optionalPublisher(publisher);
         return new AppSearchResponse(
                 catalog.search(
                         query,
@@ -182,8 +172,7 @@ public class CatalogController {
                         architecture,
                         tagList,
                         publisherList,
-                        tagMatchMin,
-                        tagMode,
+                        "all",
                         sort,
                         safePage,
                         safePageSize),
@@ -196,8 +185,7 @@ public class CatalogController {
                         architecture,
                         tagList,
                         publisherList,
-                        tagMatchMin,
-                        tagMode));
+                        "all"));
     }
 
     /**
@@ -220,8 +208,6 @@ public class CatalogController {
      * @param tag Valor de {@code tag} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
-     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param searchMode Valor de {@code searchMode} utilizado por la operación.
      * @return Resultado producido por {@code facets}.
      */
@@ -233,9 +219,7 @@ public class CatalogController {
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false, name = "tag") List<String> tag,
             @RequestParam(required = false) String tags,
-            @RequestParam(required = false) List<String> publisher,
-            @RequestParam(required = false) Integer tagMatchMin,
-            @RequestParam(defaultValue = "all") String tagMode,
+            @RequestParam(required = false) String publisher,
             @RequestParam(defaultValue = "lexical") String searchMode) {
         status = publicCatalogStatus(status);
         SemanticCandidateSet candidates = semanticSearch.resolve(
@@ -247,9 +231,8 @@ public class CatalogController {
                 normalizedOperatingSystems(operatingSystems),
                 architecture,
                 parseRepeatedAndCsv(tag, tags),
-                parseRepeated(publisher),
-                tagMatchMin,
-                tagMode,
+                optionalPublisher(publisher),
+                "all",
                 candidates);
         return new CatalogFacetsResponse(
                 facets.tags(),
@@ -271,8 +254,6 @@ public class CatalogController {
      * @param tag Valor de {@code tag} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
-     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @return Resultado producido por {@code facets}.
      */
     CatalogFacetsResponse facets(
@@ -282,9 +263,7 @@ public class CatalogController {
             String architecture,
             List<String> tag,
             String tags,
-            List<String> publisher,
-            Integer tagMatchMin,
-            String tagMode) {
+            String publisher) {
         status = publicCatalogStatus(status);
         return catalog.facets(
                 query,
@@ -292,9 +271,8 @@ public class CatalogController {
                 normalizedOperatingSystems(operatingSystems),
                 architecture,
                 parseRepeatedAndCsv(tag, tags),
-                parseRepeated(publisher),
-                tagMatchMin,
-                tagMode);
+                optionalPublisher(publisher),
+                "all");
     }
 
     /**
@@ -370,6 +348,19 @@ public class CatalogController {
             }
         }
         return values.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
+    }
+
+    /**
+     * Convierte el editor público opcional en la colección esperada por el repositorio.
+     *
+     * @param publisher Editor recibido en la consulta pública.
+     * @return Una colección vacía o con el único editor seleccionado.
+     */
+    private List<String> optionalPublisher(String publisher) {
+        if (publisher == null || publisher.isBlank()) {
+            return List.of();
+        }
+        return List.of(publisher.trim());
     }
 
     /**

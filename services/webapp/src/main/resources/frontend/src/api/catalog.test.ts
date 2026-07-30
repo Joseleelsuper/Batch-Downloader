@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDownloadJob, fetchAdminApps, me } from './catalog';
+import { createDownloadJob, fetchAdminApps, fetchApps, fetchCatalogFacets, me } from './catalog';
 
 describe('current identity', () => {
   afterEach(() => {
@@ -76,6 +76,40 @@ describe('current identity', () => {
     expect(fetcher).toHaveBeenCalledWith(
       '/api/admin/apps?status=all&sort=updated&page=1&pageSize=12',
       expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('envía tags repetidas y un editor singular al catálogo y a sus facetas', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [],
+        page: 1,
+        pageSize: 12,
+        total: 0,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        tags: [],
+        publishers: [],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    const shared = {
+      query: 'editor',
+      filter: 'available' as const,
+      tags: ['automation', 'cli'],
+      publisher: 'ACME',
+      operatingSystems: ['linux'] as ('linux')[],
+      architecture: 'x64',
+      searchMode: 'semantic' as const,
+    };
+
+    await fetchApps({ ...shared, sort: 'updated', page: 1, pageSize: 12 });
+    await fetchCatalogFacets(shared);
+
+    expect(fetcher.mock.calls[0]?.[0]).toContain(
+      '/api/v1/apps?query=editor&status=available&tag=automation&tag=cli&publisher=ACME&os=linux&architecture=x64&searchMode=semantic',
+    );
+    expect(fetcher.mock.calls[1]?.[0]).toBe(
+      '/api/v1/apps/facets?query=editor&status=available&tag=automation&tag=cli&publisher=ACME&os=linux&architecture=x64&searchMode=semantic',
     );
   });
 });

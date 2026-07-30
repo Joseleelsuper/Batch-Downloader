@@ -122,8 +122,7 @@ export async function fetchApps(params: {
   page: number;
   pageSize: number;
   tags?: string[];
-  publishers?: string[];
-  tagMatchMin?: number;
+  publisher?: string;
   operatingSystems?: OperatingSystem[];
   architecture?: string;
   searchMode?: SearchMode;
@@ -132,8 +131,7 @@ export async function fetchApps(params: {
   if (params.query.trim()) search.set('query', params.query.trim());
   if (params.filter !== 'all') search.set('status', params.filter);
   params.tags?.forEach((tag) => search.append('tag', tag));
-  params.publishers?.forEach((publisher) => search.append('publisher', publisher));
-  if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
+  if (params.publisher) search.set('publisher', params.publisher);
   params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
   if (params.searchMode) search.set('searchMode', params.searchMode);
@@ -147,8 +145,7 @@ export async function fetchCatalogFacets(params: {
   query: string;
   filter: FilterKey;
   tags?: string[];
-  publishers?: string[];
-  tagMatchMin?: number;
+  publisher?: string;
   operatingSystems?: OperatingSystem[];
   architecture?: string;
   searchMode?: SearchMode;
@@ -157,8 +154,7 @@ export async function fetchCatalogFacets(params: {
   if (params.query.trim()) search.set('query', params.query.trim());
   if (params.filter !== 'all') search.set('status', params.filter);
   params.tags?.forEach((tag) => search.append('tag', tag));
-  params.publishers?.forEach((publisher) => search.append('publisher', publisher));
-  if (params.tagMatchMin) search.set('tagMatchMin', String(params.tagMatchMin));
+  if (params.publisher) search.set('publisher', params.publisher);
   params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
   if (params.searchMode) search.set('searchMode', params.searchMode);

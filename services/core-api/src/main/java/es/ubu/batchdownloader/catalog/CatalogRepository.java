@@ -70,7 +70,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @param page Número de página solicitado.
@@ -84,7 +83,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode,
             String sort,
             int page,
@@ -96,7 +94,6 @@ public class CatalogRepository {
                 architecture,
                 tags,
                 publishers,
-                tagMatchMin,
                 tagMode,
                 sort,
                 page,
@@ -113,7 +110,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @param page Número de página solicitado.
@@ -128,7 +124,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode,
             String sort,
             int page,
@@ -142,7 +137,6 @@ public class CatalogRepository {
                     architecture,
                     tags,
                     publishers,
-                    tagMatchMin,
                     tagMode,
                     sort,
                     page,
@@ -168,7 +162,7 @@ public class CatalogRepository {
                     FROM software_apps a
                     WHERE a.app_status = 'active'
                 """);
-        appendFilters(sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMatchMin, tagMode);
+        appendFilters(sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMode);
         sql.append(" ORDER BY ").append(innerOrderBy);
         sql.append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ").append(outerOrderBy);
         params.add(pageSize);
@@ -197,7 +191,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @return Número de elementos afectados por la operación.
      */
@@ -208,7 +201,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode) {
         return count(
                 query,
@@ -217,7 +209,6 @@ public class CatalogRepository {
                 architecture,
                 tags,
                 publishers,
-                tagMatchMin,
                 tagMode,
                 SemanticCandidateSet.lexical());
     }
@@ -231,7 +222,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param candidates Valor de {@code candidates} utilizado por la operación.
      * @return Número de elementos afectados por la operación.
@@ -243,7 +233,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode,
             SemanticCandidateSet candidates) {
         if (candidates.semantic()) {
@@ -254,7 +243,6 @@ public class CatalogRepository {
                     architecture,
                     tags,
                     publishers,
-                    tagMatchMin,
                     tagMode,
                     candidates);
         }
@@ -265,7 +253,7 @@ public class CatalogRepository {
                 WHERE a.app_status = 'active'
                 """);
         List<Object> params = new ArrayList<>();
-        appendFilters(sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMatchMin, tagMode);
+        appendFilters(sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMode);
         Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return count == null ? 0 : count;
     }
@@ -279,7 +267,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @return Resultado producido por {@code facets}.
      */
@@ -290,7 +277,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode) {
         return facets(
                 query,
@@ -299,7 +285,6 @@ public class CatalogRepository {
                 architecture,
                 tags,
                 publishers,
-                tagMatchMin,
                 tagMode,
                 SemanticCandidateSet.lexical());
     }
@@ -313,7 +298,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param candidates Valor de {@code candidates} utilizado por la operación.
      * @return Resultado producido por {@code facets}.
@@ -325,7 +309,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode,
             SemanticCandidateSet candidates) {
         if (candidates.semantic()) {
@@ -336,14 +319,13 @@ public class CatalogRepository {
                     architecture,
                     tags,
                     publishers,
-                    tagMatchMin,
                     tagMode,
                     candidates);
         }
         status = normalizeCatalogStatus(status);
         return new CatalogFacetsResponse(
-                tagFacets(query, status, operatingSystems, architecture, publishers),
-                publisherFacets(query, status, operatingSystems, architecture, tags, tagMatchMin, tagMode));
+                tagFacets(query, status, operatingSystems, architecture, tags, publishers, tagMode),
+                publisherFacets(query, status, operatingSystems, architecture, tags, publishers, tagMode));
     }
 
     /**
@@ -355,7 +337,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @param page Número de página solicitado.
@@ -370,7 +351,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode,
             String sort,
             int page,
@@ -396,7 +376,6 @@ public class CatalogRepository {
                 architecture,
                 tags,
                 publishers,
-                tagMatchMin,
                 tagMode);
         sql.append(" ORDER BY ")
                 .append(orderBy(sort, "ranked.semantic_rank ASC, "))
@@ -431,7 +410,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param candidates Valor de {@code candidates} utilizado por la operación.
      * @return Resultado producido por {@code semanticCount}.
@@ -443,7 +421,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode,
             SemanticCandidateSet candidates) {
         status = normalizeCatalogStatus(status);
@@ -463,7 +440,6 @@ public class CatalogRepository {
                 architecture,
                 tags,
                 publishers,
-                tagMatchMin,
                 tagMode);
         Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return count == null ? 0 : count;
@@ -478,7 +454,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param candidates Valor de {@code candidates} utilizado por la operación.
      * @return Resultado producido por {@code semanticFacets}.
@@ -490,7 +465,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode,
             SemanticCandidateSet candidates) {
         status = normalizeCatalogStatus(status);
@@ -500,7 +474,9 @@ public class CatalogRepository {
                         status,
                         operatingSystems,
                         architecture,
+                        tags,
                         publishers,
+                        tagMode,
                         candidates),
                 semanticPublisherFacets(
                         query,
@@ -508,7 +484,7 @@ public class CatalogRepository {
                         operatingSystems,
                         architecture,
                         tags,
-                        tagMatchMin,
+                        publishers,
                         tagMode,
                         candidates));
     }
@@ -529,7 +505,9 @@ public class CatalogRepository {
             String status,
             List<String> operatingSystems,
             String architecture,
+            List<String> tags,
             List<String> publishers,
+            String tagMode,
             SemanticCandidateSet candidates) {
         List<Object> params = new ArrayList<>();
         StringBuilder sql = new StringBuilder(semanticCandidateCte(query, candidates, params));
@@ -547,10 +525,9 @@ public class CatalogRepository {
                 status,
                 operatingSystems,
                 architecture,
-                List.of(),
+                tags,
                 publishers,
-                null,
-                "all");
+                tagMode);
         sql.append("""
                 GROUP BY t.normalized_tag
                 ORDER BY app_count DESC, label ASC
@@ -572,7 +549,6 @@ public class CatalogRepository {
      * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param candidates Valor de {@code candidates} utilizado por la operación.
      * @return Colección de elementos obtenidos por la operación.
@@ -583,7 +559,7 @@ public class CatalogRepository {
             List<String> operatingSystems,
             String architecture,
             List<String> tags,
-            Integer tagMatchMin,
+            List<String> publishers,
             String tagMode,
             SemanticCandidateSet candidates) {
         List<Object> params = new ArrayList<>();
@@ -604,8 +580,7 @@ public class CatalogRepository {
                 operatingSystems,
                 architecture,
                 tags,
-                List.of(),
-                tagMatchMin,
+                publishers,
                 tagMode);
         sql.append("""
                 GROUP BY a.publisher
@@ -668,7 +643,9 @@ public class CatalogRepository {
             String status,
             List<String> operatingSystems,
             String architecture,
-            List<String> publishers) {
+            List<String> tags,
+            List<String> publishers,
+            String tagMode) {
         StringBuilder sql = new StringBuilder("""
                 SELECT MIN(t.tag) AS label, t.normalized_tag AS normalized_value, COUNT(DISTINCT a.id) AS app_count
                 FROM software_app_tags t
@@ -676,7 +653,7 @@ public class CatalogRepository {
                 WHERE a.app_status = 'active'
                 """);
         List<Object> params = new ArrayList<>();
-        appendFilters(sql, params, query, status, operatingSystems, architecture, List.of(), publishers, null, "all");
+        appendFilters(sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMode);
         sql.append("""
                 GROUP BY t.normalized_tag
                 ORDER BY app_count DESC, label ASC
@@ -695,7 +672,6 @@ public class CatalogRepository {
      * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @return Colección de elementos obtenidos por la operación.
      */
@@ -705,7 +681,7 @@ public class CatalogRepository {
             List<String> operatingSystems,
             String architecture,
             List<String> tags,
-            Integer tagMatchMin,
+            List<String> publishers,
             String tagMode) {
         StringBuilder sql = new StringBuilder("""
                 SELECT a.publisher AS label, LOWER(TRIM(a.publisher)) AS normalized_value, COUNT(DISTINCT a.id) AS app_count
@@ -715,7 +691,7 @@ public class CatalogRepository {
                   AND TRIM(a.publisher) <> ''
                 """);
         List<Object> params = new ArrayList<>();
-        appendFilters(sql, params, query, status, operatingSystems, architecture, tags, List.of(), tagMatchMin, tagMode);
+        appendFilters(sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMode);
         sql.append("""
                 GROUP BY a.publisher
                 ORDER BY app_count DESC, label ASC
@@ -909,7 +885,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      */
     private void appendFilters(
@@ -921,7 +896,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode) {
         appendLexicalFilter(sql, params, query);
         appendStructuredFilters(
@@ -932,7 +906,6 @@ public class CatalogRepository {
                 architecture,
                 tags,
                 publishers,
-                tagMatchMin,
                 tagMode);
     }
 
@@ -987,7 +960,6 @@ public class CatalogRepository {
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      */
     private void appendStructuredFilters(
@@ -998,7 +970,6 @@ public class CatalogRepository {
             String architecture,
             List<String> tags,
             List<String> publishers,
-            Integer tagMatchMin,
             String tagMode) {
         appendSourceFilter(sql, params, status, operatingSystems, architecture);
         List<String> normalizedPublishers = normalizedDistinct(publishers);
@@ -1011,7 +982,7 @@ public class CatalogRepository {
 
         List<String> normalizedTags = normalizedDistinct(tags);
         if (!normalizedTags.isEmpty()) {
-            int requiredMatches = requiredTagMatches(normalizedTags.size(), tagMatchMin, tagMode);
+            int requiredMatches = requiredTagMatches(normalizedTags.size(), tagMode);
             sql.append(" AND (SELECT COUNT(DISTINCT t.normalized_tag) FROM software_app_tags t WHERE t.software_app_id = a.id AND t.normalized_tag IN (");
             appendPlaceholders(sql, normalizedTags.size());
             sql.append(")) >= ?\n");
@@ -1527,16 +1498,12 @@ public class CatalogRepository {
      * Ejecuta la operación {@code requiredTagMatches}.
      *
      * @param selectedTags Valor de {@code selectedTags} utilizado por la operación.
-     * @param requestedMinimum Valor de {@code requestedMinimum} utilizado por la operación.
      * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @return Resultado producido por {@code requiredTagMatches}.
      */
-    static int requiredTagMatches(int selectedTags, Integer requestedMinimum, String tagMode) {
+    static int requiredTagMatches(int selectedTags, String tagMode) {
         if (selectedTags < 1) {
             return 0;
-        }
-        if (requestedMinimum != null) {
-            return Math.max(1, Math.min(requestedMinimum, selectedTags));
         }
         return "any".equals(tagMode) ? 1 : selectedTags;
     }

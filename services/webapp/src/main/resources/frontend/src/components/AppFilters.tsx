@@ -34,17 +34,13 @@ interface Props {
   counts: Record<FilterKey, number>;
   onChange: (filter: FilterKey) => void;
   selectedApps?: CatalogApp[];
-  selectedTags?: string[];
-  selectedPublishers?: string[];
-  tagMatchMin?: number;
+  selectedTagCount?: number;
+  selectedPublisherCount?: number;
   catalogSearch?: string;
   downloading?: boolean;
   onDownloadSelected?: () => void;
   onClearSelection?: () => void;
   onRemoveSelected?: (appId: string) => void;
-  onRemoveTag?: (tag: string) => void;
-  onRemovePublisher?: (publisher: string) => void;
-  onClearFacets?: () => void;
   operatingSystems?: OperatingSystem[];
   onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
 }
@@ -54,22 +50,17 @@ export function AppFilters({
   counts,
   onChange,
   selectedApps = [],
-  selectedTags = [],
-  selectedPublishers = [],
-  tagMatchMin = 0,
+  selectedTagCount = 0,
+  selectedPublisherCount = 0,
   catalogSearch = '',
   downloading = false,
   onDownloadSelected,
   onClearSelection,
   onRemoveSelected,
-  onRemoveTag,
-  onRemovePublisher,
-  onClearFacets,
   operatingSystems = ['windows', 'linux', 'macos'],
   onToggleOperatingSystem,
 }: Props) {
   const facetSearch = catalogSearch ? `?${catalogSearch}` : '';
-  const activeFacetCount = selectedTags.length + selectedPublishers.length;
   const selectedCount = selectedApps.length;
   const visibleSelectedApps = selectedApps.slice(-VISIBLE_SELECTED_APPS).reverse();
   const hiddenSelectedCount = Math.max(0, selectedCount - VISIBLE_SELECTED_APPS);
@@ -101,39 +92,13 @@ export function AppFilters({
         <Link className="facet-link-button" to={`/catalog/tags${facetSearch}`}>
           <Tags size={18} />
           <span>{t('facet.tags.title')}</span>
-          <strong>{selectedTags.length.toLocaleString('es-ES')}</strong>
+          <strong>{selectedTagCount.toLocaleString('es-ES')}</strong>
         </Link>
         <Link className="facet-link-button" to={`/catalog/editors${facetSearch}`}>
           <Building2 size={18} />
           <span>{t('facet.publishers.title')}</span>
-          <strong>{selectedPublishers.length.toLocaleString('es-ES')}</strong>
+          <strong>{selectedPublisherCount.toLocaleString('es-ES')}</strong>
         </Link>
-        {activeFacetCount ? (
-          <div className="active-facet-list">
-            <div>
-              <span>{t('catalog.activeFilters')}</span>
-              <button type="button" onClick={onClearFacets}>
-                {t('catalog.selection.clear')}
-              </button>
-            </div>
-            {selectedTags.length ? (
-              <small>{t('facet.matchMinValue', { min: tagMatchMin, total: selectedTags.length })}</small>
-            ) : null}
-            {[...selectedTags.map((value) => ({ value, type: 'tag' as const })), ...selectedPublishers.map((value) => ({ value, type: 'publisher' as const }))].map((item) => (
-              <button
-                key={`${item.type}-${item.value}`}
-                className="active-facet-chip"
-                type="button"
-                onClick={() => (
-                  item.type === 'tag' ? onRemoveTag?.(item.value) : onRemovePublisher?.(item.value)
-                )}
-              >
-                <span>{item.value}</span>
-                <X size={14} />
-              </button>
-            ))}
-          </div>
-        ) : null}
       </section>
       <section className="platform-filter" aria-label={t('catalog.platforms')}>
         <span>S.O.</span>

@@ -43,21 +43,16 @@ describe('AppFilters', () => {
     expect(screen.getByRole('button', { name: /Todas/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('renders facet links and active facet chips', () => {
-    const onRemoveTag = vi.fn();
-    const onRemovePublisher = vi.fn();
+  it('renders facet links with counts and no active-filters panel', () => {
     render(
       <MemoryRouter>
         <AppFilters
           active="all"
           counts={counts}
-          selectedTags={['.NET', 'runtime']}
-          selectedPublishers={['ACME, Inc.']}
-          tagMatchMin={1}
+          selectedTagCount={2}
+          selectedPublisherCount={1}
           catalogSearch="tag=.NET&publisher=ACME%2C+Inc."
           onChange={vi.fn()}
-          onRemoveTag={onRemoveTag}
-          onRemovePublisher={onRemovePublisher}
         />
       </MemoryRouter>,
     );
@@ -66,13 +61,10 @@ describe('AppFilters', () => {
       'href',
       '/catalog/tags?tag=.NET&publisher=ACME%2C+Inc.',
     );
-    expect(screen.getByText('1 de 2 tags')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '.NET' }));
-    fireEvent.click(screen.getByRole('button', { name: 'ACME, Inc.' }));
-
-    expect(onRemoveTag).toHaveBeenCalledWith('.NET');
-    expect(onRemovePublisher).toHaveBeenCalledWith('ACME, Inc.');
+    expect(screen.getByRole('link', { name: /Tags/ })).toHaveTextContent('2');
+    expect(screen.getByRole('link', { name: /Editor/ })).toHaveTextContent('1');
+    expect(screen.queryByText('Filtros activos')).not.toBeInTheDocument();
+    expect(screen.queryByText('.NET')).not.toBeInTheDocument();
   });
 
   it('exposes platform toggle state and lets the last active platform restore the other two', () => {

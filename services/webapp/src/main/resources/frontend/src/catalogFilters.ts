@@ -9,8 +9,7 @@ export interface CatalogFilterState {
   page: number;
   pageSize: number;
   tags: string[];
-  publishers: string[];
-  tagMatchMin?: number;
+  publisher?: string;
   operatingSystems: OperatingSystem[];
   architecture?: string;
   searchMode: SearchMode;
@@ -27,7 +26,6 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
   page: 1,
   pageSize: 12,
   tags: [],
-  publishers: [],
   operatingSystems: ALL_OPERATING_SYSTEMS,
   searchMode: 'semantic',
 };
@@ -35,8 +33,7 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
 export function parseCatalogFilters(search: URLSearchParams | string): CatalogFilterState {
   const params = typeof search === 'string' ? new URLSearchParams(search) : search;
   const tags = uniqueValues([...params.getAll('tag'), ...csvValues(params.get('tags'))]);
-  const publishers = uniqueValues(params.getAll('publisher'));
-  const tagMatchMin = numberParam(params.get('tagMatchMin'));
+  const publisher = uniqueValues(params.getAll('publisher'))[0];
   return {
     query: params.get('query')?.trim() ?? '',
     filter: enumParam(params.get('status'), filterKeys, DEFAULT_CATALOG_FILTERS.filter),
@@ -44,8 +41,7 @@ export function parseCatalogFilters(search: URLSearchParams | string): CatalogFi
     page: positiveIntParam(params.get('page'), DEFAULT_CATALOG_FILTERS.page),
     pageSize: positiveIntParam(params.get('pageSize'), DEFAULT_CATALOG_FILTERS.pageSize),
     tags,
-    publishers,
-    tagMatchMin,
+    publisher,
     operatingSystems: parseOperatingSystems(params.getAll('os')),
     architecture: optionalParam(params.get('architecture')),
     searchMode: enumParam(params.get('searchMode'), searchModes, DEFAULT_CATALOG_FILTERS.searchMode),
@@ -72,6 +68,11 @@ export function normalizeCatalogStatus(
   if (!params.has('status') && preferredFilter && preferredFilter !== DEFAULT_CATALOG_FILTERS.filter) {
     params.set('status', preferredFilter);
   }
+  params.delete('tagMatchMin');
+  params.delete('tagMode');
+  const publisher = uniqueValues(params.getAll('publisher'))[0];
+  params.delete('publisher');
+  if (publisher) params.set('publisher', publisher);
   return params.toString();
 }
 
@@ -107,10 +108,7 @@ export function catalogFiltersToSearchParams(filters: CatalogFilterState): URLSe
     params.set('pageSize', String(filters.pageSize));
   }
   filters.tags.forEach((tag) => params.append('tag', tag));
-  filters.publishers.forEach((publisher) => params.append('publisher', publisher));
-  if (filters.tags.length && filters.tagMatchMin && filters.tagMatchMin !== filters.tags.length) {
-    params.set('tagMatchMin', String(clampTagMatchMin(filters.tagMatchMin, filters.tags.length)));
-  }
+  if (filters.publisher) params.set('publisher', filters.publisher);
   if (!hasAllOperatingSystems(filters.operatingSystems)) {
     filters.operatingSystems.forEach((operatingSystem) => params.append('os', operatingSystem));
   }
@@ -133,27 +131,15 @@ export function toggleOperatingSystem(
   return ALL_OPERATING_SYSTEMS.filter((value) => values.includes(value) || value === operatingSystem);
 }
 
-export function effectiveTagMatchMin(filters: Pick<CatalogFilterState, 'tags' | 'tagMatchMin'>): number {
-  if (!filters.tags.length) return 0;
-  return clampTagMatchMin(filters.tagMatchMin ?? filters.tags.length, filters.tags.length);
-}
-
 export function nextFilters(
   current: CatalogFilterState,
   patch: Partial<CatalogFilterState>,
   resetPage = true,
 ): CatalogFilterState {
-  const tags = patch.tags ?? current.tags;
-  const hasTagMatchMinPatch = Object.prototype.hasOwnProperty.call(patch, 'tagMatchMin');
-  const tagMatchMin = tags.length
-    ? (hasTagMatchMinPatch ? patch.tagMatchMin : current.tagMatchMin)
-    : undefined;
   return {
     ...current,
     ...patch,
     page: resetPage ? DEFAULT_CATALOG_FILTERS.page : patch.page ?? current.page,
-    tags,
-    tagMatchMin: tagMatchMin ? clampTagMatchMin(tagMatchMin, tags.length) : undefined,
   };
 }
 
@@ -196,8 +182,4 @@ function positiveIntParam(value: string | null, fallback: number): number {
 
 function enumParam<T extends string>(value: string | null, allowed: T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
-}
-
-function clampTagMatchMin(value: number, selectedTags: number): number {
-  return Math.max(1, Math.min(value, selectedTags));
 }

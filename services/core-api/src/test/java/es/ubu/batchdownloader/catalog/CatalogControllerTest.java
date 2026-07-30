@@ -30,11 +30,11 @@ class CatalogControllerTest {
     private CatalogRepository catalog;
 
     /**
-     * Comprueba el escenario {@code appsMergesRepeatedAndLegacyTagParamsAndKeepsPublisherCommas}.
+     * Comprueba el escenario {@code appsMergesTagsAndUsesOnePublisherWithAllMatching}.
      */
     @Test
-    void appsMergesRepeatedAndLegacyTagParamsAndKeepsPublisherCommas() {
-        when(catalog.search(any(), any(), any(), any(), anyList(), anyList(), any(), any(), any(), anyInt(), anyInt()))
+    void appsMergesTagsAndUsesOnePublisherWithAllMatching() {
+        when(catalog.search(any(), any(), any(), any(), anyList(), anyList(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(List.of());
         CatalogController controller = new CatalogController(catalog);
 
@@ -45,9 +45,7 @@ class CatalogControllerTest {
                 null,
                 List.of(".NET", "runtime"),
                 "Windows,Desktop",
-                List.of("ACME, Inc.", "東Vendor"),
-                2,
-                "all",
+                "ACME, Inc.",
                 "updated",
                 1,
                 20);
@@ -58,8 +56,7 @@ class CatalogControllerTest {
                 eq(List.of()),
                 isNull(),
                 eq(List.of(".NET", "runtime", "Windows", "Desktop")),
-                eq(List.of("ACME, Inc.", "東Vendor")),
-                eq(2),
+                eq(List.of("ACME, Inc.")),
                 eq("all"),
                 eq("updated"),
                 eq(1),
@@ -80,9 +77,7 @@ class CatalogControllerTest {
                 "x64",
                 List.of("productivity"),
                 null,
-                List.of("Code Sector"),
-                1,
-                "all");
+                "Code Sector");
 
         verify(catalog).facets(
                 isNull(),
@@ -91,7 +86,6 @@ class CatalogControllerTest {
                 eq("x64"),
                 eq(List.of("productivity")),
                 eq(List.of("Code Sector")),
-                eq(1),
                 eq("all"));
     }
 
@@ -110,8 +104,6 @@ class CatalogControllerTest {
                         null,
                         null,
                         null,
-                        null,
-                        "all",
                         "name",
                         1,
                         20))

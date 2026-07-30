@@ -61,7 +61,6 @@ import {
 import {
   catalogFiltersToSearchParams,
   DEFAULT_CATALOG_FILTERS,
-  effectiveTagMatchMin,
   nextFilters,
   normalizeCatalogStatus,
   parseCatalogFilters,
@@ -562,8 +561,7 @@ function CatalogPage() {
       page: filters.page,
       pageSize: filters.pageSize,
       tags: filters.tags,
-      publishers: filters.publishers,
-      tagMatchMin: filters.tagMatchMin,
+      publisher: filters.publisher,
       operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
       architecture: filters.architecture,
       searchMode: filters.searchMode,
@@ -700,9 +698,8 @@ function CatalogPage() {
         <AppFilters
           active={filters.filter}
           counts={stats?.filters ?? DEFAULT_COUNTS}
-          selectedTags={filters.tags}
-          selectedPublishers={filters.publishers}
-          tagMatchMin={effectiveTagMatchMin(filters)}
+          selectedTagCount={filters.tags.length}
+          selectedPublisherCount={filters.publisher ? 1 : 0}
           catalogSearch={searchKey}
           selectedApps={selectedDownloadApps}
           downloading={downloadJob.starting || validatingSelection}
@@ -714,11 +711,6 @@ function CatalogPage() {
           onToggleOperatingSystem={(operatingSystem) => {
             updateFilters({ operatingSystems: toggleOperatingSystem(filters.operatingSystems, operatingSystem) });
           }}
-          onRemoveTag={(tag) => updateFilters({ tags: filters.tags.filter((item) => item !== tag) })}
-          onRemovePublisher={(publisher) => updateFilters({
-            publishers: filters.publishers.filter((item) => item !== publisher),
-          })}
-          onClearFacets={() => updateFilters({ tags: [], publishers: [], tagMatchMin: undefined })}
           onDownloadSelected={() => void downloadSelection()}
           onClearSelection={clearDownloadSelection}
           onRemoveSelected={(id) => removeDownloadSelections([id])}
@@ -818,7 +810,7 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const items = kind === 'tags' ? facets.tags : facets.publishers;
-  const selectedValues = kind === 'tags' ? filters.tags : filters.publishers;
+  const selectedValues = kind === 'tags' ? filters.tags : filters.publisher ? [filters.publisher] : [];
   const selectedSet = new Set(selectedValues);
   const lettersWithItems = useMemo(() => new Set(items.map((item) => item.letter)), [items]);
   const visibleItems = items.filter((item) => item.letter === activeLetter);
@@ -844,8 +836,7 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
       query: filters.query,
       filter: filters.filter,
       tags: filters.tags,
-      publishers: filters.publishers,
-      tagMatchMin: filters.tagMatchMin,
+      publisher: filters.publisher,
       operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
       architecture: filters.architecture,
       searchMode: filters.searchMode,
@@ -876,20 +867,10 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
 
   function toggleFacet(item: FacetItem) {
     if (kind === 'tags') {
-      const nextTags = toggleValue(filters.tags, item.value);
-      const nextMin = filters.tagMatchMin && filters.tagMatchMin > nextTags.length
-        ? nextTags.length
-        : filters.tagMatchMin;
-      updateFilters({ tags: nextTags, tagMatchMin: nextTags.length ? nextMin : undefined });
+      updateFilters({ tags: toggleValue(filters.tags, item.value) });
       return;
     }
-    updateFilters({ publishers: toggleValue(filters.publishers, item.value) });
-  }
-
-  function updateTagMatchMin(value: number) {
-    if (!filters.tags.length) return;
-    const clamped = Math.max(1, Math.min(value, filters.tags.length));
-    updateFilters({ tagMatchMin: clamped === filters.tags.length ? undefined : clamped });
+    updateFilters({ publisher: filters.publisher === item.value ? undefined : item.value });
   }
 
   return (
@@ -905,60 +886,55 @@ function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
         </Link>
       </section>
 
-      {kind === 'tags' && filters.tags.length ? (
-        <section className="facet-match-panel">
-          <div>
-            <span>{t('facet.matchMin')}</span>
-            <strong>
-              {t('facet.matchMinValue', {
-                min: effectiveTagMatchMin(filters),
-                total: filters.tags.length,
-              })}
-            </strong>
-          </div>
-          <input
-            aria-label={t('facet.matchMinAria')}
-            type="number"
-            min={1}
-            max={filters.tags.length}
-            value={effectiveTagMatchMin(filters)}
-            onChange={(event) => updateTagMatchMin(Number(event.target.value))}
-          />
-        </section>
-      ) : null}
-
-      <nav className="facet-letter-nav" aria-label={t('facet.lettersAria', { title })}>
-        {FACET_ALPHABET.map((letter) => (
-          <button
-            key={letter}
-            className={activeLetter === letter ? 'facet-letter-active' : ''}
-            type="button"
-            disabled={!lettersWithItems.has(letter)}
-            onClick={() => setActiveLetter(letter)}
-          >
-            {letter}
-          </button>
-        ))}
-      </nav>
-
       {error ? <p className="error-banner">{error}</p> : null}
       {loading ? <p className="loading-label">{t('facet.loading')}</p> : null}
-      <section className="facet-chip-grid" aria-label={t('facet.availableAria', { title })}>
-        {visibleItems.map((item) => (
-          <button
-            key={`${kind}-${item.normalizedValue}`}
-            className={`facet-chip ${selectedSet.has(item.value) ? 'facet-chip-active' : ''}`}
-            type="button"
-            onClick={() => toggleFacet(item)}
-          >
-            <span>{item.label}</span>
-            <strong>{item.count.toLocaleString('es-ES')}</strong>
-          </button>
-        ))}
-        {!loading && !visibleItems.length ? (
-          <p className="empty-state">{t('facet.emptyLetter')}</p>
-        ) : null}
-      </section>
+      {!loading && !error && !items.length ? (
+        <section className="facet-empty-state">
+          <p>{t('facet.emptyCompatible')}</p>
+          {filters.tags.length || filters.publisher ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => updateFilters({ tags: [], publisher: undefined })}
+            >
+              {t('facet.resetFilters')}
+            </button>
+          ) : null}
+        </section>
+      ) : null}
+      {items.length ? (
+        <>
+          <nav className="facet-letter-nav" aria-label={t('facet.lettersAria', { title })}>
+            {FACET_ALPHABET.map((letter) => (
+              <button
+                key={letter}
+                className={activeLetter === letter ? 'facet-letter-active' : ''}
+                type="button"
+                disabled={!lettersWithItems.has(letter)}
+                onClick={() => setActiveLetter(letter)}
+              >
+                {letter}
+              </button>
+            ))}
+          </nav>
+          <section className="facet-chip-grid" aria-label={t('facet.availableAria', { title })}>
+            {visibleItems.map((item) => (
+              <button
+                key={`${kind}-${item.normalizedValue}`}
+                className={`facet-chip ${selectedSet.has(item.value) ? 'facet-chip-active' : ''}`}
+                type="button"
+                onClick={() => toggleFacet(item)}
+              >
+                <span>{item.label}</span>
+                <strong>{item.count.toLocaleString('es-ES')}</strong>
+              </button>
+            ))}
+            {!visibleItems.length ? (
+              <p className="empty-state">{t('facet.emptyLetter')}</p>
+            ) : null}
+          </section>
+        </>
+      ) : null}
     </main>
   );
 }
