@@ -464,6 +464,7 @@ function CatalogPage() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [filtersVisible, setFiltersVisible] = useState(() => localStorage.getItem('catalog.filters.open') !== 'false');
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
+  const [selectedDownloadApps, setSelectedDownloadApps] = useState<CatalogApp[]>([]);
   const [validatingSelection, setValidatingSelection] = useState(false);
   const downloadJob = useDownloadJob();
   const selectedDownloadIdsRef = useRef<Set<string>>(new Set());
@@ -484,9 +485,17 @@ function CatalogPage() {
     setSearchParams(params, { replace });
   }
 
-  function commitDownloadSelection(next: Set<string>) {
+  function commitDownloadSelection(next: Set<string>, addedApp?: CatalogApp) {
     selectedDownloadIdsRef.current = next;
     setSelectedDownloadIds(next);
+    setSelectedDownloadApps((current) => {
+      const retained = current.filter((app) => next.has(app.id));
+      if (addedApp && next.has(addedApp.id) && !retained.some((app) => app.id === addedApp.id)) {
+        return [...retained, addedApp];
+      }
+      if (retained.length === current.length) return current;
+      return retained;
+    });
   }
 
   function removeDownloadSelections(ids: readonly string[]) {
@@ -651,7 +660,7 @@ function CatalogPage() {
       if (next.size >= 100) return;
       next.add(app.id);
     }
-    commitDownloadSelection(next);
+    commitDownloadSelection(next, app);
   }
 
   async function downloadSelection() {
@@ -695,7 +704,7 @@ function CatalogPage() {
           selectedPublishers={filters.publishers}
           tagMatchMin={effectiveTagMatchMin(filters)}
           catalogSearch={searchKey}
-          selectedCount={selectedDownloadIds.size}
+          selectedApps={selectedDownloadApps}
           downloading={downloadJob.starting || validatingSelection}
           operatingSystems={filters.operatingSystems}
           onChange={(nextFilter) => {
@@ -712,6 +721,7 @@ function CatalogPage() {
           onClearFacets={() => updateFilters({ tags: [], publishers: [], tagMatchMin: undefined })}
           onDownloadSelected={() => void downloadSelection()}
           onClearSelection={clearDownloadSelection}
+          onRemoveSelected={(id) => removeDownloadSelections([id])}
         />
       </div>
       <button

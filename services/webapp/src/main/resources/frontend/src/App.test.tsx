@@ -267,7 +267,7 @@ describe('catalog workspace', () => {
     );
     await act(async () => Promise.resolve());
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
-    expect(screen.getByText('1 / 100')).toBeInTheDocument();
+    expect(screen.getByText('1/100')).toBeInTheDocument();
 
     act(() => notifyCatalogChanged?.());
     await act(async () => {
@@ -276,7 +276,7 @@ describe('catalog workspace', () => {
     });
     vi.useRealTimers();
 
-    await waitFor(() => expect(screen.getByText('0 / 100')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('0/100')).toBeInTheDocument());
     expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1', expect.any(AbortSignal));
   });
 
@@ -303,7 +303,9 @@ describe('catalog workspace', () => {
     fireEvent.click(within(pagination!).getAllByRole('button')[1]);
 
     expect(await screen.findByText('Aplicación de la segunda página')).toBeInTheDocument();
-    expect(screen.getByText('1 / 100')).toBeInTheDocument();
+    expect(screen.getByText('1/100')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar Aplicación reciente de la selección' }));
+    expect(screen.getByText('0/100')).toBeInTheDocument();
   });
 
   it('revalidates selected apps before sending a download job', async () => {
@@ -333,7 +335,7 @@ describe('catalog workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Descargar ZIP' }));
 
     await waitFor(() => expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
-    await waitFor(() => expect(screen.getByText('0 / 100')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('0/100')).toBeInTheDocument());
     expect(createDownloadJob).not.toHaveBeenCalled();
   });
 
@@ -384,7 +386,7 @@ describe('catalog workspace', () => {
       appIds: ['app-1'],
       operatingSystems: undefined,
     }));
-    expect(screen.getByText('1 / 100')).toBeInTheDocument();
+    expect(screen.getByText('1/100')).toBeInTheDocument();
   });
 
   it('removes legacy pending status from the URL and loads Disponibles', async () => {

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppFilters } from './AppFilters';
-import type { FilterKey } from '../types/catalog';
+import type { CatalogApp, FilterKey } from '../types/catalog';
 
 const counts: Record<FilterKey, number> = {
   all: 10,
@@ -10,6 +10,23 @@ const counts: Record<FilterKey, number> = {
   review: 1,
   missing: 1,
 };
+
+function selectedApp(index: number): CatalogApp {
+  return {
+    id: `app-${index}`,
+    slug: `app-${index}`,
+    packageId: `package-${index}`,
+    name: `App ${index}`,
+    tags: [],
+    operatingSystems: ['windows'],
+    iconUrl: `https://icons.example/app-${index}.png`,
+    sourceLabel: 'Directa',
+    resolutionStatus: 'direct',
+    validationStatus: 'valid',
+    downloadable: true,
+    updatedAt: '2026-07-30T00:00:00Z',
+  };
+}
 
 describe('AppFilters', () => {
   afterEach(() => cleanup());
@@ -79,5 +96,36 @@ describe('AppFilters', () => {
 
     expect(onToggleOperatingSystem).toHaveBeenCalledTimes(1);
     expect(onToggleOperatingSystem).toHaveBeenCalledWith('windows');
+  });
+
+  it('shows the 17 newest selected apps followed by the hidden count and removes an app from its icon', () => {
+    const onRemoveSelected = vi.fn();
+    const selectedApps = Array.from({ length: 20 }, (_, index) => selectedApp(index + 1));
+    const { container } = render(
+      <MemoryRouter>
+        <AppFilters
+          active="all"
+          counts={counts}
+          onChange={vi.fn()}
+          selectedApps={selectedApps}
+          onRemoveSelected={onRemoveSelected}
+        />
+      </MemoryRouter>,
+    );
+
+    const appButtons = container.querySelectorAll('.selection-app-button');
+    expect(appButtons).toHaveLength(17);
+    expect(appButtons[0]).toHaveAttribute('title', 'App 20');
+    expect(appButtons[16]).toHaveAttribute('title', 'App 4');
+    expect(screen.getByText('+3')).toHaveAttribute(
+      'aria-label',
+      '3 aplicaciones seleccionadas más',
+    );
+    expect(screen.getByText('20/100')).toBeInTheDocument();
+    expect(screen.queryByText('Descarga seleccionada')).not.toBeInTheDocument();
+
+    fireEvent.click(appButtons[0]);
+
+    expect(onRemoveSelected).toHaveBeenCalledWith('app-20');
   });
 });

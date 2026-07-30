@@ -11,9 +11,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { FilterKey, OperatingSystem } from '../types/catalog';
+import type { CatalogApp, FilterKey, OperatingSystem } from '../types/catalog';
 import { t } from '../services/i18n';
 import { OperatingSystemIcon, operatingSystemLabel } from './OperatingSystemIcons';
+
+const MAX_SELECTED_APPS = 100;
+const VISIBLE_SELECTED_APPS = 17;
 
 const filters: Array<{
   key: FilterKey;
@@ -30,7 +33,7 @@ interface Props {
   active: FilterKey;
   counts: Record<FilterKey, number>;
   onChange: (filter: FilterKey) => void;
-  selectedCount?: number;
+  selectedApps?: CatalogApp[];
   selectedTags?: string[];
   selectedPublishers?: string[];
   tagMatchMin?: number;
@@ -38,6 +41,7 @@ interface Props {
   downloading?: boolean;
   onDownloadSelected?: () => void;
   onClearSelection?: () => void;
+  onRemoveSelected?: (appId: string) => void;
   onRemoveTag?: (tag: string) => void;
   onRemovePublisher?: (publisher: string) => void;
   onClearFacets?: () => void;
@@ -49,7 +53,7 @@ export function AppFilters({
   active,
   counts,
   onChange,
-  selectedCount = 0,
+  selectedApps = [],
   selectedTags = [],
   selectedPublishers = [],
   tagMatchMin = 0,
@@ -57,6 +61,7 @@ export function AppFilters({
   downloading = false,
   onDownloadSelected,
   onClearSelection,
+  onRemoveSelected,
   onRemoveTag,
   onRemovePublisher,
   onClearFacets,
@@ -65,6 +70,9 @@ export function AppFilters({
 }: Props) {
   const facetSearch = catalogSearch ? `?${catalogSearch}` : '';
   const activeFacetCount = selectedTags.length + selectedPublishers.length;
+  const selectedCount = selectedApps.length;
+  const visibleSelectedApps = selectedApps.slice(-VISIBLE_SELECTED_APPS).reverse();
+  const hiddenSelectedCount = Math.max(0, selectedCount - VISIBLE_SELECTED_APPS);
   return (
     <aside className="filter-rail" id="catalog-filters">
       <div className="filter-header">
@@ -148,30 +156,62 @@ export function AppFilters({
           })}
         </div>
       </section>
-      <section className="selection-panel">
-        <div>
-          <span>{t('catalog.selection.selected')}</span>
-          <strong>{selectedCount} / 100</strong>
+      <fieldset
+        className="selection-panel"
+        aria-label={t('catalog.selection.summary', { count: selectedCount, limit: MAX_SELECTED_APPS })}
+      >
+        <legend className="selection-count" aria-live="polite">
+          {selectedCount}/{MAX_SELECTED_APPS}
+        </legend>
+        <div className="selection-content">
+          <div className="selection-app-grid">
+            {visibleSelectedApps.map((app) => (
+              <button
+                key={app.id}
+                className="selection-app-button"
+                type="button"
+                disabled={downloading}
+                title={app.name}
+                aria-label={t('catalog.selection.removeApp', { name: app.name })}
+                onClick={() => onRemoveSelected?.(app.id)}
+              >
+                {app.iconUrl ? (
+                  <img src={app.iconUrl} alt="" loading="lazy" />
+                ) : (
+                  <span aria-hidden="true">{app.name.slice(0, 1).toUpperCase()}</span>
+                )}
+              </button>
+            ))}
+            {hiddenSelectedCount > 0 ? (
+              <span
+                className="selection-app-more"
+                title={t('catalog.selection.more', { count: hiddenSelectedCount })}
+                aria-label={t('catalog.selection.more', { count: hiddenSelectedCount })}
+              >
+                +{hiddenSelectedCount}
+              </span>
+            ) : null}
+          </div>
+          <button
+            className="primary-button selection-download"
+            type="button"
+            disabled={selectedCount < 1 || downloading}
+            onClick={onDownloadSelected}
+          >
+            <Download size={17} />
+            {downloading ? t('catalog.selection.downloading') : t('catalog.selection.downloadZip')}
+          </button>
+          <button
+            className="secondary-button selection-clear"
+            type="button"
+            disabled={selectedCount < 1 || downloading}
+            onClick={onClearSelection}
+          >
+            <X size={17} />
+            {t('catalog.selection.clear')}
+          </button>
         </div>
-        <button
-          className="primary-button selection-download"
-          type="button"
-          disabled={selectedCount < 1 || downloading}
-          onClick={onDownloadSelected}
-        >
-          <Download size={17} />
-          {downloading ? t('catalog.selection.downloading') : t('catalog.selection.downloadZip')}
-        </button>
-        <button
-          className="secondary-button selection-clear"
-          type="button"
-          disabled={selectedCount < 1 || downloading}
-          onClick={onClearSelection}
-        >
-          <X size={17} />
-          {t('catalog.selection.clear')}
-        </button>
-      </section>
+      </fieldset>
     </aside>
   );
 }
