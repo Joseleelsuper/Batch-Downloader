@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `safe_http`.
+"""
 from __future__ import annotations
 
 import re
@@ -20,27 +22,63 @@ SENSITIVE_QUERY_KEYS = {
     "signature",
     "token",
 }
+"""Constante que define `SENSITIVE_QUERY_KEYS`.
+"""
 
 
 class SafeHttpError(Exception):
-    """Typed, URL-free failure raised by bounded public HTTP operations."""
+    """Representa un error relacionado con `SafeHttp`.
+    """
 
     def __init__(self, code: str, *, transient: bool = False) -> None:
+        """Inicializa una instancia de `SafeHttpError`.
+
+        Args:
+            code (str): Valor de `code` utilizado por la operación.
+            transient (bool): Valor de `transient` utilizado por la operación.
+        """
         super().__init__(code)
         self.code = code
+        """Estado de instancia asociado a `code`.
+        """
         self.transient = transient
+        """Estado de instancia asociado a `transient`.
+        """
 
 
 @dataclass(frozen=True)
 class SafeHttpResponse:
+    """Representa una respuesta de `SafeHttp`.
+    """
     final_url: str
+    """Atributo de clase `final_url` de `SafeHttpResponse`.
+    """
     status_code: int
+    """Atributo de clase `status_code` de `SafeHttpResponse`.
+    """
     content_type: str | None
+    """Atributo de clase `content_type` de `SafeHttpResponse`.
+    """
     content: bytes
+    """Atributo de clase `content` de `SafeHttpResponse`.
+    """
     headers: httpx.Headers
+    """Atributo de clase `headers` de `SafeHttpResponse`.
+    """
 
 
 def validate_public_https_syntax(url: str) -> str:
+    """Valida la operación `public_https_syntax`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+
+    Throws:
+        SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     value = url.strip()
     if not value or len(value) > 2048 or any(ord(character) < 32 for character in value):
         raise SafeHttpError("invalid_url")
@@ -61,6 +99,17 @@ def validate_public_https_syntax(url: str) -> str:
 
 
 async def validate_public_https_url(url: str) -> str:
+    """Valida la operación `public_https_url`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+
+    Throws:
+        SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     normalized = validate_public_https_syntax(url)
     hostname = urlparse(normalized).hostname
     if not await domain_has_public_dns(hostname):
@@ -69,6 +118,14 @@ async def validate_public_https_url(url: str) -> str:
 
 
 def has_sensitive_query(url: str) -> bool:
+    """Indica si existe la operación `sensitive_query`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     try:
         query = parse_qsl(urlparse(url).query, keep_blank_values=True)
     except ValueError:
@@ -104,6 +161,21 @@ async def fetch_public_resource(
     max_bytes: int,
     accept: str,
 ) -> SafeHttpResponse:
+    """Recupera la operación `public_resource`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+        timeout (float): Tiempo máximo permitido para completar la operación.
+        max_redirects (int): Valor de `max_redirects` utilizado por la operación.
+        max_bytes (int): Valor de `max_bytes` utilizado por la operación.
+        accept (str): Valor de `accept` utilizado por la operación.
+
+    Returns:
+        SafeHttpResponse: Resultado de `fetch_public_resource`.
+
+    Throws:
+        SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     current_url = await validate_public_https_url(url)
     async with httpx.AsyncClient(
         timeout=timeout,

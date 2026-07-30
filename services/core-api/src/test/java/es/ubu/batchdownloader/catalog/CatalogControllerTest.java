@@ -16,11 +16,22 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+/**
+ * Agrupa los escenarios de prueba de {@code CatalogControllerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @ExtendWith(MockitoExtension.class)
 class CatalogControllerTest {
+    /**
+     * Dato compartido {@code catalog} para los escenarios de prueba.
+     */
     @Mock
     private CatalogRepository catalog;
 
+    /**
+     * Comprueba el escenario {@code appsMergesRepeatedAndLegacyTagParamsAndKeepsPublisherCommas}.
+     */
     @Test
     void appsMergesRepeatedAndLegacyTagParamsAndKeepsPublisherCommas() {
         when(catalog.search(any(), any(), any(), any(), anyList(), anyList(), any(), any(), any(), anyInt(), anyInt()))
@@ -55,6 +66,9 @@ class CatalogControllerTest {
                 eq(20));
     }
 
+    /**
+     * Comprueba el escenario {@code facetsParsesTheSameFilterContractAsApps}.
+     */
     @Test
     void facetsParsesTheSameFilterContractAsApps() {
         CatalogController controller = new CatalogController(catalog);
@@ -81,6 +95,9 @@ class CatalogControllerTest {
                 eq("all"));
     }
 
+    /**
+     * Comprueba el escenario {@code unresolvedRemainsAnAdministrativeFilterAndIsRejectedPublicly}.
+     */
     @Test
     void unresolvedRemainsAnAdministrativeFilterAndIsRejectedPublicly() {
         CatalogController controller = new CatalogController(catalog);

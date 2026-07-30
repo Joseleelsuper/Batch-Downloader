@@ -17,20 +17,43 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+/**
+ * Agrupa los escenarios de prueba de {@code ProcessEmailNotificationTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @ExtendWith(MockitoExtension.class)
 class ProcessEmailNotificationTest {
 
+    /**
+     * Constante que define {@code EVENT_ID}.
+     */
     private static final UUID EVENT_ID = UUID.fromString("83e7ddfe-0fb4-4f19-9694-137ada2bb39c");
 
+    /**
+     * Dato compartido {@code inbox} para los escenarios de prueba.
+     */
     @Mock
     private NotificationInbox inbox;
 
+    /**
+     * Dato compartido {@code sender} para los escenarios de prueba.
+     */
     @Mock
     private NotificationSender sender;
 
+    /**
+     * Dato compartido {@code processor} para los escenarios de prueba.
+     */
     private ProcessEmailNotification processor;
+    /**
+     * Dato compartido {@code notification} para los escenarios de prueba.
+     */
     private EmailNotification notification;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         processor = new ProcessEmailNotification(inbox, sender);
@@ -47,6 +70,9 @@ class ProcessEmailNotificationTest {
                         "expiresAt", "2026-07-12T10:00:00Z"));
     }
 
+    /**
+     * Comprueba el escenario {@code sendsAndMarksANewEventAsProcessed}.
+     */
     @Test
     void sendsAndMarksANewEventAsProcessed() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
@@ -58,6 +84,9 @@ class ProcessEmailNotificationTest {
         verify(inbox).markProcessed(EVENT_ID);
     }
 
+    /**
+     * Comprueba el escenario {@code ignoresAnEventAlreadyProcessed}.
+     */
     @Test
     void ignoresAnEventAlreadyProcessed() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
@@ -69,6 +98,9 @@ class ProcessEmailNotificationTest {
         verify(inbox, never()).markProcessed(EVENT_ID);
     }
 
+    /**
+     * Comprueba el escenario {@code recordsTheFailureAndPropagatesItForRabbitRetry}.
+     */
     @Test
     void recordsTheFailureAndPropagatesItForRabbitRetry() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
@@ -85,6 +117,9 @@ class ProcessEmailNotificationTest {
         verify(inbox, never()).markProcessed(EVENT_ID);
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsAnEventThatIsBeingProcessedByAnotherConsumer}.
+     */
     @Test
     void rejectsAnEventThatIsBeingProcessedByAnotherConsumer() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))

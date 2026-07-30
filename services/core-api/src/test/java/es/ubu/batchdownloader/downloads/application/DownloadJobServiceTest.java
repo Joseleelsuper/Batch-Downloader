@@ -39,19 +39,51 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadJobServiceTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @ExtendWith(MockitoExtension.class)
 class DownloadJobServiceTest {
+    /**
+     * Constante que define {@code NOW}.
+     */
     private static final Instant NOW = Instant.parse("2026-07-13T12:00:00Z");
 
+    /**
+     * Dato compartido {@code jobs} para los escenarios de prueba.
+     */
     @Mock private DownloadJobStore jobs;
+    /**
+     * Dato compartido {@code sources} para los escenarios de prueba.
+     */
     @Mock private CatalogSourceLookup sources;
+    /**
+     * Dato compartido {@code users} para los escenarios de prueba.
+     */
     @Mock private UserAccountStore users;
+    /**
+     * Dato compartido {@code events} para los escenarios de prueba.
+     */
     @Mock private DownloadEventPublisher events;
+    /**
+     * Dato compartido {@code notifier} para los escenarios de prueba.
+     */
     @Mock private DownloadJobNotifier notifier;
+    /**
+     * Dato compartido {@code artifacts} para los escenarios de prueba.
+     */
     @Mock private DownloadArtifactCleaner artifacts;
 
+    /**
+     * Dato compartido {@code service} para los escenarios de prueba.
+     */
     private DownloadJobService service;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         service = new DownloadJobService(
@@ -72,6 +104,9 @@ class DownloadJobServiceTest {
         lenient().when(jobs.save(any(DownloadJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
+    /**
+     * Comprueba el escenario {@code createsPartialAnonymousJobAndDisablesEmailNotification}.
+     */
     @Test
     void createsPartialAnonymousJobAndDisablesEmailNotification() {
         UUID acceptedApp = UUID.randomUUID();
@@ -103,6 +138,9 @@ class DownloadJobServiceTest {
         assertThat(job.getValue().anonymousOwnerHash()).isEqualTo("browser-hash");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsAnonymousCreationWhenItsActiveJobQuotaIsExhausted}.
+     */
     @Test
     void rejectsAnonymousCreationWhenItsActiveJobQuotaIsExhausted() {
         when(jobs.countAnonymousNonTerminal("browser-hash")).thenReturn(2L);
@@ -118,6 +156,9 @@ class DownloadJobServiceTest {
         verify(sources, never()).findVerifiedSources(any(), any());
     }
 
+    /**
+     * Comprueba el escenario {@code publishesReadyStateOnlyAfterTheSurroundingTransactionCommits}.
+     */
     @Test
     void publishesReadyStateOnlyAfterTheSurroundingTransactionCommits() {
         DownloadJob job = DownloadJob.queue(
@@ -149,6 +190,9 @@ class DownloadJobServiceTest {
         }
     }
 
+    /**
+     * Comprueba el escenario {@code expiresReadyJobsAndCleansEveryObjectUnderTheJobPrefix}.
+     */
     @Test
     void expiresReadyJobsAndCleansEveryObjectUnderTheJobPrefix() {
         DownloadJob ready = DownloadJob.queue(
@@ -172,6 +216,9 @@ class DownloadJobServiceTest {
         verify(notifier).changed(any(DownloadJobView.class));
     }
 
+    /**
+     * Comprueba el escenario {@code returnsAllRequestedItemMetadataWithoutPartialResponses}.
+     */
     @Test
     void returnsAllRequestedItemMetadataWithoutPartialResponses() {
         DownloadJob job = DownloadJob.queue(

@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `catalog_fetcher`.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -60,9 +62,13 @@ from app.scraper.validator import DownloadValidator, ValidationResult, domain_ha
 from app.scraper.winstall import WinstallApp, WinstallClient, parse_winstall_app
 
 logger = get_logger(__name__)
+"""Estado global asociado a `logger`.
+"""
 
 
 def async_session_local():
+    """Ejecuta la operación `async_session_local`.
+    """
     from app.db.session import AsyncSessionLocal
 
     return AsyncSessionLocal
@@ -70,41 +76,101 @@ def async_session_local():
 
 @dataclass
 class ScrapeCounters:
+    """Representa el componente `ScrapeCounters`.
+    """
     apps_discovered: int = 0
+    """Atributo de clase `apps_discovered` de `ScrapeCounters`.
+    """
     apps_resolved: int = 0
+    """Atributo de clase `apps_resolved` de `ScrapeCounters`.
+    """
     apps_failed: int = 0
+    """Atributo de clase `apps_failed` de `ScrapeCounters`.
+    """
     apps_skipped: int = 0
+    """Atributo de clase `apps_skipped` de `ScrapeCounters`.
+    """
 
 
 @dataclass
 class PipelineRuntime:
+    """Mantiene el estado de ejecución de `Pipeline`.
+    """
     settings: Settings
+    """Atributo de clase `settings` de `PipelineRuntime`.
+    """
     run_id: uuid.UUID
+    """Atributo de clase `run_id` de `PipelineRuntime`.
+    """
     run_started_at: datetime
+    """Atributo de clase `run_started_at` de `PipelineRuntime`.
+    """
     counters: ScrapeCounters = field(default_factory=ScrapeCounters)
+    """Atributo de clase `counters` de `PipelineRuntime`.
+    """
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `stop_event` de `PipelineRuntime`.
+    """
     pause_event: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `pause_event` de `PipelineRuntime`.
+    """
     searcher_done: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `searcher_done` de `PipelineRuntime`.
+    """
     filter_done: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `filter_done` de `PipelineRuntime`.
+    """
     scraper_done: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `scraper_done` de `PipelineRuntime`.
+    """
     so_filter_done: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `so_filter_done` de `PipelineRuntime`.
+    """
     descriptor_done: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `descriptor_done` de `PipelineRuntime`.
+    """
     all_workers_done: asyncio.Event = field(default_factory=asyncio.Event)
+    """Atributo de clase `all_workers_done` de `PipelineRuntime`.
+    """
     stopped_by_command: bool = False
+    """Atributo de clase `stopped_by_command` de `PipelineRuntime`.
+    """
     _counter_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    """Atributo de clase `_counter_lock` de `PipelineRuntime`.
+    """
     _descriptor_budget_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    """Atributo de clase `_descriptor_budget_lock` de `PipelineRuntime`.
+    """
     _descriptor_attempts: int = 0
+    """Atributo de clase `_descriptor_attempts` de `PipelineRuntime`.
+    """
 
     async def before_next_item(self) -> bool:
+        """Ejecuta `before_next_item` dentro de `PipelineRuntime`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         while self.pause_event.is_set() and not self.stop_event.is_set():
             await asyncio.sleep(1)
         return not self.stop_event.is_set()
 
     async def increment(self, field_name: str, amount: int = 1) -> None:
+        """Ejecuta `increment` dentro de `PipelineRuntime`.
+
+        Args:
+            field_name (str): Valor de `field_name` utilizado por la operación.
+            amount (int): Valor de `amount` utilizado por la operación.
+        """
         async with self._counter_lock:
             setattr(self.counters, field_name, getattr(self.counters, field_name) + amount)
 
     async def reserve_descriptor_attempt(self) -> bool:
+        """Ejecuta `reserve_descriptor_attempt` dentro de `PipelineRuntime`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         async with self._descriptor_budget_lock:
             maximum = self.settings.llm_max_apps_per_run
             if maximum > 0 and self._descriptor_attempts >= maximum:
@@ -113,42 +179,94 @@ class PipelineRuntime:
             return True
 
     async def release_descriptor_attempt(self) -> None:
+        """Libera la operación `descriptor_attempt`.
+        """
         async with self._descriptor_budget_lock:
             self._descriptor_attempts = max(0, self._descriptor_attempts - 1)
 
 
 @dataclass(frozen=True)
 class ValidInstaller:
+    """Representa el componente `ValidInstaller`.
+    """
     candidate: InstallerCandidate
+    """Atributo de clase `candidate` de `ValidInstaller`.
+    """
     result: ValidationResult
+    """Atributo de clase `result` de `ValidInstaller`.
+    """
     status: ResolutionStatus
+    """Atributo de clase `status` de `ValidInstaller`.
+    """
     operating_system: str
+    """Atributo de clase `operating_system` de `ValidInstaller`.
+    """
     architecture: str
+    """Atributo de clase `architecture` de `ValidInstaller`.
+    """
     version: str | None
+    """Atributo de clase `version` de `ValidInstaller`.
+    """
 
 
 @dataclass
 class CandidateValidationDiagnostics:
+    """Representa el componente `CandidateValidationDiagnostics`.
+    """
     discovered: int = 0
+    """Atributo de clase `discovered` de `CandidateValidationDiagnostics`.
+    """
     eligible: int = 0
+    """Atributo de clase `eligible` de `CandidateValidationDiagnostics`.
+    """
     attempted: int = 0
+    """Atributo de clase `attempted` de `CandidateValidationDiagnostics`.
+    """
     valid: int = 0
+    """Atributo de clase `valid` de `CandidateValidationDiagnostics`.
+    """
     skipped: dict[str, int] = field(default_factory=dict)
+    """Atributo de clase `skipped` de `CandidateValidationDiagnostics`.
+    """
     rejected: dict[str, int] = field(default_factory=dict)
+    """Atributo de clase `rejected` de `CandidateValidationDiagnostics`.
+    """
     errors: dict[str, int] = field(default_factory=dict)
+    """Atributo de clase `errors` de `CandidateValidationDiagnostics`.
+    """
 
     def skip(self, reason: str) -> None:
+        """Ejecuta `skip` dentro de `CandidateValidationDiagnostics`.
+
+        Args:
+            reason (str): Valor de `reason` utilizado por la operación.
+        """
         self.skipped[reason] = self.skipped.get(reason, 0) + 1
 
     def reject(self, reason: str | None) -> None:
+        """Ejecuta `reject` dentro de `CandidateValidationDiagnostics`.
+
+        Args:
+            reason (str | None): Valor de `reason` utilizado por la operación.
+        """
         key = reason or "unknown"
         self.rejected[key] = self.rejected.get(key, 0) + 1
 
     def error(self, exc: Exception) -> None:
+        """Ejecuta `error` dentro de `CandidateValidationDiagnostics`.
+
+        Args:
+            exc (Exception): Valor de `exc` utilizado por la operación.
+        """
         key = exc.__class__.__name__
         self.errors[key] = self.errors.get(key, 0) + 1
 
     def as_metadata(self) -> dict[str, Any]:
+        """Ejecuta `as_metadata` dentro de `CandidateValidationDiagnostics`.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         return {
             "discovered": self.discovered,
             "eligible": self.eligible,
@@ -161,14 +279,43 @@ class CandidateValidationDiagnostics:
 
 
 class CatalogFetcher:
+    """Representa el componente `CatalogFetcher`.
+    """
     def __init__(self, settings: Settings, session: AsyncSession) -> None:
+        """Inicializa una instancia de `CatalogFetcher`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.session = session
+        """Estado de instancia asociado a `session`.
+        """
         self.url_protector = UrlProtector(settings.url_protection_secret)
+        """Estado de instancia asociado a `url_protector`.
+        """
         self.catalog = CatalogRepository(session, self.url_protector)
+        """Estado de instancia asociado a `catalog`.
+        """
         self.runs = ScrapeRunRepository(session, settings)
+        """Estado de instancia asociado a `runs`.
+        """
 
     async def scrape_once(self, recover_running: bool = False) -> ScrapeCounters:
+        """Ejecuta `scrape_once` dentro de `CatalogFetcher`.
+
+        Args:
+            recover_running (bool): Valor de `recover_running` utilizado por la operación.
+
+        Returns:
+            ScrapeCounters: Resultado producido por la operación.
+
+        Throws:
+            worker_error: Si no puede completarse la operación bajo las condiciones requeridas.
+        """
         if recover_running:
             recovered = await self.runs.recover_running(
                 "Recovered before startup scrape because the scheduler container was restarted."
@@ -268,6 +415,11 @@ class CatalogFetcher:
         return runtime.counters
 
     async def _command_monitor(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta el paso interno `_command_monitor`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         while not runtime.all_workers_done.is_set():
             async with async_session_local()() as session:
                 runs = ScrapeRunRepository(session, self.settings)
@@ -309,6 +461,11 @@ class CatalogFetcher:
             await asyncio.sleep(2)
 
     async def _heartbeat(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta el paso interno `_heartbeat`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         while not runtime.all_workers_done.is_set():
             async with async_session_local()() as session:
                 runs = ScrapeRunRepository(session, self.settings)
@@ -319,6 +476,11 @@ class CatalogFetcher:
             await asyncio.sleep(5)
 
     async def _run_scraper_workers(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta el paso interno `_run_scraper_workers`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         workers = [
             PlatformScraperWorker(self.settings)
             for _ in range(max(1, self.settings.scrape_concurrency))
@@ -329,6 +491,11 @@ class CatalogFetcher:
             runtime.scraper_done.set()
 
     async def _run_so_filter_workers(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta el paso interno `_run_so_filter_workers`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         workers = [
             SOFilterWorker(self.settings)
             for _ in range(max(1, self.settings.so_filter_concurrency))
@@ -340,11 +507,27 @@ class CatalogFetcher:
 
 
 class SearcherWorker:
+    """Ejecuta el procesamiento en segundo plano de `Searcher`.
+    """
     def __init__(self, settings: Settings) -> None:
+        """Inicializa una instancia de `SearcherWorker`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.worker_id = f"searcher:{worker_id()}"
+        """Estado de instancia asociado a `worker_id`.
+        """
 
     async def run(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta `run` dentro de `SearcherWorker`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         try:
             async with WinstallClient(self.settings) as winstall:
                 async for lightweight_app in winstall.iter_apps():
@@ -428,6 +611,14 @@ class SearcherWorker:
             runtime.searcher_done.set()
 
     async def _wait_for_backpressure(self, runtime: PipelineRuntime) -> bool:
+        """Ejecuta el paso interno `_wait_for_backpressure`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         limit = self.settings.scrape_searcher_backpressure_limit
         if limit <= 0:
             return True
@@ -456,13 +647,33 @@ class SearcherWorker:
 
 
 class FilterWorker:
+    """Ejecuta el procesamiento en segundo plano de `Filter`.
+    """
     def __init__(self, settings: Settings) -> None:
+        """Inicializa una instancia de `FilterWorker`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.worker_id = f"filter:{worker_id()}"
+        """Estado de instancia asociado a `worker_id`.
+        """
         self.validator = DownloadValidator(settings)
+        """Estado de instancia asociado a `validator`.
+        """
         self.github = GitHubReleaseResolver(settings)
+        """Estado de instancia asociado a `github`.
+        """
 
     async def run(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta `run` dentro de `FilterWorker`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
                 break
@@ -544,6 +755,14 @@ class FilterWorker:
         runtime.filter_done.set()
 
     async def _official_page_valid(self, url: str | None) -> bool:
+        """Ejecuta el paso interno `_official_page_valid`.
+
+        Args:
+            url (str | None): URL del recurso que debe procesarse.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         if not url:
             return False
         parsed_domain = registered_domain(url)
@@ -570,6 +789,15 @@ class FilterWorker:
         return not content_type or "html" in content_type
 
     async def _fallback_download_valid(self, payload: dict[str, Any], app: WinstallApp) -> bool:
+        """Ejecuta el paso interno `_fallback_download_valid`.
+
+        Args:
+            payload (dict[str, Any]): Carga de datos recibida por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         candidates = fallback_candidates(payload, app)
         if await self._candidate_group_has_valid_download(app, candidates):
             return True
@@ -581,6 +809,15 @@ class FilterWorker:
         app: WinstallApp,
         candidates: list[InstallerCandidate],
     ) -> bool:
+        """Ejecuta el paso interno `_candidate_group_has_valid_download`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         scored = await run_cpu_bound(
             prepare_scored_candidates,
             candidates,
@@ -605,7 +842,15 @@ class FilterWorker:
         app: WinstallApp,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        """Resolve stale Winstall GitHub assets before deciding an app is unusable."""
+        """Ejecuta el paso interno `_collect_winstall_github_candidates`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         refreshed: list[InstallerCandidate] = []
         seen_repositories: set[tuple[str, str]] = set()
         for candidate in candidates:
@@ -642,7 +887,14 @@ class FilterWorker:
         self,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        """Refresh stale versioned files from a bounded same-host directory index."""
+        """Ejecuta el paso interno `_collect_winstall_parent_index_candidates`.
+
+        Args:
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         parent_pages: dict[str, InstallerCandidate] = {}
         for candidate in dedupe_candidates(candidates):
             parent_url = winstall_parent_index_url(candidate.url)
@@ -657,6 +909,15 @@ class FilterWorker:
             client: httpx.AsyncClient,
             parent_url: str,
         ) -> list[InstallerCandidate]:
+            """Recupera la operación `parent`.
+
+            Args:
+                client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+                parent_url (str): Dirección de `parent` que debe procesarse.
+
+            Returns:
+                list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            """
             parsed = urlparse(parent_url)
             if not await domain_has_public_dns(parsed.hostname):
                 return []
@@ -717,18 +978,43 @@ class FilterWorker:
 
 
 class PlatformScraperWorker:
+    """Ejecuta el procesamiento en segundo plano de `PlatformScraper`.
+    """
     def __init__(
         self,
         settings: Settings,
         candidate_resolvers: CandidateResolverStrategyRegistry | None = None,
     ) -> None:
+        """Inicializa una instancia de `PlatformScraperWorker`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            candidate_resolvers (CandidateResolverStrategyRegistry | None): Valor de
+                `candidate_resolvers`
+                utilizado por la
+                operación.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.worker_id = f"scraper:{worker_id()}"
+        """Estado de instancia asociado a `worker_id`.
+        """
         self.url_protector = UrlProtector(settings.url_protection_secret)
+        """Estado de instancia asociado a `url_protector`.
+        """
         self.validator = DownloadValidator(settings)
+        """Estado de instancia asociado a `validator`.
+        """
         self.playwright = PlaywrightCandidateCollector(settings)
+        """Estado de instancia asociado a `playwright`.
+        """
         self.github = GitHubReleaseResolver(settings)
+        """Estado de instancia asociado a `github`.
+        """
         self.icon_resolver = IconResolver(settings)
+        """Estado de instancia asociado a `icon_resolver`.
+        """
         self.candidate_resolvers = candidate_resolvers or CandidateResolverStrategyRegistry(
             (
                 CandidateResolverStrategy(
@@ -743,8 +1029,15 @@ class PlatformScraperWorker:
                 ),
             )
         )
+        """Estado de instancia asociado a `candidate_resolvers`.
+        """
 
     async def run(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta `run` dentro de `PlatformScraperWorker`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         logger.info("platform_scraper_worker_started", worker_id=self.worker_id)
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
@@ -824,6 +1117,15 @@ class PlatformScraperWorker:
                 )
 
     async def _scrape_item(self, runtime: PipelineRuntime, item: ScraperWorkItem) -> bool:
+        """Ejecuta el paso interno `_scrape_item`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         item_started_at = asyncio.get_running_loop().time()
         payload = item.payload_json or {}
         package_id = payload_package_id(payload, item)
@@ -1004,6 +1306,14 @@ class PlatformScraperWorker:
         software_app: SoftwareApp,
         app: WinstallApp,
     ) -> None:
+        """Ejecuta el paso interno `_enrich_github_icon`.
+
+        Args:
+            catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
+            logs (ResolverLogRepository): Valor de `logs` utilizado por la operación.
+            software_app (SoftwareApp): Valor de `software_app` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+        """
         from app.repositories.catalog import is_github_homepage, is_replaceable_github_icon
 
         if not (
@@ -1051,6 +1361,16 @@ class PlatformScraperWorker:
         app: WinstallApp,
         official_url: str,
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_official_candidates`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            official_url (str): Dirección de `official` que debe procesarse.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         known_candidates = known_official_candidates(app)
         if use_only_known_official_candidates(app, known_candidates):
             return known_candidates
@@ -1066,6 +1386,16 @@ class PlatformScraperWorker:
         app: WinstallApp,
         official_url: str,
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_github_official_candidates`.
+
+        Args:
+            _runtime (ScrapeRuntime): Valor de `_runtime` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            official_url (str): Dirección de `official` que debe procesarse.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         try:
             async with asyncio.timeout(github_collection_timeout_seconds(self.settings)):
                 return await self.github.collect(official_url, app.latest_version)
@@ -1078,6 +1408,16 @@ class PlatformScraperWorker:
         app: WinstallApp,
         official_url: str,
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_html_official_candidates`.
+
+        Args:
+            runtime (ScrapeRuntime): Valor de `runtime` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            official_url (str): Dirección de `official` que debe procesarse.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         html = ""
         try:
             async with httpx.AsyncClient(
@@ -1123,11 +1463,14 @@ class PlatformScraperWorker:
         official_url: str,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        """Inspect a few first-party download pages before paying for Playwright.
+        """Ejecuta el paso interno `_collect_download_landing_candidates`.
 
-        Sites commonly expose a product page first (for example `/download.html` or
-        `?do=download`) and put the actual binary link on that page. The former
-        implementation never traversed that lightweight hop.
+        Args:
+            official_url (str): Dirección de `official` que debe procesarse.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
         """
         official_domain = registered_domain(official_url)
         landing_pages = [
@@ -1142,6 +1485,15 @@ class PlatformScraperWorker:
             client: httpx.AsyncClient,
             landing: InstallerCandidate,
         ) -> list[InstallerCandidate]:
+            """Recupera la operación `landing`.
+
+            Args:
+                client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+                landing (InstallerCandidate): Valor de `landing` utilizado por la operación.
+
+            Returns:
+                list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            """
             try:
                 response = await client.get(landing.url)
             except Exception:
@@ -1190,7 +1542,15 @@ class PlatformScraperWorker:
         app: WinstallApp,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        """Refresh expired Winstall assets through releases or their parent index."""
+        """Ejecuta el paso interno `_collect_winstall_github_candidates`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         refreshed: list[InstallerCandidate] = []
         seen_repositories: set[tuple[str, str]] = set()
         for candidate in candidates:
@@ -1227,6 +1587,14 @@ class PlatformScraperWorker:
         self,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_winstall_parent_index_candidates`.
+
+        Args:
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         return await FilterWorker._collect_winstall_parent_index_candidates(
             self,  # type: ignore[arg-type]
             candidates,
@@ -1240,8 +1608,22 @@ class PlatformScraperWorker:
         direct_candidates: list[InstallerCandidate],
         fallback_candidates: list[InstallerCandidate],
     ) -> tuple[list[ValidInstaller], dict[str, dict[str, Any]]]:
-        # A slow official page must not starve a valid Winstall fallback. Both
-        # groups are independent trust paths, so validate them concurrently.
+        # Una página oficial lenta no debe privar a un fallback válido de Winstall.
+        # Ambos grupos son rutas de confianza independientes y se validan en paralelo.
+        """Ejecuta el paso interno `_validate_installers`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            official_url (str | None): Dirección de `official` que debe procesarse.
+            direct_candidates (list[InstallerCandidate]): Valor de `direct_candidates` utilizado por
+                la operación.
+            fallback_candidates (list[InstallerCandidate]): Valor de `fallback_candidates` utilizado
+                por la operación.
+
+        Returns:
+            tuple[list[ValidInstaller], dict[str, dict[str, Any]]]: Colección de elementos obtenidos
+                por la operación.
+        """
         (direct, direct_diagnostics), (fallback, fallback_diagnostics) = await asyncio.gather(
             self._validate_candidate_group(
                 app,
@@ -1271,6 +1653,19 @@ class PlatformScraperWorker:
         max_candidates: int,
         max_valid: int,
     ) -> tuple[list[ValidInstaller], CandidateValidationDiagnostics]:
+        """Ejecuta el paso interno `_validate_candidate_group`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+            status (ResolutionStatus): Valor de `status` utilizado por la operación.
+            max_candidates (int): Valor de `max_candidates` utilizado por la operación.
+            max_valid (int): Valor de `max_valid` utilizado por la operación.
+
+        Returns:
+            tuple[list[ValidInstaller], CandidateValidationDiagnostics]: Colección de elementos
+                obtenidos por la operación.
+        """
         diagnostics = CandidateValidationDiagnostics()
         scored = []
         expanded_candidates: list[InstallerCandidate] = []
@@ -1321,6 +1716,11 @@ class PlatformScraperWorker:
         batch_size = 4
 
         async def validate_one(candidate: InstallerCandidate):
+            """Valida la operación `one`.
+
+            Args:
+                candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+            """
             timeout_seconds = min(
                 max(5.0, self.settings.request_timeout_seconds + 2.0),
                 budget_seconds,
@@ -1393,6 +1793,16 @@ class PlatformScraperWorker:
         official_url: str | None,
         installers: list[ValidInstaller],
     ) -> None:
+        """Ejecuta el paso interno `_save_valid_installers`.
+
+        Args:
+            catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
+            logs (ResolverLogRepository): Valor de `logs` utilizado por la operación.
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            official_url (str | None): Dirección de `official` que debe procesarse.
+            installers (list[ValidInstaller]): Valor de `installers` utilizado por la operación.
+        """
         ranked = rank_installers(installers)
         expired_sources: set[uuid.UUID] = set()
         for installer, release_rank, is_latest in ranked:
@@ -1450,6 +1860,19 @@ async def enqueue_descriptor_for_app(
     force: bool,
     priority: int = 0,
 ) -> ScraperWorkItem | None:
+    """Encola la operación `descriptor_for_app`.
+
+    Args:
+        catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
+        pipeline (PipelineRepository): Valor de `pipeline` utilizado por la operación.
+        run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
+        software_app (Any): Valor de `software_app` utilizado por la operación.
+        force (bool): Valor de `force` utilizado por la operación.
+        priority (int): Valor de `priority` utilizado por la operación.
+
+    Returns:
+        ScraperWorkItem | None: Resultado producido por la operación.
+    """
     apps = await catalog.apps_for_description_enrichment(
         [software_app.id],
         include_completed=True,
@@ -1489,6 +1912,18 @@ async def enqueue_so_filter_for_app(
     force: bool = False,
     priority: int = 0,
 ) -> ScraperWorkItem:
+    """Encola la operación `so_filter_for_app`.
+
+    Args:
+        pipeline (PipelineRepository): Valor de `pipeline` utilizado por la operación.
+        run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
+        software_app (Any): Valor de `software_app` utilizado por la operación.
+        force (bool): Valor de `force` utilizado por la operación.
+        priority (int): Valor de `priority` utilizado por la operación.
+
+    Returns:
+        ScraperWorkItem: Resultado producido por la operación.
+    """
     return await pipeline.enqueue(
         QUEUE_SCRAPER_SO_FILTER,
         software_app.winstall_id,
@@ -1506,12 +1941,30 @@ async def enqueue_so_filter_for_app(
 
 
 class DescriptorWorker:
+    """Ejecuta el procesamiento en segundo plano de `Descriptor`.
+    """
     def __init__(self, settings: Settings) -> None:
+        """Inicializa una instancia de `DescriptorWorker`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.worker_id = f"descriptor:{worker_id()}"
+        """Estado de instancia asociado a `worker_id`.
+        """
         self.llm = AppDescriptionLLMClient(settings)
+        """Estado de instancia asociado a `llm`.
+        """
 
     async def run(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta `run` dentro de `DescriptorWorker`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         if not self.llm.has_provider():
             logger.warning("descriptor_worker_idle", reason="llm_provider_not_configured")
             runtime.descriptor_done.set()
@@ -1526,6 +1979,11 @@ class DescriptorWorker:
             runtime.descriptor_done.set()
 
     async def process_one(self) -> bool:
+        """Procesa la operación `one`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         if not self.llm.has_provider():
             logger.warning("descriptor_process_one_skipped", reason="llm_provider_not_configured")
             return False
@@ -1535,6 +1993,11 @@ class DescriptorWorker:
         return await self._process_claimed_item(None, item)
 
     async def _consume(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta el paso interno `_consume`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
                 break
@@ -1555,6 +2018,15 @@ class DescriptorWorker:
         runtime: PipelineRuntime | None,
         item: ScraperWorkItem,
     ) -> bool:
+        """Ejecuta el paso interno `_process_claimed_item`.
+
+        Args:
+            runtime (PipelineRuntime | None): Valor de `runtime` utilizado por la operación.
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         payload = item.payload_json or {}
         software_app_id = payload.get("software_app_id")
         if not software_app_id:
@@ -1619,13 +2091,28 @@ class DescriptorWorker:
 
 
 class SOFilterWorker:
-    """Projects verified installer platforms before description enrichment."""
+    """Ejecuta el procesamiento en segundo plano de `SOFilter`.
+    """
 
     def __init__(self, settings: Settings) -> None:
+        """Inicializa una instancia de `SOFilterWorker`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.worker_id = f"so-filter:{worker_id()}"
+        """Estado de instancia asociado a `worker_id`.
+        """
 
     async def run(self, runtime: PipelineRuntime) -> None:
+        """Ejecuta `run` dentro de `SOFilterWorker`.
+
+        Args:
+            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+        """
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
                 break
@@ -1636,6 +2123,14 @@ class SOFilterWorker:
                 await asyncio.sleep(1)
 
     async def process_one(self, runtime: PipelineRuntime | None = None) -> bool:
+        """Procesa la operación `one`.
+
+        Args:
+            runtime (PipelineRuntime | None): Valor de `runtime` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         item = await claim_item(self.settings, QUEUE_SCRAPER_SO_FILTER, self.worker_id)
         if item is None:
             return False
@@ -1646,6 +2141,15 @@ class SOFilterWorker:
         item: ScraperWorkItem,
         runtime: PipelineRuntime | None,
     ) -> bool:
+        """Ejecuta el paso interno `_process_claimed_item`.
+
+        Args:
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+            runtime (PipelineRuntime | None): Valor de `runtime` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         software_app_id = (item.payload_json or {}).get("software_app_id")
         if not software_app_id:
             await finish_item(self.settings, item, "discard", "missing_software_app_id")
@@ -1726,6 +2230,16 @@ async def claim_item(
     queue: str,
     worker_id_value: str,
 ) -> ScraperWorkItem | None:
+    """Reserva la operación `item`.
+
+    Args:
+        settings (Settings): Configuración del servicio.
+        queue (str): Valor de `queue` utilizado por la operación.
+        worker_id_value (str): Valor de `worker_id_value` utilizado por la operación.
+
+    Returns:
+        ScraperWorkItem | None: Resultado producido por la operación.
+    """
     async with async_session_local()() as session:
         pipeline = PipelineRepository(session)
         item = await pipeline.claim_next(
@@ -1755,6 +2269,15 @@ async def finish_item(
     *,
     delay_seconds: int = 2,
 ) -> None:
+    """Ejecuta la operación `finish_item`.
+
+    Args:
+        settings (Settings): Configuración del servicio.
+        item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+        action (str): Valor de `action` utilizado por la operación.
+        message (str | None): Mensaje que debe procesarse.
+        delay_seconds (int): Valor de `delay_seconds` utilizado por la operación.
+    """
     async with async_session_local()() as session:
         pipeline = PipelineRepository(session)
         db_item = await session.get(ScraperWorkItem, item.id)
@@ -1791,6 +2314,15 @@ async def set_current(
     app_name: str | None,
     phase: str,
 ) -> None:
+    """Establece la operación `current`.
+
+    Args:
+        settings (Settings): Configuración del servicio.
+        run_id (uuid.UUID): Identificador de `run` utilizado por la operación.
+        package_id (str | None): Identificador de `package` utilizado por la operación.
+        app_name (str | None): Valor de `app_name` utilizado por la operación.
+        phase (str): Valor de `phase` utilizado por la operación.
+    """
     async with async_session_local()() as session:
         runs = ScrapeRunRepository(session, settings)
         await runs.set_current(run_id, package_id, app_name, phase)
@@ -1798,6 +2330,15 @@ async def set_current(
 
 
 def parse_payload_app(payload: dict[str, Any], fallback_package_id: str) -> WinstallApp:
+    """Analiza la operación `payload_app`.
+
+    Args:
+        payload (dict[str, Any]): Carga de datos recibida por la operación.
+        fallback_package_id (str): Identificador de `fallback_package` utilizado por la operación.
+
+    Returns:
+        WinstallApp: Resultado producido por la operación.
+    """
     raw = payload.get("app")
     if isinstance(raw, dict):
         return parse_winstall_app(raw)
@@ -1805,11 +2346,29 @@ def parse_payload_app(payload: dict[str, Any], fallback_package_id: str) -> Wins
 
 
 def payload_package_id(payload: dict[str, Any], item: ScraperWorkItem) -> str:
+    """Ejecuta la operación `payload_package_id`.
+
+    Args:
+        payload (dict[str, Any]): Carga de datos recibida por la operación.
+        item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     value = payload.get("package_id") or item.package_id
     return str(value)
 
 
 def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
+    """Indica si se cumple la operación `stale_control_command`.
+
+    Args:
+        command (Any): Comando que debe procesarse.
+        run_started_at (datetime): Instante asociado a `run_started`.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return (
         command.command in {"pause", "resume", "stop", "force_stop"}
         and command.created_at < run_started_at
@@ -1817,7 +2376,14 @@ def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
 
 
 def first_task_failure(error: BaseException) -> BaseException:
-    """Unwrap TaskGroup failures so run state records the actionable root cause."""
+    """Ejecuta la operación `first_task_failure`.
+
+    Args:
+        error (BaseException): Error que debe registrarse o propagarse.
+
+    Returns:
+        BaseException: Resultado producido por la operación.
+    """
 
     if isinstance(error, BaseExceptionGroup):
         for nested in error.exceptions:
@@ -1828,6 +2394,15 @@ def first_task_failure(error: BaseException) -> BaseException:
 
 
 def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[InstallerCandidate]:
+    """Ejecuta la operación `fallback_candidates`.
+
+    Args:
+        payload (dict[str, Any]): Carga de datos recibida por la operación.
+        app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     candidates: list[InstallerCandidate] = []
     winstall_referer = payload.get("winstall_url")
     for item in payload.get("winstall_downloads") or []:
@@ -1869,6 +2444,14 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
 
 
 def known_official_candidates(app: WinstallApp) -> list[InstallerCandidate]:
+    """Ejecuta la operación `known_official_candidates`.
+
+    Args:
+        app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     return known_official_candidates_for_package(
         app.package_id,
         getattr(app, "latest_version", None),
@@ -1879,6 +2462,15 @@ def known_official_candidates_for_package(
     package_id: str,
     latest_version: str | None = None,
 ) -> list[InstallerCandidate]:
+    """Ejecuta la operación `known_official_candidates_for_package`.
+
+    Args:
+        package_id (str): Identificador de `package` utilizado por la operación.
+        latest_version (str | None): Valor de `latest_version` utilizado por la operación.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     if package_id == "ItchIo.Itch":
         return [
             InstallerCandidate(
@@ -1971,6 +2563,16 @@ def use_only_known_official_candidates(
     app: WinstallApp,
     known_candidates: list[InstallerCandidate],
 ) -> bool:
+    """Ejecuta la operación `use_only_known_official_candidates`.
+
+    Args:
+        app (WinstallApp): Aplicación sobre la que se realiza la operación.
+        known_candidates (list[InstallerCandidate]): Valor de `known_candidates` utilizado por la
+            operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return bool(known_candidates) and app.package_id in {
         "EpicGames.EpicGamesLauncher",
         "ItchIo.Itch",
@@ -1983,6 +2585,15 @@ def use_winstall_fallback_only(
     app: WinstallApp,
     fallback: list[InstallerCandidate],
 ) -> bool:
+    """Ejecuta la operación `use_winstall_fallback_only`.
+
+    Args:
+        app (WinstallApp): Aplicación sobre la que se realiza la operación.
+        fallback (list[InstallerCandidate]): Valor de `fallback` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return bool(fallback) and app.package_id in {
         "360.360DocProtect",
         "360.360SE",
@@ -1999,14 +2610,31 @@ def should_collect_official_installers(
     use_official: bool,
     fallback: list[InstallerCandidate],
 ) -> bool:
-    """Known official endpoints remain usable if their marketing page blocks bots."""
+    """Ejecuta la operación `should_collect_official_installers`.
+
+    Args:
+        app (WinstallApp): Aplicación sobre la que se realiza la operación.
+        official_url (str | None): Dirección de `official` que debe procesarse.
+        use_official (bool): Valor de `use_official` utilizado por la operación.
+        fallback (list[InstallerCandidate]): Valor de `fallback` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     if known_official_candidates(app):
         return True
     return bool(use_official and official_url and not use_winstall_fallback_only(app, fallback))
 
 
 def normalized_123pan_version(value: str) -> str:
-    """The Winstall four-part display version maps to a three-part 123pan filename."""
+    """Ejecuta la operación `normalized_123pan_version`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     parts = value.strip().removeprefix("v").split(".")
     if len(parts) >= 3 and all(part.isdigit() for part in parts[:3]):
         return ".".join(parts[:3])
@@ -2018,6 +2646,16 @@ def is_download_landing_page(
     official_url: str,
     official_domain: str | None,
 ) -> bool:
+    """Indica si se cumple la operación `download_landing_page`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        official_url (str): Dirección de `official` que debe procesarse.
+        official_domain (str | None): Valor de `official_domain` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     if candidate.url == official_url or candidate.extension:
         return False
     parsed = urlparse(candidate.url)
@@ -2032,11 +2670,13 @@ def is_download_landing_page(
 
 
 def is_actionable_installer_candidate(candidate: InstallerCandidate) -> bool:
-    """Return true only for a navigable candidate that already resembles a file.
+    """Indica si se cumple la operación `actionable_installer_candidate`.
 
-    A `javascript:;` download button is an interaction hint, not an installer. It
-    must not suppress the Playwright fallback that can reveal the next download
-    dialog or route.
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
     """
     parsed = urlparse(candidate.url)
     if parsed.scheme not in {"http", "https"}:
@@ -2049,12 +2689,26 @@ def is_actionable_installer_candidate(candidate: InstallerCandidate) -> bool:
 
 
 def github_collection_timeout_seconds(settings: Settings) -> float:
-    """Bound release discovery so an existing Winstall asset still gets validated."""
+    """Ejecuta la operación `github_collection_timeout_seconds`.
+
+    Args:
+        settings (Settings): Configuración del servicio.
+
+    Returns:
+        float: Resultado producido por la operación.
+    """
     return max(5.0, min(15.0, settings.request_timeout_seconds + 2.0))
 
 
 def winstall_parent_index_url(url: str) -> str | None:
-    """Return the directory containing an explicit versioned Winstall file."""
+    """Ejecuta la operación `winstall_parent_index_url`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     try:
         parsed = urlparse(url)
     except ValueError:
@@ -2079,6 +2733,14 @@ def winstall_parent_index_url(url: str) -> str | None:
 
 
 def dedupe_candidates(candidates: list[InstallerCandidate]) -> list[InstallerCandidate]:
+    """Ejecuta la operación `dedupe_candidates`.
+
+    Args:
+        candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     deduped: dict[str, InstallerCandidate] = {}
     for candidate in candidates:
         if candidate.url and candidate.url not in deduped:
@@ -2093,6 +2755,18 @@ def prepare_scored_candidates(
     publisher: str | None,
     version: str | None,
 ) -> list[InstallerCandidate]:
+    """Ejecuta la operación `prepare_scored_candidates`.
+
+    Args:
+        candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+        app_name (str | None): Valor de `app_name` utilizado por la operación.
+        package_id (str | None): Identificador de `package` utilizado por la operación.
+        publisher (str | None): Valor de `publisher` utilizado por la operación.
+        version (str | None): Valor de `version` utilizado por la operación.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     expanded = [
         variant
         for candidate in dedupe_candidates(candidates)
@@ -2113,6 +2787,14 @@ def prepare_scored_candidates(
 
 
 def dedupe_valid_installers(installers: list[ValidInstaller]) -> list[ValidInstaller]:
+    """Ejecuta la operación `dedupe_valid_installers`.
+
+    Args:
+        installers (list[ValidInstaller]): Valor de `installers` utilizado por la operación.
+
+    Returns:
+        list[ValidInstaller]: Colección de elementos obtenidos por la operación.
+    """
     deduped: dict[tuple[str, str, str], ValidInstaller] = {}
     for installer in installers:
         url = installer.result.final_url or installer.candidate.url
@@ -2129,6 +2811,15 @@ def validated_installer_version(
     candidate: InstallerCandidate,
     result: ValidationResult,
 ) -> str | None:
+    """Ejecuta la operación `validated_installer_version`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        result (ValidationResult): Resultado que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     final_candidate = InstallerCandidate(
         url=result.final_url or candidate.url,
         source=candidate.source,
@@ -2139,6 +2830,14 @@ def validated_installer_version(
 
 
 def rank_installers(installers: list[ValidInstaller]) -> list[tuple[ValidInstaller, int, bool]]:
+    """Ejecuta la operación `rank_installers`.
+
+    Args:
+        installers (list[ValidInstaller]): Valor de `installers` utilizado por la operación.
+
+    Returns:
+        list[tuple[ValidInstaller, int, bool]]: Colección de elementos obtenidos por la operación.
+    """
     grouped: dict[tuple[str, str], list[ValidInstaller]] = {}
     for installer in installers:
         grouped.setdefault(
@@ -2158,6 +2857,15 @@ def infer_validated_operating_system(
     candidate: InstallerCandidate,
     result: ValidationResult,
 ) -> str | None:
+    """Ejecuta la operación `infer_validated_operating_system`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        result (ValidationResult): Resultado que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if result.extension != ".tar.gz":
         operating_system = operating_system_for_extension(result.extension)
         if operating_system:
@@ -2194,17 +2902,34 @@ def is_windows_winstall_archive(
     candidate: InstallerCandidate,
     extension: str | None = None,
 ) -> bool:
+    """Indica si se cumple la operación `windows_winstall_archive`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        extension (str | None): Valor de `extension` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     detected_extension = extension or candidate.extension
     return detected_extension == ".zip" and (
         candidate.source in {"winstall_api", "winstall_page"}
         or candidate.asset_kind == "winstall_download"
-        # An exact product match found while resolving a Windows Winstall entry
-        # is a stronger signal than an otherwise platform-less ZIP filename.
+        # Una coincidencia exacta de producto hallada al resolver una entrada Windows
+        # de Winstall es una señal más fuerte que un ZIP sin plataforma identificada.
         or bool(candidate.match_tokens)
     )
 
 
 def installer_sort_key(installer: ValidInstaller) -> tuple[int, Any, int, int]:
+    """Ejecuta la operación `installer_sort_key`.
+
+    Args:
+        installer (ValidInstaller): Valor de `installer` utilizado por la operación.
+
+    Returns:
+        tuple[int, Any, int, int]: Resultado producido por la operación.
+    """
     version = parse_version(installer.version)
     return (
         1 if version is not None else 0,
@@ -2215,6 +2940,14 @@ def installer_sort_key(installer: ValidInstaller) -> tuple[int, Any, int, int]:
 
 
 def parse_version(value: str | None) -> Version | None:
+    """Analiza la operación `version`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        Version | None: Resultado producido por la operación.
+    """
     if not value:
         return None
     try:
@@ -2224,6 +2957,15 @@ def parse_version(value: str | None) -> Version | None:
 
 
 def resolved_metadata(installer: ValidInstaller, is_latest: bool) -> dict:
+    """Ejecuta la operación `resolved_metadata`.
+
+    Args:
+        installer (ValidInstaller): Valor de `installer` utilizado por la operación.
+        is_latest (bool): Valor de `is_latest` utilizado por la operación.
+
+    Returns:
+        dict: Mapa con los datos producidos por la operación.
+    """
     metadata = {
         "candidate_source": installer.candidate.source,
         "candidate_label": installer.candidate.label,
@@ -2242,6 +2984,15 @@ def resolved_metadata(installer: ValidInstaller, is_latest: bool) -> dict:
 
 
 def scrape_app_failure_metadata(exc: Exception, winstall_id: str) -> dict:
+    """Ejecuta la operación `scrape_app_failure_metadata`.
+
+    Args:
+        exc (Exception): Valor de `exc` utilizado por la operación.
+        winstall_id (str): Identificador de `winstall` utilizado por la operación.
+
+    Returns:
+        dict: Mapa con los datos producidos por la operación.
+    """
     metadata: dict[str, object] = {
         "winstall_id": winstall_id,
         "error": exc.__class__.__name__,
@@ -2254,17 +3005,42 @@ def scrape_app_failure_metadata(exc: Exception, winstall_id: str) -> dict:
 
 
 def exception_detail(exc: Exception) -> str:
+    """Ejecuta la operación `exception_detail`.
+
+    Args:
+        exc (Exception): Valor de `exc` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     if isinstance(exc, StatementError) and exc.orig is not None:
         return truncate_text(f"{exc.orig.__class__.__name__}: {exc.orig}", 1200) or ""
     return truncate_text(str(exc), 1200) or ""
 
 
 def is_transient_mysql_lock_error(exc: OperationalError) -> bool:
+    """Indica si se cumple la operación `transient_mysql_lock_error`.
+
+    Args:
+        exc (OperationalError): Valor de `exc` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     args: tuple[object, ...] = getattr(exc.orig, "args", ())
     return bool(args) and args[0] in {1205, 1213}
 
 
 def truncate_text(value: object, max_length: int) -> str | None:
+    """Ejecuta la operación `truncate_text`.
+
+    Args:
+        value (object): Valor que debe procesarse.
+        max_length (int): Valor de `max_length` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if value is None:
         return None
     text = str(value)

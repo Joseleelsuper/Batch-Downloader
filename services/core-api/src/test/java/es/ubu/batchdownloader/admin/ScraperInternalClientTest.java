@@ -16,9 +16,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code ScraperInternalClientTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class ScraperInternalClientTest {
+    /**
+     * Dato compartido {@code server} para los escenarios de prueba.
+     */
     private HttpServer server;
 
+    /**
+     * Libera el estado utilizado por los escenarios de prueba.
+     */
     @AfterEach
     void stopServer() {
         if (server != null) {
@@ -26,6 +37,12 @@ class ScraperInternalClientTest {
         }
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * manualInspectionUsesInternalAuthenticationAndPropagatesTypedSafeErrors}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void manualInspectionUsesInternalAuthenticationAndPropagatesTypedSafeErrors()
             throws Exception {
@@ -74,6 +91,11 @@ class ScraperInternalClientTest {
                 "\"linux\":\"" + linuxInstallerUrl + "\"");
     }
 
+    /**
+     * Comprueba el escenario {@code descriptionGenerationUsesTheAuthenticatedInternalRoute}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void descriptionGenerationUsesTheAuthenticatedInternalRoute() throws Exception {
         AtomicReference<String> token = new AtomicReference<>();
@@ -96,6 +118,12 @@ class ScraperInternalClientTest {
         assertThat(token).hasValue("internal-secret");
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * websiteDiscoveryUsesTheAuthenticatedInternalRouteWithoutExposingInstallers}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void websiteDiscoveryUsesTheAuthenticatedInternalRouteWithoutExposingInstallers()
             throws Exception {
@@ -146,6 +174,11 @@ class ScraperInternalClientTest {
                 "\"windows\":\"https://downloads.example.test/Product.exe\"");
     }
 
+    /**
+     * Comprueba el escenario {@code currentInspectionPreservesNotFoundAsATypedBoundaryError}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void currentInspectionPreservesNotFoundAsATypedBoundaryError() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -166,6 +199,11 @@ class ScraperInternalClientTest {
                 .isEqualTo("inspection_not_found");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsUnsafeUpstreamErrorCodesInsteadOfEchoingThem}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void rejectsUnsafeUpstreamErrorCodesInsteadOfEchoingThem() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -190,6 +228,11 @@ class ScraperInternalClientTest {
                 .isEqualTo("manual_installer_inspection_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code client}.
+     *
+     * @return Resultado producido por {@code client}.
+     */
     private ScraperInternalClient client() {
         return new ScraperInternalClient(
                 new ObjectMapper().findAndRegisterModules(),

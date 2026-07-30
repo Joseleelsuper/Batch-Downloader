@@ -1,7 +1,4 @@
-"""Replace icon enrichment with the persistent operating-system filter stage.
-
-Revision ID: 20260713_0009
-Revises: 20260713_0008
+"""Define la migración de esquema `20260713_0009_so_filter_pipeline`.
 """
 
 from collections.abc import Sequence
@@ -11,12 +8,22 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260713_0009"
+"""Estado global asociado a `revision`.
+"""
 down_revision: str | None = "20260713_0008"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels: str | Sequence[str] | None = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on: str | Sequence[str] | None = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
+    """Ejecuta la operación `upgrade`.
+    """
     op.add_column(
         "software_apps",
         sa.Column("operating_systems_json", sa.JSON(), nullable=True),
@@ -66,6 +73,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.execute(sa.text("DELETE FROM scraper_work_items WHERE queue = 'scraper_so_filter'"))
     op.execute(
         sa.text(

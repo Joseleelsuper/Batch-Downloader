@@ -1,7 +1,4 @@
-"""Persist recoverable manual installer inspections.
-
-Revision ID: 20260728_0012
-Revises: 20260718_0011
+"""Define la migración de esquema `20260728_0012_manual_installer_inspections`.
 """
 
 from collections.abc import Sequence
@@ -11,12 +8,22 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260728_0012"
+"""Estado global asociado a `revision`.
+"""
 down_revision: str | None = "20260718_0011"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels: str | Sequence[str] | None = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on: str | Sequence[str] | None = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
+    """Ejecuta la operación `upgrade`.
+    """
     op.create_table(
         "manual_installer_inspections",
         sa.Column("id", sa.BINARY(16), nullable=False),
@@ -63,4 +70,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.drop_table("manual_installer_inspections")

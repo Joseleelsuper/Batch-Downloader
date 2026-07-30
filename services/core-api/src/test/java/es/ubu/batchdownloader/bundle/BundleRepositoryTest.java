@@ -21,7 +21,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 
+/**
+ * Agrupa los escenarios de prueba de {@code BundleRepositoryTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class BundleRepositoryTest {
+    /**
+     * Comprueba el escenario {@code writesAuthenticatedBundleOwnerAsTextUuid}.
+     */
     @Test
     void writesAuthenticatedBundleOwnerAsTextUuid() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -52,6 +60,9 @@ class BundleRepositoryTest {
         assertThat(parameters.getValue()[7]).isEqualTo(ownerId.toString());
     }
 
+    /**
+     * Comprueba el escenario {@code exposesPlatformsWithASelectableInstallerRegardlessOfAge}.
+     */
     @Test
     void exposesPlatformsWithASelectableInstallerRegardlessOfAge() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

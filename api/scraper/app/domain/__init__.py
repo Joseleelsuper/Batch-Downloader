@@ -1,1 +1,2 @@
-"""Framework-independent scraper domain types."""
+"""Inicializa el paquete `domain`.
+"""

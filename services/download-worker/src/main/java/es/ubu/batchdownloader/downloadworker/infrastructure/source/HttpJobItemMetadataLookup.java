@@ -18,12 +18,36 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Implementa el componente {@code HttpJobItemMetadataLookup}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
+    /**
+     * Estado {@code client} mantenido por {@code HttpJobItemMetadataLookup}.
+     */
     private final HttpClient client;
+    /**
+     * Dependencia {@code objectMapper} utilizada por {@code HttpJobItemMetadataLookup}.
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * Estado {@code properties} mantenido por {@code HttpJobItemMetadataLookup}.
+     */
     private final CoreApiProperties properties;
+    /**
+     * Estado {@code baseUrl} mantenido por {@code HttpJobItemMetadataLookup}.
+     */
     private final String baseUrl;
 
+    /**
+     * Inicializa una instancia de {@code HttpJobItemMetadataLookup}.
+     *
+     * @param client Valor de {@code client} utilizado por la operación.
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     */
     public HttpJobItemMetadataLookup(
             HttpClient client,
             ObjectMapper objectMapper,
@@ -34,6 +58,15 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
         this.baseUrl = properties.baseUrl().replaceAll("/+$", "");
     }
 
+    /**
+     * Busca el resultado solicitado mediante {@code find}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param requestedItems Valor de {@code requestedItems} utilizado por la operación.
+     * @return Mapa con los datos producidos por la operación.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Override
     public Map<UUID, DownloadItemMetadata> find(
             UUID jobId,
@@ -64,6 +97,14 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
         return validate(requestedItems, deserialize(response.body()));
     }
 
+    /**
+     * Ejecuta la operación {@code serialize}.
+     *
+     * @param items Colección de elementos que debe procesarse.
+     * @return Resultado producido por {@code serialize}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private String serialize(List<DownloadItemRequest> items) {
         try {
             return objectMapper.writeValueAsString(
@@ -73,6 +114,14 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
         }
     }
 
+    /**
+     * Envía el contenido solicitado mediante {@code send}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code send}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private HttpResponse<String> send(HttpRequest request) {
         try {
             return client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -84,6 +133,14 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code deserialize}.
+     *
+     * @param body Cuerpo recibido por la solicitud.
+     * @return Colección de elementos obtenidos por la operación.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private List<MetadataItem> deserialize(String body) {
         try {
             return objectMapper.readValue(body, new TypeReference<>() {});
@@ -92,6 +149,13 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
         }
     }
 
+    /**
+     * Valida los datos recibidos mediante {@code validate}.
+     *
+     * @param requestedItems Valor de {@code requestedItems} utilizado por la operación.
+     * @param response Respuesta que debe procesarse.
+     * @return Mapa con los datos producidos por la operación.
+     */
     private Map<UUID, DownloadItemMetadata> validate(
             List<DownloadItemRequest> requestedItems,
             List<MetadataItem> response) {
@@ -130,14 +194,34 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
         return Map.copyOf(result);
     }
 
+    /**
+     * Ejecuta la operación {@code invalidResponse}.
+     *
+     * @return Resultado producido por {@code invalidResponse}.
+     */
     private InfrastructureException invalidResponse() {
         return new InfrastructureException(
                 "invalid_job_metadata_response",
                 new IllegalArgumentException("Core returned inconsistent job item metadata"));
     }
 
+    /**
+     * Representa los datos inmutables de {@code MetadataRequest}.
+     *
+     * @param itemIds Valor de {@code itemIds} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record MetadataRequest(List<UUID> itemIds) {}
 
+    /**
+     * Representa los datos inmutables de {@code MetadataItem}.
+     *
+     * @param itemId Valor de {@code itemId} incluido en el record.
+     * @param appId Valor de {@code appId} incluido en el record.
+     * @param appName Valor de {@code appName} incluido en el record.
+     * @param officialPageUrl Valor de {@code officialPageUrl} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record MetadataItem(
             UUID itemId,
             UUID appId,

@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_model_worker_manifest`.
+"""
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,11 @@ from app.model_worker import SemanticModelWorker
 def test_manifest_validation_ignores_hub_cache_and_checks_expected_sizes(
     tmp_path: Path,
 ) -> None:
+    """Comprueba el escenario `manifest_validation_ignores_hub_cache_and_checks_expected_sizes`.
+
+    Args:
+        tmp_path (Path): Directorio temporal proporcionado por pytest.
+    """
     (tmp_path / "model.safetensors").write_bytes(b"weights")
     (tmp_path / "config.json").write_text("{}", encoding="utf-8")
     cache = tmp_path / ".cache" / "huggingface"

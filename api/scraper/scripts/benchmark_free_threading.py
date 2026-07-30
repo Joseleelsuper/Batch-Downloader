@@ -1,3 +1,5 @@
+"""Proporciona la utilidad de línea de comandos `benchmark_free_threading`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -17,10 +19,23 @@ from pathlib import Path
 from app.scraper.candidates import extract_candidates, score_candidate
 
 THREAD_COUNTS = (1, 2, 4, 8)
+"""Constante que define `THREAD_COUNTS`.
+"""
 DEFAULT_HTML = Path(__file__).parent / "fixtures" / "benchmark_catalog.html"
+"""Constante que define `DEFAULT_HTML`.
+"""
 
 
 def parse_and_score(html: str, iteration: int) -> int:
+    """Analiza la operación `and_score`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+        iteration (int): Valor de `iteration` utilizado por la operación.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     candidates = extract_candidates(html, "https://benchmark.invalid/")
     scored = [
         score_candidate(
@@ -34,10 +49,28 @@ def parse_and_score(html: str, iteration: int) -> int:
 
 
 def cached_html_workload(html: str, iteration: int) -> int:
+    """Ejecuta la operación `cached_html_workload`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+        iteration (int): Valor de `iteration` utilizado por la operación.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     return parse_and_score(html, iteration)
 
 
 def controlled_http_workload(url: str, iteration: int) -> int:
+    """Ejecuta la operación `controlled_http_workload`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+        iteration (int): Valor de `iteration` utilizado por la operación.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     with urllib.request.urlopen(url, timeout=5) as response:
         html = response.read().decode("utf-8")
     return parse_and_score(html, iteration)
@@ -49,6 +82,17 @@ def run(
     workers: int,
     tasks: int,
 ) -> dict[str, float | int]:
+    """Ejecuta la operación `run`.
+
+    Args:
+        workload (Any): Valor de `workload` utilizado por la operación.
+        source (str): Fuente de descarga sobre la que se actúa.
+        workers (int): Valor de `workers` utilizado por la operación.
+        tasks (int): Valor de `tasks` utilizado por la operación.
+
+    Returns:
+        dict[str, float | int]: Mapa con los datos producidos por la operación.
+    """
     started = time.perf_counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         checksums = list(
@@ -68,10 +112,22 @@ def run(
 
 @contextmanager
 def controlled_http_server(html: str) -> Iterator[str]:
+    """Ejecuta la operación `controlled_http_server`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+
+    Yields:
+        Iterator[str]: Elemento producido por la operación.
+    """
     payload = html.encode("utf-8")
 
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
+        """Representa el componente `Handler`.
+        """
+        def do_GET(self) -> None:  # noqa: N802 - nombre exigido por la biblioteca estándar
+            """Ejecuta `do_GET` dentro de `Handler`.
+            """
             if self.path != "/catalog":
                 self.send_error(404)
                 return
@@ -82,6 +138,12 @@ def controlled_http_server(html: str) -> Iterator[str]:
             self.wfile.write(payload)
 
         def log_message(self, _format: str, *args: object) -> None:
+            """Ejecuta `log_message` dentro de `Handler`.
+
+            Args:
+                _format (str): Valor de `_format` utilizado por la operación.
+                *args (object): Valor de `args` utilizado por la operación.
+            """
             del args
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -107,6 +169,18 @@ def benchmark_workload(
     tasks: int,
     repetitions: int,
 ) -> list[dict[str, object]]:
+    """Ejecuta la operación `benchmark_workload`.
+
+    Args:
+        name (str): Nombre del elemento sobre el que se actúa.
+        workload (Any): Valor de `workload` utilizado por la operación.
+        source (str): Fuente de descarga sobre la que se actúa.
+        tasks (int): Valor de `tasks` utilizado por la operación.
+        repetitions (int): Valor de `repetitions` utilizado por la operación.
+
+    Returns:
+        list[dict[str, object]]: Colección de elementos obtenidos por la operación.
+    """
     measurements: list[dict[str, object]] = []
     for workers in THREAD_COUNTS:
         samples = [
@@ -132,6 +206,14 @@ def benchmark_workload(
 
 
 def verify_checksums(measurements: list[dict[str, object]]) -> None:
+    """Verifica la operación `checksums`.
+
+    Args:
+        measurements (list[dict[str, object]]): Valor de `measurements` utilizado por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     by_workload: dict[str, set[int]] = {}
     for measurement in measurements:
         checksums = measurement["checksums"]
@@ -145,6 +227,8 @@ def verify_checksums(measurements: list[dict[str, object]]) -> None:
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--html", type=Path, default=DEFAULT_HTML)
     parser.add_argument("--tasks", type=int, default=200)

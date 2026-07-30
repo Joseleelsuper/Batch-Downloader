@@ -1,3 +1,5 @@
+"""Configura el punto de entrada del servicio semántico.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -25,17 +27,39 @@ from app.schemas import SemanticSearchRequest, SemanticSearchResponse
 from app.store import SemanticStore
 
 INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token"
+"""Constante que define `INTERNAL_SERVICE_TOKEN_HEADER`.
+"""
 
 settings = get_settings()
+"""Estado global asociado a `settings`.
+"""
 database = Database(settings)
+"""Estado global asociado a `database`.
+"""
 store = SemanticStore(database)
+"""Estado global asociado a `store`.
+"""
 admin_store = SemanticAdminStore(database)
+"""Estado global asociado a `admin_store`.
+"""
 hub_catalog = HuggingFaceCatalog()
+"""Estado global asociado a `hub_catalog`.
+"""
 runtime_cache: OrderedDict[str, EmbeddingRuntime] = OrderedDict()
+"""Estado global asociado a `runtime_cache`.
+"""
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """Ejecuta la operación `lifespan`.
+
+    Args:
+        _app (FastAPI): Valor de `_app` utilizado por la operación.
+
+    Yields:
+        Any: Elemento producido por la operación.
+    """
     await asyncio.to_thread(database.open)
     await asyncio.to_thread(database.migrate)
     try:
@@ -45,9 +69,16 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Batch Downloader Semantic Service", lifespan=lifespan)
+"""Estado global asociado a `app`.
+"""
 
 
 def runtime_for(model):
+    """Ejecuta la operación `runtime_for`.
+
+    Args:
+        model (Any): Modelo utilizado por la operación.
+    """
     runtime = runtime_cache.get(model.model_version)
     if runtime is None:
         runtime = EmbeddingRuntime(
@@ -64,6 +95,17 @@ def runtime_for(model):
 
 
 async def create_admin_operation(**kwargs: object) -> dict[str, object]:
+    """Crea la operación `admin_operation`.
+
+    Args:
+        **kwargs (object): Valor de `kwargs` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         return await asyncio.to_thread(admin_store.create_operation, **kwargs)
     except RuntimeError as exception:
@@ -79,6 +121,14 @@ async def require_internal_service_token(
         Header(alias=INTERNAL_SERVICE_TOKEN_HEADER),
     ] = None,
 ) -> None:
+    """Ejecuta la operación `require_internal_service_token`.
+
+    Args:
+        provided_token (str | None): Valor de `provided_token` utilizado por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     expected = settings.internal_service_token.get_secret_value()
     if not expected or not secrets.compare_digest(provided_token or "", expected):
         raise HTTPException(status_code=401, detail={"code": "invalid_internal_token"})
@@ -86,6 +136,11 @@ async def require_internal_service_token(
 
 @app.get("/semantic/health")
 async def health() -> dict[str, object]:
+    """Ejecuta la operación `health`.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+    """
     database_ready = await asyncio.to_thread(database.healthy)
     active = await asyncio.to_thread(store.active_model) if database_ready else None
     search_ready = active is not None
@@ -112,6 +167,17 @@ async def health() -> dict[str, object]:
     responses={401: {}, 503: {}},
 )
 async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchResponse:
+    """Ejecuta la operación `semantic_search`.
+
+    Args:
+        request (SemanticSearchRequest): Solicitud recibida por la operación.
+
+    Returns:
+        SemanticSearchResponse: Resultado producido por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     active = await asyncio.to_thread(store.active_model)
     if active is None:
         raise HTTPException(
@@ -152,6 +218,8 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
 
 
 admin_dependencies = [Depends(require_internal_service_token)]
+"""Estado global asociado a `admin_dependencies`.
+"""
 
 
 @app.get(
@@ -159,6 +227,11 @@ admin_dependencies = [Depends(require_internal_service_token)]
     dependencies=admin_dependencies,
 )
 async def semantic_admin_overview() -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_overview`.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+    """
     return await asyncio.to_thread(
         admin_store.overview,
         settings.model_cache_dir,
@@ -172,6 +245,11 @@ async def semantic_admin_overview() -> dict[str, object]:
     dependencies=admin_dependencies,
 )
 async def semantic_admin_models() -> list[dict[str, object]]:
+    """Ejecuta la operación `semantic_admin_models`.
+
+    Returns:
+        list[dict[str, object]]: Colección de elementos obtenidos por la operación.
+    """
     return await asyncio.to_thread(admin_store.models)
 
 
@@ -180,6 +258,17 @@ async def semantic_admin_models() -> list[dict[str, object]]:
     dependencies=admin_dependencies,
 )
 async def semantic_admin_model(model_id: UUID) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_model`.
+
+    Args:
+        model_id (UUID): Identificador de `model` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         return await asyncio.to_thread(admin_store.model, str(model_id))
     except LookupError as exception:
@@ -196,6 +285,14 @@ async def semantic_admin_model(model_id: UUID) -> dict[str, object]:
 async def semantic_admin_benchmarks(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[dict[str, object]]:
+    """Ejecuta la operación `semantic_admin_benchmarks`.
+
+    Args:
+        limit (int): Número máximo de elementos que se recuperarán.
+
+    Returns:
+        list[dict[str, object]]: Colección de elementos obtenidos por la operación.
+    """
     return await asyncio.to_thread(admin_store.benchmarks, limit)
 
 
@@ -207,6 +304,18 @@ async def semantic_admin_hub_models(
     query: str = Query(min_length=2, max_length=120),
     limit: int = Query(default=25, ge=1, le=50),
 ) -> list[dict[str, object]]:
+    """Ejecuta la operación `semantic_admin_hub_models`.
+
+    Args:
+        query (str): Valor de `query` utilizado por la operación.
+        limit (int): Número máximo de elementos que se recuperarán.
+
+    Returns:
+        list[dict[str, object]]: Colección de elementos obtenidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         return await asyncio.to_thread(hub_catalog.search, query, limit=limit)
     except HfHubHTTPError as exception:
@@ -229,6 +338,18 @@ async def semantic_admin_hub_model(
     repository: str = Query(min_length=3, max_length=200),
     revision: str | None = Query(default=None, max_length=200),
 ) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_hub_model`.
+
+    Args:
+        repository (str): Valor de `repository` utilizado por la operación.
+        revision (str | None): Valor de `revision` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     if not _valid_repository(repository):
         raise HTTPException(
             status_code=422,
@@ -271,6 +392,19 @@ async def semantic_admin_download(
         Header(alias="Idempotency-Key"),
     ] = None,
 ) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_download`.
+
+    Args:
+        request (DownloadModelRequest): Solicitud recibida por la operación.
+        actor (str | None): Valor de `actor` utilizado por la operación.
+        idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         detail = await asyncio.to_thread(
             hub_catalog.detail,
@@ -369,6 +503,19 @@ async def semantic_admin_start_benchmark(
         Header(alias="Idempotency-Key"),
     ] = None,
 ) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_start_benchmark`.
+
+    Args:
+        request (BenchmarkModelsRequest): Solicitud recibida por la operación.
+        actor (str | None): Valor de `actor` utilizado por la operación.
+        idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     model_ids = [str(model_id) for model_id in request.model_ids]
     active_id = await asyncio.to_thread(admin_store.active_model_id)
     if active_id and active_id not in model_ids:
@@ -416,6 +563,19 @@ async def semantic_admin_prepare(
         Header(alias="Idempotency-Key"),
     ] = None,
 ) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_prepare`.
+
+    Args:
+        model_id (UUID): Identificador de `model` utilizado por la operación.
+        actor (str | None): Valor de `actor` utilizado por la operación.
+        idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         model = await asyncio.to_thread(admin_store.model, str(model_id))
     except LookupError as exception:
@@ -460,6 +620,20 @@ async def semantic_admin_activate(
         Header(alias="Idempotency-Key"),
     ] = None,
 ) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_activate`.
+
+    Args:
+        model_id (UUID): Identificador de `model` utilizado por la operación.
+        request (ActivateModelRequest): Solicitud recibida por la operación.
+        actor (str | None): Valor de `actor` utilizado por la operación.
+        idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         model = await asyncio.to_thread(admin_store.model, str(model_id))
     except LookupError as exception:
@@ -494,6 +668,19 @@ async def semantic_admin_delete(
         Header(alias="Idempotency-Key"),
     ] = None,
 ) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_delete`.
+
+    Args:
+        model_id (UUID): Identificador de `model` utilizado por la operación.
+        actor (str | None): Valor de `actor` utilizado por la operación.
+        idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         model = await asyncio.to_thread(admin_store.model, str(model_id))
     except LookupError as exception:
@@ -532,6 +719,15 @@ async def semantic_admin_operations(
     limit: int = Query(default=100, ge=1, le=250),
     active: bool = False,
 ) -> list[dict[str, object]]:
+    """Ejecuta la operación `semantic_admin_operations`.
+
+    Args:
+        limit (int): Número máximo de elementos que se recuperarán.
+        active (bool): Valor de `active` utilizado por la operación.
+
+    Returns:
+        list[dict[str, object]]: Colección de elementos obtenidos por la operación.
+    """
     return await asyncio.to_thread(
         admin_store.operations,
         limit=limit,
@@ -544,6 +740,17 @@ async def semantic_admin_operations(
     dependencies=admin_dependencies,
 )
 async def semantic_admin_operation(operation_id: UUID) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_operation`.
+
+    Args:
+        operation_id (UUID): Identificador de `operation` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         return await asyncio.to_thread(admin_store.operation, str(operation_id))
     except LookupError as exception:
@@ -555,6 +762,17 @@ async def semantic_admin_operation(operation_id: UUID) -> dict[str, object]:
     dependencies=admin_dependencies,
 )
 async def semantic_admin_cancel_operation(operation_id: UUID) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_cancel_operation`.
+
+    Args:
+        operation_id (UUID): Identificador de `operation` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         return await asyncio.to_thread(admin_store.request_cancel, str(operation_id))
     except LookupError as exception:
@@ -576,6 +794,19 @@ async def semantic_admin_retry_operation(
         Header(alias="Idempotency-Key"),
     ] = None,
 ) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_retry_operation`.
+
+    Args:
+        operation_id (UUID): Identificador de `operation` utilizado por la operación.
+        actor (str | None): Valor de `actor` utilizado por la operación.
+        idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         operation = await asyncio.to_thread(
             admin_store.retry_operation,
@@ -599,6 +830,17 @@ async def semantic_admin_retry_operation(
     dependencies=admin_dependencies,
 )
 async def semantic_admin_warm_model(model_id: UUID) -> dict[str, object]:
+    """Ejecuta la operación `semantic_admin_warm_model`.
+
+    Args:
+        model_id (UUID): Identificador de `model` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     try:
         artifact = await asyncio.to_thread(admin_store.artifact, str(model_id))
         model_version = artifact.get("model_version")
@@ -617,16 +859,40 @@ async def semantic_admin_warm_model(model_id: UUID) -> dict[str, object]:
 
 
 def _admin_actor(value: str | None) -> str:
+    """Ejecuta el paso interno `_admin_actor`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     normalized = (value or "admin").strip()
     return normalized[:120] or "admin"
 
 
 def _idempotency(value: str | None) -> str | None:
+    """Ejecuta el paso interno `_idempotency`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     normalized = (value or "").strip()
     return normalized[:200] or None
 
 
 def _valid_repository(repository: str) -> bool:
+    """Ejecuta el paso interno `_valid_repository`.
+
+    Args:
+        repository (str): Valor de `repository` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     parts = repository.strip().split("/")
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
     return len(parts) == 2 and all(part and set(part) <= allowed for part in parts)

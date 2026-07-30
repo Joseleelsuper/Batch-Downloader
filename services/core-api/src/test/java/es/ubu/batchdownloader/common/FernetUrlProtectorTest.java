@@ -4,7 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code FernetUrlProtectorTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class FernetUrlProtectorTest {
+    /**
+     * Comprueba el escenario {@code revealsProtectedUrlAndRejectsInvalidTokens}.
+     */
     @Test
     void revealsProtectedUrlAndRejectsInvalidTokens() {
         FernetUrlProtector protector = new FernetUrlProtector("test-secret");

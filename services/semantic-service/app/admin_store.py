@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `admin_store`.
+"""
 from __future__ import annotations
 
 import json
@@ -13,11 +15,22 @@ from app.database import Database
 from app.model_registry import downloaded_model_identity, model_index_name
 
 ACTIVE_OPERATION_STATES = ("queued", "running", "cancel_requested")
+"""Constante que define `ACTIVE_OPERATION_STATES`.
+"""
 
 
 class SemanticAdminStore:
+    """Gestiona el almacenamiento de `SemanticAdmin`.
+    """
     def __init__(self, database: Database) -> None:
+        """Inicializa una instancia de `SemanticAdminStore`.
+
+        Args:
+            database (Database): Acceso a la base de datos utilizado por la operación.
+        """
         self.database = database
+        """Estado de instancia asociado a `database`.
+        """
 
     def overview(
         self,
@@ -26,6 +39,16 @@ class SemanticAdminStore:
         model_max_bytes: int,
         model_min_free_bytes: int,
     ) -> dict[str, Any]:
+        """Ejecuta `overview` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_cache_dir (str): Valor de `model_cache_dir` utilizado por la operación.
+            model_max_bytes (int): Valor de `model_max_bytes` utilizado por la operación.
+            model_min_free_bytes (int): Valor de `model_min_free_bytes` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         models = self.models()
         active = next((model for model in models if model["active"]), None)
         operation_count = self.database.run(
@@ -66,6 +89,11 @@ class SemanticAdminStore:
         }
 
     def models(self) -> list[dict[str, Any]]:
+        """Ejecuta `models` dentro de `SemanticAdminStore`.
+
+        Returns:
+            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        """
         rows = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -127,6 +155,14 @@ class SemanticAdminStore:
         return [self._model(row) for row in rows]
 
     def eligible_benchmark(self, model_id: str) -> dict[str, Any] | None:
+        """Ejecuta `eligible_benchmark` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+
+        Returns:
+            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -201,6 +237,17 @@ class SemanticAdminStore:
         *,
         excluding_operation_id: str | None = None,
     ) -> None:
+        """Comprueba la operación `model_deletable`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+            excluding_operation_id (str | None): Identificador de `excluding_operation` utilizado
+                por la operación.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+            LookupError: Si no existe el elemento solicitado.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -236,12 +283,34 @@ class SemanticAdminStore:
             raise RuntimeError("semantic_model_has_open_operations")
 
     def model(self, model_id: str) -> dict[str, Any]:
+        """Ejecuta `model` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            LookupError: Si no existe el elemento solicitado.
+        """
         model = next((row for row in self.models() if row["id"] == model_id), None)
         if model is None:
             raise LookupError("semantic_model_not_found")
         return model
 
     def artifact(self, model_id: str) -> dict[str, Any]:
+        """Ejecuta `artifact` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            LookupError: Si no existe el elemento solicitado.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -265,6 +334,13 @@ class SemanticAdminStore:
         local_path: str,
         artifact_bytes: int,
     ) -> None:
+        """Ejecuta `reconcile_artifact_path` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+            local_path (str): Ruta de `local` utilizada por la operación.
+            artifact_bytes (int): Valor de `artifact_bytes` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -290,6 +366,11 @@ class SemanticAdminStore:
         )
 
     def active_model_id(self) -> str | None:
+        """Ejecuta `active_model_id` dentro de `SemanticAdminStore`.
+
+        Returns:
+            str | None: Resultado producido por la operación.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -303,6 +384,14 @@ class SemanticAdminStore:
         return row["model_id"] if row and row["model_id"] else None
 
     def benchmarks(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Ejecuta `benchmarks` dentro de `SemanticAdminStore`.
+
+        Args:
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        """
         rows = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -352,6 +441,26 @@ class SemanticAdminStore:
         request_payload: dict[str, Any],
         progress_total: int,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Crea la operación `download_operation`.
+
+        Args:
+            repository (str): Valor de `repository` utilizado por la operación.
+            requested_revision (str | None): Valor de `requested_revision` utilizado por la
+                operación.
+            resolved_revision (str): Valor de `resolved_revision` utilizado por la operación.
+            display_name (str): Valor de `display_name` utilizado por la operación.
+            metadata (dict[str, Any]): Valor de `metadata` utilizado por la operación.
+            query_prefix (str): Valor de `query_prefix` utilizado por la operación.
+            passage_prefix (str): Valor de `passage_prefix` utilizado por la operación.
+            minimum_similarity (float): Valor de `minimum_similarity` utilizado por la operación.
+            actor (str): Valor de `actor` utilizado por la operación.
+            idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+            request_payload (dict[str, Any]): Valor de `request_payload` utilizado por la operación.
+            progress_total (int): Valor de `progress_total` utilizado por la operación.
+
+        Returns:
+            tuple[dict[str, Any], dict[str, Any]]: Mapa con los datos producidos por la operación.
+        """
         payload_json = json.dumps(
             request_payload,
             ensure_ascii=False,
@@ -359,6 +468,14 @@ class SemanticAdminStore:
         )
 
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+            """
             if idempotency_key:
                 connection.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
@@ -507,6 +624,13 @@ class SemanticAdminStore:
         *,
         message: str | None = None,
     ) -> None:
+        """Marca la operación `artifact_state`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+            state (str): Valor de `state` utilizado por la operación.
+            message (str | None): Mensaje que debe procesarse.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -530,7 +654,28 @@ class SemanticAdminStore:
         dimensions: int,
         metadata: dict[str, Any],
     ) -> str:
+        """Ejecuta `register_validated_artifact` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+            local_path (str): Ruta de `local` utilizada por la operación.
+            artifact_bytes (int): Valor de `artifact_bytes` utilizado por la operación.
+            manifest_digest (str): Valor de `manifest_digest` utilizado por la operación.
+            dimensions (int): Valor de `dimensions` utilizado por la operación.
+            metadata (dict[str, Any]): Valor de `metadata` utilizado por la operación.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                LookupError: Si no existe el elemento solicitado.
+            """
             artifact = connection.execute(
                 """
                 UPDATE semantic_model_artifacts
@@ -611,6 +756,23 @@ class SemanticAdminStore:
         progress_total: int = 0,
         progress_unit: str = "items",
     ) -> dict[str, Any]:
+        """Crea la operación `operation`.
+
+        Args:
+            kind (str): Valor de `kind` utilizado por la operación.
+            actor (str): Valor de `actor` utilizado por la operación.
+            idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+            request_payload (dict[str, Any]): Valor de `request_payload` utilizado por la operación.
+            model_id (str | None): Identificador de `model` utilizado por la operación.
+            model_version (str | None): Valor de `model_version` utilizado por la operación.
+            repository (str | None): Valor de `repository` utilizado por la operación.
+            resolved_revision (str | None): Valor de `resolved_revision` utilizado por la operación.
+            progress_total (int): Valor de `progress_total` utilizado por la operación.
+            progress_unit (str): Valor de `progress_unit` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         payload_json = json.dumps(
             request_payload,
             ensure_ascii=False,
@@ -618,6 +780,14 @@ class SemanticAdminStore:
         )
 
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+            """
             if idempotency_key:
                 connection.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
@@ -703,6 +873,15 @@ class SemanticAdminStore:
         limit: int = 100,
         active_only: bool = False,
     ) -> list[dict[str, Any]]:
+        """Ejecuta `operations` dentro de `SemanticAdminStore`.
+
+        Args:
+            limit (int): Número máximo de elementos que se recuperarán.
+            active_only (bool): Valor de `active_only` utilizado por la operación.
+
+        Returns:
+            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        """
         clause = (
             "WHERE status IN ('queued', 'running', 'cancel_requested')"
             if active_only
@@ -723,6 +902,17 @@ class SemanticAdminStore:
         return [self._operation(row) for row in rows]
 
     def operation(self, operation_id: str) -> dict[str, Any]:
+        """Ejecuta `operation` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            LookupError: Si no existe el elemento solicitado.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 "SELECT * FROM semantic_operations WHERE id = %s",
@@ -734,6 +924,17 @@ class SemanticAdminStore:
         return self._operation(row)
 
     def operation_request(self, operation_id: str) -> dict[str, Any]:
+        """Ejecuta `operation_request` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            LookupError: Si no existe el elemento solicitado.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -749,7 +950,21 @@ class SemanticAdminStore:
         return dict(row["request_payload"] or {})
 
     def claim_operation(self, owner: str, lease_seconds: int) -> dict[str, Any] | None:
+        """Reserva la operación `operation`.
+
+        Args:
+            owner (str): Valor de `owner` utilizado por la operación.
+            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+
+        Returns:
+            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             connection.execute(
                 """
                 UPDATE semantic_operations
@@ -790,6 +1005,13 @@ class SemanticAdminStore:
         return self.database.run(mutate)
 
     def renew_operation(self, operation_id: str, owner: str, lease_seconds: int) -> None:
+        """Ejecuta `renew_operation` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            owner (str): Valor de `owner` utilizado por la operación.
+            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -812,6 +1034,16 @@ class SemanticAdminStore:
         unit: str | None = None,
         message: str | None = None,
     ) -> None:
+        """Actualiza la operación `operation`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            phase (str): Valor de `phase` utilizado por la operación.
+            current (int | None): Valor de `current` utilizado por la operación.
+            total (int | None): Valor de `total` utilizado por la operación.
+            unit (str | None): Valor de `unit` utilizado por la operación.
+            message (str | None): Mensaje que debe procesarse.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -836,6 +1068,17 @@ class SemanticAdminStore:
         phase: str,
         message: str,
     ) -> bool:
+        """Ejecuta `begin_finalization` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            owner (str): Valor de `owner` utilizado por la operación.
+            phase (str): Valor de `phase` utilizado por la operación.
+            message (str): Mensaje que debe procesarse.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -859,6 +1102,15 @@ class SemanticAdminStore:
         *,
         owner: str,
     ) -> bool:
+        """Ejecuta `begin_activation` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            owner (str): Valor de `owner` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return self.begin_finalization(
             operation_id,
             owner=owner,
@@ -871,6 +1123,12 @@ class SemanticAdminStore:
         operation_id: str,
         result: dict[str, Any],
     ) -> None:
+        """Ejecuta `complete_operation` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            result (dict[str, Any]): Resultado que debe procesarse.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -895,6 +1153,13 @@ class SemanticAdminStore:
         error_code: str,
         message: str,
     ) -> None:
+        """Ejecuta `fail_operation` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            error_code (str): Valor de `error_code` utilizado por la operación.
+            message (str): Mensaje que debe procesarse.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -910,7 +1175,24 @@ class SemanticAdminStore:
         )
 
     def request_cancel(self, operation_id: str) -> dict[str, Any]:
+        """Ejecuta `request_cancel` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+                LookupError: Si no existe el elemento solicitado.
+            """
             source = connection.execute(
                 """
                 SELECT *
@@ -960,7 +1242,26 @@ class SemanticAdminStore:
         actor: str,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
+        """Reintenta la operación `operation`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            actor (str): Valor de `actor` utilizado por la operación.
+            idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+                LookupError: Si no existe el elemento solicitado.
+            """
             source = connection.execute(
                 """
                 SELECT *
@@ -1041,6 +1342,14 @@ class SemanticAdminStore:
         return self.database.run(mutate)
 
     def cancel_requested(self, operation_id: str) -> bool:
+        """Ejecuta `cancel_requested` dentro de `SemanticAdminStore`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 "SELECT status FROM semantic_operations WHERE id = %s",
@@ -1050,6 +1359,11 @@ class SemanticAdminStore:
         return bool(row and row["status"] == "cancel_requested")
 
     def mark_cancelled(self, operation_id: str) -> None:
+        """Marca la operación `cancelled`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -1064,7 +1378,23 @@ class SemanticAdminStore:
         )
 
     def mark_preparing(self, model_id: str) -> str:
+        """Marca la operación `preparing`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                LookupError: Si no existe el elemento solicitado.
+            """
             row = connection.execute(
                 """
                 UPDATE embedding_models
@@ -1083,6 +1413,11 @@ class SemanticAdminStore:
         return self.database.run(mutate)
 
     def mark_ready(self, model_version: str) -> None:
+        """Marca la operación `ready`.
+
+        Args:
+            model_version (str): Valor de `model_version` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -1096,6 +1431,11 @@ class SemanticAdminStore:
         )
 
     def restore_deployment_state(self, model_id: str) -> None:
+        """Ejecuta `restore_deployment_state` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -1125,6 +1465,11 @@ class SemanticAdminStore:
         )
 
     def mark_deployment_failed(self, model_id: str) -> None:
+        """Marca la operación `deployment_failed`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -1158,6 +1503,21 @@ class SemanticAdminStore:
         query_count: int,
         paths: dict[str, str],
     ) -> None:
+        """Guarda la operación `benchmark_run`.
+
+        Args:
+            run_id (str): Identificador de `run` utilizado por la operación.
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            model_ids (list[str]): Colección de identificadores de `model`.
+            dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
+            seed (int): Valor de `seed` utilizado por la operación.
+            configuration (dict[str, Any]): Valor de `configuration` utilizado por la operación.
+            metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+            hardware_fingerprint (str): Valor de `hardware_fingerprint` utilizado por la operación.
+            document_count (int): Valor de `document_count` utilizado por la operación.
+            query_count (int): Valor de `query_count` utilizado por la operación.
+            paths (dict[str, str]): Valor de `paths` utilizado por la operación.
+        """
         result = {
             "runId": run_id,
             "datasetHash": dataset_hash,
@@ -1166,6 +1526,15 @@ class SemanticAdminStore:
         }
 
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                InterruptedError: Si no puede completarse la operación bajo las condiciones
+                    requeridas.
+            """
             operation = connection.execute(
                 """
                 SELECT status
@@ -1234,7 +1603,29 @@ class SemanticAdminStore:
         expected_current_model_id: str | None,
         confirm_regression: bool,
     ) -> dict[str, Any]:
+        """Ejecuta `activate_model` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            benchmark_run_id (str): Identificador de `benchmark_run` utilizado por la operación.
+            expected_current_model_id (str | None): Identificador de `expected_current_model`
+                utilizado por la operación.
+            confirm_regression (bool): Valor de `confirm_regression` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+                LookupError: Si no existe el elemento solicitado.
+            """
             target = connection.execute(
                 """
                 SELECT m.*, a.id::text AS model_id
@@ -1410,7 +1801,26 @@ class SemanticAdminStore:
         *,
         excluding_operation_id: str,
     ) -> dict[str, Any]:
+        """Ejecuta `begin_model_deletion` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+            excluding_operation_id (str): Identificador de `excluding_operation` utilizado por la
+                operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+                LookupError: Si no existe el elemento solicitado.
+            """
             artifact = connection.execute(
                 """
                 SELECT id, local_path
@@ -1487,7 +1897,25 @@ class SemanticAdminStore:
         operation_id: str,
         model_version: str | None,
     ) -> dict[str, Any]:
+        """Ejecuta `finish_model_deletion` dentro de `SemanticAdminStore`.
+
+        Args:
+            model_id (str): Identificador de `model` utilizado por la operación.
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            model_version (str | None): Valor de `model_version` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+            """
             row = connection.execute(
                 """
                 UPDATE semantic_model_artifacts
@@ -1523,6 +1951,14 @@ class SemanticAdminStore:
 
     @staticmethod
     def _model(row: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_model`.
+
+        Args:
+            row (dict[str, Any]): Valor de `row` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         metadata = row["metadata"] or {}
         metrics = row.get("benchmark_metrics") or []
         metric = _metric_for(metrics, str(row["id"]))
@@ -1577,6 +2013,14 @@ class SemanticAdminStore:
 
     @staticmethod
     def _operation(row: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_operation`.
+
+        Args:
+            row (dict[str, Any]): Valor de `row` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         request_payload = dict(row["request_payload"] or {})
         related_model_ids = [
             str(value)
@@ -1615,6 +2059,15 @@ class SemanticAdminStore:
 
 
 def _metric_for(metrics: list[dict[str, Any]], model_id: str | None) -> dict[str, Any] | None:
+    """Ejecuta el paso interno `_metric_for`.
+
+    Args:
+        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+        model_id (str | None): Identificador de `model` utilizado por la operación.
+
+    Returns:
+        dict[str, Any] | None: Mapa con los datos producidos por la operación.
+    """
     if not model_id:
         return None
     return next(
@@ -1628,6 +2081,14 @@ def _metric_for(metrics: list[dict[str, Any]], model_id: str | None) -> dict[str
 
 
 def _iso(value: datetime | None) -> str | None:
+    """Ejecuta el paso interno `_iso`.
+
+    Args:
+        value (datetime | None): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if value is None:
         return None
     if value.tzinfo is None:
@@ -1636,6 +2097,14 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def directory_bytes(path: str | Path) -> int:
+    """Ejecuta la operación `directory_bytes`.
+
+    Args:
+        path (str | Path): Ruta del recurso que debe procesarse.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     root = Path(path)
     return sum(
         entry.stat().st_size

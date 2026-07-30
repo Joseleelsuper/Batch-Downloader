@@ -15,52 +15,108 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
+/**
+ * Implementa el componente {@code ApiExceptionHandler}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    /**
+     * Estado {@code log} mantenido por {@code ApiExceptionHandler}.
+     */
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+    /**
+     * Ejecuta la operación {@code notFound}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code notFound}.
+     */
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<ApiError> notFound(NotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Ejecuta la operación {@code conflict}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code conflict}.
+     */
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ApiError> conflict(ConflictException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Ejecuta la operación {@code badRequest}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code badRequest}.
+     */
     @ExceptionHandler(BadRequestException.class)
     ResponseEntity<ApiError> badRequest(BadRequestException exception) {
         return ResponseEntity.badRequest()
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Ejecuta la operación {@code unprocessable}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code unprocessable}.
+     */
     @ExceptionHandler(UnprocessableEntityException.class)
     ResponseEntity<ApiError> unprocessable(UnprocessableEntityException exception) {
         return ResponseEntity.unprocessableEntity()
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Ejecuta la operación {@code unavailable}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code unavailable}.
+     */
     @ExceptionHandler(ServiceUnavailableException.class)
     ResponseEntity<ApiError> unavailable(ServiceUnavailableException exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Ejecuta la operación {@code rateLimited}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code rateLimited}.
+     */
     @ExceptionHandler(RateLimitException.class)
     ResponseEntity<ApiError> rateLimited(RateLimitException exception) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Ejecuta la operación {@code duplicate}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code duplicate}.
+     */
     @ExceptionHandler(DuplicateKeyException.class)
     ResponseEntity<ApiError> duplicate(DuplicateKeyException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiError.of("duplicate_resource", "El recurso ya existe."));
     }
 
+    /**
+     * Ejecuta la operación {@code databaseBusy}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code databaseBusy}.
+     */
     @ExceptionHandler(CannotAcquireLockException.class)
     ResponseEntity<ApiError> databaseBusy(CannotAcquireLockException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -69,12 +125,24 @@ public class ApiExceptionHandler {
                         "La base de datos está procesando otra operación. Inténtalo de nuevo."));
     }
 
+    /**
+     * Ejecuta la operación {@code invalidJson}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code invalidJson}.
+     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<ApiError> invalidJson(HttpMessageNotReadableException exception) {
         return ResponseEntity.badRequest()
                 .body(ApiError.of("invalid_json", "El cuerpo de la solicitud no contiene JSON válido."));
     }
 
+    /**
+     * Ejecuta la operación {@code validation}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code validation}.
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiError> validation(MethodArgumentNotValidException exception) {
         return ResponseEntity.badRequest()
@@ -86,29 +154,58 @@ public class ApiExceptionHandler {
                                 .toList())));
     }
 
+    /**
+     * Ejecuta la operación {@code forbidden}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code forbidden}.
+     */
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ApiError> forbidden(AccessDeniedException exception) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(ApiError.of("forbidden", "No tienes permisos para realizar esta operacion."));
     }
 
+    /**
+     * Ejecuta la operación {@code authentication}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code authentication}.
+     */
     @ExceptionHandler(AuthenticationException.class)
     ResponseEntity<ApiError> authentication(AuthenticationException exception) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiError.of("invalid_credentials", "Credenciales incorrectas o cuenta sin verificar."));
     }
 
+    /**
+     * Ejecuta la operación {@code unauthorized}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code unauthorized}.
+     */
     @ExceptionHandler(UnauthorizedException.class)
     ResponseEntity<ApiError> unauthorized(UnauthorizedException exception) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Ejecuta la operación {@code clientDisconnected}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     */
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     void clientDisconnected(AsyncRequestNotUsableException exception) {
         log.debug("Client disconnected before the response completed: {}", exception.getMessage());
     }
 
+    /**
+     * Ejecuta la operación {@code unexpected}.
+     *
+     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @return Resultado producido por {@code unexpected}.
+     */
     @ExceptionHandler(Exception.class)
     ResponseEntity<ApiError> unexpected(Exception exception) {
         log.error("Unexpected API error", exception);

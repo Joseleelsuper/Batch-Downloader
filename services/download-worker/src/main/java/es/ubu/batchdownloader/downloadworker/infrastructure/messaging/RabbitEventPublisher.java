@@ -10,15 +10,40 @@ import java.util.concurrent.TimeoutException;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
+/**
+ * Publica los datos gestionados por {@code RabbitEventPublisher}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class RabbitEventPublisher implements EventPublisher {
+    /**
+     * Estado {@code rabbitTemplate} mantenido por {@code RabbitEventPublisher}.
+     */
     private final RabbitTemplate rabbitTemplate;
+    /**
+     * Estado {@code properties} mantenido por {@code RabbitEventPublisher}.
+     */
     private final MessagingProperties properties;
 
+    /**
+     * Inicializa una instancia de {@code RabbitEventPublisher}.
+     *
+     * @param rabbitTemplate Valor de {@code rabbitTemplate} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     */
     public RabbitEventPublisher(RabbitTemplate rabbitTemplate, MessagingProperties properties) {
         this.rabbitTemplate = rabbitTemplate;
         this.properties = properties;
     }
 
+    /**
+     * Publica el contenido solicitado mediante {@code publish}.
+     *
+     * @param routingKey Valor de {@code routingKey} utilizado por la operación.
+     * @param event Evento que debe procesarse.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Override
     public void publish(String routingKey, Object event) {
         CorrelationData correlation = new CorrelationData(UUID.randomUUID().toString());

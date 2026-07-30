@@ -17,11 +17,30 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code HttpJobItemMetadataLookupTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class HttpJobItemMetadataLookupTest {
+    /**
+     * Constante que define {@code JOB_ID}.
+     */
     private static final UUID JOB_ID = UUID.fromString("00000000-0000-4000-8000-000000000001");
+    /**
+     * Constante que define {@code ITEM_ID}.
+     */
     private static final UUID ITEM_ID = UUID.fromString("00000000-0000-4000-8000-000000000002");
+    /**
+     * Constante que define {@code APP_ID}.
+     */
     private static final UUID APP_ID = UUID.fromString("00000000-0000-4000-8000-000000000003");
 
+    /**
+     * Comprueba el escenario {@code requestsAllFailedIdsOnceAndValidatesTheExactResponse}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void requestsAllFailedIdsOnceAndValidatesTheExactResponse() throws Exception {
         AtomicReference<String> token = new AtomicReference<>();
@@ -58,6 +77,11 @@ class HttpJobItemMetadataLookupTest {
         }
     }
 
+    /**
+     * Comprueba el escenario {@code makesUnavailableCoreResponsesRetriable}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void makesUnavailableCoreResponsesRetriable() throws Exception {
         HttpServer server = server(exchange -> {
@@ -77,6 +101,11 @@ class HttpJobItemMetadataLookupTest {
         }
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsPartialOrMismatchedMetadataResponses}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void rejectsPartialOrMismatchedMetadataResponses() throws Exception {
         HttpServer server = server(exchange -> {
@@ -98,6 +127,12 @@ class HttpJobItemMetadataLookupTest {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code lookup}.
+     *
+     * @param server Valor de {@code server} utilizado por la operación.
+     * @return Resultado producido por {@code lookup}.
+     */
     private HttpJobItemMetadataLookup lookup(HttpServer server) {
         return new HttpJobItemMetadataLookup(
                 HttpClient.newHttpClient(),
@@ -108,6 +143,13 @@ class HttpJobItemMetadataLookupTest {
                         Duration.ofSeconds(2)));
     }
 
+    /**
+     * Ejecuta la operación {@code server}.
+     *
+     * @param handler Valor de {@code handler} utilizado por la operación.
+     * @return Resultado producido por {@code server}.
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private HttpServer server(com.sun.net.httpserver.HttpHandler handler) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext(

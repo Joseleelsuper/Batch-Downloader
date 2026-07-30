@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `artifacts`.
+"""
 from __future__ import annotations
 
 import re
@@ -8,44 +10,97 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 
 class ArtifactPlatform(StrEnum):
+    """Enumera los valores admitidos por `ArtifactPlatform`.
+    """
     WINDOWS = "windows"
+    """Constante que define `WINDOWS`.
+    """
     MACOS = "macos"
+    """Constante que define `MACOS`.
+    """
     LINUX = "linux"
+    """Constante que define `LINUX`.
+    """
 
 
 class ArtifactArchitecture(StrEnum):
+    """Enumera los valores admitidos por `ArtifactArchitecture`.
+    """
     X86_64 = "x86_64"
+    """Constante que define `X86_64`.
+    """
     X86 = "x86"
+    """Constante que define `X86`.
+    """
     AARCH64 = "aarch64"
+    """Constante que define `AARCH64`.
+    """
     UNKNOWN = "unknown"
+    """Constante que define `UNKNOWN`.
+    """
 
 
 @dataclass(frozen=True)
 class ArtifactFormat:
+    """Representa el componente `ArtifactFormat`.
+    """
     extension: str
+    """Atributo de clase `extension` de `ArtifactFormat`.
+    """
     platforms: tuple[ArtifactPlatform, ...]
+    """Atributo de clase `platforms` de `ArtifactFormat`.
+    """
     media_types: tuple[str, ...] = ()
+    """Atributo de clase `media_types` de `ArtifactFormat`.
+    """
     signatures: tuple[bytes, ...] = ()
+    """Atributo de clase `signatures` de `ArtifactFormat`.
+    """
     infer_from_signature: bool = False
+    """Atributo de clase `infer_from_signature` de `ArtifactFormat`.
+    """
 
 
 class ArtifactFormatRegistry:
-    """Single source of truth for supported installer artifact formats."""
+    """Representa el componente `ArtifactFormatRegistry`.
+    """
 
     def __init__(self, formats: tuple[ArtifactFormat, ...]) -> None:
+        """Inicializa una instancia de `ArtifactFormatRegistry`.
+
+        Args:
+            formats (tuple[ArtifactFormat, ...]): Valor de `formats` utilizado por la operación.
+
+        Throws:
+            ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+        """
         if not formats:
             raise ValueError("artifact_format_registry_cannot_be_empty")
         self._formats = formats
+        """Estado de instancia asociado a `_formats`.
+        """
         self._by_extension = {item.extension: item for item in formats}
+        """Estado de instancia asociado a `_by_extension`.
+        """
         if len(self._by_extension) != len(formats):
             raise ValueError("artifact_format_extensions_must_be_unique")
 
     @property
     def extensions(self) -> tuple[str, ...]:
+        """Ejecuta `extensions` dentro de `ArtifactFormatRegistry`.
+
+        Returns:
+            tuple[str, ...]: Resultado producido por la operación.
+        """
         return tuple(item.extension for item in self._formats)
 
     @property
     def binary_media_types(self) -> frozenset[str]:
+        """Ejecuta `binary_media_types` dentro de `ArtifactFormatRegistry`.
+
+        Returns:
+            frozenset[str]: Resultado producido por la operación.
+        """
         return frozenset(
             media_type
             for artifact_format in self._formats
@@ -53,23 +108,55 @@ class ArtifactFormatRegistry:
         )
 
     def get(self, extension: str | None) -> ArtifactFormat | None:
+        """Ejecuta `get` dentro de `ArtifactFormatRegistry`.
+
+        Args:
+            extension (str | None): Valor de `extension` utilizado por la operación.
+
+        Returns:
+            ArtifactFormat | None: Resultado producido por la operación.
+        """
         if not extension:
             return None
         return self._by_extension.get(extension.lower().strip())
 
     def extensions_for(self, platform: ArtifactPlatform | str) -> tuple[str, ...]:
+        """Ejecuta `extensions_for` dentro de `ArtifactFormatRegistry`.
+
+        Args:
+            platform (ArtifactPlatform | str): Valor de `platform` utilizado por la operación.
+
+        Returns:
+            tuple[str, ...]: Resultado producido por la operación.
+        """
         normalized = ArtifactPlatform(platform)
         return tuple(
             item.extension for item in self._formats if normalized in item.platforms
         )
 
     def platform_for(self, extension: str | None) -> ArtifactPlatform | None:
+        """Ejecuta `platform_for` dentro de `ArtifactFormatRegistry`.
+
+        Args:
+            extension (str | None): Valor de `extension` utilizado por la operación.
+
+        Returns:
+            ArtifactPlatform | None: Resultado producido por la operación.
+        """
         artifact_format = self.get(extension)
         if artifact_format is None or len(artifact_format.platforms) != 1:
             return None
         return artifact_format.platforms[0]
 
     def detect_extension(self, value: str) -> str | None:
+        """Ejecuta `detect_extension` dentro de `ArtifactFormatRegistry`.
+
+        Args:
+            value (str): Valor que debe procesarse.
+
+        Returns:
+            str | None: Resultado producido por la operación.
+        """
         try:
             parsed = urlparse(value)
         except ValueError:
@@ -90,12 +177,29 @@ class ArtifactFormatRegistry:
         return None
 
     def matches_signature(self, extension: str, content: bytes) -> bool:
+        """Ejecuta `matches_signature` dentro de `ArtifactFormatRegistry`.
+
+        Args:
+            extension (str): Valor de `extension` utilizado por la operación.
+            content (bytes): Contenido que debe procesarse.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         artifact_format = self.get(extension)
         if artifact_format is None or not content:
             return False
         return any(content.startswith(signature) for signature in artifact_format.signatures)
 
     def infer_extension(self, content: bytes) -> str | None:
+        """Ejecuta `infer_extension` dentro de `ArtifactFormatRegistry`.
+
+        Args:
+            content (bytes): Contenido que debe procesarse.
+
+        Returns:
+            str | None: Resultado producido por la operación.
+        """
         for artifact_format in self._formats:
             if artifact_format.infer_from_signature and self.matches_signature(
                 artifact_format.extension,
@@ -110,6 +214,15 @@ class ArtifactFormatRegistry:
         *,
         default: ArtifactArchitecture = ArtifactArchitecture.UNKNOWN,
     ) -> ArtifactArchitecture:
+        """Ejecuta `infer_architecture` dentro de `ArtifactFormatRegistry`.
+
+        Args:
+            text (str): Valor de `text` utilizado por la operación.
+            default (ArtifactArchitecture): Valor de `default` utilizado por la operación.
+
+        Returns:
+            ArtifactArchitecture: Resultado producido por la operación.
+        """
         normalized_text = text.casefold()
         token_groups = (
             (
@@ -132,6 +245,15 @@ class ArtifactFormatRegistry:
 
 
 def _has_token(text: str, token: str) -> bool:
+    """Ejecuta el paso interno `_has_token`.
+
+    Args:
+        text (str): Valor de `text` utilizado por la operación.
+        token (str): Token utilizado para autorizar o correlacionar la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", text) is not None
 
 
@@ -242,5 +364,9 @@ DEFAULT_ARTIFACT_FORMAT_REGISTRY = ArtifactFormatRegistry(
         ),
     )
 )
+"""Constante que define `DEFAULT_ARTIFACT_FORMAT_REGISTRY`.
+"""
 
 GENERIC_BINARY_MEDIA_TYPES = frozenset({"application/octet-stream", "binary/octet-stream"})
+"""Constante que define `GENERIC_BINARY_MEDIA_TYPES`.
+"""

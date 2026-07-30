@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_candidates`.
+"""
 from app.scraper.candidates import (
     InstallerCandidate,
     detect_extension,
@@ -14,6 +16,8 @@ from app.scraper.candidates import (
 
 
 def test_extract_candidates_from_links_and_scripts() -> None:
+    """Comprueba el escenario `extract_candidates_from_links_and_scripts`.
+    """
     html = """
     <a href="/downloads/app-x64.exe">Download Windows</a>
     <script>window.installer = "https://cdn.example.com/setup.msi";</script>
@@ -28,6 +32,8 @@ def test_extract_candidates_from_links_and_scripts() -> None:
 
 
 def test_script_extraction_ignores_non_url_javascript_fragments() -> None:
+    """Comprueba el escenario `script_extraction_ignores_non_url_javascript_fragments`.
+    """
     candidates = extract_candidates(
         '<script>const broken = ").exe"; const real = "https://cdn.example.com/App.exe";</script>',
         "https://example.com",
@@ -37,6 +43,7 @@ def test_script_extraction_ignores_non_url_javascript_fragments() -> None:
 
 
 def test_extract_candidates_reads_dynamic_download_routes_and_skips_javascript_href() -> None:
+    """Comprueba que la extracción usa rutas dinámicas y omite enlaces JavaScript."""
     html = """
     <a href="javascript:;" onclick="return AppCore.View.GetLauncher();">
       Descargar el juego
@@ -57,6 +64,8 @@ def test_extract_candidates_reads_dynamic_download_routes_and_skips_javascript_h
 
 
 def test_extract_candidates_skips_malformed_ipv6_urls() -> None:
+    """Comprueba el escenario `extract_candidates_skips_malformed_ipv6_urls`.
+    """
     candidates = extract_candidates(
         '<a href="https://[broken/download.exe">Broken</a>'
         '<a href="https://cdn.example.com/AppSetup.exe">Download</a>',
@@ -69,6 +78,8 @@ def test_extract_candidates_skips_malformed_ipv6_urls() -> None:
 
 
 def test_score_prefers_windows_installer_over_docs() -> None:
+    """Comprueba el escenario `score_prefers_windows_installer_over_docs`.
+    """
     good = score_candidate(
         extract_candidates(
             '<a href="https://example.com/app-x64.exe">Download installer</a>',
@@ -87,6 +98,8 @@ def test_score_prefers_windows_installer_over_docs() -> None:
 
 
 def test_score_does_not_prefer_one_desktop_operating_system() -> None:
+    """Comprueba el escenario `score_does_not_prefer_one_desktop_operating_system`.
+    """
     scores = {
         extension: score_candidate(
             InstallerCandidate(
@@ -103,6 +116,8 @@ def test_score_does_not_prefer_one_desktop_operating_system() -> None:
 
 
 def test_score_rejects_github_source_archive_candidate() -> None:
+    """Comprueba el escenario `score_rejects_github_source_archive_candidate`.
+    """
     candidate = score_candidate(
         InstallerCandidate(
             url="https://github.com/vendor/app/archive/refs/heads/main.zip",
@@ -119,6 +134,8 @@ def test_score_rejects_github_source_archive_candidate() -> None:
 
 
 def test_score_prefers_geogebra_matching_variant() -> None:
+    """Comprueba el escenario `score_prefers_geogebra_matching_variant`.
+    """
     candidates = [
         InstallerCandidate(
             url="https://download.geogebra.org/package/win-suite",
@@ -143,6 +160,14 @@ def test_score_prefers_geogebra_matching_variant() -> None:
     ]
 
     def best_url(app_name: str) -> str:
+        """Ejecuta la operación `best_url`.
+
+        Args:
+            app_name (str): Valor de `app_name` utilizado por la operación.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         scored = [
             score_candidate(
                 candidate,
@@ -160,6 +185,8 @@ def test_score_prefers_geogebra_matching_variant() -> None:
 
 
 def test_infers_platform_architecture_and_version_for_multios_assets() -> None:
+    """Comprueba el escenario `infers_platform_architecture_and_version_for_multios_assets`.
+    """
     mac = InstallerCandidate(
         url="https://example.com/PDF-Over-4.4.8-aarch64.dmg",
         source="href",
@@ -178,6 +205,8 @@ def test_infers_platform_architecture_and_version_for_multios_assets() -> None:
 
 
 def test_infer_architecture_ignores_svg_path_fragments() -> None:
+    """Comprueba el escenario `infer_architecture_ignores_svg_path_fragments`.
+    """
     candidate = InstallerCandidate(
         url="https://down.360safe.com/se/360se16.1.2000.64.exe",
         source="winstall_page",
@@ -189,6 +218,8 @@ def test_infer_architecture_ignores_svg_path_fragments() -> None:
 
 
 def test_sourceforge_download_path_keeps_installer_extension_and_score() -> None:
+    """Comprueba el escenario `sourceforge_download_path_keeps_installer_extension_and_score`.
+    """
     candidate = score_candidate(
         InstallerCandidate(
             url=(
@@ -209,6 +240,7 @@ def test_sourceforge_download_path_keeps_installer_extension_and_score() -> None
 
 
 def test_extensionless_winstall_download_is_eligible_for_final_url_validation() -> None:
+    """Comprueba que una descarga sin extensión puede validar su URL final."""
     candidate = InstallerCandidate(
         url="https://dist.0patch.com/download/latestagent",
         source="winstall_page",
@@ -221,6 +253,8 @@ def test_extensionless_winstall_download_is_eligible_for_final_url_validation() 
 
 
 def test_winstall_portable_distribution_is_not_scored_out() -> None:
+    """Comprueba el escenario `winstall_portable_distribution_is_not_scored_out`.
+    """
     candidate = score_candidate(
         InstallerCandidate(
             url="https://github.com/mozilla-ai/llamafile/releases/download/0.10.3/llamafile-0.10.3",
@@ -237,6 +271,8 @@ def test_winstall_portable_distribution_is_not_scored_out() -> None:
 
 
 def test_msixbundle_is_recognized_as_a_windows_installer() -> None:
+    """Comprueba el escenario `msixbundle_is_recognized_as_a_windows_installer`.
+    """
     candidate = InstallerCandidate(
         url=(
             "https://staticcdn.duckduckgo.com/release/0.164.1.0/"
@@ -252,6 +288,8 @@ def test_msixbundle_is_recognized_as_a_windows_installer() -> None:
 
 
 def test_s3_legacy_bucket_uses_secure_path_style_variant() -> None:
+    """Comprueba el escenario `s3_legacy_bucket_uses_secure_path_style_variant`.
+    """
     candidate = InstallerCandidate(
         url=(
             "https://build_archives.s3.amazonaws.com/Wireframes-Windows/"
@@ -272,6 +310,8 @@ def test_s3_legacy_bucket_uses_secure_path_style_variant() -> None:
 
 
 def test_sourceforge_manifest_placeholder_uses_public_router() -> None:
+    """Comprueba el escenario `sourceforge_manifest_placeholder_uses_public_router`.
+    """
     candidate = InstallerCandidate(
         url=(
             "https://udomain.dl.sourceforge.net/project/maxlauncher/"
@@ -302,6 +342,8 @@ def test_sourceforge_manifest_placeholder_uses_public_router() -> None:
 
 
 def test_version_extraction_does_not_treat_ip_host_as_version() -> None:
+    """Comprueba el escenario `version_extraction_does_not_treat_ip_host_as_version`.
+    """
     candidate = InstallerCandidate(
         url="http://120.24.245.232/app/pcr532.exe",
         source="winstall_page",

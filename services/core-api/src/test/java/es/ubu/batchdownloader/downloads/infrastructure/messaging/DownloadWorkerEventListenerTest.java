@@ -22,7 +22,15 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadWorkerEventListenerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class DownloadWorkerEventListenerTest {
+    /**
+     * Comprueba el escenario {@code rejectsMalformedMessagesWithoutClaimingAnInboxRecord}.
+     */
     @Test
     void rejectsMalformedMessagesWithoutClaimingAnInboxRecord() {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
@@ -36,6 +44,9 @@ class DownloadWorkerEventListenerTest {
         verify(jdbc, never()).update(anyString(), any(Object[].class));
     }
 
+    /**
+     * Comprueba el escenario {@code letsTransientJobApplicationFailuresReachRabbitRetryHandling}.
+     */
     @Test
     void letsTransientJobApplicationFailuresReachRabbitRetryHandling() {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
@@ -55,15 +66,35 @@ class DownloadWorkerEventListenerTest {
         verify(jdbc, never()).update(startsWith("UPDATE core_inbox_messages"), any(Object[].class));
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code listener}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param jobs Valor de {@code jobs} utilizado por la operación.
+     * @return Resultado producido por {@code listener}.
+     */
     private DownloadWorkerEventListener listener(JdbcTemplate jdbc, DownloadJobService jobs) {
         return new DownloadWorkerEventListener(
                 new ObjectMapper(), jdbc, jobs, Clock.fixed(Instant.parse("2026-07-13T12:00:00Z"), ZoneOffset.UTC));
     }
 
+    /**
+     * Ejecuta la operación {@code message}.
+     *
+     * @param json Valor de {@code json} utilizado por la operación.
+     * @return Resultado producido por {@code message}.
+     */
     private Message message(String json) {
         return new Message(json.getBytes(StandardCharsets.UTF_8), new MessageProperties());
     }
 
+    /**
+     * Ejecuta la operación {@code progressed}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param itemId Identificador de {@code item} utilizado por la operación.
+     * @return Resultado producido por {@code progressed}.
+     */
     private String progressed(UUID jobId, UUID itemId) {
         return """
                 {"eventId":"%s","type":"download.job.progressed","schemaVersion":1,

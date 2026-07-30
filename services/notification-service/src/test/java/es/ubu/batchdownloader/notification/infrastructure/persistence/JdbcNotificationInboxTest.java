@@ -18,14 +18,34 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabase;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 
+/**
+ * Agrupa los escenarios de prueba de {@code JdbcNotificationInboxTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class JdbcNotificationInboxTest {
 
+    /**
+     * Constante que define {@code NOW}.
+     */
     private static final Instant NOW = Instant.parse("2026-07-11T10:00:00Z");
 
+    /**
+     * Dato compartido {@code database} para los escenarios de prueba.
+     */
     private EmbeddedDatabase database;
+    /**
+     * Dato compartido {@code inbox} para los escenarios de prueba.
+     */
     private JdbcNotificationInbox inbox;
+    /**
+     * Dato compartido {@code jdbcTemplate} para los escenarios de prueba.
+     */
     private JdbcTemplate jdbcTemplate;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         database = new EmbeddedDatabaseBuilder()
@@ -40,11 +60,17 @@ class JdbcNotificationInboxTest {
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
+    /**
+     * Libera el estado utilizado por los escenarios de prueba.
+     */
     @AfterEach
     void tearDown() {
         database.shutdown();
     }
 
+    /**
+     * Comprueba el escenario {@code persistsAndDeduplicatesAProcessedEvent}.
+     */
     @Test
     void persistsAndDeduplicatesAProcessedEvent() {
         UUID eventId = UUID.randomUUID();
@@ -58,6 +84,9 @@ class JdbcNotificationInboxTest {
         assertThat(statusOf(eventId)).isEqualTo("PROCESSED");
     }
 
+    /**
+     * Comprueba el escenario {@code makesAFailedEventAvailableToTheNextRetry}.
+     */
     @Test
     void makesAFailedEventAvailableToTheNextRetry() {
         UUID eventId = UUID.randomUUID();
@@ -75,6 +104,9 @@ class JdbcNotificationInboxTest {
         assertThat(attempts).isEqualTo(2);
     }
 
+    /**
+     * Comprueba el escenario {@code reportsAnActiveLeaseAsBusy}.
+     */
     @Test
     void reportsAnActiveLeaseAsBusy() {
         UUID eventId = UUID.randomUUID();
@@ -86,6 +118,12 @@ class JdbcNotificationInboxTest {
                 .isEqualTo(NotificationInbox.ClaimResult.BUSY);
     }
 
+    /**
+     * Ejecuta la operación {@code statusOf}.
+     *
+     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @return Resultado producido por {@code statusOf}.
+     */
     private String statusOf(UUID eventId) {
         return jdbcTemplate.queryForObject(
                 "SELECT status FROM notification_inbox WHERE event_id = ?",

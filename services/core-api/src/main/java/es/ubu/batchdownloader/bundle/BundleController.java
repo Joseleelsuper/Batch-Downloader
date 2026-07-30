@@ -20,16 +20,43 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Expone las operaciones HTTP gestionadas por {@code BundleController}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ */
 @RestController
 public class BundleController {
+    /**
+     * Estado {@code bundles} mantenido por {@code BundleController}.
+     */
     private final BundleRepository bundles;
+    /**
+     * Estado {@code audit} mantenido por {@code BundleController}.
+     */
     private final AdminAuditService audit;
 
+    /**
+     * Inicializa una instancia de {@code BundleController}.
+     *
+     * @param bundles Valor de {@code bundles} utilizado por la operación.
+     * @param audit Valor de {@code audit} utilizado por la operación.
+     */
     public BundleController(BundleRepository bundles, AdminAuditService audit) {
         this.bundles = bundles;
         this.audit = audit;
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code listBundles}.
+     *
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @return Resultado producido por {@code listBundles}.
+     */
     @GetMapping({"/api/v1/bundles", "/api/bundles"})
     public BundleSearchResponse listBundles(
             @RequestParam(required = false) String type,
@@ -42,11 +69,27 @@ public class BundleController {
         return new BundleSearchResponse(data, safePage, safePageSize, bundles.count(type));
     }
 
+    /**
+     * Obtiene el resultado solicitado mediante {@code getBundle}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @return Resultado producido por {@code getBundle}.
+     */
     @GetMapping({"/api/v1/bundles/{bundleId}", "/api/bundles/{bundleId}"})
     public BundleDetails getBundle(@PathVariable String bundleId, Authentication authentication) {
         return bundles.details(bundleId, actor(authentication), isAdmin(authentication));
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code listAdminBundles}.
+     *
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @return Resultado producido por {@code listAdminBundles}.
+     */
     @GetMapping("/api/admin/bundles")
     public BundleSearchResponse listAdminBundles(
             @RequestParam(required = false) String type,
@@ -62,6 +105,13 @@ public class BundleController {
                 bundles.countForAdministration(type));
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createBundle}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code createBundle}.
+     */
     @PostMapping("/api/admin/bundles")
     @ResponseStatus(HttpStatus.CREATED)
     public BundleDetails createBundle(
@@ -72,6 +122,14 @@ public class BundleController {
         return created;
     }
 
+    /**
+     * Actualiza el recurso solicitado mediante {@code updateBundle}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code updateBundle}.
+     */
     @PatchMapping("/api/admin/bundles/{bundleId}")
     public BundleDetails updateBundle(
             @PathVariable String bundleId,
@@ -82,6 +140,12 @@ public class BundleController {
         return updated;
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteBundle}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     */
     @DeleteMapping("/api/admin/bundles/{bundleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteBundle(@PathVariable String bundleId, Principal principal) {
@@ -89,10 +153,22 @@ public class BundleController {
         audit.record(actor(principal), "bundle.delete", "bundle", bundleId, null);
     }
 
+    /**
+     * Ejecuta la operación {@code actor}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code actor}.
+     */
     private String actor(Principal principal) {
         return principal == null ? null : principal.getName();
     }
 
+    /**
+     * Indica si se cumple la condición mediante {@code isAdmin}.
+     *
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean isAdmin(Authentication authentication) {
         return authentication != null && authentication.getAuthorities().stream()
                 .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()));

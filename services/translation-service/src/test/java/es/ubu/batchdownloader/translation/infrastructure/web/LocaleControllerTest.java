@@ -19,14 +19,31 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+/**
+ * Agrupa los escenarios de prueba de {@code LocaleControllerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class LocaleControllerTest {
 
+    /**
+     * Constante que define {@code ETAG}.
+     */
     private static final String ETAG = "\"8d7c294d0c4f3f5a\"";
+    /**
+     * Constante que define {@code CONTENT}.
+     */
     private static final byte[] CONTENT = "{\"greeting\":\"Hola\"}"
             .getBytes(StandardCharsets.UTF_8);
 
+    /**
+     * Dato compartido {@code mockMvc} para los escenarios de prueba.
+     */
     private MockMvc mockMvc;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         LocaleDocument document = new LocaleDocument("es", CONTENT, ETAG);
@@ -40,6 +57,11 @@ class LocaleControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
+    /**
+     * Comprueba el escenario {@code returnsTheSpanishCatalogWithCacheHeaders}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void returnsTheSpanishCatalogWithCacheHeaders() throws Exception {
         mockMvc.perform(get("/api/v1/locales/es"))
@@ -55,6 +77,11 @@ class LocaleControllerTest {
                                 org.hamcrest.Matchers.containsString("must-revalidate"))));
     }
 
+    /**
+     * Comprueba el escenario {@code returnsNotModifiedWhenIfNoneMatchMatches}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void returnsNotModifiedWhenIfNoneMatchMatches() throws Exception {
         mockMvc.perform(get("/api/v1/locales/es").header(HttpHeaders.IF_NONE_MATCH, ETAG))
@@ -63,6 +90,11 @@ class LocaleControllerTest {
                 .andExpect(content().bytes(new byte[0]));
     }
 
+    /**
+     * Comprueba el escenario {@code exposesOnlyTheSpanishLocaleInVersionOne}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void exposesOnlyTheSpanishLocaleInVersionOne() throws Exception {
         mockMvc.perform(get("/api/v1/locales/en"))

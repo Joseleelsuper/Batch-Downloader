@@ -29,19 +29,54 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Gestiona la persistencia y consulta de {@code CatalogRepository}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Repository
 public class CatalogRepository {
+    /**
+     * Constante que define {@code REVIEW_LAST_ORDER}.
+     */
     private static final String REVIEW_LAST_ORDER =
             "CASE WHEN a.catalog_status = 'review' THEN 1 ELSE 0 END ASC";
+    /**
+     * Constante que define {@code CATALOG_STATUSES}.
+     */
     private static final Set<String> CATALOG_STATUSES =
             Set.of("all", "available", "review", "missing", "unresolved");
 
+    /**
+     * Estado {@code jdbc} mantenido por {@code CatalogRepository}.
+     */
     private final JdbcTemplate jdbc;
 
+    /**
+     * Inicializa una instancia de {@code CatalogRepository}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     */
     public CatalogRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Busca los elementos solicitados mediante {@code search}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<AppListItem> search(
             String query,
             String status,
@@ -69,6 +104,23 @@ public class CatalogRepository {
                 SemanticCandidateSet.lexical());
     }
 
+    /**
+     * Busca los elementos solicitados mediante {@code search}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<AppListItem> search(
             String query,
             String status,
@@ -136,6 +188,19 @@ public class CatalogRepository {
                 .toList();
     }
 
+    /**
+     * Ejecuta la operación {@code count}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @return Número de elementos afectados por la operación.
+     */
     public long count(
             String query,
             String status,
@@ -157,6 +222,20 @@ public class CatalogRepository {
                 SemanticCandidateSet.lexical());
     }
 
+    /**
+     * Ejecuta la operación {@code count}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Número de elementos afectados por la operación.
+     */
     public long count(
             String query,
             String status,
@@ -191,6 +270,19 @@ public class CatalogRepository {
         return count == null ? 0 : count;
     }
 
+    /**
+     * Ejecuta la operación {@code facets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @return Resultado producido por {@code facets}.
+     */
     public CatalogFacetsResponse facets(
             String query,
             String status,
@@ -212,6 +304,20 @@ public class CatalogRepository {
                 SemanticCandidateSet.lexical());
     }
 
+    /**
+     * Ejecuta la operación {@code facets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Resultado producido por {@code facets}.
+     */
     public CatalogFacetsResponse facets(
             String query,
             String status,
@@ -240,6 +346,23 @@ public class CatalogRepository {
                 publisherFacets(query, status, operatingSystems, architecture, tags, tagMatchMin, tagMode));
     }
 
+    /**
+     * Ejecuta la operación {@code semanticSearch}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<AppListItem> semanticSearch(
             String query,
             String status,
@@ -299,6 +422,20 @@ public class CatalogRepository {
                 .toList();
     }
 
+    /**
+     * Ejecuta la operación {@code semanticCount}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Resultado producido por {@code semanticCount}.
+     */
     private long semanticCount(
             String query,
             String status,
@@ -332,6 +469,20 @@ public class CatalogRepository {
         return count == null ? 0 : count;
     }
 
+    /**
+     * Ejecuta la operación {@code semanticFacets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Resultado producido por {@code semanticFacets}.
+     */
     private CatalogFacetsResponse semanticFacets(
             String query,
             String status,
@@ -362,6 +513,17 @@ public class CatalogRepository {
                         candidates));
     }
 
+    /**
+     * Ejecuta la operación {@code semanticTagFacets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<FacetItem> semanticTagFacets(
             String query,
             String status,
@@ -402,6 +564,19 @@ public class CatalogRepository {
                 params.toArray());
     }
 
+    /**
+     * Ejecuta la operación {@code semanticPublisherFacets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<FacetItem> semanticPublisherFacets(
             String query,
             String status,
@@ -445,6 +620,16 @@ public class CatalogRepository {
                 params.toArray());
     }
 
+    /**
+     * Ejecuta la operación {@code semanticCandidateCte}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param candidates Valor de {@code candidates} utilizado por la operación.
+     * @param params Valor de {@code params} utilizado por la operación.
+     * @return Resultado producido por {@code semanticCandidateCte}.
+     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
+     *     requeridas.
+     */
     private String semanticCandidateCte(
             String query,
             SemanticCandidateSet candidates,
@@ -468,6 +653,16 @@ public class CatalogRepository {
                 """;
     }
 
+    /**
+     * Ejecuta la operación {@code tagFacets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<FacetItem> tagFacets(
             String query,
             String status,
@@ -492,6 +687,18 @@ public class CatalogRepository {
                 rs.getLong("app_count")), params.toArray());
     }
 
+    /**
+     * Publica el contenido solicitado mediante {@code publisherFacets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<FacetItem> publisherFacets(
             String query,
             String status,
@@ -519,6 +726,14 @@ public class CatalogRepository {
                 rs.getLong("app_count")), params.toArray());
     }
 
+    /**
+     * Ejecuta la operación {@code details}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @return Resultado producido por {@code details}.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     public AppDetails details(String publicId) {
         UUID id = softwareAppId(publicId);
         List<AppDetails> matches = jdbc.query(
@@ -536,6 +751,12 @@ public class CatalogRepository {
         return matches.get(0);
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code listItems}.
+     *
+     * @param requestedIds Colección de identificadores de {@code requested}.
+     * @return Mapa con los datos producidos por la operación.
+     */
     public Map<UUID, AppListItem> listItems(Collection<UUID> requestedIds) {
         if (requestedIds == null || requestedIds.isEmpty()) {
             return Map.of();
@@ -575,6 +796,14 @@ public class CatalogRepository {
         return Map.copyOf(result);
     }
 
+    /**
+     * Ejecuta la operación {@code softwareAppId}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @return Resultado producido por {@code softwareAppId}.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     public UUID softwareAppId(String publicId) {
         UUID parsed = parseUuid(publicId);
         List<UUID> ids = jdbc.query(
@@ -594,6 +823,11 @@ public class CatalogRepository {
         return ids.get(0);
     }
 
+    /**
+     * Ejecuta la operación {@code stats}.
+     *
+     * @return Resultado producido por {@code stats}.
+     */
     public CatalogStatsResponse stats() {
         StatsSnapshot snapshot = jdbc.queryForObject("""
                 SELECT total_count, available_count, review_count, missing_count
@@ -614,10 +848,20 @@ public class CatalogRepository {
         return new CatalogStatsResponse(snapshot.total(), filters, last, LocalDateTime.now());
     }
 
+    /**
+     * Ejecuta la operación {@code changeEvent}.
+     *
+     * @return Resultado producido por {@code changeEvent}.
+     */
     public CatalogChangeEvent changeEvent() {
         return new CatalogChangeEvent("catalog.changed", changeVersion(), LocalDateTime.now());
     }
 
+    /**
+     * Ejecuta la operación {@code changeVersion}.
+     *
+     * @return Resultado producido por {@code changeVersion}.
+     */
     public String changeVersion() {
         String appToken = jdbc.queryForObject(
                 """
@@ -654,6 +898,20 @@ public class CatalogRepository {
                 + "|" + (runTokens.isEmpty() ? "" : runTokens.get(0))).hashCode());
     }
 
+    /**
+     * Ejecuta la operación {@code appendFilters}.
+     *
+     * @param sql Valor de {@code sql} utilizado por la operación.
+     * @param params Valor de {@code params} utilizado por la operación.
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     */
     private void appendFilters(
             StringBuilder sql,
             List<Object> params,
@@ -678,6 +936,13 @@ public class CatalogRepository {
                 tagMode);
     }
 
+    /**
+     * Ejecuta la operación {@code appendLexicalFilter}.
+     *
+     * @param sql Valor de {@code sql} utilizado por la operación.
+     * @param params Valor de {@code params} utilizado por la operación.
+     * @param query Valor de {@code query} utilizado por la operación.
+     */
     private void appendLexicalFilter(
             StringBuilder sql,
             List<Object> params,
@@ -712,6 +977,19 @@ public class CatalogRepository {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code appendStructuredFilters}.
+     *
+     * @param sql Valor de {@code sql} utilizado por la operación.
+     * @param params Valor de {@code params} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publishers Valor de {@code publishers} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     */
     private void appendStructuredFilters(
             StringBuilder sql,
             List<Object> params,
@@ -742,6 +1020,15 @@ public class CatalogRepository {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code appendSourceFilter}.
+     *
+     * @param sql Valor de {@code sql} utilizado por la operación.
+     * @param params Valor de {@code params} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     */
     private void appendSourceFilter(
             StringBuilder sql,
             List<Object> params,
@@ -780,6 +1067,15 @@ public class CatalogRepository {
         }
     }
 
+    /**
+     * Transforma el valor recibido mediante {@code mapListItem}.
+     *
+     * @param app Aplicación sobre la que se realiza la operación.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param source Fuente de descarga sobre la que se actúa.
+     * @return Resultado producido por {@code mapListItem}.
+     */
     private AppListItem mapListItem(
             AppBasics app,
             List<String> operatingSystems,
@@ -804,6 +1100,13 @@ public class CatalogRepository {
                 app.updatedAt());
     }
 
+    /**
+     * Transforma el valor recibido mediante {@code mapDetails}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @return Resultado producido por {@code mapDetails}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private AppDetails mapDetails(ResultSet rs) throws SQLException {
         AppBasics app = readBasics(rs);
         SourceSnapshot source = sourceFor(app.dbId()).effectiveFor(app.catalogStatus());
@@ -839,6 +1142,13 @@ public class CatalogRepository {
                 notesFor(source));
     }
 
+    /**
+     * Ejecuta la operación {@code readBasics}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @return Resultado producido por {@code readBasics}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private AppBasics readBasics(ResultSet rs) throws SQLException {
         return new AppBasics(
                 UuidBytes.toUuid(rs.getBytes("id")),
@@ -855,6 +1165,12 @@ public class CatalogRepository {
                 rs.getTimestamp("updated_at").toLocalDateTime());
     }
 
+    /**
+     * Ejecuta la operación {@code sourceFor}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Resultado producido por {@code sourceFor}.
+     */
     private SourceSnapshot sourceFor(UUID appId) {
         List<SourceSnapshot> snapshots = jdbc.query(
                 """
@@ -884,6 +1200,12 @@ public class CatalogRepository {
                 : snapshots.get(0);
     }
 
+    /**
+     * Ejecuta la operación {@code sourcesFor}.
+     *
+     * @param appIds Colección de identificadores de {@code app}.
+     * @return Mapa con los datos producidos por la operación.
+     */
     private Map<UUID, SourceSnapshot> sourcesFor(Collection<UUID> appIds) {
         if (appIds == null || appIds.isEmpty()) {
             return Map.of();
@@ -922,6 +1244,13 @@ public class CatalogRepository {
         return result;
     }
 
+    /**
+     * Ejecuta la operación {@code readSourceSnapshot}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @return Resultado producido por {@code readSourceSnapshot}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private SourceSnapshot readSourceSnapshot(ResultSet rs) throws SQLException {
         String resolution = rs.getString("source_resolution_status");
         String validation = rs.getString("source_validation_status");
@@ -944,6 +1273,12 @@ public class CatalogRepository {
                 downloadable);
     }
 
+    /**
+     * Ejecuta la operación {@code downloadOptions}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<DownloadOption> downloadOptions(UUID appId) {
         return jdbc.query(
                 """
@@ -977,6 +1312,12 @@ public class CatalogRepository {
                 UuidBytes.fromUuid(appId));
     }
 
+    /**
+     * Ejecuta la operación {@code operatingSystemsFor}.
+     *
+     * @param appIds Colección de identificadores de {@code app}.
+     * @return Mapa con los datos producidos por la operación.
+     */
     private Map<UUID, List<String>> operatingSystemsFor(Collection<UUID> appIds) {
         if (appIds == null || appIds.isEmpty()) {
             return Map.of();
@@ -1006,6 +1347,12 @@ public class CatalogRepository {
         return result;
     }
 
+    /**
+     * Ejecuta la operación {@code tagsFor}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<String> tagsFor(UUID appId) {
         return jdbc.queryForList(
                 "SELECT tag FROM software_app_tags WHERE software_app_id = ? ORDER BY tag",
@@ -1013,6 +1360,12 @@ public class CatalogRepository {
                 UuidBytes.fromUuid(appId));
     }
 
+    /**
+     * Ejecuta la operación {@code tagsFor}.
+     *
+     * @param appIds Colección de identificadores de {@code app}.
+     * @return Mapa con los datos producidos por la operación.
+     */
     private Map<UUID, List<String>> tagsFor(Collection<UUID> appIds) {
         if (appIds == null || appIds.isEmpty()) {
             return Map.of();
@@ -1034,6 +1387,11 @@ public class CatalogRepository {
         return result;
     }
 
+    /**
+     * Ejecuta la operación {@code latestRun}.
+     *
+     * @return Resultado producido por {@code latestRun}.
+     */
     private LastScrapeRun latestRun() {
         List<LastScrapeRun> runs = jdbc.query(
                 """
@@ -1054,6 +1412,13 @@ public class CatalogRepository {
         return runs.isEmpty() ? null : runs.get(0);
     }
 
+    /**
+     * Ejecuta la operación {@code orderBy}.
+     *
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param relevancePrefix Valor de {@code relevancePrefix} utilizado por la operación.
+     * @return Resultado producido por {@code orderBy}.
+     */
     private String orderBy(String sort, String relevancePrefix) {
         String relevanceOrder =
                 relevancePrefix == null || relevancePrefix.isBlank() ? "" : relevancePrefix;
@@ -1068,15 +1433,20 @@ public class CatalogRepository {
     }
 
     /**
-     * Keeps apps that only have a manual-review source out of the main catalog
-     * pages. The predicate deliberately matches the review filter semantics:
-     * an app with any valid direct or fallback source remains in its natural
-     * name/update position.
+     * Ejecuta la operación {@code reviewLastOrder}.
+     *
+     * @return Resultado producido por {@code reviewLastOrder}.
      */
     private String reviewLastOrder() {
         return REVIEW_LAST_ORDER;
     }
 
+    /**
+     * Ejecuta la operación {@code appendPlaceholders}.
+     *
+     * @param sql Valor de {@code sql} utilizado por la operación.
+     * @param count Valor de {@code count} utilizado por la operación.
+     */
     private void appendPlaceholders(StringBuilder sql, int count) {
         for (int i = 0; i < count; i++) {
             if (i > 0) {
@@ -1086,6 +1456,12 @@ public class CatalogRepository {
         }
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizedDistinct}.
+     *
+     * @param values Valor de {@code values} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<String> normalizedDistinct(List<String> values) {
         if (values == null || values.isEmpty()) {
             return List.of();
@@ -1100,6 +1476,12 @@ public class CatalogRepository {
         return List.copyOf(normalized);
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizeSearchQuery}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code normalizeSearchQuery}.
+     */
     static String normalizeSearchQuery(String value) {
         if (value == null || value.isBlank()) {
             return "";
@@ -1111,6 +1493,14 @@ public class CatalogRepository {
         return normalized.replaceAll("\\s+", " ");
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizeCatalogStatus}.
+     *
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @return Resultado producido por {@code normalizeCatalogStatus}.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     static String normalizeCatalogStatus(String status) {
         String normalized = status == null || status.isBlank()
                 ? "all"
@@ -1123,10 +1513,24 @@ public class CatalogRepository {
         return normalized;
     }
 
+    /**
+     * Ejecuta la operación {@code compactSearchQuery}.
+     *
+     * @param normalized Valor de {@code normalized} utilizado por la operación.
+     * @return Resultado producido por {@code compactSearchQuery}.
+     */
     private static String compactSearchQuery(String normalized) {
         return normalized == null ? "" : normalized.replaceAll("\\s+", "");
     }
 
+    /**
+     * Ejecuta la operación {@code requiredTagMatches}.
+     *
+     * @param selectedTags Valor de {@code selectedTags} utilizado por la operación.
+     * @param requestedMinimum Valor de {@code requestedMinimum} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @return Resultado producido por {@code requiredTagMatches}.
+     */
     static int requiredTagMatches(int selectedTags, Integer requestedMinimum, String tagMode) {
         if (selectedTags < 1) {
             return 0;
@@ -1137,6 +1541,14 @@ public class CatalogRepository {
         return "any".equals(tagMode) ? 1 : selectedTags;
     }
 
+    /**
+     * Ejecuta la operación {@code facetItem}.
+     *
+     * @param label Valor de {@code label} utilizado por la operación.
+     * @param normalizedValue Valor de {@code normalizedValue} utilizado por la operación.
+     * @param count Valor de {@code count} utilizado por la operación.
+     * @return Resultado producido por {@code facetItem}.
+     */
     private FacetItem facetItem(String label, String normalizedValue, long count) {
         String safeLabel = label == null || label.isBlank() ? "-" : label.trim();
         String safeNormalized = normalizedValue == null || normalizedValue.isBlank()
@@ -1145,6 +1557,12 @@ public class CatalogRepository {
         return new FacetItem(safeLabel, safeLabel, safeNormalized, facetLetter(safeLabel), count);
     }
 
+    /**
+     * Ejecuta la operación {@code facetLetter}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code facetLetter}.
+     */
     static String facetLetter(String value) {
         if (value == null || value.isBlank()) {
             return "#";
@@ -1171,6 +1589,12 @@ public class CatalogRepository {
         return "#";
     }
 
+    /**
+     * Ejecuta la operación {@code sourceLabel}.
+     *
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @return Resultado producido por {@code sourceLabel}.
+     */
     private String sourceLabel(String status) {
         if ("direct".equals(status)) {
             return "Sitio oficial";
@@ -1184,6 +1608,14 @@ public class CatalogRepository {
         return "No disponible";
     }
 
+    /**
+     * Ejecuta la operación {@code originUrl}.
+     *
+     * @param winstallId Identificador de {@code winstall} utilizado por la operación.
+     * @param officialUrl Dirección de {@code official} que debe procesarse.
+     * @param sourceOriginUrl Dirección de {@code sourceOrigin} que debe procesarse.
+     * @return Resultado producido por {@code originUrl}.
+     */
     static String originUrl(
             String winstallId,
             String officialUrl,
@@ -1196,6 +1628,12 @@ public class CatalogRepository {
         return "https://winstall.app/apps/" + winstallId;
     }
 
+    /**
+     * Ejecuta la operación {@code notesFor}.
+     *
+     * @param source Fuente de descarga sobre la que se actúa.
+     * @return Resultado producido por {@code notesFor}.
+     */
     private String notesFor(SourceSnapshot source) {
         if ("direct".equals(source.resolutionStatus())) {
             return "Instalador obtenido desde la fuente oficial validada.";
@@ -1206,21 +1644,52 @@ public class CatalogRepository {
         return "El instalador necesita revision o no esta disponible.";
     }
 
+    /**
+     * Ejecuta la operación {@code nullableDate}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @param column Valor de {@code column} utilizado por la operación.
+     * @return Resultado producido por {@code nullableDate}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private LocalDateTime nullableDate(ResultSet rs, String column) throws SQLException {
         var timestamp = rs.getTimestamp(column);
         return timestamp == null ? null : timestamp.toLocalDateTime();
     }
 
+    /**
+     * Ejecuta la operación {@code nullableLong}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @param column Valor de {@code column} utilizado por la operación.
+     * @return Resultado producido por {@code nullableLong}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private Long nullableLong(ResultSet rs, String column) throws SQLException {
         long value = rs.getLong(column);
         return rs.wasNull() ? null : value;
     }
 
+    /**
+     * Ejecuta la operación {@code nullableInt}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @param column Valor de {@code column} utilizado por la operación.
+     * @return Resultado producido por {@code nullableInt}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private Integer nullableInt(ResultSet rs, String column) throws SQLException {
         int value = rs.getInt(column);
         return rs.wasNull() ? null : value;
     }
 
+    /**
+     * Indica si existe el recurso mediante {@code hasColumn}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @param column Valor de {@code column} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean hasColumn(ResultSet rs, String column) {
         try {
             rs.findColumn(column);
@@ -1230,6 +1699,12 @@ public class CatalogRepository {
         }
     }
 
+    /**
+     * Analiza el contenido recibido mediante {@code parseUuid}.
+     *
+     * @param raw Valor de {@code raw} utilizado por la operación.
+     * @return Resultado producido por {@code parseUuid}.
+     */
     private UUID parseUuid(String raw) {
         try {
             return raw == null || raw.isBlank() ? null : UUID.fromString(raw);
@@ -1238,7 +1713,21 @@ public class CatalogRepository {
         }
     }
 
+    /**
+     * Representa los datos inmutables de {@code SearchRanking}.
+     *
+     * @param active Valor de {@code active} incluido en el record.
+     * @param scoreSql Valor de {@code scoreSql} incluido en el record.
+     * @param params Valor de {@code params} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     record SearchRanking(boolean active, String scoreSql, List<Object> params) {
+        /**
+         * Ejecuta la operación {@code from}.
+         *
+         * @param query Valor de {@code query} utilizado por la operación.
+         * @return Resultado producido por {@code from}.
+         */
         static SearchRanking from(String query) {
             String normalized = normalizeSearchQuery(query);
             if (normalized.isBlank()) {
@@ -1305,15 +1794,31 @@ public class CatalogRepository {
             return new SearchRanking(true, sql.toString(), List.copyOf(params));
         }
 
+        /**
+         * Ejecuta la operación {@code innerPrefix}.
+         *
+         * @return Resultado producido por {@code innerPrefix}.
+         */
         String innerPrefix() {
             return active ? "search_score DESC, " : "";
         }
 
+        /**
+         * Ejecuta la operación {@code outerPrefix}.
+         *
+         * @return Resultado producido por {@code outerPrefix}.
+         */
         String outerPrefix() {
             return active ? "page.search_score DESC, " : "";
         }
     }
 
+    /**
+     * Busca los elementos solicitados mediante {@code searchTokens}.
+     *
+     * @param normalized Valor de {@code normalized} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private static List<String> searchTokens(String normalized) {
         if (normalized == null || normalized.isBlank()) {
             return List.of();
@@ -1330,6 +1835,23 @@ public class CatalogRepository {
         return List.copyOf(tokens);
     }
 
+    /**
+     * Representa los datos inmutables de {@code AppBasics}.
+     *
+     * @param dbId Valor de {@code dbId} incluido en el record.
+     * @param winstallId Valor de {@code winstallId} incluido en el record.
+     * @param slug Valor de {@code slug} incluido en el record.
+     * @param name Valor de {@code name} incluido en el record.
+     * @param publisher Valor de {@code publisher} incluido en el record.
+     * @param description Valor de {@code description} incluido en el record.
+     * @param longDescription Valor de {@code longDescription} incluido en el record.
+     * @param iconUrl Valor de {@code iconUrl} incluido en el record.
+     * @param officialUrl Valor de {@code officialUrl} incluido en el record.
+     * @param latestVersion Valor de {@code latestVersion} incluido en el record.
+     * @param catalogStatus Valor de {@code catalogStatus} incluido en el record.
+     * @param updatedAt Valor de {@code updatedAt} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     public record AppBasics(
             UUID dbId,
             String winstallId,
@@ -1344,6 +1866,24 @@ public class CatalogRepository {
             String catalogStatus,
             LocalDateTime updatedAt) {}
 
+    /**
+     * Representa los datos inmutables de {@code SourceSnapshot}.
+     *
+     * @param resolutionStatus Valor de {@code resolutionStatus} incluido en el record.
+     * @param validationStatus Valor de {@code validationStatus} incluido en el record.
+     * @param sourceLabel Valor de {@code sourceLabel} incluido en el record.
+     * @param originUrl Valor de {@code originUrl} incluido en el record.
+     * @param filename Valor de {@code filename} incluido en el record.
+     * @param extension Valor de {@code extension} incluido en el record.
+     * @param contentType Valor de {@code contentType} incluido en el record.
+     * @param sizeBytes Valor de {@code sizeBytes} incluido en el record.
+     * @param finalDomain Valor de {@code finalDomain} incluido en el record.
+     * @param score Valor de {@code score} incluido en el record.
+     * @param checkedAt Valor de {@code checkedAt} incluido en el record.
+     * @param expiresAt Valor de {@code expiresAt} incluido en el record.
+     * @param downloadable Valor de {@code downloadable} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record SourceSnapshot(
             String resolutionStatus,
             String validationStatus,
@@ -1358,6 +1898,12 @@ public class CatalogRepository {
             LocalDateTime checkedAt,
             LocalDateTime expiresAt,
             boolean downloadable) {
+        /**
+         * Ejecuta la operación {@code effectiveFor}.
+         *
+         * @param catalogStatus Valor de {@code catalogStatus} utilizado por la operación.
+         * @return Resultado producido por {@code effectiveFor}.
+         */
         SourceSnapshot effectiveFor(String catalogStatus) {
             if ("available".equals(catalogStatus) && downloadable) {
                 return this;
@@ -1381,6 +1927,11 @@ public class CatalogRepository {
             return this;
         }
 
+        /**
+         * Ejecuta la operación {@code empty}.
+         *
+         * @return Resultado producido por {@code empty}.
+         */
         static SourceSnapshot empty() {
             return new SourceSnapshot(
                     "missing", "unchecked", "No disponible", null, null, null, null,
@@ -1388,5 +1939,14 @@ public class CatalogRepository {
         }
     }
 
+    /**
+     * Representa los datos inmutables de {@code StatsSnapshot}.
+     *
+     * @param total Valor de {@code total} incluido en el record.
+     * @param available Valor de {@code available} incluido en el record.
+     * @param review Valor de {@code review} incluido en el record.
+     * @param missing Valor de {@code missing} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record StatsSnapshot(long total, long available, long review, long missing) {}
 }

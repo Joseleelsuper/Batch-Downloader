@@ -1,21 +1,26 @@
+"""Implementa las responsabilidades del módulo `time`.
+"""
 from datetime import UTC, datetime, timedelta
 
 
 # El almacenamiento usa UTC deliberadamente. La conversión a la zona horaria del
 # usuario se realiza únicamente en los límites de presentación.
 def utc_now() -> datetime:
-    """Tiempo actual en UTC sin información de zona horaria.
+    """Ejecuta la operación `utc_now`.
 
     Returns:
-        datetime: El tiempo actual en UTC sin información de zona horaria.
+        datetime: Resultado producido por la operación.
     """
     return datetime.now(UTC).replace(tzinfo=None)
 
 
 def utc_after(**kwargs: int) -> datetime:
-    """Calcula el tiempo en UTC después de un período de tiempo especificado.
+    """Ejecuta la operación `utc_after`.
+
+    Args:
+        **kwargs (int): Valor de `kwargs` utilizado por la operación.
 
     Returns:
-        datetime: El tiempo en UTC después del período de tiempo especificado.
+        datetime: Resultado producido por la operación.
     """
     return utc_now() + timedelta(**kwargs)

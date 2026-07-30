@@ -1,1 +1,2 @@
-"""Public API schemas."""
+"""Inicializa el paquete `schemas`.
+"""

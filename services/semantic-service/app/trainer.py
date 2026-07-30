@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `trainer`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -52,33 +54,80 @@ DESCRIPTION_STOPWORDS = {
     "una",
     "utiliza",
 }
+"""Constante que define `DESCRIPTION_STOPWORDS`.
+"""
 EVALUATION_CANDIDATE_LIMIT = 2000
+"""Constante que define `EVALUATION_CANDIDATE_LIMIT`.
+"""
 
 
 @dataclass
 class PreparedRuntimeEvaluation:
+    """Representa el componente `PreparedRuntimeEvaluation`.
+    """
     queries: list[dict[str, Any]]
+    """Atributo de clase `queries` de `PreparedRuntimeEvaluation`.
+    """
     semantic_rankings: list[list[str]]
+    """Atributo de clase `semantic_rankings` de `PreparedRuntimeEvaluation`.
+    """
     lexical_rankings: list[list[str]]
+    """Atributo de clase `lexical_rankings` de `PreparedRuntimeEvaluation`.
+    """
     semantic_latencies_ms: list[float]
+    """Atributo de clase `semantic_latencies_ms` de `PreparedRuntimeEvaluation`.
+    """
     lexical_latencies_ms: list[float]
+    """Atributo de clase `lexical_latencies_ms` de `PreparedRuntimeEvaluation`.
+    """
     embedding_build_ms: float
+    """Atributo de clase `embedding_build_ms` de `PreparedRuntimeEvaluation`.
+    """
     document_vector_bytes: int
+    """Atributo de clase `document_vector_bytes` de `PreparedRuntimeEvaluation`.
+    """
     index_metrics: dict[str, float | int]
+    """Atributo de clase `index_metrics` de `PreparedRuntimeEvaluation`.
+    """
     latency_sample_size: int
+    """Atributo de clase `latency_sample_size` de `PreparedRuntimeEvaluation`.
+    """
     includes_lexical: bool = True
+    """Atributo de clase `includes_lexical` de `PreparedRuntimeEvaluation`.
+    """
 
 
 @dataclass
 class NegativeMiningIndex:
+    """Representa el componente `NegativeMiningIndex`.
+    """
     documents_by_id: dict[str, dict[str, Any]]
+    """Atributo de clase `documents_by_id` de `NegativeMiningIndex`.
+    """
     tokens_by_id: dict[str, set[str]]
+    """Atributo de clase `tokens_by_id` de `NegativeMiningIndex`.
+    """
     aliases_by_id: dict[str, set[str]]
+    """Atributo de clase `aliases_by_id` de `NegativeMiningIndex`.
+    """
     postings: dict[tuple[str, str], set[str]]
+    """Atributo de clase `postings` de `NegativeMiningIndex`.
+    """
     fallback_by_split: dict[str, list[str]]
+    """Atributo de clase `fallback_by_split` de `NegativeMiningIndex`.
+    """
 
 
 def split_for_app(app_id: str, seed: int) -> str:
+    """Ejecuta la operación `split_for_app`.
+
+    Args:
+        app_id (str): Identificador de `app` utilizado por la operación.
+        seed (int): Valor de `seed` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     bucket = int(hashlib.sha256(f"{seed}:{app_id}".encode()).hexdigest()[:8], 16) % 100
     if bucket < 80:
         return "train"
@@ -88,6 +137,15 @@ def split_for_app(app_id: str, seed: int) -> str:
 
 
 def build_query_snapshot(documents: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
+    """Construye la operación `query_snapshot`.
+
+    Args:
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        seed (int): Valor de `seed` utilizado por la operación.
+
+    Returns:
+        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+    """
     split_by_app = {
         document["app_id"]: split_for_app(document["app_id"], seed)
         for document in documents
@@ -198,6 +256,15 @@ def build_negative_mining_index(
     documents: list[dict[str, Any]],
     seed: int,
 ) -> NegativeMiningIndex:
+    """Construye la operación `negative_mining_index`.
+
+    Args:
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        seed (int): Valor de `seed` utilizado por la operación.
+
+    Returns:
+        NegativeMiningIndex: Resultado de `build_negative_mining_index`.
+    """
     documents_by_id = {document["app_id"]: document for document in documents}
     tokens_by_id: dict[str, set[str]] = {}
     aliases_by_id: dict[str, set[str]] = {}
@@ -255,11 +322,18 @@ def mine_hard_negatives(
     limit: int = 3,
     mining_index: NegativeMiningIndex | None = None,
 ) -> list[dict[str, Any]]:
-    """Mine deterministic lexical hard negatives without crossing data splits.
+    """Ejecuta la operación `mine_hard_negatives`.
 
-    Every declared positive is excluded. Exact name/package aliases are also
-    excluded conservatively, preventing duplicate catalog entries from being
-    mislabeled as negatives.
+    Args:
+        query_row (dict[str, Any]): Valor de `query_row` utilizado por la operación.
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        seed (int): Valor de `seed` utilizado por la operación.
+        limit (int): Número máximo de elementos que se recuperarán.
+        mining_index (NegativeMiningIndex | None): Valor de `mining_index` utilizado por la
+            operación.
+
+    Returns:
+        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
     """
     query = str(query_row["query"])
     query_tokens = set(normalized_tokens(query))
@@ -319,6 +393,17 @@ def write_snapshot(
     root: Path,
     seed: int,
 ) -> tuple[str, Path]:
+    """Ejecuta la operación `write_snapshot`.
+
+    Args:
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
+        root (Path): Valor de `root` utilizado por la operación.
+        seed (int): Valor de `seed` utilizado por la operación.
+
+    Returns:
+        tuple[str, Path]: Resultado producido por la operación.
+    """
     digest = hashlib.sha256()
     digest.update(f"seed:{seed}\n".encode())
     for record_type, records in (("document", documents), ("query", queries)):
@@ -372,6 +457,17 @@ def write_snapshot(
 
 
 def discover_lora_targets(auto_model: Any) -> list[str]:
+    """Ejecuta la operación `discover_lora_targets`.
+
+    Args:
+        auto_model (Any): Valor de `auto_model` utilizado por la operación.
+
+    Returns:
+        list[str]: Colección de elementos obtenidos por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     endings = {"query", "value", "q_proj", "v_proj"}
     targets = sorted(
         {
@@ -395,6 +491,20 @@ def train_model(
     settings,
     max_steps: int,
 ) -> None:
+    """Ejecuta la operación `train_model`.
+
+    Args:
+        base (ModelDefinition): Valor de `base` utilizado por la operación.
+        train_rows (list[dict[str, Any]]): Valor de `train_rows` utilizado por la operación.
+        validation_rows (list[dict[str, Any]]): Valor de `validation_rows` utilizado por la
+            operación.
+        output_dir (Path): Valor de `output_dir` utilizado por la operación.
+        settings (Any): Configuración del servicio.
+        max_steps (int): Valor de `max_steps` utilizado por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     from datasets import Dataset
     from peft import LoraConfig, PeftModel, TaskType, get_peft_model
     from sentence_transformers import (
@@ -548,6 +658,20 @@ def evaluate_runtime(
     semantic_weight: float | None,
     benchmark_store: SemanticStore | None = None,
 ) -> dict[str, Any]:
+    """Ejecuta la operación `evaluate_runtime`.
+
+    Args:
+        runtime (EmbeddingRuntime): Valor de `runtime` utilizado por la operación.
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
+        variant (str): Valor de `variant` utilizado por la operación.
+        semantic_weight (float | None): Valor de `semantic_weight` utilizado por la operación.
+        benchmark_store (SemanticStore | None): Valor de `benchmark_store` utilizado por la
+            operación.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
+    """
     prepared = prepare_runtime_evaluation(
         runtime,
         documents,
@@ -570,7 +694,21 @@ def prepare_runtime_evaluation(
     include_lexical: bool = True,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> PreparedRuntimeEvaluation:
-    """Build one immutable evaluation index and reuse it for every RRF weight."""
+    """Ejecuta la operación `prepare_runtime_evaluation`.
+
+    Args:
+        runtime (EmbeddingRuntime): Valor de `runtime` utilizado por la operación.
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
+        benchmark_store (SemanticStore | None): Valor de `benchmark_store` utilizado por la
+            operación.
+        include_lexical (bool): Valor de `include_lexical` utilizado por la operación.
+        progress (Callable[[str, int, int], None] | None): Valor de `progress` utilizado por la
+            operación.
+
+    Returns:
+        PreparedRuntimeEvaluation: Resultado producido por la operación.
+    """
     if progress is not None:
         progress("embedding-documents", 0, len(queries))
     index_started = time.perf_counter()
@@ -669,6 +807,19 @@ def evaluate_prepared_runtime(
     variant: str,
     semantic_weight: float | None,
 ) -> dict[str, Any]:
+    """Ejecuta la operación `evaluate_prepared_runtime`.
+
+    Args:
+        prepared (PreparedRuntimeEvaluation): Valor de `prepared` utilizado por la operación.
+        variant (str): Valor de `variant` utilizado por la operación.
+        semantic_weight (float | None): Valor de `semantic_weight` utilizado por la operación.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     rankings: list[tuple[dict[str, Any], list[str]]] = []
     latencies: list[float] = []
     for index, query in enumerate(prepared.queries):
@@ -737,6 +888,15 @@ def evaluate_lexical(
     documents: list[dict[str, Any]],
     queries: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """Ejecuta la operación `evaluate_lexical`.
+
+    Args:
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
+    """
     latencies = []
     rankings = []
     started = time.perf_counter()
@@ -788,6 +948,11 @@ def evaluate_lexical(
 
 
 def accelerator_memory_bytes() -> int:
+    """Ejecuta la operación `accelerator_memory_bytes`.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     try:
         import torch
 
@@ -802,6 +967,12 @@ def inherit_index_metrics(
     target: dict[str, Any],
     source: dict[str, Any],
 ) -> None:
+    """Ejecuta la operación `inherit_index_metrics`.
+
+    Args:
+        target (dict[str, Any]): Valor de `target` utilizado por la operación.
+        source (dict[str, Any]): Fuente de descarga sobre la que se actúa.
+    """
     for key in (
         "embeddingBuildMs",
         "hnswBuildMs",
@@ -815,6 +986,15 @@ def inherit_index_metrics(
 
 
 def percentile(values: list[float], quantile: float) -> float:
+    """Ejecuta la operación `percentile`.
+
+    Args:
+        values (list[float]): Valor de `values` utilizado por la operación.
+        quantile (float): Valor de `quantile` utilizado por la operación.
+
+    Returns:
+        float: Resultado producido por la operación.
+    """
     if not values:
         return 0.0
     ordered = sorted(values)
@@ -827,6 +1007,15 @@ def score_variants(
     *,
     lexical_exact: float,
 ) -> list[dict[str, Any]]:
+    """Ejecuta la operación `score_variants`.
+
+    Args:
+        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+        lexical_exact (float): Valor de `lexical_exact` utilizado por la operación.
+
+    Returns:
+        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+    """
     quality_values = [row["ndcgAt10"] for row in metrics]
     inverse_latency = [1.0 / max(row["p95Ms"], 0.001) for row in metrics]
     inverse_memory = [
@@ -877,6 +1066,19 @@ def write_reports(
     dataset_hash: str,
     smoke: bool = False,
 ) -> dict[str, str]:
+    """Ejecuta la operación `write_reports`.
+
+    Args:
+        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+        selected (str | None): Valor de `selected` utilizado por la operación.
+        report_dir (Path): Valor de `report_dir` utilizado por la operación.
+        run_id (str): Identificador de `run` utilizado por la operación.
+        dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
+        smoke (bool): Valor de `smoke` utilizado por la operación.
+
+    Returns:
+        dict[str, str]: Mapa con los datos producidos por la operación.
+    """
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / f"{run_id}.json"
     csv_path = report_dir / f"{run_id}.csv"
@@ -935,6 +1137,17 @@ def write_reports(
 
 
 def run_training(*, smoke: bool = False) -> dict[str, Any]:
+    """Ejecuta la operación `training`.
+
+    Args:
+        smoke (bool): Valor de `smoke` utilizado por la operación.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     settings = get_settings()
     database = Database(settings)
     database.open()
@@ -1119,7 +1332,7 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
         winner = max(eligible, key=lambda row: row["totalScore"]) if eligible else None
         selected = winner.get("modelVersion") if winner else None
         if selected:
-            # The test partition is opened exactly once for the selected variant.
+            # La partición de prueba se abre una sola vez para la variante seleccionada.
             selected_runtime = EmbeddingRuntime(
                 store.model(selected),
                 device=settings.device,
@@ -1183,6 +1396,8 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+    """
     parser = argparse.ArgumentParser(description="Entrena y compara modelos semánticos")
     parser.add_argument("--smoke", action="store_true")
     arguments = parser.parse_args()

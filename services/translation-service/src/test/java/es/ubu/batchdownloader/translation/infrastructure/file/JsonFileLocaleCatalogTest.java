@@ -13,11 +13,24 @@ import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * Agrupa los escenarios de prueba de {@code JsonFileLocaleCatalogTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class JsonFileLocaleCatalogTest {
 
+    /**
+     * Dato compartido {@code localeDirectory} para los escenarios de prueba.
+     */
     @TempDir
     private Path localeDirectory;
 
+    /**
+     * Comprueba el escenario {@code loadsAndCachesAValidSpanishCatalog}.
+     *
+     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     */
     @Test
     void loadsAndCachesAValidSpanishCatalog() throws IOException {
         write("template.json", "{\"greeting\":\"\",\"farewell\":\"\"}");
@@ -35,6 +48,11 @@ class JsonFileLocaleCatalogTest {
         assertThat(catalog.findByLocale("en")).isEmpty();
     }
 
+    /**
+     * Comprueba el escenario {@code failsFastWhenTheSpanishCatalogMissesATemplateKey}.
+     *
+     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     */
     @Test
     void failsFastWhenTheSpanishCatalogMissesATemplateKey() throws IOException {
         write("template.json", "{\"greeting\":\"\",\"farewell\":\"\"}");
@@ -45,6 +63,11 @@ class JsonFileLocaleCatalogTest {
                 .hasMessageContaining("farewell");
     }
 
+    /**
+     * Comprueba el escenario {@code failsFastWhenTheSpanishCatalogAddsAnUnknownKey}.
+     *
+     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     */
     @Test
     void failsFastWhenTheSpanishCatalogAddsAnUnknownKey() throws IOException {
         write("template.json", "{\"greeting\":\"\"}");
@@ -55,6 +78,11 @@ class JsonFileLocaleCatalogTest {
                 .hasMessageContaining("unknown");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsBlankOrNonTextTranslations}.
+     *
+     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     */
     @Test
     void rejectsBlankOrNonTextTranslations() throws IOException {
         write("template.json", "{\"greeting\":\"\"}");
@@ -70,6 +98,11 @@ class JsonFileLocaleCatalogTest {
                 .hasMessageContaining("greeting");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsDuplicateJsonKeys}.
+     *
+     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     */
     @Test
     void rejectsDuplicateJsonKeys() throws IOException {
         write("template.json", "{\"greeting\":\"\"}");
@@ -80,11 +113,23 @@ class JsonFileLocaleCatalogTest {
                 .hasMessageContaining("JSON estricto");
     }
 
+    /**
+     * Ejecuta la operación {@code catalog}.
+     *
+     * @return Resultado producido por {@code catalog}.
+     */
     private JsonFileLocaleCatalog catalog() {
         return new JsonFileLocaleCatalog(
                 new TranslationProperties(localeDirectory, Duration.ofHours(1)));
     }
 
+    /**
+     * Ejecuta la operación {@code write}.
+     *
+     * @param fileName Valor de {@code fileName} utilizado por la operación.
+     * @param content Contenido que debe procesarse.
+     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     */
     private void write(String fileName, String content) throws IOException {
         Files.writeString(localeDirectory.resolve(fileName), content, StandardCharsets.UTF_8);
     }

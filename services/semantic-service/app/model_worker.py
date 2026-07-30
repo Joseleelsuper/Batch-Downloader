@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `model_worker`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -21,9 +23,13 @@ from app.database import Database
 from app.indexer import SemanticIndexer
 
 logger = logging.getLogger("semantic-model-worker")
+"""Estado global asociado a `logger`.
+"""
 
 
 class LeaseHeartbeat:
+    """Representa el componente `LeaseHeartbeat`.
+    """
     def __init__(
         self,
         store: SemanticAdminStore,
@@ -31,22 +37,54 @@ class LeaseHeartbeat:
         owner: str,
         lease_seconds: int,
     ) -> None:
+        """Inicializa una instancia de `LeaseHeartbeat`.
+
+        Args:
+            store (SemanticAdminStore): Valor de `store` utilizado por la operación.
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            owner (str): Valor de `owner` utilizado por la operación.
+            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+        """
         self.store = store
+        """Estado de instancia asociado a `store`.
+        """
         self.operation_id = operation_id
+        """Estado de instancia asociado a `operation_id`.
+        """
         self.owner = owner
+        """Estado de instancia asociado a `owner`.
+        """
         self.lease_seconds = lease_seconds
+        """Estado de instancia asociado a `lease_seconds`.
+        """
         self.stopped = threading.Event()
+        """Estado de instancia asociado a `stopped`.
+        """
         self.thread = threading.Thread(target=self._run, daemon=True)
+        """Estado de instancia asociado a `thread`.
+        """
 
     def __enter__(self) -> LeaseHeartbeat:
+        """Abre el contexto y devuelve la instancia preparada.
+
+        Returns:
+            LeaseHeartbeat: Resultado producido por la operación.
+        """
         self.thread.start()
         return self
 
     def __exit__(self, *_args: object) -> None:
+        """Cierra el contexto y libera sus recursos.
+
+        Args:
+            *_args (object): Valor de `_args` utilizado por la operación.
+        """
         self.stopped.set()
         self.thread.join(timeout=2)
 
     def _run(self) -> None:
+        """Ejecuta el paso interno `_run`.
+        """
         interval = max(5.0, self.lease_seconds / 3)
         while not self.stopped.wait(interval):
             try:
@@ -60,14 +98,30 @@ class LeaseHeartbeat:
 
 
 class SemanticModelWorker:
+    """Ejecuta el procesamiento en segundo plano de `SemanticModel`.
+    """
     def __init__(self) -> None:
+        """Inicializa una instancia de `SemanticModelWorker`.
+        """
         self.settings = get_settings()
+        """Estado de instancia asociado a `settings`.
+        """
         self.database = Database(self.settings)
+        """Estado de instancia asociado a `database`.
+        """
         self.store = SemanticAdminStore(self.database)
+        """Estado de instancia asociado a `store`.
+        """
         self.owner = f"model-worker-{uuid.uuid4()}"
+        """Estado de instancia asociado a `owner`.
+        """
         self.artifacts_root = Path(self.settings.model_cache_dir) / "artifacts"
+        """Estado de instancia asociado a `artifacts_root`.
+        """
 
     def open(self) -> None:
+        """Ejecuta `open` dentro de `SemanticModelWorker`.
+        """
         self.database.open()
         self.database.migrate()
         self.artifacts_root.mkdir(parents=True, exist_ok=True)
@@ -75,9 +129,16 @@ class SemanticModelWorker:
         self.reconcile_registered_models()
 
     def close(self) -> None:
+        """Ejecuta `close` dentro de `SemanticModelWorker`.
+        """
         self.database.close()
 
     def run_once(self) -> bool:
+        """Ejecuta la operación `once`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         operation = self.store.claim_operation(
             self.owner,
             self.settings.operation_lease_seconds,
@@ -133,6 +194,11 @@ class SemanticModelWorker:
         return True
 
     def _cleanup_operation_staging(self, operation: dict[str, Any]) -> None:
+        """Ejecuta el paso interno `_cleanup_operation_staging`.
+
+        Args:
+            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
+        """
         if operation["operation_kind"] != "download":
             return
         staging = self.artifacts_root / ".staging" / str(operation["id"])
@@ -140,12 +206,16 @@ class SemanticModelWorker:
             self._safe_remove(staging)
 
     def run_loop(self) -> None:
+        """Ejecuta la operación `loop`.
+        """
         while True:
             worked = self.run_once()
             if not worked:
                 time.sleep(max(0.5, self.settings.operation_poll_seconds))
 
     def reconcile_registered_models(self) -> None:
+        """Ejecuta `reconcile_registered_models` dentro de `SemanticModelWorker`.
+        """
         for model in self.store.models():
             artifact = self.store.artifact(model["id"])
             local_path = artifact.get("local_path")
@@ -168,6 +238,17 @@ class SemanticModelWorker:
                 )
 
     def _execute(self, operation: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_execute`.
+
+        Args:
+            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         kind = operation["operation_kind"]
         if kind == "download":
             return self._download(operation)
@@ -182,6 +263,18 @@ class SemanticModelWorker:
         raise RuntimeError("unsupported_semantic_operation")
 
     def _download(self, operation: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_download`.
+
+        Args:
+            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+        """
         operation_id = str(operation["id"])
         model_id = str(operation["model_id"])
         repository = str(operation["repository"])
@@ -312,6 +405,17 @@ class SemanticModelWorker:
         }
 
     def _benchmark(self, operation: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_benchmark`.
+
+        Args:
+            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         operation_id = str(operation["id"])
         request = dict(operation["request_payload"] or {})
         model_ids = [str(value) for value in request.get("modelIds") or []]
@@ -337,6 +441,18 @@ class SemanticModelWorker:
         return self._run_json_subprocess(operation_id, command)
 
     def _prepare(self, operation: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_prepare`.
+
+        Args:
+            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         operation_id = str(operation["id"])
         model_id = str(operation["model_id"])
         model_version = self.store.mark_preparing(model_id)
@@ -370,6 +486,18 @@ class SemanticModelWorker:
         return {"modelId": model_id, **report}
 
     def _activate(self, operation: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_activate`.
+
+        Args:
+            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         operation_id = str(operation["id"])
         model_id = str(operation["model_id"])
         request = dict(operation["request_payload"] or {})
@@ -409,6 +537,17 @@ class SemanticModelWorker:
         )
 
     def _delete(self, operation: dict[str, Any]) -> dict[str, Any]:
+        """Ejecuta el paso interno `_delete`.
+
+        Args:
+            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+        """
         operation_id = str(operation["id"])
         model_id = str(operation["model_id"])
         self._cancel_checkpoint(operation_id)
@@ -442,6 +581,17 @@ class SemanticModelWorker:
         query_prefix: str,
         passage_prefix: str,
     ) -> dict[str, Any]:
+        """Ejecuta el paso interno `_validate_subprocess`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            path (Path): Ruta del recurso que debe procesarse.
+            query_prefix (str): Valor de `query_prefix` utilizado por la operación.
+            passage_prefix (str): Valor de `passage_prefix` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         return self._run_json_subprocess(
             operation_id,
             [
@@ -467,6 +617,20 @@ class SemanticModelWorker:
         *,
         offline: bool = False,
     ) -> dict[str, Any]:
+        """Ejecuta el paso interno `_run_json_subprocess`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            command (list[str]): Comando que debe procesarse.
+            offline (bool): Valor de `offline` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+        """
         environment = os.environ.copy()
         environment["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
         if offline:
@@ -522,6 +686,18 @@ class SemanticModelWorker:
         *,
         expected_files: list[dict[str, Any]],
     ) -> str:
+        """Ejecuta el paso interno `_verify_and_digest`.
+
+        Args:
+            root (Path): Valor de `root` utilizado por la operación.
+            expected_files (list[dict[str, Any]]): Valor esperado de `files`.
+
+        Returns:
+            str: Resultado producido por la operación.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         digest = hashlib.sha256()
         files = sorted(
             path
@@ -577,6 +753,14 @@ class SemanticModelWorker:
         total: int,
         stopped: threading.Event,
     ) -> None:
+        """Ejecuta el paso interno `_track_directory_progress`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            directory (Path): Valor de `directory` utilizado por la operación.
+            total (int): Valor de `total` utilizado por la operación.
+            stopped (threading.Event): Valor de `stopped` utilizado por la operación.
+        """
         while not stopped.wait(1):
             try:
                 self.store.update_operation(
@@ -596,6 +780,15 @@ class SemanticModelWorker:
         *,
         cleanup: Path | None = None,
     ) -> None:
+        """Ejecuta el paso interno `_cancel_checkpoint`.
+
+        Args:
+            operation_id (str): Identificador de `operation` utilizado por la operación.
+            cleanup (Path | None): Valor de `cleanup` utilizado por la operación.
+
+        Throws:
+            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+        """
         if not self.store.cancel_requested(operation_id):
             return
         if cleanup and cleanup.exists():
@@ -603,6 +796,15 @@ class SemanticModelWorker:
         raise InterruptedError("semantic_operation_cancelled")
 
     def _cached_snapshot(self, repository: str, revision: str) -> Path | None:
+        """Ejecuta el paso interno `_cached_snapshot`.
+
+        Args:
+            repository (str): Valor de `repository` utilizado por la operación.
+            revision (str): Valor de `revision` utilizado por la operación.
+
+        Returns:
+            Path | None: Resultado producido por la operación.
+        """
         cache_name = "models--" + repository.replace("/", "--")
         roots = (
             Path(self.settings.model_cache_dir) / cache_name / "snapshots" / revision,
@@ -612,16 +814,37 @@ class SemanticModelWorker:
         return next((path for path in roots if path.is_dir()), None)
 
     def _assert_managed(self, path: Path) -> None:
+        """Ejecuta el paso interno `_assert_managed`.
+
+        Args:
+            path (Path): Ruta del recurso que debe procesarse.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         if not path.resolve().is_relative_to(self.artifacts_root.resolve()):
             raise RuntimeError("semantic_model_path_outside_artifacts")
 
     def _assert_model_cache_path(self, path: Path) -> None:
+        """Ejecuta el paso interno `_assert_model_cache_path`.
+
+        Args:
+            path (Path): Ruta del recurso que debe procesarse.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         cache = Path(self.settings.model_cache_dir).resolve()
         resolved = path.resolve()
         if resolved == cache or not resolved.is_relative_to(cache):
             raise RuntimeError("semantic_model_path_outside_cache")
 
     def _safe_remove(self, path: Path) -> None:
+        """Ejecuta el paso interno `_safe_remove`.
+
+        Args:
+            path (Path): Ruta del recurso que debe procesarse.
+        """
         self._assert_model_cache_path(path)
         if path.is_dir():
             shutil.rmtree(path)
@@ -630,6 +853,14 @@ class SemanticModelWorker:
 
 
 def _error_code(exception: Exception) -> str:
+    """Ejecuta el paso interno `_error_code`.
+
+    Args:
+        exception (Exception): Valor de `exception` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     message = str(exception).strip()
     if message.startswith("semantic_"):
         return message.split(":", 1)[0][:120]
@@ -637,6 +868,14 @@ def _error_code(exception: Exception) -> str:
 
 
 def _safe_message(code: str) -> str:
+    """Ejecuta el paso interno `_safe_message`.
+
+    Args:
+        code (str): Valor de `code` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     messages = {
         "semantic_model_too_large": "El modelo supera el tamaño permitido.",
         "semantic_model_insufficient_disk": "No hay espacio libre suficiente para descargar el modelo.",
@@ -650,6 +889,8 @@ def _safe_message(code: str) -> str:
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
     arguments = parser.parse_args()

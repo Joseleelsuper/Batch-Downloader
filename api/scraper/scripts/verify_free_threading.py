@@ -1,3 +1,5 @@
+"""Proporciona la utilidad de línea de comandos `verify_free_threading`.
+"""
 from __future__ import annotations
 
 import concurrent.futures
@@ -12,10 +14,23 @@ from app.scraper.candidates import extract_candidates
 
 
 def parse_fixture(html: str) -> int:
+    """Analiza la operación `fixture`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     return len(extract_candidates(html, "https://verification.invalid"))
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     assert_free_threaded_runtime()
     html = "<html><body><a href='/app.exe'>Descargar</a></body></html>"
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:

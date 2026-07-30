@@ -46,21 +46,53 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadJobProcessorTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class DownloadJobProcessorTest {
+    /**
+     * Constante que define {@code GOOD_ITEM_ID}.
+     */
     private static final UUID GOOD_ITEM_ID = id("item-ok");
+    /**
+     * Constante que define {@code BAD_ITEM_ID}.
+     */
     private static final UUID BAD_ITEM_ID = id("item-bad");
+    /**
+     * Constante que define {@code FAST_ITEM_ID}.
+     */
     private static final UUID FAST_ITEM_ID = id("item-fast");
+    /**
+     * Constante que define {@code SLOW_ITEM_ID}.
+     */
     private static final UUID SLOW_ITEM_ID = id("item-slow");
+    /**
+     * Dato compartido {@code temp} para los escenarios de prueba.
+     */
     @TempDir
     Path temp;
 
+    /**
+     * Dato compartido {@code executor} para los escenarios de prueba.
+     */
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
 
+    /**
+     * Libera el estado utilizado por los escenarios de prueba.
+     */
     @AfterEach
     void shutdownExecutor() {
         executor.shutdownNow();
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * createsPartialManifestZipStoresArtifactsAndPublishesDeterministicEvents}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void createsPartialManifestZipStoresArtifactsAndPublishesDeterministicEvents() throws Exception {
         MemoryArtifactStore store = new MemoryArtifactStore();
@@ -119,6 +151,9 @@ class DownloadJobProcessorTest {
         }
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsOversizedJobAsAStableFailureEventWithoutDownloading}.
+     */
     @Test
     void rejectsOversizedJobAsAStableFailureEventWithoutDownloading() {
         MemoryArtifactStore store = new MemoryArtifactStore();
@@ -134,6 +169,9 @@ class DownloadJobProcessorTest {
         assertThat(publisher.routingKeys).containsExactly(EventTypes.JOB_FAILED_ROUTING_KEY);
     }
 
+    /**
+     * Comprueba el escenario {@code doesNotPublishAnUnusableArchiveWhenEveryInstallerIsRejected}.
+     */
     @Test
     void doesNotPublishAnUnusableArchiveWhenEveryInstallerIsRejected() {
         MemoryArtifactStore store = new MemoryArtifactStore();
@@ -154,6 +192,9 @@ class DownloadJobProcessorTest {
                 EventTypes.JOB_FAILED_ROUTING_KEY);
     }
 
+    /**
+     * Comprueba el escenario {@code createsManualOnlyZipWhenEveryFailedAppHasASafeOfficialPage}.
+     */
     @Test
     void createsManualOnlyZipWhenEveryFailedAppHasASafeOfficialPage() {
         MemoryArtifactStore store = new MemoryArtifactStore();
@@ -175,6 +216,10 @@ class DownloadJobProcessorTest {
         assertThat(ready.payload().failedItems()).isEqualTo(1);
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * rejectsSensitiveOfficialPageQueriesInsteadOfWritingThemToAShortcut}.
+     */
     @Test
     void rejectsSensitiveOfficialPageQueriesInsteadOfWritingThemToAShortcut() {
         MemoryArtifactStore store = new MemoryArtifactStore();
@@ -198,6 +243,9 @@ class DownloadJobProcessorTest {
         assertThat(publisher.routingKeys.getLast()).isEqualTo(EventTypes.JOB_FAILED_ROUTING_KEY);
     }
 
+    /**
+     * Comprueba el escenario {@code publishesTerminalItemsInTheirRealCompletionOrder}.
+     */
     @Test
     void publishesTerminalItemsInTheirRealCompletionOrder() {
         CountDownLatch fastTerminalPublished = new CountDownLatch(1);
@@ -238,6 +286,15 @@ class DownloadJobProcessorTest {
                 .containsExactly(FAST_ITEM_ID, SLOW_ITEM_ID);
     }
 
+    /**
+     * Procesa los datos recibidos mediante {@code processor}.
+     *
+     * @param downloader Valor de {@code downloader} utilizado por la operación.
+     * @param store Valor de {@code store} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param maxItems Valor de {@code maxItems} utilizado por la operación.
+     * @return Resultado producido por {@code processor}.
+     */
     private DownloadJobProcessor processor(
             RemoteDownloader downloader,
             ArtifactStore store,
@@ -246,6 +303,16 @@ class DownloadJobProcessorTest {
         return processor(downloader, store, publisher, maxItems, metadataLookup(true));
     }
 
+    /**
+     * Procesa los datos recibidos mediante {@code processor}.
+     *
+     * @param downloader Valor de {@code downloader} utilizado por la operación.
+     * @param store Valor de {@code store} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param maxItems Valor de {@code maxItems} utilizado por la operación.
+     * @param metadataLookup Valor de {@code metadataLookup} utilizado por la operación.
+     * @return Resultado producido por {@code processor}.
+     */
     private DownloadJobProcessor processor(
             RemoteDownloader downloader,
             ArtifactStore store,
@@ -293,6 +360,12 @@ class DownloadJobProcessorTest {
                 new DownloadCancellationRegistry());
     }
 
+    /**
+     * Ejecuta la operación {@code metadataLookup}.
+     *
+     * @param safeOfficialPage Valor de {@code safeOfficialPage} utilizado por la operación.
+     * @return Resultado producido por {@code metadataLookup}.
+     */
     private JobItemMetadataLookup metadataLookup(boolean safeOfficialPage) {
         return (jobId, items) -> items.stream().collect(java.util.stream.Collectors.toMap(
                 DownloadItemRequest::itemId,
@@ -306,6 +379,12 @@ class DownloadJobProcessorTest {
                                 : null)));
     }
 
+    /**
+     * Ejecuta la operación {@code publicAddress}.
+     *
+     * @return Resultado producido por {@code publicAddress}.
+     * @throws AssertionError Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private static InetAddress publicAddress() {
         try {
             return InetAddress.getByAddress(new byte[] {8, 8, 8, 8});
@@ -314,6 +393,14 @@ class DownloadJobProcessorTest {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code zipEntry}.
+     *
+     * @param archive Valor de {@code archive} utilizado por la operación.
+     * @param expectedPath Valor esperado de {@code path}.
+     * @return Resultado producido por {@code zipEntry}.
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private static String zipEntry(byte[] archive, String expectedPath) throws Exception {
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(archive))) {
             for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
@@ -325,6 +412,12 @@ class DownloadJobProcessorTest {
         return null;
     }
 
+    /**
+     * Ejecuta la operación {@code event}.
+     *
+     * @param items Colección de elementos que debe procesarse.
+     * @return Resultado producido por {@code event}.
+     */
     private DownloadJobRequestedEvent event(List<DownloadItemRequest> items) {
         return new DownloadJobRequestedEvent(
                 UUID.randomUUID(),
@@ -338,6 +431,13 @@ class DownloadJobProcessorTest {
                         items));
     }
 
+    /**
+     * Ejecuta la operación {@code item}.
+     *
+     * @param id Identificador del recurso sobre el que se actúa.
+     * @param filename Valor de {@code filename} utilizado por la operación.
+     * @return Resultado producido por {@code item}.
+     */
     private DownloadItemRequest item(String id, String filename) {
         return new DownloadItemRequest(
                 DownloadJobProcessorTest.id("item-" + id),
@@ -345,17 +445,46 @@ class DownloadJobProcessorTest {
                 DownloadJobProcessorTest.id("source-" + id));
     }
 
+    /**
+     * Ejecuta la operación {@code filename}.
+     *
+     * @param itemId Identificador de {@code item} utilizado por la operación.
+     * @return Resultado producido por {@code filename}.
+     */
     private static String filename(UUID itemId) {
         return BAD_ITEM_ID.equals(itemId) ? "Bad.exe" : "Good.exe";
     }
 
+    /**
+     * Ejecuta la operación {@code id}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code id}.
+     */
     private static UUID id(String value) {
         return UUID.nameUUIDFromBytes(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
+    /**
+     * Agrupa los escenarios de prueba de {@code MemoryArtifactStore}.
+     *
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private static class MemoryArtifactStore implements ArtifactStore {
+        /**
+         * Dato compartido {@code objects} para los escenarios de prueba.
+         */
         private final Map<String, byte[]> objects = new HashMap<>();
 
+        /**
+         * Implementa {@code put} para {@code MemoryArtifactStore}.
+         *
+         * @param objectKey Valor de {@code objectKey} utilizado por la operación.
+         * @param source Fuente de descarga sobre la que se actúa.
+         * @param contentType Valor de {@code contentType} utilizado por la operación.
+         * @throws RuntimeException Si no puede completarse la operación bajo las condiciones
+         *     requeridas.
+         */
         @Override
         public void put(String objectKey, Path source, String contentType) {
             try {
@@ -365,6 +494,11 @@ class DownloadJobProcessorTest {
             }
         }
 
+        /**
+         * Elimina el recurso solicitado mediante {@code delete}.
+         *
+         * @param objectKey Valor de {@code objectKey} utilizado por la operación.
+         */
         @Override
         public void delete(String objectKey) {
             objects.remove(objectKey);
@@ -372,19 +506,48 @@ class DownloadJobProcessorTest {
 
     }
 
+    /**
+     * Agrupa los escenarios de prueba de {@code RecordingPublisher}.
+     *
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private static class RecordingPublisher implements EventPublisher {
+        /**
+         * Dato compartido {@code routingKeys} para los escenarios de prueba.
+         */
         private final List<String> routingKeys = new ArrayList<>();
+        /**
+         * Dato compartido {@code events} para los escenarios de prueba.
+         */
         private final List<Object> events = new ArrayList<>();
+        /**
+         * Dato compartido {@code fastTerminalPublished} para los escenarios de prueba.
+         */
         private final CountDownLatch fastTerminalPublished;
 
+        /**
+         * Inicializa una instancia de {@code RecordingPublisher}.
+         */
         private RecordingPublisher() {
             this(null);
         }
 
+        /**
+         * Inicializa una instancia de {@code RecordingPublisher}.
+         *
+         * @param fastTerminalPublished Valor de {@code fastTerminalPublished} utilizado por la
+         *     operación.
+         */
         private RecordingPublisher(CountDownLatch fastTerminalPublished) {
             this.fastTerminalPublished = fastTerminalPublished;
         }
 
+        /**
+         * Publica el contenido solicitado mediante {@code publish}.
+         *
+         * @param routingKey Valor de {@code routingKey} utilizado por la operación.
+         * @param event Evento que debe procesarse.
+         */
         @Override
         public void publish(String routingKey, Object event) {
             routingKeys.add(routingKey);

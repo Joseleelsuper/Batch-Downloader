@@ -8,9 +8,20 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadJobTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class DownloadJobTest {
+    /**
+     * Constante que define {@code NOW}.
+     */
     private static final Instant NOW = Instant.parse("2026-07-13T12:00:00Z");
 
+    /**
+     * Comprueba el escenario {@code preservesRequestedAcceptedAndOmittedCountsForPartialJobs}.
+     */
     @Test
     void preservesRequestedAcceptedAndOmittedCountsForPartialJobs() {
         DownloadJob job = DownloadJob.queue(
@@ -31,6 +42,10 @@ class DownloadJobTest {
         assertThat(job.anonymousOwnerHash()).isEqualTo("browser-hash");
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * cancellationIsTerminalAndCannotBeOverwrittenByLateWorkerEvents}.
+     */
     @Test
     void cancellationIsTerminalAndCannotBeOverwrittenByLateWorkerEvents() {
         DownloadJob job = DownloadJob.queue(
@@ -51,6 +66,9 @@ class DownloadJobTest {
         assertThat(job.items()).allMatch(item -> item.status() == DownloadItemStatus.CANCELLED);
     }
 
+    /**
+     * Comprueba el escenario {@code requiresExactlyOneOwner}.
+     */
     @Test
     void requiresExactlyOneOwner() {
         assertThatThrownBy(() -> DownloadJob.queue(
@@ -67,6 +85,10 @@ class DownloadJobTest {
                 .hasMessage("download_job_requires_exactly_one_owner");
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * advancesTerminalItemsIndividuallyAndKeepsPackagingBelowOneHundred}.
+     */
     @Test
     void advancesTerminalItemsIndividuallyAndKeepsPackagingBelowOneHundred() {
         DownloadJobItem first = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW);

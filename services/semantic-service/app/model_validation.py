@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `model_validation`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +19,20 @@ def validate_model(
     passage_prefix: str,
     device: str,
 ) -> dict[str, object]:
+    """Valida la operación `model`.
+
+    Args:
+        path (Path): Ruta del recurso que debe procesarse.
+        query_prefix (str): Valor de `query_prefix` utilizado por la operación.
+        passage_prefix (str): Valor de `passage_prefix` utilizado por la operación.
+        device (str): Valor de `device` utilizado por la operación.
+
+    Returns:
+        dict[str, object]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     from sentence_transformers import SentenceTransformer
@@ -59,6 +75,11 @@ def validate_model(
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+
+    Throws:
+        SystemExit: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", required=True)
     parser.add_argument("--query-prefix", default="")

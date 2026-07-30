@@ -14,15 +14,38 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 
+/**
+ * Implementa el componente {@code SmtpNotificationSender}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Component
 public class SmtpNotificationSender implements NotificationSender {
 
+    /**
+     * Constante que define {@code SPANISH}.
+     */
     private static final Locale SPANISH = Locale.forLanguageTag("es-ES");
 
+    /**
+     * Estado {@code mailSender} mantenido por {@code SmtpNotificationSender}.
+     */
     private final JavaMailSender mailSender;
+    /**
+     * Estado {@code properties} mantenido por {@code SmtpNotificationSender}.
+     */
     private final MailTemplateProperties properties;
+    /**
+     * Estado {@code dateFormatter} mantenido por {@code SmtpNotificationSender}.
+     */
     private final DateTimeFormatter dateFormatter;
 
+    /**
+     * Inicializa una instancia de {@code SmtpNotificationSender}.
+     *
+     * @param mailSender Valor de {@code mailSender} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     */
     public SmtpNotificationSender(JavaMailSender mailSender, MailTemplateProperties properties) {
         this.mailSender = mailSender;
         this.properties = properties;
@@ -31,6 +54,11 @@ public class SmtpNotificationSender implements NotificationSender {
                 .withZone(properties.resolvedZoneId());
     }
 
+    /**
+     * Envía el contenido solicitado mediante {@code send}.
+     *
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     */
     @Override
     public void send(EmailNotification notification) {
         SimpleMailMessage message = new SimpleMailMessage();
@@ -40,6 +68,12 @@ public class SmtpNotificationSender implements NotificationSender {
         mailSender.send(message);
     }
 
+    /**
+     * Ejecuta la operación {@code applySpanishTemplate}.
+     *
+     * @param message Mensaje que debe procesarse.
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     */
     private void applySpanishTemplate(SimpleMailMessage message, EmailNotification notification) {
         switch (notification.template()) {
             case EMAIL_VERIFICATION -> {
@@ -61,6 +95,12 @@ public class SmtpNotificationSender implements NotificationSender {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code emailVerificationBody}.
+     *
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @return Resultado producido por {@code emailVerificationBody}.
+     */
     private String emailVerificationBody(EmailNotification notification) {
         return """
                 Hola, %s:
@@ -74,6 +114,12 @@ public class SmtpNotificationSender implements NotificationSender {
                 actionUrl("verify-email", notification.requiredParameter("token")));
     }
 
+    /**
+     * Ejecuta la operación {@code passwordResetBody}.
+     *
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @return Resultado producido por {@code passwordResetBody}.
+     */
     private String passwordResetBody(EmailNotification notification) {
         return """
                 Hola, %s:
@@ -87,6 +133,12 @@ public class SmtpNotificationSender implements NotificationSender {
                 actionUrl("reset-password", notification.requiredParameter("token")));
     }
 
+    /**
+     * Ejecuta la operación {@code downloadReadyBody}.
+     *
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @return Resultado producido por {@code downloadReadyBody}.
+     */
     private String downloadReadyBody(EmailNotification notification) {
         Instant expiresAt = Instant.parse(notification.requiredParameter("expiresAt"));
         return """
@@ -107,6 +159,12 @@ public class SmtpNotificationSender implements NotificationSender {
                 notification.requiredParameter("jobId"));
     }
 
+    /**
+     * Ejecuta la operación {@code downloadFailedBody}.
+     *
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @return Resultado producido por {@code downloadFailedBody}.
+     */
     private String downloadFailedBody(EmailNotification notification) {
         return """
                 Hola:
@@ -124,6 +182,12 @@ public class SmtpNotificationSender implements NotificationSender {
                 notification.requiredParameter("jobId"));
     }
 
+    /**
+     * Ejecuta la operación {@code failureCode}.
+     *
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @return Resultado producido por {@code failureCode}.
+     */
     private String failureCode(EmailNotification notification) {
         Object failureCode = notification.parameters().get("failureCode");
         return failureCode == null || failureCode.toString().isBlank()
@@ -131,6 +195,13 @@ public class SmtpNotificationSender implements NotificationSender {
                 : failureCode.toString().strip();
     }
 
+    /**
+     * Ejecuta la operación {@code actionUrl}.
+     *
+     * @param path Ruta del recurso que debe procesarse.
+     * @param token Token utilizado para autorizar o correlacionar la operación.
+     * @return Resultado producido por {@code actionUrl}.
+     */
     private String actionUrl(String path, String token) {
         String encodedToken = URLEncoder.encode(token, StandardCharsets.UTF_8).replace("+", "%20");
         return UriComponentsBuilder.fromUri(properties.publicBaseUrl())
@@ -140,6 +211,12 @@ public class SmtpNotificationSender implements NotificationSender {
                 .toUriString();
     }
 
+    /**
+     * Ejecuta la operación {@code downloadJobUrl}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @return Resultado producido por {@code downloadJobUrl}.
+     */
     private String downloadJobUrl(String jobId) {
         return UriComponentsBuilder.fromUri(properties.publicBaseUrl())
                 .pathSegment("downloads", jobId)

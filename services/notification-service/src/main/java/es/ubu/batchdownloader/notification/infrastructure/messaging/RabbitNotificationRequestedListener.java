@@ -12,13 +12,34 @@ import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
+/**
+ * Procesa los eventos recibidos por {@code RabbitNotificationRequestedListener}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Component
 public class RabbitNotificationRequestedListener {
 
+    /**
+     * Estado {@code eventReader} mantenido por {@code RabbitNotificationRequestedListener}.
+     */
     private final ObjectReader eventReader;
+    /**
+     * Dependencia {@code messageMapper} utilizada por {@code RabbitNotificationRequestedListener}.
+     */
     private final NotificationRequestedMessageMapper messageMapper;
+    /**
+     * Estado {@code processor} mantenido por {@code RabbitNotificationRequestedListener}.
+     */
     private final ProcessEmailNotification processor;
 
+    /**
+     * Inicializa una instancia de {@code RabbitNotificationRequestedListener}.
+     *
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param messageMapper Valor de {@code messageMapper} utilizado por la operación.
+     * @param processor Valor de {@code processor} utilizado por la operación.
+     */
     public RabbitNotificationRequestedListener(
             ObjectMapper objectMapper,
             NotificationRequestedMessageMapper messageMapper,
@@ -31,6 +52,12 @@ public class RabbitNotificationRequestedListener {
         this.processor = processor;
     }
 
+    /**
+     * Ejecuta la operación {@code receive}.
+     *
+     * @param payload Carga de datos recibida por la operación.
+     * @param routingKey Valor de {@code routingKey} utilizado por la operación.
+     */
     @RabbitListener(queues = "${notification.rabbit.queue}")
     public void receive(
             byte[] payload,
@@ -40,6 +67,14 @@ public class RabbitNotificationRequestedListener {
         processor.execute(notification);
     }
 
+    /**
+     * Ejecuta la operación {@code deserialize}.
+     *
+     * @param payload Carga de datos recibida por la operación.
+     * @return Resultado producido por {@code deserialize}.
+     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
+     *     condiciones requeridas.
+     */
     private NotificationRequestedMessage deserialize(byte[] payload) {
         try {
             return eventReader.readValue(payload);

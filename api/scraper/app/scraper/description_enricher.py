@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `description_enricher`.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -34,55 +36,139 @@ from app.scraper.llm import (
 from app.scraper.safe_http import SafeHttpError, fetch_public_resource
 
 logger = get_logger(__name__)
+"""Estado global asociado a `logger`.
+"""
 
 
 @dataclass(frozen=True)
 class GeneratedDescription:
+    """Representa el componente `GeneratedDescription`.
+    """
     description: str
+    """Atributo de clase `description` de `GeneratedDescription`.
+    """
     language: str
+    """Atributo de clase `language` de `GeneratedDescription`.
+    """
     provider: str
+    """Atributo de clase `provider` de `GeneratedDescription`.
+    """
     model: str
+    """Atributo de clase `model` de `GeneratedDescription`.
+    """
 
 
 @dataclass(frozen=True)
 class EnrichmentResult:
+    """Representa el resultado de `Enrichment`.
+    """
     app_id: Any
+    """Atributo de clase `app_id` de `EnrichmentResult`.
+    """
     input_hash: str
+    """Atributo de clase `input_hash` de `EnrichmentResult`.
+    """
     description: GeneratedDescription | None
+    """Atributo de clase `description` de `EnrichmentResult`.
+    """
     error: str | None = None
+    """Atributo de clase `error` de `EnrichmentResult`.
+    """
     provider: str | None = None
+    """Atributo de clase `provider` de `EnrichmentResult`.
+    """
     model: str | None = None
+    """Atributo de clase `model` de `EnrichmentResult`.
+    """
 
 
 @dataclass(frozen=True)
 class DescriptionJobResult:
+    """Representa el resultado de `DescriptionJob`.
+    """
     app_id: Any
+    """Atributo de clase `app_id` de `DescriptionJobResult`.
+    """
     status: str
+    """Atributo de clase `status` de `DescriptionJobResult`.
+    """
     input_hash: str | None = None
+    """Atributo de clase `input_hash` de `DescriptionJobResult`.
+    """
     error: str | None = None
+    """Atributo de clase `error` de `DescriptionJobResult`.
+    """
     provider: str | None = None
+    """Atributo de clase `provider` de `DescriptionJobResult`.
+    """
     model: str | None = None
+    """Atributo de clase `model` de `DescriptionJobResult`.
+    """
 
 
 class LLMRateLimiter(Protocol):
-    async def wait_for_slot(self) -> Any: ...
+    """Representa el componente `LLMRateLimiter`.
+    """
+    async def wait_for_slot(self) -> Any:
+        """Ejecuta `wait_for_slot` dentro de `LLMRateLimiter`.
+
+        Returns:
+            Any: Resultado producido por la operación.
+        """
+        ...
 
 
 class AppDescriptionLLMClient:
+    """Encapsula la comunicación con `AppDescriptionLLM`.
+    """
     def __init__(
         self,
         settings: Settings,
         rate_limiter: LLMRateLimiter | None = None,
         cooldowns: ModelCooldownStore | None = None,
     ) -> None:
+        """Inicializa una instancia de `AppDescriptionLLMClient`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            rate_limiter (LLMRateLimiter | None): Valor de `rate_limiter` utilizado por la
+                operación.
+            cooldowns (ModelCooldownStore | None): Valor de `cooldowns` utilizado por la operación.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.rate_limiter = rate_limiter or DatabaseLLMRateLimiter()
+        """Estado de instancia asociado a `rate_limiter`.
+        """
         self.cooldowns = cooldowns or InMemoryModelCooldownStore()
+        """Estado de instancia asociado a `cooldowns`.
+        """
 
     def has_provider(self) -> bool:
+        """Indica si existe la operación `provider`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return bool(self.settings.llm_groq_api_key or self._deepseek().api_key)
 
     async def generate(self, evidence: dict[str, Any]) -> GeneratedDescription:
+        """Ejecuta `generate` dentro de `AppDescriptionLLMClient`.
+
+        Args:
+            evidence (dict[str, Any]): Valor de `evidence` utilizado por la operación.
+
+        Returns:
+            GeneratedDescription: Resultado producido por la operación.
+
+        Throws:
+            LLMGenerationError: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+            last_error: Si no puede completarse la operación bajo las condiciones requeridas.
+            NoLLMProviderConfigured: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+        """
         groq_models = self._groq_models()
         deepseek = self._deepseek()
         if not groq_models and not deepseek.api_key:
@@ -117,6 +203,19 @@ class AppDescriptionLLMClient:
         provider: LLMProviderConfig,
         evidence: dict[str, Any],
     ) -> GeneratedDescription:
+        """Ejecuta el paso interno `_call_provider`.
+
+        Args:
+            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+            evidence (dict[str, Any]): Valor de `evidence` utilizado por la operación.
+
+        Returns:
+            GeneratedDescription: Resultado producido por la operación.
+
+        Throws:
+            LLMGenerationError: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+        """
         url = f"{provider.base_url.rstrip('/')}/chat/completions"
         payload = {
             "model": provider.model,
@@ -247,6 +346,11 @@ class AppDescriptionLLMClient:
         )
 
     def _groq_models(self) -> tuple[LLMProviderConfig, ...]:
+        """Ejecuta el paso interno `_groq_models`.
+
+        Returns:
+            tuple[LLMProviderConfig, ...]: Resultado producido por la operación.
+        """
         if not self.settings.llm_groq_api_key:
             return ()
         model_ids = unique_model_ids(
@@ -264,6 +368,11 @@ class AppDescriptionLLMClient:
         )
 
     def _deepseek(self) -> LLMProviderConfig:
+        """Ejecuta el paso interno `_deepseek`.
+
+        Returns:
+            LLMProviderConfig: Resultado producido por la operación.
+        """
         return LLMProviderConfig(
             name=LLMProviderName.DEEPSEEK,
             api_key=self.settings.llm_deepseek_api_key,
@@ -272,6 +381,14 @@ class AppDescriptionLLMClient:
         )
 
     def _log_cooldown_skip(self, provider: LLMProviderConfig) -> bool:
+        """Ejecuta el paso interno `_log_cooldown_skip`.
+
+        Args:
+            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         cooldown = self.cooldowns.get(provider)
         if cooldown is None:
             return False
@@ -289,6 +406,12 @@ class AppDescriptionLLMClient:
         provider: LLMProviderConfig,
         error: LLMGenerationError,
     ) -> None:
+        """Ejecuta el paso interno `_start_cooldown`.
+
+        Args:
+            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+            error (LLMGenerationError): Error que debe registrarse o propagarse.
+        """
         seconds = error.cooldown_seconds or self.settings.llm_transient_cooldown_seconds
         self.cooldowns.start(provider, reason=error.reason, seconds=seconds)
         logger.warning(
@@ -301,6 +424,8 @@ class AppDescriptionLLMClient:
 
 
 class AppDescriptionEnricher:
+    """Representa el componente `AppDescriptionEnricher`.
+    """
     def __init__(
         self,
         settings: Settings,
@@ -308,10 +433,26 @@ class AppDescriptionEnricher:
         logs: ResolverLogRepository,
         llm: AppDescriptionLLMClient | None = None,
     ) -> None:
+        """Inicializa una instancia de `AppDescriptionEnricher`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
+            logs (ResolverLogRepository): Valor de `logs` utilizado por la operación.
+            llm (AppDescriptionLLMClient | None): Valor de `llm` utilizado por la operación.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.catalog = catalog
+        """Estado de instancia asociado a `catalog`.
+        """
         self.logs = logs
+        """Estado de instancia asociado a `logs`.
+        """
         self.llm = llm or AppDescriptionLLMClient(settings)
+        """Estado de instancia asociado a `llm`.
+        """
 
     async def enrich_app(
         self,
@@ -319,6 +460,15 @@ class AppDescriptionEnricher:
         *,
         force: bool = False,
     ) -> DescriptionJobResult:
+        """Ejecuta `enrich_app` dentro de `AppDescriptionEnricher`.
+
+        Args:
+            software_app_id (Any): Identificador de `software_app` utilizado por la operación.
+            force (bool): Valor de `force` utilizado por la operación.
+
+        Returns:
+            DescriptionJobResult: Resultado producido por la operación.
+        """
         apps = await self.catalog.apps_for_description_enrichment([software_app_id])
         if not apps:
             return DescriptionJobResult(app_id=software_app_id, status="missing")
@@ -404,6 +554,14 @@ class AppDescriptionEnricher:
         )
 
     async def enrich_pending(self, software_app_ids: list[Any] | None = None) -> int:
+        """Ejecuta `enrich_pending` dentro de `AppDescriptionEnricher`.
+
+        Args:
+            software_app_ids (list[Any] | None): Colección de identificadores de `software_app`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         if not self.llm.has_provider():
             logger.warning("description_enrichment_skipped", reason="llm_provider_not_configured")
             await self.logs.add(
@@ -456,6 +614,14 @@ class AppDescriptionEnricher:
 
 
 def description_input_hash(app: SoftwareApp) -> str:
+    """Ejecuta la operación `description_input_hash`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     payload = {
         "winstall_id": app.winstall_id,
         "name": app.name,
@@ -470,6 +636,15 @@ def description_input_hash(app: SoftwareApp) -> str:
 
 
 def description_evidence(app: SoftwareApp, page_metadata: dict[str, str]) -> dict[str, Any]:
+    """Ejecuta la operación `description_evidence`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        page_metadata (dict[str, str]): Valor de `page_metadata` utilizado por la operación.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
+    """
     resolved = best_resolved_source(app)
     return {
         "name": app.name,
@@ -490,10 +665,13 @@ def description_evidence(app: SoftwareApp, page_metadata: dict[str, str]) -> dic
 
 
 def build_embedding_metadata(app: SoftwareApp) -> dict[str, Any]:
-    """Build the allow-listed metadata shared by indexing and training.
+    """Construye la operación `embedding_metadata`.
 
-    Relationship values are deliberately read from ``__dict__`` so callers that
-    did not eagerly load them never trigger implicit async database I/O.
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
     """
     tags = sorted(
         tag.tag.strip()
@@ -538,6 +716,14 @@ def build_embedding_metadata(app: SoftwareApp) -> dict[str, Any]:
 
 
 def build_embedding_text(app: SoftwareApp) -> str:
+    """Construye la operación `embedding_text`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        str: Resultado de `build_embedding_text`.
+    """
     metadata = build_embedding_metadata(app)
     parts = [
         f"Nombre: {metadata['name']}",
@@ -556,6 +742,14 @@ def build_embedding_text(app: SoftwareApp) -> str:
 
 
 def embedding_content_hash(app: SoftwareApp) -> str:
+    """Ejecuta la operación `embedding_content_hash`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     canonical = {
         "content": build_embedding_text(app),
         "metadata": build_embedding_metadata(app),
@@ -570,6 +764,14 @@ def embedding_content_hash(app: SoftwareApp) -> str:
 
 
 def build_description_prompt(evidence: dict[str, Any]) -> str:
+    """Construye la operación `description_prompt`.
+
+    Args:
+        evidence (dict[str, Any]): Valor de `evidence` utilizado por la operación.
+
+    Returns:
+        str: Resultado de `build_description_prompt`.
+    """
     return (
         "Crea una descripcion larga en espanol para esta aplicacion.\n"
         "Reglas:\n"
@@ -586,6 +788,17 @@ def build_description_prompt(evidence: dict[str, Any]) -> str:
 
 
 def parse_description_payload(content: str) -> tuple[str, str]:
+    """Analiza la operación `description_payload`.
+
+    Args:
+        content (str): Contenido que debe procesarse.
+
+    Returns:
+        tuple[str, str]: Resultado producido por la operación.
+
+    Throws:
+        LLMGenerationError: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     cleaned = content.strip()
     fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL | re.IGNORECASE)
     if fenced:
@@ -605,10 +818,27 @@ def parse_description_payload(content: str) -> tuple[str, str]:
 
 
 def normalize_generated_description(value: str) -> str:
+    """Normaliza la operación `generated_description`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return re.sub(r"\s+", " ", value).strip()
 
 
 async def fetch_safe_page_metadata(url: str | None, timeout: float) -> dict[str, str]:
+    """Recupera la operación `safe_page_metadata`.
+
+    Args:
+        url (str | None): URL del recurso que debe procesarse.
+        timeout (float): Tiempo máximo permitido para completar la operación.
+
+    Returns:
+        dict[str, str]: Mapa con los datos producidos por la operación.
+    """
     if not url or urlparse(url).scheme != "https":
         return {}
     try:
@@ -628,6 +858,14 @@ async def fetch_safe_page_metadata(url: str | None, timeout: float) -> dict[str,
 
 
 def _parse_safe_page_metadata(html: str) -> dict[str, str]:
+    """Ejecuta el paso interno `_parse_safe_page_metadata`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+
+    Returns:
+        dict[str, str]: Mapa con los datos producidos por la operación.
+    """
     parser = HTMLParser(html)
     metadata: dict[str, str] = {}
     title = parser.css_first("title")
@@ -656,4 +894,13 @@ def _parse_safe_page_metadata(html: str) -> dict[str, str]:
 
 
 def safe_text(value: str, max_length: int = 500) -> str:
+    """Ejecuta la operación `safe_text`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+        max_length (int): Valor de `max_length` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return re.sub(r"\s+", " ", value).strip()[:max_length]

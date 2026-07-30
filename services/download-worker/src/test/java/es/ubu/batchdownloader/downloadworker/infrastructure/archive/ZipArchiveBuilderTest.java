@@ -11,10 +11,23 @@ import java.util.zip.ZipFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * Agrupa los escenarios de prueba de {@code ZipArchiveBuilderTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class ZipArchiveBuilderTest {
+    /**
+     * Dato compartido {@code temp} para los escenarios de prueba.
+     */
     @TempDir
     Path temp;
 
+    /**
+     * Comprueba el escenario {@code createsArchiveWithArtifactsAndManifest}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void createsArchiveWithArtifactsAndManifest() throws Exception {
         Path installer = temp.resolve("App.exe");

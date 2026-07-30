@@ -16,7 +16,15 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadOutboxPublisherTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class DownloadOutboxPublisherTest {
+    /**
+     * Comprueba el escenario {@code publishesOnlyJobAndSourceIdentifiersForWorkerResolution}.
+     */
     @Test
     void publishesOnlyJobAndSourceIdentifiersForWorkerResolution() {
         OutboxWriter outbox = Mockito.mock(OutboxWriter.class);

@@ -13,22 +13,59 @@ import javax.crypto.Mac;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+/**
+ * Implementa el componente {@code FernetUrlProtector}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class FernetUrlProtector {
+    /**
+     * Constante que define {@code VERSION}.
+     */
     private static final int VERSION = 0x80;
+    /**
+     * Constante que define {@code TIMESTAMP_BYTES}.
+     */
     private static final int TIMESTAMP_BYTES = 8;
+    /**
+     * Constante que define {@code IV_BYTES}.
+     */
     private static final int IV_BYTES = 16;
+    /**
+     * Constante que define {@code HMAC_BYTES}.
+     */
     private static final int HMAC_BYTES = 32;
 
+    /**
+     * Estado {@code signingKey} mantenido por {@code FernetUrlProtector}.
+     */
     private final byte[] signingKey;
+    /**
+     * Estado {@code encryptionKey} mantenido por {@code FernetUrlProtector}.
+     */
     private final byte[] encryptionKey;
+    /**
+     * Estado {@code secureRandom} mantenido por {@code FernetUrlProtector}.
+     */
     private final SecureRandom secureRandom = new SecureRandom();
 
+    /**
+     * Inicializa una instancia de {@code FernetUrlProtector}.
+     *
+     * @param secret Valor de {@code secret} utilizado por la operación.
+     */
     public FernetUrlProtector(String secret) {
         byte[] digest = sha256(secret);
         this.signingKey = Arrays.copyOfRange(digest, 0, 16);
         this.encryptionKey = Arrays.copyOfRange(digest, 16, 32);
     }
 
+    /**
+     * Ejecuta la operación {@code reveal}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code reveal}.
+     */
     public String reveal(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -57,6 +94,13 @@ public class FernetUrlProtector {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code protect}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code protect}.
+     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     */
     public String protect(String value) {
         try {
             byte[] iv = new byte[IV_BYTES];
@@ -77,18 +121,42 @@ public class FernetUrlProtector {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code cipher}.
+     *
+     * @param mode Valor de {@code mode} utilizado por la operación.
+     * @param iv Valor de {@code iv} utilizado por la operación.
+     * @return Resultado producido por {@code cipher}.
+     * @throws GeneralSecurityException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private Cipher cipher(int mode, byte[] iv) throws GeneralSecurityException {
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         cipher.init(mode, new SecretKeySpec(encryptionKey, "AES"), new IvParameterSpec(iv));
         return cipher;
     }
 
+    /**
+     * Ejecuta la operación {@code hmac}.
+     *
+     * @param payload Carga de datos recibida por la operación.
+     * @return Resultado producido por {@code hmac}.
+     * @throws GeneralSecurityException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private byte[] hmac(byte[] payload) throws GeneralSecurityException {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(signingKey, "HmacSHA256"));
         return mac.doFinal(payload);
     }
 
+    /**
+     * Ejecuta la operación {@code sha256}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code sha256}.
+     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     */
     private static byte[] sha256(String value) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));

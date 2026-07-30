@@ -34,19 +34,58 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * Expone las operaciones HTTP gestionadas por {@code DownloadJobController}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ */
 @RestController
 @RequestMapping("/api/v1/download-jobs")
 public class DownloadJobController {
+    /**
+     * Constante que define {@code OWNER_COOKIE}.
+     */
     static final String OWNER_COOKIE = "BATCH_DOWNLOAD_OWNER";
+    /**
+     * Constante que define {@code OPERATING_SYSTEMS}.
+     */
     private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
+    /**
+     * Constante que define {@code RANDOM}.
+     */
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /**
+     * Estado {@code jobs} mantenido por {@code DownloadJobController}.
+     */
     private final DownloadJobService jobs;
+    /**
+     * Estado {@code owners} mantenido por {@code DownloadJobController}.
+     */
     private final DownloadRequestOwner owners;
+    /**
+     * Estado {@code bundles} mantenido por {@code DownloadJobController}.
+     */
     private final BundleRepository bundles;
+    /**
+     * Estado {@code notifier} mantenido por {@code DownloadJobController}.
+     */
     private final SseDownloadJobNotifier notifier;
+    /**
+     * Estado {@code secureCookie} mantenido por {@code DownloadJobController}.
+     */
     private final boolean secureCookie;
 
+    /**
+     * Inicializa una instancia de {@code DownloadJobController}.
+     *
+     * @param jobs Valor de {@code jobs} utilizado por la operación.
+     * @param owners Valor de {@code owners} utilizado por la operación.
+     * @param bundles Valor de {@code bundles} utilizado por la operación.
+     * @param notifier Valor de {@code notifier} utilizado por la operación.
+     * @param secureCookie Valor de {@code secureCookie} utilizado por la operación.
+     */
     public DownloadJobController(
             DownloadJobService jobs,
             DownloadRequestOwner owners,
@@ -60,6 +99,15 @@ public class DownloadJobController {
         this.secureCookie = secureCookie;
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code create}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
+     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
+     * @return Resultado producido por {@code create}.
+     */
     @PostMapping
     ResponseEntity<DownloadJobView> create(
             @Valid @RequestBody CreateDownloadJobRequest request,
@@ -85,6 +133,15 @@ public class DownloadJobController {
         return response.body(created);
     }
 
+    /**
+     * Obtiene el resultado solicitado mediante {@code get}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
+     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
+     * @return Resultado producido por {@code get}.
+     */
     @GetMapping("/{jobId}")
     DownloadJobView get(
             @PathVariable UUID jobId,
@@ -94,6 +151,15 @@ public class DownloadJobController {
         return jobs.get(requestOwner(authentication, browserToken, servletRequest), jobId);
     }
 
+    /**
+     * Ejecuta la operación {@code events}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
+     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
+     * @return Resultado producido por {@code events}.
+     */
     @GetMapping(path = "/{jobId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter events(
             @PathVariable UUID jobId,
@@ -103,6 +169,15 @@ public class DownloadJobController {
         return notifier.subscribe(jobs.get(requestOwner(authentication, browserToken, servletRequest), jobId));
     }
 
+    /**
+     * Indica si puede realizarse la operación mediante {@code cancel}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
+     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
+     * @return Resultado producido por {@code cancel}.
+     */
     @DeleteMapping("/{jobId}")
     ResponseEntity<DownloadJobView> cancel(
             @PathVariable UUID jobId,
@@ -113,6 +188,15 @@ public class DownloadJobController {
                 .body(jobs.cancel(requestOwner(authentication, browserToken, servletRequest), jobId));
     }
 
+    /**
+     * Ejecuta la operación {@code file}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
+     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
+     * @return Resultado producido por {@code file}.
+     */
     @GetMapping("/{jobId}/file")
     ResponseEntity<Void> file(
             @PathVariable UUID jobId,
@@ -125,6 +209,14 @@ public class DownloadJobController {
                 .build();
     }
 
+    /**
+     * Ejecuta la operación {@code requestOwner}.
+     *
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
+     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
+     * @return Resultado producido por {@code requestOwner}.
+     */
     private RequestOwner requestOwner(
             Authentication authentication, String browserToken, HttpServletRequest servletRequest) {
         return owners.resolve(
@@ -133,6 +225,12 @@ public class DownloadJobController {
                 servletRequest.getRemoteAddr());
     }
 
+    /**
+     * Ejecuta la operación {@code distinctAppIds}.
+     *
+     * @param appIds Colección de identificadores de {@code app}.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<UUID> distinctAppIds(List<UUID> appIds) {
         return appIds == null
                 ? List.of()
@@ -142,6 +240,14 @@ public class DownloadJobController {
                                 List::copyOf));
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizedOperatingSystems}.
+     *
+     * @param values Valor de {@code values} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private List<String> normalizedOperatingSystems(List<String> values) {
         if (values == null || values.isEmpty()) {
             return List.of();
@@ -157,6 +263,13 @@ public class DownloadJobController {
         return normalized.size() == OPERATING_SYSTEMS.size() ? List.of() : normalized;
     }
 
+    /**
+     * Valida los datos recibidos mediante {@code validateSource}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private void validateSource(CreateDownloadJobRequest request) {
         boolean hasApps = request.appIds() != null;
         boolean hasBundle = request.bundleId() != null && !request.bundleId().isBlank();
@@ -169,6 +282,12 @@ public class DownloadJobController {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code ensureBrowserToken}.
+     *
+     * @param token Token utilizado para autorizar o correlacionar la operación.
+     * @return Resultado producido por {@code ensureBrowserToken}.
+     */
     private String ensureBrowserToken(String token) {
         if (token != null && !token.isBlank()) {
             return token;
@@ -178,6 +297,12 @@ public class DownloadJobController {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
+    /**
+     * Ejecuta la operación {@code ownerCookie}.
+     *
+     * @param token Token utilizado para autorizar o correlacionar la operación.
+     * @return Resultado producido por {@code ownerCookie}.
+     */
     private ResponseCookie ownerCookie(String token) {
         return ResponseCookie.from(OWNER_COOKIE, token)
                 .httpOnly(true)
@@ -188,21 +313,48 @@ public class DownloadJobController {
                 .build();
     }
 
+    /**
+     * Ejecuta la operación {@code actor}.
+     *
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @return Resultado producido por {@code actor}.
+     */
     private String actor(Authentication authentication) {
         return isSignedIn(authentication) ? authentication.getName() : null;
     }
 
+    /**
+     * Indica si se cumple la condición mediante {@code isAdmin}.
+     *
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean isAdmin(Authentication authentication) {
         return isSignedIn(authentication) && authentication.getAuthorities().stream()
                 .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()));
     }
 
+    /**
+     * Indica si se cumple la condición mediante {@code isSignedIn}.
+     *
+     * @param authentication Valor de {@code authentication} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean isSignedIn(Authentication authentication) {
         return authentication != null
                 && authentication.isAuthenticated()
                 && !(authentication instanceof AnonymousAuthenticationToken);
     }
 
+    /**
+     * Representa los datos inmutables de {@code CreateDownloadJobRequest}.
+     *
+     * @param appIds Valor de {@code appIds} incluido en el record.
+     * @param bundleId Valor de {@code bundleId} incluido en el record.
+     * @param operatingSystems Valor de {@code operatingSystems} incluido en el record.
+     * @param notifyWhenReady Valor de {@code notifyWhenReady} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     record CreateDownloadJobRequest(
             @Size(max = 100) List<UUID> appIds,
             String bundleId,

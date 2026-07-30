@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `llm`.
+"""
 from __future__ import annotations
 
 import re
@@ -9,38 +11,75 @@ from typing import Protocol
 
 
 class LLMProviderName(StrEnum):
+    """Enumera los valores admitidos por `LLMProviderName`.
+    """
     GROQ = "groq"
+    """Constante que define `GROQ`.
+    """
     DEEPSEEK = "deepseek"
+    """Constante que define `DEEPSEEK`.
+    """
 
 
 @dataclass(frozen=True)
 class LLMProviderConfig:
-    """A single addressable model endpoint.
-
-    Keeping the model in the configuration makes every attempt independently
-    observable and lets the caller cool down only the quota that was exhausted.
+    """Define la configuración utilizada por `LLMProvider`.
     """
 
     name: LLMProviderName
+    """Atributo de clase `name` de `LLMProviderConfig`.
+    """
     api_key: str
+    """Atributo de clase `api_key` de `LLMProviderConfig`.
+    """
     base_url: str
+    """Atributo de clase `base_url` de `LLMProviderConfig`.
+    """
     model: str
+    """Atributo de clase `model` de `LLMProviderConfig`.
+    """
 
     @property
     def key(self) -> tuple[str, str]:
+        """Ejecuta `key` dentro de `LLMProviderConfig`.
+
+        Returns:
+            tuple[str, str]: Resultado producido por la operación.
+        """
         return (self.name.value, self.model)
 
 
 @dataclass(frozen=True)
 class ModelCooldown:
+    """Representa el componente `ModelCooldown`.
+    """
     provider: str
+    """Atributo de clase `provider` de `ModelCooldown`.
+    """
     model: str
+    """Atributo de clase `model` de `ModelCooldown`.
+    """
     reason: str
+    """Atributo de clase `reason` de `ModelCooldown`.
+    """
     remaining_seconds: float
+    """Atributo de clase `remaining_seconds` de `ModelCooldown`.
+    """
 
 
 class ModelCooldownStore(Protocol):
-    def get(self, provider: LLMProviderConfig) -> ModelCooldown | None: ...
+    """Gestiona el almacenamiento de `ModelCooldown`.
+    """
+    def get(self, provider: LLMProviderConfig) -> ModelCooldown | None:
+        """Ejecuta `get` dentro de `ModelCooldownStore`.
+
+        Args:
+            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+
+        Returns:
+            ModelCooldown | None: Resultado producido por la operación.
+        """
+        ...
 
     def start(
         self,
@@ -48,23 +87,55 @@ class ModelCooldownStore(Protocol):
         *,
         reason: str,
         seconds: float,
-    ) -> None: ...
+    ) -> None:
+        """Ejecuta `start` dentro de `ModelCooldownStore`.
+
+        Args:
+            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+            reason (str): Valor de `reason` utilizado por la operación.
+            seconds (float): Valor de `seconds` utilizado por la operación.
+        """
+        ...
 
 
 @dataclass(frozen=True)
 class _CooldownEntry:
+    """Representa el componente `_CooldownEntry`.
+    """
     expires_at: float
+    """Atributo de clase `expires_at` de `_CooldownEntry`.
+    """
     reason: str
+    """Atributo de clase `reason` de `_CooldownEntry`.
+    """
 
 
 class InMemoryModelCooldownStore:
-    """Process-local cooldowns for rate-limited or temporarily unavailable models."""
+    """Gestiona el almacenamiento de `InMemoryModelCooldown`.
+    """
 
     def __init__(self, monotonic: Callable[[], float] = time.monotonic) -> None:
+        """Inicializa una instancia de `InMemoryModelCooldownStore`.
+
+        Args:
+            monotonic (Callable[[], float]): Valor de `monotonic` utilizado por la operación.
+        """
         self._monotonic = monotonic
+        """Estado de instancia asociado a `_monotonic`.
+        """
         self._entries: dict[tuple[str, str], _CooldownEntry] = {}
+        """Estado de instancia asociado a `_entries`.
+        """
 
     def get(self, provider: LLMProviderConfig) -> ModelCooldown | None:
+        """Ejecuta `get` dentro de `InMemoryModelCooldownStore`.
+
+        Args:
+            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+
+        Returns:
+            ModelCooldown | None: Resultado producido por la operación.
+        """
         entry = self._entries.get(provider.key)
         if entry is None:
             return None
@@ -86,6 +157,13 @@ class InMemoryModelCooldownStore:
         reason: str,
         seconds: float,
     ) -> None:
+        """Ejecuta `start` dentro de `InMemoryModelCooldownStore`.
+
+        Args:
+            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+            reason (str): Valor de `reason` utilizado por la operación.
+            seconds (float): Valor de `seconds` utilizado por la operación.
+        """
         if seconds <= 0:
             return
         expires_at = self._monotonic() + seconds
@@ -98,6 +176,8 @@ class InMemoryModelCooldownStore:
 
 
 class LLMGenerationError(Exception):
+    """Representa un error relacionado con `LLMGeneration`.
+    """
     def __init__(
         self,
         reason: str,
@@ -107,24 +187,57 @@ class LLMGenerationError(Exception):
         retryable: bool = False,
         cooldown_seconds: float | None = None,
     ) -> None:
+        """Inicializa una instancia de `LLMGenerationError`.
+
+        Args:
+            reason (str): Valor de `reason` utilizado por la operación.
+            provider (str | None): Valor de `provider` utilizado por la operación.
+            model (str | None): Modelo utilizado por la operación.
+            retryable (bool): Valor de `retryable` utilizado por la operación.
+            cooldown_seconds (float | None): Valor de `cooldown_seconds` utilizado por la operación.
+        """
         super().__init__(reason)
         self.reason = reason
+        """Estado de instancia asociado a `reason`.
+        """
         self.provider = provider
+        """Estado de instancia asociado a `provider`.
+        """
         self.model = model
+        """Estado de instancia asociado a `model`.
+        """
         self.retryable = retryable
+        """Estado de instancia asociado a `retryable`.
+        """
         self.cooldown_seconds = cooldown_seconds
+        """Estado de instancia asociado a `cooldown_seconds`.
+        """
 
 
 class NoLLMProviderConfigured(LLMGenerationError):
+    """Representa el componente `NoLLMProviderConfigured`.
+    """
     pass
 
 
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+"""Constante que define `TRANSIENT_HTTP_STATUSES`.
+"""
 _DURATION_TOKEN = re.compile(r"(?P<amount>\d+(?:\.\d+)?)(?P<unit>ms|s|m|h|d)", re.I)
+"""Constante que define `_DURATION_TOKEN`.
+"""
 
 
 def unique_model_ids(primary: str, fallbacks: tuple[str | StrEnum, ...]) -> tuple[str, ...]:
-    """Return a stable, non-empty model order without retrying duplicate IDs."""
+    """Ejecuta la operación `unique_model_ids`.
+
+    Args:
+        primary (str): Valor de `primary` utilizado por la operación.
+        fallbacks (tuple[str | StrEnum, ...]): Valor de `fallbacks` utilizado por la operación.
+
+    Returns:
+        tuple[str, ...]: Resultado producido por la operación.
+    """
 
     models: list[str] = []
     for value in (primary, *fallbacks):
@@ -139,7 +252,15 @@ def cooldown_from_headers(
     *,
     default_seconds: float,
 ) -> float:
-    """Read Groq/OpenAI-compatible reset headers, falling back to a safe interval."""
+    """Ejecuta la operación `cooldown_from_headers`.
+
+    Args:
+        headers (Mapping[str, str]): Cabeceras HTTP utilizadas por la solicitud.
+        default_seconds (float): Valor de `default_seconds` utilizado por la operación.
+
+    Returns:
+        float: Resultado producido por la operación.
+    """
 
     normalized_headers = {key.lower(): value for key, value in headers.items()}
     values = [
@@ -152,6 +273,14 @@ def cooldown_from_headers(
 
 
 def parse_duration_seconds(value: str | None) -> float | None:
+    """Analiza la operación `duration_seconds`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        float | None: Resultado producido por la operación.
+    """
     if not value:
         return None
     normalized = value.strip().lower()

@@ -6,8 +6,16 @@ import java.net.URI;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code MinioZipUriSignerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class MinioZipUriSignerTest {
 
+    /**
+     * Comprueba el escenario {@code signsUsingTheBrowserReachableEndpoint}.
+     */
     @Test
     void signsUsingTheBrowserReachableEndpoint() {
         MinioZipUriSigner signer = new MinioZipUriSigner(

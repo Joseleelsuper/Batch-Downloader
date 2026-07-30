@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `types`.
+"""
 import uuid
 from typing import Any
 
@@ -5,19 +7,24 @@ from sqlalchemy.types import BINARY, CHAR, TypeDecorator
 
 
 class GUID(TypeDecorator):
-    """GUID (Globally Unique Identifier) para SQLAlchemy."""
+    """Representa el componente `GUID`.
+    """
 
     impl = CHAR
+    """Atributo de clase `impl` de `GUID`.
+    """
     cache_ok = True
+    """Atributo de clase `cache_ok` de `GUID`.
+    """
 
     def load_dialect_impl(self, dialect: Any) -> Any:
-        """Carga la implementación del tipo de datos GUID según el dialecto de la base de datos.
+        """Carga la operación `dialect_impl`.
 
         Args:
-            dialect (Any): El dialecto de la base de datos.
+            dialect (Any): Valor de `dialect` utilizado por la operación.
 
         Returns:
-            Any: La implementación del tipo de datos GUID para el dialecto especificado.
+            Any: Resultado de `load_dialect_impl`.
         """
 
         if dialect.name == "mysql":
@@ -25,14 +32,14 @@ class GUID(TypeDecorator):
         return dialect.type_descriptor(CHAR(36))
 
     def process_bind_param(self, value: Any, dialect: Any) -> Any:
-        """Procesa el valor del parámetro de enlace antes de enviarlo a la base de datos.
+        """Procesa la operación `bind_param`.
 
         Args:
-            value (Any): El valor del parámetro de enlace.
-            dialect (Any): El dialecto de la base de datos.
+            value (Any): Valor que debe procesarse.
+            dialect (Any): Valor de `dialect` utilizado por la operación.
 
         Returns:
-            Any: El valor procesado del parámetro de enlace para la base de datos.
+            Any: Resultado producido por la operación.
         """
 
         if value is None:
@@ -48,14 +55,14 @@ class GUID(TypeDecorator):
         return str(value)
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
-        """Procesa el valor del resultado de la consulta después de recuperarlo de la base de datos.
+        """Procesa la operación `result_value`.
 
         Args:
-            value (Any): El valor del resultado de la consulta.
-            dialect (Any): El dialecto de la base de datos.
+            value (Any): Valor que debe procesarse.
+            dialect (Any): Valor de `dialect` utilizado por la operación.
 
         Returns:
-            Any: El valor procesado del resultado de la consulta.
+            Any: Resultado producido por la operación.
         """
         if value is None:
             return None
@@ -67,10 +74,10 @@ class GUID(TypeDecorator):
 
 
 def uuid_pk() -> uuid.UUID:
-    """Genera un UUID único para usar como clave primaria.
+    """Ejecuta la operación `uuid_pk`.
 
     Returns:
-        uuid.UUID: Un UUID único para usar como clave primaria.
+        uuid.UUID: Resultado producido por la operación.
     """
 
     return uuid.uuid4()

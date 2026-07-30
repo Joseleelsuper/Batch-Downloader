@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_admin_benchmark`.
+"""
 import json
 
 from app.benchmark_snapshot import evaluation_snapshot
@@ -5,6 +7,12 @@ from app.trainer import write_snapshot
 
 
 def test_evaluation_snapshot_reuses_matching_catalog(tmp_path, monkeypatch) -> None:
+    """Comprueba el escenario `evaluation_snapshot_reuses_matching_catalog`.
+
+    Args:
+        tmp_path (Any): Directorio temporal proporcionado por pytest.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     documents = [
         {
             "app_id": "00000000-0000-0000-0000-000000000001",
@@ -67,6 +75,12 @@ def test_evaluation_snapshot_rebuilds_when_content_changes(
     tmp_path,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `evaluation_snapshot_rebuilds_when_content_changes`.
+
+    Args:
+        tmp_path (Any): Directorio temporal proporcionado por pytest.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     original = [
         {
             "app_id": "00000000-0000-0000-0000-000000000001",

@@ -6,7 +6,20 @@ import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Resuelve los recursos gestionados por {@code DnsHostResolver}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class DnsHostResolver implements HostResolver {
+    /**
+     * Resuelve el recurso solicitado mediante {@code resolve}.
+     *
+     * @param hostname Valor de {@code hostname} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Override
     public List<InetAddress> resolve(String hostname) {
         try {

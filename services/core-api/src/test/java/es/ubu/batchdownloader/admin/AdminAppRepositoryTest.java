@@ -21,7 +21,15 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
+/**
+ * Agrupa los escenarios de prueba de {@code AdminAppRepositoryTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class AdminAppRepositoryTest {
+    /**
+     * Comprueba el escenario {@code deleteAllRejectsDeletionWhileScraperIsRunning}.
+     */
     @Test
     void deleteAllRejectsDeletionWhileScraperIsRunning() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -36,6 +44,9 @@ class AdminAppRepositoryTest {
                 .isEqualTo("scraper_running");
     }
 
+    /**
+     * Comprueba el escenario {@code deleteAllClearsPersistedPipelineStateForAnEmptyCatalog}.
+     */
     @Test
     void deleteAllClearsPersistedPipelineStateForAnEmptyCatalog() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -52,6 +63,10 @@ class AdminAppRepositoryTest {
         verify(jdbc).update("DELETE FROM scraper_work_items");
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * deleteAllUsesPrimaryKeyBatchesInsteadOfTriggerConflictingSubqueries}.
+     */
     @Test
     void deleteAllUsesPrimaryKeyBatchesInsteadOfTriggerConflictingSubqueries() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -94,6 +109,11 @@ class AdminAppRepositoryTest {
         assertThat(deleteStatements).allMatch(sql -> !sql.contains("SELECT"));
     }
 
+    /**
+     * Comprueba el escenario {@code exportCsvUsesSourceRefsAndNeverRevealsResolvedUrls}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void exportCsvUsesSourceRefsAndNeverRevealsResolvedUrls() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -145,6 +165,9 @@ class AdminAppRepositoryTest {
         assertThat(export.content()).doesNotContain("cdn.example.com", "resolved_url_encrypted");
     }
 
+    /**
+     * Comprueba el escenario {@code patchSourceScopesTheMutationToItsOwningApplication}.
+     */
     @Test
     void patchSourceScopesTheMutationToItsOwningApplication() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -176,6 +199,19 @@ class AdminAppRepositoryTest {
                 .containsExactly(UuidBytes.fromUuid(applicationId));
     }
 
+    /**
+     * Ejecuta la operación {@code row}.
+     *
+     * @param appKey Valor de {@code appKey} utilizado por la operación.
+     * @param name Nombre del elemento sobre el que se actúa.
+     * @param winstallId Identificador de {@code winstall} utilizado por la operación.
+     * @param officialUrl Dirección de {@code official} que debe procesarse.
+     * @param operatingSystem Valor de {@code operatingSystem} utilizado por la operación.
+     * @param extension Valor de {@code extension} utilizado por la operación.
+     * @param sourceRef Valor de {@code sourceRef} utilizado por la operación.
+     * @return Resultado producido por {@code row}.
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private ResultSet row(
             String appKey,
             String name,

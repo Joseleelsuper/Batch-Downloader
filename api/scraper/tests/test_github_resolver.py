@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_github_resolver`.
+"""
 import httpx
 import pytest
 import respx
@@ -12,6 +14,8 @@ from app.scraper.github import (
 
 
 def test_parse_github_repo() -> None:
+    """Comprueba el escenario `parse_github_repo`.
+    """
     repo = parse_github_repo("https://github.com/bibletime/bibletime")
 
     assert repo is not None
@@ -20,6 +24,8 @@ def test_parse_github_repo() -> None:
 
 
 def test_release_tags_include_url_tag_version_and_v_prefixed_version() -> None:
+    """Comprueba el escenario `release_tags_include_url_tag_version_and_v_prefixed_version`.
+    """
     assert release_tags_from_url_or_version(
         "https://github.com/owner/repo/releases/tag/1.2.3",
         "2.0.0",
@@ -29,6 +35,8 @@ def test_release_tags_include_url_tag_version_and_v_prefixed_version() -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_github_resolver_uses_release_assets_and_skips_source_zips() -> None:
+    """Comprueba el escenario `github_resolver_uses_release_assets_and_skips_source_zips`.
+    """
     respx.get("https://api.github.com/repos/bibletime/bibletime/releases/latest").mock(
         return_value=httpx.Response(
             200,
@@ -73,6 +81,8 @@ async def test_github_resolver_uses_release_assets_and_skips_source_zips() -> No
 @pytest.mark.asyncio
 @respx.mock
 async def test_github_resolver_prefers_winstall_version_tag_over_latest() -> None:
+    """Comprueba el escenario `github_resolver_prefers_winstall_version_tag_over_latest`.
+    """
     respx.get(
         "https://api.github.com/repos/0xGingi/0xgingi-browser-windows/releases/tags/115.0.5790.110"
     ).mock(
@@ -126,6 +136,7 @@ async def test_github_resolver_prefers_winstall_version_tag_over_latest() -> Non
 @pytest.mark.asyncio
 @respx.mock
 async def test_github_resolver_falls_back_to_expanded_assets_when_api_is_rate_limited() -> None:
+    """Comprueba el uso de recursos expandidos si la API de GitHub limita las peticiones."""
     respx.get("https://api.github.com/repos/0x192/universal-android-debloater/releases/latest").mock(
         return_value=httpx.Response(403, json={"message": "API rate limit exceeded"})
     )

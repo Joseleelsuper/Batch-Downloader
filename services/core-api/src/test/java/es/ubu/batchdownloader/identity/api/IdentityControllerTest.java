@@ -14,18 +14,35 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.web.context.SecurityContextRepository;
 
+/**
+ * Agrupa los escenarios de prueba de {@code IdentityControllerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class IdentityControllerTest {
+    /**
+     * Dato compartido {@code identities} para los escenarios de prueba.
+     */
     private final IdentityService identities = mock(IdentityService.class);
+    /**
+     * Dato compartido {@code controller} para los escenarios de prueba.
+     */
     private final IdentityController controller = new IdentityController(
             identities,
             mock(AuthenticationManager.class),
             mock(SecurityContextRepository.class));
 
+    /**
+     * Comprueba el escenario {@code anonymousCurrentIdentityReturnsNoContent}.
+     */
     @Test
     void anonymousCurrentIdentityReturnsNoContent() {
         assertThat(controller.me(null).getStatusCode().value()).isEqualTo(204);
     }
 
+    /**
+     * Comprueba el escenario {@code authenticatedCurrentIdentityReturnsTheAccount}.
+     */
     @Test
     void authenticatedCurrentIdentityReturnsTheAccount() {
         Principal principal = () -> "admin";

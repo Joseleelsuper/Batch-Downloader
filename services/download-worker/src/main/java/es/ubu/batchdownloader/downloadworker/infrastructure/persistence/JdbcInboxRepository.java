@@ -10,15 +10,39 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Gestiona la persistencia y consulta de {@code JdbcInboxRepository}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class JdbcInboxRepository implements InboxRepository {
+    /**
+     * Estado {@code jdbc} mantenido por {@code JdbcInboxRepository}.
+     */
     private final JdbcTemplate jdbc;
+    /**
+     * Estado {@code clock} mantenido por {@code JdbcInboxRepository}.
+     */
     private final Clock clock;
 
+    /**
+     * Inicializa una instancia de {@code JdbcInboxRepository}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param clock Valor de {@code clock} utilizado por la operación.
+     */
     public JdbcInboxRepository(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
         this.clock = clock;
     }
 
+    /**
+     * Implementa {@code tryStart} para {@code JdbcInboxRepository}.
+     *
+     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @param lease Valor de {@code lease} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     @Override
     @Transactional
     public boolean tryStart(UUID eventId, Duration lease) {
@@ -44,6 +68,11 @@ public class JdbcInboxRepository implements InboxRepository {
         }
     }
 
+    /**
+     * Implementa {@code complete} para {@code JdbcInboxRepository}.
+     *
+     * @param eventId Identificador de {@code event} utilizado por la operación.
+     */
     @Override
     @Transactional
     public void complete(UUID eventId) {
@@ -53,6 +82,11 @@ public class JdbcInboxRepository implements InboxRepository {
                 eventId.toString());
     }
 
+    /**
+     * Libera el recurso solicitado mediante {@code release}.
+     *
+     * @param eventId Identificador de {@code event} utilizado por la operación.
+     */
     @Override
     @Transactional
     public void release(UUID eventId) {

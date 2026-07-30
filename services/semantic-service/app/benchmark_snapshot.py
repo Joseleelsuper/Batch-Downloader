@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `benchmark_snapshot`.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +17,17 @@ def evaluation_snapshot(
     root: Path,
     seed: int,
 ) -> tuple[str, Path, list[dict[str, Any]], str]:
+    """Ejecuta la operación `evaluation_snapshot`.
+
+    Args:
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        root (Path): Valor de `root` utilizado por la operación.
+        seed (int): Valor de `seed` utilizado por la operación.
+
+    Returns:
+        tuple[str, Path, list[dict[str, Any]], str]: Colección de elementos obtenidos por la
+            operación.
+    """
     catalog_hash = catalog_snapshot_hash(documents)
     datasets_root = root / "datasets"
     if datasets_root.is_dir():
@@ -57,6 +70,18 @@ def _cached_evaluation_snapshot(
     document_count: int,
     catalog_hash: str,
 ) -> tuple[str, Path, list[dict[str, Any]]] | None:
+    """Ejecuta el paso interno `_cached_evaluation_snapshot`.
+
+    Args:
+        manifest_path (Path): Ruta de `manifest` utilizada por la operación.
+        seed (int): Valor de `seed` utilizado por la operación.
+        document_count (int): Valor de `document_count` utilizado por la operación.
+        catalog_hash (str): Valor de `catalog_hash` utilizado por la operación.
+
+    Returns:
+        tuple[str, Path, list[dict[str, Any]]] | None: Colección de elementos obtenidos por la
+            operación.
+    """
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         snapshot_dir = manifest_path.parent
@@ -91,6 +116,14 @@ def _cached_evaluation_snapshot(
 
 
 def _read_json_lines(path: Path) -> list[dict[str, Any]]:
+    """Ejecuta el paso interno `_read_json_lines`.
+
+    Args:
+        path (Path): Ruta del recurso que debe procesarse.
+
+    Returns:
+        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+    """
     with path.open("r", encoding="utf-8") as source:
         return [json.loads(line) for line in source if line.strip()]
 
@@ -98,6 +131,14 @@ def _read_json_lines(path: Path) -> list[dict[str, Any]]:
 def _ordered_evaluation_queries(
     rows: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Ejecuta el paso interno `_ordered_evaluation_queries`.
+
+    Args:
+        rows (Iterable[dict[str, Any]]): Valor de `rows` utilizado por la operación.
+
+    Returns:
+        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+    """
     return sorted(
         list(rows),
         key=lambda row: (
@@ -109,6 +150,14 @@ def _ordered_evaluation_queries(
 
 
 def _catalog_hash_from_file(path: Path) -> str:
+    """Ejecuta el paso interno `_catalog_hash_from_file`.
+
+    Args:
+        path (Path): Ruta del recurso que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return catalog_snapshot_hash(
         [
             {
@@ -124,6 +173,12 @@ def _record_catalog_hash(
     snapshot_dir: Path,
     catalog_hash: str,
 ) -> None:
+    """Ejecuta el paso interno `_record_catalog_hash`.
+
+    Args:
+        snapshot_dir (Path): Valor de `snapshot_dir` utilizado por la operación.
+        catalog_hash (str): Valor de `catalog_hash` utilizado por la operación.
+    """
     manifest_path = snapshot_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("catalogSnapshotHash") == catalog_hash:
@@ -138,6 +193,14 @@ def _record_catalog_hash(
 
 
 def catalog_snapshot_hash(documents: list[dict[str, Any]]) -> str:
+    """Ejecuta la operación `catalog_snapshot_hash`.
+
+    Args:
+        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     payload = "|".join(
         f"{row['app_id']}:{row['content_hash']}"
         for row in sorted(documents, key=lambda value: value["app_id"])

@@ -16,14 +16,34 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Expone las operaciones HTTP gestionadas por {@code SoftwareRequestController}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ */
 @RestController
 public class SoftwareRequestController {
+    /**
+     * Estado {@code jdbc} mantenido por {@code SoftwareRequestController}.
+     */
     private final JdbcTemplate jdbc;
 
+    /**
+     * Inicializa una instancia de {@code SoftwareRequestController}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     */
     public SoftwareRequestController(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code create}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code create}.
+     */
     @PostMapping("/api/software-requests")
     @ResponseStatus(HttpStatus.CREATED)
     public SoftwareRequestItem create(@Valid @RequestBody CreateSoftwareRequest request) {
@@ -55,6 +75,12 @@ public class SoftwareRequestController {
                 now);
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code list}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     @GetMapping("/api/admin/requests")
     public List<SoftwareRequestItem> list(@RequestParam(defaultValue = "50") int limit) {
         return jdbc.query(

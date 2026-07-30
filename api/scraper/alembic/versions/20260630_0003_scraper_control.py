@@ -1,8 +1,4 @@
-"""add scraper control state and commands
-
-Revision ID: 20260630_0003
-Revises: 20260627_0002
-Create Date: 2026-06-30
+"""Define la migración de esquema `20260630_0003_scraper_control`.
 """
 
 import sqlalchemy as sa
@@ -10,12 +6,22 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "20260630_0003"
+"""Estado global asociado a `revision`.
+"""
 down_revision = "20260627_0002"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
+    """Ejecuta la operación `upgrade`.
+    """
     op.add_column("scrape_runs", sa.Column("current_package_id", sa.String(180), nullable=True))
     op.add_column("scrape_runs", sa.Column("current_app_name", sa.String(180), nullable=True))
     op.add_column("scrape_runs", sa.Column("current_phase", sa.String(80), nullable=True))
@@ -48,6 +54,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.drop_index("ix_scraper_commands_status_created", table_name="scraper_commands")
     op.drop_table("scraper_commands")
     op.drop_column("scrape_runs", "apps_skipped")

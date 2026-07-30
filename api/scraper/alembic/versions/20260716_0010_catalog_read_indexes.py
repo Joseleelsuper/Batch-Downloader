@@ -1,7 +1,4 @@
-"""Add covering indexes used by the Core catalog read model.
-
-Revision ID: 20260716_0010
-Revises: 20260713_0009
+"""Define la migración de esquema `20260716_0010_catalog_read_indexes`.
 """
 
 from collections.abc import Sequence
@@ -11,23 +8,33 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260716_0010"
+"""Estado global asociado a `revision`.
+"""
 down_revision: str | None = "20260713_0009"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels: str | Sequence[str] | None = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on: str | Sequence[str] | None = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
-    # Core orders active applications by this exact tuple. Without a covering
-    # index MySQL filesorts every active row before applying LIMIT.
+    # Core ordena las aplicaciones activas por esta tupla exacta. Sin un índice
+    # de cobertura, MySQL ordena todas las filas activas antes de aplicar LIMIT.
+    """Ejecuta la operación `upgrade`.
+    """
     op.create_index(
         "ix_software_apps_status_updated_name_id",
         "software_apps",
         ["app_status", sa.text("updated_at DESC"), "normalized_name", "id"],
     )
 
-    # Availability is queried from several Core read paths. Materialising the
-    # immutable JSON predicates once keeps the security rules unchanged while
-    # avoiding JSON_EXTRACT against the large metadata column on every request.
+    # La disponibilidad se consulta desde varias rutas de lectura de Core. Materializar
+    # una vez los predicados JSON inmutables mantiene las reglas de seguridad y evita
+    # ejecutar JSON_EXTRACT sobre la columna grande de metadatos en cada solicitud.
     op.execute(
         sa.text(
             """
@@ -68,6 +75,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.drop_index(
         "ix_resolved_sources_catalog_downloadable",
         table_name="resolved_sources",

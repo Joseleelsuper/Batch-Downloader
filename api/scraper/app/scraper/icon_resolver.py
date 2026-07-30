@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `icon_resolver`.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -25,26 +27,58 @@ BADGE_MARKERS = (
     "shields.io",
     "workflow",
 )
+"""Constante que define `BADGE_MARKERS`.
+"""
 
-# Este regex encontra imagens em markdown, como ![alt text](image_url "title")
+# Esta expresión regular encuentra imágenes Markdown como ![alt](url "título").
 IMAGE_MARKDOWN_PATTERN = re.compile(r"!\[([^\]]*)]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+"""Constante que define `IMAGE_MARKDOWN_PATTERN`.
+"""
 
-# Este regex encontra imagens em HTML, como <img src="image_url" alt="alt text">
+# Esta expresión regular encuentra imágenes HTML como <img src="url" alt="texto">.
 IMAGE_HTML_PATTERN = re.compile(r"<img[^>]+src=[\"']([^\"']+)[\"']", re.IGNORECASE)
+"""Constante que define `IMAGE_HTML_PATTERN`.
+"""
 
 
 @dataclass(frozen=True)
 class IconResult:
+    """Representa el resultado de `Icon`.
+    """
     url: str
+    """Atributo de clase `url` de `IconResult`.
+    """
     source: str
+    """Atributo de clase `source` de `IconResult`.
+    """
 
 
 class IconResolver:
+    """Representa el componente `IconResolver`.
+    """
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
+        """Inicializa una instancia de `IconResolver`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            client (httpx.AsyncClient | None): Cliente utilizado para ejecutar el escenario.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.client = client
+        """Estado de instancia asociado a `client`.
+        """
 
     async def resolve(self, app: WinstallApp) -> IconResult | None:
+        """Ejecuta `resolve` dentro de `IconResolver`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         homepage = app.homepage
         if not homepage:
             return None
@@ -71,6 +105,15 @@ class IconResolver:
         client: httpx.AsyncClient,
         homepage: str,
     ) -> IconResult | None:
+        """Ejecuta el paso interno `_from_official_page`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            homepage (str): Valor de `homepage` utilizado por la operación.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         try:
             response = await client.get(homepage)
         except httpx.HTTPError:
@@ -116,6 +159,19 @@ class IconResolver:
         source: str,
         allow_rel_any: bool = False,
     ) -> IconResult | None:
+        """Ejecuta el paso interno `_first_icon_from_nodes`.
+
+        Args:
+            parser (HTMLParser): Valor de `parser` utilizado por la operación.
+            selector (str): Valor de `selector` utilizado por la operación.
+            attr (str): Valor de `attr` utilizado por la operación.
+            base_url (str): Dirección de `base` que debe procesarse.
+            source (str): Fuente de descarga sobre la que se actúa.
+            allow_rel_any (bool): Valor de `allow_rel_any` utilizado por la operación.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         for node in parser.css(selector):
             if not allow_rel_any:
                 rel = node.attributes.get("rel") or ""
@@ -134,6 +190,15 @@ class IconResolver:
         client: httpx.AsyncClient,
         manifest_url: str,
     ) -> IconResult | None:
+        """Ejecuta el paso interno `_from_manifest`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            manifest_url (str): Dirección de `manifest` que debe procesarse.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         try:
             response = await client.get(manifest_url)
         except httpx.HTTPError:
@@ -167,6 +232,15 @@ class IconResolver:
         client: httpx.AsyncClient,
         homepage: str,
     ) -> IconResult | None:
+        """Ejecuta el paso interno `_from_github`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            homepage (str): Valor de `homepage` utilizado por la operación.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         repo = parse_github_repo(homepage)
         if not repo:
             return None
@@ -190,6 +264,15 @@ class IconResolver:
         client: httpx.AsyncClient,
         homepage: str,
     ) -> IconResult | None:
+        """Ejecuta el paso interno `_github_page_image`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            homepage (str): Valor de `homepage` utilizado por la operación.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         try:
             response = await client.get(homepage)
         except httpx.HTTPError:
@@ -214,6 +297,14 @@ class IconResolver:
         return None
 
     def _github_avatar(self, owner: str) -> IconResult:
+        """Ejecuta el paso interno `_github_avatar`.
+
+        Args:
+            owner (str): Valor de `owner` utilizado por la operación.
+
+        Returns:
+            IconResult: Resultado producido por la operación.
+        """
         return IconResult(
             f"https://github.com/{quote(owner, safe='')}.png?size=128",
             "github_owner_avatar",
@@ -225,6 +316,16 @@ class IconResolver:
         owner: str,
         repo: str,
     ) -> IconResult | None:
+        """Ejecuta el paso interno `_github_readme_icon`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            owner (str): Valor de `owner` utilizado por la operación.
+            repo (str): Valor de `repo` utilizado por la operación.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         try:
             response = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}/readme",
@@ -248,6 +349,15 @@ class IconResolver:
         client: httpx.AsyncClient,
         result: IconResult,
     ) -> IconResult | None:
+        """Ejecuta el paso interno `_validate_image`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            result (IconResult): Resultado que debe procesarse.
+
+        Returns:
+            IconResult | None: Resultado producido por la operación.
+        """
         candidate = result.url
         for _ in range(self.settings.max_redirects + 1):
             if not await public_https_url(candidate):
@@ -284,6 +394,14 @@ class IconResolver:
 
 
 def largest_icon_size(value: object) -> int:
+    """Ejecuta la operación `largest_icon_size`.
+
+    Args:
+        value (object): Valor que debe procesarse.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     if not isinstance(value, str):
         return 0
     sizes = [int(match) for match in re.findall(r"(\d+)x\d+", value)]
@@ -291,6 +409,14 @@ def largest_icon_size(value: object) -> int:
 
 
 def readme_text(response: httpx.Response) -> str:
+    """Ejecuta la operación `readme_text`.
+
+    Args:
+        response (httpx.Response): Respuesta que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     content_type = response.headers.get("content-type", "")
     if "json" not in content_type:
         return response.text
@@ -305,6 +431,14 @@ def readme_text(response: httpx.Response) -> str:
 
 
 def readme_images(text: str) -> list[tuple[str, str]]:
+    """Ejecuta la operación `readme_images`.
+
+    Args:
+        text (str): Valor de `text` utilizado por la operación.
+
+    Returns:
+        list[tuple[str, str]]: Colección de elementos obtenidos por la operación.
+    """
     images: list[tuple[str, str]] = []
     for match in IMAGE_MARKDOWN_PATTERN.finditer(text):
         images.append((match.group(1), match.group(2)))
@@ -314,6 +448,16 @@ def readme_images(text: str) -> list[tuple[str, str]]:
 
 
 def resolve_github_readme_image(owner: str, repo: str, image_url: str) -> str:
+    """Resuelve la operación `github_readme_image`.
+
+    Args:
+        owner (str): Valor de `owner` utilizado por la operación.
+        repo (str): Valor de `repo` utilizado por la operación.
+        image_url (str): Dirección de `image` que debe procesarse.
+
+    Returns:
+        str: Resultado de `resolve_github_readme_image`.
+    """
     parsed = urlparse(image_url)
     if parsed.scheme in {"http", "https"}:
         return image_url
@@ -321,11 +465,27 @@ def resolve_github_readme_image(owner: str, repo: str, image_url: str) -> str:
 
 
 def usable_icon_url(url: str) -> bool:
+    """Ejecuta la operación `usable_icon_url`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     parsed = urlparse(url)
     return parsed.scheme == "https" and bool(parsed.hostname) and not is_badge_image("", url)
 
 
 def is_github_social_image(url: str) -> bool:
+    """Indica si se cumple la operación `github_social_image`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     hostname = (urlparse(url).hostname or "").lower()
     return hostname == "repository-images.githubusercontent.com" or hostname.endswith(
         ".repository-images.githubusercontent.com"
@@ -333,6 +493,14 @@ def is_github_social_image(url: str) -> bool:
 
 
 async def public_https_url(url: str) -> bool:
+    """Ejecuta la operación `public_https_url`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.port not in {None, 443}:
         return False
@@ -350,6 +518,14 @@ async def public_https_url(url: str) -> bool:
 
 
 def int_or_none(value: str) -> int | None:
+    """Ejecuta la operación `int_or_none`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        int | None: Resultado producido por la operación.
+    """
     try:
         return int(value)
     except ValueError:
@@ -357,5 +533,14 @@ def int_or_none(value: str) -> int | None:
 
 
 def is_badge_image(label: str, url: str) -> bool:
+    """Indica si se cumple la operación `badge_image`.
+
+    Args:
+        label (str): Valor de `label` utilizado por la operación.
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     text = f"{label} {url}".lower()
     return any(marker in text for marker in BADGE_MARKERS)

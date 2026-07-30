@@ -22,20 +22,33 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Controlador de administración para el scraper.
- * 
+ * Expone las operaciones HTTP gestionadas por {@code AdminScraperController}.
+ *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @version 1.0
- * @since 1.0
- * @apiNote Este controlador proporciona endpoints para la administración del scraper, incluyendo la visualización de ejecuciones, logs, colas y métricas, así como la ejecución de comandos administrativos.
- * @category Controlador de administración
+ * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
  */
 @RestController
 public class AdminScraperController {
+    /**
+     * Estado {@code scraper} mantenido por {@code AdminScraperController}.
+     */
     private final AdminScraperRepository scraper;
+    /**
+     * Estado {@code audit} mantenido por {@code AdminScraperController}.
+     */
     private final AdminAuditService audit;
+    /**
+     * Dependencia {@code scraperClient} utilizada por {@code AdminScraperController}.
+     */
     private final ScraperInternalClient scraperClient;
 
+    /**
+     * Inicializa una instancia de {@code AdminScraperController}.
+     *
+     * @param scraper Valor de {@code scraper} utilizado por la operación.
+     * @param audit Valor de {@code audit} utilizado por la operación.
+     * @param scraperClient Valor de {@code scraperClient} utilizado por la operación.
+     */
     public AdminScraperController(
             AdminScraperRepository scraper,
             AdminAuditService audit,
@@ -46,48 +59,84 @@ public class AdminScraperController {
     }
 
     /**
-     * Obtiene un resumen de las ejecuciones del scraper.
-     * 
-     * @param limit El número máximo de ejecuciones a recuperar. Por defecto es 30.
-     * @return Una lista de resúmenes de ejecuciones del scraper.
-     * @throws IllegalArgumentException Si el parámetro limit es negativo.
-     * @since 1.0
+     * Ejecuta la operación {@code runs}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
      */
     @GetMapping("/api/admin/scraper/runs")
     public List<ScraperRunSummary> runs(@RequestParam(defaultValue = "30") int limit) {
         return scraper.runs(limit);
     }
 
+    /**
+     * Ejecuta la operación {@code current}.
+     *
+     * @return Resultado producido por {@code current}.
+     */
     @GetMapping("/api/admin/scraper/current")
     public ScraperRunSummary current() {
         return scraper.current();
     }
 
+    /**
+     * Ejecuta la operación {@code logs}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     @GetMapping("/api/admin/scraper/logs")
     public List<ResolverLogItem> logs(@RequestParam(defaultValue = "120") int limit) {
         return scraper.logs(limit);
     }
 
+    /**
+     * Ejecuta la operación {@code queues}.
+     *
+     * @return Colección de elementos obtenidos por la operación.
+     */
     @GetMapping("/api/admin/scraper/queues")
     public List<ScraperQueueState> queues() {
         return scraper.queues();
     }
 
+    /**
+     * Ejecuta la operación {@code metrics}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     @GetMapping("/api/admin/scraper/metrics")
     public List<ScraperMetricItem> metrics(@RequestParam(defaultValue = "60") int limit) {
         return scraper.metrics(limit);
     }
 
+    /**
+     * Ejecuta la operación {@code snapshots}.
+     *
+     * @return Colección de elementos obtenidos por la operación.
+     */
     @GetMapping("/api/admin/scraper/snapshots")
     public List<ScraperSnapshotItem> snapshots() {
         return scraper.snapshots();
     }
 
+    /**
+     * Ejecuta la operación {@code event}.
+     *
+     * @return Resultado producido por {@code event}.
+     */
     @GetMapping("/api/admin/scraper/event")
     public ScraperEvent event() {
         return scraper.event();
     }
 
+    /**
+     * Recupera los elementos afectados mediante {@code recoverStuckQueueItems}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code recoverStuckQueueItems}.
+     */
     @PostMapping("/api/admin/scraper/queues/recover-stuck")
     public ScraperQueueMaintenanceResult recoverStuckQueueItems(Principal principal) {
         int affected = scraper.recoverStuckQueueItems();
@@ -95,6 +144,12 @@ public class AdminScraperController {
         return new ScraperQueueMaintenanceResult("recover_stuck", affected);
     }
 
+    /**
+     * Reintenta los elementos afectados mediante {@code retryFailedQueueItems}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code retryFailedQueueItems}.
+     */
     @PostMapping("/api/admin/scraper/queues/retry-failed")
     public ScraperQueueMaintenanceResult retryFailedQueueItems(Principal principal) {
         int affected = scraper.retryFailedQueueItems();
@@ -102,6 +157,12 @@ public class AdminScraperController {
         return new ScraperQueueMaintenanceResult("retry_failed", affected);
     }
 
+    /**
+     * Ejecuta la operación {@code pruneTerminalQueueItems}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code pruneTerminalQueueItems}.
+     */
     @PostMapping("/api/admin/scraper/queues/prune-terminal")
     public ScraperQueueMaintenanceResult pruneTerminalQueueItems(Principal principal) {
         int affected = scraper.pruneTerminalQueueItems();
@@ -109,6 +170,12 @@ public class AdminScraperController {
         return new ScraperQueueMaintenanceResult("prune_terminal", affected);
     }
 
+    /**
+     * Limpia los elementos afectados mediante {@code clearPendingQueueItems}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code clearPendingQueueItems}.
+     */
     @PostMapping("/api/admin/scraper/queues/clear-pending")
     public ScraperQueueMaintenanceResult clearPendingQueueItems(Principal principal) {
         int affected = scraper.clearPendingQueueItems();
@@ -116,6 +183,12 @@ public class AdminScraperController {
         return new ScraperQueueMaintenanceResult("clear_pending", affected);
     }
 
+    /**
+     * Limpia los elementos afectados mediante {@code clearAllQueueItems}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code clearAllQueueItems}.
+     */
     @PostMapping("/api/admin/scraper/queues/clear-all")
     public ScraperQueueMaintenanceResult clearAllQueueItems(Principal principal) {
         int affected = scraper.clearAllQueueItems();
@@ -123,6 +196,13 @@ public class AdminScraperController {
         return new ScraperQueueMaintenanceResult("clear_all", affected);
     }
 
+    /**
+     * Ejecuta la operación {@code command}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Mapa con los datos producidos por la operación.
+     */
     @PostMapping("/api/admin/scraper/commands")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, String> command(
@@ -148,6 +228,12 @@ public class AdminScraperController {
         return Map.of("status", "accepted", "command", request.command());
     }
 
+    /**
+     * Encola la operación solicitada mediante {@code enqueueMissingDescriptions}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code enqueueMissingDescriptions}.
+     */
     @PostMapping("/api/admin/scraper/descriptions/enqueue-missing")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ScraperInternalClient.ContentEnqueueResult enqueueMissingDescriptions(Principal principal) {
@@ -164,11 +250,23 @@ public class AdminScraperController {
         return result;
     }
 
+    /**
+     * Ejecuta la operación {@code audit}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     @GetMapping("/api/admin/audit")
     public List<AdminAuditItem> audit(@RequestParam(defaultValue = "100") int limit) {
         return scraper.audit(limit);
     }
 
+    /**
+     * Ejecuta la operación {@code actor}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code actor}.
+     */
     private String actor(Principal principal) {
         return principal == null ? "admin" : principal.getName();
     }

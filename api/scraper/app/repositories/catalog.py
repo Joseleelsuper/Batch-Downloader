@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `catalog`.
+"""
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,37 +29,93 @@ AVAILABLE_RESOLUTION_STATUSES = {
     ResolutionStatus.DIRECT.value,
     ResolutionStatus.FALLBACK.value,
 }
+"""Constante que define `AVAILABLE_RESOLUTION_STATUSES`.
+"""
 CATALOG_DOWNLOADABLE_COLUMN = literal_column(
     "resolved_sources.catalog_downloadable",
     Boolean,
 )
+"""Constante que define `CATALOG_DOWNLOADABLE_COLUMN`.
+"""
 
 
 @dataclass(frozen=True)
 class ResolvedSourceCreate:
+    """Representa el componente `ResolvedSourceCreate`.
+    """
     source_id: uuid.UUID
+    """Atributo de clase `source_id` de `ResolvedSourceCreate`.
+    """
     url: str
+    """Atributo de clase `url` de `ResolvedSourceCreate`.
+    """
     final_domain: str
+    """Atributo de clase `final_domain` de `ResolvedSourceCreate`.
+    """
     filename: str | None
+    """Atributo de clase `filename` de `ResolvedSourceCreate`.
+    """
     extension: str | None
+    """Atributo de clase `extension` de `ResolvedSourceCreate`.
+    """
     content_type: str | None
+    """Atributo de clase `content_type` de `ResolvedSourceCreate`.
+    """
     size_bytes: int | None
+    """Atributo de clase `size_bytes` de `ResolvedSourceCreate`.
+    """
     version: str | None
+    """Atributo de clase `version` de `ResolvedSourceCreate`.
+    """
     score: int
+    """Atributo de clase `score` de `ResolvedSourceCreate`.
+    """
     status: ResolutionStatus
+    """Atributo de clase `status` de `ResolvedSourceCreate`.
+    """
     validation_status: ValidationStatus
+    """Atributo de clase `validation_status` de `ResolvedSourceCreate`.
+    """
     release_rank: int | None = None
+    """Atributo de clase `release_rank` de `ResolvedSourceCreate`.
+    """
     is_latest: bool = False
+    """Atributo de clase `is_latest` de `ResolvedSourceCreate`.
+    """
     version_status: str | None = None
+    """Atributo de clase `version_status` de `ResolvedSourceCreate`.
+    """
     metadata: dict | None = None
+    """Atributo de clase `metadata` de `ResolvedSourceCreate`.
+    """
 
 
 class CatalogRepository:
+    """Gestiona la persistencia y consulta de `Catalog`.
+    """
     def __init__(self, session: AsyncSession, url_protector: UrlProtector) -> None:
+        """Inicializa una instancia de `CatalogRepository`.
+
+        Args:
+            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+            url_protector (UrlProtector): Valor de `url_protector` utilizado por la operación.
+        """
         self.session = session
+        """Estado de instancia asociado a `session`.
+        """
         self.url_protector = url_protector
+        """Estado de instancia asociado a `url_protector`.
+        """
 
     async def should_scrape_winstall_package(self, package_id: str) -> bool:
+        """Ejecuta `should_scrape_winstall_package` dentro de `CatalogRepository`.
+
+        Args:
+            package_id (str): Identificador de `package` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         existing_id = await self.session.scalar(
             select(SoftwareApp.id).where(SoftwareApp.winstall_id == package_id).limit(1)
         )
@@ -74,11 +132,16 @@ class CatalogRepository:
             .where(DownloadSource.validation_status == ValidationStatus.VALID.value)
             .limit(1)
         )
-        # Keep successful applications immutable during normal catalogue passes, while
-        # allowing previous review/missing results to benefit from resolver fixes.
+        # Mantiene inmutables las aplicaciones correctas durante las pasadas normales del
+        # catálogo y permite que resultados review o missing aprovechen mejoras del resolver.
         return resolved_source is None
 
     async def repair_resolved_source_platforms(self) -> int:
+        """Ejecuta `repair_resolved_source_platforms` dentro de `CatalogRepository`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         result = await self.session.scalars(
             select(ResolvedSource)
             .join(DownloadSource)
@@ -124,6 +187,14 @@ class CatalogRepository:
         return repaired
 
     async def upsert_winstall_app(self, app: WinstallApp) -> SoftwareApp:
+        """Ejecuta `upsert_winstall_app` dentro de `CatalogRepository`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            SoftwareApp: Resultado producido por la operación.
+        """
         software_app, _created = await self.upsert_winstall_app_with_created(app)
         return software_app
 
@@ -131,6 +202,14 @@ class CatalogRepository:
         self,
         app: WinstallApp,
     ) -> tuple[SoftwareApp, bool]:
+        """Ejecuta `upsert_winstall_app_with_created` dentro de `CatalogRepository`.
+
+        Args:
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            tuple[SoftwareApp, bool]: Resultado producido por la operación.
+        """
         existing = await self.session.scalar(
             select(SoftwareApp)
             .options(
@@ -170,6 +249,12 @@ class CatalogRepository:
         return existing, True
 
     async def _sync_tags(self, software_app: SoftwareApp, raw_tags: list[str]) -> None:
+        """Ejecuta el paso interno `_sync_tags`.
+
+        Args:
+            software_app (SoftwareApp): Valor de `software_app` utilizado por la operación.
+            raw_tags (list[str]): Valor de `raw_tags` utilizado por la operación.
+        """
         normalized_to_tag: dict[str, str] = {}
         for raw_tag in raw_tags:
             normalized = normalize_text(raw_tag).strip()
@@ -211,6 +296,15 @@ class CatalogRepository:
             software_app.version += 1
 
     async def update_icon_url(self, software_app_id: uuid.UUID, icon_url: str) -> bool:
+        """Actualiza la operación `icon_url`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+            icon_url (str): Dirección de `icon` que debe procesarse.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if (
             not software_app
@@ -224,6 +318,11 @@ class CatalogRepository:
         return True
 
     async def apps_missing_long_descriptions(self) -> list[SoftwareApp]:
+        """Ejecuta `apps_missing_long_descriptions` dentro de `CatalogRepository`.
+
+        Returns:
+            list[SoftwareApp]: Colección de elementos obtenidos por la operación.
+        """
         result = await self.session.scalars(
             select(SoftwareApp)
             .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
@@ -238,6 +337,14 @@ class CatalogRepository:
         return list(result)
 
     async def apps_pending_os_filter(self, limit: int = 250) -> list[SoftwareApp]:
+        """Ejecuta `apps_pending_os_filter` dentro de `CatalogRepository`.
+
+        Args:
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            list[SoftwareApp]: Colección de elementos obtenidos por la operación.
+        """
         candidate_ids = list(
             await self.session.scalars(
                 select(SoftwareApp.id)
@@ -262,6 +369,14 @@ class CatalogRepository:
         return [apps_by_id[app_id] for app_id in candidate_ids if app_id in apps_by_id]
 
     async def refresh_operating_systems(self, software_app_id: uuid.UUID) -> list[str] | None:
+        """Ejecuta `refresh_operating_systems` dentro de `CatalogRepository`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+
+        Returns:
+            list[str] | None: Colección de elementos obtenidos por la operación.
+        """
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if software_app is None:
             return None
@@ -314,6 +429,12 @@ class CatalogRepository:
         return systems
 
     async def _ensure_default_source(self, software_app: SoftwareApp, app: WinstallApp) -> None:
+        """Ejecuta el paso interno `_ensure_default_source`.
+
+        Args:
+            software_app (SoftwareApp): Valor de `software_app` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+        """
         await self.ensure_download_source(
             software_app_id=software_app.id,
             app=app,
@@ -330,6 +451,18 @@ class CatalogRepository:
         architecture: str,
         initial_url: str | None,
     ) -> DownloadSource:
+        """Garantiza la operación `download_source`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            operating_system (str): Valor de `operating_system` utilizado por la operación.
+            architecture (str): Valor de `architecture` utilizado por la operación.
+            initial_url (str | None): Dirección de `initial` que debe procesarse.
+
+        Returns:
+            DownloadSource: Resultado producido por la operación.
+        """
         source = await self.session.scalar(
             select(DownloadSource)
             .where(DownloadSource.software_app_id == software_app_id)
@@ -365,6 +498,18 @@ class CatalogRepository:
         status: str,
         validation_status: str,
     ) -> DownloadSource:
+        """Ejecuta el paso interno `_ensure_platform_source_from_existing`.
+
+        Args:
+            source (DownloadSource): Fuente de descarga sobre la que se actúa.
+            operating_system (str): Valor de `operating_system` utilizado por la operación.
+            architecture (str): Valor de `architecture` utilizado por la operación.
+            status (str): Valor de `status` utilizado por la operación.
+            validation_status (str): Valor de `validation_status` utilizado por la operación.
+
+        Returns:
+            DownloadSource: Resultado producido por la operación.
+        """
         target = await self.session.scalar(
             select(DownloadSource)
             .where(DownloadSource.software_app_id == source.software_app_id)
@@ -393,6 +538,11 @@ class CatalogRepository:
         return target
 
     async def _refresh_source_status_from_resolved(self, source_id: uuid.UUID) -> None:
+        """Ejecuta el paso interno `_refresh_source_status_from_resolved`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+        """
         source = await self.session.get(DownloadSource, source_id)
         if not source:
             return
@@ -418,11 +568,21 @@ class CatalogRepository:
         source.updated_at = utc_now()
 
     async def refresh_source_statuses(self, source_ids: set[uuid.UUID]) -> None:
+        """Ejecuta `refresh_source_statuses` dentro de `CatalogRepository`.
+
+        Args:
+            source_ids (set[uuid.UUID]): Colección de identificadores de `source`.
+        """
         await self.session.flush()
         for source_id in source_ids:
             await self._refresh_source_status_from_resolved(source_id)
 
     async def repair_source_statuses(self) -> int:
+        """Ejecuta `repair_source_statuses` dentro de `CatalogRepository`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         source_ids = set(await self.session.scalars(select(DownloadSource.id)))
         await self.refresh_source_statuses(source_ids)
         return len(source_ids)
@@ -433,6 +593,16 @@ class CatalogRepository:
         operating_system: str,
         architecture: str,
     ) -> DownloadSource | None:
+        """Ejecuta `source_for_platform` dentro de `CatalogRepository`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+            operating_system (str): Valor de `operating_system` utilizado por la operación.
+            architecture (str): Valor de `architecture` utilizado por la operación.
+
+        Returns:
+            DownloadSource | None: Resultado producido por la operación.
+        """
         return await self.session.scalar(
             select(DownloadSource)
             .options(
@@ -445,6 +615,14 @@ class CatalogRepository:
         )
 
     async def default_source_for_app(self, software_app_id: uuid.UUID) -> DownloadSource | None:
+        """Ejecuta `default_source_for_app` dentro de `CatalogRepository`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+
+        Returns:
+            DownloadSource | None: Resultado producido por la operación.
+        """
         return await self.session.scalar(
             select(DownloadSource)
             .options(
@@ -452,14 +630,22 @@ class CatalogRepository:
             )
             .where(DownloadSource.software_app_id == software_app_id)
             .where(DownloadSource.operating_system == "windows")
-            # Existing rows created before UNKNOWN was introduced can still be
-            # resumed safely; new rows never infer x86_64 without evidence.
+        # Las filas creadas antes de introducir UNKNOWN todavía pueden reanudarse
+        # con seguridad; las filas nuevas nunca infieren x86_64 sin evidencias.
             .where(DownloadSource.architecture.in_(["UNKNOWN", "x86_64"]))
             .order_by(case((DownloadSource.architecture == "UNKNOWN", 0), else_=1))
             .limit(1)
         )
 
     async def save_resolved_source(self, item: ResolvedSourceCreate) -> ResolvedSource:
+        """Guarda la operación `resolved_source`.
+
+        Args:
+            item (ResolvedSourceCreate): Valor de `item` utilizado por la operación.
+
+        Returns:
+            ResolvedSource: Resultado producido por la operación.
+        """
         encrypted_url = self.url_protector.protect(item.url)
         resolved = ResolvedSource(
             download_source_id=item.source_id,
@@ -496,6 +682,15 @@ class CatalogRepository:
         *,
         include_completed: bool = False,
     ) -> list[SoftwareApp]:
+        """Ejecuta `apps_for_description_enrichment` dentro de `CatalogRepository`.
+
+        Args:
+            app_ids (list[uuid.UUID] | None): Colección de identificadores de `app`.
+            include_completed (bool): Valor de `include_completed` utilizado por la operación.
+
+        Returns:
+            list[SoftwareApp]: Colección de elementos obtenidos por la operación.
+        """
         missing_long_description = or_(
             SoftwareApp.long_description.is_(None),
             SoftwareApp.long_description == "",
@@ -543,7 +738,16 @@ class CatalogRepository:
         after_app_id: uuid.UUID | None,
         limit: int,
     ) -> tuple[list[SoftwareApp], str | None]:
-        """Return one stable page for the rebuildable semantic projection."""
+        """Ejecuta `semantic_documents` dentro de `CatalogRepository`.
+
+        Args:
+            after_app_id (uuid.UUID | None): Identificador de `after_app` utilizado por la
+                operación.
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            tuple[list[SoftwareApp], str | None]: Colección de elementos obtenidos por la operación.
+        """
         stmt = (
             select(SoftwareApp)
             .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
@@ -563,6 +767,11 @@ class CatalogRepository:
         return page, next_after
 
     async def mark_long_description_pending(self, software_app_id: uuid.UUID) -> None:
+        """Marca la operación `long_description_pending`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+        """
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if not software_app:
             return
@@ -580,6 +789,16 @@ class CatalogRepository:
         model: str,
         input_hash: str,
     ) -> None:
+        """Guarda la operación `long_description`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+            description (str): Valor de `description` utilizado por la operación.
+            language (str): Valor de `language` utilizado por la operación.
+            source (str): Fuente de descarga sobre la que se actúa.
+            model (str): Modelo utilizado por la operación.
+            input_hash (str): Valor de `input_hash` utilizado por la operación.
+        """
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if not software_app:
             return
@@ -602,6 +821,15 @@ class CatalogRepository:
         source: str | None = None,
         model: str | None = None,
     ) -> None:
+        """Marca la operación `long_description_failed`.
+
+        Args:
+            software_app_id (uuid.UUID): Identificador de `software_app` utilizado por la operación.
+            input_hash (str): Valor de `input_hash` utilizado por la operación.
+            error (str): Error que debe registrarse o propagarse.
+            source (str | None): Fuente de descarga sobre la que se actúa.
+            model (str | None): Modelo utilizado por la operación.
+        """
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if not software_app:
             return
@@ -615,6 +843,11 @@ class CatalogRepository:
         software_app.version += 1
 
     async def expire_valid_resolved_sources(self, source_id: uuid.UUID) -> None:
+        """Ejecuta `expire_valid_resolved_sources` dentro de `CatalogRepository`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+        """
         result = await self.session.scalars(
             select(ResolvedSource)
             .where(ResolvedSource.download_source_id == source_id)
@@ -632,6 +865,15 @@ class CatalogRepository:
         resolution_status: ResolutionStatus,
         validation_status: ValidationStatus = ValidationStatus.UNCHECKED,
     ) -> None:
+        """Marca la operación `source_status`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+            resolution_status (ResolutionStatus): Valor de `resolution_status` utilizado por la
+                operación.
+            validation_status (ValidationStatus): Valor de `validation_status` utilizado por la
+                operación.
+        """
         source = await self.session.get(DownloadSource, source_id)
         if not source:
             return
@@ -647,6 +889,18 @@ class CatalogRepository:
         page_size: int,
         sort: str = "name",
     ) -> tuple[list[SoftwareApp], int]:
+        """Busca la operación `apps`.
+
+        Args:
+            query (str | None): Valor de `query` utilizado por la operación.
+            status (str | None): Valor de `status` utilizado por la operación.
+            page (int): Número de página solicitado.
+            page_size (int): Número máximo de elementos incluidos en una página.
+            sort (str): Valor de `sort` utilizado por la operación.
+
+        Returns:
+            tuple[list[SoftwareApp], int]: Colección de elementos obtenidos por la operación.
+        """
         stmt = self._base_app_query(query, status)
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = await self.session.scalar(count_stmt)
@@ -667,6 +921,14 @@ class CatalogRepository:
         return list(result.unique()), int(total or 0)
 
     async def catalog_stats(self) -> dict:
+        """Ejecuta `catalog_stats` dentro de `CatalogRepository`.
+
+        Returns:
+            dict: Mapa con los datos producidos por la operación.
+
+        Throws:
+            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """
         counters = await self.session.get(CatalogCounter, 1)
         if counters is None:
             raise RuntimeError("catalog_projection_not_initialized")
@@ -686,6 +948,14 @@ class CatalogRepository:
         }
 
     async def get_app_by_public_id(self, public_id: str) -> SoftwareApp | None:
+        """Obtiene la operación `app_by_public_id`.
+
+        Args:
+            public_id (str): Identificador de `public` utilizado por la operación.
+
+        Returns:
+            SoftwareApp | None: Resultado de `get_app_by_public_id`.
+        """
         conditions = [SoftwareApp.slug == public_id, SoftwareApp.winstall_id == public_id]
         try:
             conditions.append(SoftwareApp.id == uuid.UUID(public_id))
@@ -703,6 +973,14 @@ class CatalogRepository:
         return await self.session.scalar(stmt)
 
     async def get_resolved_source_by_ref(self, source_ref: str) -> ResolvedSource | None:
+        """Obtiene la operación `resolved_source_by_ref`.
+
+        Args:
+            source_ref (str): Valor de `source_ref` utilizado por la operación.
+
+        Returns:
+            ResolvedSource | None: Resultado de `get_resolved_source_by_ref`.
+        """
         try:
             resolved_source_id = uuid.UUID(source_ref)
         except (TypeError, ValueError):
@@ -717,7 +995,14 @@ class CatalogRepository:
         self,
         source_ref: str,
     ) -> ResolvedSource | None:
-        """Lock and refresh one candidate before an immediate revalidation."""
+        """Obtiene la operación `resolved_source_by_ref_for_update`.
+
+        Args:
+            source_ref (str): Valor de `source_ref` utilizado por la operación.
+
+        Returns:
+            ResolvedSource | None: Resultado de `get_resolved_source_by_ref_for_update`.
+        """
         try:
             resolved_source_id = uuid.UUID(source_ref)
         except (TypeError, ValueError):
@@ -736,9 +1021,26 @@ class CatalogRepository:
         )
 
     def reveal_url(self, resolved_source: ResolvedSource) -> str | None:
+        """Ejecuta `reveal_url` dentro de `CatalogRepository`.
+
+        Args:
+            resolved_source (ResolvedSource): Valor de `resolved_source` utilizado por la operación.
+
+        Returns:
+            str | None: Resultado producido por la operación.
+        """
         return self.url_protector.reveal(resolved_source.resolved_url_encrypted)
 
     def _base_app_query(self, query: str | None, status: str | None) -> Select:
+        """Ejecuta el paso interno `_base_app_query`.
+
+        Args:
+            query (str | None): Valor de `query` utilizado por la operación.
+            status (str | None): Valor de `status` utilizado por la operación.
+
+        Returns:
+            Select: Resultado producido por la operación.
+        """
         stmt = select(SoftwareApp).where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
         if query:
             q = f"%{normalize_text(query)}%"
@@ -759,6 +1061,8 @@ class CatalogRepository:
 
 
 def _public_resolved_sources_loader():
+    """Ejecuta el paso interno `_public_resolved_sources_loader`.
+    """
     return (
         selectinload(SoftwareApp.sources)
         .selectinload(DownloadSource.resolved_sources)
@@ -772,6 +1076,14 @@ def _public_resolved_sources_loader():
 
 
 def has_icon_url(value: str | None) -> bool:
+    """Indica si existe la operación `icon_url`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return bool(value and value.strip() and value.strip() != "-")
 
 
@@ -780,6 +1092,16 @@ def has_verified_binary_history(
     resolution_status: str,
     metadata: dict,
 ) -> bool:
+    """Indica si existe la operación `verified_binary_history`.
+
+    Args:
+        validation_status (str): Valor de `validation_status` utilizado por la operación.
+        resolution_status (str): Valor de `resolution_status` utilizado por la operación.
+        metadata (dict): Valor de `metadata` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     confidence = str(metadata.get("validation_confidence") or "").lower()
     return (
         validation_status == ValidationStatus.VALID.value
@@ -792,6 +1114,14 @@ def has_verified_binary_history(
 
 
 def is_github_homepage(value: str | None) -> bool:
+    """Indica si se cumple la operación `github_homepage`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     if not value:
         return False
     parsed = urlparse(value)
@@ -799,6 +1129,14 @@ def is_github_homepage(value: str | None) -> bool:
 
 
 def is_replaceable_github_icon(value: str | None) -> bool:
+    """Indica si se cumple la operación `replaceable_github_icon`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     if not has_icon_url(value):
         return True
     hostname = (urlparse(value or "").hostname or "").lower()
@@ -811,8 +1149,17 @@ def has_current_available_installer(
     app: SoftwareApp,
     now: datetime | None = None,
 ) -> bool:
-    # ``now`` remains in the signature for callers from before the persistent
-    # projection. Time alone no longer removes a valid candidate from catalog.
+        # ``now`` permanece en la firma para llamadores anteriores a la proyección
+        # persistente. El tiempo por sí solo ya no retira un candidato válido del catálogo.
+    """Indica si existe la operación `current_available_installer`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        now (datetime | None): Valor de `now` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     del now
     for source in app.sources:
         if source.resolution_status not in AVAILABLE_RESOLUTION_STATUSES:
@@ -832,6 +1179,14 @@ def has_current_available_installer(
 
 
 def registered_domain(url: str | None) -> str | None:
+    """Ejecuta la operación `registered_domain`.
+
+    Args:
+        url (str | None): URL del recurso que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if not url:
         return None
     extracted = tldextract.extract(url)
@@ -841,6 +1196,14 @@ def registered_domain(url: str | None) -> str | None:
 
 
 def inferred_platform_for_resolved_source(resolved: ResolvedSource) -> str | None:
+    """Ejecuta la operación `inferred_platform_for_resolved_source`.
+
+    Args:
+        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     metadata = resolved.metadata_json or {}
     platform_text = " ".join(
         str(value).lower()
@@ -883,6 +1246,15 @@ def inferred_architecture_for_resolved_source(
     resolved: ResolvedSource,
     fallback: str,
 ) -> str:
+    """Ejecuta la operación `inferred_architecture_for_resolved_source`.
+
+    Args:
+        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
+        fallback (str): Valor de `fallback` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     metadata = resolved.metadata_json or {}
     text = " ".join(
         str(value)
@@ -904,6 +1276,14 @@ def inferred_architecture_for_resolved_source(
 
 
 def normalized_extension(value: str | None) -> str | None:
+    """Ejecuta la operación `normalized_extension`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if not value:
         return None
     extension = value.lower().strip()

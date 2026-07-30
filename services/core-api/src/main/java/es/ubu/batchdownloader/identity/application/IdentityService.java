@@ -24,17 +24,57 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Coordina las operaciones de negocio de {@code IdentityService}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Service
 public class IdentityService {
+    /**
+     * Constante que define {@code SECURE_RANDOM}.
+     */
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    /**
+     * Estado {@code users} mantenido por {@code IdentityService}.
+     */
     private final UserAccountStore users;
+    /**
+     * Estado {@code tokens} mantenido por {@code IdentityService}.
+     */
     private final IdentityTokenStore tokens;
+    /**
+     * Estado {@code passwords} mantenido por {@code IdentityService}.
+     */
     private final PasswordHasher passwords;
+    /**
+     * Estado {@code events} mantenido por {@code IdentityService}.
+     */
     private final IdentityEventPublisher events;
+    /**
+     * Estado {@code clock} mantenido por {@code IdentityService}.
+     */
     private final Clock clock;
+    /**
+     * Estado {@code verificationTtl} mantenido por {@code IdentityService}.
+     */
     private final Duration verificationTtl;
+    /**
+     * Estado {@code resetTtl} mantenido por {@code IdentityService}.
+     */
     private final Duration resetTtl;
 
+    /**
+     * Inicializa una instancia de {@code IdentityService}.
+     *
+     * @param users Valor de {@code users} utilizado por la operación.
+     * @param tokens Valor de {@code tokens} utilizado por la operación.
+     * @param passwords Valor de {@code passwords} utilizado por la operación.
+     * @param events Valor de {@code events} utilizado por la operación.
+     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param verificationTtl Valor de {@code verificationTtl} utilizado por la operación.
+     * @param resetTtl Valor de {@code resetTtl} utilizado por la operación.
+     */
     public IdentityService(
             UserAccountStore users,
             IdentityTokenStore tokens,
@@ -52,6 +92,16 @@ public class IdentityService {
         this.resetTtl = resetTtl;
     }
 
+    /**
+     * Ejecuta la operación {@code register}.
+     *
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @param email Dirección de correo electrónico asociada a la operación.
+     * @param rawPassword Valor de {@code rawPassword} utilizado por la operación.
+     * @return Resultado producido por {@code register}.
+     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Transactional
     public IdentityView register(String username, String email, String rawPassword) {
         String cleanUsername = username.strip();
@@ -72,11 +122,23 @@ public class IdentityService {
         return IdentityView.from(user);
     }
 
+    /**
+     * Busca el resultado solicitado mediante {@code findByUsername}.
+     *
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @return Resultado producido por {@code findByUsername}.
+     */
     @Transactional(readOnly = true)
     public IdentityView findByUsername(String username) {
         return IdentityView.from(requireByUsername(username));
     }
 
+    /**
+     * Ejecuta la operación {@code requireByUsername}.
+     *
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @return Resultado producido por {@code requireByUsername}.
+     */
     @Transactional(readOnly = true)
     public UserAccount requireByUsername(String username) {
         return users.findByNormalizedUsername(normalize(username))
@@ -84,6 +146,11 @@ public class IdentityService {
                 .orElseThrow(() -> new NotFoundException("user_not_found", "No existe el usuario."));
     }
 
+    /**
+     * Ejecuta la operación {@code confirmEmail}.
+     *
+     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
+     */
     @Transactional
     public void confirmEmail(String rawToken) {
         IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.EMAIL_VERIFICATION);
@@ -96,6 +163,11 @@ public class IdentityService {
         tokens.save(token);
     }
 
+    /**
+     * Ejecuta la operación {@code requestPasswordReset}.
+     *
+     * @param email Dirección de correo electrónico asociada a la operación.
+     */
     @Transactional
     public void requestPasswordReset(String email) {
         users.findByNormalizedEmail(normalize(email))
@@ -103,6 +175,12 @@ public class IdentityService {
                 .ifPresent(user -> issueToken(user, IdentityToken.Type.PASSWORD_RESET, resetTtl));
     }
 
+    /**
+     * Ejecuta la operación {@code resetPassword}.
+     *
+     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
+     * @param newPassword Valor de {@code newPassword} utilizado por la operación.
+     */
     @Transactional
     public void resetPassword(String rawToken, String newPassword) {
         IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET);
@@ -115,6 +193,13 @@ public class IdentityService {
         tokens.save(token);
     }
 
+    /**
+     * Actualiza el recurso solicitado mediante {@code updateNotificationPreference}.
+     *
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @param enabled Valor de {@code enabled} utilizado por la operación.
+     * @return Resultado producido por {@code updateNotificationPreference}.
+     */
     @Transactional
     public IdentityView updateNotificationPreference(String username, boolean enabled) {
         UserAccount user = requireByUsername(username);
@@ -122,6 +207,13 @@ public class IdentityService {
         return IdentityView.from(users.save(user));
     }
 
+    /**
+     * Indica si se cumple la condición mediante {@code issueToken}.
+     *
+     * @param user Valor de {@code user} utilizado por la operación.
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @param ttl Valor de {@code ttl} utilizado por la operación.
+     */
     private void issueToken(UserAccount user, IdentityToken.Type type, Duration ttl) {
         tokens.invalidateUnconsumedForUser(user.id(), type);
         String rawToken = newRawToken();
@@ -134,16 +226,36 @@ public class IdentityService {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code requireUsableToken}.
+     *
+     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @return Resultado producido por {@code requireUsableToken}.
+     */
     private IdentityToken requireUsableToken(String rawToken, IdentityToken.Type type) {
         return tokens.findByHashAndType(hashToken(rawToken), type)
                 .filter(token -> token.usableAt(clock.instant()))
                 .orElseThrow(() -> new BadRequestException("invalid_or_expired_token", "El token no es válido o ha caducado."));
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalize}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code normalize}.
+     */
     static String normalize(String value) {
         return value.strip().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Indica si existe el recurso mediante {@code hashToken}.
+     *
+     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
+     * @return Resultado producido por {@code hashToken}.
+     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     */
     static String hashToken(String rawToken) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
@@ -154,6 +266,11 @@ public class IdentityService {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code newRawToken}.
+     *
+     * @return Resultado producido por {@code newRawToken}.
+     */
     private static String newRawToken() {
         byte[] bytes = new byte[32];
         SECURE_RANDOM.nextBytes(bytes);

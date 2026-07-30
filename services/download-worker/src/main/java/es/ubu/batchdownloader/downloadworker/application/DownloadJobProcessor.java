@@ -56,9 +56,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+/**
+ * Implementa el componente {@code DownloadJobProcessor}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Service
 public class DownloadJobProcessor {
+    /**
+     * Constante que define {@code LOGGER}.
+     */
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobProcessor.class);
+    /**
+     * Constante que define {@code SENSITIVE_QUERY_NAMES}.
+     */
     private static final Set<String> SENSITIVE_QUERY_NAMES = Set.of(
             "access_token",
             "api_key",
@@ -70,24 +81,87 @@ public class DownloadJobProcessor {
             "sig",
             "signature",
             "token");
+    /**
+     * Constante que define {@code SENSITIVE_QUERY_MARKER}.
+     */
     private static final Pattern SENSITIVE_QUERY_MARKER = Pattern.compile(
             "access_?key|api_?key|authorization|credential|password|secret|signature|token");
 
+    /**
+     * Estado {@code sourceResolver} mantenido por {@code DownloadJobProcessor}.
+     */
     private final SourceReferenceResolver sourceResolver;
+    /**
+     * Estado {@code metadataLookup} mantenido por {@code DownloadJobProcessor}.
+     */
     private final JobItemMetadataLookup metadataLookup;
+    /**
+     * Estado {@code remoteDownloader} mantenido por {@code DownloadJobProcessor}.
+     */
     private final RemoteDownloader remoteDownloader;
+    /**
+     * Dependencia {@code artifactStore} utilizada por {@code DownloadJobProcessor}.
+     */
     private final ArtifactStore artifactStore;
+    /**
+     * Estado {@code archiveBuilder} mantenido por {@code DownloadJobProcessor}.
+     */
     private final ArchiveBuilder archiveBuilder;
+    /**
+     * Dependencia {@code eventPublisher} utilizada por {@code DownloadJobProcessor}.
+     */
     private final EventPublisher eventPublisher;
+    /**
+     * Estado {@code filenamePolicy} mantenido por {@code DownloadJobProcessor}.
+     */
     private final FilenamePolicy filenamePolicy;
+    /**
+     * Estado {@code publicHttpsUriPolicy} mantenido por {@code DownloadJobProcessor}.
+     */
     private final PublicHttpsUriPolicy publicHttpsUriPolicy;
+    /**
+     * Dependencia {@code objectMapper} utilizada por {@code DownloadJobProcessor}.
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * Estado {@code executor} mantenido por {@code DownloadJobProcessor}.
+     */
     private final ExecutorService executor;
+    /**
+     * Estado {@code properties} mantenido por {@code DownloadJobProcessor}.
+     */
     private final DownloadProperties properties;
+    /**
+     * Estado {@code storageProperties} mantenido por {@code DownloadJobProcessor}.
+     */
     private final StorageProperties storageProperties;
+    /**
+     * Estado {@code clock} mantenido por {@code DownloadJobProcessor}.
+     */
     private final Clock clock;
+    /**
+     * Estado {@code cancellations} mantenido por {@code DownloadJobProcessor}.
+     */
     private final DownloadCancellationRegistry cancellations;
 
+    /**
+     * Inicializa una instancia de {@code DownloadJobProcessor}.
+     *
+     * @param sourceResolver Valor de {@code sourceResolver} utilizado por la operación.
+     * @param metadataLookup Valor de {@code metadataLookup} utilizado por la operación.
+     * @param remoteDownloader Valor de {@code remoteDownloader} utilizado por la operación.
+     * @param artifactStore Valor de {@code artifactStore} utilizado por la operación.
+     * @param archiveBuilder Valor de {@code archiveBuilder} utilizado por la operación.
+     * @param eventPublisher Valor de {@code eventPublisher} utilizado por la operación.
+     * @param filenamePolicy Valor de {@code filenamePolicy} utilizado por la operación.
+     * @param publicHttpsUriPolicy Valor de {@code publicHttpsUriPolicy} utilizado por la operación.
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param executor Valor de {@code executor} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @param storageProperties Valor de {@code storageProperties} utilizado por la operación.
+     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param cancellations Valor de {@code cancellations} utilizado por la operación.
+     */
     public DownloadJobProcessor(
             SourceReferenceResolver sourceResolver,
             JobItemMetadataLookup metadataLookup,
@@ -119,6 +193,11 @@ public class DownloadJobProcessor {
         this.cancellations = cancellations;
     }
 
+    /**
+     * Procesa los datos recibidos mediante {@code process}.
+     *
+     * @param event Evento que debe procesarse.
+     */
     public void process(DownloadJobRequestedEvent event) {
         String invalidReason = validateJob(event);
         if (invalidReason != null) {
@@ -191,6 +270,12 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Valida los datos recibidos mediante {@code validateJob}.
+     *
+     * @param event Evento que debe procesarse.
+     * @return Resultado producido por {@code validateJob}.
+     */
     private String validateJob(DownloadJobRequestedEvent event) {
         if (event.payload().items().size() > properties.maxItems()) {
             return "too_many_items";
@@ -204,6 +289,13 @@ public class DownloadJobProcessor {
         return null;
     }
 
+    /**
+     * Ejecuta la operación {@code downloadItems}.
+     *
+     * @param event Evento que debe procesarse.
+     * @param jobDirectory Valor de {@code jobDirectory} utilizado por la operación.
+     * @return Resultado producido por {@code downloadItems}.
+     */
     private ProcessedDownloads downloadItems(DownloadJobRequestedEvent event, Path jobDirectory) {
         long maxJobBytes = properties.maxTotalSize().toBytes();
         long maxFileBytes = properties.maxFileSize().toBytes();
@@ -268,6 +360,14 @@ public class DownloadJobProcessor {
         return new ProcessedDownloads(downloaded, failed);
     }
 
+    /**
+     * Ejecuta la operación {@code awaitCompleted}.
+     *
+     * @param completions Valor de {@code completions} utilizado por la operación.
+     * @return Resultado producido por {@code awaitCompleted}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private DownloadAttempt awaitCompleted(CompletionService<DownloadAttempt> completions) {
         try {
             return await(completions.take());
@@ -277,6 +377,20 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code downloadOne}.
+     *
+     * @param event Evento que debe procesarse.
+     * @param item Elemento sobre el que se realiza la operación.
+     * @param jobDirectory Valor de {@code jobDirectory} utilizado por la operación.
+     * @param totalBudget Valor de {@code totalBudget} utilizado por la operación.
+     * @param maxFileBytes Valor de {@code maxFileBytes} utilizado por la operación.
+     * @param semaphore Valor de {@code semaphore} utilizado por la operación.
+     * @param usedNames Valor de {@code usedNames} utilizado por la operación.
+     * @return Resultado producido por {@code downloadOne}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private DownloadAttempt downloadOne(
             DownloadJobRequestedEvent event,
             DownloadItemRequest item,
@@ -327,11 +441,26 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Indica si puede realizarse la operación mediante {@code cancelledAttempt}.
+     *
+     * @param item Elemento sobre el que se realiza la operación.
+     * @param filename Valor de {@code filename} utilizado por la operación.
+     * @return Resultado producido por {@code cancelledAttempt}.
+     */
     private DownloadAttempt cancelledAttempt(DownloadItemRequest item, String filename) {
         return DownloadAttempt.failure(new FailedDownload(
                 item.itemId(), item.appId(), item.sourceRef(), filename, "cancelled"));
     }
 
+    /**
+     * Ejecuta la operación {@code await}.
+     *
+     * @param future Valor de {@code future} utilizado por la operación.
+     * @return Resultado producido por {@code await}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private DownloadAttempt await(Future<DownloadAttempt> future) {
         try {
             return future.get();
@@ -347,6 +476,13 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code storeFiles}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param downloads Valor de {@code downloads} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<DownloadedArtifact> storeFiles(UUID jobId, List<DownloadedArtifact> downloads) {
         List<DownloadedArtifact> stored = new ArrayList<>();
         for (DownloadedArtifact artifact : downloads) {
@@ -359,6 +495,15 @@ public class DownloadJobProcessor {
         return stored;
     }
 
+    /**
+     * Ejecuta la operación {@code failedMetadata}.
+     *
+     * @param event Evento que debe procesarse.
+     * @param failures Valor de {@code failures} utilizado por la operación.
+     * @return Mapa con los datos producidos por la operación.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private Map<UUID, DownloadItemMetadata> failedMetadata(
             DownloadJobRequestedEvent event,
             List<FailedDownload> failures) {
@@ -379,6 +524,16 @@ public class DownloadJobProcessor {
         return metadataLookup.find(event.payload().jobId(), failedItems);
     }
 
+    /**
+     * Ejecuta la operación {@code writeManualShortcuts}.
+     *
+     * @param failures Valor de {@code failures} utilizado por la operación.
+     * @param metadata Valor de {@code metadata} utilizado por la operación.
+     * @param jobDirectory Valor de {@code jobDirectory} utilizado por la operación.
+     * @return Resultado producido por {@code writeManualShortcuts}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private ManualShortcuts writeManualShortcuts(
             List<FailedDownload> failures,
             Map<UUID, DownloadItemMetadata> metadata,
@@ -414,6 +569,12 @@ public class DownloadJobProcessor {
         return new ManualShortcuts(List.copyOf(entries), Map.copyOf(pathsByItem));
     }
 
+    /**
+     * Ejecuta la operación {@code safeOfficialPage}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code safeOfficialPage}.
+     */
     private URI safeOfficialPage(String value) {
         if (value == null
                 || value.isBlank()
@@ -432,6 +593,12 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Indica si existe el recurso mediante {@code hasSensitiveQuery}.
+     *
+     * @param uri Valor de {@code uri} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean hasSensitiveQuery(URI uri) {
         String query = uri.getRawQuery();
         if (query == null || query.isBlank()) {
@@ -455,6 +622,11 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteStagedArtifacts}.
+     *
+     * @param artifacts Valor de {@code artifacts} utilizado por la operación.
+     */
     private void deleteStagedArtifacts(List<DownloadedArtifact> artifacts) {
         for (DownloadedArtifact artifact : artifacts) {
             try {
@@ -465,6 +637,20 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code writeManifest}.
+     *
+     * @param event Evento que debe procesarse.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param downloaded Valor de {@code downloaded} utilizado por la operación.
+     * @param failed Valor de {@code failed} utilizado por la operación.
+     * @param failedMetadata Valor de {@code failedMetadata} utilizado por la operación.
+     * @param manualShortcutPaths Valor de {@code manualShortcutPaths} utilizado por la operación.
+     * @param target Valor de {@code target} utilizado por la operación.
+     * @return Resultado producido por {@code writeManifest}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private Path writeManifest(
             DownloadJobRequestedEvent event,
             String status,
@@ -507,6 +693,16 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Publica el contenido solicitado mediante {@code publishReadyEvent}.
+     *
+     * @param event Evento que debe procesarse.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param successfulItems Valor de {@code successfulItems} utilizado por la operación.
+     * @param failedItems Valor de {@code failedItems} utilizado por la operación.
+     * @param zipPath Valor de {@code zipPath} utilizado por la operación.
+     * @param zipObjectKey Valor de {@code zipObjectKey} utilizado por la operación.
+     */
     private void publishReadyEvent(
             DownloadJobRequestedEvent event,
             String status,
@@ -537,6 +733,18 @@ public class DownloadJobProcessor {
                 payload));
     }
 
+    /**
+     * Publica el contenido solicitado mediante {@code publishProgress}.
+     *
+     * @param event Evento que debe procesarse.
+     * @param occurredAt Valor de {@code occurredAt} utilizado por la operación.
+     * @param itemId Identificador de {@code item} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param bytesDownloaded Valor de {@code bytesDownloaded} utilizado por la operación.
+     * @param sizeBytes Valor de {@code sizeBytes} utilizado por la operación.
+     * @param sha256 Valor de {@code sha256} utilizado por la operación.
+     * @param errorCode Valor de {@code errorCode} utilizado por la operación.
+     */
     private void publishProgress(
             DownloadJobRequestedEvent event,
             Instant occurredAt,
@@ -561,6 +769,13 @@ public class DownloadJobProcessor {
                 payload));
     }
 
+    /**
+     * Publica el contenido solicitado mediante {@code publishJobFailure}.
+     *
+     * @param event Evento que debe procesarse.
+     * @param code Valor de {@code code} utilizado por la operación.
+     * @param failedItems Valor de {@code failedItems} utilizado por la operación.
+     */
     private void publishJobFailure(DownloadJobRequestedEvent event, String code, int failedItems) {
         DownloadFailedPayload payload = new DownloadFailedPayload(
                 event.payload().jobId(), code, Math.max(1, failedItems));
@@ -574,11 +789,27 @@ public class DownloadJobProcessor {
                 payload));
     }
 
+    /**
+     * Ejecuta la operación {@code deterministicEventId}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @param discriminator Valor de {@code discriminator} utilizado por la operación.
+     * @return Resultado producido por {@code deterministicEventId}.
+     */
     private UUID deterministicEventId(UUID jobId, String type, String discriminator) {
         return UUID.nameUUIDFromBytes(
                 (jobId + ":" + type + ":" + discriminator).getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createJobDirectory}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @return Resultado producido por {@code createJobDirectory}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private Path createJobDirectory(UUID jobId) {
         try {
             Path base = Path.of(properties.tempDirectory());
@@ -589,6 +820,14 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code fileSize}.
+     *
+     * @param path Ruta del recurso que debe procesarse.
+     * @return Resultado producido por {@code fileSize}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private long fileSize(Path path) {
         try {
             return Files.size(path);
@@ -597,6 +836,11 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteRecursively}.
+     *
+     * @param root Valor de {@code root} utilizado por la operación.
+     */
     private void deleteRecursively(Path root) {
         if (root == null || !Files.exists(root)) {
             return;
@@ -614,19 +858,52 @@ public class DownloadJobProcessor {
         }
     }
 
+    /**
+     * Representa los datos inmutables de {@code DownloadAttempt}.
+     *
+     * @param artifact Valor de {@code artifact} incluido en el record.
+     * @param failure Valor de {@code failure} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record DownloadAttempt(DownloadedArtifact artifact, FailedDownload failure) {
+        /**
+         * Ejecuta la operación {@code success}.
+         *
+         * @param artifact Valor de {@code artifact} utilizado por la operación.
+         * @return Resultado producido por {@code success}.
+         */
         static DownloadAttempt success(DownloadedArtifact artifact) {
             return new DownloadAttempt(artifact, null);
         }
 
+        /**
+         * Ejecuta la operación {@code failure}.
+         *
+         * @param failure Valor de {@code failure} utilizado por la operación.
+         * @return Resultado producido por {@code failure}.
+         */
         static DownloadAttempt failure(FailedDownload failure) {
             return new DownloadAttempt(null, failure);
         }
     }
 
+    /**
+     * Representa los datos inmutables de {@code ProcessedDownloads}.
+     *
+     * @param downloaded Valor de {@code downloaded} incluido en el record.
+     * @param failed Valor de {@code failed} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record ProcessedDownloads(List<DownloadedArtifact> downloaded, List<FailedDownload> failed) {
     }
 
+    /**
+     * Representa los datos inmutables de {@code ManualShortcuts}.
+     *
+     * @param entries Valor de {@code entries} incluido en el record.
+     * @param pathsByItem Valor de {@code pathsByItem} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record ManualShortcuts(
             List<ArchiveEntry> entries,
             Map<UUID, String> pathsByItem) {

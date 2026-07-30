@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `github`.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,16 +22,43 @@ from app.scraper.candidates import (
 
 @dataclass(frozen=True)
 class GitHubRepo:
+    """Representa el componente `GitHubRepo`.
+    """
     owner: str
+    """Atributo de clase `owner` de `GitHubRepo`.
+    """
     name: str
+    """Atributo de clase `name` de `GitHubRepo`.
+    """
 
 
 class GitHubReleaseResolver:
+    """Representa el componente `GitHubReleaseResolver`.
+    """
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
+        """Inicializa una instancia de `GitHubReleaseResolver`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            client (httpx.AsyncClient | None): Cliente utilizado para ejecutar el escenario.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.client = client
+        """Estado de instancia asociado a `client`.
+        """
 
     async def collect(self, url: str, version: str | None = None) -> list[InstallerCandidate]:
+        """Ejecuta `collect` dentro de `GitHubReleaseResolver`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+            version (str | None): Valor de `version` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         repo = parse_github_repo(url)
         if not repo:
             return []
@@ -56,6 +85,16 @@ class GitHubReleaseResolver:
         repo: GitHubRepo,
         tags: list[str],
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_from_api`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            repo (GitHubRepo): Valor de `repo` utilizado por la operación.
+            tags (list[str]): Valor de `tags` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         endpoints = [
             *[
                 (
@@ -81,6 +120,14 @@ class GitHubReleaseResolver:
         self,
         release: dict,
     ) -> dict[str, InstallerCandidate]:
+        """Ejecuta el paso interno `_candidates_from_api_release`.
+
+        Args:
+            release (dict): Valor de `release` utilizado por la operación.
+
+        Returns:
+            dict[str, InstallerCandidate]: Mapa con los datos producidos por la operación.
+        """
         candidates: dict[str, InstallerCandidate] = {}
         if release.get("draft"):
             return candidates
@@ -114,6 +161,16 @@ class GitHubReleaseResolver:
         repo: GitHubRepo,
         tags: list[str],
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_from_html`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            repo (GitHubRepo): Valor de `repo` utilizado por la operación.
+            tags (list[str]): Valor de `tags` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         discovered_tags = list(tags)
         for tag in discovered_tags:
             candidates = await self._collect_from_expanded_assets(client, repo, tag)
@@ -178,6 +235,16 @@ class GitHubReleaseResolver:
         repo: GitHubRepo,
         tag: str,
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_from_expanded_assets`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            repo (GitHubRepo): Valor de `repo` utilizado por la operación.
+            tag (str): Valor de `tag` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         response = await client.get(
             f"https://github.com/{repo.owner}/{repo.name}/releases/expanded_assets/"
             f"{quote(tag, safe='')}"
@@ -198,6 +265,17 @@ class GitHubReleaseResolver:
         source: str,
         release_tag: str | None = None,
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_candidates_from_html`.
+
+        Args:
+            html (str): Valor de `html` utilizado por la operación.
+            base_url (str): Dirección de `base` que debe procesarse.
+            source (str): Fuente de descarga sobre la que se actúa.
+            release_tag (str | None): Valor de `release_tag` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         candidates = extract_candidates(html, base_url)
         return [
             InstallerCandidate(
@@ -213,6 +291,14 @@ class GitHubReleaseResolver:
 
 
 def parse_github_repo(url: str) -> GitHubRepo | None:
+    """Analiza la operación `github_repo`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        GitHubRepo | None: Resultado producido por la operación.
+    """
     parsed = urlparse(url)
     if parsed.netloc.lower() not in {"github.com", "www.github.com"}:
         return None
@@ -225,6 +311,14 @@ def parse_github_repo(url: str) -> GitHubRepo | None:
 
 
 def release_tag_from_url(url: str) -> str | None:
+    """Libera la operación `tag_from_url`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     parts = [part for part in urlparse(url).path.split("/") if part]
     try:
         index = parts.index("tag")
@@ -236,6 +330,15 @@ def release_tag_from_url(url: str) -> str | None:
 
 
 def release_tags_from_url_or_version(url: str, version: str | None) -> list[str]:
+    """Libera la operación `tags_from_url_or_version`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+        version (str | None): Valor de `version` utilizado por la operación.
+
+    Returns:
+        list[str]: Colección de elementos obtenidos por la operación.
+    """
     tags: list[str] = []
     url_tag = release_tag_from_url(url)
     if url_tag:
@@ -250,6 +353,14 @@ def release_tags_from_url_or_version(url: str, version: str | None) -> list[str]
 
 
 def is_allowed_github_asset(url: str) -> bool:
+    """Indica si se cumple la operación `allowed_github_asset`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     if is_github_source_archive(url):
         return False
     extension = detect_extension(url)
@@ -265,10 +376,27 @@ def is_allowed_github_asset(url: str) -> bool:
 
 
 def asset_kind_for_github_asset(url: str) -> str:
+    """Ejecuta la operación `asset_kind_for_github_asset`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return "release_zip" if detect_extension(url) == ".zip" else "installer"
 
 
 def github_candidate_context(existing_context: str | None, release_tag: str | None) -> str | None:
+    """Ejecuta la operación `github_candidate_context`.
+
+    Args:
+        existing_context (str | None): Valor de `existing_context` utilizado por la operación.
+        release_tag (str | None): Valor de `release_tag` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if existing_context and release_tag:
         return f"{existing_context} {release_tag}"
     return existing_context or release_tag

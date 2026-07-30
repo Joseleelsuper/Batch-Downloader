@@ -24,6 +24,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * Agrupa los escenarios de prueba de {@code AdminAppSecurityTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @WebMvcTest(AdminAppController.class)
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
@@ -34,26 +39,52 @@ import org.springframework.test.web.servlet.MockMvc;
     "app.auth.bcrypt-strength=4"
 })
 class AdminAppSecurityTest {
+    /**
+     * Constante que define {@code APP_ID}.
+     */
     private static final String APP_ID = "00000000-0000-0000-0000-000000000001";
 
+    /**
+     * Dato compartido {@code mvc} para los escenarios de prueba.
+     */
     @Autowired
     private MockMvc mvc;
 
+    /**
+     * Dato compartido {@code catalog} para los escenarios de prueba.
+     */
     @MockBean
     private CatalogRepository catalog;
 
+    /**
+     * Dato compartido {@code adminApps} para los escenarios de prueba.
+     */
     @MockBean
     private AdminAppRepository adminApps;
 
+    /**
+     * Dato compartido {@code audit} para los escenarios de prueba.
+     */
     @MockBean
     private AdminAuditService audit;
 
+    /**
+     * Dato compartido {@code scraperClient} para los escenarios de prueba.
+     */
     @MockBean
     private ScraperInternalClient scraperClient;
 
+    /**
+     * Dato compartido {@code users} para los escenarios de prueba.
+     */
     @MockBean
     private UserAccountStore users;
 
+    /**
+     * Comprueba el escenario {@code inspectionEndpointsRequireAnAdministratorSession}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void inspectionEndpointsRequireAnAdministratorSession() throws Exception {
         mvc.perform(get(
@@ -62,6 +93,11 @@ class AdminAppSecurityTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * Comprueba el escenario {@code inspectionCreationRejectsAnAdministratorWithoutCsrf}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void inspectionCreationRejectsAnAdministratorWithoutCsrf() throws Exception {
         mvc.perform(post(
@@ -73,6 +109,11 @@ class AdminAppSecurityTest {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * Comprueba el escenario {@code inspectionCreationAcceptsAnAdministratorWithCsrf}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void inspectionCreationAcceptsAnAdministratorWithCsrf() throws Exception {
         LocalDateTime now = LocalDateTime.now();
@@ -104,6 +145,11 @@ class AdminAppSecurityTest {
                 .andExpect(status().isAccepted());
     }
 
+    /**
+     * Comprueba el escenario {@code websiteDiscoveryCreationRequiresCsrf}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void websiteDiscoveryCreationRequiresCsrf() throws Exception {
         mvc.perform(post("/api/admin/app-discoveries")
@@ -113,6 +159,11 @@ class AdminAppSecurityTest {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * Comprueba el escenario {@code websiteDiscoveryCreationAcceptsAnAdministratorWithCsrf}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void websiteDiscoveryCreationAcceptsAnAdministratorWithCsrf() throws Exception {
         LocalDateTime now = LocalDateTime.now();
@@ -140,6 +191,11 @@ class AdminAppSecurityTest {
                 .andExpect(status().isAccepted());
     }
 
+    /**
+     * Ejecuta la operación {@code validRequest}.
+     *
+     * @return Resultado producido por {@code validRequest}.
+     */
     private String validRequest() {
         return """
                 {
@@ -153,6 +209,11 @@ class AdminAppSecurityTest {
                 """;
     }
 
+    /**
+     * Ejecuta la operación {@code websiteDiscoveryRequest}.
+     *
+     * @return Resultado producido por {@code websiteDiscoveryRequest}.
+     */
     private String websiteDiscoveryRequest() {
         return """
                 {

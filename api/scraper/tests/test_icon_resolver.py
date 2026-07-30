@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_icon_resolver`.
+"""
 from types import SimpleNamespace
 
 import httpx
@@ -11,6 +13,11 @@ from app.scraper.icon_resolver import IconResolver
 @pytest.mark.asyncio
 @respx.mock
 async def test_icon_resolver_extracts_official_favicon(monkeypatch) -> None:
+    """Comprueba el escenario `icon_resolver_extracts_official_favicon`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     monkeypatch.setattr("app.scraper.icon_resolver.public_https_url", public_url)
     respx.get("https://example.com/download").mock(
         return_value=httpx.Response(
@@ -42,6 +49,11 @@ async def test_icon_resolver_extracts_official_favicon(monkeypatch) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_icon_resolver_uses_github_readme_image_and_ignores_badges(monkeypatch) -> None:
+    """Comprueba el escenario `icon_resolver_uses_github_readme_image_and_ignores_badges`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     monkeypatch.setattr("app.scraper.icon_resolver.public_https_url", public_url)
     respx.get("https://api.github.com/repos/vendor/app/readme").mock(
         return_value=httpx.Response(
@@ -69,6 +81,11 @@ async def test_icon_resolver_uses_github_readme_image_and_ignores_badges(monkeyp
 @pytest.mark.asyncio
 @respx.mock
 async def test_icon_resolver_uses_custom_github_social_image_after_readme(monkeypatch) -> None:
+    """Comprueba el escenario `icon_resolver_uses_custom_github_social_image_after_readme`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     monkeypatch.setattr("app.scraper.icon_resolver.public_https_url", public_url)
     respx.get("https://api.github.com/repos/vendor/app/readme").mock(return_value=httpx.Response(404))
     respx.get("https://github.com/vendor/app").mock(
@@ -97,6 +114,11 @@ async def test_icon_resolver_uses_custom_github_social_image_after_readme(monkey
 @pytest.mark.asyncio
 @respx.mock
 async def test_icon_resolver_falls_back_to_github_owner_avatar(monkeypatch) -> None:
+    """Comprueba el escenario `icon_resolver_falls_back_to_github_owner_avatar`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     monkeypatch.setattr("app.scraper.icon_resolver.public_https_url", public_url)
     respx.get("https://api.github.com/repos/vendor/app/readme").mock(return_value=httpx.Response(404))
     respx.get("https://github.com/vendor/app").mock(return_value=httpx.Response(404))
@@ -114,4 +136,12 @@ async def test_icon_resolver_falls_back_to_github_owner_avatar(monkeypatch) -> N
 
 
 async def public_url(_: str) -> bool:
+    """Ejecuta la operación `public_url`.
+
+    Args:
+        _ (str): Valor de `_` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return True

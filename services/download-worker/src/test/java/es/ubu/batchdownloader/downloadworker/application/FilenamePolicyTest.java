@@ -8,9 +8,20 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code FilenamePolicyTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class FilenamePolicyTest {
+    /**
+     * Dato compartido {@code policy} para los escenarios de prueba.
+     */
     private final FilenamePolicy policy = new FilenamePolicy();
 
+    /**
+     * Comprueba el escenario {@code sanitizesTraversalAndDeduplicatesCaseInsensitively}.
+     */
     @Test
     void sanitizesTraversalAndDeduplicatesCaseInsensitively() {
         Set<String> names = policy.newNameSet();
@@ -21,6 +32,9 @@ class FilenamePolicyTest {
         assertThat(policy.filenameFor(second, names)).isEqualTo("setup-2.exe");
     }
 
+    /**
+     * Comprueba el escenario {@code preservesCompoundTarGzExtensionWhenAddingSuffix}.
+     */
     @Test
     void preservesCompoundTarGzExtensionWhenAddingSuffix() {
         Set<String> names = policy.newNameSet();
@@ -28,6 +42,9 @@ class FilenamePolicyTest {
         assertThat(policy.filenameFor(item("two", "tool.tar.gz"), names)).isEqualTo("tool-2.tar.gz");
     }
 
+    /**
+     * Comprueba el escenario {@code sanitizesAndDeduplicatesManualShortcutNames}.
+     */
     @Test
     void sanitizesAndDeduplicatesManualShortcutNames() {
         Set<String> names = policy.newNameSet();
@@ -37,6 +54,13 @@ class FilenamePolicyTest {
         assertThat(policy.manualShortcutFilename("mi-app", names)).isEqualTo("mi-app-2.url");
     }
 
+    /**
+     * Ejecuta la operación {@code item}.
+     *
+     * @param id Identificador del recurso sobre el que se actúa.
+     * @param filename Valor de {@code filename} utilizado por la operación.
+     * @return Resultado producido por {@code item}.
+     */
     private ResolvedDownloadItem item(String id, String filename) {
         return new ResolvedDownloadItem(
                 UUID.nameUUIDFromBytes(("item-" + id).getBytes()),

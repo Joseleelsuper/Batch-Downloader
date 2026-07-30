@@ -9,10 +9,26 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
+/**
+ * Implementa el componente {@code Hashing}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public final class Hashing {
+    /**
+     * Inicializa una instancia de {@code Hashing}.
+     */
     private Hashing() {
     }
 
+    /**
+     * Ejecuta la operación {@code sha256}.
+     *
+     * @param path Ruta del recurso que debe procesarse.
+     * @return Resultado producido por {@code sha256}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     public static String sha256(Path path) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

@@ -12,15 +12,38 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Implementa el componente {@code JpaCatalogSourceLookup}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Repository
 class JpaCatalogSourceLookup implements CatalogSourceLookup {
+    /**
+     * Constante que define {@code DEFAULT_OPERATING_SYSTEMS}.
+     */
     private static final List<String> DEFAULT_OPERATING_SYSTEMS = List.of("windows", "linux", "macos");
+    /**
+     * Estado {@code jdbc} mantenido por {@code JpaCatalogSourceLookup}.
+     */
     private final JdbcTemplate jdbc;
 
+    /**
+     * Inicializa una instancia de {@code JpaCatalogSourceLookup}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     */
     JpaCatalogSourceLookup(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Busca el resultado solicitado mediante {@code findVerifiedSources}.
+     *
+     * @param appIds Colección de identificadores de {@code app}.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @return Mapa con los datos producidos por la operación.
+     */
     @Override
     public Map<UUID, VerifiedSource> findVerifiedSources(
             Collection<UUID> appIds, List<String> operatingSystems) {
@@ -65,8 +88,8 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
                 """);
         List<Object> parameters = new ArrayList<>(ids.size() + systems.size());
         ids.forEach(id -> parameters.add(UuidBytes.fromUuid(id)));
-        // Expiry only triggers the scraper's mandatory JIT revalidation. It does
-        // not remove an otherwise valid candidate from the public catalog.
+        // La caducidad solo activa la revalidación JIT obligatoria del scraper; no
+        // elimina del catálogo público un candidato que siga siendo válido.
         parameters.addAll(systems);
         Map<UUID, VerifiedSource> selected = new LinkedHashMap<>();
         jdbc.query(sql.toString(), (ResultSet row) -> {
@@ -82,21 +105,32 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         return Map.copyOf(selected);
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizedSystems}.
+     *
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private static List<String> normalizedSystems(List<String> operatingSystems) {
         if (operatingSystems == null || operatingSystems.isEmpty()) {
             return DEFAULT_OPERATING_SYSTEMS;
         }
-        // Keep the preference stable regardless of the order in which an HTTP
-        // client serializes the selected systems. The job model stores one
-        // executable per app, so a request with several systems selects the
-        // first verified platform in this canonical order; apps with none of
-        // those platforms are omitted by the application service.
+        // Mantiene estable la preferencia sin depender del orden en que el cliente HTTP
+        // serialice los sistemas. El trabajo guarda un ejecutable por aplicación, así que
+        // una solicitud con varios sistemas elige la primera plataforma verificada según
+        // este orden canónico; el servicio omite aplicaciones sin esas plataformas.
         List<String> filtered = DEFAULT_OPERATING_SYSTEMS.stream()
                 .filter(operatingSystems::contains)
                 .toList();
         return filtered.isEmpty() ? DEFAULT_OPERATING_SYSTEMS : filtered;
     }
 
+    /**
+     * Ejecuta la operación {@code appendPlaceholders}.
+     *
+     * @param sql Valor de {@code sql} utilizado por la operación.
+     * @param count Valor de {@code count} utilizado por la operación.
+     */
     private static void appendPlaceholders(StringBuilder sql, int count) {
         for (int index = 0; index < count; index++) {
             if (index > 0) sql.append(", ");

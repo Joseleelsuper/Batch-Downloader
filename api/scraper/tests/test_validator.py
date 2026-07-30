@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_validator`.
+"""
 import dns.exception
 import dns.resolver
 import httpx
@@ -17,14 +19,34 @@ from app.scraper.validator import (
 
 @pytest.mark.asyncio
 async def test_domain_has_public_dns_rejects_loopback_literal() -> None:
+    """Comprueba el escenario `domain_has_public_dns_rejects_loopback_literal`.
+    """
     assert await domain_has_public_dns("127.0.0.1") is False
 
 
 @pytest.mark.asyncio
 async def test_domain_dns_resolution_retries_transient_failure(monkeypatch) -> None:
+    """Comprueba el escenario `domain_dns_resolution_retries_transient_failure`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     calls: list[str] = []
 
     async def resolve(_hostname: str, record_type: str, **_kwargs):
+        """Ejecuta la operación `resolve`.
+
+        Args:
+            _hostname (str): Valor de `_hostname` utilizado por la operación.
+            record_type (str): Valor de `record_type` utilizado por la operación.
+            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+
+        Throws:
+            dns.resolver.NoAnswer: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+            dns.exception.Timeout: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+        """
         calls.append(record_type)
         if len(calls) <= 2:
             raise dns.exception.Timeout
@@ -43,6 +65,8 @@ async def test_domain_dns_resolution_retries_transient_failure(monkeypatch) -> N
 
 
 def test_private_ips_are_not_public() -> None:
+    """Comprueba el escenario `private_ips_are_not_public`.
+    """
     import ipaddress
 
     assert is_public_ip(ipaddress.ip_address("10.0.0.1")) is False
@@ -50,6 +74,8 @@ def test_private_ips_are_not_public() -> None:
 
 
 def test_cross_site_winstall_referer_is_not_sent_to_download_host() -> None:
+    """Comprueba el escenario `cross_site_winstall_referer_is_not_sent_to_download_host`.
+    """
     assert same_site_referer(
         "https://geeks3d.com/downloads/FurMark_Setup.exe",
         "https://winstall.app/apps/Geeks3D.FurMark.1",
@@ -62,6 +88,8 @@ def test_cross_site_winstall_referer_is_not_sent_to_download_host() -> None:
 
 @pytest.mark.asyncio
 async def test_validator_rejects_github_source_archives_before_network() -> None:
+    """Comprueba el escenario `validator_rejects_github_source_archives_before_network`.
+    """
     result = await DownloadValidator(Settings()).validate(
         InstallerCandidate(
             url="https://codeload.github.com/vendor/app/zip/refs/heads/main",
@@ -76,7 +104,20 @@ async def test_validator_rejects_github_source_archives_before_network() -> None
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_accepts_github_release_asset_redirect(monkeypatch) -> None:
+    """Comprueba el escenario `validator_accepts_github_release_asset_redirect`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -116,7 +157,20 @@ async def test_validator_accepts_github_release_asset_redirect(monkeypatch) -> N
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_blocks_a_public_to_private_redirect(monkeypatch) -> None:
+    """Comprueba el escenario `validator_blocks_a_public_to_private_redirect`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            hostname (str | None): Valor de `hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return hostname == "downloads.example.com"
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -141,7 +195,20 @@ async def test_validator_blocks_a_public_to_private_redirect(monkeypatch) -> Non
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_rejects_redirect_credentials_before_following(monkeypatch) -> None:
+    """Comprueba el escenario `validator_rejects_redirect_credentials_before_following`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -170,7 +237,20 @@ async def test_validator_rejects_redirect_credentials_before_following(monkeypat
 async def test_manual_validator_requires_a_signature_even_for_binary_content_type(
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `manual_validator_requires_a_signature_even_for_binary_content_type`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -201,7 +281,20 @@ async def test_manual_validator_requires_a_signature_even_for_binary_content_typ
 @pytest.mark.asyncio
 @respx.mock
 async def test_manual_validator_accepts_a_matching_signature(monkeypatch) -> None:
+    """Comprueba el escenario `manual_validator_accepts_a_matching_signature`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -232,7 +325,20 @@ async def test_manual_validator_accepts_a_matching_signature(monkeypatch) -> Non
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_preserves_candidate_filename_when_redirect_hides_it(monkeypatch) -> None:
+    """Comprueba el escenario `validator_preserves_candidate_filename_when_redirect_hides_it`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -266,7 +372,20 @@ async def test_validator_preserves_candidate_filename_when_redirect_hides_it(mon
 async def test_validator_accepts_public_cross_domain_redirect_without_allowlist(
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `validator_accepts_public_cross_domain_redirect_without_allowlist`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -297,7 +416,20 @@ async def test_validator_accepts_public_cross_domain_redirect_without_allowlist(
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_accepts_common_windows_executable_mime_alias(monkeypatch) -> None:
+    """Comprueba el escenario `validator_accepts_common_windows_executable_mime_alias`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -320,7 +452,20 @@ async def test_validator_accepts_common_windows_executable_mime_alias(monkeypatc
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_accepts_mislabeled_msi_after_partial_signature_probe(monkeypatch) -> None:
+    """Comprueba el escenario `validator_accepts_mislabeled_msi_after_partial_signature_probe`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -351,7 +496,20 @@ async def test_validator_accepts_mislabeled_msi_after_partial_signature_probe(mo
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_uses_actual_zip_signature_for_winstall_mislabeled_exe(monkeypatch) -> None:
+    """Comprueba el escenario `validator_uses_actual_zip_signature_for_winstall_mislabeled_exe`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -380,7 +538,20 @@ async def test_validator_uses_actual_zip_signature_for_winstall_mislabeled_exe(m
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_follows_redirect_revealed_only_by_partial_get(monkeypatch) -> None:
+    """Comprueba el escenario `validator_follows_redirect_revealed_only_by_partial_get`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -420,7 +591,20 @@ async def test_validator_follows_redirect_revealed_only_by_partial_get(monkeypat
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_rejects_mislabeled_text_without_binary_signature(monkeypatch) -> None:
+    """Comprueba el escenario `validator_rejects_mislabeled_text_without_binary_signature`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -442,6 +626,8 @@ async def test_validator_rejects_mislabeled_text_without_binary_signature(monkey
 
 @pytest.mark.asyncio
 async def test_validator_rejects_malformed_url_without_aborting() -> None:
+    """Comprueba el escenario `validator_rejects_malformed_url_without_aborting`.
+    """
     result = await DownloadValidator(Settings()).validate(
         InstallerCandidate(url="https://[broken/AppSetup.exe", source="href")
     )
@@ -453,7 +639,20 @@ async def test_validator_rejects_malformed_url_without_aborting() -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_rejects_extensionless_octet_stream(monkeypatch) -> None:
+    """Comprueba el escenario `validator_rejects_extensionless_octet_stream`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -481,7 +680,20 @@ async def test_validator_rejects_extensionless_octet_stream(monkeypatch) -> None
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_infers_extensionless_winstall_pe_executable(monkeypatch) -> None:
+    """Comprueba el escenario `validator_infers_extensionless_winstall_pe_executable`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -519,7 +731,20 @@ async def test_validator_infers_extensionless_winstall_pe_executable(monkeypatch
 async def test_validator_accepts_winstall_distribution_zip_outside_github_releases(
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `validator_accepts_winstall_distribution_zip_outside_github_releases`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -546,6 +771,8 @@ async def test_validator_accepts_winstall_distribution_zip_outside_github_releas
 
 @pytest.mark.asyncio
 async def test_validator_still_rejects_generic_github_zip_outside_releases() -> None:
+    """Comprueba el escenario `validator_still_rejects_generic_github_zip_outside_releases`.
+    """
     result = await DownloadValidator(Settings()).validate(
         InstallerCandidate(
             url="https://github.com/vendor/app/raw/master/dist/App.zip",
@@ -561,6 +788,8 @@ async def test_validator_still_rejects_generic_github_zip_outside_releases() -> 
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_accepts_public_ip_host_for_winstall_download() -> None:
+    """Comprueba el escenario `validator_accepts_public_ip_host_for_winstall_download`.
+    """
     url = "http://120.24.245.232/app/pcr532.exe"
     respx.head(url).mock(
         return_value=httpx.Response(
@@ -585,7 +814,20 @@ async def test_validator_accepts_public_ip_host_for_winstall_download() -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_rejects_known_non_desktop_binary_extensions(monkeypatch) -> None:
+    """Comprueba el escenario `validator_rejects_known_non_desktop_binary_extensions`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -610,7 +852,20 @@ async def test_validator_rejects_known_non_desktop_binary_extensions(monkeypatch
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_accepts_msixbundle(monkeypatch) -> None:
+    """Comprueba el escenario `validator_accepts_msixbundle`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -636,7 +891,20 @@ async def test_validator_accepts_msixbundle(monkeypatch) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_accepts_verified_winstall_http_installer(monkeypatch) -> None:
+    """Comprueba el escenario `validator_accepts_verified_winstall_http_installer`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -665,7 +933,20 @@ async def test_validator_accepts_verified_winstall_http_installer(monkeypatch) -
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_allows_verified_winstall_redirect_to_public_cdn(monkeypatch) -> None:
+    """Comprueba el escenario `validator_allows_verified_winstall_redirect_to_public_cdn`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -704,7 +985,20 @@ async def test_validator_allows_verified_winstall_redirect_to_public_cdn(monkeyp
 async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflare(
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `validator_accepts_visible_winstall_installer_blocked_by_cloudflare`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -744,7 +1038,20 @@ async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflar
 async def test_validator_attests_siteground_challenge_with_winstall_declared_extension(
     monkeypatch,
 ) -> None:
+    """Comprueba la validación de un reto de SiteGround con la extensión declarada.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -782,7 +1089,20 @@ async def test_validator_attests_siteground_challenge_with_winstall_declared_ext
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_attests_tencent_edgeone_challenge(monkeypatch) -> None:
+    """Comprueba el escenario `validator_attests_tencent_edgeone_challenge`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -819,7 +1139,20 @@ async def test_validator_attests_tencent_edgeone_challenge(monkeypatch) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_attests_akamai_edge_denial_for_winstall_binary(monkeypatch) -> None:
+    """Comprueba el escenario `validator_attests_akamai_edge_denial_for_winstall_binary`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -859,7 +1192,20 @@ async def test_validator_attests_akamai_edge_denial_for_winstall_binary(monkeypa
 @pytest.mark.asyncio
 @respx.mock
 async def test_validator_does_not_attest_generic_cloudflare_candidate(monkeypatch) -> None:
+    """Comprueba el escenario `validator_does_not_attest_generic_cloudflare_candidate`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
@@ -885,6 +1231,8 @@ async def test_validator_does_not_attest_generic_cloudflare_candidate(monkeypatc
 
 @pytest.mark.asyncio
 async def test_validator_rejects_non_winstall_http_before_network() -> None:
+    """Comprueba el escenario `validator_rejects_non_winstall_http_before_network`.
+    """
     result = await DownloadValidator(Settings()).validate(
         InstallerCandidate(
             url="http://downloads.example.com/AppSetup.exe",
@@ -898,10 +1246,35 @@ async def test_validator_rejects_non_winstall_http_before_network() -> None:
 
 @pytest.mark.asyncio
 async def test_validator_retries_verified_winstall_tls_failure_over_http(monkeypatch) -> None:
+    """Comprueba el escenario `validator_retries_verified_winstall_tls_failure_over_http`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     async def public_dns(_hostname: str | None) -> bool:
+        """Ejecuta la operación `public_dns`.
+
+        Args:
+            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         return True
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        """Ejecuta la operación `handler`.
+
+        Args:
+            request (httpx.Request): Solicitud recibida por la operación.
+
+        Returns:
+            httpx.Response: Resultado producido por la operación.
+
+        Throws:
+            httpx.ConnectError: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+        """
         if request.url.scheme == "https":
             raise httpx.ConnectError(
                 "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed",

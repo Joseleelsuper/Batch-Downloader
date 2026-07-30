@@ -17,7 +17,15 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
+/**
+ * Agrupa los escenarios de prueba de {@code CatalogRepositoryTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class CatalogRepositoryTest {
+    /**
+     * Comprueba el escenario {@code manualAppsExposeTheirSourcePageInsteadOfAFakeWinstallUrl}.
+     */
     @Test
     void manualAppsExposeTheirSourcePageInsteadOfAFakeWinstallUrl() {
         assertThat(CatalogRepository.originUrl(
@@ -37,6 +45,9 @@ class CatalogRepositoryTest {
                 .isEqualTo("https://winstall.app/apps/Valve.Steam");
     }
 
+    /**
+     * Comprueba el escenario {@code facetLetterGroupsLatinLettersAndNonLatinPrefixes}.
+     */
     @Test
     void facetLetterGroupsLatinLettersAndNonLatinPrefixes() {
         assertThat(CatalogRepository.facetLetter(".NET")).isEqualTo("N");
@@ -45,6 +56,9 @@ class CatalogRepositoryTest {
         assertThat(CatalogRepository.facetLetter("東Vendor")).isEqualTo("#");
     }
 
+    /**
+     * Comprueba el escenario {@code requiredTagMatchesDefaultsToAllAndClampsExplicitValues}.
+     */
     @Test
     void requiredTagMatchesDefaultsToAllAndClampsExplicitValues() {
         assertThat(CatalogRepository.requiredTagMatches(3, null, "all")).isEqualTo(3);
@@ -53,6 +67,9 @@ class CatalogRepositoryTest {
         assertThat(CatalogRepository.requiredTagMatches(3, 0, "all")).isEqualTo(1);
     }
 
+    /**
+     * Comprueba el escenario {@code searchWithQueryAppliesSelectedSortBeforeLiteralRelevance}.
+     */
     @Test
     void searchWithQueryAppliesSelectedSortBeforeLiteralRelevance() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -86,6 +103,10 @@ class CatalogRepositoryTest {
         assertThat(params.getValue()).contains("epic games%");
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * semanticSearchUsesOnlyEmbeddingCandidatesBeforeStructuredFilters}.
+     */
     @Test
     void semanticSearchUsesOnlyEmbeddingCandidatesBeforeStructuredFilters() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -129,6 +150,9 @@ class CatalogRepositoryTest {
         assertThat(params.getValue()).contains("available", "windows", "x86_64");
     }
 
+    /**
+     * Comprueba el escenario {@code searchWithoutQueryKeepsReviewAppsAfterBothPlainSortOrders}.
+     */
     @Test
     void searchWithoutQueryKeepsReviewAppsAfterBothPlainSortOrders() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -172,6 +196,9 @@ class CatalogRepositoryTest {
         assertThat(sortedSql.getAllValues().get(1)).contains("END ASC, a.normalized_name ASC, a.id ASC");
     }
 
+    /**
+     * Comprueba el escenario {@code mostDownloadedSortUsesPersistentCompletedDownloadCount}.
+     */
     @Test
     void mostDownloadedSortUsesPersistentCompletedDownloadCount() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -198,6 +225,9 @@ class CatalogRepositoryTest {
                 .doesNotContain("JOIN download_job_items");
     }
 
+    /**
+     * Comprueba el escenario {@code mostDownloadedSortRemainsPrimaryWhenSearching}.
+     */
     @Test
     void mostDownloadedSortRemainsPrimaryWhenSearching() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -225,6 +255,9 @@ class CatalogRepositoryTest {
                 "END ASC, a.download_count DESC, page.search_score DESC, a.normalized_name ASC");
     }
 
+    /**
+     * Comprueba el escenario {@code reviewFilterUsesThePersistentExclusiveProjection}.
+     */
     @Test
     void reviewFilterUsesThePersistentExclusiveProjection() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -250,6 +283,9 @@ class CatalogRepositoryTest {
         assertThat(sql.getValue()).doesNotContain("download_sources ds", "resolved_sources");
     }
 
+    /**
+     * Comprueba el escenario {@code unresolvedFilterUsesTheTwoPersistentAdministrativeStates}.
+     */
     @Test
     void unresolvedFilterUsesTheTwoPersistentAdministrativeStates() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -281,6 +317,9 @@ class CatalogRepositoryTest {
                 .isEqualTo("unresolved");
     }
 
+    /**
+     * Comprueba el escenario {@code pendingFilterIsRejectedAsAnInvalidPublicStatus}.
+     */
     @Test
     void pendingFilterIsRejectedAsAnInvalidPublicStatus() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -293,6 +332,9 @@ class CatalogRepositoryTest {
                 .isEqualTo("invalid_catalog_status");
     }
 
+    /**
+     * Comprueba el escenario {@code availableFilterUsesProjectionWithoutTemporalCutoff}.
+     */
     @Test
     void availableFilterUsesProjectionWithoutTemporalCutoff() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -313,6 +355,11 @@ class CatalogRepositoryTest {
         assertThat(params.getValue()).contains("available");
     }
 
+    /**
+     * Comprueba el escenario {@code statsReadsTheSingletonProjectionByPrimaryKey}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void statsReadsTheSingletonProjectionByPrimaryKey() throws Exception {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -343,6 +390,9 @@ class CatalogRepositoryTest {
         assertThat(params.getValue()).containsExactly(1);
     }
 
+    /**
+     * Comprueba el escenario {@code changeVersionCombinesApplicationProjectionAndScrapeTokens}.
+     */
     @Test
     void changeVersionCombinesApplicationProjectionAndScrapeTokens() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
@@ -368,12 +418,21 @@ class CatalogRepositoryTest {
                 any(Object[].class));
     }
 
+    /**
+     * Comprueba el escenario {@code normalizeSearchQueryRemovesAccentsAndCollapsesWhitespace}.
+     */
     @Test
     void normalizeSearchQueryRemovesAccentsAndCollapsesWhitespace() {
         assertThat(CatalogRepository.normalizeSearchQuery("  Épic   GAMES  "))
                 .isEqualTo("epic games");
     }
 
+    /**
+     * Ejecuta la operación {@code repository}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @return Resultado producido por {@code repository}.
+     */
     private static CatalogRepository repository(JdbcTemplate jdbc) {
         return new CatalogRepository(jdbc);
     }

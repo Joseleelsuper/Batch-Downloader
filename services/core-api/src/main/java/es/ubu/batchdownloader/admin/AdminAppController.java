@@ -41,13 +41,39 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Expone las operaciones HTTP gestionadas por {@code AdminAppController}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ */
 @RestController
 public class AdminAppController {
+    /**
+     * Estado {@code catalog} mantenido por {@code AdminAppController}.
+     */
     private final CatalogRepository catalog;
+    /**
+     * Estado {@code adminApps} mantenido por {@code AdminAppController}.
+     */
     private final AdminAppRepository adminApps;
+    /**
+     * Estado {@code audit} mantenido por {@code AdminAppController}.
+     */
     private final AdminAuditService audit;
+    /**
+     * Dependencia {@code scraperClient} utilizada por {@code AdminAppController}.
+     */
     private final ScraperInternalClient scraperClient;
 
+    /**
+     * Inicializa una instancia de {@code AdminAppController}.
+     *
+     * @param catalog Acceso al catálogo utilizado por la operación.
+     * @param adminApps Valor de {@code adminApps} utilizado por la operación.
+     * @param audit Valor de {@code audit} utilizado por la operación.
+     * @param scraperClient Valor de {@code scraperClient} utilizado por la operación.
+     */
     public AdminAppController(
             CatalogRepository catalog,
             AdminAppRepository adminApps,
@@ -59,6 +85,20 @@ public class AdminAppController {
         this.scraperClient = scraperClient;
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code listApps}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystem Valor de {@code operatingSystem} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @return Resultado producido por {@code listApps}.
+     */
     @GetMapping("/api/admin/apps")
     public AppSearchResponse listApps(
             @RequestParam(required = false) String query,
@@ -82,6 +122,12 @@ public class AdminAppController {
                 catalog.count(query, status, operatingSystem == null || operatingSystem.isBlank() ? List.of() : List.of(operatingSystem), architecture, tagList, List.of(), null, tagMode));
     }
 
+    /**
+     * Ejecuta la operación {@code exportCsv}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code exportCsv}.
+     */
     @GetMapping(value = "/api/admin/apps/export.csv", produces = "text/csv")
     public ResponseEntity<String> exportCsv(Principal principal) {
         AppCsvExport export = adminApps.exportCsv();
@@ -100,6 +146,13 @@ public class AdminAppController {
                 .body(export.content());
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createApp}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code createApp}.
+     */
     @PostMapping("/api/admin/apps")
     @ResponseStatus(HttpStatus.CREATED)
     public AppDetails createApp(@Valid @RequestBody UpsertAppRequest request, Principal principal) {
@@ -108,6 +161,14 @@ public class AdminAppController {
         return created;
     }
 
+    /**
+     * Ejecuta la operación {@code patchApp}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code patchApp}.
+     */
     @PatchMapping("/api/admin/apps/{appId}")
     public AppDetails patchApp(
             @PathVariable String appId,
@@ -118,6 +179,12 @@ public class AdminAppController {
         return updated;
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteApp}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     */
     @DeleteMapping("/api/admin/apps/{appId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteApp(@PathVariable String appId, Principal principal) {
@@ -125,6 +192,15 @@ public class AdminAppController {
         audit.record(actor(principal), "app.delete", "app", appId, null);
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteAllApps}.
+     *
+     * @param confirm Valor de {@code confirm} utilizado por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Mapa con los datos producidos por la operación.
+     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @DeleteMapping("/api/admin/apps")
     public Map<String, Object> deleteAllApps(
             @RequestParam(required = false) String confirm,
@@ -139,6 +215,13 @@ public class AdminAppController {
         return Map.of("deleted", deleted);
     }
 
+    /**
+     * Ejecuta la operación {@code replaceTags}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     */
     @PutMapping("/api/admin/apps/{appId}/tags")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void replaceTags(
@@ -149,6 +232,14 @@ public class AdminAppController {
         audit.record(actor(principal), "app.tags.replace", "app", appId, null);
     }
 
+    /**
+     * Ejecuta la operación {@code patchSource}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param sourceId Identificador de {@code source} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     */
     @PatchMapping("/api/admin/apps/{appId}/sources/{sourceId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void patchSource(
@@ -160,6 +251,13 @@ public class AdminAppController {
         audit.record(actor(principal), "app.source.update", "source", sourceId, Map.of("appId", appId));
     }
 
+    /**
+     * Ejecuta la operación {@code generateDescription}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code generateDescription}.
+     */
     @PostMapping("/api/admin/apps/{appId}/generate-description")
     public ResponseEntity<ScraperInternalClient.DescriptionGeneration> generateDescription(
             @PathVariable String appId,
@@ -176,6 +274,14 @@ public class AdminAppController {
         return ResponseEntity.accepted().body(payload);
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createManualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code createManualInstallerInspection}.
+     */
     @PostMapping("/api/admin/apps/{appId}/manual-installer-inspections")
     public ResponseEntity<ManualInstallerInspection> createManualInstallerInspection(
             @PathVariable String appId,
@@ -194,12 +300,25 @@ public class AdminAppController {
         return ResponseEntity.accepted().body(inspection);
     }
 
+    /**
+     * Ejecuta la operación {@code currentManualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Resultado producido por {@code currentManualInstallerInspection}.
+     */
     @GetMapping("/api/admin/apps/{appId}/manual-installer-inspections/current")
     public ManualInstallerInspection currentManualInstallerInspection(
             @PathVariable String appId) {
         return scraperClient.currentManualInstallerInspection(appId);
     }
 
+    /**
+     * Ejecuta la operación {@code manualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param inspectionId Identificador de {@code inspection} utilizado por la operación.
+     * @return Resultado producido por {@code manualInstallerInspection}.
+     */
     @GetMapping("/api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}")
     public ManualInstallerInspection manualInstallerInspection(
             @PathVariable String appId,
@@ -207,6 +326,15 @@ public class AdminAppController {
         return scraperClient.manualInstallerInspection(appId, inspectionId);
     }
 
+    /**
+     * Ejecuta la operación {@code applyManualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param inspectionId Identificador de {@code inspection} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code applyManualInstallerInspection}.
+     */
     @PostMapping(
             "/api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply")
     public ManualInstallerApplyResponse applyManualInstallerInspection(
@@ -234,6 +362,13 @@ public class AdminAppController {
                 result.warnings());
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createWebsiteAppDiscovery}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code createWebsiteAppDiscovery}.
+     */
     @PostMapping("/api/admin/app-discoveries")
     public ResponseEntity<WebsiteAppDiscovery> createWebsiteAppDiscovery(
             @Valid @RequestBody WebsiteAppDiscoveryRequest request,
@@ -249,12 +384,26 @@ public class AdminAppController {
         return ResponseEntity.accepted().body(discovery);
     }
 
+    /**
+     * Ejecuta la operación {@code websiteAppDiscovery}.
+     *
+     * @param discoveryId Identificador de {@code discovery} utilizado por la operación.
+     * @return Resultado producido por {@code websiteAppDiscovery}.
+     */
     @GetMapping("/api/admin/app-discoveries/{discoveryId}")
     public WebsiteAppDiscovery websiteAppDiscovery(
             @PathVariable String discoveryId) {
         return scraperClient.websiteAppDiscovery(discoveryId);
     }
 
+    /**
+     * Ejecuta la operación {@code applyWebsiteAppDiscovery}.
+     *
+     * @param discoveryId Identificador de {@code discovery} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code applyWebsiteAppDiscovery}.
+     */
     @PostMapping("/api/admin/app-discoveries/{discoveryId}/apply")
     public WebsiteAppDiscoveryApplyResponse applyWebsiteAppDiscovery(
             @PathVariable String discoveryId,
@@ -278,6 +427,12 @@ public class AdminAppController {
                 result.warnings());
     }
 
+    /**
+     * Ejecuta la operación {@code actor}.
+     *
+     * @param principal Identidad autenticada que ejecuta la operación.
+     * @return Resultado producido por {@code actor}.
+     */
     private String actor(Principal principal) {
         return principal == null ? "admin" : principal.getName();
     }

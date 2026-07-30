@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `winstall`.
+"""
 from __future__ import annotations
 
 import json
@@ -18,41 +20,94 @@ from app.scraper.text import normalize_text
 
 @dataclass(frozen=True)
 class WinstallVersion:
+    """Representa el componente `WinstallVersion`.
+    """
     version: str | None
+    """Atributo de clase `version` de `WinstallVersion`.
+    """
     installer_type: str | None
+    """Atributo de clase `installer_type` de `WinstallVersion`.
+    """
     installers: list[str] = field(default_factory=list)
+    """Atributo de clase `installers` de `WinstallVersion`.
+    """
 
 
 @dataclass(frozen=True)
 class WinstallDownload:
+    """Representa el componente `WinstallDownload`.
+    """
     url: str
+    """Atributo de clase `url` de `WinstallDownload`.
+    """
     label: str | None = None
+    """Atributo de clase `label` de `WinstallDownload`.
+    """
     context: str | None = None
+    """Atributo de clase `context` de `WinstallDownload`.
+    """
 
 
 @dataclass(frozen=True)
 class WinstallPageLinks:
+    """Representa el componente `WinstallPageLinks`.
+    """
     official_url: str | None
+    """Atributo de clase `official_url` de `WinstallPageLinks`.
+    """
     source_code_url: str | None
+    """Atributo de clase `source_code_url` de `WinstallPageLinks`.
+    """
     downloads: list[WinstallDownload]
+    """Atributo de clase `downloads` de `WinstallPageLinks`.
+    """
 
 
 @dataclass(frozen=True)
 class WinstallApp:
+    """Representa el componente `WinstallApp`.
+    """
     package_id: str
+    """Atributo de clase `package_id` de `WinstallApp`.
+    """
     name: str
+    """Atributo de clase `name` de `WinstallApp`.
+    """
     description: str | None
+    """Atributo de clase `description` de `WinstallApp`.
+    """
     publisher: str | None
+    """Atributo de clase `publisher` de `WinstallApp`.
+    """
     homepage: str | None
+    """Atributo de clase `homepage` de `WinstallApp`.
+    """
     icon: str | None
+    """Atributo de clase `icon` de `WinstallApp`.
+    """
     icon_url: str | None
+    """Atributo de clase `icon_url` de `WinstallApp`.
+    """
     latest_version: str | None
+    """Atributo de clase `latest_version` de `WinstallApp`.
+    """
     tags: list[str]
+    """Atributo de clase `tags` de `WinstallApp`.
+    """
     versions: list[WinstallVersion]
+    """Atributo de clase `versions` de `WinstallApp`.
+    """
     raw: dict[str, Any]
+    """Atributo de clase `raw` de `WinstallApp`.
+    """
 
     @property
     def installer_urls(self) -> list[str]:
+        """Ejecuta `installer_urls` dentro de `WinstallApp`.
+
+        Returns:
+            list[str]: Colección de elementos obtenidos por la operación.
+        """
         urls: list[str] = []
         for version in self.versions:
             urls.extend(version.installers)
@@ -60,16 +115,37 @@ class WinstallApp:
 
 
 WINSTALL_CATALOG_PAGE_SIZE = 60
+"""Constante que define `WINSTALL_CATALOG_PAGE_SIZE`.
+"""
 
 
 class WinstallClient:
+    """Encapsula la comunicación con `Winstall`.
+    """
     provider_name = "winstall"
+    """Atributo de clase `provider_name` de `WinstallClient`.
+    """
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
+        """Inicializa una instancia de `WinstallClient`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            client (httpx.AsyncClient | None): Cliente utilizado para ejecutar el escenario.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self._client = client
+        """Estado de instancia asociado a `_client`.
+        """
 
     async def __aenter__(self) -> WinstallClient:
+        """Abre el contexto asíncrono y devuelve la instancia preparada.
+
+        Returns:
+            WinstallClient: Resultado producido por la operación.
+        """
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self.settings.request_timeout_seconds,
@@ -79,11 +155,21 @@ class WinstallClient:
         return self
 
     async def __aexit__(self, *args) -> None:
+        """Cierra el contexto asíncrono y libera sus recursos.
+
+        Args:
+            *args (Any): Valor de `args` utilizado por la operación.
+        """
         if self._client:
             await self._client.aclose()
             self._client = None
 
     async def iter_apps(self) -> AsyncIterator[WinstallApp]:
+        """Ejecuta `iter_apps` dentro de `WinstallClient`.
+
+        Yields:
+            AsyncIterator[WinstallApp]: Elemento producido por la operación.
+        """
         offset = 0
         total: int | None = None
         while total is None or offset < total:
@@ -105,6 +191,17 @@ class WinstallClient:
             offset += len(data)
 
     async def get_app(self, package_id: str) -> WinstallApp:
+        """Obtiene la operación `app`.
+
+        Args:
+            package_id (str): Identificador de `package` utilizado por la operación.
+
+        Returns:
+            WinstallApp: Resultado de `get_app`.
+
+        Throws:
+            LookupError: Si no existe el elemento solicitado.
+        """
         try:
             payload = await self._fetch_app(package_id)
         except Exception:
@@ -116,10 +213,26 @@ class WinstallClient:
         return parse_winstall_app(payload)
 
     async def get_downloads(self, package_id: str) -> list[WinstallDownload]:
+        """Obtiene la operación `downloads`.
+
+        Args:
+            package_id (str): Identificador de `package` utilizado por la operación.
+
+        Returns:
+            list[WinstallDownload]: Colección de elementos obtenidos por la operación.
+        """
         links = await self.get_page_links(package_id)
         return links.downloads
 
     async def get_page_links(self, package_id: str) -> WinstallPageLinks:
+        """Obtiene la operación `page_links`.
+
+        Args:
+            package_id (str): Identificador de `package` utilizado por la operación.
+
+        Returns:
+            WinstallPageLinks: Resultado de `get_page_links`.
+        """
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
         if not response.is_success:
@@ -132,6 +245,15 @@ class WinstallClient:
 
     @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
     async def _fetch_catalog_page(self, offset: int, limit: int) -> dict[str, Any] | None:
+        """Ejecuta el paso interno `_fetch_catalog_page`.
+
+        Args:
+            offset (int): Valor de `offset` utilizado por la operación.
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+        """
         assert self._client is not None
         url = f"{self.settings.winstall_api_base_url}/apps"
         response = await self._client.get(url, params={"offset": offset, "limit": limit})
@@ -143,6 +265,14 @@ class WinstallClient:
 
     @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
     async def _fetch_app(self, package_id: str) -> dict[str, Any] | None:
+        """Ejecuta el paso interno `_fetch_app`.
+
+        Args:
+            package_id (str): Identificador de `package` utilizado por la operación.
+
+        Returns:
+            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+        """
         assert self._client is not None
         response = await self._client.get(
             f"{self.settings.winstall_api_base_url}/apps/{package_id}"
@@ -154,6 +284,11 @@ class WinstallClient:
         return response.json()
 
     async def _fetch_catalog_from_next_data(self) -> dict[str, Any] | None:
+        """Ejecuta el paso interno `_fetch_catalog_from_next_data`.
+
+        Returns:
+            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+        """
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps")
         if not response.is_success:
@@ -161,6 +296,14 @@ class WinstallClient:
         return await run_cpu_bound(extract_next_data, response.text, "data")
 
     async def _fetch_app_from_page(self, package_id: str) -> dict[str, Any] | None:
+        """Ejecuta el paso interno `_fetch_app_from_page`.
+
+        Args:
+            package_id (str): Identificador de `package` utilizado por la operación.
+
+        Returns:
+            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+        """
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
         if not response.is_success:
@@ -169,6 +312,15 @@ class WinstallClient:
 
 
 def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
+    """Ejecuta la operación `extract_next_data`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+        key (str): Valor de `key` utilizado por la operación.
+
+    Returns:
+        dict[str, Any] | None: Mapa con los datos producidos por la operación.
+    """
     parser = HTMLParser(html)
     node = parser.css_first("script#__NEXT_DATA__")
     if node is None or not node.text():
@@ -183,10 +335,28 @@ def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
 
 
 def extract_winstall_downloads(html: str, base_url: str) -> list[WinstallDownload]:
+    """Ejecuta la operación `extract_winstall_downloads`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+        base_url (str): Dirección de `base` que debe procesarse.
+
+    Returns:
+        list[WinstallDownload]: Colección de elementos obtenidos por la operación.
+    """
     return extract_winstall_page_links(html, base_url).downloads
 
 
 def extract_winstall_page_links(html: str, base_url: str) -> WinstallPageLinks:
+    """Ejecuta la operación `extract_winstall_page_links`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+        base_url (str): Dirección de `base` que debe procesarse.
+
+    Returns:
+        WinstallPageLinks: Resultado producido por la operación.
+    """
     parser = HTMLParser(html)
     downloads: dict[str, WinstallDownload] = {}
     official_url: str | None = None
@@ -235,6 +405,17 @@ def extract_winstall_page_links(html: str, base_url: str) -> WinstallPageLinks:
 
 
 def parse_winstall_app(payload: dict[str, Any]) -> WinstallApp:
+    """Analiza la operación `winstall_app`.
+
+    Args:
+        payload (dict[str, Any]): Carga de datos recibida por la operación.
+
+    Returns:
+        WinstallApp: Resultado producido por la operación.
+
+    Throws:
+        ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+    """
     versions = [
         WinstallVersion(
             version=item.get("version"),

@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_description_enricher`.
+"""
 import json
 from uuid import uuid4
 
@@ -22,22 +24,50 @@ from app.scraper.llm import (
 
 
 class NoopRateLimiter:
+    """Agrupa los escenarios de prueba de `NoopRateLimiter`.
+    """
     async def wait_for_slot(self):
+        """Ejecuta `wait_for_slot` dentro de `NoopRateLimiter`.
+        """
         return None
 
 
 class FakeClock:
+    """Agrupa los escenarios de prueba de `FakeClock`.
+    """
     def __init__(self) -> None:
+        """Inicializa una instancia de `FakeClock`.
+        """
         self.now = 0.0
+        """Estado de instancia asociado a `now`.
+        """
 
     def __call__(self) -> float:
+        """Ejecuta la instancia como una operación invocable.
+
+        Returns:
+            float: Resultado producido por la operación.
+        """
         return self.now
 
     def advance(self, seconds: float) -> None:
+        """Ejecuta `advance` dentro de `FakeClock`.
+
+        Args:
+            seconds (float): Valor de `seconds` utilizado por la operación.
+        """
         self.now += seconds
 
 
 def make_app(**overrides) -> SoftwareApp:
+    """Construye la operación `app`.
+
+    Args:
+        **overrides (Any): Valor de `overrides` utilizado por la operación.
+
+    Returns:
+        SoftwareApp: Resultado producido por la operación.
+    """
     app = SoftwareApp(
         id=uuid4(),
         winstall_id=overrides.get("winstall_id", "Vendor.App"),
@@ -66,6 +96,8 @@ def make_app(**overrides) -> SoftwareApp:
 
 
 def test_description_input_hash_changes_when_core_evidence_changes() -> None:
+    """Comprueba el escenario `description_input_hash_changes_when_core_evidence_changes`.
+    """
     baseline = description_input_hash(make_app())
 
     assert description_input_hash(make_app(tags=["productivity"])) != baseline
@@ -77,6 +109,8 @@ def test_description_input_hash_changes_when_core_evidence_changes() -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -> None:
+    """Comprueba el escenario `llm_client_rotates_through_approved_groq_models_on_rate_limit`.
+    """
     settings = Settings(
         llm_groq_api_key="groq-key",
         llm_deepseek_api_key="deepseek-key",
@@ -123,6 +157,8 @@ async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -
 @pytest.mark.asyncio
 @respx.mock
 async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable() -> None:
+    """Comprueba el escenario `llm_client_uses_deepseek_only_after_groq_models_are_unavailable`.
+    """
     settings = Settings(
         llm_groq_api_key="groq-key",
         llm_deepseek_api_key="deepseek-key",
@@ -167,6 +203,8 @@ async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable()
 @pytest.mark.asyncio
 @respx.mock
 async def test_groq_model_400_cools_down_and_tries_next_model() -> None:
+    """Comprueba el escenario `groq_model_400_cools_down_and_tries_next_model`.
+    """
     settings = Settings(
         llm_groq_api_key="groq-key",
         llm_deepseek_api_key="deepseek-key",
@@ -228,6 +266,8 @@ async def test_groq_model_400_cools_down_and_tries_next_model() -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() -> None:
+    """Comprueba el escenario `rate_limited_model_is_not_retried_until_its_cooldown_expires`.
+    """
     clock = FakeClock()
     cooldowns = InMemoryModelCooldownStore(monotonic=clock)
     settings = Settings(
@@ -281,6 +321,8 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
 
 
 def test_groq_reset_header_duration_supports_compound_units() -> None:
+    """Comprueba el escenario `groq_reset_header_duration_supports_compound_units`.
+    """
     assert parse_duration_seconds("1h2m3.5s") == 3723.5
     assert cooldown_from_headers(
         {"Retry-After": "60", "X-RateLimit-Reset-Requests": "2m"},
@@ -290,32 +332,88 @@ def test_groq_reset_header_duration_supports_compound_units() -> None:
 
 @pytest.mark.asyncio
 async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
+    """Comprueba el escenario `enricher_marks_invalid_llm_response_as_failed`.
+    """
     class BadLLM:
+        """Agrupa los escenarios de prueba de `BadLLM`.
+        """
         def has_provider(self) -> bool:
+            """Indica si existe la operación `provider`.
+
+            Returns:
+                bool: Indica si se cumple la condición evaluada.
+            """
             return True
 
         async def generate(self, _evidence):
+            """Ejecuta `generate` dentro de `BadLLM`.
+
+            Args:
+                _evidence (Any): Valor de `_evidence` utilizado por la operación.
+
+            Throws:
+                LLMGenerationError: Si no puede completarse la operación bajo las condiciones
+                    requeridas.
+            """
             raise LLMGenerationError("invalid_json", "groq", "test-model")
 
     class FakeCatalog:
+        """Agrupa los escenarios de prueba de `FakeCatalog`.
+        """
         def __init__(self) -> None:
+            """Inicializa una instancia de `FakeCatalog`.
+            """
             self.app = make_app(official_url=None)
+            """Estado de instancia asociado a `app`.
+            """
             self.failed = []
+            """Estado de instancia asociado a `failed`.
+            """
 
         async def apps_for_description_enrichment(self, _software_app_ids=None):
+            """Ejecuta `apps_for_description_enrichment` dentro de `FakeCatalog`.
+
+            Args:
+                _software_app_ids (Any): Colección de identificadores de `_software_app`.
+            """
             return [self.app]
 
         async def save_long_description(self, **_kwargs):
+            """Guarda la operación `long_description`.
+
+            Args:
+                **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+
+            Throws:
+                AssertionError: Si no puede completarse la operación bajo las condiciones
+                    requeridas.
+            """
             raise AssertionError("invalid responses must not be saved")
 
         async def mark_long_description_failed(self, **kwargs):
+            """Marca la operación `long_description_failed`.
+
+            Args:
+                **kwargs (Any): Valor de `kwargs` utilizado por la operación.
+            """
             self.failed.append(kwargs)
 
     class FakeLogs:
+        """Agrupa los escenarios de prueba de `FakeLogs`.
+        """
         def __init__(self) -> None:
+            """Inicializa una instancia de `FakeLogs`.
+            """
             self.entries = []
+            """Estado de instancia asociado a `entries`.
+            """
 
         async def add(self, **kwargs):
+            """Ejecuta `add` dentro de `FakeLogs`.
+
+            Args:
+                **kwargs (Any): Valor de `kwargs` utilizado por la operación.
+            """
             self.entries.append(kwargs)
 
     catalog = FakeCatalog()
@@ -334,11 +432,25 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
 
 @pytest.mark.asyncio
 async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
+    """Comprueba el escenario `enricher_treats_zero_max_apps_as_unlimited`.
+    """
     class GoodLLM:
+        """Agrupa los escenarios de prueba de `GoodLLM`.
+        """
         def has_provider(self) -> bool:
+            """Indica si existe la operación `provider`.
+
+            Returns:
+                bool: Indica si se cumple la condición evaluada.
+            """
             return True
 
         async def generate(self, _evidence):
+            """Ejecuta `generate` dentro de `GoodLLM`.
+
+            Args:
+                _evidence (Any): Valor de `_evidence` utilizado por la operación.
+            """
             return GeneratedDescription(
                 description="Descripcion larga generada por IA para pruebas.",
                 language="es",
@@ -347,24 +459,58 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
             )
 
     class FakeCatalog:
+        """Agrupa los escenarios de prueba de `FakeCatalog`.
+        """
         def __init__(self) -> None:
+            """Inicializa una instancia de `FakeCatalog`.
+            """
             self.apps = [
                 make_app(winstall_id=f"Vendor.App{i}", name=f"Vendor App {i}", official_url=None)
                 for i in range(3)
             ]
+            """Estado de instancia asociado a `apps`.
+            """
             self.saved = []
+            """Estado de instancia asociado a `saved`.
+            """
 
         async def apps_for_description_enrichment(self, _software_app_ids=None):
+            """Ejecuta `apps_for_description_enrichment` dentro de `FakeCatalog`.
+
+            Args:
+                _software_app_ids (Any): Colección de identificadores de `_software_app`.
+            """
             return self.apps
 
         async def save_long_description(self, **kwargs):
+            """Guarda la operación `long_description`.
+
+            Args:
+                **kwargs (Any): Valor de `kwargs` utilizado por la operación.
+            """
             self.saved.append(kwargs)
 
         async def mark_long_description_failed(self, **_kwargs):
+            """Marca la operación `long_description_failed`.
+
+            Args:
+                **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+
+            Throws:
+                AssertionError: Si no puede completarse la operación bajo las condiciones
+                    requeridas.
+            """
             raise AssertionError("valid responses must not be marked failed")
 
     class FakeLogs:
+        """Agrupa los escenarios de prueba de `FakeLogs`.
+        """
         async def add(self, **_kwargs):
+            """Ejecuta `add` dentro de `FakeLogs`.
+
+            Args:
+                **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+            """
             return None
 
     catalog = FakeCatalog()

@@ -1,1 +1,2 @@
-"""Persistence repositories."""
+"""Inicializa el paquete `repositories`.
+"""

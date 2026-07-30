@@ -13,8 +13,18 @@ import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code HttpSourceReferenceResolverTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class HttpSourceReferenceResolverTest {
 
+    /**
+     * Comprueba el escenario {@code treatsResolverServerErrorsAsAnItemFailure}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void treatsResolverServerErrorsAsAnItemFailure() throws Exception {
         UUID sourceRef = UUID.randomUUID();

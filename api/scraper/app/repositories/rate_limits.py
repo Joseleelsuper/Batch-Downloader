@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `rate_limits`.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -11,10 +13,16 @@ from app.db.models import ScraperRateLimit
 from app.db.session import AsyncSessionLocal
 
 LLM_RATE_LIMIT_KEY = "descriptor_llm"
+"""Constante que define `LLM_RATE_LIMIT_KEY`.
+"""
 LLM_REQUEST_INTERVAL_SECONDS = 5.0
+"""Constante que define `LLM_REQUEST_INTERVAL_SECONDS`.
+"""
 
 
 class DatabaseLLMRateLimiter:
+    """Representa el componente `DatabaseLLMRateLimiter`.
+    """
     def __init__(
         self,
         *,
@@ -22,11 +30,29 @@ class DatabaseLLMRateLimiter:
         now: Callable[[], datetime] = utc_now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        """Inicializa una instancia de `DatabaseLLMRateLimiter`.
+
+        Args:
+            interval_seconds (float): Valor de `interval_seconds` utilizado por la operación.
+            now (Callable[[], datetime]): Valor de `now` utilizado por la operación.
+            sleep (Callable[[float], Awaitable[None]]): Valor de `sleep` utilizado por la operación.
+        """
         self.interval_seconds = interval_seconds
+        """Estado de instancia asociado a `interval_seconds`.
+        """
         self.now = now
+        """Estado de instancia asociado a `now`.
+        """
         self.sleep = sleep
+        """Estado de instancia asociado a `sleep`.
+        """
 
     async def wait_for_slot(self) -> datetime:
+        """Ejecuta `wait_for_slot` dentro de `DatabaseLLMRateLimiter`.
+
+        Returns:
+            datetime: Resultado producido por la operación.
+        """
         async with AsyncSessionLocal() as session:
             async with session.begin():
                 row = await session.scalar(

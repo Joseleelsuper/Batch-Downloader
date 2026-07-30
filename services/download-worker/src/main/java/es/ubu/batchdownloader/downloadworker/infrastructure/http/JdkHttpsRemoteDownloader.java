@@ -22,14 +22,41 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Implementa el componente {@code JdkHttpsRemoteDownloader}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class JdkHttpsRemoteDownloader implements RemoteDownloader {
+    /**
+     * Constante que define {@code REDIRECT_STATUSES}.
+     */
     private static final Set<Integer> REDIRECT_STATUSES = Set.of(301, 302, 303, 307, 308);
+    /**
+     * Constante que define {@code LOGGER}.
+     */
     private static final Logger LOGGER = LoggerFactory.getLogger(JdkHttpsRemoteDownloader.class);
 
+    /**
+     * Estado {@code client} mantenido por {@code JdkHttpsRemoteDownloader}.
+     */
     private final HttpClient client;
+    /**
+     * Estado {@code uriPolicy} mantenido por {@code JdkHttpsRemoteDownloader}.
+     */
     private final PublicHttpsUriPolicy uriPolicy;
+    /**
+     * Estado {@code properties} mantenido por {@code JdkHttpsRemoteDownloader}.
+     */
     private final DownloadProperties properties;
 
+    /**
+     * Inicializa una instancia de {@code JdkHttpsRemoteDownloader}.
+     *
+     * @param client Valor de {@code client} utilizado por la operación.
+     * @param uriPolicy Valor de {@code uriPolicy} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     */
     public JdkHttpsRemoteDownloader(
             HttpClient client,
             PublicHttpsUriPolicy uriPolicy,
@@ -39,6 +66,19 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         this.properties = properties;
     }
 
+    /**
+     * Implementa {@code download} para {@code JdkHttpsRemoteDownloader}.
+     *
+     * @param item Elemento sobre el que se realiza la operación.
+     * @param filename Valor de {@code filename} utilizado por la operación.
+     * @param target Valor de {@code target} utilizado por la operación.
+     * @param totalBudget Valor de {@code totalBudget} utilizado por la operación.
+     * @param requestedMaxFileBytes Valor de {@code requestedMaxFileBytes} utilizado por la
+     *     operación.
+     * @return Resultado producido por {@code download}.
+     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Override
     public DownloadedArtifact download(
             ResolvedDownloadItem item,
@@ -76,6 +116,14 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         throw new DownloadRejectedException("too_many_redirects");
     }
 
+    /**
+     * Envía el contenido solicitado mediante {@code send}.
+     *
+     * @param uri Valor de {@code uri} utilizado por la operación.
+     * @return Resultado producido por {@code send}.
+     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private HttpResponse<InputStream> send(URI uri) {
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(properties.requestTimeout())
@@ -94,6 +142,12 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         }
     }
 
+    /**
+     * Verifica los datos recibidos mediante {@code verifyDeclaredSize}.
+     *
+     * @param response Respuesta que debe procesarse.
+     * @param maxFileBytes Valor de {@code maxFileBytes} utilizado por la operación.
+     */
     private void verifyDeclaredSize(
             HttpResponse<InputStream> response,
             long maxFileBytes) {
@@ -105,6 +159,13 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         });
     }
 
+    /**
+     * Verifica los datos recibidos mediante {@code verifyResponseMetadata}.
+     *
+     * @param response Respuesta que debe procesarse.
+     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private void verifyResponseMetadata(HttpResponse<InputStream> response) {
         String contentEncoding = response.headers().firstValue("content-encoding").orElse("identity");
         if (!contentEncoding.equalsIgnoreCase("identity")) {
@@ -120,6 +181,19 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code streamToDisk}.
+     *
+     * @param item Elemento sobre el que se realiza la operación.
+     * @param filename Valor de {@code filename} utilizado por la operación.
+     * @param target Valor de {@code target} utilizado por la operación.
+     * @param input Valor de {@code input} utilizado por la operación.
+     * @param totalBudget Valor de {@code totalBudget} utilizado por la operación.
+     * @param maxFileBytes Valor de {@code maxFileBytes} utilizado por la operación.
+     * @return Resultado producido por {@code streamToDisk}.
+     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private DownloadedArtifact streamToDisk(
             ResolvedDownloadItem item,
             String filename,
@@ -172,6 +246,12 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code sha256Digest}.
+     *
+     * @return Resultado producido por {@code sha256Digest}.
+     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     */
     private MessageDigest sha256Digest() {
         try {
             return MessageDigest.getInstance("SHA-256");
@@ -180,6 +260,11 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code closeQuietly}.
+     *
+     * @param input Valor de {@code input} utilizado por la operación.
+     */
     private void closeQuietly(InputStream input) {
         try {
             input.close();
@@ -188,6 +273,11 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
         }
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteQuietly}.
+     *
+     * @param path Ruta del recurso que debe procesarse.
+     */
     private void deleteQuietly(Path path) {
         try {
             Files.deleteIfExists(path);

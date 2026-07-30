@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_runs_repository`.
+"""
 from datetime import timedelta
 
 import pytest
@@ -14,6 +16,11 @@ from app.repositories.runs import RUN_LOCK_STALE_MINUTES, ScrapeRunRepository
 
 @pytest_asyncio.fixture
 async def session_factory():
+    """Ejecuta la operación `session_factory`.
+
+    Yields:
+        Any: Elemento producido por la operación.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -24,6 +31,11 @@ async def session_factory():
 
 @pytest.mark.asyncio
 async def test_only_one_fresh_run_can_hold_the_active_lock(session_factory) -> None:
+    """Comprueba el escenario `only_one_fresh_run_can_hold_the_active_lock`.
+
+    Args:
+        session_factory (Any): Valor de `session_factory` utilizado por la operación.
+    """
     async with session_factory() as first_session:
         first = await ScrapeRunRepository(first_session, Settings()).acquire()
         assert first is not None
@@ -45,6 +57,11 @@ async def test_only_one_fresh_run_can_hold_the_active_lock(session_factory) -> N
 
 @pytest.mark.asyncio
 async def test_acquire_recovers_an_expired_coordinator_lease(session_factory) -> None:
+    """Comprueba el escenario `acquire_recovers_an_expired_coordinator_lease`.
+
+    Args:
+        session_factory (Any): Valor de `session_factory` utilizado por la operación.
+    """
     stale_heartbeat = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES + 1)
     stale = ScrapeRun(
         active_lock=1,

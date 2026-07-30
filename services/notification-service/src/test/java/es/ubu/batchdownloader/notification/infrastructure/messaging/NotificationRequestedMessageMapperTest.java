@@ -11,14 +11,34 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code NotificationRequestedMessageMapperTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class NotificationRequestedMessageMapperTest {
 
+    /**
+     * Constante que define {@code ROUTING_KEY}.
+     */
     private static final String ROUTING_KEY = "notification.email.requested";
+    /**
+     * Constante que define {@code EVENT_ID}.
+     */
     private static final UUID EVENT_ID = UUID.fromString("83e7ddfe-0fb4-4f19-9694-137ada2bb39c");
+    /**
+     * Constante que define {@code OCCURRED_AT}.
+     */
     private static final Instant OCCURRED_AT = Instant.parse("2026-07-11T10:00:00Z");
 
+    /**
+     * Dato compartido {@code mapper} para los escenarios de prueba.
+     */
     private NotificationRequestedMessageMapper mapper;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         RabbitTopologyProperties topology = new RabbitTopologyProperties(
@@ -31,6 +51,9 @@ class NotificationRequestedMessageMapperTest {
         mapper = new NotificationRequestedMessageMapper(topology);
     }
 
+    /**
+     * Comprueba el escenario {@code mapsTheCanonicalDownloadReadyRequest}.
+     */
     @Test
     void mapsTheCanonicalDownloadReadyRequest() {
         NotificationRequestedMessage message = message(
@@ -47,6 +70,9 @@ class NotificationRequestedMessageMapperTest {
         assertThat(result.parameters()).doesNotContainKey("downloadUrl");
     }
 
+    /**
+     * Comprueba el escenario {@code supportsTheIdentityTemplatesPublishedByCoreApi}.
+     */
     @Test
     void supportsTheIdentityTemplatesPublishedByCoreApi() {
         NotificationRequestedMessage message = message(
@@ -59,6 +85,9 @@ class NotificationRequestedMessageMapperTest {
         assertThat(result.requiredParameter("username")).isEqualTo("Ada");
     }
 
+    /**
+     * Comprueba el escenario {@code acceptsErrorCodeAsTheFailureCodeFallback}.
+     */
     @Test
     void acceptsErrorCodeAsTheFailureCodeFallback() {
         NotificationRequestedMessage message = message(
@@ -74,6 +103,9 @@ class NotificationRequestedMessageMapperTest {
         assertThat(result.parameters()).containsEntry("errorCode", "REMOTE_DOWNLOAD_FAILED");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsUnsupportedSchemaVersions}.
+     */
     @Test
     void rejectsUnsupportedSchemaVersions() {
         NotificationRequestedMessage original = message(
@@ -93,6 +125,9 @@ class NotificationRequestedMessageMapperTest {
                 .hasMessageContaining("Versión");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsARoutingKeyThatDoesNotMatchTheContract}.
+     */
     @Test
     void rejectsARoutingKeyThatDoesNotMatchTheContract() {
         NotificationRequestedMessage message = message(
@@ -104,6 +139,9 @@ class NotificationRequestedMessageMapperTest {
                 .hasMessageContaining("Routing key");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsNonScalarParameters}.
+     */
     @Test
     void rejectsNonScalarParameters() {
         NotificationRequestedMessage message = message(
@@ -115,6 +153,13 @@ class NotificationRequestedMessageMapperTest {
                 .hasMessageContaining("string, number o boolean");
     }
 
+    /**
+     * Ejecuta la operación {@code message}.
+     *
+     * @param template Valor de {@code template} utilizado por la operación.
+     * @param parameters Valor de {@code parameters} utilizado por la operación.
+     * @return Resultado producido por {@code message}.
+     */
     private NotificationRequestedMessage message(String template, Map<String, Object> parameters) {
         return new NotificationRequestedMessage(
                 EVENT_ID,

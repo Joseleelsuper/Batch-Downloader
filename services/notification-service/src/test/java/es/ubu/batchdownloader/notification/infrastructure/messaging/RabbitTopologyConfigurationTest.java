@@ -10,11 +10,25 @@ import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
 
+/**
+ * Agrupa los escenarios de prueba de {@code RabbitTopologyConfigurationTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class RabbitTopologyConfigurationTest {
 
+    /**
+     * Dato compartido {@code configuration} para los escenarios de prueba.
+     */
     private RabbitTopologyConfiguration configuration;
+    /**
+     * Dato compartido {@code properties} para los escenarios de prueba.
+     */
     private RabbitTopologyProperties properties;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         configuration = new RabbitTopologyConfiguration();
@@ -27,6 +41,9 @@ class RabbitTopologyConfigurationTest {
                 "notification.email-requests.dlq.v1");
     }
 
+    /**
+     * Comprueba el escenario {@code configuresRetryExhaustionToReachTheDeadLetterQueue}.
+     */
     @Test
     void configuresRetryExhaustionToReachTheDeadLetterQueue() {
         Queue queue = configuration.notificationQueue(properties);
@@ -39,6 +56,9 @@ class RabbitTopologyConfigurationTest {
                         "batch.commands.v1.notification.email.requested.dead");
     }
 
+    /**
+     * Comprueba el escenario {@code bindsTheCanonicalCommandAndTheDeadLetterQueue}.
+     */
     @Test
     void bindsTheCanonicalCommandAndTheDeadLetterQueue() {
         Queue queue = configuration.notificationQueue(properties);

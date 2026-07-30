@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `model_download`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +10,8 @@ from huggingface_hub import snapshot_download
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", required=True)
     parser.add_argument("--revision", required=True)

@@ -1,1 +1,2 @@
-"""Core configuration and cross-cutting helpers."""
+"""Inicializa el paquete `core`.
+"""

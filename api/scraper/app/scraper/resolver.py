@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `resolver`.
+"""
 from __future__ import annotations
 
 import uuid
@@ -24,6 +26,8 @@ from app.scraper.winstall import WinstallApp, WinstallClient
 
 
 class InstallerResolver:
+    """Representa el componente `InstallerResolver`.
+    """
     def __init__(
         self,
         settings: Settings,
@@ -32,12 +36,34 @@ class InstallerResolver:
         validator: DownloadValidator,
         strategies: ResolverStrategyRegistry | None = None,
     ) -> None:
+        """Inicializa una instancia de `InstallerResolver`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
+            logs (ResolverLogRepository): Valor de `logs` utilizado por la operación.
+            validator (DownloadValidator): Valor de `validator` utilizado por la operación.
+            strategies (ResolverStrategyRegistry | None): Valor de `strategies` utilizado por la
+                operación.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.catalog = catalog
+        """Estado de instancia asociado a `catalog`.
+        """
         self.logs = logs
+        """Estado de instancia asociado a `logs`.
+        """
         self.validator = validator
+        """Estado de instancia asociado a `validator`.
+        """
         self.playwright = PlaywrightCandidateCollector(settings)
+        """Estado de instancia asociado a `playwright`.
+        """
         self.github = GitHubReleaseResolver(settings)
+        """Estado de instancia asociado a `github`.
+        """
         self.strategies = strategies or ResolverStrategyRegistry(
             (
                 CallbackResolverStrategy(
@@ -52,8 +78,19 @@ class InstallerResolver:
                 ),
             )
         )
+        """Estado de instancia asociado a `strategies`.
+        """
 
     async def resolve(self, source: DownloadSource, app: WinstallApp) -> ResolutionStatus:
+        """Ejecuta `resolve` dentro de `InstallerResolver`.
+
+        Args:
+            source (DownloadSource): Fuente de descarga sobre la que se actúa.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            ResolutionStatus: Resultado producido por la operación.
+        """
         official_url = source.initial_url or app.homepage
         await self.catalog.expire_valid_resolved_sources(source.id)
 
@@ -93,6 +130,16 @@ class InstallerResolver:
         official_url: str,
         app: WinstallApp,
     ) -> ResolutionStatus:
+        """Ejecuta el paso interno `_resolve_official_page`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+            official_url (str): Dirección de `official` que debe procesarse.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            ResolutionStatus: Resultado producido por la operación.
+        """
         try:
             html = await self._fetch_html(official_url)
         except Exception as exc:
@@ -160,6 +207,16 @@ class InstallerResolver:
         official_url: str,
         app: WinstallApp,
     ) -> ResolutionStatus:
+        """Ejecuta el paso interno `_resolve_github_releases`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+            official_url (str): Dirección de `official` que debe procesarse.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            ResolutionStatus: Resultado producido por la operación.
+        """
         if not parse_github_repo(official_url):
             return ResolutionStatus.REQUIRES_MANUAL_REVIEW
 
@@ -194,6 +251,15 @@ class InstallerResolver:
         source_id: uuid.UUID,
         app: WinstallApp,
     ) -> ResolutionStatus:
+        """Ejecuta el paso interno `_resolve_winstall_fallback`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            ResolutionStatus: Resultado producido por la operación.
+        """
         fallback_candidates = []
         for version in app.versions:
             for url in version.installers:
@@ -251,6 +317,15 @@ class InstallerResolver:
         source_id: uuid.UUID,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_latest_github_candidates_from_winstall`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         repos = {}
         for candidate in candidates:
             if candidate.source not in {"winstall_api", "winstall_page"}:
@@ -297,6 +372,17 @@ class InstallerResolver:
         status: ResolutionStatus,
         app: WinstallApp,
     ) -> bool:
+        """Ejecuta el paso interno `_validate_candidates`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+            status (ResolutionStatus): Valor de `status` utilizado por la operación.
+            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         scored = await run_cpu_bound(
             score_and_dedupe_candidates,
             candidates,
@@ -361,6 +447,16 @@ class InstallerResolver:
         version: str | None,
         is_primary: bool,
     ) -> None:
+        """Ejecuta el paso interno `_save_valid_candidate`.
+
+        Args:
+            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
+            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+            result (ValidationResult): Resultado que debe procesarse.
+            status (ResolutionStatus): Valor de `status` utilizado por la operación.
+            version (str | None): Valor de `version` utilizado por la operación.
+            is_primary (bool): Valor de `is_primary` utilizado por la operación.
+        """
         await self.catalog.save_resolved_source(
             ResolvedSourceCreate(
                 source_id=source_id,
@@ -395,6 +491,14 @@ class InstallerResolver:
         )
 
     async def _fetch_html(self, url: str) -> str:
+        """Ejecuta el paso interno `_fetch_html`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         async with httpx.AsyncClient(
             timeout=self.settings.request_timeout_seconds,
             follow_redirects=True,
@@ -415,6 +519,18 @@ def score_and_dedupe_candidates(
     publisher: str | None,
     version: str | None,
 ) -> list[InstallerCandidate]:
+    """Ejecuta la operación `score_and_dedupe_candidates`.
+
+    Args:
+        candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+        app_name (str | None): Valor de `app_name` utilizado por la operación.
+        package_id (str | None): Identificador de `package` utilizado por la operación.
+        publisher (str | None): Valor de `publisher` utilizado por la operación.
+        version (str | None): Valor de `version` utilizado por la operación.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     deduped = {candidate.url: candidate for candidate in candidates if candidate.url}
     return sorted(
         (
@@ -437,6 +553,16 @@ def resolved_metadata(
     result: ValidationResult,
     is_primary: bool,
 ) -> dict:
+    """Ejecuta la operación `resolved_metadata`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        result (ValidationResult): Resultado que debe procesarse.
+        is_primary (bool): Valor de `is_primary` utilizado por la operación.
+
+    Returns:
+        dict: Mapa con los datos producidos por la operación.
+    """
     metadata = {
         "candidate_source": candidate.source,
         "candidate_label": candidate.label,

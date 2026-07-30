@@ -16,14 +16,41 @@ import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.retry.MessageRecoverer;
 
+/**
+ * Implementa el componente {@code DownloadJobFailureRecoverer}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public final class DownloadJobFailureRecoverer implements MessageRecoverer {
+    /**
+     * Constante que define {@code LOGGER}.
+     */
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobFailureRecoverer.class);
+    /**
+     * Constante que define {@code FAILURE_CODE}.
+     */
     private static final String FAILURE_CODE = "download_job_processing_failed";
 
+    /**
+     * Dependencia {@code objectMapper} utilizada por {@code DownloadJobFailureRecoverer}.
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * Dependencia {@code eventPublisher} utilizada por {@code DownloadJobFailureRecoverer}.
+     */
     private final EventPublisher eventPublisher;
+    /**
+     * Estado {@code clock} mantenido por {@code DownloadJobFailureRecoverer}.
+     */
     private final Clock clock;
 
+    /**
+     * Inicializa una instancia de {@code DownloadJobFailureRecoverer}.
+     *
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param eventPublisher Valor de {@code eventPublisher} utilizado por la operación.
+     * @param clock Valor de {@code clock} utilizado por la operación.
+     */
     public DownloadJobFailureRecoverer(
             ObjectMapper objectMapper,
             EventPublisher eventPublisher,
@@ -33,6 +60,16 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
         this.clock = clock;
     }
 
+    /**
+     * Recupera los elementos afectados mediante {@code recover}.
+     *
+     * @param message Mensaje que debe procesarse.
+     * @param cause Valor de {@code cause} utilizado por la operación.
+     * @throws AmqpRejectAndDontRequeueException Si no puede completarse la operación bajo las
+     *     condiciones requeridas.
+     * @throws ImmediateRequeueAmqpException Si no puede completarse la operación bajo las
+     *     condiciones requeridas.
+     */
     @Override
     public void recover(Message message, Throwable cause) {
         DownloadJobRequestedEvent requested;
@@ -75,6 +112,12 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
         throw new AmqpRejectAndDontRequeueException(FAILURE_CODE, cause);
     }
 
+    /**
+     * Ejecuta la operación {@code deterministicEventId}.
+     *
+     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @return Resultado producido por {@code deterministicEventId}.
+     */
     private UUID deterministicEventId(UUID jobId) {
         return UUID.nameUUIDFromBytes(
                 (jobId + ":" + EventTypes.JOB_FAILED + ":" + FAILURE_CODE)

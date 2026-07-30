@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `admin_benchmark`.
+"""
 from __future__ import annotations
 
 import csv
@@ -28,6 +30,19 @@ def run_admin_benchmark(
     operation_id: str,
     model_ids: list[str],
 ) -> dict[str, Any]:
+    """Ejecuta la operación `admin_benchmark`.
+
+    Args:
+        operation_id (str): Identificador de `operation` utilizado por la operación.
+        model_ids (list[str]): Colección de identificadores de `model`.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+        InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     settings = get_settings()
     database = Database(settings)
     database.open()
@@ -187,6 +202,16 @@ def run_admin_benchmark(
 
 
 def _progress_message(stage: str, current: int, total: int) -> str:
+    """Ejecuta el paso interno `_progress_message`.
+
+    Args:
+        stage (str): Valor de `stage` utilizado por la operación.
+        current (int): Valor de `current` utilizado por la operación.
+        total (int): Valor de `total` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     if stage == "embedding-documents":
         return "creando los embeddings del catálogo"
     if stage == "embedding-queries":
@@ -195,6 +220,11 @@ def _progress_message(stage: str, current: int, total: int) -> str:
 
 
 def _score(metrics: list[dict[str, Any]]) -> None:
+    """Ejecuta el paso interno `_score`.
+
+    Args:
+        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+    """
     dimensions = (
         ([metric["ndcgAt10"] for metric in metrics], "qualityNormalized", False),
         ([metric["p95Ms"] for metric in metrics], "latencyNormalized", True),
@@ -224,6 +254,11 @@ def _score(metrics: list[dict[str, Any]]) -> None:
 
 
 def _hardware() -> dict[str, Any]:
+    """Ejecuta el paso interno `_hardware`.
+
+    Returns:
+        dict[str, Any]: Mapa con los datos producidos por la operación.
+    """
     return {
         "platform": platform.platform(),
         "processor": platform.processor(),
@@ -242,6 +277,18 @@ def _write_reports(
     dataset_hash: str,
     hardware: dict[str, Any],
 ) -> dict[str, str]:
+    """Ejecuta el paso interno `_write_reports`.
+
+    Args:
+        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+        report_dir (Path): Valor de `report_dir` utilizado por la operación.
+        run_id (str): Identificador de `run` utilizado por la operación.
+        dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
+        hardware (dict[str, Any]): Valor de `hardware` utilizado por la operación.
+
+    Returns:
+        dict[str, str]: Mapa con los datos producidos por la operación.
+    """
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / f"{run_id}.json"
     csv_path = report_dir / f"{run_id}.csv"

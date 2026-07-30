@@ -27,9 +27,23 @@ import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
+/**
+ * Define la configuración utilizada por {@code SecurityConfig}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+    /**
+     * Ejecuta la operación {@code securityFilterChain}.
+     *
+     * @param http Valor de {@code http} utilizado por la operación.
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param requireHttps Valor de {@code requireHttps} utilizado por la operación.
+     * @return Resultado producido por {@code securityFilterChain}.
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -78,11 +92,23 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Ejecuta la operación {@code passwordEncoder}.
+     *
+     * @param strength Valor de {@code strength} utilizado por la operación.
+     * @return Resultado producido por {@code passwordEncoder}.
+     */
     @Bean
     PasswordEncoder passwordEncoder(@Value("${app.auth.bcrypt-strength}") int strength) {
         return new BCryptPasswordEncoder(strength);
     }
 
+    /**
+     * Ejecuta la operación {@code userDetailsService}.
+     *
+     * @param users Valor de {@code users} utilizado por la operación.
+     * @return Resultado producido por {@code userDetailsService}.
+     */
     @Bean
     UserDetailsService userDetailsService(UserAccountStore users) {
         return username -> users.findByNormalizedUsername(username.strip().toLowerCase(java.util.Locale.ROOT))
@@ -94,6 +120,13 @@ public class SecurityConfig {
                 .orElseThrow(() -> new UsernameNotFoundException("user_not_found"));
     }
 
+    /**
+     * Ejecuta la operación {@code authenticationManager}.
+     *
+     * @param users Valor de {@code users} utilizado por la operación.
+     * @param passwordEncoder Valor de {@code passwordEncoder} utilizado por la operación.
+     * @return Resultado producido por {@code authenticationManager}.
+     */
     @Bean
     AuthenticationManager authenticationManager(UserDetailsService users, PasswordEncoder passwordEncoder) {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(users);
@@ -101,6 +134,11 @@ public class SecurityConfig {
         return new ProviderManager(provider);
     }
 
+    /**
+     * Ejecuta la operación {@code securityContextRepository}.
+     *
+     * @return Resultado producido por {@code securityContextRepository}.
+     */
     @Bean
     SecurityContextRepository securityContextRepository() {
         return new HttpSessionSecurityContextRepository();

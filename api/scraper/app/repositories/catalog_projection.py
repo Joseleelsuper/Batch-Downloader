@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `catalog_projection`.
+"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -8,21 +10,52 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @dataclass(frozen=True)
 class CatalogProjectionReport:
+    """Representa el componente `CatalogProjectionReport`.
+    """
     source_mismatches: int
+    """Atributo de clase `source_mismatches` de `CatalogProjectionReport`.
+    """
     app_mismatches: int
+    """Atributo de clase `app_mismatches` de `CatalogProjectionReport`.
+    """
     counter_row_present: bool
+    """Atributo de clase `counter_row_present` de `CatalogProjectionReport`.
+    """
     stored_total: int | None
+    """Atributo de clase `stored_total` de `CatalogProjectionReport`.
+    """
     stored_available: int | None
+    """Atributo de clase `stored_available` de `CatalogProjectionReport`.
+    """
     stored_review: int | None
+    """Atributo de clase `stored_review` de `CatalogProjectionReport`.
+    """
     stored_missing: int | None
+    """Atributo de clase `stored_missing` de `CatalogProjectionReport`.
+    """
     stored_version: int | None
+    """Atributo de clase `stored_version` de `CatalogProjectionReport`.
+    """
     expected_total: int
+    """Atributo de clase `expected_total` de `CatalogProjectionReport`.
+    """
     expected_available: int
+    """Atributo de clase `expected_available` de `CatalogProjectionReport`.
+    """
     expected_review: int
+    """Atributo de clase `expected_review` de `CatalogProjectionReport`.
+    """
     expected_missing: int
+    """Atributo de clase `expected_missing` de `CatalogProjectionReport`.
+    """
 
     @property
     def consistent(self) -> bool:
+        """Ejecuta `consistent` dentro de `CatalogProjectionReport`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         stored_partition = (
             self.stored_total is not None
             and self.stored_available is not None
@@ -43,20 +76,34 @@ class CatalogProjectionReport:
         )
 
     def log_fields(self) -> dict[str, int | bool | None]:
+        """Ejecuta `log_fields` dentro de `CatalogProjectionReport`.
+
+        Returns:
+            dict[str, int | bool | None]: Mapa con los datos producidos por la operación.
+        """
         return {**asdict(self), "consistent": self.consistent}
 
 
 class CatalogProjectionRepository:
-    """Offline audit/repair operations for the trigger-maintained read model.
-
-    These queries are intentionally never called from an HTTP request. The
-    normal path is constant-time incremental maintenance by MySQL triggers.
+    """Gestiona la persistencia y consulta de `CatalogProjection`.
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """Inicializa una instancia de `CatalogProjectionRepository`.
+
+        Args:
+            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        """
         self.session = session
+        """Estado de instancia asociado a `session`.
+        """
 
     async def check(self) -> CatalogProjectionReport:
+        """Ejecuta `check` dentro de `CatalogProjectionRepository`.
+
+        Returns:
+            CatalogProjectionReport: Resultado producido por la operación.
+        """
         source_mismatches = int(
             await self.session.scalar(
                 text(
@@ -147,9 +194,17 @@ class CatalogProjectionRepository:
         )
 
     async def repair(self, lock_timeout_seconds: int = 30) -> CatalogProjectionReport:
-        # Keep the argument for CLI compatibility. InnoDB's transaction timeout
-        # governs this row lock; unlike a named advisory lock it cannot leak
-        # into the connection pool.
+        # Conserva el argumento por compatibilidad con la CLI. El timeout de transacción
+        # de InnoDB gobierna este bloqueo de fila y, a diferencia de un bloqueo consultivo
+        # con nombre, no puede filtrarse al pool de conexiones.
+        """Ejecuta `repair` dentro de `CatalogProjectionRepository`.
+
+        Args:
+            lock_timeout_seconds (int): Valor de `lock_timeout_seconds` utilizado por la operación.
+
+        Returns:
+            CatalogProjectionReport: Resultado producido por la operación.
+        """
         del lock_timeout_seconds
         try:
             await self.session.execute(
@@ -170,9 +225,9 @@ class CatalogProjectionRepository:
             await self.session.execute(
                 text("SELECT id FROM catalog_counters WHERE id = 1 FOR UPDATE")
             )
-            # Start from the currently materialised app statuses. Subsequent app
-            # transitions can then apply signed deltas without ever underflowing,
-            # even when the singleton itself was the damaged part of a restore.
+        # Parte de los estados de aplicación materializados. Las transiciones posteriores
+        # pueden aplicar deltas con signo sin producir valores negativos, incluso cuando
+        # el propio singleton fue la parte dañada durante una restauración.
             await self.session.execute(
                 text(
                     """

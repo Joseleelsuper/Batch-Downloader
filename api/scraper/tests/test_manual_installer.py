@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_manual_installer`.
+"""
 from __future__ import annotations
 
 import pytest
@@ -20,6 +22,8 @@ from app.scraper.validator import ValidationConfidence, ValidationResult
 
 
 def test_page_evidence_prefers_allowlisted_software_application_json_ld() -> None:
+    """Comprueba el escenario `page_evidence_prefers_allowlisted_software_application_json_ld`.
+    """
     html = b"""
     <html>
       <head>
@@ -60,6 +64,8 @@ def test_page_evidence_prefers_allowlisted_software_application_json_ld() -> Non
 
 
 def test_page_evidence_rejects_cross_site_or_secret_canonical_urls() -> None:
+    """Comprueba el escenario `page_evidence_rejects_cross_site_or_secret_canonical_urls`.
+    """
     cross_site = parse_page_evidence(
         b'<link rel="canonical" href="https://private.example.net/app">',
         "https://example.com/download",
@@ -74,6 +80,8 @@ def test_page_evidence_rejects_cross_site_or_secret_canonical_urls() -> None:
 
 
 def test_page_evidence_records_open_graph_name_provenance() -> None:
+    """Comprueba el escenario `page_evidence_records_open_graph_name_provenance`.
+    """
     evidence = parse_page_evidence(
         b'<meta property="og:title" content="Metadata Product">',
         "https://example.com/download",
@@ -84,6 +92,7 @@ def test_page_evidence_records_open_graph_name_provenance() -> None:
 
 
 def test_page_evidence_uses_title_site_name_and_linked_icon_as_safe_fallbacks() -> None:
+    """Comprueba los valores alternativos seguros para el título, el sitio y el icono."""
     evidence = parse_page_evidence(
         b"""
         <html>
@@ -115,16 +124,25 @@ def test_page_evidence_uses_title_site_name_and_linked_icon_as_safe_fallbacks() 
     ],
 )
 def test_sensitive_query_detects_provider_specific_secret_keys(url: str) -> None:
+    """Comprueba el escenario `sensitive_query_detects_provider_specific_secret_keys`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+    """
     assert has_sensitive_query(url)
 
 
 def test_suggested_version_only_advances_a_deterministic_version() -> None:
+    """Comprueba el escenario `suggested_version_only_advances_a_deterministic_version`.
+    """
     assert suggested_version("2.4.0", "2.3.9", "2.5.0") == ("2.5.0", "filename")
     assert suggested_version("2.4.0", "release-next", "2.3.0") == ("2.4.0", "current")
     assert suggested_version(None, "v1.8.2", None) == ("v1.8.2", "json_ld")
 
 
 def test_description_provenance_distinguishes_generated_and_manual_content() -> None:
+    """Comprueba el escenario `description_provenance_distinguishes_generated_and_manual_content`.
+    """
     ai_state = {"provider": "groq", "model": "model-test"}
 
     assert description_provenance(
@@ -140,6 +158,8 @@ def test_description_provenance_distinguishes_generated_and_manual_content() -> 
 
 
 def test_reviewed_field_sources_marks_only_changed_values_as_manual() -> None:
+    """Comprueba el escenario `reviewed_field_sources_marks_only_changed_values_as_manual`.
+    """
     assert reviewed_field_sources(
         {
             "name": {"value": "Example", "source": "json_ld"},
@@ -162,9 +182,20 @@ def test_reviewed_field_sources_marks_only_changed_values_as_manual() -> None:
 async def test_manual_installer_rejects_a_deterministic_platform_mismatch(
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `manual_installer_rejects_a_deterministic_platform_mismatch`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     inspector = ManualInstallerInspector(Settings(_env_file=None))
 
     async def validate(*_args, **_kwargs):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            *_args (Any): Valor de `_args` utilizado por la operación.
+            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+        """
         return ValidationResult(
             ok=True,
             url="https://example.com/App.exe",
@@ -192,9 +223,20 @@ async def test_manual_installer_rejects_a_deterministic_platform_mismatch(
 async def test_manual_installer_assigns_an_explicit_slot_to_a_neutral_archive(
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `manual_installer_assigns_an_explicit_slot_to_a_neutral_archive`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     inspector = ManualInstallerInspector(Settings(_env_file=None))
 
     async def validate(*_args, **_kwargs):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            *_args (Any): Valor de `_args` utilizado por la operación.
+            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+        """
         return ValidationResult(
             ok=True,
             url="https://example.com/App.zip",
@@ -226,6 +268,12 @@ async def test_manual_installer_assigns_an_explicit_slot_to_a_neutral_archive(
     ],
 )
 def test_public_url_syntax_rejects_unsafe_inputs(url: str, code: str) -> None:
+    """Comprueba el escenario `public_url_syntax_rejects_unsafe_inputs`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+        code (str): Valor de `code` utilizado por la operación.
+    """
     with pytest.raises(SafeHttpError) as error:
         validate_public_https_syntax(url)
 

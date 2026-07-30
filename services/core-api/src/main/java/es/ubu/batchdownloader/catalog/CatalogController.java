@@ -17,27 +17,70 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Versioned public read API. ZIP creation is intentionally handled by download
- * jobs.
+ * Expone las operaciones HTTP gestionadas por {@code CatalogController}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
  */
 @RestController
 @RequestMapping("/api/v1")
 public class CatalogController {
+    /**
+     * Constante que define {@code OPERATING_SYSTEMS}.
+     */
     private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
+    /**
+     * Constante que define {@code PUBLIC_CATALOG_STATUSES}.
+     */
     private static final Set<String> PUBLIC_CATALOG_STATUSES = Set.of("all", "available", "review", "missing");
+    /**
+     * Estado {@code catalog} mantenido por {@code CatalogController}.
+     */
     private final CatalogRepository catalog;
+    /**
+     * Estado {@code semanticSearch} mantenido por {@code CatalogController}.
+     */
     private final SemanticSearchClient semanticSearch;
 
+    /**
+     * Inicializa una instancia de {@code CatalogController}.
+     *
+     * @param catalog Acceso al catálogo utilizado por la operación.
+     * @param semanticSearch Valor de {@code semanticSearch} utilizado por la operación.
+     */
     @Autowired
     public CatalogController(CatalogRepository catalog, SemanticSearchClient semanticSearch) {
         this.catalog = catalog;
         this.semanticSearch = semanticSearch;
     }
 
+    /**
+     * Inicializa una instancia de {@code CatalogController}.
+     *
+     * @param catalog Acceso al catálogo utilizado por la operación.
+     */
     CatalogController(CatalogRepository catalog) {
         this(catalog, SemanticSearchClient.disabled());
     }
 
+    /**
+     * Ejecuta la operación {@code apps}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tag Valor de {@code tag} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @param searchMode Valor de {@code searchMode} utilizado por la operación.
+     * @return Resultado producido por {@code apps}.
+     */
     @GetMapping("/apps")
     public AppSearchResponse apps(
             @RequestParam(required = false) String query,
@@ -95,6 +138,23 @@ public class CatalogController {
                 candidates.degradedReason());
     }
 
+    /**
+     * Ejecuta la operación {@code apps}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tag Valor de {@code tag} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @return Resultado producido por {@code apps}.
+     */
     AppSearchResponse apps(
             String query,
             String status,
@@ -140,11 +200,31 @@ public class CatalogController {
                         tagMode));
     }
 
+    /**
+     * Ejecuta la operación {@code stats}.
+     *
+     * @return Resultado producido por {@code stats}.
+     */
     @GetMapping("/apps/stats")
     public CatalogStatsResponse stats() {
         return catalog.stats();
     }
 
+    /**
+     * Ejecuta la operación {@code facets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tag Valor de {@code tag} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @param searchMode Valor de {@code searchMode} utilizado por la operación.
+     * @return Resultado producido por {@code facets}.
+     */
     @GetMapping("/apps/facets")
     public CatalogFacetsResponse facets(
             @RequestParam(required = false) String query,
@@ -181,6 +261,20 @@ public class CatalogController {
                 candidates.degradedReason());
     }
 
+    /**
+     * Ejecuta la operación {@code facets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tag Valor de {@code tag} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param tagMatchMin Valor de {@code tagMatchMin} utilizado por la operación.
+     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
+     * @return Resultado producido por {@code facets}.
+     */
     CatalogFacetsResponse facets(
             String query,
             String status,
@@ -203,11 +297,25 @@ public class CatalogController {
                 tagMode);
     }
 
+    /**
+     * Ejecuta la operación {@code details}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Resultado producido por {@code details}.
+     */
     @GetMapping("/apps/{appId}")
     public AppDetails details(@PathVariable String appId) {
         return catalog.details(appId);
     }
 
+    /**
+     * Ejecuta la operación {@code publicCatalogStatus}.
+     *
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @return Resultado producido por {@code publicCatalogStatus}.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private static String publicCatalogStatus(String status) {
         String normalized = status == null || status.isBlank()
                 ? "all"
@@ -220,6 +328,14 @@ public class CatalogController {
         return normalized;
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizedOperatingSystems}.
+     *
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private List<String> normalizedOperatingSystems(List<String> operatingSystems) {
         if (operatingSystems == null || operatingSystems.isEmpty()) {
             return List.of();
@@ -232,11 +348,18 @@ public class CatalogController {
         if (values.isEmpty() || !OPERATING_SYSTEMS.containsAll(values)) {
             throw new BadRequestException("invalid_operating_system", "El sistema operativo indicado no es válido.");
         }
-        // All platforms is equivalent to an omitted filter and keeps the legacy
-        // "Todas" and "Sin instalador" states meaningful.
+        // Seleccionar todas las plataformas equivale a omitir el filtro y conserva
+        // el significado de los estados heredados "Todas" y "Sin instalador".
         return values.size() == OPERATING_SYSTEMS.size() ? List.of() : values;
     }
 
+    /**
+     * Analiza el contenido recibido mediante {@code parseRepeatedAndCsv}.
+     *
+     * @param repeated Valor de {@code repeated} utilizado por la operación.
+     * @param csv Valor de {@code csv} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<String> parseRepeatedAndCsv(List<String> repeated, String csv) {
         List<String> values = new ArrayList<>(parseRepeated(repeated));
         if (csv != null && !csv.isBlank()) {
@@ -249,6 +372,12 @@ public class CatalogController {
         return values.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
     }
 
+    /**
+     * Analiza el contenido recibido mediante {@code parseRepeated}.
+     *
+     * @param repeated Valor de {@code repeated} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<String> parseRepeated(List<String> repeated) {
         if (repeated == null || repeated.isEmpty()) {
             return List.of();

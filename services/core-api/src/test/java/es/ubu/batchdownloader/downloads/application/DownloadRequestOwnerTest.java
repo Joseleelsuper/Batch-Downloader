@@ -11,7 +11,15 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadRequestOwnerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class DownloadRequestOwnerTest {
+    /**
+     * Comprueba el escenario {@code hashesBrowserAndNetworkValuesWithoutPersistingTheirRawForm}.
+     */
     @Test
     void hashesBrowserAndNetworkValuesWithoutPersistingTheirRawForm() {
         DownloadRequestOwner resolver = new DownloadRequestOwner(
@@ -25,6 +33,9 @@ class DownloadRequestOwnerTest {
         assertThat(owner.canAccess(null, owner.anonymousOwnerHash())).isTrue();
     }
 
+    /**
+     * Comprueba el escenario {@code signedInOwnerKeepsBrowserAccessToJobsCreatedBeforeLogin}.
+     */
     @Test
     void signedInOwnerKeepsBrowserAccessToJobsCreatedBeforeLogin() {
         UserAccountStore users = Mockito.mock(UserAccountStore.class);

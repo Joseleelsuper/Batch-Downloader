@@ -12,8 +12,16 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 
+/**
+ * Agrupa los escenarios de prueba de {@code JpaCatalogSourceLookupTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class JpaCatalogSourceLookupTest {
 
+    /**
+     * Comprueba el escenario {@code selectsStaleValidSourcesAndOrdersPlatformsCanonically}.
+     */
     @Test
     void selectsStaleValidSourcesAndOrdersPlatformsCanonically() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);

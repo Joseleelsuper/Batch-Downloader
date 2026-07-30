@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_store_postgres`.
+"""
 from __future__ import annotations
 
 import os
@@ -14,11 +16,20 @@ from app.model_registry import MODELS_BY_KEY
 from app.store import SemanticStore
 
 testcontainers_postgres = pytest.importorskip("testcontainers.postgres")
+"""Estado global asociado a `testcontainers_postgres`.
+"""
 PostgresContainer = testcontainers_postgres.PostgresContainer
+"""Estado global asociado a `PostgresContainer`.
+"""
 
 
 @pytest.fixture(scope="module")
 def postgres_dsn() -> Iterator[str]:
+    """Ejecuta la operación `postgres_dsn`.
+
+    Yields:
+        Iterator[str]: Elemento producido por la operación.
+    """
     configured_dsn = os.environ.get("SEMANTIC_TEST_POSTGRES_DSN")
     if configured_dsn:
         yield configured_dsn
@@ -31,7 +42,7 @@ def postgres_dsn() -> Iterator[str]:
             dbname="semantic",
         )
         container.start()
-    except Exception as exception:  # pragma: no cover - host runtime dependent
+    except Exception as exception:  # pragma: no cover - depende del runtime del host
         if os.environ.get("CI"):
             pytest.fail(
                 "Docker-backed pgvector is required in CI: "
@@ -52,6 +63,11 @@ def postgres_dsn() -> Iterator[str]:
 def test_migration_sync_dimension_contract_search_and_explicit_activation(
     postgres_dsn: str,
 ) -> None:
+    """Comprueba el escenario `migration_sync_dimension_contract_search_and_explicit_activation`.
+
+    Args:
+        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+    """
     settings = Settings(postgres_dsn_override=postgres_dsn)
     database = Database(settings)
     database.open()
@@ -166,6 +182,11 @@ def test_migration_sync_dimension_contract_search_and_explicit_activation(
 def test_hnsw_benchmark_compares_approximate_and_exact_search(
     postgres_dsn: str,
 ) -> None:
+    """Comprueba el escenario `hnsw_benchmark_compares_approximate_and_exact_search`.
+
+    Args:
+        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+    """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     try:
@@ -194,6 +215,11 @@ def test_hnsw_benchmark_compares_approximate_and_exact_search(
 def test_training_variants_can_share_one_dataset_snapshot(
     postgres_dsn: str,
 ) -> None:
+    """Comprueba el escenario `training_variants_can_share_one_dataset_snapshot`.
+
+    Args:
+        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+    """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     try:
@@ -231,6 +257,11 @@ def test_training_variants_can_share_one_dataset_snapshot(
 def test_admin_migration_reconciles_models_and_recovers_operation_leases(
     postgres_dsn: str,
 ) -> None:
+    """Comprueba el escenario `admin_migration_reconciles_models_and_recovers_operation_leases`.
+
+    Args:
+        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+    """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     try:
@@ -444,6 +475,11 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
 def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
     postgres_dsn: str,
 ) -> None:
+    """Comprueba el escenario `admin_activation_and_rollback_are_atomic_and_benchmark_gated`.
+
+    Args:
+        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+    """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     try:
@@ -522,6 +558,14 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
         )
 
         def configuration(model: dict[str, object]) -> dict[str, object]:
+            """Ejecuta la operación `configuration`.
+
+            Args:
+                model (dict[str, object]): Modelo utilizado por la operación.
+
+            Returns:
+                dict[str, object]: Mapa con los datos producidos por la operación.
+            """
             artifact = admin.artifact(str(model["id"]))
             return {
                 "repository": artifact["hf_repository"],

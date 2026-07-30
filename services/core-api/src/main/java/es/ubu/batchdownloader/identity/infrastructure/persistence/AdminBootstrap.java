@@ -10,14 +10,43 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Implementa el componente {@code AdminBootstrap}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Component
 class AdminBootstrap implements ApplicationRunner {
+    /**
+     * Estado {@code users} mantenido por {@code AdminBootstrap}.
+     */
     private final UserAccountStore users;
+    /**
+     * Estado {@code clock} mantenido por {@code AdminBootstrap}.
+     */
     private final Clock clock;
+    /**
+     * Estado {@code username} mantenido por {@code AdminBootstrap}.
+     */
     private final String username;
+    /**
+     * Estado {@code email} mantenido por {@code AdminBootstrap}.
+     */
     private final String email;
+    /**
+     * Estado {@code passwordHash} mantenido por {@code AdminBootstrap}.
+     */
     private final String passwordHash;
 
+    /**
+     * Inicializa una instancia de {@code AdminBootstrap}.
+     *
+     * @param users Valor de {@code users} utilizado por la operación.
+     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @param email Dirección de correo electrónico asociada a la operación.
+     * @param passwordHash Valor de {@code passwordHash} utilizado por la operación.
+     */
     AdminBootstrap(
             UserAccountStore users,
             Clock clock,
@@ -31,6 +60,11 @@ class AdminBootstrap implements ApplicationRunner {
         this.passwordHash = passwordHash;
     }
 
+    /**
+     * Implementa {@code run} para {@code AdminBootstrap}.
+     *
+     * @param arguments Valor de {@code arguments} utilizado por la operación.
+     */
     @Override
     @Transactional
     public void run(ApplicationArguments arguments) {

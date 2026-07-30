@@ -31,6 +31,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+/**
+ * Define la configuración utilizada por {@code WorkerConfiguration}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Configuration
 @EnableConfigurationProperties({
     DownloadProperties.class,
@@ -40,11 +45,22 @@ import org.springframework.jdbc.core.JdbcTemplate;
     CoreApiProperties.class
 })
 public class WorkerConfiguration {
+    /**
+     * Ejecuta la operación {@code clock}.
+     *
+     * @return Resultado producido por {@code clock}.
+     */
     @Bean
     Clock clock() {
         return Clock.systemUTC();
     }
 
+    /**
+     * Ejecuta la operación {@code downloadHttpClient}.
+     *
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code downloadHttpClient}.
+     */
     @Bean
     HttpClient downloadHttpClient(DownloadProperties properties) {
         return HttpClient.newBuilder()
@@ -53,16 +69,35 @@ public class WorkerConfiguration {
                 .build();
     }
 
+    /**
+     * Ejecuta la operación {@code hostResolver}.
+     *
+     * @return Resultado producido por {@code hostResolver}.
+     */
     @Bean
     HostResolver hostResolver() {
         return new DnsHostResolver();
     }
 
+    /**
+     * Ejecuta la operación {@code publicHttpsUriPolicy}.
+     *
+     * @param hostResolver Valor de {@code hostResolver} utilizado por la operación.
+     * @return Resultado producido por {@code publicHttpsUriPolicy}.
+     */
     @Bean
     PublicHttpsUriPolicy publicHttpsUriPolicy(HostResolver hostResolver) {
         return new PublicHttpsUriPolicy(hostResolver);
     }
 
+    /**
+     * Ejecuta la operación {@code remoteDownloader}.
+     *
+     * @param downloadHttpClient Valor de {@code downloadHttpClient} utilizado por la operación.
+     * @param publicHttpsUriPolicy Valor de {@code publicHttpsUriPolicy} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code remoteDownloader}.
+     */
     @Bean
     RemoteDownloader remoteDownloader(
             @Qualifier("downloadHttpClient") HttpClient downloadHttpClient,
@@ -71,6 +106,12 @@ public class WorkerConfiguration {
         return new JdkHttpsRemoteDownloader(downloadHttpClient, publicHttpsUriPolicy, properties);
     }
 
+    /**
+     * Ejecuta la operación {@code sourceResolverHttpClient}.
+     *
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code sourceResolverHttpClient}.
+     */
     @Bean
     HttpClient sourceResolverHttpClient(DownloadProperties properties) {
         return HttpClient.newBuilder()
@@ -79,6 +120,15 @@ public class WorkerConfiguration {
                 .build();
     }
 
+    /**
+     * Ejecuta la operación {@code sourceReferenceResolver}.
+     *
+     * @param sourceResolverHttpClient Valor de {@code sourceResolverHttpClient} utilizado por la
+     *     operación.
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code sourceReferenceResolver}.
+     */
     @Bean
     SourceReferenceResolver sourceReferenceResolver(
             @Qualifier("sourceResolverHttpClient") HttpClient sourceResolverHttpClient,
@@ -87,6 +137,12 @@ public class WorkerConfiguration {
         return new HttpSourceReferenceResolver(sourceResolverHttpClient, objectMapper, properties);
     }
 
+    /**
+     * Ejecuta la operación {@code coreApiHttpClient}.
+     *
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code coreApiHttpClient}.
+     */
     @Bean
     HttpClient coreApiHttpClient(CoreApiProperties properties) {
         return HttpClient.newBuilder()
@@ -95,6 +151,14 @@ public class WorkerConfiguration {
                 .build();
     }
 
+    /**
+     * Ejecuta la operación {@code jobItemMetadataLookup}.
+     *
+     * @param coreApiHttpClient Valor de {@code coreApiHttpClient} utilizado por la operación.
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code jobItemMetadataLookup}.
+     */
     @Bean
     JobItemMetadataLookup jobItemMetadataLookup(
             @Qualifier("coreApiHttpClient") HttpClient coreApiHttpClient,
@@ -103,6 +167,12 @@ public class WorkerConfiguration {
         return new HttpJobItemMetadataLookup(coreApiHttpClient, objectMapper, properties);
     }
 
+    /**
+     * Ejecuta la operación {@code minioClient}.
+     *
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code minioClient}.
+     */
     @Bean
     MinioClient minioClient(StorageProperties properties) {
         return MinioClient.builder()
@@ -111,26 +181,58 @@ public class WorkerConfiguration {
                 .build();
     }
 
+    /**
+     * Ejecuta la operación {@code artifactStore}.
+     *
+     * @param minioClient Valor de {@code minioClient} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code artifactStore}.
+     */
     @Bean
     ArtifactStore artifactStore(MinioClient minioClient, StorageProperties properties) {
         return new MinioArtifactStore(minioClient, properties);
     }
 
+    /**
+     * Ejecuta la operación {@code archiveBuilder}.
+     *
+     * @return Resultado producido por {@code archiveBuilder}.
+     */
     @Bean
     ArchiveBuilder archiveBuilder() {
         return new ZipArchiveBuilder();
     }
 
+    /**
+     * Ejecuta la operación {@code eventPublisher}.
+     *
+     * @param rabbitTemplate Valor de {@code rabbitTemplate} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code eventPublisher}.
+     */
     @Bean
     EventPublisher eventPublisher(RabbitTemplate rabbitTemplate, MessagingProperties properties) {
         return new RabbitEventPublisher(rabbitTemplate, properties);
     }
 
+    /**
+     * Ejecuta la operación {@code inboxRepository}.
+     *
+     * @param jdbcTemplate Valor de {@code jdbcTemplate} utilizado por la operación.
+     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @return Resultado producido por {@code inboxRepository}.
+     */
     @Bean
     InboxRepository inboxRepository(JdbcTemplate jdbcTemplate, Clock clock) {
         return new JdbcInboxRepository(jdbcTemplate, clock);
     }
 
+    /**
+     * Ejecuta la operación {@code downloadExecutor}.
+     *
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @return Resultado producido por {@code downloadExecutor}.
+     */
     @Bean(destroyMethod = "shutdown")
     ExecutorService downloadExecutor(DownloadProperties properties) {
         AtomicInteger sequence = new AtomicInteger();

@@ -13,7 +13,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
+/**
+ * Agrupa los escenarios de prueba de {@code CatalogChangeNotifierTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class CatalogChangeNotifierTest {
+    /**
+     * Comprueba el escenario {@code
+     * connectingASecondClientCannotConsumeAChangeForExistingClients}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void connectingASecondClientCannotConsumeAChangeForExistingClients() throws Exception {
         CatalogRepository catalog = mock(CatalogRepository.class);

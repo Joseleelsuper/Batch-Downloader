@@ -18,14 +18,28 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
+/**
+ * Agrupa los escenarios de prueba de {@code SmtpNotificationSenderTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @ExtendWith(MockitoExtension.class)
 class SmtpNotificationSenderTest {
 
+    /**
+     * Dato compartido {@code mailSender} para los escenarios de prueba.
+     */
     @Mock
     private JavaMailSender mailSender;
 
+    /**
+     * Dato compartido {@code sender} para los escenarios de prueba.
+     */
     private SmtpNotificationSender sender;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         sender = new SmtpNotificationSender(
@@ -36,6 +50,9 @@ class SmtpNotificationSenderTest {
                         URI.create("https://batch.example.com")));
     }
 
+    /**
+     * Comprueba el escenario {@code rendersTheSpanishDownloadReadyTemplate}.
+     */
     @Test
     void rendersTheSpanishDownloadReadyTemplate() {
         EmailNotification notification = notification(
@@ -54,6 +71,10 @@ class SmtpNotificationSenderTest {
                 .contains("84338aa2-b2f0-47d1-9054-5760ac883d74");
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * rendersTheSpanishDownloadFailureTemplateWithErrorCodeFallback}.
+     */
     @Test
     void rendersTheSpanishDownloadFailureTemplateWithErrorCodeFallback() {
         EmailNotification notification = notification(
@@ -73,6 +94,9 @@ class SmtpNotificationSenderTest {
                 .contains("No se pudo recuperar el instalador");
     }
 
+    /**
+     * Comprueba el escenario {@code rendersTheSpanishEmailVerificationTemplate}.
+     */
     @Test
     void rendersTheSpanishEmailVerificationTemplate() {
         EmailNotification notification = notification(
@@ -88,6 +112,9 @@ class SmtpNotificationSenderTest {
                 .contains("token=a%20token%2Bwith%2Fslashes");
     }
 
+    /**
+     * Comprueba el escenario {@code rendersTheSpanishPasswordResetTemplate}.
+     */
     @Test
     void rendersTheSpanishPasswordResetTemplate() {
         EmailNotification notification = notification(
@@ -102,6 +129,13 @@ class SmtpNotificationSenderTest {
                 .contains("https://batch.example.com/reset-password?token=reset-token");
     }
 
+    /**
+     * Ejecuta la operación {@code notification}.
+     *
+     * @param template Valor de {@code template} utilizado por la operación.
+     * @param parameters Valor de {@code parameters} utilizado por la operación.
+     * @return Resultado producido por {@code notification}.
+     */
     private EmailNotification notification(
             EmailNotification.Template template,
             Map<String, Object> parameters) {
@@ -115,6 +149,12 @@ class SmtpNotificationSenderTest {
                 parameters);
     }
 
+    /**
+     * Envía el contenido solicitado mediante {@code sendAndCapture}.
+     *
+     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @return Resultado producido por {@code sendAndCapture}.
+     */
     private SimpleMailMessage sendAndCapture(EmailNotification notification) {
         sender.send(notification);
         ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);

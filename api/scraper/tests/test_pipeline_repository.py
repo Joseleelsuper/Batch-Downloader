@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_pipeline_repository`.
+"""
 from datetime import timedelta
 from uuid import uuid4
 
@@ -27,6 +29,11 @@ from app.repositories.pipeline import (
 
 @pytest_asyncio.fixture
 async def db_session():
+    """Ejecuta la operación `db_session`.
+
+    Yields:
+        Any: Elemento producido por la operación.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -38,6 +45,11 @@ async def db_session():
 
 @pytest.mark.asyncio
 async def test_recover_stuck_requeues_expired_and_null_leases(db_session) -> None:
+    """Comprueba el escenario `recover_stuck_requeues_expired_and_null_leases`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     now = utc_now()
     db_session.add_all(
         [
@@ -63,6 +75,11 @@ async def test_recover_stuck_requeues_expired_and_null_leases(db_session) -> Non
 
 @pytest.mark.asyncio
 async def test_recover_orphaned_run_items_releases_fresh_leases_after_restart(db_session) -> None:
+    """Comprueba el escenario `recover_orphaned_run_items_releases_fresh_leases_after_restart`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     now = utc_now()
     failed_run = ScrapeRun(id=uuid4(), status="failed", worker_id="previous-scheduler")
     active_run = ScrapeRun(id=uuid4(), status="running", worker_id="current-scheduler")
@@ -85,6 +102,11 @@ async def test_recover_orphaned_run_items_releases_fresh_leases_after_restart(db
 
 @pytest.mark.asyncio
 async def test_retry_failed_and_prune_terminal_do_not_touch_queued(db_session) -> None:
+    """Comprueba el escenario `retry_failed_and_prune_terminal_do_not_touch_queued`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     db_session.add_all(
         [
             work_item("Vendor.Failed", STATUS_FAILED, None),
@@ -111,6 +133,11 @@ async def test_retry_failed_and_prune_terminal_do_not_touch_queued(db_session) -
 
 @pytest.mark.asyncio
 async def test_requeue_releases_lease_and_delays_next_attempt(db_session) -> None:
+    """Comprueba el escenario `requeue_releases_lease_and_delays_next_attempt`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     item = work_item("Vendor.Locked", STATUS_IN_PROGRESS, utc_now() + timedelta(minutes=1))
     item.lease_owner = "worker-1"
     db_session.add(item)
@@ -129,6 +156,11 @@ async def test_requeue_releases_lease_and_delays_next_attempt(db_session) -> Non
 
 @pytest.mark.asyncio
 async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session) -> None:
+    """Comprueba el escenario `completed_catalog_stages_requeue_for_a_new_scrape_run`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     repository = PipelineRepository(db_session)
     previous_run = uuid4()
     next_run = uuid4()
@@ -158,6 +190,11 @@ async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session)
 
 @pytest.mark.asyncio
 async def test_queue_states_expose_so_filter_pipeline_tail(db_session) -> None:
+    """Comprueba el escenario `queue_states_expose_so_filter_pipeline_tail`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     repository = PipelineRepository(db_session)
     await repository.enqueue(
         QUEUE_SCRAPER_SO_FILTER,
@@ -193,6 +230,11 @@ async def test_queue_states_expose_so_filter_pipeline_tail(db_session) -> None:
 
 @pytest.mark.asyncio
 async def test_so_filter_backfill_does_not_mask_a_later_scrape_result(db_session) -> None:
+    """Comprueba el escenario `so_filter_backfill_does_not_mask_a_later_scrape_result`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     repository = PipelineRepository(db_session)
     item = await repository.enqueue(
         QUEUE_SCRAPER_SO_FILTER,
@@ -219,6 +261,11 @@ async def test_so_filter_backfill_does_not_mask_a_later_scrape_result(db_session
 
 @pytest.mark.asyncio
 async def test_active_package_ids_detects_only_live_upstream_work(db_session) -> None:
+    """Comprueba el escenario `active_package_ids_detects_only_live_upstream_work`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     repository = PipelineRepository(db_session)
     active = await repository.enqueue(
         QUEUE_FILTER_SCRAPER,
@@ -253,6 +300,8 @@ async def test_active_package_ids_detects_only_live_upstream_work(db_session) ->
 
 
 def test_snapshot_html_is_bounded_before_sanitizing_large_pages() -> None:
+    """Comprueba el escenario `snapshot_html_is_bounded_before_sanitizing_large_pages`.
+    """
     html = "<html><script>" + ("a" * 100_000) + "</script>" + ("\u00f1" * 100_000) + "</html>"
 
     sanitized = sanitize_snapshot_html(html)
@@ -268,6 +317,11 @@ def test_snapshot_html_is_bounded_before_sanitizing_large_pages() -> None:
 
 @pytest.mark.asyncio
 async def test_snapshot_insert_does_not_prune_or_lock_the_active_run(db_session) -> None:
+    """Comprueba el escenario `snapshot_insert_does_not_prune_or_lock_the_active_run`.
+
+    Args:
+        db_session (Any): Valor de `db_session` utilizado por la operación.
+    """
     expired = ScraperWorkerSnapshot(
         worker_id="previous-worker",
         stage="scraper",
@@ -301,6 +355,13 @@ async def test_snapshot_insert_does_not_prune_or_lock_the_active_run(db_session)
 
 
 def work_item(package_id: str, status: str, lease_expires_at):
+    """Ejecuta la operación `work_item`.
+
+    Args:
+        package_id (str): Identificador de `package` utilizado por la operación.
+        status (str): Valor de `status` utilizado por la operación.
+        lease_expires_at (Any): Instante asociado a `lease_expires`.
+    """
     return ScraperWorkItem(
         queue=QUEUE_SEARCHER_FILTER if package_id != "Vendor.Failed" else QUEUE_FILTER_SCRAPER,
         status=status,

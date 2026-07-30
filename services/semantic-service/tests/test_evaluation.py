@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_evaluation`.
+"""
 import pytest
 
 from app.evaluation import ndcg, reciprocal_rank_fusion
@@ -12,6 +14,8 @@ from app.trainer import (
 
 
 def test_rrf_fuses_both_rankings_deterministically() -> None:
+    """Comprueba el escenario `rrf_fuses_both_rankings_deterministically`.
+    """
     ranked = reciprocal_rank_fusion(
         ["literal", "both"],
         ["semantic", "both"],
@@ -22,10 +26,14 @@ def test_rrf_fuses_both_rankings_deterministically() -> None:
 
 
 def test_ndcg_rewards_relevant_results_near_the_top() -> None:
+    """Comprueba el escenario `ndcg_rewards_relevant_results_near_the_top`.
+    """
     assert ndcg(["a", "b"], {"a"}, 10) > ndcg(["b", "a"], {"a"}, 10)
 
 
 def test_snapshot_splits_by_application_and_keeps_multiple_tag_positives() -> None:
+    """Comprueba el escenario `snapshot_splits_by_application_and_keeps_multiple_tag_positives`.
+    """
     documents = [
         {
             "app_id": "00000000-0000-0000-0000-000000000001",
@@ -68,6 +76,8 @@ def test_snapshot_splits_by_application_and_keeps_multiple_tag_positives() -> No
 
 
 def test_hard_negatives_are_reproducible_and_never_cross_splits_or_positives() -> None:
+    """Comprueba el escenario `hard_negatives_are_reproducible_and_never_cross_splits_or_positives`.
+    """
     documents = [
         {
             "app_id": f"00000000-0000-0000-0000-{index:012d}",
@@ -96,20 +106,52 @@ def test_hard_negatives_are_reproducible_and_never_cross_splits_or_positives() -
 
 
 def test_rrf_weights_reuse_one_embedding_evaluation() -> None:
+    """Comprueba el escenario `rrf_weights_reuse_one_embedding_evaluation`.
+    """
     class FakeRuntime:
+        """Agrupa los escenarios de prueba de `FakeRuntime`.
+        """
         document_calls = 0
+        """Atributo de clase `document_calls` de `FakeRuntime`.
+        """
         query_calls = 0
+        """Atributo de clase `query_calls` de `FakeRuntime`.
+        """
 
         def encode_documents(self, values: list[str]) -> list[list[float]]:
+            """Ejecuta `encode_documents` dentro de `FakeRuntime`.
+
+            Args:
+                values (list[str]): Valor de `values` utilizado por la operación.
+
+            Returns:
+                list[list[float]]: Colección de elementos obtenidos por la operación.
+            """
             self.document_calls += 1
             assert values == ["primera", "segunda"]
             return [[1.0, 0.0], [0.0, 1.0]]
 
         def encode_query(self, _query: str) -> list[float]:
+            """Ejecuta `encode_query` dentro de `FakeRuntime`.
+
+            Args:
+                _query (str): Valor de `_query` utilizado por la operación.
+
+            Returns:
+                list[float]: Colección de elementos obtenidos por la operación.
+            """
             self.query_calls += 1
             return [1.0, 0.0]
 
         def encode_queries(self, queries: list[str]) -> list[list[float]]:
+            """Ejecuta `encode_queries` dentro de `FakeRuntime`.
+
+            Args:
+                queries (list[str]): Valor de `queries` utilizado por la operación.
+
+            Returns:
+                list[list[float]]: Colección de elementos obtenidos por la operación.
+            """
             return [self.encode_query(query) for query in queries]
 
     runtime = FakeRuntime()
@@ -153,16 +195,49 @@ def test_rrf_weights_reuse_one_embedding_evaluation() -> None:
 
 
 def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
+    """Comprueba el escenario `semantic_only_evaluation_skips_literal_ranking`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     class FakeRuntime:
+        """Agrupa los escenarios de prueba de `FakeRuntime`.
+        """
         registered = type("Registered", (), {"dimensions": 2})()
+        """Atributo de clase `registered` de `FakeRuntime`.
+        """
 
         def encode_documents(self, _values: list[str]) -> list[list[float]]:
+            """Ejecuta `encode_documents` dentro de `FakeRuntime`.
+
+            Args:
+                _values (list[str]): Valor de `_values` utilizado por la operación.
+
+            Returns:
+                list[list[float]]: Colección de elementos obtenidos por la operación.
+            """
             return [[1.0, 0.0], [0.0, 1.0]]
 
         def encode_query(self, _query: str) -> list[float]:
+            """Ejecuta `encode_query` dentro de `FakeRuntime`.
+
+            Args:
+                _query (str): Valor de `_query` utilizado por la operación.
+
+            Returns:
+                list[float]: Colección de elementos obtenidos por la operación.
+            """
             return [1.0, 0.0]
 
         def encode_queries(self, queries: list[str]) -> list[list[float]]:
+            """Ejecuta `encode_queries` dentro de `FakeRuntime`.
+
+            Args:
+                queries (list[str]): Valor de `queries` utilizado por la operación.
+
+            Returns:
+                list[list[float]]: Colección de elementos obtenidos por la operación.
+            """
             return [self.encode_query(query) for query in queries]
 
     monkeypatch.setattr(
@@ -209,6 +284,11 @@ def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
 
 
 def test_snapshot_persists_catalog_and_is_immutable(tmp_path) -> None:
+    """Comprueba el escenario `snapshot_persists_catalog_and_is_immutable`.
+
+    Args:
+        tmp_path (Any): Directorio temporal proporcionado por pytest.
+    """
     documents = [
         {
             "app_id": "a",
@@ -248,6 +328,8 @@ def test_snapshot_persists_catalog_and_is_immutable(tmp_path) -> None:
 
 
 def test_training_model_definitions_have_immutable_hugging_face_sources() -> None:
+    """Comprueba el escenario `training_model_definitions_have_immutable_hugging_face_sources`.
+    """
     assert len(MODEL_DEFINITIONS) == 3
     for definition in MODEL_DEFINITIONS:
         assert "/" in definition.repository

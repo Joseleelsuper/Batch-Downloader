@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_catalog_projection`.
+"""
 from pathlib import Path
 
 from app.repositories.catalog_projection import CatalogProjectionReport
@@ -8,9 +10,19 @@ MIGRATION = (
     / "versions"
     / "20260718_0011_catalog_projection.py"
 )
+"""Constante que define `MIGRATION`.
+"""
 
 
 def make_report(**overrides) -> CatalogProjectionReport:
+    """Construye la operación `report`.
+
+    Args:
+        **overrides (Any): Valor de `overrides` utilizado por la operación.
+
+    Returns:
+        CatalogProjectionReport: Resultado producido por la operación.
+    """
     values = {
         "source_mismatches": 0,
         "app_mismatches": 0,
@@ -30,6 +42,8 @@ def make_report(**overrides) -> CatalogProjectionReport:
 
 
 def test_projection_migration_owns_backfill_and_incremental_triggers() -> None:
+    """Comprueba el escenario `projection_migration_owns_backfill_and_incremental_triggers`.
+    """
     migration = MIGRATION.read_text(encoding="utf-8")
 
     assert 'down_revision: str | None = "20260716_0010"' in migration
@@ -58,8 +72,10 @@ def test_projection_migration_owns_backfill_and_incremental_triggers() -> None:
 
 
 def test_projection_does_not_use_freshness_as_catalog_classification() -> None:
+    """Comprueba el escenario `projection_does_not_use_freshness_as_catalog_classification`.
+    """
     migration = MIGRATION.read_text(encoding="utf-8")
-    backfill = migration.split("# Backfill once", maxsplit=1)[1].split(
+    backfill = migration.split("# Realiza una única carga inicial", maxsplit=1)[1].split(
         "_create_software_app_triggers()",
         maxsplit=1,
     )[0]
@@ -70,6 +86,8 @@ def test_projection_does_not_use_freshness_as_catalog_classification() -> None:
 
 
 def test_projection_report_detects_every_kind_of_drift() -> None:
+    """Comprueba el escenario `projection_report_detects_every_kind_of_drift`.
+    """
     assert make_report().consistent is True
     assert make_report(source_mismatches=1).consistent is False
     assert make_report(app_mismatches=1).consistent is False
@@ -79,6 +97,8 @@ def test_projection_report_detects_every_kind_of_drift() -> None:
 
 
 def test_projection_repair_uses_transactional_singleton_lock() -> None:
+    """Comprueba el escenario `projection_repair_uses_transactional_singleton_lock`.
+    """
     repository = (
         Path(__file__).parents[1]
         / "app"

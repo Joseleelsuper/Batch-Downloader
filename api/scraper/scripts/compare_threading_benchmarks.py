@@ -1,3 +1,5 @@
+"""Proporciona la utilidad de línea de comandos `compare_threading_benchmarks`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +9,14 @@ from pathlib import Path
 
 
 def rows_by_key(report: dict) -> dict[tuple[str, int], dict]:
+    """Ejecuta la operación `rows_by_key`.
+
+    Args:
+        report (dict): Valor de `report` utilizado por la operación.
+
+    Returns:
+        dict[tuple[str, int], dict]: Mapa con los datos producidos por la operación.
+    """
     return {
         (row["workload"], int(row["threads"])): row
         for row in report["measurements"]
@@ -14,6 +24,11 @@ def rows_by_key(report: dict) -> dict[tuple[str, int], dict]:
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--standard", type=Path, required=True)
     parser.add_argument("--free-threaded", type=Path, required=True)

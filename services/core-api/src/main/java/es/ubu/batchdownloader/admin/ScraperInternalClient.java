@@ -25,14 +25,37 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** Typed boundary for Core-to-scraper administrative calls. */
+/**
+ * Encapsula la comunicación externa realizada por {@code ScraperInternalClient}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Component
 public class ScraperInternalClient {
+    /**
+     * Dependencia {@code httpClient} utilizada por {@code ScraperInternalClient}.
+     */
     private final HttpClient httpClient;
+    /**
+     * Dependencia {@code objectMapper} utilizada por {@code ScraperInternalClient}.
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * Estado {@code scraperApiUrl} mantenido por {@code ScraperInternalClient}.
+     */
     private final String scraperApiUrl;
+    /**
+     * Estado {@code internalServiceToken} mantenido por {@code ScraperInternalClient}.
+     */
     private final String internalServiceToken;
 
+    /**
+     * Inicializa una instancia de {@code ScraperInternalClient}.
+     *
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param scraperApiUrl Dirección de {@code scraperApi} que debe procesarse.
+     * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
+     */
     public ScraperInternalClient(
             ObjectMapper objectMapper,
             @Value("${app.scraper-api-url}") String scraperApiUrl,
@@ -43,10 +66,19 @@ public class ScraperInternalClient {
         this.internalServiceToken = internalServiceToken;
     }
 
+    /**
+     * Ejecuta la operación {@code triggerRunOnce}.
+     */
     public void triggerRunOnce() {
         post("/api/internal/scraper/run-once", "", Void.class, "scraper_run_once_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code generateDescription}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Resultado producido por {@code generateDescription}.
+     */
     public DescriptionGeneration generateDescription(String appId) {
         return post(
                 "/internal/v1/content/descriptions/generate",
@@ -55,6 +87,11 @@ public class ScraperInternalClient {
                 "description_generation_failed");
     }
 
+    /**
+     * Encola la operación solicitada mediante {@code enqueueMissingDescriptions}.
+     *
+     * @return Resultado producido por {@code enqueueMissingDescriptions}.
+     */
     public ContentEnqueueResult enqueueMissingDescriptions() {
         return post(
                 "/internal/v1/content/descriptions/enqueue-missing",
@@ -63,6 +100,13 @@ public class ScraperInternalClient {
                 "description_enqueue_failed");
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createManualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code createManualInstallerInspection}.
+     */
     public ManualInstallerInspection createManualInstallerInspection(
             String appId,
             ManualInstallerInspectionRequest request) {
@@ -73,6 +117,12 @@ public class ScraperInternalClient {
                 "manual_installer_inspection_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code currentManualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Resultado producido por {@code currentManualInstallerInspection}.
+     */
     public ManualInstallerInspection currentManualInstallerInspection(String appId) {
         return get(
                 manualInspectionPath(appId) + "/current",
@@ -80,6 +130,13 @@ public class ScraperInternalClient {
                 "manual_installer_inspection_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code manualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param inspectionId Identificador de {@code inspection} utilizado por la operación.
+     * @return Resultado producido por {@code manualInstallerInspection}.
+     */
     public ManualInstallerInspection manualInstallerInspection(
             String appId,
             String inspectionId) {
@@ -89,6 +146,14 @@ public class ScraperInternalClient {
                 "manual_installer_inspection_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code applyManualInstallerInspection}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param inspectionId Identificador de {@code inspection} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code applyManualInstallerInspection}.
+     */
     public ManualInstallerApplyResult applyManualInstallerInspection(
             String appId,
             String inspectionId,
@@ -100,6 +165,12 @@ public class ScraperInternalClient {
                 "manual_installer_apply_failed");
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createWebsiteAppDiscovery}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code createWebsiteAppDiscovery}.
+     */
     public WebsiteAppDiscovery createWebsiteAppDiscovery(
             WebsiteAppDiscoveryRequest request) {
         return post(
@@ -109,6 +180,12 @@ public class ScraperInternalClient {
                 "website_app_discovery_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code websiteAppDiscovery}.
+     *
+     * @param discoveryId Identificador de {@code discovery} utilizado por la operación.
+     * @return Resultado producido por {@code websiteAppDiscovery}.
+     */
     public WebsiteAppDiscovery websiteAppDiscovery(String discoveryId) {
         return get(
                 websiteDiscoveryPath() + "/" + uuidSegment(discoveryId),
@@ -116,6 +193,13 @@ public class ScraperInternalClient {
                 "website_app_discovery_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code applyWebsiteAppDiscovery}.
+     *
+     * @param discoveryId Identificador de {@code discovery} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code applyWebsiteAppDiscovery}.
+     */
     public WebsiteAppDiscoveryApplyResult applyWebsiteAppDiscovery(
             String discoveryId,
             WebsiteAppDiscoveryApplyRequest request) {
@@ -126,15 +210,34 @@ public class ScraperInternalClient {
                 "website_app_discovery_apply_failed");
     }
 
+    /**
+     * Ejecuta la operación {@code manualInspectionPath}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Resultado producido por {@code manualInspectionPath}.
+     */
     private String manualInspectionPath(String appId) {
         return "/internal/v1/admin/apps/" + uuidSegment(appId)
                 + "/manual-installer-inspections";
     }
 
+    /**
+     * Ejecuta la operación {@code websiteDiscoveryPath}.
+     *
+     * @return Resultado producido por {@code websiteDiscoveryPath}.
+     */
     private String websiteDiscoveryPath() {
         return "/internal/v1/admin/app-discoveries";
     }
 
+    /**
+     * Ejecuta la operación {@code uuidSegment}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code uuidSegment}.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private String uuidSegment(String value) {
         try {
             return UUID.fromString(value).toString();
@@ -143,10 +246,29 @@ public class ScraperInternalClient {
         }
     }
 
+    /**
+     * Obtiene el resultado solicitado mediante {@code get}.
+     *
+     * @param <T> Parámetro de tipo utilizado por la operación.
+     * @param path Ruta del recurso que debe procesarse.
+     * @param responseType Valor de {@code responseType} utilizado por la operación.
+     * @param failureCode Valor de {@code failureCode} utilizado por la operación.
+     * @return Resultado producido por {@code get}.
+     */
     private <T> T get(String path, Class<T> responseType, String failureCode) {
         return send("GET", path, "", responseType, failureCode);
     }
 
+    /**
+     * Ejecuta la operación {@code post}.
+     *
+     * @param <T> Parámetro de tipo utilizado por la operación.
+     * @param path Ruta del recurso que debe procesarse.
+     * @param body Cuerpo recibido por la solicitud.
+     * @param responseType Valor de {@code responseType} utilizado por la operación.
+     * @param failureCode Valor de {@code failureCode} utilizado por la operación.
+     * @return Resultado producido por {@code post}.
+     */
     private <T> T post(
             String path,
             String body,
@@ -155,6 +277,17 @@ public class ScraperInternalClient {
         return send("POST", path, body, responseType, failureCode);
     }
 
+    /**
+     * Envía el contenido solicitado mediante {@code send}.
+     *
+     * @param <T> Parámetro de tipo utilizado por la operación.
+     * @param method Valor de {@code method} utilizado por la operación.
+     * @param path Ruta del recurso que debe procesarse.
+     * @param body Cuerpo recibido por la solicitud.
+     * @param responseType Valor de {@code responseType} utilizado por la operación.
+     * @param failureCode Valor de {@code failureCode} utilizado por la operación.
+     * @return Resultado producido por {@code send}.
+     */
     private <T> T send(
             String method,
             String path,
@@ -193,6 +326,12 @@ public class ScraperInternalClient {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code write}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code write}.
+     */
     private String write(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -201,6 +340,14 @@ public class ScraperInternalClient {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code upstreamFailure}.
+     *
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param body Cuerpo recibido por la solicitud.
+     * @param fallbackCode Valor de {@code fallbackCode} utilizado por la operación.
+     * @return Resultado producido por {@code upstreamFailure}.
+     */
     private RuntimeException upstreamFailure(int status, String body, String fallbackCode) {
         String code = upstreamCode(body, fallbackCode);
         String message = "No se pudo completar la operación interna del scraper.";
@@ -216,6 +363,13 @@ public class ScraperInternalClient {
         };
     }
 
+    /**
+     * Ejecuta la operación {@code upstreamCode}.
+     *
+     * @param body Cuerpo recibido por la solicitud.
+     * @param fallbackCode Valor de {@code fallbackCode} utilizado por la operación.
+     * @return Resultado producido por {@code upstreamCode}.
+     */
     private String upstreamCode(String body, String fallbackCode) {
         try {
             JsonNode detail = objectMapper.readTree(body).path("detail");
@@ -226,20 +380,47 @@ public class ScraperInternalClient {
                 return code.textValue();
             }
         } catch (IOException ignored) {
-            // The upstream body is untrusted and is never copied into Core errors.
+            // El cuerpo del servicio remoto no es fiable y nunca se copia en errores de Core.
         }
         return fallbackCode;
     }
 
+    /**
+     * Ejecuta la operación {@code failure}.
+     *
+     * @param code Valor de {@code code} utilizado por la operación.
+     * @return Resultado producido por {@code failure}.
+     */
     private ServiceUnavailableException failure(String code) {
         return new ServiceUnavailableException(
                 code,
                 "No se pudo completar la operación interna del scraper.");
     }
 
+    /**
+     * Representa los datos inmutables de {@code ContentEnqueueResult}.
+     *
+     * @param matched Valor de {@code matched} incluido en el record.
+     * @param enqueued Valor de {@code enqueued} incluido en el record.
+     * @param alreadyActive Valor de {@code alreadyActive} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     public record ContentEnqueueResult(int matched, int enqueued, int alreadyActive) {}
 
+    /**
+     * Representa los datos inmutables de {@code DescriptionGeneration}.
+     *
+     * @param jobId Valor de {@code jobId} incluido en el record.
+     * @param status Valor de {@code status} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     public record DescriptionGeneration(String jobId, String status) {}
 
+    /**
+     * Representa los datos inmutables de {@code GenerateDescriptionRequest}.
+     *
+     * @param appId Valor de {@code appId} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record GenerateDescriptionRequest(String appId) {}
 }

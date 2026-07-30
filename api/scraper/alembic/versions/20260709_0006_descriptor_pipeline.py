@@ -1,7 +1,4 @@
-"""Add descriptor pipeline queue metrics and global LLM rate limit.
-
-Revision ID: 20260709_0006
-Revises: 20260709_0005
+"""Define la migración de esquema `20260709_0006_descriptor_pipeline`.
 """
 
 from collections.abc import Sequence
@@ -11,12 +8,22 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260709_0006"
+"""Estado global asociado a `revision`.
+"""
 down_revision: str | None = "20260709_0005"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels: str | Sequence[str] | None = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on: str | Sequence[str] | None = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
+    """Ejecuta la operación `upgrade`.
+    """
     op.add_column(
         "scraper_work_items",
         sa.Column("priority", sa.Integer(), server_default=sa.text("0"), nullable=False),
@@ -46,6 +53,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.drop_table("scraper_rate_limits")
     op.drop_column("scraper_metric_snapshots", "queued_scraper_descriptor")
     op.drop_column("scraper_work_items", "priority")

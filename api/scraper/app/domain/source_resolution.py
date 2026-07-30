@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `source_resolution`.
+"""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -6,9 +8,17 @@ from enum import StrEnum
 
 
 class SourceTrustStatus(StrEnum):
+    """Enumera los valores admitidos por `SourceTrustStatus`.
+    """
     VERIFIED = "VERIFIED"
+    """Constante que define `VERIFIED`.
+    """
     ATTESTED = "ATTESTED"
+    """Constante que define `ATTESTED`.
+    """
     UNRESOLVED = "UNRESOLVED"
+    """Constante que define `UNRESOLVED`.
+    """
 
 
 def source_trust_status(
@@ -19,17 +29,17 @@ def source_trust_status(
     metadata: Mapping[str, object],
     now: datetime,
 ) -> SourceTrustStatus:
-    """Determina la confianza según los estados de validación y resolución.
+    """Ejecuta la operación `source_trust_status`.
 
     Args:
-        validation_status (str): El estado de validación de la fuente.
-        resolution_status (str): El estado de resolución de la fuente.
-        expires_at (datetime): La fecha de vencimiento de la fuente.
-        metadata (Mapping[str, object]): Los metadatos de la fuente.
-        now (datetime): La fecha y hora actuales.
+        validation_status (str): Valor de `validation_status` utilizado por la operación.
+        resolution_status (str): Valor de `resolution_status` utilizado por la operación.
+        expires_at (datetime): Instante asociado a `expires`.
+        metadata (Mapping[str, object]): Valor de `metadata` utilizado por la operación.
+        now (datetime): Valor de `now` utilizado por la operación.
 
     Returns:
-        SourceTrustStatus: El estado de confianza de la fuente.
+        SourceTrustStatus: Resultado producido por la operación.
     """
     confidence = str(metadata.get("validation_confidence") or "").lower()
     if confidence == "attested" or metadata.get("transport_security") in {
@@ -45,6 +55,6 @@ def source_trust_status(
         return SourceTrustStatus.UNRESOLVED
     if confidence and confidence not in {"validated", "verified"}:
         return SourceTrustStatus.UNRESOLVED
-    # Las filas creadas antes de que la confianza fuera explícita solo se persistieron después
-    # de una validación binaria exitosa, excepto por el marcador edge-attested anterior.
+# Las filas creadas antes de explicitar la confianza solo se persistieron después
+# de una validación binaria correcta, salvo el antiguo marcador atestiguado en el perímetro.
     return SourceTrustStatus.VERIFIED

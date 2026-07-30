@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_strategies`.
+"""
 import uuid
 
 import pytest
@@ -17,6 +19,11 @@ from app.scraper.winstall import WinstallApp, WinstallClient
 
 
 def make_app() -> WinstallApp:
+    """Construye la operación `app`.
+
+    Returns:
+        WinstallApp: Resultado producido por la operación.
+    """
     return WinstallApp(
         package_id="Vendor.App",
         name="Vendor App",
@@ -34,13 +41,29 @@ def make_app() -> WinstallApp:
 
 @pytest.mark.asyncio
 async def test_resolver_registry_selects_first_supporting_strategy() -> None:
+    """Comprueba el escenario `resolver_registry_selects_first_supporting_strategy`.
+    """
     calls: list[str] = []
 
     async def github_callback(_source_id, _url, _app):
+        """Ejecuta la operación `github_callback`.
+
+        Args:
+            _source_id (Any): Identificador de `_source` utilizado por la operación.
+            _url (Any): Dirección de `` que debe procesarse.
+            _app (Any): Valor de `_app` utilizado por la operación.
+        """
         calls.append("github")
         return ResolutionStatus.DIRECT
 
     async def generic_callback(_source_id, _url, _app):
+        """Ejecuta la operación `generic_callback`.
+
+        Args:
+            _source_id (Any): Identificador de `_source` utilizado por la operación.
+            _url (Any): Dirección de `` que debe procesarse.
+            _app (Any): Valor de `_app` utilizado por la operación.
+        """
         calls.append("generic")
         return ResolutionStatus.REQUIRES_MANUAL_REVIEW
 
@@ -65,7 +88,16 @@ async def test_resolver_registry_selects_first_supporting_strategy() -> None:
 
 
 def test_resolver_registry_rejects_duplicate_names() -> None:
+    """Comprueba el escenario `resolver_registry_rejects_duplicate_names`.
+    """
     async def callback(_source_id, _url, _app):
+        """Procesa la devolución de llamada asociada a la operación.
+
+        Args:
+            _source_id (Any): Identificador de `_source` utilizado por la operación.
+            _url (Any): Dirección de `` que debe procesarse.
+            _app (Any): Valor de `_app` utilizado por la operación.
+        """
         return ResolutionStatus.DIRECT
 
     registry = ResolverStrategyRegistry(
@@ -77,17 +109,28 @@ def test_resolver_registry_rejects_duplicate_names() -> None:
 
 
 def test_winstall_client_implements_catalog_provider_port() -> None:
+    """Comprueba el escenario `winstall_client_implements_catalog_provider_port`.
+    """
     assert isinstance(WinstallClient(Settings()), CatalogProvider)
 
 
 @pytest.mark.asyncio
 async def test_platform_worker_uses_injected_candidate_resolver_strategy() -> None:
+    """Comprueba el escenario `platform_worker_uses_injected_candidate_resolver_strategy`.
+    """
     collected = InstallerCandidate(
         url="https://downloads.example.test/AppSetup.exe",
         source="custom",
     )
 
     async def collect(_runtime, _app, _url):
+        """Ejecuta la operación `collect`.
+
+        Args:
+            _runtime (Any): Valor de `_runtime` utilizado por la operación.
+            _app (Any): Valor de `_app` utilizado por la operación.
+            _url (Any): Dirección de `` que debe procesarse.
+        """
         return [collected]
 
     registry = CandidateResolverStrategyRegistry(

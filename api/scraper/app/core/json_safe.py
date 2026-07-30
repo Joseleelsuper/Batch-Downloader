@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `json_safe`.
+"""
 from __future__ import annotations
 
 import uuid
@@ -8,13 +10,13 @@ from typing import Any
 
 
 def json_safe(value: Any) -> Any:
-    """Convierte recursivamente un objeto a un tipo de dato seguro para JSON.
+    """Ejecuta la operación `json_safe`.
 
     Args:
-        value (Any): El valor que se desea convertir a un tipo de dato seguro para JSON.
+        value (Any): Valor que debe procesarse.
 
     Returns:
-        Any: El valor convertido a un tipo de dato seguro para JSON.
+        Any: Resultado producido por la operación.
     """
     if value is None or isinstance(value, (str, int, float, bool)):
         return value

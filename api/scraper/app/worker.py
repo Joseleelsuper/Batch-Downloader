@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `worker`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -41,15 +43,24 @@ from app.scraper.website_discovery import WebsiteAppDiscoveryWorker
 from app.scraper.winstall import WinstallClient
 
 logger = get_logger(__name__)
+"""Estado global asociado a `logger`.
+"""
 
 
 class ContentEnrichmentSupervisor:
-    """Keeps the pipeline tail active between scheduled catalogue runs."""
+    """Representa el componente `ContentEnrichmentSupervisor`.
+    """
 
     def __init__(self) -> None:
+        """Inicializa una instancia de `ContentEnrichmentSupervisor`.
+        """
         self.settings = get_settings()
+        """Estado de instancia asociado a `settings`.
+        """
 
     async def run(self) -> None:
+        """Ejecuta `run` dentro de `ContentEnrichmentSupervisor`.
+        """
         async with AsyncSessionLocal() as session:
             pipeline = PipelineRepository(session)
             recovered = await pipeline.reset_expired_leases()
@@ -91,6 +102,8 @@ class ContentEnrichmentSupervisor:
             await asyncio.gather(*workers, return_exceptions=True)
 
     async def _consume_descriptions(self) -> None:
+        """Ejecuta el paso interno `_consume_descriptions`.
+        """
         worker = DescriptorWorker(self.settings)
         while True:
             if await self._paused_or_stopping():
@@ -104,6 +117,8 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_manual_installers(self) -> None:
+        """Ejecuta el paso interno `_consume_manual_installers`.
+        """
         worker = ManualInstallerWorker(self.settings)
         while True:
             processed = await worker.process_one()
@@ -111,6 +126,8 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_website_discoveries(self) -> None:
+        """Ejecuta el paso interno `_consume_website_discoveries`.
+        """
         worker = WebsiteAppDiscoveryWorker(self.settings)
         while True:
             processed = await worker.process_one()
@@ -118,6 +135,11 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_so_filters(self, index: int) -> None:
+        """Ejecuta el paso interno `_consume_so_filters`.
+
+        Args:
+            index (int): Valor de `index` utilizado por la operación.
+        """
         worker = SOFilterWorker(self.settings)
         while True:
             if await self._paused_or_stopping():
@@ -128,7 +150,7 @@ class ContentEnrichmentSupervisor:
                     await self._enqueue_pending_so_filters()
                 except asyncio.CancelledError:
                     raise
-                except Exception as exc:  # noqa: BLE001 - keep the supervisor alive
+                except Exception as exc:  # noqa: BLE001 - mantiene activo el supervisor
                     logger.exception(
                         "so_filter_backfill_failed",
                         error=exc.__class__.__name__,
@@ -140,6 +162,8 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _enqueue_pending_so_filters(self) -> None:
+        """Ejecuta el paso interno `_enqueue_pending_so_filters`.
+        """
         async with AsyncSessionLocal() as session:
             catalog = CatalogRepository(
                 session,
@@ -171,6 +195,11 @@ class ContentEnrichmentSupervisor:
             await session.commit()
 
     async def _paused_or_stopping(self) -> bool:
+        """Ejecuta el paso interno `_paused_or_stopping`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         async with AsyncSessionLocal() as session:
             run = await session.scalar(
                 select(ScrapeRun)
@@ -182,6 +211,11 @@ class ContentEnrichmentSupervisor:
 
 
 async def scrape_once(recover_running: bool = False) -> None:
+    """Ejecuta la operación `scrape_once`.
+
+    Args:
+        recover_running (bool): Valor de `recover_running` utilizado por la operación.
+    """
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         try:
@@ -196,6 +230,8 @@ async def scrape_once(recover_running: bool = False) -> None:
 
 
 async def repair_platforms() -> None:
+    """Ejecuta la operación `repair_platforms`.
+    """
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
@@ -205,6 +241,8 @@ async def repair_platforms() -> None:
 
 
 async def repair_source_statuses() -> None:
+    """Ejecuta la operación `repair_source_statuses`.
+    """
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
@@ -214,6 +252,14 @@ async def repair_source_statuses() -> None:
 
 
 async def maintain_catalog_projection(*, repair: bool) -> None:
+    """Ejecuta la operación `maintain_catalog_projection`.
+
+    Args:
+        repair (bool): Valor de `repair` utilizado por la operación.
+
+    Throws:
+        RuntimeError: Si el estado de ejecución impide completar la operación.
+    """
     async with AsyncSessionLocal() as session:
         projection = CatalogProjectionRepository(session)
         report = await projection.repair() if repair else await projection.check()
@@ -227,6 +273,8 @@ async def maintain_catalog_projection(*, repair: bool) -> None:
 
 
 async def repair_known_apps() -> None:
+    """Ejecuta la operación `repair_known_apps`.
+    """
     settings = get_settings()
     repaired = 0
     async with WinstallClient(settings) as winstall:
@@ -309,6 +357,8 @@ async def repair_known_apps() -> None:
 
 
 async def run_startup_scrape() -> None:
+    """Ejecuta la operación `startup_scrape`.
+    """
     try:
         await repair_known_apps()
     except Exception as exc:
@@ -320,6 +370,8 @@ async def run_startup_scrape() -> None:
 
 
 async def run_scheduler() -> None:
+    """Ejecuta la operación `scheduler`.
+    """
     settings = get_settings()
     scheduler = AsyncIOScheduler(timezone=settings.scheduler_zoneinfo)
     scheduler.add_job(
@@ -361,6 +413,8 @@ async def run_scheduler() -> None:
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+    """
     configure_logging()
     assert_free_threaded_runtime()
     parser = argparse.ArgumentParser(description="Batch Downloader scraper worker")

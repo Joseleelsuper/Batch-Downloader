@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `huggingface_catalog`.
+"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -7,37 +9,96 @@ from huggingface_hub import HfApi
 
 
 SAFE_PIPELINES = {"feature-extraction", "sentence-similarity"}
+"""Constante que define `SAFE_PIPELINES`.
+"""
 SAFE_LIBRARIES = {"sentence-transformers"}
+"""Constante que define `SAFE_LIBRARIES`.
+"""
 UNSAFE_WEIGHT_SUFFIXES = (".bin", ".pkl", ".pickle", ".pt", ".pth")
+"""Constante que define `UNSAFE_WEIGHT_SUFFIXES`.
+"""
 
 
 @dataclass(frozen=True)
 class HubModelDetail:
+    """Representa el componente `HubModelDetail`.
+    """
     repository: str
+    """Atributo de clase `repository` de `HubModelDetail`.
+    """
     sha: str
+    """Atributo de clase `sha` de `HubModelDetail`.
+    """
     display_name: str
+    """Atributo de clase `display_name` de `HubModelDetail`.
+    """
     gated: bool
+    """Atributo de clase `gated` de `HubModelDetail`.
+    """
     private: bool
+    """Atributo de clase `private` de `HubModelDetail`.
+    """
     library_name: str | None
+    """Atributo de clase `library_name` de `HubModelDetail`.
+    """
     pipeline_tag: str | None
+    """Atributo de clase `pipeline_tag` de `HubModelDetail`.
+    """
     license: str | None
+    """Atributo de clase `license` de `HubModelDetail`.
+    """
     languages: list[str]
+    """Atributo de clase `languages` de `HubModelDetail`.
+    """
     downloads: int
+    """Atributo de clase `downloads` de `HubModelDetail`.
+    """
     likes: int
+    """Atributo de clase `likes` de `HubModelDetail`.
+    """
     last_modified: str | None
+    """Atributo de clase `last_modified` de `HubModelDetail`.
+    """
     architecture: str | None
+    """Atributo de clase `architecture` de `HubModelDetail`.
+    """
     parameter_count: int | None
+    """Atributo de clase `parameter_count` de `HubModelDetail`.
+    """
     max_sequence_length: int | None
+    """Atributo de clase `max_sequence_length` de `HubModelDetail`.
+    """
     estimated_bytes: int
+    """Atributo de clase `estimated_bytes` de `HubModelDetail`.
+    """
     files: list[dict[str, Any]]
+    """Atributo de clase `files` de `HubModelDetail`.
+    """
     compatible: bool
+    """Atributo de clase `compatible` de `HubModelDetail`.
+    """
     compatibility_reason: str | None
+    """Atributo de clase `compatibility_reason` de `HubModelDetail`.
+    """
     security_status: str
+    """Atributo de clase `security_status` de `HubModelDetail`.
+    """
     suggested_query_prefix: str | None
+    """Atributo de clase `suggested_query_prefix` de `HubModelDetail`.
+    """
     suggested_passage_prefix: str | None
+    """Atributo de clase `suggested_passage_prefix` de `HubModelDetail`.
+    """
     suggested_minimum_similarity: float | None
+    """Atributo de clase `suggested_minimum_similarity` de `HubModelDetail`.
+    """
 
     def as_dict(self) -> dict[str, Any]:
+        """Ejecuta `as_dict` dentro de `HubModelDetail`.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         value = asdict(self)
         return {
             "repository": value["repository"],
@@ -69,10 +130,28 @@ class HubModelDetail:
 
 
 class HuggingFaceCatalog:
+    """Representa el componente `HuggingFaceCatalog`.
+    """
     def __init__(self, api: HfApi | None = None) -> None:
+        """Inicializa una instancia de `HuggingFaceCatalog`.
+
+        Args:
+            api (HfApi | None): Valor de `api` utilizado por la operación.
+        """
         self.api = api or HfApi(token=False)
+        """Estado de instancia asociado a `api`.
+        """
 
     def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+        """Ejecuta `search` dentro de `HuggingFaceCatalog`.
+
+        Args:
+            query (str): Valor de `query` utilizado por la operación.
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        """
         normalized = query.strip()
         if len(normalized) < 2:
             return []
@@ -112,6 +191,15 @@ class HuggingFaceCatalog:
         return results
 
     def detail(self, repository: str, revision: str | None = None) -> HubModelDetail:
+        """Ejecuta `detail` dentro de `HuggingFaceCatalog`.
+
+        Args:
+            repository (str): Valor de `repository` utilizado por la operación.
+            revision (str | None): Valor de `revision` utilizado por la operación.
+
+        Returns:
+            HubModelDetail: Resultado producido por la operación.
+        """
         info = self.api.model_info(
             repository,
             revision=revision,
@@ -234,10 +322,26 @@ class HuggingFaceCatalog:
 
 
 def _iso(value: Any) -> str | None:
+    """Ejecuta el paso interno `_iso`.
+
+    Args:
+        value (Any): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
 
 
 def _integer(value: Any) -> int | None:
+    """Ejecuta el paso interno `_integer`.
+
+    Args:
+        value (Any): Valor que debe procesarse.
+
+    Returns:
+        int | None: Resultado producido por la operación.
+    """
     try:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
@@ -249,6 +353,16 @@ def _metadata_string(
     config: dict[str, Any],
     *keys: str,
 ) -> str | None:
+    """Ejecuta el paso interno `_metadata_string`.
+
+    Args:
+        card_data (dict[str, Any]): Valor de `card_data` utilizado por la operación.
+        config (dict[str, Any]): Configuración utilizada por la operación.
+        *keys (str): Valor de `keys` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     for source in (card_data, config):
         for key in keys:
             value = source.get(key)
@@ -262,6 +376,16 @@ def _metadata_float(
     config: dict[str, Any],
     *keys: str,
 ) -> float | None:
+    """Ejecuta el paso interno `_metadata_float`.
+
+    Args:
+        card_data (dict[str, Any]): Valor de `card_data` utilizado por la operación.
+        config (dict[str, Any]): Configuración utilizada por la operación.
+        *keys (str): Valor de `keys` utilizado por la operación.
+
+    Returns:
+        float | None: Resultado producido por la operación.
+    """
     for source in (card_data, config):
         for key in keys:
             try:
@@ -276,6 +400,14 @@ def _metadata_float(
 
 
 def _security_status(value: Any) -> str:
+    """Ejecuta el paso interno `_security_status`.
+
+    Args:
+        value (Any): Valor que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     if value is None:
         return "unknown"
     if isinstance(value, dict):

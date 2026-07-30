@@ -9,7 +9,15 @@ import java.net.URI;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code PublicHttpsUriPolicyTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class PublicHttpsUriPolicyTest {
+    /**
+     * Comprueba el escenario {@code acceptsOnlyHttpsWithEntirelyPublicDnsAnswers}.
+     */
     @Test
     void acceptsOnlyHttpsWithEntirelyPublicDnsAnswers() {
         PublicHttpsUriPolicy publicPolicy = new PublicHttpsUriPolicy(
@@ -22,6 +30,9 @@ class PublicHttpsUriPolicyTest {
                 .hasMessage("https_required");
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsAHostWhenAnyDnsAnswerIsPrivate}.
+     */
     @Test
     void rejectsAHostWhenAnyDnsAnswerIsPrivate() {
         PublicHttpsUriPolicy policy = new PublicHttpsUriPolicy(host -> List.of(
@@ -33,6 +44,11 @@ class PublicHttpsUriPolicyTest {
                 .hasMessage("non_public_download_host");
     }
 
+    /**
+     * Comprueba el escenario {@code classifiesReservedRangesAsNonPublic}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void classifiesReservedRangesAsNonPublic() throws Exception {
         assertThatCode(() -> {
@@ -45,6 +61,14 @@ class PublicHttpsUriPolicyTest {
         }).doesNotThrowAnyException();
     }
 
+    /**
+     * Ejecuta la operación {@code address}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code address}.
+     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
+     *     requeridas.
+     */
     private InetAddress address(String value) {
         try {
             return InetAddress.getByName(value);

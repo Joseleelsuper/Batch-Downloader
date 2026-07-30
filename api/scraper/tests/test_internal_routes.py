@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_internal_routes`.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,13 +33,23 @@ from app.scraper.manual_installer import ValidatedManualInstaller
 from app.scraper.validator import ValidationConfidence, ValidationResult
 
 INTERNAL_TOKEN = "worker-test-token"
+"""Constante que define `INTERNAL_TOKEN`.
+"""
 URL_SECRET = "internal-route-test-secret"
+"""Constante que define `URL_SECRET`.
+"""
 
 
 @dataclass
 class InternalApiFixture:
+    """Agrupa los escenarios de prueba de `InternalApiFixture`.
+    """
     client: httpx.AsyncClient
+    """Atributo de clase `client` de `InternalApiFixture`.
+    """
     session: AsyncSession
+    """Atributo de clase `session` de `InternalApiFixture`.
+    """
 
     async def add_source(
         self,
@@ -45,6 +57,15 @@ class InternalApiFixture:
         confidence: str,
         expires_in_hours: int = 1,
     ) -> tuple[SoftwareApp, ResolvedSource, str]:
+        """Ejecuta `add_source` dentro de `InternalApiFixture`.
+
+        Args:
+            confidence (str): Valor de `confidence` utilizado por la operación.
+            expires_in_hours (int): Valor de `expires_in_hours` utilizado por la operación.
+
+        Returns:
+            tuple[SoftwareApp, ResolvedSource, str]: Resultado producido por la operación.
+        """
         identifier = uuid4()
         app = SoftwareApp(
             id=uuid4(),
@@ -90,6 +111,11 @@ class InternalApiFixture:
         return app, resolved, download_url
 
     async def add_unresolved_app(self) -> SoftwareApp:
+        """Ejecuta `add_unresolved_app` dentro de `InternalApiFixture`.
+
+        Returns:
+            SoftwareApp: Resultado producido por la operación.
+        """
         identifier = uuid4()
         app = SoftwareApp(
             id=uuid4(),
@@ -109,6 +135,11 @@ class InternalApiFixture:
 
 @pytest_asyncio.fixture
 async def internal_api() -> InternalApiFixture:
+    """Ejecuta la operación `internal_api`.
+
+    Yields:
+        InternalApiFixture: Elemento producido por la operación.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -124,6 +155,11 @@ async def internal_api() -> InternalApiFixture:
         application.dependency_overrides[get_settings] = lambda: settings
 
         async def override_session():
+            """Ejecuta la operación `override_session`.
+
+            Yields:
+                Any: Elemento producido por la operación.
+            """
             yield session
 
         application.dependency_overrides[get_session] = override_session
@@ -138,9 +174,24 @@ async def test_internal_resolution_requires_constant_time_service_token(
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_requires_constant_time_service_token`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     comparisons: list[tuple[str, str]] = []
 
     def compare_digest(provided: str, expected: str) -> bool:
+        """Ejecuta la operación `compare_digest`.
+
+        Args:
+            provided (str): Valor de `provided` utilizado por la operación.
+            expected (str): Valor de `expected` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         comparisons.append((provided, expected))
         return provided == expected
 
@@ -164,11 +215,25 @@ async def test_manual_inspection_is_idempotent_encrypted_and_never_echoes_instal
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba que la inspección manual es idempotente y protege la URL del instalador.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     app = await internal_api.add_unresolved_app()
     installer_url = "https://downloads.example.test/ManualSetup.exe?token=secret"
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
+        """Ejecuta la operación `public_url`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         return url
 
     monkeypatch.setattr(
@@ -226,11 +291,25 @@ async def test_manual_inspection_requires_fresh_analysis_after_the_app_changes(
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `manual_inspection_requires_fresh_analysis_after_the_app_changes`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     app = await internal_api.add_unresolved_app()
     installer_url = "https://downloads.example.test/ManualSetup.exe"
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
+        """Ejecuta la operación `public_url`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         return url
 
     monkeypatch.setattr(
@@ -266,12 +345,26 @@ async def test_manual_inspection_encrypts_optional_platform_urls_and_requires_on
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `manual_inspection_encrypts_optional_platform_urls_and_requires_one`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     app = await internal_api.add_unresolved_app()
     windows_url = "https://downloads.example.test/ManualSetup.exe"
     linux_url = "https://downloads.example.test/manual-setup.AppImage"
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
+        """Ejecuta la operación `public_url`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         return url
 
     monkeypatch.setattr(
@@ -323,12 +416,26 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `manual_apply_revalidates_and_persists_multiple_encrypted_candidates`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     app = await internal_api.add_unresolved_app()
     windows_url = "https://downloads.example.test/ManualSetup-1.2.0.exe"
     linux_url = "https://downloads.example.test/manual-setup-1.2.0.AppImage"
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
+        """Ejecuta la operación `public_url`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         return url
 
     monkeypatch.setattr(
@@ -411,6 +518,14 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
         _source_page_url,
         expected_operating_system=None,
     ):
+        """Valida la operación `installer`.
+
+        Args:
+            _inspector (Any): Valor de `_inspector` utilizado por la operación.
+            installer_url (Any): Dirección de `installer` que debe procesarse.
+            _source_page_url (Any): Dirección de `_source_page` que debe procesarse.
+            expected_operating_system (Any): Valor esperado de `operating_system`.
+        """
         validation_calls.append((installer_url, expected_operating_system))
         is_linux = expected_operating_system == "linux"
         filename = (
@@ -512,8 +627,8 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
         (linux_url, "linux"),
     ]
 
-    # SQLite does not install the MySQL catalog projection triggers exercised by
-    # the integration test, so mirror their final status before the idempotency check.
+    # SQLite no instala los disparadores de proyección de MySQL que ejercita la prueba
+    # de integración; replica su estado final antes de comprobar la idempotencia.
     app.catalog_available_source_count = 2
     await internal_api.session.commit()
     await internal_api.session.refresh(app)
@@ -534,10 +649,24 @@ async def test_website_discovery_is_idempotent_encrypted_and_url_free(
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `website_discovery_is_idempotent_encrypted_and_url_free`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     official_url = "https://example.test/product"
     windows_installer_url = "https://downloads.example.test/Product.exe"
 
     async def public_url(url: str) -> str:
+        """Ejecuta la operación `public_url`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         return url
 
     monkeypatch.setattr(
@@ -604,9 +733,23 @@ async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_i
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba que el descubrimiento crea una aplicación ausente sin instalador válido.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     official_url = "https://example.test/product"
 
     async def public_url(url: str) -> str:
+        """Ejecuta la operación `public_url`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         return url
 
     monkeypatch.setattr(
@@ -693,14 +836,35 @@ async def test_website_discovery_apply_revalidates_and_encrypts_found_installers
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `website_discovery_apply_revalidates_and_encrypts_found_installers`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     official_url = "https://example.test/product"
     installer_url = "https://downloads.example.test/Example-3.1.0.exe"
     validation_calls = 0
 
     async def public_url(url: str) -> str:
+        """Ejecuta la operación `public_url`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         return url
 
     async def validate_installer(_validator, candidate, *, require_signature=False):
+        """Valida la operación `installer`.
+
+        Args:
+            _validator (Any): Valor de `_validator` utilizado por la operación.
+            candidate (Any): Valor de `candidate` utilizado por la operación.
+            require_signature (bool): Valor de `require_signature` utilizado por la operación.
+        """
         nonlocal validation_calls
         validation_calls += 1
         assert require_signature is True
@@ -827,6 +991,12 @@ async def test_internal_resolution_returns_verified_source_without_logging_secre
     internal_api: InternalApiFixture,
     caplog,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_returns_verified_source_without_logging_secrets`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        caplog (Any): Capturador de registros proporcionado por pytest.
+    """
     app, resolved, download_url = await internal_api.add_source(confidence="validated")
 
     response = await internal_api.client.get(
@@ -855,6 +1025,11 @@ async def test_internal_resolution_returns_verified_source_without_logging_secre
 async def test_internal_resolution_rejects_non_verified_sources(
     internal_api: InternalApiFixture,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_rejects_non_verified_sources`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+    """
     _app, resolved, _download_url = await internal_api.add_source(
         confidence="attested",
     )
@@ -874,12 +1049,24 @@ async def test_internal_resolution_revalidates_expired_candidate_before_revealin
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba que la resolución revalida un candidato caducado antes de mostrar su URL.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     app, resolved, download_url = await internal_api.add_source(
         confidence="validated",
         expires_in_hours=-1,
     )
 
     async def validate(_validator, candidate):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            _validator (Any): Valor de `_validator` utilizado por la operación.
+            candidate (Any): Valor de `candidate` utilizado por la operación.
+        """
         assert candidate.url == download_url
         return ValidationResult(
             ok=True,
@@ -913,12 +1100,24 @@ async def test_internal_resolution_keeps_failed_revalidation_secret(
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_keeps_failed_revalidation_secret`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     _app, resolved, download_url = await internal_api.add_source(
         confidence="validated",
         expires_in_hours=-1,
     )
 
     async def validate(_validator, candidate):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            _validator (Any): Valor de `_validator` utilizado por la operación.
+            candidate (Any): Valor de `candidate` utilizado por la operación.
+        """
         return ValidationResult(ok=False, url=candidate.url, reason="http_404")
 
     monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
@@ -941,6 +1140,12 @@ async def test_internal_resolution_does_not_invalidate_on_transient_revalidation
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba que un fallo transitorio de revalidación no invalida la resolución.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     _app, resolved, _download_url = await internal_api.add_source(
         confidence="validated",
         expires_in_hours=-1,
@@ -949,6 +1154,12 @@ async def test_internal_resolution_does_not_invalidate_on_transient_revalidation
     previous_metadata = dict(resolved.metadata_json or {})
 
     async def validate(_validator, candidate):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            _validator (Any): Valor de `_validator` utilizado por la operación.
+            candidate (Any): Valor de `candidate` utilizado por la operación.
+        """
         return ValidationResult(ok=False, url=candidate.url, reason="http_503")
 
     monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
@@ -970,6 +1181,12 @@ async def test_internal_resolution_recovers_itch_from_official_windows_endpoint(
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_recovers_itch_from_official_windows_endpoint`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     app, resolved, stale_url = await internal_api.add_source(
         confidence="validated",
         expires_in_hours=-1,
@@ -982,6 +1199,12 @@ async def test_internal_resolution_recovers_itch_from_official_windows_endpoint(
     await internal_api.session.commit()
 
     async def validate(_validator, candidate):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            _validator (Any): Valor de `_validator` utilizado por la operación.
+            candidate (Any): Valor de `candidate` utilizado por la operación.
+        """
         validation_urls.append(candidate.url)
         if candidate.url == stale_url:
             return ValidationResult(
@@ -1025,16 +1248,37 @@ async def test_internal_resolution_rechecks_candidate_after_acquiring_lock(
     internal_api: InternalApiFixture,
     monkeypatch,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_rechecks_candidate_after_acquiring_lock`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
     _app, resolved, download_url = await internal_api.add_source(
         confidence="validated",
         expires_in_hours=-1,
     )
 
     async def lock_after_other_request_renewed(_catalog, _source_ref):
+        """Ejecuta la operación `lock_after_other_request_renewed`.
+
+        Args:
+            _catalog (Any): Valor de `_catalog` utilizado por la operación.
+            _source_ref (Any): Valor de `_source_ref` utilizado por la operación.
+        """
         resolved.expires_at = utc_after(hours=1)
         return resolved
 
     async def validation_must_not_run(_validator, _candidate):
+        """Ejecuta la operación `validation_must_not_run`.
+
+        Args:
+            _validator (Any): Valor de `_validator` utilizado por la operación.
+            _candidate (Any): Valor de `_candidate` utilizado por la operación.
+
+        Throws:
+            AssertionError: Si no puede completarse la operación bajo las condiciones requeridas.
+        """
         raise AssertionError("the refreshed candidate must be reused")
 
     monkeypatch.setattr(
@@ -1059,6 +1303,11 @@ async def test_internal_resolution_rechecks_candidate_after_acquiring_lock(
 async def test_internal_resolution_never_reveals_http_url(
     internal_api: InternalApiFixture,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_never_reveals_http_url`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+    """
     _app, resolved, _download_url = await internal_api.add_source(
         confidence="validated",
     )
@@ -1082,6 +1331,11 @@ async def test_internal_resolution_never_reveals_http_url(
 async def test_internal_resolution_invalidates_unreadable_encrypted_url(
     internal_api: InternalApiFixture,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_invalidates_unreadable_encrypted_url`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+    """
     _app, resolved, _download_url = await internal_api.add_source(
         confidence="validated",
     )
@@ -1103,6 +1357,11 @@ async def test_internal_resolution_invalidates_unreadable_encrypted_url(
 async def test_internal_resolution_rejects_http_attested_candidate(
     internal_api: InternalApiFixture,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_rejects_http_attested_candidate`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+    """
     _app, resolved, download_url = await internal_api.add_source(
         confidence="validated",
     )
@@ -1127,6 +1386,11 @@ async def test_internal_resolution_rejects_http_attested_candidate(
 async def test_internal_resolution_rechecks_parent_source_state(
     internal_api: InternalApiFixture,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_rechecks_parent_source_state`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+    """
     app, resolved, download_url = await internal_api.add_source(
         confidence="validated",
     )
@@ -1150,6 +1414,11 @@ async def test_internal_resolution_rechecks_parent_source_state(
 async def test_internal_resolution_returns_not_found_for_unknown_reference(
     internal_api: InternalApiFixture,
 ) -> None:
+    """Comprueba el escenario `internal_resolution_returns_not_found_for_unknown_reference`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+    """
     unknown_ref = UUID(int=0)
 
     response = await internal_api.client.get(
@@ -1164,6 +1433,11 @@ async def test_internal_resolution_returns_not_found_for_unknown_reference(
 async def test_semantic_feed_is_authenticated_canonical_and_paginated(
     internal_api: InternalApiFixture,
 ) -> None:
+    """Comprueba el escenario `semantic_feed_is_authenticated_canonical_and_paginated`.
+
+    Args:
+        internal_api (InternalApiFixture): Valor de `internal_api` utilizado por la operación.
+    """
     first = SoftwareApp(
         id=UUID(int=1),
         winstall_id="Vendor.Editor",

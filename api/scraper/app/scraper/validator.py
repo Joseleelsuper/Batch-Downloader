@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `validator`.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -34,44 +36,101 @@ from app.scraper.candidates import (
 BINARY_CONTENT_TYPES = (
     DEFAULT_ARTIFACT_FORMAT_REGISTRY.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
 )
+"""Constante que define `BINARY_CONTENT_TYPES`.
+"""
 
 DNS_POSITIVE_TTL_SECONDS = 600.0
+"""Constante que define `DNS_POSITIVE_TTL_SECONDS`.
+"""
 DNS_NEGATIVE_TTL_SECONDS = 20.0
+"""Constante que define `DNS_NEGATIVE_TTL_SECONDS`.
+"""
 _DNS_CACHE: dict[str, tuple[float, bool]] = {}
+"""Constante que define `_DNS_CACHE`.
+"""
 _DNS_INFLIGHT: dict[tuple[int, str], asyncio.Task[bool]] = {}
+"""Constante que define `_DNS_INFLIGHT`.
+"""
 
 
 class ValidationConfidence(StrEnum):
+    """Enumera los valores admitidos por `ValidationConfidence`.
+    """
     UNVERIFIED = "unverified"
+    """Constante que define `UNVERIFIED`.
+    """
     VALIDATED = "validated"
+    """Constante que define `VALIDATED`.
+    """
     ATTESTED = "attested"
+    """Constante que define `ATTESTED`.
+    """
 
 
 @dataclass(frozen=True)
 class ValidationResult:
+    """Representa el resultado de `Validation`.
+    """
     ok: bool
+    """Atributo de clase `ok` de `ValidationResult`.
+    """
     url: str
+    """Atributo de clase `url` de `ValidationResult`.
+    """
     final_url: str | None = None
+    """Atributo de clase `final_url` de `ValidationResult`.
+    """
     final_domain: str | None = None
+    """Atributo de clase `final_domain` de `ValidationResult`.
+    """
     filename: str | None = None
+    """Atributo de clase `filename` de `ValidationResult`.
+    """
     extension: str | None = None
+    """Atributo de clase `extension` de `ValidationResult`.
+    """
     content_type: str | None = None
+    """Atributo de clase `content_type` de `ValidationResult`.
+    """
     size_bytes: int | None = None
+    """Atributo de clase `size_bytes` de `ValidationResult`.
+    """
     reason: str | None = None
+    """Atributo de clase `reason` de `ValidationResult`.
+    """
     transport_security: str | None = None
+    """Atributo de clase `transport_security` de `ValidationResult`.
+    """
     confidence: ValidationConfidence = ValidationConfidence.UNVERIFIED
+    """Atributo de clase `confidence` de `ValidationResult`.
+    """
 
 
 class DownloadValidator:
+    """Representa el componente `DownloadValidator`.
+    """
     def __init__(
         self,
         settings: Settings,
         client: httpx.AsyncClient | None = None,
         formats: ArtifactFormatRegistry = DEFAULT_ARTIFACT_FORMAT_REGISTRY,
     ) -> None:
+        """Inicializa una instancia de `DownloadValidator`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            client (httpx.AsyncClient | None): Cliente utilizado para ejecutar el escenario.
+            formats (ArtifactFormatRegistry): Valor de `formats` utilizado por la operación.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.client = client
+        """Estado de instancia asociado a `client`.
+        """
         self.formats = formats
+        """Estado de instancia asociado a `formats`.
+        """
 
     async def validate(
         self,
@@ -79,6 +138,15 @@ class DownloadValidator:
         *,
         require_signature: bool = False,
     ) -> ValidationResult:
+        """Ejecuta `validate` dentro de `DownloadValidator`.
+
+        Args:
+            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+            require_signature (bool): Valor de `require_signature` utilizado por la operación.
+
+        Returns:
+            ValidationResult: Resultado producido por la operación.
+        """
         try:
             parsed = urlparse(candidate.url)
             hostname = parsed.hostname
@@ -135,6 +203,16 @@ class DownloadValidator:
         *,
         require_signature: bool,
     ) -> ValidationResult:
+        """Ejecuta el paso interno `_validate_http`.
+
+        Args:
+            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+            require_signature (bool): Valor de `require_signature` utilizado por la operación.
+
+        Returns:
+            ValidationResult: Resultado producido por la operación.
+        """
         current_url = candidate.url
         previous_url: str | None = None
         response: httpx.Response | None = None
@@ -293,9 +371,27 @@ class DownloadValidator:
         )
 
     def _fail(self, url: str, reason: str) -> ValidationResult:
+        """Ejecuta el paso interno `_fail`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+            reason (str): Valor de `reason` utilizado por la operación.
+
+        Returns:
+            ValidationResult: Resultado producido por la operación.
+        """
         return ValidationResult(ok=False, url=url, reason=reason)
 
     def _scheme_allowed(self, candidate: InstallerCandidate, scheme: str) -> bool:
+        """Ejecuta el paso interno `_scheme_allowed`.
+
+        Args:
+            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+            scheme (str): Valor de `scheme` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         if scheme in self.settings.allowed_download_schemes:
             return True
         return scheme == "http" and is_verified_winstall_candidate(candidate)
@@ -306,12 +402,15 @@ class DownloadValidator:
         current_url: str,
         response: httpx.Response,
     ) -> ValidationResult | None:
-        """Keep a visible Winstall installer usable when an edge challenge blocks bots.
+        """Ejecuta el paso interno `_winstall_edge_attested_result`.
 
-        This is intentionally narrower than a normal validation: it requires an HTTPS
-        Winstall download link with an explicit supported extension and an identifiable
-        Cloudflare-style challenge. Stale links that merely serve an HTML page, and
-        generic 403 responses, remain rejected.
+        Args:
+            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+            current_url (str): Dirección de `current` que debe procesarse.
+            response (httpx.Response): Respuesta que debe procesarse.
+
+        Returns:
+            ValidationResult | None: Resultado producido por la operación.
         """
         extension = (
             detect_extension(current_url)
@@ -342,6 +441,14 @@ class DownloadValidator:
 
 
 def is_verified_winstall_candidate(candidate: InstallerCandidate) -> bool:
+    """Indica si se cumple la operación `verified_winstall_candidate`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return candidate.source in {"winstall_api", "winstall_page"} or (
         candidate.asset_kind == "winstall_download"
     )
@@ -351,7 +458,15 @@ def winstall_http_tls_fallback(
     candidate: InstallerCandidate,
     error: httpx.ConnectError,
 ) -> InstallerCandidate | None:
-    """Retry a Winstall-attested download over HTTP only after a TLS chain failure."""
+    """Ejecuta la operación `winstall_http_tls_fallback`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        error (httpx.ConnectError): Error que debe registrarse o propagarse.
+
+    Returns:
+        InstallerCandidate | None: Resultado producido por la operación.
+    """
     parsed = urlparse(candidate.url)
     if not (
         is_verified_winstall_candidate(candidate)
@@ -363,12 +478,30 @@ def winstall_http_tls_fallback(
 
 
 def transport_security_for(url: str, candidate: InstallerCandidate) -> str | None:
+    """Ejecuta la operación `transport_security_for`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if urlparse(url).scheme == "http" and is_verified_winstall_candidate(candidate):
         return "http_winstall_verified"
     return None
 
 
 def metadata_headers(referer: str | None = None, *, partial: bool = False) -> dict[str, str]:
+    """Ejecuta la operación `metadata_headers`.
+
+    Args:
+        referer (str | None): Valor de `referer` utilizado por la operación.
+        partial (bool): Valor de `partial` utilizado por la operación.
+
+    Returns:
+        dict[str, str]: Mapa con los datos producidos por la operación.
+    """
     headers = {
         "Accept": "application/octet-stream,application/x-msdownload,application/x-msi,*/*",
         "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
@@ -389,6 +522,17 @@ async def request_metadata(
     *,
     probe_html: bool = False,
 ) -> httpx.Response:
+    """Ejecuta la operación `request_metadata`.
+
+    Args:
+        client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+        url (str): URL del recurso que debe procesarse.
+        referer (str | None): Valor de `referer` utilizado por la operación.
+        probe_html (bool): Valor de `probe_html` utilizado por la operación.
+
+    Returns:
+        httpx.Response: Resultado producido por la operación.
+    """
     response = await client.head(url, headers=metadata_headers(referer))
     content_type = response.headers.get("content-type", "").lower()
     if not response.is_redirect and (
@@ -411,7 +555,17 @@ async def request_partial(
     referer: str | None = None,
     max_bytes: int = 4096,
 ) -> httpx.Response:
-    """Read only enough bytes to identify a binary, even if Range is ignored."""
+    """Ejecuta la operación `request_partial`.
+
+    Args:
+        client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
+        url (str): URL del recurso que debe procesarse.
+        referer (str | None): Valor de `referer` utilizado por la operación.
+        max_bytes (int): Valor de `max_bytes` utilizado por la operación.
+
+    Returns:
+        httpx.Response: Resultado producido por la operación.
+    """
     async with client.stream(
         "GET",
         url,
@@ -434,6 +588,14 @@ async def request_partial(
 
 
 def response_size_bytes(response: httpx.Response) -> int | None:
+    """Ejecuta la operación `response_size_bytes`.
+
+    Args:
+        response (httpx.Response): Respuesta que debe procesarse.
+
+    Returns:
+        int | None: Resultado producido por la operación.
+    """
     content_range = response.headers.get("content-range", "")
     match = re.search(r"/(\d+)\s*$", content_range)
     if match:
@@ -443,15 +605,39 @@ def response_size_bytes(response: httpx.Response) -> int | None:
 
 
 def matches_installer_signature(extension: str, content: bytes) -> bool:
+    """Ejecuta la operación `matches_installer_signature`.
+
+    Args:
+        extension (str): Valor de `extension` utilizado por la operación.
+        content (bytes): Contenido que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.matches_signature(extension, content)
 
 
 def infer_installer_extension(content: bytes) -> str | None:
-    """Infer only formats with stable file signatures for extensionless endpoints."""
+    """Ejecuta la operación `infer_installer_extension`.
+
+    Args:
+        content (bytes): Contenido que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.infer_extension(content)
 
 
 def declared_candidate_extension(candidate: InstallerCandidate) -> str | None:
+    """Ejecuta la operación `declared_candidate_extension`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     text = f"{candidate.label or ''} {candidate.context or ''}".lower()
     for extension in sorted(PREFERRED_EXTENSIONS, key=len, reverse=True):
         if re.search(rf"(?<![a-z0-9]){re.escape(extension)}(?![a-z0-9])", text):
@@ -460,6 +646,15 @@ def declared_candidate_extension(candidate: InstallerCandidate) -> str | None:
 
 
 def filename_for_inferred_extension(url: str, extension: str) -> str:
+    """Ejecuta la operación `filename_for_inferred_extension`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+        extension (str): Valor de `extension` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     try:
         name = PurePosixPath(unquote(urlparse(url).path)).name
     except ValueError:
@@ -473,6 +668,16 @@ def filename_with_actual_extension(
     url: str,
     extension: str,
 ) -> str:
+    """Ejecuta la operación `filename_with_actual_extension`.
+
+    Args:
+        filename (str | None): Valor de `filename` utilizado por la operación.
+        url (str): URL del recurso que debe procesarse.
+        extension (str): Valor de `extension` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     if not filename:
         return filename_for_inferred_extension(url, extension)
     lowered = filename.lower()
@@ -484,6 +689,14 @@ def filename_with_actual_extension(
 
 
 def download_host(url: str) -> str | None:
+    """Ejecuta la operación `download_host`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     try:
         hostname = urlparse(url).hostname
     except ValueError:
@@ -494,7 +707,15 @@ def download_host(url: str) -> str | None:
 
 
 def same_site_referer(download_url: str, referer: str | None) -> str | None:
-    """Avoid leaking Winstall as a hotlink referer to third-party download CDNs."""
+    """Ejecuta la operación `same_site_referer`.
+
+    Args:
+        download_url (str): Dirección de `download` que debe procesarse.
+        referer (str | None): Valor de `referer` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if not referer:
         return None
     download_domain = registered_domain(download_url)
@@ -505,6 +726,14 @@ def same_site_referer(download_url: str, referer: str | None) -> str | None:
 
 
 def is_edge_challenge(response: httpx.Response) -> bool:
+    """Indica si se cumple la operación `edge_challenge`.
+
+    Args:
+        response (httpx.Response): Respuesta que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     headers = " ".join(
         value.lower()
         for key, value in response.headers.items()
@@ -539,6 +768,14 @@ def is_edge_challenge(response: httpx.Response) -> bool:
 
 
 def filename_from_content_disposition(value: str | None) -> str | None:
+    """Ejecuta la operación `filename_from_content_disposition`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if not value:
         return None
     match = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", value, flags=re.I)
@@ -553,6 +790,14 @@ def filename_from_content_disposition(value: str | None) -> str | None:
 
 
 def unsupported_filename_extension(value: str | None) -> str | None:
+    """Ejecuta la operación `unsupported_filename_extension`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if not value:
         return None
     try:
@@ -568,6 +813,14 @@ def unsupported_filename_extension(value: str | None) -> str | None:
 
 
 async def domain_has_public_dns(hostname: str | None) -> bool:
+    """Ejecuta la operación `domain_has_public_dns`.
+
+    Args:
+        hostname (str | None): Valor de `hostname` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     if not hostname:
         return False
     try:
@@ -599,6 +852,14 @@ async def domain_has_public_dns(hostname: str | None) -> bool:
 
 
 async def resolve_public_dns(hostname: str) -> bool:
+    """Resuelve la operación `public_dns`.
+
+    Args:
+        hostname (str): Valor de `hostname` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     for attempt in range(3):
         addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
         transient_failure = False
@@ -627,6 +888,15 @@ async def resolve_public_dns(hostname: str) -> bool:
 
 
 def is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Indica si se cumple la operación `public_ip`.
+
+    Args:
+        ip (ipaddress.IPv4Address | ipaddress.IPv6Address): Valor de `ip` utilizado por la
+            operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return not (
         ip.is_private
         or ip.is_loopback

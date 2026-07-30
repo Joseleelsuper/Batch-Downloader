@@ -1,1 +1,2 @@
-"""Tests for the scraper service."""
+"""Contiene las pruebas de `__init__`.
+"""

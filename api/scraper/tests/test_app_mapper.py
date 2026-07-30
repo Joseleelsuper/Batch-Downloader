@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_app_mapper`.
+"""
 from uuid import uuid4
 
 from app.api.app_mapper import best_resolved_source, to_details
@@ -7,6 +9,8 @@ from app.db.models import DownloadSource, ResolvedSource, SoftwareApp, SoftwareA
 
 
 def test_details_exposes_download_options_and_primary_candidate() -> None:
+    """Comprueba el escenario `details_exposes_download_options_and_primary_candidate`.
+    """
     now = utc_now()
     app = SoftwareApp(
         id=uuid4(),
@@ -89,6 +93,8 @@ def test_details_exposes_download_options_and_primary_candidate() -> None:
 
 
 def test_expired_valid_sources_remain_downloadable_candidates() -> None:
+    """Comprueba el escenario `expired_valid_sources_remain_downloadable_candidates`.
+    """
     now = utc_now()
     app = SoftwareApp(
         id=uuid4(),
@@ -136,6 +142,8 @@ def test_expired_valid_sources_remain_downloadable_candidates() -> None:
 
 
 def test_mapper_fails_closed_when_projection_marks_candidate_unavailable() -> None:
+    """Comprueba el escenario `mapper_fails_closed_when_projection_marks_candidate_unavailable`.
+    """
     now = utc_now()
     app = SoftwareApp(
         id=uuid4(),
@@ -185,4 +193,6 @@ def test_mapper_fails_closed_when_projection_marks_candidate_unavailable() -> No
 
 
 def test_query_expression_does_not_add_generated_column_to_sqlite_metadata() -> None:
+    """Comprueba el escenario `query_expression_does_not_add_generated_column_to_sqlite_metadata`.
+    """
     assert "catalog_downloadable" not in ResolvedSource.__table__.c

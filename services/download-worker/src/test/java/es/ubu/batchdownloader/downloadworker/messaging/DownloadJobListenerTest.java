@@ -24,10 +24,27 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.util.unit.DataSize;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadJobListenerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class DownloadJobListenerTest {
+    /**
+     * Dato compartido {@code validator} para los escenarios de prueba.
+     */
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+    /**
+     * Dato compartido {@code inbox} para los escenarios de prueba.
+     */
     private final InboxRepository inbox = mock(InboxRepository.class);
+    /**
+     * Dato compartido {@code processor} para los escenarios de prueba.
+     */
     private final DownloadJobProcessor processor = mock(DownloadJobProcessor.class);
+    /**
+     * Dato compartido {@code properties} para los escenarios de prueba.
+     */
     private final DownloadProperties properties = new DownloadProperties(
             10,
             DataSize.ofMegabytes(10),
@@ -38,9 +55,15 @@ class DownloadJobListenerTest {
             2,
             Duration.ofMinutes(5),
             "/tmp");
+    /**
+     * Dato compartido {@code listener} para los escenarios de prueba.
+     */
     private final DownloadJobListener listener = new DownloadJobListener(
             validator, inbox, processor, properties);
 
+    /**
+     * Comprueba el escenario {@code skipsAlreadyProcessedEvent}.
+     */
     @Test
     void skipsAlreadyProcessedEvent() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
@@ -52,6 +75,9 @@ class DownloadJobListenerTest {
         verify(inbox, never()).complete(event.eventId());
     }
 
+    /**
+     * Comprueba el escenario {@code completesInboxOnlyAfterSuccessfulProcessing}.
+     */
     @Test
     void completesInboxOnlyAfterSuccessfulProcessing() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
@@ -63,6 +89,9 @@ class DownloadJobListenerTest {
         verify(inbox).complete(event.eventId());
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsUnsupportedVersionBeforeClaimingInbox}.
+     */
     @Test
     void rejectsUnsupportedVersionBeforeClaimingInbox() {
         DownloadJobRequestedEvent event = event(2);
@@ -73,6 +102,9 @@ class DownloadJobListenerTest {
         verify(inbox, never()).tryStart(event.eventId(), properties.inboxLease());
     }
 
+    /**
+     * Comprueba el escenario {@code releasesInboxWhenProcessingFailsSoRabbitCanRetry}.
+     */
     @Test
     void releasesInboxWhenProcessingFailsSoRabbitCanRetry() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
@@ -85,6 +117,12 @@ class DownloadJobListenerTest {
         verify(inbox, never()).complete(event.eventId());
     }
 
+    /**
+     * Ejecuta la operación {@code event}.
+     *
+     * @param version Valor de {@code version} utilizado por la operación.
+     * @return Resultado producido por {@code event}.
+     */
     private DownloadJobRequestedEvent event(int version) {
         return new DownloadJobRequestedEvent(
                 UUID.randomUUID(),

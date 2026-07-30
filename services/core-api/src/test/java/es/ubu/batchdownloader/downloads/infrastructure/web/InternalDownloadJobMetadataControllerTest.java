@@ -21,6 +21,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * Agrupa los escenarios de prueba de {@code InternalDownloadJobMetadataControllerTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @WebMvcTest(InternalDownloadJobMetadataController.class)
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
@@ -32,19 +37,42 @@ import org.springframework.test.web.servlet.MockMvc;
     "app.scraper-internal-service-token=test-internal-service-token"
 })
 class InternalDownloadJobMetadataControllerTest {
+    /**
+     * Constante que define {@code JOB_ID}.
+     */
     private static final UUID JOB_ID = UUID.fromString("00000000-0000-4000-8000-000000000001");
+    /**
+     * Constante que define {@code ITEM_ID}.
+     */
     private static final UUID ITEM_ID = UUID.fromString("00000000-0000-4000-8000-000000000002");
+    /**
+     * Constante que define {@code APP_ID}.
+     */
     private static final UUID APP_ID = UUID.fromString("00000000-0000-4000-8000-000000000003");
 
+    /**
+     * Dato compartido {@code mvc} para los escenarios de prueba.
+     */
     @Autowired
     private MockMvc mvc;
 
+    /**
+     * Dato compartido {@code jobs} para los escenarios de prueba.
+     */
     @MockBean
     private DownloadJobService jobs;
 
+    /**
+     * Dato compartido {@code users} para los escenarios de prueba.
+     */
     @MockBean
     private UserAccountStore users;
 
+    /**
+     * Comprueba el escenario {@code acceptsContainerHttpWithoutCsrfWhenTheInternalTokenMatches}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void acceptsContainerHttpWithoutCsrfWhenTheInternalTokenMatches() throws Exception {
         when(jobs.itemMetadata(eq(JOB_ID), any())).thenReturn(List.of(
@@ -67,6 +95,11 @@ class InternalDownloadJobMetadataControllerTest {
                 .andExpect(jsonPath("$[0].officialPageUrl").value("https://example.com/app"));
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsMissingOrIncorrectInternalTokens}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void rejectsMissingOrIncorrectInternalTokens() throws Exception {
         String body = "{\"itemIds\":[\"" + ITEM_ID + "\"]}";

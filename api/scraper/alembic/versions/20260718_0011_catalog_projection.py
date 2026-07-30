@@ -1,7 +1,4 @@
-"""Persist the catalog classification and its global counters.
-
-Revision ID: 20260718_0011
-Revises: 20260716_0010
+"""Define la migración de esquema `20260718_0011_catalog_projection`.
 """
 
 from collections.abc import Sequence
@@ -11,9 +8,17 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260718_0011"
+"""Estado global asociado a `revision`.
+"""
 down_revision: str | None = "20260716_0010"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels: str | Sequence[str] | None = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on: str | Sequence[str] | None = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 TRIGGERS = (
@@ -27,16 +32,25 @@ TRIGGERS = (
     "trg_software_apps_catalog_au",
     "trg_software_apps_catalog_ad",
 )
+"""Constante que define `TRIGGERS`.
+"""
 
 
 def _execute(sql: str) -> None:
+    """Ejecuta el paso interno `_execute`.
+
+    Args:
+        sql (str): Valor de `sql` utilizado por la operación.
+    """
     op.execute(sa.text(sql))
 
 
 def upgrade() -> None:
-    # Source-trigger updates are part of the catalog change token. Preserve
-    # microseconds so two transitions in the same wall-clock second cannot
-    # collapse into the same MAX(updated_at) value consumed by Core.
+            # Las actualizaciones de los disparadores de fuentes forman parte del token
+            # de cambio del catálogo. Conserva los microsegundos para que dos transiciones
+            # del mismo segundo no colapsen en el valor MAX(updated_at) consumido por Core.
+    """Ejecuta la operación `upgrade`.
+    """
     _execute(
         "ALTER TABLE software_apps "
         "MODIFY COLUMN updated_at DATETIME(6) NOT NULL"
@@ -102,9 +116,9 @@ def upgrade() -> None:
         """
     )
 
-    # Backfill once before the triggers are installed. Expiry is deliberately
-    # absent: a structurally safe, validated candidate remains selectable and is
-    # revalidated immediately before its URL is released to the download worker.
+    # Realiza una única carga inicial antes de instalar los disparadores. La caducidad
+    # se omite deliberadamente: un candidato validado y estructuralmente seguro sigue
+    # siendo seleccionable y se revalida antes de entregar su URL al worker de descarga.
     _execute(
         """
         UPDATE download_sources AS source
@@ -162,6 +176,8 @@ def upgrade() -> None:
 
 
 def _create_software_app_triggers() -> None:
+    """Ejecuta el paso interno `_create_software_app_triggers`.
+    """
     _execute(
         """
         CREATE TRIGGER trg_software_apps_catalog_ai
@@ -233,6 +249,8 @@ def _create_software_app_triggers() -> None:
 
 
 def _create_download_source_triggers() -> None:
+    """Ejecuta el paso interno `_create_download_source_triggers`.
+    """
     _execute(
         """
         CREATE TRIGGER trg_download_sources_catalog_ai
@@ -319,6 +337,8 @@ def _create_download_source_triggers() -> None:
 
 
 def _create_resolved_source_triggers() -> None:
+    """Ejecuta el paso interno `_create_resolved_source_triggers`.
+    """
     _execute(
         """
         CREATE TRIGGER trg_resolved_sources_catalog_ai
@@ -385,6 +405,8 @@ def _create_resolved_source_triggers() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     for trigger in reversed(TRIGGERS):
         _execute(f"DROP TRIGGER IF EXISTS {trigger}")
 

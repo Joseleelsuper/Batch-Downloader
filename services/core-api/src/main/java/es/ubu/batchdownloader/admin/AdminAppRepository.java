@@ -20,17 +20,43 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Gestiona la persistencia y consulta de {@code AdminAppRepository}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Repository
 public class AdminAppRepository {
+    /**
+     * Constante que define {@code DELETE_BATCH_SIZE}.
+     */
     private static final int DELETE_BATCH_SIZE = 500;
+    /**
+     * Estado {@code jdbc} mantenido por {@code AdminAppRepository}.
+     */
     private final JdbcTemplate jdbc;
+    /**
+     * Estado {@code catalog} mantenido por {@code AdminAppRepository}.
+     */
     private final CatalogRepository catalog;
 
+    /**
+     * Inicializa una instancia de {@code AdminAppRepository}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param catalog Acceso al catálogo utilizado por la operación.
+     */
     public AdminAppRepository(JdbcTemplate jdbc, CatalogRepository catalog) {
         this.jdbc = jdbc;
         this.catalog = catalog;
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code create}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code create}.
+     */
     @Transactional
     public AppDetails create(UpsertAppRequest request) {
         UUID id = UUID.randomUUID();
@@ -65,6 +91,13 @@ public class AdminAppRepository {
         return catalog.details(id.toString());
     }
 
+    /**
+     * Ejecuta la operación {@code patch}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code patch}.
+     */
     @Transactional
     public AppDetails patch(String publicId, PatchAppRequest request) {
         UUID id = softwareAppId(publicId);
@@ -92,11 +125,22 @@ public class AdminAppRepository {
         return catalog.details(id.toString());
     }
 
+    /**
+     * Ejecuta la operación {@code replaceTags}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     */
     @Transactional
     public void replaceTags(String publicId, List<String> tags) {
         replaceTags(softwareAppId(publicId), tags, "admin");
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code delete}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     */
     @Transactional
     public void delete(String publicId) {
         assertScraperIdleForDeletion();
@@ -109,6 +153,11 @@ public class AdminAppRepository {
         refreshBundleCounts(affectedBundles);
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteAll}.
+     *
+     * @return Número de elementos afectados por la operación.
+     */
     @Transactional
     public int deleteAll() {
         assertScraperIdleForDeletion();
@@ -121,6 +170,11 @@ public class AdminAppRepository {
         return count == null ? 0 : count;
     }
 
+    /**
+     * Ejecuta la operación {@code exportCsv}.
+     *
+     * @return Resultado producido por {@code exportCsv}.
+     */
     public AppCsvExport exportCsv() {
         List<ExportCandidate> candidates = jdbc.query(
                 """
@@ -172,6 +226,15 @@ public class AdminAppRepository {
         return new AppCsvExport(csv.toString(), rows.size());
     }
 
+    /**
+     * Ejecuta la operación {@code patchSource}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param sourceId Identificador de {@code source} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Transactional
     public void patchSource(String appId, String sourceId, PatchSourceRequest request) {
         UUID applicationId = softwareAppId(appId);
@@ -203,10 +266,24 @@ public class AdminAppRepository {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code softwareAppId}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @return Resultado producido por {@code softwareAppId}.
+     */
     public UUID softwareAppId(String publicId) {
         return catalog.softwareAppId(publicId);
     }
 
+    /**
+     * Transforma el valor recibido mediante {@code mapExportCandidate}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @param rowNum Valor de {@code rowNum} utilizado por la operación.
+     * @return Resultado producido por {@code mapExportCandidate}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private ExportCandidate mapExportCandidate(ResultSet rs, int rowNum) throws SQLException {
         return new ExportCandidate(
                 rs.getString("app_key"),
@@ -218,6 +295,12 @@ public class AdminAppRepository {
                 rs.getString("source_ref"));
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteApps}.
+     *
+     * @param appWhereClause Valor de {@code appWhereClause} utilizado por la operación.
+     * @param appWhereParams Valor de {@code appWhereParams} utilizado por la operación.
+     */
     private void deleteApps(String appWhereClause, List<Object> appWhereParams) {
         String scopedApps = appWhereClause.isBlank()
                 ? "SELECT id FROM software_apps"
@@ -233,11 +316,11 @@ public class AdminAppRepository {
         List<byte[]> sourceIds = selectIdsByForeignKey("download_sources", "software_app_id", appIds);
         List<byte[]> resolvedIds = selectIdsByForeignKey("resolved_sources", "download_source_id", sourceIds);
 
-        // Triggered tables are always deleted by their own primary keys. A
-        // DELETE ... IN (SELECT ... FROM download_sources) would make the
-        // resolved-source trigger update a table already used by the statement,
-        // which MySQL rejects. The bounded ID batches also keep large resets
-        // below the driver/server placeholder limits.
+        // Las tablas con disparadores se borran siempre por sus claves primarias.
+        // DELETE ... IN (SELECT ... FROM download_sources) haría que el disparador de
+        // fuentes resueltas actualizase una tabla ya usada por la sentencia, algo que
+        // MySQL rechaza. Los lotes acotados también mantienen los reinicios grandes
+        // por debajo del límite de parámetros del controlador y del servidor.
         deleteByForeignKey("resolver_logs", "download_source_id", sourceIds);
         deleteByIds("resolved_sources", resolvedIds);
         deleteByIds("download_sources", sourceIds);
@@ -246,6 +329,14 @@ public class AdminAppRepository {
         deleteByIds("software_apps", appIds);
     }
 
+    /**
+     * Ejecuta la operación {@code selectIdsByForeignKey}.
+     *
+     * @param table Valor de {@code table} utilizado por la operación.
+     * @param foreignKey Valor de {@code foreignKey} utilizado por la operación.
+     * @param ownerIds Colección de identificadores de {@code owner}.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<byte[]> selectIdsByForeignKey(String table, String foreignKey, List<byte[]> ownerIds) {
         if (ownerIds.isEmpty()) {
             return List.of();
@@ -258,26 +349,54 @@ public class AdminAppRepository {
         return List.copyOf(ids);
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteByIds}.
+     *
+     * @param table Valor de {@code table} utilizado por la operación.
+     * @param ids Valor de {@code ids} utilizado por la operación.
+     */
     private void deleteByIds(String table, List<byte[]> ids) {
         deleteByForeignKey(table, "id", ids);
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code deleteByForeignKey}.
+     *
+     * @param table Valor de {@code table} utilizado por la operación.
+     * @param column Valor de {@code column} utilizado por la operación.
+     * @param ids Valor de {@code ids} utilizado por la operación.
+     */
     private void deleteByForeignKey(String table, String column, List<byte[]> ids) {
         forEachDeleteBatch(ids, batch -> jdbc.update(
                 "DELETE FROM " + table + " WHERE " + column + " IN (" + placeholders(batch.size()) + ")",
                 batch.toArray()));
     }
 
+    /**
+     * Ejecuta la operación {@code forEachDeleteBatch}.
+     *
+     * @param ids Valor de {@code ids} utilizado por la operación.
+     * @param operation Valor de {@code operation} utilizado por la operación.
+     */
     private void forEachDeleteBatch(List<byte[]> ids, java.util.function.Consumer<List<byte[]>> operation) {
         for (int start = 0; start < ids.size(); start += DELETE_BATCH_SIZE) {
             operation.accept(ids.subList(start, Math.min(start + DELETE_BATCH_SIZE, ids.size())));
         }
     }
 
+    /**
+     * Ejecuta la operación {@code placeholders}.
+     *
+     * @param count Valor de {@code count} utilizado por la operación.
+     * @return Resultado producido por {@code placeholders}.
+     */
     private String placeholders(int count) {
         return String.join(", ", java.util.Collections.nCopies(count, "?"));
     }
 
+    /**
+     * Ejecuta la operación {@code assertScraperIdleForDeletion}.
+     */
     private void assertScraperIdleForDeletion() {
         boolean running = !jdbc.queryForList(
                 "SELECT id FROM scrape_runs WHERE status = 'running' FOR UPDATE").isEmpty();
@@ -296,12 +415,22 @@ public class AdminAppRepository {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code scraperRunningConflict}.
+     *
+     * @return Resultado producido por {@code scraperRunningConflict}.
+     */
     private ConflictException scraperRunningConflict() {
         return new ConflictException(
                 "scraper_running",
                 "No se pueden eliminar aplicaciones mientras el scraper está en ejecución.");
     }
 
+    /**
+     * Ejecuta la operación {@code refreshBundleCounts}.
+     *
+     * @param bundleIds Colección de identificadores de {@code bundle}.
+     */
     private void refreshBundleCounts(List<UUID> bundleIds) {
         for (UUID bundleId : bundleIds.stream().distinct().toList()) {
             Integer count = jdbc.queryForObject(
@@ -316,6 +445,13 @@ public class AdminAppRepository {
         }
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code createDefaultSource}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param officialUrl Dirección de {@code official} que debe procesarse.
+     * @param now Valor de {@code now} utilizado por la operación.
+     */
     private void createDefaultSource(UUID appId, String officialUrl, LocalDateTime now) {
         jdbc.update(
                 """
@@ -332,6 +468,13 @@ public class AdminAppRepository {
                 now);
     }
 
+    /**
+     * Ejecuta la operación {@code replaceTags}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param source Fuente de descarga sobre la que se actúa.
+     */
     private void replaceTags(UUID appId, List<String> tags, String source) {
         jdbc.update("DELETE FROM software_app_tags WHERE software_app_id = ?", UuidBytes.fromUuid(appId));
         if (tags == null) {
@@ -354,6 +497,14 @@ public class AdminAppRepository {
         }
     }
 
+    /**
+     * Analiza el contenido recibido mediante {@code parseUuid}.
+     *
+     * @param raw Valor de {@code raw} utilizado por la operación.
+     * @return Resultado producido por {@code parseUuid}.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private UUID parseUuid(String raw) {
         try {
             return UUID.fromString(raw);
@@ -362,6 +513,12 @@ public class AdminAppRepository {
         }
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizeSlug}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code normalizeSlug}.
+     */
     private String normalizeSlug(String value) {
         String slug = value.toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "-")
@@ -369,22 +526,53 @@ public class AdminAppRepository {
         return slug.isBlank() ? "app-" + UUID.randomUUID() : slug;
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizeText}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code normalizeText}.
+     */
     private String normalizeText(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
     }
 
+    /**
+     * Ejecuta la operación {@code coalesce}.
+     *
+     * @param next Valor de {@code next} utilizado por la operación.
+     * @param current Valor de {@code current} utilizado por la operación.
+     * @return Resultado producido por {@code coalesce}.
+     */
     private String coalesce(String next, String current) {
         return next == null ? current : next;
     }
 
+    /**
+     * Ejecuta la operación {@code blankToNull}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code blankToNull}.
+     */
     private String blankToNull(String value) {
         return isBlank(value) ? null : value;
     }
 
+    /**
+     * Indica si se cumple la condición mediante {@code isBlank}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
 
+    /**
+     * Ejecuta la operación {@code winstallUrl}.
+     *
+     * @param winstallId Identificador de {@code winstall} utilizado por la operación.
+     * @return Resultado producido por {@code winstallUrl}.
+     */
     private String winstallUrl(String winstallId) {
         if (isBlank(winstallId) || winstallId.startsWith("manual.")) {
             return "None";
@@ -392,10 +580,23 @@ public class AdminAppRepository {
         return "https://winstall.app/apps/" + winstallId.trim();
     }
 
+    /**
+     * Ejecuta la operación {@code blankToNone}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code blankToNone}.
+     */
     private String blankToNone(String value) {
         return isBlank(value) ? "None" : value.trim();
     }
 
+    /**
+     * Ejecuta la operación {@code platformKey}.
+     *
+     * @param operatingSystem Valor de {@code operatingSystem} utilizado por la operación.
+     * @param extension Valor de {@code extension} utilizado por la operación.
+     * @return Resultado producido por {@code platformKey}.
+     */
     private String platformKey(String operatingSystem, String extension) {
         String os = operatingSystem == null ? "" : operatingSystem.toLowerCase(Locale.ROOT).trim();
         if (os.contains("windows") || os.equals("win")) {
@@ -417,6 +618,12 @@ public class AdminAppRepository {
         };
     }
 
+    /**
+     * Ejecuta la operación {@code csvCell}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code csvCell}.
+     */
     private String csvCell(String value) {
         String safe = isBlank(value) ? "None" : value;
         if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")) {
@@ -425,8 +632,27 @@ public class AdminAppRepository {
         return safe;
     }
 
+    /**
+     * Representa los datos inmutables de {@code AppCsvExport}.
+     *
+     * @param content Valor de {@code content} incluido en el record.
+     * @param rowCount Valor de {@code rowCount} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     public record AppCsvExport(String content, int rowCount) {}
 
+    /**
+     * Representa los datos inmutables de {@code ExportCandidate}.
+     *
+     * @param appKey Valor de {@code appKey} incluido en el record.
+     * @param name Valor de {@code name} incluido en el record.
+     * @param winstallId Valor de {@code winstallId} incluido en el record.
+     * @param officialUrl Valor de {@code officialUrl} incluido en el record.
+     * @param operatingSystem Valor de {@code operatingSystem} incluido en el record.
+     * @param extension Valor de {@code extension} incluido en el record.
+     * @param sourceRef Valor de {@code sourceRef} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record ExportCandidate(
             String appKey,
             String name,
@@ -436,20 +662,56 @@ public class AdminAppRepository {
             String extension,
             String sourceRef) {}
 
+    /**
+     * Implementa el componente {@code ExportRow}.
+     *
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private static final class ExportRow {
+        /**
+         * Estado {@code name} mantenido por {@code ExportRow}.
+         */
         private final String name;
+        /**
+         * Estado {@code winstall} mantenido por {@code ExportRow}.
+         */
         private final String winstall;
+        /**
+         * Estado {@code officialUrl} mantenido por {@code ExportRow}.
+         */
         private final String officialUrl;
+        /**
+         * Estado {@code windows} mantenido por {@code ExportRow}.
+         */
         private String windows = "None";
+        /**
+         * Estado {@code linux} mantenido por {@code ExportRow}.
+         */
         private String linux = "None";
+        /**
+         * Estado {@code macos} mantenido por {@code ExportRow}.
+         */
         private String macos = "None";
 
+        /**
+         * Inicializa una instancia de {@code ExportRow}.
+         *
+         * @param name Nombre del elemento sobre el que se actúa.
+         * @param winstall Valor de {@code winstall} utilizado por la operación.
+         * @param officialUrl Dirección de {@code official} que debe procesarse.
+         */
         private ExportRow(String name, String winstall, String officialUrl) {
             this.name = name;
             this.winstall = winstall;
             this.officialUrl = officialUrl;
         }
 
+        /**
+         * Ejecuta la operación {@code putIfMissing}.
+         *
+         * @param platform Valor de {@code platform} utilizado por la operación.
+         * @param url URL del recurso que debe procesarse.
+         */
         private void putIfMissing(String platform, String url) {
             if ("windows".equals(platform) && "None".equals(windows)) {
                 windows = url;
@@ -460,26 +722,56 @@ public class AdminAppRepository {
             }
         }
 
+        /**
+         * Ejecuta la operación {@code name}.
+         *
+         * @return Resultado producido por {@code name}.
+         */
         private String name() {
             return name;
         }
 
+        /**
+         * Ejecuta la operación {@code winstall}.
+         *
+         * @return Resultado producido por {@code winstall}.
+         */
         private String winstall() {
             return winstall;
         }
 
+        /**
+         * Ejecuta la operación {@code officialUrl}.
+         *
+         * @return Resultado producido por {@code officialUrl}.
+         */
         private String officialUrl() {
             return officialUrl;
         }
 
+        /**
+         * Ejecuta la operación {@code windows}.
+         *
+         * @return Resultado producido por {@code windows}.
+         */
         private String windows() {
             return windows;
         }
 
+        /**
+         * Ejecuta la operación {@code linux}.
+         *
+         * @return Resultado producido por {@code linux}.
+         */
         private String linux() {
             return linux;
         }
 
+        /**
+         * Ejecuta la operación {@code macos}.
+         *
+         * @return Resultado producido por {@code macos}.
+         */
         private String macos() {
             return macos;
         }

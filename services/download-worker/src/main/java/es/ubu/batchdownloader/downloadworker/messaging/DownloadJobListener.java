@@ -14,15 +14,43 @@ import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+/**
+ * Procesa los eventos recibidos por {@code DownloadJobListener}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Component
 public class DownloadJobListener {
+    /**
+     * Constante que define {@code LOGGER}.
+     */
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobListener.class);
 
+    /**
+     * Estado {@code validator} mantenido por {@code DownloadJobListener}.
+     */
     private final Validator validator;
+    /**
+     * Estado {@code inbox} mantenido por {@code DownloadJobListener}.
+     */
     private final InboxRepository inbox;
+    /**
+     * Estado {@code processor} mantenido por {@code DownloadJobListener}.
+     */
     private final DownloadJobProcessor processor;
+    /**
+     * Estado {@code properties} mantenido por {@code DownloadJobListener}.
+     */
     private final DownloadProperties properties;
 
+    /**
+     * Inicializa una instancia de {@code DownloadJobListener}.
+     *
+     * @param validator Valor de {@code validator} utilizado por la operación.
+     * @param inbox Valor de {@code inbox} utilizado por la operación.
+     * @param processor Valor de {@code processor} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     */
     public DownloadJobListener(
             Validator validator,
             InboxRepository inbox,
@@ -34,6 +62,11 @@ public class DownloadJobListener {
         this.properties = properties;
     }
 
+    /**
+     * Ejecuta la operación {@code receive}.
+     *
+     * @param event Evento que debe procesarse.
+     */
     @RabbitListener(
             queues = "${download-worker.messaging.input-queue}",
             containerFactory = "downloadRabbitListenerContainerFactory")
@@ -62,6 +95,13 @@ public class DownloadJobListener {
         }
     }
 
+    /**
+     * Valida los datos recibidos mediante {@code validate}.
+     *
+     * @param event Evento que debe procesarse.
+     * @throws AmqpRejectAndDontRequeueException Si no puede completarse la operación bajo las
+     *     condiciones requeridas.
+     */
     private void validate(DownloadJobRequestedEvent event) {
         if (event == null) {
             throw new AmqpRejectAndDontRequeueException("null_download_event");

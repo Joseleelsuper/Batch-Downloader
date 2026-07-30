@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_winstall_client`.
+"""
 from app.scraper.winstall import (
     extract_next_data,
     extract_winstall_downloads,
@@ -7,6 +9,8 @@ from app.scraper.winstall import (
 
 
 def test_extract_next_data_app_payload() -> None:
+    """Comprueba el escenario `extract_next_data_app_payload`.
+    """
     html = """
     <html><body>
       <script id="__NEXT_DATA__" type="application/json">
@@ -21,6 +25,8 @@ def test_extract_next_data_app_payload() -> None:
 
 
 def test_parse_winstall_app_versions() -> None:
+    """Comprueba el escenario `parse_winstall_app_versions`.
+    """
     app = parse_winstall_app(
         {
             "_id": "EpicGames.EpicGamesLauncher",
@@ -46,6 +52,8 @@ def test_parse_winstall_app_versions() -> None:
 
 
 def test_extract_winstall_download_links_from_app_page() -> None:
+    """Comprueba el escenario `extract_winstall_download_links_from_app_page`.
+    """
     html = """
     <ul>
       <li>
@@ -66,6 +74,8 @@ def test_extract_winstall_download_links_from_app_page() -> None:
 
 
 def test_extract_winstall_page_links_finds_view_site_and_download() -> None:
+    """Comprueba el escenario `extract_winstall_page_links_finds_view_site_and_download`.
+    """
     html = (
         "<ul>"
         '<li><a href="https://technology.a-sit.at/pdf-over-2/?ref=winstall">'
@@ -87,6 +97,8 @@ def test_extract_winstall_page_links_finds_view_site_and_download() -> None:
 
 
 def test_winstall_version_link_ending_in_appx_is_not_a_download() -> None:
+    """Comprueba el escenario `winstall_version_link_ending_in_appx_is_not_a_download`.
+    """
     html = """
     <a href="/apps/KDE.Filelight.AppX">v25.1202.1987.0</a>
     <a href="https://cdn.kde.org/filelight-sideload.appx">Download (.msix)</a>

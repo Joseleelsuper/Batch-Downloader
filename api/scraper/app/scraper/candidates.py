@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `candidates`.
+"""
 from __future__ import annotations
 
 import re
@@ -15,15 +17,23 @@ from app.scraper.artifacts import (
 from app.scraper.text import normalize_text
 
 PREFERRED_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions
+"""Constante que define `PREFERRED_EXTENSIONS`.
+"""
 WINDOWS_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
     ArtifactPlatform.WINDOWS
 )
+"""Constante que define `WINDOWS_INSTALLER_EXTENSIONS`.
+"""
 MACOS_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
     ArtifactPlatform.MACOS
 )
+"""Constante que define `MACOS_INSTALLER_EXTENSIONS`.
+"""
 LINUX_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
     ArtifactPlatform.LINUX
 )
+"""Constante que define `LINUX_INSTALLER_EXTENSIONS`.
+"""
 UNSUPPORTED_DOWNLOAD_EXTENSIONS = (
     ".apk",
     ".asc",
@@ -42,6 +52,8 @@ UNSUPPORTED_DOWNLOAD_EXTENSIONS = (
     ".yml",
     ".yaml",
 )
+"""Constante que define `UNSUPPORTED_DOWNLOAD_EXTENSIONS`.
+"""
 
 POSITIVE_KEYWORDS = (
     "download",
@@ -56,6 +68,8 @@ POSITIVE_KEYWORDS = (
     "offline",
     "standalone",
 )
+"""Constante que define `POSITIVE_KEYWORDS`.
+"""
 
 NEGATIVE_KEYWORDS = (
     "documentation",
@@ -71,47 +85,89 @@ NEGATIVE_KEYWORDS = (
     "opengl",
     "noselfupdate",
 )
+"""Constante que define `NEGATIVE_KEYWORDS`.
+"""
 
 URL_PATTERN = re.compile(
     r"https?://[^\s'\"<>\\]+|(?:(?:\.\./|\.\/|/)?[A-Za-z0-9._~!$&'()*+,;=:@%/-]+"
     r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.appimage|\.dmg|\.pkg|\.tar\.gz|\.jar)(?:\?[^\s'\"<>\\]*)?)",
     re.IGNORECASE,
 )
+"""Constante que define `URL_PATTERN`.
+"""
 
-# Scripts often contain arbitrary JavaScript fragments ending in ".exe" or ".deb".
-# Only absolute URLs are trustworthy enough to extract from a script body; regular
-# link and form attributes are still handled separately below.
+# Los scripts suelen contener fragmentos JavaScript arbitrarios terminados en ".exe"
+# o ".deb". Solo las URL absolutas son fiables para extraerlas del cuerpo de un script;
+# los atributos normales de enlaces y formularios se procesan por separado más abajo.
 ABSOLUTE_URL_PATTERN = re.compile(r"https?://[^\s'\"<>\\]+", re.IGNORECASE)
+"""Constante que define `ABSOLUTE_URL_PATTERN`.
+"""
 
-# Dynamic download controls frequently keep the next route in inline JavaScript,
-# for example: onclick="location.href='/download/launcherPC/'". Only quoted
-# navigation-like values are accepted here so arbitrary JavaScript is not treated
-# as a URL.
+# Los controles dinámicos de descarga suelen guardar la ruta siguiente en JavaScript
+# en línea, por ejemplo: onclick="location.href='/download/launcherPC/'". Aquí solo se
+# aceptan valores entre comillas con forma de navegación para no tratar JavaScript
+# arbitrario como una URL.
 EMBEDDED_NAVIGATION_URL_PATTERN = re.compile(
     r"(['\"])((?:https?:)?//[^'\"]+|/(?!/)[^'\"]+|\.\.?/[^'\"]+)\1",
     re.IGNORECASE,
 )
+"""Constante que define `EMBEDDED_NAVIGATION_URL_PATTERN`.
+"""
 
 VERSION_PATTERN = re.compile(r"(?<!\d)v?(\d+(?:\.\d+){1,4})", re.I)
+"""Constante que define `VERSION_PATTERN`.
+"""
 
 
 @dataclass(frozen=True)
 class InstallerCandidate:
+    """Representa el componente `InstallerCandidate`.
+    """
     url: str
+    """Atributo de clase `url` de `InstallerCandidate`.
+    """
     source: str
+    """Atributo de clase `source` de `InstallerCandidate`.
+    """
     label: str | None = None
+    """Atributo de clase `label` de `InstallerCandidate`.
+    """
     context: str | None = None
+    """Atributo de clase `context` de `InstallerCandidate`.
+    """
     score: int = 0
+    """Atributo de clase `score` de `InstallerCandidate`.
+    """
     asset_kind: str | None = None
+    """Atributo de clase `asset_kind` de `InstallerCandidate`.
+    """
     match_tokens: tuple[str, ...] = ()
+    """Atributo de clase `match_tokens` de `InstallerCandidate`.
+    """
     referer: str | None = None
+    """Atributo de clase `referer` de `InstallerCandidate`.
+    """
 
     @property
     def extension(self) -> str | None:
+        """Ejecuta `extension` dentro de `InstallerCandidate`.
+
+        Returns:
+            str | None: Resultado producido por la operación.
+        """
         return detect_extension(self.url)
 
 
 def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
+    """Ejecuta la operación `extract_candidates`.
+
+    Args:
+        html (str): Valor de `html` utilizado por la operación.
+        base_url (str): Dirección de `base` que debe procesarse.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     parser = HTMLParser(html)
     candidates: list[InstallerCandidate] = []
 
@@ -214,6 +270,15 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
 
 
 def safe_urljoin(base_url: str, value: str) -> str | None:
+    """Ejecuta la operación `safe_urljoin`.
+
+    Args:
+        base_url (str): Dirección de `base` que debe procesarse.
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     try:
         return urljoin(base_url, value)
     except ValueError:
@@ -221,6 +286,14 @@ def safe_urljoin(base_url: str, value: str) -> str | None:
 
 
 def navigation_urls_from_attribute(value: str) -> list[str]:
+    """Ejecuta la operación `navigation_urls_from_attribute`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        list[str]: Colección de elementos obtenidos por la operación.
+    """
     stripped = value.strip()
     urls: list[str] = []
     if stripped.startswith(("http://", "https://", "//", "/", "./", "../")):
@@ -236,6 +309,18 @@ def score_candidate(
     publisher: str | None = None,
     version: str | None = None,
 ) -> InstallerCandidate:
+    """Ejecuta la operación `score_candidate`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        app_name (str | None): Valor de `app_name` utilizado por la operación.
+        package_id (str | None): Identificador de `package` utilizado por la operación.
+        publisher (str | None): Valor de `publisher` utilizado por la operación.
+        version (str | None): Valor de `version` utilizado por la operación.
+
+    Returns:
+        InstallerCandidate: Resultado producido por la operación.
+    """
     text = normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
     score = 0
     extension = detect_extension(candidate.url)
@@ -305,6 +390,14 @@ def score_candidate(
 
 
 def classify_asset(url: str) -> str:
+    """Ejecuta la operación `classify_asset`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     if is_github_source_archive(url):
         return "source_archive"
     if is_github_release_asset(url) and detect_extension(url) == ".zip":
@@ -321,6 +414,14 @@ def classify_asset(url: str) -> str:
 
 
 def is_github_source_archive(url: str) -> bool:
+    """Indica si se cumple la operación `github_source_archive`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     parsed = urlparse(url)
     host = parsed.netloc.lower()
     path = parsed.path.lower()
@@ -335,6 +436,14 @@ def is_github_source_archive(url: str) -> bool:
 
 
 def is_github_release_asset(url: str) -> bool:
+    """Indica si se cumple la operación `github_release_asset`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     parsed = urlparse(url)
     return (
         parsed.netloc.lower().endswith("github.com")
@@ -349,12 +458,32 @@ def app_match_tokens(
     publisher: str | None,
     version: str | None,
 ) -> list[str]:
+    """Ejecuta la operación `app_match_tokens`.
+
+    Args:
+        text (str): Valor de `text` utilizado por la operación.
+        app_name (str | None): Valor de `app_name` utilizado por la operación.
+        package_id (str | None): Identificador de `package` utilizado por la operación.
+        publisher (str | None): Valor de `publisher` utilizado por la operación.
+        version (str | None): Valor de `version` utilizado por la operación.
+
+    Returns:
+        list[str]: Colección de elementos obtenidos por la operación.
+    """
     raw = " ".join(value for value in (app_name, package_id, publisher, version) if value)
     tokens = product_tokens(raw)
     return [token for token in tokens if token in text]
 
 
 def product_tokens(value: str) -> list[str]:
+    """Ejecuta la operación `product_tokens`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        list[str]: Colección de elementos obtenidos por la operación.
+    """
     normalized = normalize_text(value.replace(".", " ").replace("_", " ").replace("-", " "))
     stopwords = {
         "app",
@@ -377,6 +506,16 @@ def product_tokens(value: str) -> list[str]:
 
 
 def variant_score(text: str, app_name: str | None, package_id: str | None) -> int:
+    """Ejecuta la operación `variant_score`.
+
+    Args:
+        text (str): Valor de `text` utilizado por la operación.
+        app_name (str | None): Valor de `app_name` utilizado por la operación.
+        package_id (str | None): Identificador de `package` utilizado por la operación.
+
+    Returns:
+        int: Resultado producido por la operación.
+    """
     app_text = normalize_text(f"{app_name or ''} {package_id or ''}")
     score = 0
     variants = {
@@ -399,10 +538,26 @@ def variant_score(text: str, app_name: str | None, package_id: str | None) -> in
 
 
 def detect_extension(url: str) -> str | None:
+    """Ejecuta la operación `detect_extension`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.detect_extension(url)
 
 
 def filename_from_url(url: str) -> str | None:
+    """Ejecuta la operación `filename_from_url`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     parsed = urlparse(url)
     path = unquote(parsed.path)
     for name in [PurePosixPath(path).name, *reversed(path.split("/"))]:
@@ -418,17 +573,41 @@ def filename_from_url(url: str) -> str | None:
 
 
 def candidate_text(candidate: InstallerCandidate) -> str:
+    """Ejecuta la operación `candidate_text`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
 
 
 def keyword_present(text: str, keyword: str) -> bool:
-    """Match semantic keywords, without treating `sourceforge` as `source`."""
+    """Ejecuta la operación `keyword_present`.
+
+    Args:
+        text (str): Valor de `text` utilizado por la operación.
+        keyword (str): Valor de `keyword` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     normalized = normalize_text(keyword)
     pattern = re.escape(normalized).replace(r"\ ", r"\s+")
     return re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", text) is not None
 
 
 def candidate_has_download_intent(candidate: InstallerCandidate) -> bool:
+    """Ejecuta la operación `candidate_has_download_intent`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     text = candidate_text(candidate)
     if candidate.asset_kind == "winstall_download":
         return True
@@ -439,12 +618,26 @@ def candidate_has_download_intent(candidate: InstallerCandidate) -> bool:
 
 
 def is_download_candidate(candidate: InstallerCandidate) -> bool:
-    """Whether a candidate is worth validating before its final URL reveals an OS."""
+    """Indica si se cumple la operación `download_candidate`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return bool(detect_extension(candidate.url)) or candidate_has_download_intent(candidate)
 
 
 def candidate_variants(candidate: InstallerCandidate) -> list[InstallerCandidate]:
-    """Return safe equivalent URLs for infrastructure-specific malformed hosts."""
+    """Ejecuta la operación `candidate_variants`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+    """
     variants = [candidate]
     for variant_factory in (s3_path_style_variant, sourceforge_mirror_variant):
         variant = variant_factory(candidate)
@@ -454,10 +647,13 @@ def candidate_variants(candidate: InstallerCandidate) -> list[InstallerCandidate
 
 
 def s3_path_style_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
-    """Repair S3 virtual-host URLs whose bucket name cannot be validated as TLS DNS.
+    """Ejecuta la operación `s3_path_style_variant`.
 
-    S3 bucket names containing an underscore are valid legacy bucket names but not
-    valid host labels. The path-style S3 endpoint keeps TLS hostname validation intact.
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        InstallerCandidate | None: Resultado producido por la operación.
     """
     parsed = urlparse(candidate.url)
     host = (parsed.hostname or "").lower()
@@ -488,7 +684,14 @@ def s3_path_style_variant(candidate: InstallerCandidate) -> InstallerCandidate |
 
 
 def sourceforge_mirror_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
-    """Replace a stale SourceForge mirror with its public mirror router."""
+    """Ejecuta la operación `sourceforge_mirror_variant`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        InstallerCandidate | None: Resultado producido por la operación.
+    """
     parsed = urlparse(candidate.url)
     if not (parsed.hostname or "").lower().endswith(".dl.sourceforge.net"):
         return None
@@ -503,6 +706,14 @@ def sourceforge_mirror_variant(candidate: InstallerCandidate) -> InstallerCandid
 
 
 def infer_operating_system(candidate: InstallerCandidate) -> str | None:
+    """Ejecuta la operación `infer_operating_system`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     extension = candidate.extension
     text = candidate_text(candidate)
     if extension == ".tar.gz":
@@ -524,11 +735,27 @@ def infer_operating_system(candidate: InstallerCandidate) -> str | None:
 
 
 def operating_system_for_extension(extension: str | None) -> str | None:
+    """Ejecuta la operación `operating_system_for_extension`.
+
+    Args:
+        extension (str | None): Valor de `extension` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     platform = DEFAULT_ARTIFACT_FORMAT_REGISTRY.platform_for(extension)
     return platform.value if platform else None
 
 
 def infer_architecture(candidate: InstallerCandidate) -> str:
+    """Ejecuta la operación `infer_architecture`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     text = candidate_text(candidate)
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.infer_architecture(
         text,
@@ -537,10 +764,27 @@ def infer_architecture(candidate: InstallerCandidate) -> str:
 
 
 def has_architecture_token(text: str, token: str) -> bool:
+    """Indica si existe la operación `architecture_token`.
+
+    Args:
+        text (str): Valor de `text` utilizado por la operación.
+        token (str): Token utilizado para autorizar o correlacionar la operación.
+
+    Returns:
+        bool: Indica si se cumple la condición evaluada.
+    """
     return re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", text) is not None
 
 
 def extract_version(candidate: InstallerCandidate) -> str | None:
+    """Ejecuta la operación `extract_version`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     try:
         parsed = urlparse(candidate.url)
         url_text = " ".join((parsed.path, parsed.query, parsed.fragment))
@@ -559,10 +803,26 @@ def extract_version(candidate: InstallerCandidate) -> str | None:
 
 
 def strip_url_authorities(value: str) -> str:
+    """Ejecuta la operación `strip_url_authorities`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return re.sub(r"https?://(?:\[[^\]]+\]|[^/\s'\"<>]+)", "", value, flags=re.I)
 
 
 def registered_domain(url: str) -> str | None:
+    """Ejecuta la operación `registered_domain`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     import tldextract
 
     extracted = tldextract.extract(url)

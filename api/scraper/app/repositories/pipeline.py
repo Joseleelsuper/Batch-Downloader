@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `pipeline`.
+"""
 from __future__ import annotations
 
 import re
@@ -22,77 +24,180 @@ from app.db.models import (
 )
 
 QUEUE_SEARCHER_FILTER = "searcher_filter"
+"""Constante que define `QUEUE_SEARCHER_FILTER`.
+"""
 QUEUE_FILTER_SCRAPER = "filter_scraper"
+"""Constante que define `QUEUE_FILTER_SCRAPER`.
+"""
 QUEUE_SCRAPER_SO_FILTER = "scraper_so_filter"
+"""Constante que define `QUEUE_SCRAPER_SO_FILTER`.
+"""
 QUEUE_SO_FILTER_DESCRIPTOR = "so_filter_descriptor"
+"""Constante que define `QUEUE_SO_FILTER_DESCRIPTOR`.
+"""
 QUEUE_MANUAL_INSTALLER_ENRICHMENT = "manual_installer_enrichment"
+"""Constante que define `QUEUE_MANUAL_INSTALLER_ENRICHMENT`.
+"""
 QUEUE_WEBSITE_APP_DISCOVERY = "website_app_discovery"
+"""Constante que define `QUEUE_WEBSITE_APP_DISCOVERY`.
+"""
 
-# Snapshots back the live admin monitor; they are previews, never an archive of
-# an official web page. Bound the raw input before sanitizing so a large page
-# cannot monopolize a scraper worker in a regular-expression pass.
+# Las instantáneas alimentan el monitor administrativo en vivo; son vistas previas,
+# nunca un archivo de una página oficial. Acota la entrada antes de sanearla para que
+# una página grande no monopolice un worker del scraper durante una pasada de regex.
 MAX_SNAPSHOT_HTML_BYTES = 24_000
+"""Constante que define `MAX_SNAPSHOT_HTML_BYTES`.
+"""
 
 STATUS_QUEUED = "queued"
+"""Constante que define `STATUS_QUEUED`.
+"""
 STATUS_IN_PROGRESS = "in_progress"
+"""Constante que define `STATUS_IN_PROGRESS`.
+"""
 STATUS_COMPLETED = "completed"
+"""Constante que define `STATUS_COMPLETED`.
+"""
 STATUS_DISCARDED = "discarded"
+"""Constante que define `STATUS_DISCARDED`.
+"""
 STATUS_FAILED = "failed"
+"""Constante que define `STATUS_FAILED`.
+"""
 
 
 @dataclass(frozen=True)
 class QueuePreviewItem:
+    """Representa un elemento de `QueuePreview`.
+    """
     id: str
+    """Atributo de clase `id` de `QueuePreviewItem`.
+    """
     package_id: str
+    """Atributo de clase `package_id` de `QueuePreviewItem`.
+    """
     app_name: str | None
+    """Atributo de clase `app_name` de `QueuePreviewItem`.
+    """
     status: str
+    """Atributo de clase `status` de `QueuePreviewItem`.
+    """
     attempts: int
+    """Atributo de clase `attempts` de `QueuePreviewItem`.
+    """
     updated_at: object
+    """Atributo de clase `updated_at` de `QueuePreviewItem`.
+    """
 
 
 @dataclass(frozen=True)
 class QueueState:
+    """Representa el componente `QueueState`.
+    """
     queue: str
+    """Atributo de clase `queue` de `QueueState`.
+    """
     counts: dict[str, int]
+    """Atributo de clase `counts` de `QueueState`.
+    """
     items: list[QueuePreviewItem]
+    """Atributo de clase `items` de `QueueState`.
+    """
 
 
 @dataclass(frozen=True)
 class WorkerSnapshotView:
+    """Representa el componente `WorkerSnapshotView`.
+    """
     stage: str
+    """Atributo de clase `stage` de `WorkerSnapshotView`.
+    """
     package_id: str | None
+    """Atributo de clase `package_id` de `WorkerSnapshotView`.
+    """
     app_name: str | None
+    """Atributo de clase `app_name` de `WorkerSnapshotView`.
+    """
     url: str | None
+    """Atributo de clase `url` de `WorkerSnapshotView`.
+    """
     html: str | None
+    """Atributo de clase `html` de `WorkerSnapshotView`.
+    """
     captured_at: object
+    """Atributo de clase `captured_at` de `WorkerSnapshotView`.
+    """
 
 
 @dataclass(frozen=True)
 class MetricSnapshotView:
+    """Representa el componente `MetricSnapshotView`.
+    """
     available: int
+    """Atributo de clase `available` de `MetricSnapshotView`.
+    """
     review: int
+    """Atributo de clase `review` de `MetricSnapshotView`.
+    """
     unavailable: int
+    """Atributo de clase `unavailable` de `MetricSnapshotView`.
+    """
     queued_searcher_filter: int
+    """Atributo de clase `queued_searcher_filter` de `MetricSnapshotView`.
+    """
     queued_filter_scraper: int
+    """Atributo de clase `queued_filter_scraper` de `MetricSnapshotView`.
+    """
     queued_scraper_so_filter: int
+    """Atributo de clase `queued_scraper_so_filter` de `MetricSnapshotView`.
+    """
     queued_so_filter_descriptor: int
+    """Atributo de clase `queued_so_filter_descriptor` de `MetricSnapshotView`.
+    """
     captured_at: object
+    """Atributo de clase `captured_at` de `MetricSnapshotView`.
+    """
 
 
 @dataclass(frozen=True)
 class QueueMaintenanceResult:
+    """Representa el resultado de `QueueMaintenance`.
+    """
     action: str
+    """Atributo de clase `action` de `QueueMaintenanceResult`.
+    """
     affected: int
+    """Atributo de clase `affected` de `QueueMaintenanceResult`.
+    """
 
 
 class PipelineRepository:
+    """Gestiona la persistencia y consulta de `Pipeline`.
+    """
     def __init__(self, session: AsyncSession) -> None:
+        """Inicializa una instancia de `PipelineRepository`.
+
+        Args:
+            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        """
         self.session = session
+        """Estado de instancia asociado a `session`.
+        """
 
     async def reset_expired_leases(self) -> int:
+        """Restablece la operación `expired_leases`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         return await self.recover_stuck()
 
     async def recover_stuck(self) -> int:
+        """Recupera la operación `stuck`.
+
+        Returns:
+            int: Número de elementos afectados por la operación.
+        """
         now = utc_now()
         result = await self.session.scalars(
             select(ScraperWorkItem)
@@ -116,11 +221,10 @@ class PipelineRepository:
         return len(items)
 
     async def recover_orphaned_run_items(self) -> int:
-        """Release work owned by a run that cannot still have live workers.
+        """Recupera la operación `orphaned_run_items`.
 
-        A scheduler restart marks its previous run as failed immediately. Its
-        leases may still have minutes remaining, so waiting for normal lease
-        expiry leaves the admin panel apparently stuck after a restart.
+        Returns:
+            int: Número de elementos afectados por la operación.
         """
         now = utc_now()
         inactive_run_ids = select(ScrapeRun.id).where(
@@ -148,6 +252,11 @@ class PipelineRepository:
         return len(items)
 
     async def retry_failed(self) -> int:
+        """Reintenta la operación `failed`.
+
+        Returns:
+            int: Número de elementos afectados por la operación.
+        """
         now = utc_now()
         result = await self.session.scalars(
             select(ScraperWorkItem).where(ScraperWorkItem.status == STATUS_FAILED)
@@ -164,6 +273,11 @@ class PipelineRepository:
         return len(items)
 
     async def prune_terminal(self) -> int:
+        """Ejecuta `prune_terminal` dentro de `PipelineRepository`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         result = await self.session.execute(
             delete(ScraperWorkItem).where(
                 ScraperWorkItem.status.in_([STATUS_COMPLETED, STATUS_DISCARDED])
@@ -173,6 +287,11 @@ class PipelineRepository:
         return statement_rowcount(result)
 
     async def clear_pending(self) -> int:
+        """Limpia la operación `pending`.
+
+        Returns:
+            int: Número de elementos afectados por la operación.
+        """
         result = await self.session.execute(
             delete(ScraperWorkItem).where(
                 ScraperWorkItem.status.in_(
@@ -184,6 +303,11 @@ class PipelineRepository:
         return statement_rowcount(result)
 
     async def clear_all(self) -> int:
+        """Limpia la operación `all`.
+
+        Returns:
+            int: Número de elementos afectados por la operación.
+        """
         result = await self.session.execute(delete(ScraperWorkItem))
         await self.session.flush()
         return statement_rowcount(result)
@@ -199,6 +323,20 @@ class PipelineRepository:
         priority: int = 0,
         force: bool = False,
     ) -> ScraperWorkItem:
+        """Ejecuta `enqueue` dentro de `PipelineRepository`.
+
+        Args:
+            queue (str): Valor de `queue` utilizado por la operación.
+            package_id (str): Identificador de `package` utilizado por la operación.
+            app_name (str | None): Valor de `app_name` utilizado por la operación.
+            payload (dict[str, Any]): Carga de datos recibida por la operación.
+            run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
+            priority (int): Valor de `priority` utilizado por la operación.
+            force (bool): Valor de `force` utilizado por la operación.
+
+        Returns:
+            ScraperWorkItem: Resultado producido por la operación.
+        """
         existing = await self.session.scalar(
             select(ScraperWorkItem)
             .where(ScraperWorkItem.queue == queue)
@@ -255,6 +393,15 @@ class PipelineRepository:
         return item
 
     async def has_active_item(self, queue: str, package_id: str) -> bool:
+        """Indica si existe la operación `active_item`.
+
+        Args:
+            queue (str): Valor de `queue` utilizado por la operación.
+            package_id (str): Identificador de `package` utilizado por la operación.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         item_id = await self.session.scalar(
             select(ScraperWorkItem.id)
             .where(ScraperWorkItem.queue == queue)
@@ -265,6 +412,15 @@ class PipelineRepository:
         return item_id is not None
 
     async def item_statuses(self, queue: str, package_ids: list[str]) -> dict[str, str]:
+        """Ejecuta `item_statuses` dentro de `PipelineRepository`.
+
+        Args:
+            queue (str): Valor de `queue` utilizado por la operación.
+            package_ids (list[str]): Colección de identificadores de `package`.
+
+        Returns:
+            dict[str, str]: Mapa con los datos producidos por la operación.
+        """
         if not package_ids:
             return {}
         rows = await self.session.execute(
@@ -279,6 +435,15 @@ class PipelineRepository:
         queues: tuple[str, ...],
         package_ids: list[str],
     ) -> set[str]:
+        """Ejecuta `active_package_ids` dentro de `PipelineRepository`.
+
+        Args:
+            queues (tuple[str, ...]): Valor de `queues` utilizado por la operación.
+            package_ids (list[str]): Colección de identificadores de `package`.
+
+        Returns:
+            set[str]: Resultado producido por la operación.
+        """
         if not queues or not package_ids:
             return set()
         rows = await self.session.scalars(
@@ -295,6 +460,16 @@ class PipelineRepository:
         worker_id: str,
         lease_seconds: int,
     ) -> ScraperWorkItem | None:
+        """Reserva la operación `next`.
+
+        Args:
+            queue (str): Valor de `queue` utilizado por la operación.
+            worker_id (str): Identificador de `worker` utilizado por la operación.
+            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+
+        Returns:
+            ScraperWorkItem | None: Resultado producido por la operación.
+        """
         now = utc_now()
         item_id = await self.session.scalar(
             select(ScraperWorkItem.id)
@@ -323,12 +498,29 @@ class PipelineRepository:
         return item
 
     async def complete(self, item: ScraperWorkItem) -> None:
+        """Ejecuta `complete` dentro de `PipelineRepository`.
+
+        Args:
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+        """
         await self._finish(item, STATUS_COMPLETED, None)
 
     async def discard(self, item: ScraperWorkItem, reason: str) -> None:
+        """Ejecuta `discard` dentro de `PipelineRepository`.
+
+        Args:
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+            reason (str): Valor de `reason` utilizado por la operación.
+        """
         await self._finish(item, STATUS_DISCARDED, reason)
 
     async def fail(self, item: ScraperWorkItem, error: str) -> None:
+        """Ejecuta `fail` dentro de `PipelineRepository`.
+
+        Args:
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+            error (str): Error que debe registrarse o propagarse.
+        """
         await self._finish(item, STATUS_FAILED, error)
 
     async def requeue(
@@ -338,6 +530,13 @@ class PipelineRepository:
         *,
         delay_seconds: int = 2,
     ) -> None:
+        """Ejecuta `requeue` dentro de `PipelineRepository`.
+
+        Args:
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+            reason (str): Valor de `reason` utilizado por la operación.
+            delay_seconds (int): Valor de `delay_seconds` utilizado por la operación.
+        """
         now = utc_now()
         item.status = STATUS_QUEUED
         item.last_error = truncate(reason, 1000)
@@ -348,6 +547,13 @@ class PipelineRepository:
         await self.session.flush()
 
     async def _finish(self, item: ScraperWorkItem, status: str, message: str | None) -> None:
+        """Ejecuta el paso interno `_finish`.
+
+        Args:
+            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+            status (str): Valor de `status` utilizado por la operación.
+            message (str | None): Mensaje que debe procesarse.
+        """
         item.status = status
         item.last_error = truncate(message, 1000)
         item.lease_owner = None
@@ -356,6 +562,11 @@ class PipelineRepository:
         await self.session.flush()
 
     async def has_pending_work(self) -> bool:
+        """Indica si existe la operación `pending_work`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         count = await self.session.scalar(
             select(func.count(ScraperWorkItem.id)).where(
                 ScraperWorkItem.status.in_([STATUS_QUEUED, STATUS_IN_PROGRESS])
@@ -364,9 +575,25 @@ class PipelineRepository:
         return bool(count)
 
     async def queue_depth(self, queue: str) -> int:
+        """Ejecuta `queue_depth` dentro de `PipelineRepository`.
+
+        Args:
+            queue (str): Valor de `queue` utilizado por la operación.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         return await self._count_queue(queue)
 
     async def queue_states(self, limit: int = 20) -> list[QueueState]:
+        """Ejecuta `queue_states` dentro de `PipelineRepository`.
+
+        Args:
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            list[QueueState]: Colección de elementos obtenidos por la operación.
+        """
         states: list[QueueState] = []
         for queue in (
             QUEUE_SEARCHER_FILTER,
@@ -428,12 +655,24 @@ class PipelineRepository:
         html: str | None,
         ttl_seconds: int = 900,
     ) -> None:
+        """Guarda la operación `snapshot`.
+
+        Args:
+            run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
+            worker_id (str): Identificador de `worker` utilizado por la operación.
+            stage (str): Valor de `stage` utilizado por la operación.
+            package_id (str | None): Identificador de `package` utilizado por la operación.
+            app_name (str | None): Valor de `app_name` utilizado por la operación.
+            url (str | None): URL del recurso que debe procesarse.
+            html (str | None): Valor de `html` utilizado por la operación.
+            ttl_seconds (int): Valor de `ttl_seconds` utilizado por la operación.
+        """
         now = utc_now()
         self.session.add(
             ScraperWorkerSnapshot(
-                # Snapshots are a best-effort live view. Referencing the actively
-                # updated scrape run makes every insert take an FK lock on that row
-                # and can deadlock concurrent workers with `set_current`.
+            # Las instantáneas son una vista en vivo de mejor esfuerzo. Referenciar la
+            # ejecución que se actualiza hace que cada inserción bloquee su FK y puede
+            # interbloquear workers concurrentes con `set_current`.
                 run_id=None,
                 worker_id=worker_id,
                 stage=stage,
@@ -448,6 +687,11 @@ class PipelineRepository:
         await self.session.flush()
 
     async def prune_expired_snapshots(self) -> int:
+        """Ejecuta `prune_expired_snapshots` dentro de `PipelineRepository`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         result = await self.session.execute(
             delete(ScraperWorkerSnapshot).where(
                 ScraperWorkerSnapshot.expires_at < utc_now()
@@ -457,6 +701,11 @@ class PipelineRepository:
         return statement_rowcount(result)
 
     async def latest_snapshots(self) -> list[WorkerSnapshotView]:
+        """Ejecuta `latest_snapshots` dentro de `PipelineRepository`.
+
+        Returns:
+            list[WorkerSnapshotView]: Colección de elementos obtenidos por la operación.
+        """
         snapshots: list[WorkerSnapshotView] = []
         for stage in ("searcher", "filter", "scraper", "so_filter", "descriptor"):
             snapshot = await self.session.scalar(
@@ -480,6 +729,11 @@ class PipelineRepository:
         return snapshots
 
     async def save_metric_snapshot(self, run_id: uuid.UUID | None = None) -> None:
+        """Guarda la operación `metric_snapshot`.
+
+        Args:
+            run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
+        """
         available = await self._count_apps_with_statuses(
             [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value],
         )
@@ -512,6 +766,14 @@ class PipelineRepository:
         await self.session.flush()
 
     async def metric_snapshots(self, limit: int = 60) -> list[MetricSnapshotView]:
+        """Ejecuta `metric_snapshots` dentro de `PipelineRepository`.
+
+        Args:
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            list[MetricSnapshotView]: Colección de elementos obtenidos por la operación.
+        """
         result = await self.session.scalars(
             select(ScraperMetricSnapshot)
             .order_by(ScraperMetricSnapshot.captured_at.desc())
@@ -532,6 +794,14 @@ class PipelineRepository:
         ]
 
     async def _count_queue(self, queue: str) -> int:
+        """Ejecuta el paso interno `_count_queue`.
+
+        Args:
+            queue (str): Valor de `queue` utilizado por la operación.
+
+        Returns:
+            int: Número de elementos afectados por la operación.
+        """
         return int(
             await self.session.scalar(
                 select(func.count(ScraperWorkItem.id))
@@ -548,6 +818,16 @@ class PipelineRepository:
         exclude_available: bool = False,
         exclude_review: bool = False,
     ) -> int:
+        """Ejecuta el paso interno `_count_apps_with_statuses`.
+
+        Args:
+            statuses (list[str]): Valor de `statuses` utilizado por la operación.
+            exclude_available (bool): Valor de `exclude_available` utilizado por la operación.
+            exclude_review (bool): Valor de `exclude_review` utilizado por la operación.
+
+        Returns:
+            int: Número de elementos afectados por la operación.
+        """
         source_query = (
             select(DownloadSource.id)
             .where(DownloadSource.software_app_id == SoftwareApp.id)
@@ -591,13 +871,21 @@ class PipelineRepository:
 
 
 def sanitize_snapshot_html(html: str | None) -> str | None:
+    """Ejecuta la operación `sanitize_snapshot_html`.
+
+    Args:
+        html (str | None): Valor de `html` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if not html:
         return None
 
     bounded = truncate_snapshot_bytes(html)
-    # The previous nested script-tag expression could backtrack heavily on
-    # pages with large inline scripts. This bounded, non-nested pattern is
-    # sufficient for the monitor preview and remains predictable.
+        # La expresión anterior de etiquetas script anidadas podía retroceder en exceso
+        # con scripts grandes. Este patrón acotado y no anidado basta para la vista previa
+        # del monitor y mantiene un coste predecible.
     cleaned = re.sub(
         r"<script\b[^>]*>.*?(?:</script\s*>|\Z)",
         "",
@@ -610,6 +898,14 @@ def sanitize_snapshot_html(html: str | None) -> str | None:
 
 
 def truncate_snapshot_bytes(value: str) -> str:
+    """Ejecuta la operación `truncate_snapshot_bytes`.
+
+    Args:
+        value (str): Valor que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     encoded = value.encode("utf-8", errors="ignore")
     if len(encoded) <= MAX_SNAPSHOT_HTML_BYTES:
         return value
@@ -618,11 +914,27 @@ def truncate_snapshot_bytes(value: str) -> str:
 
 
 def truncate(value: str | None, max_length: int) -> str | None:
+    """Ejecuta la operación `truncate`.
+
+    Args:
+        value (str | None): Valor que debe procesarse.
+        max_length (int): Valor de `max_length` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if value is None:
         return None
     return value if len(value) <= max_length else value[: max_length - 3] + "..."
 
 
 def statement_rowcount(result: object) -> int:
-    """Return the affected-row count exposed by SQLAlchemy DML cursor results."""
+    """Ejecuta la operación `statement_rowcount`.
+
+    Args:
+        result (object): Resultado que debe procesarse.
+
+    Returns:
+        int: Número de elementos afectados por la operación.
+    """
     return int(getattr(result, "rowcount", 0) or 0)

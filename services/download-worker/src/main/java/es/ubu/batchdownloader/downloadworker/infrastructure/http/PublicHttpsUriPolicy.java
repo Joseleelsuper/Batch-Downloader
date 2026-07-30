@@ -7,13 +7,33 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.util.List;
 
+/**
+ * Implementa el componente {@code PublicHttpsUriPolicy}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class PublicHttpsUriPolicy {
+    /**
+     * Estado {@code hostResolver} mantenido por {@code PublicHttpsUriPolicy}.
+     */
     private final HostResolver hostResolver;
 
+    /**
+     * Inicializa una instancia de {@code PublicHttpsUriPolicy}.
+     *
+     * @param hostResolver Valor de {@code hostResolver} utilizado por la operación.
+     */
     public PublicHttpsUriPolicy(HostResolver hostResolver) {
         this.hostResolver = hostResolver;
     }
 
+    /**
+     * Valida los datos recibidos mediante {@code validate}.
+     *
+     * @param uri Valor de {@code uri} utilizado por la operación.
+     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     public void validate(URI uri) {
         if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) {
             throw new DownloadRejectedException("https_required");
@@ -27,6 +47,12 @@ public class PublicHttpsUriPolicy {
         }
     }
 
+    /**
+     * Indica si se cumple la condición mediante {@code isPublic}.
+     *
+     * @param address Valor de {@code address} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     static boolean isPublic(InetAddress address) {
         if (address.isAnyLocalAddress()
                 || address.isLoopbackAddress()

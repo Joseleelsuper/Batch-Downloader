@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_artifacts`.
+"""
 from app.scraper.artifacts import (
     DEFAULT_ARTIFACT_FORMAT_REGISTRY,
     ArtifactArchitecture,
@@ -8,6 +10,8 @@ from app.scraper.artifacts import (
 
 
 def test_default_registry_centralizes_extension_platform_and_signature_rules() -> None:
+    """Comprueba el escenario `default_registry_centralizes_extension_platform_and_signature_rules`.
+    """
     registry = DEFAULT_ARTIFACT_FORMAT_REGISTRY
 
     assert registry.detect_extension(
@@ -19,6 +23,7 @@ def test_default_registry_centralizes_extension_platform_and_signature_rules() -
 
 
 def test_registry_can_be_extended_without_changing_candidate_or_validator_code() -> None:
+    """Comprueba que el registro admite extensiones sin alterar candidatos ni validadores."""
     registry = ArtifactFormatRegistry(
         (
             ArtifactFormat(
@@ -37,6 +42,7 @@ def test_registry_can_be_extended_without_changing_candidate_or_validator_code()
 
 
 def test_registry_exposes_unknown_architecture_instead_of_forcing_a_cpu_family() -> None:
+    """Comprueba que el registro conserva una arquitectura desconocida sin forzar una familia."""
     registry = DEFAULT_ARTIFACT_FORMAT_REGISTRY
 
     assert registry.infer_architecture("product-universal.pkg") == ArtifactArchitecture.UNKNOWN

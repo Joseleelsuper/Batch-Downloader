@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_catalog_projection_mysql`.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -22,19 +24,30 @@ from app.repositories.catalog import CatalogRepository
 from app.repositories.catalog_projection import CatalogProjectionRepository
 
 testcontainers_mysql = pytest.importorskip("testcontainers.mysql")
+"""Estado global asociado a `testcontainers_mysql`.
+"""
 MySqlContainer = testcontainers_mysql.MySqlContainer
+"""Estado global asociado a `MySqlContainer`.
+"""
 
 SCRAPER_ROOT = Path(__file__).parents[1]
+"""Constante que define `SCRAPER_ROOT`.
+"""
 
 
 @pytest.fixture(scope="module")
 def mysql_url() -> Iterator[str]:
+    """Ejecuta la operación `mysql_url`.
+
+    Yields:
+        Iterator[str]: Elemento producido por la operación.
+    """
     container = MySqlContainer("mysql:8.4").with_command(
         "--log-bin-trust-function-creators=1"
     )
     try:
         container.start()
-    except Exception as exc:  # pragma: no cover - depends on the host Docker runtime
+    except Exception as exc:  # pragma: no cover - depende del runtime Docker del host
         if os.environ.get("CI"):
             pytest.fail(
                 f"Docker-backed MySQL is required in CI: {exc.__class__.__name__}"
@@ -54,6 +67,13 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
     mysql_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Comprueba el escenario `mysql_projection_backfill_triggers_rollback_and_repair`.
+
+    Args:
+        mysql_url (str): Dirección de `mysql` que debe procesarse.
+        monkeypatch (pytest.MonkeyPatch): Utilidad de pytest para sustituir dependencias durante la
+            prueba.
+    """
     monkeypatch.setenv("SCRAPPER_DATABASE_URL_OVERRIDE", mysql_url)
     get_settings.cache_clear()
     config = Config(str(SCRAPER_ROOT / "alembic.ini"))
@@ -63,6 +83,8 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
     command.upgrade(config, "head")
 
     async def scenario() -> None:
+        """Ejecuta la operación `scenario`.
+        """
         engine = create_async_engine(mysql_url, pool_pre_ping=True)
         try:
             async with AsyncSession(engine, expire_on_commit=False) as session:
@@ -181,7 +203,7 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
                 await session.commit()
                 await assert_counters(session, 1, 1, 0, 0)
 
-                # Drift is detected and repaired only by the offline command.
+                # La deriva solo se detecta y repara mediante el comando fuera de línea.
                 await session.execute(
                     text(
                         """
@@ -260,6 +282,11 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
                 source_ids = (uuid4(), uuid4())
 
                 async def insert_review_source(source_id: UUID) -> None:
+                    """Ejecuta la operación `insert_review_source`.
+
+                    Args:
+                        source_id (UUID): Identificador de `source` utilizado por la operación.
+                    """
                     async with AsyncSession(engine, expire_on_commit=False) as writer:
                         writer.add(
                             DownloadSource(
@@ -288,6 +315,11 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
                 await session.rollback()
 
                 async def make_source_available(source_id: UUID) -> None:
+                    """Construye la operación `source_available`.
+
+                    Args:
+                        source_id (UUID): Identificador de `source` utilizado por la operación.
+                    """
                     async with AsyncSession(engine, expire_on_commit=False) as writer:
                         concurrent_source = await writer.get(DownloadSource, source_id)
                         assert concurrent_source is not None
@@ -400,6 +432,11 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
 
 
 async def seed_pre_projection_catalog(mysql_url: str) -> None:
+    """Ejecuta la operación `seed_pre_projection_catalog`.
+
+    Args:
+        mysql_url (str): Dirección de `mysql` que debe procesarse.
+    """
     engine = create_async_engine(mysql_url, pool_pre_ping=True)
     try:
         async with engine.begin() as connection:
@@ -458,6 +495,12 @@ async def seed_pre_projection_catalog(mysql_url: str) -> None:
 
 
 async def invoke_terminal_resolution(engine, candidate_id: UUID):
+    """Ejecuta la operación `invoke_terminal_resolution`.
+
+    Args:
+        engine (Any): Valor de `engine` utilizado por la operación.
+        candidate_id (UUID): Identificador de `candidate` utilizado por la operación.
+    """
     import httpx
     from fastapi import FastAPI
 
@@ -476,6 +519,11 @@ async def invoke_terminal_resolution(engine, candidate_id: UUID):
     application.dependency_overrides[get_settings] = lambda: settings
 
     async def override_session():
+        """Ejecuta la operación `override_session`.
+
+        Yields:
+            Any: Elemento producido por la operación.
+        """
         async with AsyncSession(engine, expire_on_commit=False) as session:
             yield session
 
@@ -489,6 +537,14 @@ async def invoke_terminal_resolution(engine, candidate_id: UUID):
 
 
 def stale_candidate(source: DownloadSource) -> ResolvedSource:
+    """Ejecuta la operación `stale_candidate`.
+
+    Args:
+        source (DownloadSource): Fuente de descarga sobre la que se actúa.
+
+    Returns:
+        ResolvedSource: Resultado producido por la operación.
+    """
     return ResolvedSource(
         download_source_id=source.id,
         resolved_url_encrypted="encrypted",
@@ -513,6 +569,15 @@ async def assert_counters(
     review: int,
     missing: int,
 ) -> None:
+    """Comprueba la operación `counters`.
+
+    Args:
+        session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        total (int): Valor de `total` utilizado por la operación.
+        available (int): Valor de `available` utilizado por la operación.
+        review (int): Valor de `review` utilizado por la operación.
+        missing (int): Valor de `missing` utilizado por la operación.
+    """
     counters = await session.scalar(
         select(CatalogCounter)
         .where(CatalogCounter.id == 1)
@@ -529,6 +594,14 @@ async def assert_counters(
 
 
 async def counter_version(session: AsyncSession) -> int:
+    """Ejecuta la operación `counter_version`.
+
+    Args:
+        session (AsyncSession): Sesión de base de datos utilizada por la operación.
+
+    Returns:
+        int: Número de elementos afectados por la operación.
+    """
     counters = await session.get(CatalogCounter, 1, populate_existing=True)
     assert counters is not None
     return int(counters.version)
@@ -539,6 +612,13 @@ async def assert_app_status(
     app_id: UUID,
     expected: str,
 ) -> None:
+    """Comprueba la operación `app_status`.
+
+    Args:
+        session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        app_id (UUID): Identificador de `app` utilizado por la operación.
+        expected (str): Valor de `expected` utilizado por la operación.
+    """
     status = await session.scalar(
         select(SoftwareApp.catalog_status).where(SoftwareApp.id == app_id)
     )
@@ -552,6 +632,14 @@ async def assert_app_projection_counts(
     available: int,
     review: int,
 ) -> None:
+    """Comprueba la operación `app_projection_counts`.
+
+    Args:
+        session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        app_id (UUID): Identificador de `app` utilizado por la operación.
+        available (int): Valor de `available` utilizado por la operación.
+        review (int): Valor de `review` utilizado por la operación.
+    """
     counts = (
         await session.execute(
             select(
@@ -564,6 +652,15 @@ async def assert_app_projection_counts(
 
 
 async def projected_source_count(session: AsyncSession, source_id: UUID) -> int:
+    """Ejecuta la operación `projected_source_count`.
+
+    Args:
+        session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        source_id (UUID): Identificador de `source` utilizado por la operación.
+
+    Returns:
+        int: Número de elementos afectados por la operación.
+    """
     count = await session.scalar(
         select(DownloadSource.catalog_downloadable_count).where(
             DownloadSource.id == source_id
@@ -574,6 +671,11 @@ async def projected_source_count(session: AsyncSession, source_id: UUID) -> int:
 
 
 async def assert_projection_downgraded(mysql_url: str) -> None:
+    """Comprueba la operación `projection_downgraded`.
+
+    Args:
+        mysql_url (str): Dirección de `mysql` que debe procesarse.
+    """
     engine = create_async_engine(mysql_url, pool_pre_ping=True)
     try:
         async with AsyncSession(engine) as session:

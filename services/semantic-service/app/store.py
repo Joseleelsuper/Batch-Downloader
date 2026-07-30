@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `store`.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -20,6 +22,16 @@ def ensure_model_hnsw_index(
     model_version: str,
     dimensions: int,
 ) -> None:
+    """Garantiza la operación `model_hnsw_index`.
+
+    Args:
+        connection (Any): Conexión de base de datos utilizada por la operación.
+        model_version (str): Valor de `model_version` utilizado por la operación.
+        dimensions (int): Valor de `dimensions` utilizado por la operación.
+
+    Throws:
+        ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+    """
     if not 1 <= dimensions <= 2000:
         raise ValueError(f"unsupported_hnsw_dimensions:{dimensions}")
     connection.execute(
@@ -36,11 +48,30 @@ def ensure_model_hnsw_index(
 
 
 class SemanticStore:
+    """Gestiona el almacenamiento de `Semantic`.
+    """
     def __init__(self, database: Database) -> None:
+        """Inicializa una instancia de `SemanticStore`.
+
+        Args:
+            database (Database): Acceso a la base de datos utilizado por la operación.
+        """
         self.database = database
+        """Estado de instancia asociado a `database`.
+        """
 
     def active_model(self) -> tuple[RegisteredModel, str] | None:
+        """Ejecuta `active_model` dentro de `SemanticStore`.
+
+        Returns:
+            tuple[RegisteredModel, str] | None: Resultado producido por la operación.
+        """
         def query(connection):
+            """Ejecuta la consulta definida para la operación.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             row = connection.execute(
                 """
                 SELECT m.*, s.index_version
@@ -58,6 +89,17 @@ class SemanticStore:
         return self.database.run(query)
 
     def model(self, model_version: str) -> RegisteredModel:
+        """Ejecuta `model` dentro de `SemanticStore`.
+
+        Args:
+            model_version (str): Valor de `model_version` utilizado por la operación.
+
+        Returns:
+            RegisteredModel: Resultado producido por la operación.
+
+        Throws:
+            LookupError: Si no existe el elemento solicitado.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 "SELECT * FROM embedding_models WHERE model_version = %s",
@@ -69,6 +111,14 @@ class SemanticStore:
         return RegisteredModel.from_row(row)
 
     def selected_model_version(self, fallback: str) -> str:
+        """Ejecuta `selected_model_version` dentro de `SemanticStore`.
+
+        Args:
+            fallback (str): Valor de `fallback` utilizado por la operación.
+
+        Returns:
+            str: Resultado producido por la operación.
+        """
         row = self.database.run(
             lambda connection: connection.execute(
                 """
@@ -90,9 +140,25 @@ class SemanticStore:
         minimum_similarity: float,
         limit: int,
     ) -> list[dict[str, Any]]:
+        """Ejecuta `exact_search` dentro de `SemanticStore`.
+
+        Args:
+            model (RegisteredModel): Modelo utilizado por la operación.
+            query_vector (list[float]): Valor de `query_vector` utilizado por la operación.
+            minimum_similarity (float): Valor de `minimum_similarity` utilizado por la operación.
+            limit (int): Número máximo de elementos que se recuperarán.
+
+        Returns:
+            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        """
         literal = vector_literal(query_vector)
 
         def query(connection):
+            """Ejecuta la consulta definida para la operación.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             connection.execute("SET LOCAL enable_indexscan = off")
             connection.execute("SET LOCAL enable_bitmapscan = off")
             rows = connection.execute(
@@ -135,9 +201,24 @@ class SemanticStore:
         model_version: str,
         seen_at: datetime,
     ) -> int:
+        """Ejecuta `upsert_document_page` dentro de `SemanticStore`.
+
+        Args:
+            documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+            model_version (str): Valor de `model_version` utilizado por la operación.
+            seen_at (datetime): Instante asociado a `seen`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         changed = 0
 
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             nonlocal changed
             for document in documents:
                 existing = connection.execute(
@@ -201,9 +282,9 @@ class SemanticStore:
                     ),
                 )
             if changed:
-                # A document hash is shared by every model projection. Mark all
-                # published states incomplete before any new vectors are built,
-                # so an active model can never serve a partially current sweep.
+                # El hash de documento se comparte entre todas las proyecciones.
+                # Marca como incompletos los estados publicados antes de construir
+                # vectores para no servir un barrido parcialmente actualizado.
                 connection.execute(
                     """
                     UPDATE embedding_models model
@@ -231,7 +312,20 @@ class SemanticStore:
         return changed
 
     def finish_sweep(self, seen_at: datetime) -> int:
+        """Ejecuta `finish_sweep` dentro de `SemanticStore`.
+
+        Args:
+            seen_at (datetime): Instante asociado a `seen`.
+
+        Returns:
+            int: Resultado producido por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             result = connection.execute(
                 """
                 DELETE FROM semantic_documents
@@ -274,7 +368,23 @@ class SemanticStore:
         limit: int,
         lease_seconds: int,
     ) -> list[dict[str, Any]]:
+        """Reserva la operación `jobs`.
+
+        Args:
+            model_version (str): Valor de `model_version` utilizado por la operación.
+            owner (str): Valor de `owner` utilizado por la operación.
+            limit (int): Número máximo de elementos que se recuperarán.
+            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+
+        Returns:
+            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             return connection.execute(
                 """
                 WITH claimed AS (
@@ -314,7 +424,19 @@ class SemanticStore:
         jobs: list[dict[str, Any]],
         embeddings: list[list[float]],
     ) -> None:
+        """Ejecuta `complete_jobs` dentro de `SemanticStore`.
+
+        Args:
+            model_version (str): Valor de `model_version` utilizado por la operación.
+            jobs (list[dict[str, Any]]): Valor de `jobs` utilizado por la operación.
+            embeddings (list[list[float]]): Valor de `embeddings` utilizado por la operación.
+        """
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             for job, embedding in zip(jobs, embeddings, strict=True):
                 connection.execute(
                     """
@@ -346,6 +468,12 @@ class SemanticStore:
         self.database.run(mutate)
 
     def fail_jobs(self, jobs: list[dict[str, Any]], error: str) -> None:
+        """Ejecuta `fail_jobs` dentro de `SemanticStore`.
+
+        Args:
+            jobs (list[dict[str, Any]]): Valor de `jobs` utilizado por la operación.
+            error (str): Error que debe registrarse o propagarse.
+        """
         retry_at = datetime.now(timezone.utc) + timedelta(seconds=30)
         self.database.run(
             lambda connection: [
@@ -363,13 +491,24 @@ class SemanticStore:
         )
 
     def coverage_and_promote(self, model_version: str) -> dict[str, Any]:
-        """Publish coverage without changing the production model.
+        """Ejecuta `coverage_and_promote` dentro de `SemanticStore`.
 
-        The historical name is kept for callers, but promotion is now an
-        explicit administrative operation after benchmark and warm-up.
+        Args:
+            model_version (str): Valor de `model_version` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
         """
 
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                LookupError: Si no existe el elemento solicitado.
+            """
             coverage = connection.execute(
                 """
                 SELECT COUNT(*) FILTER (WHERE d.active) AS expected,
@@ -471,6 +610,19 @@ class SemanticStore:
         query_vectors: list[list[float]],
         cutoff: int = 20,
     ) -> dict[str, float | int]:
+        """Ejecuta `benchmark_hnsw` dentro de `SemanticStore`.
+
+        Args:
+            dimensions (int): Valor de `dimensions` utilizado por la operación.
+            app_ids (list[str]): Colección de identificadores de `app`.
+            document_vectors (list[list[float]]): Valor de `document_vectors` utilizado por la
+                operación.
+            query_vectors (list[list[float]]): Valor de `query_vectors` utilizado por la operación.
+            cutoff (int): Valor de `cutoff` utilizado por la operación.
+
+        Returns:
+            dict[str, float | int]: Mapa con los datos producidos por la operación.
+        """
         if not app_ids or not query_vectors:
             return {
                 "hnswRecallAt20": 0.0,
@@ -481,6 +633,11 @@ class SemanticStore:
         index_name = f"{table_name}_hnsw"
 
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+            """
             table = sql.Identifier(table_name)
             index = sql.Identifier(index_name)
             dimension = sql.SQL(str(dimensions))
@@ -561,6 +718,11 @@ class SemanticStore:
         return self.database.run(mutate)
 
     def active_documents(self) -> list[dict[str, Any]]:
+        """Ejecuta `active_documents` dentro de `SemanticStore`.
+
+        Returns:
+            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        """
         return self.database.run(
             lambda connection: connection.execute(
                 """
@@ -581,6 +743,15 @@ class SemanticStore:
         dataset_hash: str,
         training_config: dict[str, Any],
     ) -> None:
+        """Ejecuta `register_trained_model` dentro de `SemanticStore`.
+
+        Args:
+            base (RegisteredModel): Valor de `base` utilizado por la operación.
+            model_version (str): Valor de `model_version` utilizado por la operación.
+            artifact_path (str): Ruta de `artifact` utilizada por la operación.
+            dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
+            training_config (dict[str, Any]): Valor de `training_config` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -607,6 +778,12 @@ class SemanticStore:
         )
 
     def select_model(self, model_version: str, *, rrf_weight: float = 1.0) -> None:
+        """Ejecuta `select_model` dentro de `SemanticStore`.
+
+        Args:
+            model_version (str): Valor de `model_version` utilizado por la operación.
+            rrf_weight (float): Valor de `rrf_weight` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """
@@ -630,9 +807,26 @@ class SemanticStore:
         *,
         rrf_weight: float | None = None,
     ) -> dict[str, Any]:
-        """Atomically activate or roll back to a version with current full coverage."""
+        """Ejecuta `activate_complete_model` dentro de `SemanticStore`.
+
+        Args:
+            model_version (str): Valor de `model_version` utilizado por la operación.
+            rrf_weight (float | None): Valor de `rrf_weight` utilizado por la operación.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
 
         def mutate(connection):
+            """Aplica la mutación definida para el escenario.
+
+            Args:
+                connection (Any): Conexión de base de datos utilizada por la operación.
+
+            Throws:
+                RuntimeError: Si el estado de ejecución impide completar la operación.
+                LookupError: Si no existe el elemento solicitado.
+            """
             model = connection.execute(
                 """
                 SELECT dimensions, rrf_weight
@@ -760,6 +954,18 @@ class SemanticStore:
         selected_model_version: str | None,
         paths: dict[str, str],
     ) -> None:
+        """Guarda la operación `benchmark_run`.
+
+        Args:
+            run_id (str): Identificador de `run` utilizado por la operación.
+            dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
+            seed (int): Valor de `seed` utilizado por la operación.
+            configuration (dict[str, Any]): Valor de `configuration` utilizado por la operación.
+            metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+            selected_model_version (str | None): Valor de `selected_model_version` utilizado por la
+                operación.
+            paths (dict[str, str]): Valor de `paths` utilizado por la operación.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """

@@ -1,9 +1,19 @@
+"""Implementa las responsabilidades del módulo `app_mapper`.
+"""
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import ResolvedSource, SoftwareApp
 from app.schemas.apps import AppDetails, AppListItem, DownloadOption
 
 
 def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
+    """Ejecuta la operación `valid_resolved_sources`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        list[ResolvedSource]: Colección de elementos obtenidos por la operación.
+    """
     candidates = [
         resolved
         for source in app.sources
@@ -37,6 +47,14 @@ def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
 
 
 def best_resolved_source(app: SoftwareApp) -> ResolvedSource | None:
+    """Ejecuta la operación `best_resolved_source`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        ResolvedSource | None: Resultado producido por la operación.
+    """
     candidates = valid_resolved_sources(app)
     if not candidates:
         return None
@@ -44,6 +62,14 @@ def best_resolved_source(app: SoftwareApp) -> ResolvedSource | None:
 
 
 def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, int, int, object]:
+    """Ejecuta la operación `resolved_sort_key`.
+
+    Args:
+        item (ResolvedSource): Valor de `item` utilizado por la operación.
+
+    Returns:
+        tuple[int, int, int, int, int, object]: Resultado producido por la operación.
+    """
     status_priority = {ResolutionStatus.DIRECT.value: 0, ResolutionStatus.FALLBACK.value: 1}
     metadata = item.metadata_json or {}
     primary_rank = 0 if metadata.get("is_primary") else 1
@@ -60,6 +86,14 @@ def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, int, int, ob
 
 
 def source_status(app: SoftwareApp) -> tuple[str, str]:
+    """Ejecuta la operación `source_status`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        tuple[str, str]: Resultado producido por la operación.
+    """
     review = next(
         (
             source
@@ -86,6 +120,14 @@ def source_status(app: SoftwareApp) -> tuple[str, str]:
 
 
 def source_label(status: str) -> str:
+    """Ejecuta la operación `source_label`.
+
+    Args:
+        status (str): Valor de `status` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     if status == ResolutionStatus.DIRECT.value:
         return "Sitio oficial"
     if status == ResolutionStatus.FALLBACK.value:
@@ -96,10 +138,26 @@ def source_label(status: str) -> str:
 
 
 def winstall_app_url(package_id: str) -> str:
+    """Ejecuta la operación `winstall_app_url`.
+
+    Args:
+        package_id (str): Identificador de `package` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return f"https://winstall.app/apps/{package_id}"
 
 
 def app_origin_url(app: SoftwareApp) -> str | None:
+    """Ejecuta la operación `app_origin_url`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     if not app.winstall_id.startswith("manual."):
         return winstall_app_url(app.winstall_id)
     source_page = next(
@@ -115,10 +173,26 @@ def app_origin_url(app: SoftwareApp) -> str | None:
 
 
 def app_tags(app: SoftwareApp) -> list[str]:
+    """Ejecuta la operación `app_tags`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        list[str]: Colección de elementos obtenidos por la operación.
+    """
     return sorted({tag.tag for tag in app.tags}, key=str.casefold)
 
 
 def to_list_item(app: SoftwareApp) -> AppListItem:
+    """Ejecuta la operación `to_list_item`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        AppListItem: Colección de elementos obtenidos por la operación.
+    """
     resolved = best_resolved_source(app)
     resolution_status, validation_status = source_status(app)
     if resolved:
@@ -145,6 +219,14 @@ def to_list_item(app: SoftwareApp) -> AppListItem:
 
 
 def to_details(app: SoftwareApp) -> AppDetails:
+    """Ejecuta la operación `to_details`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+
+    Returns:
+        AppDetails: Resultado producido por la operación.
+    """
     resolved_options = valid_resolved_sources(app)
     resolved = resolved_options[0] if resolved_options else None
     resolution_status, validation_status = source_status(app)
@@ -203,6 +285,15 @@ def to_details(app: SoftwareApp) -> AppDetails:
 
 
 def to_download_option(resolved: ResolvedSource, is_primary: bool) -> DownloadOption:
+    """Ejecuta la operación `to_download_option`.
+
+    Args:
+        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
+        is_primary (bool): Valor de `is_primary` utilizado por la operación.
+
+    Returns:
+        DownloadOption: Resultado producido por la operación.
+    """
     source = resolved.source
     return DownloadOption(
         id=str(resolved.id),

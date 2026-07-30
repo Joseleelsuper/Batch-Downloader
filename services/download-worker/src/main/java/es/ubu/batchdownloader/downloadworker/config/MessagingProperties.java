@@ -8,6 +8,23 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
+/**
+ * Representa los datos inmutables de {@code MessagingProperties}.
+ *
+ * @param commandExchange Valor de {@code commandExchange} incluido en el record.
+ * @param eventExchange Valor de {@code eventExchange} incluido en el record.
+ * @param inputRoutingKey Valor de {@code inputRoutingKey} incluido en el record.
+ * @param inputQueue Valor de {@code inputQueue} incluido en el record.
+ * @param cancellationRoutingKey Valor de {@code cancellationRoutingKey} incluido en el record.
+ * @param cancellationQueue Valor de {@code cancellationQueue} incluido en el record.
+ * @param deadLetterExchange Valor de {@code deadLetterExchange} incluido en el record.
+ * @param deadLetterQueue Valor de {@code deadLetterQueue} incluido en el record.
+ * @param retryAttempts Valor de {@code retryAttempts} incluido en el record.
+ * @param retryInitialInterval Valor de {@code retryInitialInterval} incluido en el record.
+ * @param retryMultiplier Valor de {@code retryMultiplier} incluido en el record.
+ * @param retryMaxInterval Valor de {@code retryMaxInterval} incluido en el record.
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Validated
 @ConfigurationProperties("download-worker.messaging")
 public record MessagingProperties(

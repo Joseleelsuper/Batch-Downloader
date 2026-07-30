@@ -29,10 +29,23 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
 
+/**
+ * Agrupa los escenarios de prueba de {@code JdkHttpsRemoteDownloaderTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class JdkHttpsRemoteDownloaderTest {
+    /**
+     * Dato compartido {@code temp} para los escenarios de prueba.
+     */
     @TempDir
     Path temp;
 
+    /**
+     * Comprueba el escenario {@code streamsHttpsResponseComputesHashAndHonorsBudget}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void streamsHttpsResponseComputesHashAndHonorsBudget() throws Exception {
@@ -54,6 +67,9 @@ class JdkHttpsRemoteDownloaderTest {
         assertThat(artifact.sha256()).hasSize(64);
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsNonHttpsBeforeOpeningConnection}.
+     */
     @Test
     void rejectsNonHttpsBeforeOpeningConnection() {
         HttpClient client = mock(HttpClient.class);
@@ -70,6 +86,11 @@ class JdkHttpsRemoteDownloaderTest {
         verifyNoInteractions(client);
     }
 
+    /**
+     * Comprueba el escenario {@code rejectsDeclaredFileLargerThanConfiguredLimit}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void rejectsDeclaredFileLargerThanConfiguredLimit() throws Exception {
@@ -90,6 +111,11 @@ class JdkHttpsRemoteDownloaderTest {
                 .hasMessage("file_size_limit_exceeded");
     }
 
+    /**
+     * Comprueba el escenario {@code acceptsCurrentBinaryMimeWhenHistoricalMimeDiffers}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void acceptsCurrentBinaryMimeWhenHistoricalMimeDiffers() throws Exception {
@@ -117,6 +143,11 @@ class JdkHttpsRemoteDownloaderTest {
         assertThat(Files.readAllBytes(target)).isEqualTo(content);
     }
 
+    /**
+     * Comprueba el escenario {@code stillRejectsHtmlInsteadOfAnInstaller}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void stillRejectsHtmlInsteadOfAnInstaller() throws Exception {
@@ -138,6 +169,11 @@ class JdkHttpsRemoteDownloaderTest {
                 .hasMessage("unexpected_download_content_type");
     }
 
+    /**
+     * Comprueba el escenario {@code acceptsChangedLatestInstallerSizeWhenNoDigestPinsTheArtifact}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void acceptsChangedLatestInstallerSizeWhenNoDigestPinsTheArtifact() throws Exception {
@@ -161,6 +197,11 @@ class JdkHttpsRemoteDownloaderTest {
         assertThat(Files.readAllBytes(target)).isEqualTo(content);
     }
 
+    /**
+     * Comprueba el escenario {@code acceptsChangedInstallerSizeWhenDigestStillMatches}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void acceptsChangedInstallerSizeWhenDigestStillMatches() throws Exception {
@@ -189,6 +230,11 @@ class JdkHttpsRemoteDownloaderTest {
         assertThat(Files.readAllBytes(target)).isEqualTo(content);
     }
 
+    /**
+     * Comprueba el escenario {@code stillRejectsInstallerWhenDigestDoesNotMatch}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void stillRejectsInstallerWhenDigestDoesNotMatch() throws Exception {
@@ -213,6 +259,13 @@ class JdkHttpsRemoteDownloaderTest {
                 .hasMessage("source_sha256_mismatch");
     }
 
+    /**
+     * Ejecuta la operación {@code downloader}.
+     *
+     * @param client Valor de {@code client} utilizado por la operación.
+     * @param maxFileSize Valor de {@code maxFileSize} utilizado por la operación.
+     * @return Resultado producido por {@code downloader}.
+     */
     private JdkHttpsRemoteDownloader downloader(HttpClient client, DataSize maxFileSize) {
         DownloadProperties properties = new DownloadProperties(
                 10,
@@ -234,14 +287,37 @@ class JdkHttpsRemoteDownloaderTest {
         return new JdkHttpsRemoteDownloader(client, policy, properties);
     }
 
+    /**
+     * Ejecuta la operación {@code item}.
+     *
+     * @param url URL del recurso que debe procesarse.
+     * @return Resultado producido por {@code item}.
+     */
     private ResolvedDownloadItem item(String url) {
         return item(url, null, null, null);
     }
 
+    /**
+     * Ejecuta la operación {@code item}.
+     *
+     * @param url URL del recurso que debe procesarse.
+     * @param expectedSizeBytes Valor esperado de {@code sizeBytes}.
+     * @param expectedSha256 Valor esperado de {@code sha256}.
+     * @return Resultado producido por {@code item}.
+     */
     private ResolvedDownloadItem item(String url, Long expectedSizeBytes, String expectedSha256) {
         return item(url, expectedSizeBytes, expectedSha256, null);
     }
 
+    /**
+     * Ejecuta la operación {@code item}.
+     *
+     * @param url URL del recurso que debe procesarse.
+     * @param expectedSizeBytes Valor esperado de {@code sizeBytes}.
+     * @param expectedSha256 Valor esperado de {@code sha256}.
+     * @param expectedMime Valor esperado de {@code mime}.
+     * @return Resultado producido por {@code item}.
+     */
     private ResolvedDownloadItem item(
             String url,
             Long expectedSizeBytes,
@@ -260,10 +336,23 @@ class JdkHttpsRemoteDownloaderTest {
                 expectedMime);
     }
 
+    /**
+     * Ejecuta la operación {@code headers}.
+     *
+     * @param contentLength Valor de {@code contentLength} utilizado por la operación.
+     * @return Resultado producido por {@code headers}.
+     */
     private HttpHeaders headers(long contentLength) {
         return headers(contentLength, null);
     }
 
+    /**
+     * Ejecuta la operación {@code headers}.
+     *
+     * @param contentLength Valor de {@code contentLength} utilizado por la operación.
+     * @param contentType Valor de {@code contentType} utilizado por la operación.
+     * @return Resultado producido por {@code headers}.
+     */
     private HttpHeaders headers(long contentLength, String contentType) {
         Map<String, List<String>> values = contentType == null
                 ? Map.of("content-length", List.of(Long.toString(contentLength)))

@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `indexer`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,19 +17,35 @@ from app.embeddings import EmbeddingRuntime
 from app.store import SemanticStore
 
 logger = logging.getLogger("semantic-indexer")
+"""Estado global asociado a `logger`.
+"""
 
 
 class SemanticIndexer:
+    """Representa el componente `SemanticIndexer`.
+    """
     def __init__(self) -> None:
+        """Inicializa una instancia de `SemanticIndexer`.
+        """
         self.settings = get_settings()
+        """Estado de instancia asociado a `settings`.
+        """
         self.database = Database(self.settings)
+        """Estado de instancia asociado a `database`.
+        """
         self.store = SemanticStore(self.database)
+        """Estado de instancia asociado a `store`.
+        """
 
     def open(self) -> None:
+        """Ejecuta `open` dentro de `SemanticIndexer`.
+        """
         self.database.open()
         self.database.migrate()
 
     def close(self) -> None:
+        """Ejecuta `close` dentro de `SemanticIndexer`.
+        """
         self.database.close()
 
     def run_once(
@@ -37,6 +55,21 @@ class SemanticIndexer:
         progress: Callable[[str, int, int], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
+        """Ejecuta la operación `once`.
+
+        Args:
+            requested_model_version (str | None): Valor de `requested_model_version` utilizado por
+                la operación.
+            progress (Callable[[str, int, int], None] | None): Valor de `progress` utilizado por la
+                operación.
+            cancelled (Callable[[], bool] | None): Valor de `cancelled` utilizado por la operación.
+
+        Returns:
+            dict[str, object]: Mapa con los datos producidos por la operación.
+
+        Throws:
+            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+        """
         model_version = requested_model_version or self.store.selected_model_version(
             self.settings.initial_model_version
         )
@@ -131,6 +164,8 @@ class SemanticIndexer:
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+    """
     parser = argparse.ArgumentParser(description="Sincroniza MySQL con pgvector")
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--model-version")

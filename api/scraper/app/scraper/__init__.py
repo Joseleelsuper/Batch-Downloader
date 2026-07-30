@@ -1,1 +1,2 @@
-"""Scraping, resolving, and validation pipeline."""
+"""Inicializa el paquete `scraper`.
+"""

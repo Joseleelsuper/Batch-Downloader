@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_huggingface_catalog`.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,23 +11,63 @@ from app.huggingface_catalog import HuggingFaceCatalog
 
 @dataclass
 class Card:
+    """Agrupa los escenarios de prueba de `Card`.
+    """
     values: dict[str, Any]
+    """Atributo de clase `values` de `Card`.
+    """
 
     def to_dict(self) -> dict[str, Any]:
+        """Ejecuta `to_dict` dentro de `Card`.
+
+        Returns:
+            dict[str, Any]: Mapa con los datos producidos por la operación.
+        """
         return self.values
 
 
 class FakeHubApi:
+    """Agrupa los escenarios de prueba de `FakeHubApi`.
+    """
     def __init__(self, models: list[Any] | None = None, detail: Any = None) -> None:
+        """Inicializa una instancia de `FakeHubApi`.
+
+        Args:
+            models (list[Any] | None): Valor de `models` utilizado por la operación.
+            detail (Any): Valor de `detail` utilizado por la operación.
+        """
         self.models = models or []
+        """Estado de instancia asociado a `models`.
+        """
         self.detail_value = detail
+        """Estado de instancia asociado a `detail_value`.
+        """
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        """Estado de instancia asociado a `calls`.
+        """
 
     def list_models(self, **kwargs: Any) -> list[Any]:
+        """Enumera la operación `models`.
+
+        Args:
+            **kwargs (Any): Valor de `kwargs` utilizado por la operación.
+
+        Returns:
+            list[Any]: Colección de elementos obtenidos por la operación.
+        """
         self.calls.append(("list", kwargs))
         return self.models
 
     def model_info(self, _repository: str, **kwargs: Any) -> Any:
+        """Ejecuta `model_info` dentro de `FakeHubApi`.
+
+        Args:
+            _repository (str): Valor de `_repository` utilizado por la operación.
+            **kwargs (Any): Valor de `kwargs` utilizado por la operación.
+
+        Returns:
+            Any: Resultado producido por la operación.
+        """
         self.calls.append(("detail", kwargs))
         return self.detail_value
 
@@ -37,6 +79,17 @@ def summary(
     gated: bool = False,
     private: bool = False,
 ) -> Any:
+    """Ejecuta la operación `summary`.
+
+    Args:
+        repository (str): Valor de `repository` utilizado por la operación.
+        library (str): Valor de `library` utilizado por la operación.
+        gated (bool): Valor de `gated` utilizado por la operación.
+        private (bool): Valor de `private` utilizado por la operación.
+
+    Returns:
+        Any: Resultado producido por la operación.
+    """
     return SimpleNamespace(
         id=repository,
         library_name=library,
@@ -50,6 +103,15 @@ def summary(
 
 
 def detail(*, files: list[str], security: dict[str, Any] | None = None) -> Any:
+    """Ejecuta la operación `detail`.
+
+    Args:
+        files (list[str]): Valor de `files` utilizado por la operación.
+        security (dict[str, Any] | None): Valor de `security` utilizado por la operación.
+
+    Returns:
+        Any: Resultado producido por la operación.
+    """
     return SimpleNamespace(
         id="owner/model",
         sha="a" * 40,
@@ -81,6 +143,8 @@ def detail(*, files: list[str], security: dict[str, Any] | None = None) -> Any:
 
 
 def test_search_only_returns_public_sentence_transformers_without_a_token() -> None:
+    """Comprueba el escenario `search_only_returns_public_sentence_transformers_without_a_token`.
+    """
     api = FakeHubApi([
         summary("owner/valid"),
         summary("owner/gated", gated=True),
@@ -95,6 +159,8 @@ def test_search_only_returns_public_sentence_transformers_without_a_token() -> N
 
 
 def test_detail_resolves_a_safe_immutable_safetensors_model() -> None:
+    """Comprueba el escenario `detail_resolves_a_safe_immutable_safetensors_model`.
+    """
     api = FakeHubApi(detail=detail(
         files=["config.json", "modules.json", "model.safetensors"],
         security={"scansDone": True, "filesWithIssues": []},
@@ -115,6 +181,8 @@ def test_detail_resolves_a_safe_immutable_safetensors_model() -> None:
 
 
 def test_detail_rejects_pickle_code_and_reported_security_issues() -> None:
+    """Comprueba el escenario `detail_rejects_pickle_code_and_reported_security_issues`.
+    """
     api = FakeHubApi(detail=detail(
         files=[
             "config.json",

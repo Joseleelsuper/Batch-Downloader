@@ -9,14 +9,32 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
+/**
+ * Publica los datos gestionados por {@code DownloadOutboxPublisher}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Component
 class DownloadOutboxPublisher implements DownloadEventPublisher {
+    /**
+     * Estado {@code outbox} mantenido por {@code DownloadOutboxPublisher}.
+     */
     private final OutboxWriter outbox;
 
+    /**
+     * Inicializa una instancia de {@code DownloadOutboxPublisher}.
+     *
+     * @param outbox Valor de {@code outbox} utilizado por la operación.
+     */
     DownloadOutboxPublisher(OutboxWriter outbox) {
         this.outbox = outbox;
     }
 
+    /**
+     * Implementa {@code jobRequested} para {@code DownloadOutboxPublisher}.
+     *
+     * @param job Trabajo de descarga sobre el que se actúa.
+     */
     @Override
     public void jobRequested(DownloadJob job) {
         var items = job.items().stream().map(item -> {
@@ -34,6 +52,11 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
                         "items", items));
     }
 
+    /**
+     * Indica si puede realizarse la operación mediante {@code cancellationRequested}.
+     *
+     * @param job Trabajo de descarga sobre el que se actúa.
+     */
     @Override
     public void cancellationRequested(DownloadJob job) {
         outbox.append(
@@ -42,6 +65,12 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
                 Map.of("jobId", job.id()));
     }
 
+    /**
+     * Implementa {@code terminalNotificationRequested} para {@code DownloadOutboxPublisher}.
+     *
+     * @param owner Valor de {@code owner} utilizado por la operación.
+     * @param job Trabajo de descarga sobre el que se actúa.
+     */
     @Override
     public void terminalNotificationRequested(UserAccount owner, DownloadJob job) {
         boolean downloadable = job.status().downloadable();

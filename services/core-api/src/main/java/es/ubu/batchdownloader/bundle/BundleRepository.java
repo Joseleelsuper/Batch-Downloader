@@ -22,17 +22,46 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Gestiona la persistencia y consulta de {@code BundleRepository}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Repository
 public class BundleRepository {
+    /**
+     * Constante que define {@code MAX_BUNDLE_APPS}.
+     */
     private static final int MAX_BUNDLE_APPS = 100;
+    /**
+     * Estado {@code jdbc} mantenido por {@code BundleRepository}.
+     */
     private final JdbcTemplate jdbc;
+    /**
+     * Estado {@code catalog} mantenido por {@code BundleRepository}.
+     */
     private final CatalogRepository catalog;
 
+    /**
+     * Inicializa una instancia de {@code BundleRepository}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param catalog Acceso al catálogo utilizado por la operación.
+     */
     public BundleRepository(JdbcTemplate jdbc, CatalogRepository catalog) {
         this.jdbc = jdbc;
         this.catalog = catalog;
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code list}.
+     *
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<BundleSummary> list(String type, String sort, int page, int pageSize) {
         String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
         String sql = """
@@ -44,6 +73,12 @@ public class BundleRepository {
         return jdbc.query(sql, (rs, rowNum) -> summary(rs), blankToNull(type), blankToNull(type), pageSize, (page - 1) * pageSize);
     }
 
+    /**
+     * Ejecuta la operación {@code count}.
+     *
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @return Número de elementos afectados por la operación.
+     */
     public long count(String type) {
         Long count = jdbc.queryForObject(
                 """
@@ -56,6 +91,15 @@ public class BundleRepository {
         return count == null ? 0 : count;
     }
 
+    /**
+     * Enumera los elementos solicitados mediante {@code listForAdministration}.
+     *
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<BundleSummary> listForAdministration(String type, String sort, int page, int pageSize) {
         String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
         String sql = """
@@ -73,6 +117,12 @@ public class BundleRepository {
                 (page - 1) * pageSize);
     }
 
+    /**
+     * Ejecuta la operación {@code countForAdministration}.
+     *
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @return Número de elementos afectados por la operación.
+     */
     public long countForAdministration(String type) {
         Long count = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM bundles WHERE (? IS NULL OR type = ?)",
@@ -82,19 +132,47 @@ public class BundleRepository {
         return count == null ? 0 : count;
     }
 
+    /**
+     * Ejecuta la operación {@code details}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @param administrator Valor de {@code administrator} utilizado por la operación.
+     * @return Resultado producido por {@code details}.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     public BundleDetails details(String publicId, String username, boolean administrator) {
         BundleRecord bundle = findBundle(publicId);
         if (!isVisibleTo(bundle, username, administrator)) {
-            // Do not reveal whether a private id or slug exists.
+            // No revela si existe un identificador o slug privado.
             throw new NotFoundException("bundle_not_found", "El bundle no existe.");
         }
         return bundle.details();
     }
 
+    /**
+     * Ejecuta la operación {@code detailsInternal}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @return Resultado producido por {@code detailsInternal}.
+     */
     public BundleDetails detailsInternal(String publicId) {
         return findBundle(publicId).details();
     }
 
+    /**
+     * Ejecuta la operación {@code appIdsForDownload}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @param administrator Valor de {@code administrator} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     public List<UUID> appIdsForDownload(String publicId, String username, boolean administrator) {
         BundleRecord bundle = findBundle(publicId);
         if (!isVisibleTo(bundle, username, administrator)) {
@@ -124,6 +202,14 @@ public class BundleRepository {
         return List.copyOf(appIds);
     }
 
+    /**
+     * Busca el resultado solicitado mediante {@code findBundle}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @return Resultado producido por {@code findBundle}.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private BundleRecord findBundle(String publicId) {
         List<BundleRecord> bundles = jdbc.query(
                 """
@@ -144,6 +230,15 @@ public class BundleRepository {
         return bundles.get(0);
     }
 
+    /**
+     * Crea el recurso solicitado mediante {@code create}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @param ownerUsername Valor de {@code ownerUsername} utilizado por la operación.
+     * @return Resultado producido por {@code create}.
+     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Transactional
     public BundleDetails create(UpsertBundleRequest request, String ownerUsername) {
         String requestedSlug = normalizeSlug(request.slug() == null || request.slug().isBlank() ? request.name() : request.slug());
@@ -177,6 +272,15 @@ public class BundleRepository {
         return detailsInternal(slug);
     }
 
+    /**
+     * Actualiza el recurso solicitado mediante {@code update}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code update}.
+     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Transactional
     public BundleDetails update(String publicId, UpsertBundleRequest request) {
         UUID id = idByPublicId(publicId);
@@ -203,12 +307,23 @@ public class BundleRepository {
         return detailsInternal(nextSlug);
     }
 
+    /**
+     * Elimina el recurso solicitado mediante {@code delete}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     */
     @Transactional
     public void delete(String publicId) {
         UUID id = idByPublicId(publicId);
         jdbc.update("DELETE FROM bundles WHERE id = ?", UuidBytes.fromUuid(id));
     }
 
+    /**
+     * Ejecuta la operación {@code replaceTags}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @param tags Valor de {@code tags} utilizado por la operación.
+     */
     private void replaceTags(UUID bundleId, List<String> tags) {
         jdbc.update("DELETE FROM bundle_tags WHERE bundle_id = ?", UuidBytes.fromUuid(bundleId));
         if (tags == null) {
@@ -228,6 +343,14 @@ public class BundleRepository {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code replaceItems}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @param appIds Colección de identificadores de {@code app}.
+     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private void replaceItems(UUID bundleId, List<String> appIds) {
         List<String> requested = appIds == null
                 ? List.of()
@@ -260,6 +383,13 @@ public class BundleRepository {
         jdbc.update("UPDATE bundles SET app_count = ? WHERE id = ?", order, UuidBytes.fromUuid(bundleId));
     }
 
+    /**
+     * Ejecuta la operación {@code summary}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @return Resultado producido por {@code summary}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private BundleSummary summary(ResultSet rs) throws SQLException {
         UUID id = UuidBytes.toUuid(rs.getBytes("id"));
         List<PlatformAvailability> availability = platformAvailability(id);
@@ -279,6 +409,13 @@ public class BundleRepository {
                 rs.getTimestamp("updated_at").toLocalDateTime());
     }
 
+    /**
+     * Ejecuta la operación {@code detailsFromRow}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @return Resultado producido por {@code detailsFromRow}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private BundleDetails detailsFromRow(ResultSet rs) throws SQLException {
         UUID id = UuidBytes.toUuid(rs.getBytes("id"));
         List<PlatformAvailability> availability = platformAvailability(id);
@@ -298,6 +435,13 @@ public class BundleRepository {
                 rs.getTimestamp("updated_at").toLocalDateTime());
     }
 
+    /**
+     * Ejecuta la operación {@code previewApps}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<AppListItem> previewApps(UUID bundleId, int limit) {
         String sql = """
                 SELECT a.id FROM bundle_items bi
@@ -320,6 +464,12 @@ public class BundleRepository {
                 .toList();
     }
 
+    /**
+     * Ejecuta la operación {@code tags}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<String> tags(UUID bundleId) {
         return jdbc.queryForList(
                 "SELECT tag FROM bundle_tags WHERE bundle_id = ? ORDER BY tag",
@@ -328,9 +478,10 @@ public class BundleRepository {
     }
 
     /**
-     * Returns each system for which at least one active bundle application has
-     * a selectable installer. Job creation applies the selected system again
-     * and reports applications without a compatible source as omitted.
+     * Ejecuta la operación {@code availableOperatingSystems}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
      */
     List<String> availableOperatingSystems(UUID bundleId) {
         return platformAvailability(bundleId).stream()
@@ -338,6 +489,12 @@ public class BundleRepository {
                 .toList();
     }
 
+    /**
+     * Ejecuta la operación {@code platformAvailability}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<PlatformAvailability> platformAvailability(UUID bundleId) {
         Map<String, List<UUID>> appIdsBySystem = new LinkedHashMap<>();
         jdbc.query(
@@ -377,6 +534,12 @@ public class BundleRepository {
                 .toList();
     }
 
+    /**
+     * Ejecuta la operación {@code activeAppCount}.
+     *
+     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
+     * @return Resultado producido por {@code activeAppCount}.
+     */
     private int activeAppCount(UUID bundleId) {
         Integer count = jdbc.queryForObject(
                 """
@@ -391,6 +554,14 @@ public class BundleRepository {
         return count == null ? 0 : count;
     }
 
+    /**
+     * Ejecuta la operación {@code idByPublicId}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @return Resultado producido por {@code idByPublicId}.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private UUID idByPublicId(String publicId) {
         List<UUID> ids = jdbc.query(
                 """
@@ -408,6 +579,14 @@ public class BundleRepository {
         return ids.get(0);
     }
 
+    /**
+     * Ejecuta la operación {@code slugById}.
+     *
+     * @param id Identificador del recurso sobre el que se actúa.
+     * @return Resultado producido por {@code slugById}.
+     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private String slugById(UUID id) {
         String slug = jdbc.queryForObject(
                 "SELECT slug FROM bundles WHERE id = ?",
@@ -419,11 +598,23 @@ public class BundleRepository {
         return slug;
     }
 
+    /**
+     * Ejecuta la operación {@code existsSlug}.
+     *
+     * @param slug Valor de {@code slug} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean existsSlug(String slug) {
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM bundles WHERE slug = ?", Long.class, slug);
         return count != null && count > 0;
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizedType}.
+     *
+     * @param type Valor de {@code type} utilizado por la operación.
+     * @return Resultado producido por {@code normalizedType}.
+     */
     private String normalizedType(String type) {
         if ("community".equals(type) || "user".equals(type)) {
             return type;
@@ -431,6 +622,12 @@ public class BundleRepository {
         return "official";
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizedVisibility}.
+     *
+     * @param visibility Valor de {@code visibility} utilizado por la operación.
+     * @return Resultado producido por {@code normalizedVisibility}.
+     */
     private String normalizedVisibility(String visibility) {
         if ("private".equals(visibility) || "public".equals(visibility)) {
             return visibility;
@@ -438,6 +635,12 @@ public class BundleRepository {
         return "official";
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizeSlug}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code normalizeSlug}.
+     */
     private String normalizeSlug(String value) {
         String slug = value.toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "-")
@@ -445,6 +648,12 @@ public class BundleRepository {
         return slug.isBlank() ? "bundle-" + UUID.randomUUID() : slug;
     }
 
+    /**
+     * Ejecuta la operación {@code uniqueSlug}.
+     *
+     * @param baseSlug Valor de {@code baseSlug} utilizado por la operación.
+     * @return Resultado producido por {@code uniqueSlug}.
+     */
     private String uniqueSlug(String baseSlug) {
         String candidate = baseSlug;
         int suffix = 2;
@@ -454,6 +663,12 @@ public class BundleRepository {
         return candidate;
     }
 
+    /**
+     * Ejecuta la operación {@code uuidBytesOrNull}.
+     *
+     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @return Resultado producido por {@code uuidBytesOrNull}.
+     */
     private byte[] uuidBytesOrNull(String publicId) {
         try {
             return publicId == null || publicId.isBlank()
@@ -464,10 +679,24 @@ public class BundleRepository {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code blankToNull}.
+     *
+     * @param value Valor que debe procesarse.
+     * @return Resultado producido por {@code blankToNull}.
+     */
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
     }
 
+    /**
+     * Indica si se cumple la condición mediante {@code isVisibleTo}.
+     *
+     * @param bundle Valor de {@code bundle} utilizado por la operación.
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @param administrator Valor de {@code administrator} utilizado por la operación.
+     * @return Indica si se cumple la condición evaluada.
+     */
     private boolean isVisibleTo(BundleRecord bundle, String username, boolean administrator) {
         String visibility = bundle.details().visibility();
         if ("public".equals(visibility) || "official".equals(visibility) || administrator) {
@@ -483,6 +712,12 @@ public class BundleRepository {
         return bundle.ownerUsername() != null && bundle.ownerUsername().equalsIgnoreCase(username.trim());
     }
 
+    /**
+     * Ejecuta la operación {@code userId}.
+     *
+     * @param username Valor de {@code username} utilizado por la operación.
+     * @return Resultado producido por {@code userId}.
+     */
     private UUID userId(String username) {
         if (username == null || username.isBlank()) {
             return null;
@@ -494,10 +729,26 @@ public class BundleRepository {
         return ids.isEmpty() ? null : ids.get(0);
     }
 
+    /**
+     * Ejecuta la operación {@code nullableUuid}.
+     *
+     * @param row Valor de {@code row} utilizado por la operación.
+     * @param column Valor de {@code column} utilizado por la operación.
+     * @return Resultado producido por {@code nullableUuid}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private UUID nullableUuid(ResultSet row, String column) throws SQLException {
         String value = row.getString(column);
         return value == null || value.isBlank() ? null : UUID.fromString(value);
     }
 
+    /**
+     * Representa los datos inmutables de {@code BundleRecord}.
+     *
+     * @param details Valor de {@code details} incluido en el record.
+     * @param ownerId Valor de {@code ownerId} incluido en el record.
+     * @param ownerUsername Valor de {@code ownerUsername} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private record BundleRecord(BundleDetails details, UUID ownerId, String ownerUsername) {}
 }

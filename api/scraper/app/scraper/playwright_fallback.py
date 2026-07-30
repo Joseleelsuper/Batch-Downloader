@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `playwright_fallback`.
+"""
 from __future__ import annotations
 
 import re
@@ -12,17 +14,38 @@ DOWNLOAD_CONTROL_PATTERN = re.compile(
     "\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9",
     re.I,
 )
+"""Constante que define `DOWNLOAD_CONTROL_PATTERN`.
+"""
 WINDOWS_DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+"""Constante que define `WINDOWS_DESKTOP_USER_AGENT`.
+"""
 
 
 class PlaywrightCandidateCollector:
+    """Representa el componente `PlaywrightCandidateCollector`.
+    """
     def __init__(self, settings: Settings) -> None:
+        """Inicializa una instancia de `PlaywrightCandidateCollector`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
 
     async def collect(self, url: str) -> list[InstallerCandidate]:
+        """Ejecuta `collect` dentro de `PlaywrightCandidateCollector`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         try:
             from playwright.async_api import async_playwright
         except ImportError:
@@ -32,9 +55,9 @@ class PlaywrightCandidateCollector:
         try:
             async with async_playwright() as playwright:
                 browser = await playwright.chromium.launch(headless=True)
-                # Download funnels often expose an installer only to a supported
-                # desktop client. This emulates a neutral Windows browser to reveal
-                # that route; it does not filter or discard other platform assets.
+                # Los embudos de descarga suelen mostrar el instalador solo a clientes de
+                # escritorio compatibles. Esto emula un navegador Windows neutro para
+                # revelar la ruta sin filtrar recursos de otras plataformas.
                 context = await browser.new_context(
                     accept_downloads=False,
                     locale="en-US",
@@ -69,8 +92,8 @@ class PlaywrightCandidateCollector:
                     )
                     await collect_page_candidates(collected, page, url)
 
-                    # Re-scan after every interaction. Many sites first open an AJAX
-                    # dialog and only then expose the real platform download routes.
+                    # Vuelve a explorar después de cada interacción. Muchos sitios abren
+                    # primero un diálogo AJAX y después muestran las rutas reales de descarga.
                     seen_controls: set[str] = set()
                     for _depth in range(3):
                         locator = page.locator("a, button, [role=button]").filter(
@@ -88,9 +111,9 @@ class PlaywrightCandidateCollector:
                                 if fingerprint in seen_controls:
                                     continue
                                 seen_controls.add(fingerprint)
-                                # DOM click avoids actionability retries getting
-                                # stranded behind cookie-consent overlays while
-                                # the outer page timeout closes the context.
+                                # El clic del DOM evita que los reintentos queden bloqueados
+                                # por capas de consentimiento mientras el timeout exterior
+                                # de la página cierra el contexto.
                                 await handle.evaluate("element => element.click()")
                                 clicked += 1
                                 await page.wait_for_timeout(700)
@@ -115,6 +138,14 @@ class PlaywrightCandidateCollector:
 
 
 async def control_fingerprint(handle) -> str:
+    """Ejecuta la operación `control_fingerprint`.
+
+    Args:
+        handle (Any): Valor de `handle` utilizado por la operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     return await handle.evaluate(
         """element => [
             element.tagName,
@@ -133,11 +164,26 @@ def collect_url(
     *,
     referer: str | None = None,
 ) -> None:
+    """Ejecuta la operación `collect_url`.
+
+    Args:
+        collected (dict[str, InstallerCandidate]): Valor de `collected` utilizado por la operación.
+        url (str): URL del recurso que debe procesarse.
+        source (str): Fuente de descarga sobre la que se actúa.
+        referer (str | None): Valor de `referer` utilizado por la operación.
+    """
     if URL_PATTERN.search(url) or re.search(r"/(?:download|installer|setup)(?:[/?]|$)", url, re.I):
         collected.setdefault(url, InstallerCandidate(url=url, source=source, referer=referer))
 
 
 async def collect_page_candidates(collected, page, base_url: str) -> None:
+    """Ejecuta la operación `collect_page_candidates`.
+
+    Args:
+        collected (Any): Valor de `collected` utilizado por la operación.
+        page (Any): Número de página solicitado.
+        base_url (str): Dirección de `base` que debe procesarse.
+    """
     html = await page.content()
     for candidate in extract_candidates(html, base_url):
         collected.setdefault(candidate.url, candidate)

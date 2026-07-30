@@ -21,7 +21,17 @@ import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.ImmediateRequeueAmqpException;
 import org.springframework.amqp.core.Message;
 
+/**
+ * Agrupa los escenarios de prueba de {@code DownloadJobFailureRecovererTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class DownloadJobFailureRecovererTest {
+    /**
+     * Comprueba el escenario {@code publishesATerminalFailureBeforeRejectingTheCommandToItsDlq}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void publishesATerminalFailureBeforeRejectingTheCommandToItsDlq() throws Exception {
         UUID jobId = UUID.randomUUID();
@@ -57,6 +67,12 @@ class DownloadJobFailureRecovererTest {
         assertThat(failed.payload().errorCode()).isEqualTo("download_job_processing_failed");
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * requeuesInsteadOfDeadLetteringWhenTheTerminalFailureCannotBePublished}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void requeuesInsteadOfDeadLetteringWhenTheTerminalFailureCannotBePublished() throws Exception {
         DownloadJobRequestedEvent requested = new DownloadJobRequestedEvent(
@@ -86,10 +102,27 @@ class DownloadJobFailureRecovererTest {
                 .isInstanceOf(ImmediateRequeueAmqpException.class);
     }
 
+    /**
+     * Agrupa los escenarios de prueba de {@code RecordingPublisher}.
+     *
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     private static final class RecordingPublisher implements EventPublisher {
+        /**
+         * Dato compartido {@code routingKeys} para los escenarios de prueba.
+         */
         private final List<String> routingKeys = new ArrayList<>();
+        /**
+         * Dato compartido {@code events} para los escenarios de prueba.
+         */
         private final List<Object> events = new ArrayList<>();
 
+        /**
+         * Publica el contenido solicitado mediante {@code publish}.
+         *
+         * @param routingKey Valor de {@code routingKey} utilizado por la operación.
+         * @param event Evento que debe procesarse.
+         */
         @Override
         public void publish(String routingKey, Object event) {
             routingKeys.add(routingKey);

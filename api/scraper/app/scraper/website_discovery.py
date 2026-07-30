@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `website_discovery`.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -77,6 +79,8 @@ from app.scraper.validator import (
 )
 
 logger = get_logger(__name__)
+"""Estado global asociado a `logger`.
+"""
 
 DISCOVERY_VISIBLE_STATUSES = {
     "queued",
@@ -86,37 +90,91 @@ DISCOVERY_VISIBLE_STATUSES = {
     "applied",
     "expired",
 }
+"""Constante que define `DISCOVERY_VISIBLE_STATUSES`.
+"""
 DISCOVERY_REUSABLE_STATUSES = {"queued", "running", "ready"}
+"""Constante que define `DISCOVERY_REUSABLE_STATUSES`.
+"""
 MAX_DISCOVERED_CANDIDATES = 32
+"""Constante que define `MAX_DISCOVERED_CANDIDATES`.
+"""
 MAX_VALID_INSTALLERS = 8
+"""Constante que define `MAX_VALID_INSTALLERS`.
+"""
 MAX_LANDING_PAGES = 4
+"""Constante que define `MAX_LANDING_PAGES`.
+"""
 INSTALLER_PLATFORMS = ("windows", "macos", "linux")
+"""Constante que define `INSTALLER_PLATFORMS`.
+"""
 INSTALLER_URL_COLUMNS = {
     "windows": "windows_installer_url_encrypted",
     "macos": "macos_installer_url_encrypted",
     "linux": "linux_installer_url_encrypted",
 }
+"""Constante que define `INSTALLER_URL_COLUMNS`.
+"""
 QUERY_FALLBACK_ERROR_CODES = {"http_401", "http_403"}
+"""Constante que define `QUERY_FALLBACK_ERROR_CODES`.
+"""
 
 
 class WebsiteDiscoveryError(Exception):
+    """Representa un error relacionado con `WebsiteDiscovery`.
+    """
     def __init__(self, code: str, status_code: int = 422) -> None:
+        """Inicializa una instancia de `WebsiteDiscoveryError`.
+
+        Args:
+            code (str): Valor de `code` utilizado por la operación.
+            status_code (int): Valor de `status_code` utilizado por la operación.
+        """
         super().__init__(code)
         self.code = code
+        """Estado de instancia asociado a `code`.
+        """
         self.status_code = status_code
+        """Estado de instancia asociado a `status_code`.
+        """
 
 
 class WebsiteDiscoveryTransientError(Exception):
+    """Representa un error relacionado con `WebsiteDiscoveryTransient`.
+    """
     def __init__(self, code: str) -> None:
+        """Inicializa una instancia de `WebsiteDiscoveryTransientError`.
+
+        Args:
+            code (str): Valor de `code` utilizado por la operación.
+        """
         super().__init__(code)
         self.code = code
+        """Estado de instancia asociado a `code`.
+        """
 
 
 async def fetch_official_page(
     official_url: str,
     settings: Settings,
 ) -> tuple[SafeHttpResponse, str | None]:
+    """Recupera la operación `official_page`.
+
+    Args:
+        official_url (str): Dirección de `official` que debe procesarse.
+        settings (Settings): Configuración del servicio.
+
+    Returns:
+        tuple[SafeHttpResponse, str | None]: Resultado de `fetch_official_page`.
+    """
     async def fetch(url: str) -> SafeHttpResponse:
+        """Ejecuta la operación `fetch`.
+
+        Args:
+            url (str): URL del recurso que debe procesarse.
+
+        Returns:
+            SafeHttpResponse: Resultado producido por la operación.
+        """
         return await fetch_public_resource(
             url,
             timeout=settings.request_timeout_seconds,
@@ -148,6 +206,15 @@ async def fetch_official_page(
 async def validate_installer_urls(
     installer_urls: dict[str, str | None],
 ) -> dict[str, str]:
+    """Valida la operación `installer_urls`.
+
+    Args:
+        installer_urls (dict[str, str | None]): Valor de `installer_urls` utilizado por la
+            operación.
+
+    Returns:
+        dict[str, str]: Mapa con los datos producidos por la operación.
+    """
     validated: dict[str, str] = {}
     for operating_system in INSTALLER_PLATFORMS:
         value = clean_optional(installer_urls.get(operating_system))
@@ -160,10 +227,27 @@ def protect_optional_url(
     protector: UrlProtector,
     value: str | None,
 ) -> str | None:
+    """Ejecuta la operación `protect_optional_url`.
+
+    Args:
+        protector (UrlProtector): Valor de `protector` utilizado por la operación.
+        value (str | None): Valor que debe procesarse.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     return protector.protect(value) if value else None
 
 
 def expected_operating_system(candidate: InstallerCandidate) -> str | None:
+    """Ejecuta la operación `expected_operating_system`.
+
+    Args:
+        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     prefix = "admin_website_discovery_input:"
     if not candidate.source.startswith(prefix):
         return None
@@ -173,34 +257,85 @@ def expected_operating_system(candidate: InstallerCandidate) -> str | None:
 
 @dataclass(frozen=True)
 class DiscoveredInstaller:
+    """Representa el componente `DiscoveredInstaller`.
+    """
     url: str
+    """Atributo de clase `url` de `DiscoveredInstaller`.
+    """
     final_domain: str | None
+    """Atributo de clase `final_domain` de `DiscoveredInstaller`.
+    """
     filename: str | None
+    """Atributo de clase `filename` de `DiscoveredInstaller`.
+    """
     extension: str | None
+    """Atributo de clase `extension` de `DiscoveredInstaller`.
+    """
     content_type: str | None
+    """Atributo de clase `content_type` de `DiscoveredInstaller`.
+    """
     size_bytes: int | None
+    """Atributo de clase `size_bytes` de `DiscoveredInstaller`.
+    """
     version: str | None
+    """Atributo de clase `version` de `DiscoveredInstaller`.
+    """
     operating_system: str
+    """Atributo de clase `operating_system` de `DiscoveredInstaller`.
+    """
     architecture: str
+    """Atributo de clase `architecture` de `DiscoveredInstaller`.
+    """
     score: int
+    """Atributo de clase `score` de `DiscoveredInstaller`.
+    """
 
 
 class WebsiteAppDiscoveryRepository:
+    """Gestiona la persistencia y consulta de `WebsiteAppDiscovery`.
+    """
     def __init__(
         self,
         session: AsyncSession,
         protector: UrlProtector,
         settings: Settings,
     ) -> None:
+        """Inicializa una instancia de `WebsiteAppDiscoveryRepository`.
+
+        Args:
+            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+            protector (UrlProtector): Valor de `protector` utilizado por la operación.
+            settings (Settings): Configuración del servicio.
+        """
         self.session = session
+        """Estado de instancia asociado a `session`.
+        """
         self.protector = protector
+        """Estado de instancia asociado a `protector`.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
 
     async def create_or_reuse(
         self,
         official_url: str,
         installer_urls: dict[str, str | None] | None = None,
     ) -> tuple[WebsiteAppDiscovery, bool]:
+        """Crea la operación `or_reuse`.
+
+        Args:
+            official_url (str): Dirección de `official` que debe procesarse.
+            installer_urls (dict[str, str | None] | None): Valor de `installer_urls` utilizado por
+                la operación.
+
+        Returns:
+            tuple[WebsiteAppDiscovery, bool]: Resultado de `create_or_reuse`.
+
+        Throws:
+            WebsiteDiscoveryError: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+        """
         official_url = await validate_public_https_url(official_url)
         if has_sensitive_query(official_url):
             raise WebsiteDiscoveryError(
@@ -266,6 +401,15 @@ class WebsiteAppDiscoveryRepository:
         *,
         for_update: bool = False,
     ) -> WebsiteAppDiscovery | None:
+        """Ejecuta `get` dentro de `WebsiteAppDiscoveryRepository`.
+
+        Args:
+            discovery_id (uuid.UUID): Identificador de `discovery` utilizado por la operación.
+            for_update (bool): Valor de `for_update` utilizado por la operación.
+
+        Returns:
+            WebsiteAppDiscovery | None: Resultado producido por la operación.
+        """
         statement = (
             select(WebsiteAppDiscovery)
             .options(selectinload(WebsiteAppDiscovery.installers))
@@ -286,6 +430,11 @@ class WebsiteAppDiscoveryRepository:
         return discovery
 
     async def _expire_stale(self, input_hash: str) -> None:
+        """Ejecuta el paso interno `_expire_stale`.
+
+        Args:
+            input_hash (str): Valor de `input_hash` utilizado por la operación.
+        """
         discoveries = list(
             await self.session.scalars(
                 select(WebsiteAppDiscovery)
@@ -303,11 +452,26 @@ class WebsiteAppDiscoveryRepository:
 
 
 class WebsiteAppDiscoverer:
+    """Representa el componente `WebsiteAppDiscoverer`.
+    """
     def __init__(self, settings: Settings) -> None:
+        """Inicializa una instancia de `WebsiteAppDiscoverer`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.validator = DownloadValidator(settings)
+        """Estado de instancia asociado a `validator`.
+        """
         self.github = GitHubReleaseResolver(settings)
+        """Estado de instancia asociado a `github`.
+        """
         self.llm = AppDescriptionLLMClient(settings)
+        """Estado de instancia asociado a `llm`.
+        """
 
     async def inspect(
         self,
@@ -316,6 +480,24 @@ class WebsiteAppDiscoverer:
         *,
         set_phase,
     ) -> tuple[dict, list[DiscoveredInstaller], list[str]]:
+        """Ejecuta `inspect` dentro de `WebsiteAppDiscoverer`.
+
+        Args:
+            official_url (str): Dirección de `official` que debe procesarse.
+            installer_urls (dict[str, str] | None): Valor de `installer_urls` utilizado por la
+                operación.
+            set_phase (Any): Valor de `set_phase` utilizado por la operación.
+
+        Returns:
+            tuple[dict, list[DiscoveredInstaller], list[str]]: Colección de elementos obtenidos por
+                la operación.
+
+        Throws:
+            WebsiteDiscoveryError: Si no puede completarse la operación bajo las condiciones
+                requeridas.
+            WebsiteDiscoveryTransientError: Si no puede completarse la operación bajo las
+                condiciones requeridas.
+        """
         await set_phase("validating_website")
         warnings: list[str] = []
         try:
@@ -461,6 +643,17 @@ class WebsiteAppDiscoverer:
         latest_version: str | None,
         installer_urls: dict[str, str],
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_candidates`.
+
+        Args:
+            page_content (bytes): Valor de `page_content` utilizado por la operación.
+            official_url (str): Dirección de `official` que debe procesarse.
+            latest_version (str | None): Valor de `latest_version` utilizado por la operación.
+            installer_urls (dict[str, str]): Valor de `installer_urls` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         html = page_content.decode("utf-8", errors="replace")
         candidates = [
             InstallerCandidate(
@@ -503,6 +696,15 @@ class WebsiteAppDiscoverer:
         official_url: str,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
+        """Ejecuta el paso interno `_collect_landing_page_candidates`.
+
+        Args:
+            official_url (str): Dirección de `official` que debe procesarse.
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+
+        Returns:
+            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        """
         official_domain = registered_domain(official_url)
         landing_pages = [
             candidate
@@ -515,6 +717,14 @@ class WebsiteAppDiscoverer:
         ][:MAX_LANDING_PAGES]
 
         async def collect(landing: InstallerCandidate) -> list[InstallerCandidate]:
+            """Ejecuta `collect` dentro de `WebsiteAppDiscoverer`.
+
+            Args:
+                landing (InstallerCandidate): Valor de `landing` utilizado por la operación.
+
+            Returns:
+                list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            """
             try:
                 response = await fetch_public_resource(
                     landing.url,
@@ -562,6 +772,18 @@ class WebsiteAppDiscoverer:
         publisher: str | None,
         latest_version: str | None,
     ) -> tuple[list[DiscoveredInstaller], str | None]:
+        """Ejecuta el paso interno `_validate_candidates`.
+
+        Args:
+            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+            name (str): Nombre del elemento sobre el que se actúa.
+            publisher (str | None): Valor de `publisher` utilizado por la operación.
+            latest_version (str | None): Valor de `latest_version` utilizado por la operación.
+
+        Returns:
+            tuple[list[DiscoveredInstaller], str | None]: Colección de elementos obtenidos por la
+                operación.
+        """
         scored = prepare_scored_candidates(
             candidates,
             name,
@@ -581,6 +803,11 @@ class WebsiteAppDiscoverer:
             return [], None
 
         async def validate(candidate: InstallerCandidate):
+            """Ejecuta `validate` dentro de `WebsiteAppDiscoverer`.
+
+            Args:
+                candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+            """
             try:
                 async with asyncio.timeout(
                     min(10.0, self.settings.request_timeout_seconds + 2.0)
@@ -661,15 +888,32 @@ class WebsiteAppDiscoverer:
 
 
 class WebsiteAppDiscoveryWorker:
+    """Ejecuta el procesamiento en segundo plano de `WebsiteAppDiscovery`.
+    """
     def __init__(
         self,
         settings: Settings,
         worker_id: str = "website-discovery-1",
     ) -> None:
+        """Inicializa una instancia de `WebsiteAppDiscoveryWorker`.
+
+        Args:
+            settings (Settings): Configuración del servicio.
+            worker_id (str): Identificador de `worker` utilizado por la operación.
+        """
         self.settings = settings
+        """Estado de instancia asociado a `settings`.
+        """
         self.worker_id = worker_id
+        """Estado de instancia asociado a `worker_id`.
+        """
 
     async def process_one(self) -> bool:
+        """Procesa la operación `one`.
+
+        Returns:
+            bool: Indica si se cumple la condición evaluada.
+        """
         async with AsyncSessionLocal() as session:
             pipeline = PipelineRepository(session)
             item = await pipeline.claim_next(
@@ -742,6 +986,11 @@ class WebsiteAppDiscoveryWorker:
             await session.commit()
 
             async def set_phase(phase: str) -> None:
+                """Establece la operación `phase`.
+
+                Args:
+                    phase (str): Valor de `phase` utilizado por la operación.
+                """
                 discovery.phase = phase
                 discovery.updated_at = utc_now()
                 await session.commit()
@@ -784,7 +1033,7 @@ class WebsiteAppDiscoveryWorker:
                 await pipeline.fail(item, exc.code)
                 await session.commit()
                 return True
-            except Exception as exc:  # noqa: BLE001 - persist a safe failure code
+            except Exception as exc:  # noqa: BLE001 - persiste un código de fallo seguro
                 logger.error(
                     "website_app_discovery_failed",
                     discovery_id=str(discovery.id),
@@ -839,6 +1088,20 @@ async def apply_website_app_discovery(
     discovery_id: uuid.UUID,
     request: WebsiteAppDiscoveryApplyRequest,
 ) -> tuple[SoftwareApp, int, list[str]]:
+    """Ejecuta la operación `apply_website_app_discovery`.
+
+    Args:
+        session (AsyncSession): Sesión de base de datos utilizada por la operación.
+        settings (Settings): Configuración del servicio.
+        discovery_id (uuid.UUID): Identificador de `discovery` utilizado por la operación.
+        request (WebsiteAppDiscoveryApplyRequest): Solicitud recibida por la operación.
+
+    Returns:
+        tuple[SoftwareApp, int, list[str]]: Colección de elementos obtenidos por la operación.
+
+    Throws:
+        WebsiteDiscoveryError: Si no puede completarse la operación bajo las condiciones requeridas.
+    """
     protector = UrlProtector(settings.url_protection_secret)
     repository = WebsiteAppDiscoveryRepository(session, protector, settings)
     discovery = await repository.get(discovery_id, for_update=True)
@@ -1048,9 +1311,25 @@ async def revalidate_discovered_installers(
     protector: UrlProtector,
     settings: Settings,
 ) -> tuple[list[ValidInstaller], list[str]]:
+    """Ejecuta la operación `revalidate_discovered_installers`.
+
+    Args:
+        rows (list[WebsiteAppDiscoveryInstaller]): Valor de `rows` utilizado por la operación.
+        official_url (str): Dirección de `official` que debe procesarse.
+        protector (UrlProtector): Valor de `protector` utilizado por la operación.
+        settings (Settings): Configuración del servicio.
+
+    Returns:
+        tuple[list[ValidInstaller], list[str]]: Colección de elementos obtenidos por la operación.
+    """
     validator = DownloadValidator(settings)
 
     async def validate(row: WebsiteAppDiscoveryInstaller):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            row (WebsiteAppDiscoveryInstaller): Valor de `row` utilizado por la operación.
+        """
         url = protector.reveal(row.installer_url_encrypted)
         if not url:
             return None
@@ -1112,6 +1391,14 @@ async def revalidate_discovered_installers(
 
 
 def website_discovery_view(discovery: WebsiteAppDiscovery) -> dict:
+    """Ejecuta la operación `website_discovery_view`.
+
+    Args:
+        discovery (WebsiteAppDiscovery): Valor de `discovery` utilizado por la operación.
+
+    Returns:
+        dict: Mapa con los datos producidos por la operación.
+    """
     result = discovery.result_json or {}
     return {
         "id": str(discovery.id),
@@ -1156,6 +1443,17 @@ def website_discovery_input_hash(
     secret: str,
     installer_urls: dict[str, str] | None = None,
 ) -> str:
+    """Ejecuta la operación `website_discovery_input_hash`.
+
+    Args:
+        official_url (str): Dirección de `official` que debe procesarse.
+        secret (str): Valor de `secret` utilizado por la operación.
+        installer_urls (dict[str, str] | None): Valor de `installer_urls` utilizado por la
+            operación.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     material = "\n".join(
         [
             official_url,
@@ -1173,12 +1471,28 @@ def website_discovery_input_hash(
 
 
 def domain_name(url: str) -> str:
+    """Ejecuta la operación `domain_name`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+
+    Returns:
+        str: Resultado producido por la operación.
+    """
     hostname = (urlparse(url).hostname or "application").removeprefix("www.")
     label = hostname.split(".", 1)[0].replace("-", " ").strip()
     return (label.title() or "Aplicación")[:180]
 
 
 def best_installer_version(installers: list[DiscoveredInstaller]) -> str | None:
+    """Ejecuta la operación `best_installer_version`.
+
+    Args:
+        installers (list[DiscoveredInstaller]): Valor de `installers` utilizado por la operación.
+
+    Returns:
+        str | None: Resultado producido por la operación.
+    """
     versions: list[str] = []
     for installer in installers:
         version = clean_optional(installer.version)
@@ -1188,6 +1502,14 @@ def best_installer_version(installers: list[DiscoveredInstaller]) -> str | None:
         return None
 
     def key(value: str) -> tuple[int, ...]:
+        """Ejecuta la operación `key`.
+
+        Args:
+            value (str): Valor que debe procesarse.
+
+        Returns:
+            tuple[int, ...]: Resultado producido por la operación.
+        """
         parts = []
         for token in value.removeprefix("v").split("."):
             if not token.isdigit():

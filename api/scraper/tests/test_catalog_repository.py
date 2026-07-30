@@ -1,3 +1,5 @@
+"""Contiene las pruebas de `test_catalog_repository`.
+"""
 from uuid import uuid4
 
 import pytest
@@ -24,6 +26,22 @@ def make_app_with_source(
     resolved_validation_status: ValidationStatus = ValidationStatus.VALID,
     expires_in_hours: int = 1,
 ) -> SoftwareApp:
+    """Construye la operación `app_with_source`.
+
+    Args:
+        resolution_status (ResolutionStatus): Valor de `resolution_status` utilizado por la
+            operación.
+        validation_status (ValidationStatus): Valor de `validation_status` utilizado por la
+            operación.
+        resolved_status (ResolutionStatus | None): Valor de `resolved_status` utilizado por la
+            operación.
+        resolved_validation_status (ValidationStatus): Valor de `resolved_validation_status`
+            utilizado por la operación.
+        expires_in_hours (int): Valor de `expires_in_hours` utilizado por la operación.
+
+    Returns:
+        SoftwareApp: Resultado producido por la operación.
+    """
     now = utc_now()
     app = SoftwareApp(
         id=uuid4(),
@@ -65,6 +83,8 @@ def make_app_with_source(
 
 
 def test_available_installer_requires_structurally_valid_resolved_source() -> None:
+    """Comprueba el escenario `available_installer_requires_structurally_valid_resolved_source`.
+    """
     app = make_app_with_source(
         ResolutionStatus.DIRECT,
         resolved_status=ResolutionStatus.DIRECT,
@@ -74,6 +94,8 @@ def test_available_installer_requires_structurally_valid_resolved_source() -> No
 
 
 def test_available_installer_keeps_stale_valid_source_selectable() -> None:
+    """Comprueba el escenario `available_installer_keeps_stale_valid_source_selectable`.
+    """
     app = make_app_with_source(
         ResolutionStatus.FALLBACK,
         resolved_status=ResolutionStatus.FALLBACK,
@@ -84,6 +106,8 @@ def test_available_installer_keeps_stale_valid_source_selectable() -> None:
 
 
 def test_current_available_installer_rejects_review_or_missing_statuses() -> None:
+    """Comprueba el escenario `current_available_installer_rejects_review_or_missing_statuses`.
+    """
     review_app = make_app_with_source(
         ResolutionStatus.REQUIRES_MANUAL_REVIEW,
         resolved_status=None,
@@ -99,11 +123,13 @@ def test_current_available_installer_rejects_review_or_missing_statuses() -> Non
 
 @pytest.mark.asyncio
 async def test_public_load_reads_database_catalog_downloadable_projection() -> None:
+    """Comprueba el escenario `public_load_reads_database_catalog_downloadable_projection`.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-        # SQLite deliberately does not receive this column from SQLAlchemy
-        # metadata; emulate Alembic 0010 so the public loader can be exercised.
+        # SQLite no recibe deliberadamente esta columna desde los metadatos de
+        # SQLAlchemy; emula Alembic 0010 para ejercitar el cargador público.
         await connection.execute(
             text(
                 "ALTER TABLE resolved_sources "
@@ -136,6 +162,8 @@ async def test_public_load_reads_database_catalog_downloadable_projection() -> N
 
 
 def test_platform_repair_keeps_macos_tar_gz_out_of_linux() -> None:
+    """Comprueba el escenario `platform_repair_keeps_macos_tar_gz_out_of_linux`.
+    """
     now = utc_now()
     resolved = ResolvedSource(
         id=uuid4(),
@@ -157,6 +185,8 @@ def test_platform_repair_keeps_macos_tar_gz_out_of_linux() -> None:
 
 @pytest.mark.asyncio
 async def test_should_scrape_retries_review_apps_but_skips_resolved_apps() -> None:
+    """Comprueba el escenario `should_scrape_retries_review_apps_but_skips_resolved_apps`.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -180,6 +210,7 @@ async def test_should_scrape_retries_review_apps_but_skips_resolved_apps() -> No
 
 @pytest.mark.asyncio
 async def test_description_enrichment_prioritizes_completed_apps_missing_long_description() -> None:
+    """Comprueba que el enriquecimiento prioriza aplicaciones sin descripción larga."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -217,6 +248,8 @@ async def test_description_enrichment_prioritizes_completed_apps_missing_long_de
 
 @pytest.mark.asyncio
 async def test_public_details_never_return_disabled_apps() -> None:
+    """Comprueba el escenario `public_details_never_return_disabled_apps`.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -242,6 +275,8 @@ async def test_public_details_never_return_disabled_apps() -> None:
 
 @pytest.mark.asyncio
 async def test_repair_resolved_source_platforms_moves_cross_platform_installers() -> None:
+    """Comprueba el escenario `repair_resolved_source_platforms_moves_cross_platform_installers`.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -337,6 +372,8 @@ async def test_repair_resolved_source_platforms_moves_cross_platform_installers(
 
 @pytest.mark.asyncio
 async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
+    """Comprueba el escenario `refresh_source_status_uses_latest_direct_candidate`.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -411,6 +448,8 @@ async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
 
 @pytest.mark.asyncio
 async def test_so_filter_projects_platforms_with_verified_binary_history() -> None:
+    """Comprueba el escenario `so_filter_projects_platforms_with_verified_binary_history`.
+    """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -493,6 +532,17 @@ def software_app(
     long_description_status: str,
     long_description: str | None,
 ) -> SoftwareApp:
+    """Ejecuta la operación `software_app`.
+
+    Args:
+        winstall_id (str): Identificador de `winstall` utilizado por la operación.
+        long_description_status (str): Valor de `long_description_status` utilizado por la
+            operación.
+        long_description (str | None): Valor de `long_description` utilizado por la operación.
+
+    Returns:
+        SoftwareApp: Resultado producido por la operación.
+    """
     now = utc_now()
     return SoftwareApp(
         id=uuid4(),
@@ -515,6 +565,17 @@ def source_with_resolved_app(
     expires_in_hours: int,
     metadata: dict[str, str],
 ) -> DownloadSource:
+    """Ejecuta la operación `source_with_resolved_app`.
+
+    Args:
+        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        operating_system (str): Valor de `operating_system` utilizado por la operación.
+        expires_in_hours (int): Valor de `expires_in_hours` utilizado por la operación.
+        metadata (dict[str, str]): Valor de `metadata` utilizado por la operación.
+
+    Returns:
+        DownloadSource: Resultado producido por la operación.
+    """
     now = utc_now()
     source = DownloadSource(
         id=uuid4(),

@@ -15,12 +15,36 @@ import java.net.http.HttpResponse;
 import java.util.Locale;
 import java.util.UUID;
 
+/**
+ * Resuelve los recursos gestionados por {@code HttpSourceReferenceResolver}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 public class HttpSourceReferenceResolver implements SourceReferenceResolver {
+    /**
+     * Estado {@code client} mantenido por {@code HttpSourceReferenceResolver}.
+     */
     private final HttpClient client;
+    /**
+     * Dependencia {@code objectMapper} utilizada por {@code HttpSourceReferenceResolver}.
+     */
     private final ObjectMapper objectMapper;
+    /**
+     * Estado {@code properties} mantenido por {@code HttpSourceReferenceResolver}.
+     */
     private final SourceResolverProperties properties;
+    /**
+     * Estado {@code baseUrl} mantenido por {@code HttpSourceReferenceResolver}.
+     */
     private final String baseUrl;
 
+    /**
+     * Inicializa una instancia de {@code HttpSourceReferenceResolver}.
+     *
+     * @param client Valor de {@code client} utilizado por la operación.
+     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param properties Valor de {@code properties} utilizado por la operación.
+     */
     public HttpSourceReferenceResolver(
             HttpClient client,
             ObjectMapper objectMapper,
@@ -31,6 +55,14 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
         this.baseUrl = properties.baseUrl().replaceAll("/+$", "");
     }
 
+    /**
+     * Resuelve el recurso solicitado mediante {@code resolve}.
+     *
+     * @param item Elemento sobre el que se realiza la operación.
+     * @return Resultado producido por {@code resolve}.
+     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     @Override
     public ResolvedDownloadItem resolve(DownloadItemRequest item) {
         URI endpoint = URI.create(baseUrl + "/internal/v1/sources/" + item.sourceRef() + "/resolution");
@@ -48,10 +80,10 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
             throw new DownloadRejectedException("source_not_verified");
         }
         if (response.statusCode() >= 500) {
-            // Resolution is scoped to one installer. Treat an upstream 5xx as
-            // an item failure so the remaining bundle can still be produced.
-            // Re-throwing it as infrastructure used to retry the whole event
-            // and left the Core job active after Rabbit exhausted its retries.
+            // La resolución se limita a un instalador. Trata un 5xx remoto como fallo
+            // del elemento para poder producir el resto del lote. Relanzarlo como fallo
+            // de infraestructura reintentaba antes todo el evento y dejaba activo el
+            // trabajo de Core cuando Rabbit agotaba sus reintentos.
             throw new DownloadRejectedException(
                     "source_resolver_unavailable",
                     new IllegalStateException("HTTP " + response.statusCode()));
@@ -74,6 +106,14 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
                 resolved.expectedMime());
     }
 
+    /**
+     * Envía el contenido solicitado mediante {@code send}.
+     *
+     * @param request Solicitud recibida por la operación.
+     * @return Resultado producido por {@code send}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private HttpResponse<String> send(HttpRequest request) {
         try {
             return client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -85,6 +125,14 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
         }
     }
 
+    /**
+     * Ejecuta la operación {@code deserialize}.
+     *
+     * @param body Cuerpo recibido por la solicitud.
+     * @return Resultado producido por {@code deserialize}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private SourceResolutionResponse deserialize(String body) {
         try {
             return objectMapper.readValue(body, SourceResolutionResponse.class);
@@ -93,6 +141,14 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
         }
     }
 
+    /**
+     * Valida los datos recibidos mediante {@code validateResponse}.
+     *
+     * @param requested Valor de {@code requested} utilizado por la operación.
+     * @param resolved Valor de {@code resolved} utilizado por la operación.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private void validateResponse(DownloadItemRequest requested, SourceResolutionResponse resolved) {
         if (resolved.sourceRef() == null
                 || resolved.appId() == null
@@ -117,6 +173,14 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
         normalizeSha256(resolved.expectedSha256());
     }
 
+    /**
+     * Normaliza el valor recibido mediante {@code normalizeSha256}.
+     *
+     * @param sha256 Valor de {@code sha256} utilizado por la operación.
+     * @return Resultado producido por {@code normalizeSha256}.
+     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     private String normalizeSha256(String sha256) {
         if (sha256 == null || sha256.isBlank()) {
             return null;
@@ -130,6 +194,21 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
         return normalized;
     }
 
+    /**
+     * Representa los datos inmutables de {@code SourceResolutionResponse}.
+     *
+     * @param sourceRef Valor de {@code sourceRef} incluido en el record.
+     * @param appId Valor de {@code appId} incluido en el record.
+     * @param url Valor de {@code url} incluido en el record.
+     * @param expectedFilename Valor de {@code expectedFilename} incluido en el record.
+     * @param expectedSizeBytes Valor de {@code expectedSizeBytes} incluido en el record.
+     * @param expectedSha256 Valor de {@code expectedSha256} incluido en el record.
+     * @param expectedMime Valor de {@code expectedMime} incluido en el record.
+     * @param operatingSystem Valor de {@code operatingSystem} incluido en el record.
+     * @param architecture Valor de {@code architecture} incluido en el record.
+     * @param trustStatus Valor de {@code trustStatus} incluido en el record.
+     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     */
     public record SourceResolutionResponse(
             UUID sourceRef,
             UUID appId,

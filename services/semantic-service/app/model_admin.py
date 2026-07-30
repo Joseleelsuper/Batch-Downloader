@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `model_admin`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +11,8 @@ from app.store import SemanticStore
 
 
 def main() -> None:
+    """Ejecuta el punto de entrada del módulo.
+    """
     parser = argparse.ArgumentParser(
         description="Promueve o restaura versiones semánticas con cobertura completa"
     )

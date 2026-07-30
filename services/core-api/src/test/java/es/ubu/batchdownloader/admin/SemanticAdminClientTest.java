@@ -14,9 +14,20 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Agrupa los escenarios de prueba de {@code SemanticAdminClientTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class SemanticAdminClientTest {
+    /**
+     * Dato compartido {@code server} para los escenarios de prueba.
+     */
     private HttpServer server;
 
+    /**
+     * Libera el estado utilizado por los escenarios de prueba.
+     */
     @AfterEach
     void stopServer() {
         if (server != null) {
@@ -24,6 +35,12 @@ class SemanticAdminClientTest {
         }
     }
 
+    /**
+     * Comprueba el escenario {@code
+     * forwardsInternalAuthenticationActorAndIdempotencyWithoutExposingThem}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void forwardsInternalAuthenticationActorAndIdempotencyWithoutExposingThem() throws Exception {
         AtomicReference<String> token = new AtomicReference<>();
@@ -59,6 +76,11 @@ class SemanticAdminClientTest {
         assertThat(body.get()).contains("owner/model").doesNotContain("internal-secret");
     }
 
+    /**
+     * Comprueba el escenario {@code internalAuthorizationFailureBecomesASanitizedCoreConflict}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     @Test
     void internalAuthorizationFailureBecomesASanitizedCoreConflict() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -76,6 +98,11 @@ class SemanticAdminClientTest {
                 .isEqualTo("semantic_admin_internal_unauthorized");
     }
 
+    /**
+     * Ejecuta la operación {@code client}.
+     *
+     * @return Resultado producido por {@code client}.
+     */
     private SemanticAdminClient client() {
         return new SemanticAdminClient(
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build(),

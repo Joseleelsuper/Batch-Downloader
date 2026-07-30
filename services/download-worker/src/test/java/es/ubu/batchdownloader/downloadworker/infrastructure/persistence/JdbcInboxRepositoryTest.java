@@ -10,9 +10,20 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
+/**
+ * Agrupa los escenarios de prueba de {@code JdbcInboxRepositoryTest}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 class JdbcInboxRepositoryTest {
+    /**
+     * Dato compartido {@code repository} para los escenarios de prueba.
+     */
     private JdbcInboxRepository repository;
 
+    /**
+     * Prepara el estado necesario para los escenarios de prueba.
+     */
     @BeforeEach
     void setUp() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
@@ -29,6 +40,9 @@ class JdbcInboxRepositoryTest {
         repository = new JdbcInboxRepository(jdbc, Clock.systemUTC());
     }
 
+    /**
+     * Comprueba el escenario {@code processesAnEventOnlyOnceAfterCompletion}.
+     */
     @Test
     void processesAnEventOnlyOnceAfterCompletion() {
         UUID eventId = UUID.randomUUID();
@@ -39,6 +53,9 @@ class JdbcInboxRepositoryTest {
         assertThat(repository.tryStart(eventId, Duration.ZERO)).isFalse();
     }
 
+    /**
+     * Comprueba el escenario {@code releaseAllowsRabbitRetryToClaimAgain}.
+     */
     @Test
     void releaseAllowsRabbitRetryToClaimAgain() {
         UUID eventId = UUID.randomUUID();
