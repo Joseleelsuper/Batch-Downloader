@@ -363,6 +363,8 @@
   "catalog.filter.missing": "Sin instalador",
   "catalog.filter.review": "Revisión",
   "catalog.filters": "Filtros",
+  "catalog.filters.clearPublisher": "Eliminar el editor seleccionado",
+  "catalog.filters.clearTags": "Eliminar todos los tags seleccionados",
   "catalog.pagination.page": "Página",
   "catalog.pagination.next": "Página siguiente",
   "catalog.pagination.perPage": "{count} / página",

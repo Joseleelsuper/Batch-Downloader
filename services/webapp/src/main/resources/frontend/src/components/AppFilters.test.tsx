@@ -44,6 +44,8 @@ describe('AppFilters', () => {
   });
 
   it('renders facet links with counts and no active-filters panel', () => {
+    const onClearTags = vi.fn();
+    const onClearPublisher = vi.fn();
     render(
       <MemoryRouter>
         <AppFilters
@@ -53,6 +55,8 @@ describe('AppFilters', () => {
           selectedPublisherCount={1}
           catalogSearch="tag=.NET&publisher=ACME%2C+Inc."
           onChange={vi.fn()}
+          onClearTags={onClearTags}
+          onClearPublisher={onClearPublisher}
         />
       </MemoryRouter>,
     );
@@ -65,6 +69,27 @@ describe('AppFilters', () => {
     expect(screen.getByRole('link', { name: /Editor/ })).toHaveTextContent('1');
     expect(screen.queryByText('Filtros activos')).not.toBeInTheDocument();
     expect(screen.queryByText('.NET')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar todos los tags seleccionados' }));
+    expect(onClearTags).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar el editor seleccionado' }));
+    expect(onClearPublisher).toHaveBeenCalledOnce();
+  });
+
+  it('hides the clear-tags action when no tag is selected', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <AppFilters active="all" counts={counts} onChange={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole('button', {
+      name: 'Eliminar todos los tags seleccionados',
+    })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {
+      name: 'Eliminar el editor seleccionado',
+    })).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.facet-link-row-clearable')).toHaveLength(0);
   });
 
   it('exposes platform toggle state and lets the last active platform restore the other two', () => {

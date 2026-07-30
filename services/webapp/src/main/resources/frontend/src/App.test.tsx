@@ -214,6 +214,50 @@ describe('catalog workspace', () => {
     );
   });
 
+  it('clears every selected tag from the filter rail without changing other filters', async () => {
+    render(
+      <MemoryRouter initialEntries={[
+        '/catalog?status=all&tag=quiz&tag=game&searchMode=semantic',
+      ]}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Eliminar todos los tags seleccionados',
+    }));
+
+    await waitFor(() => {
+      const search = screen.getByTestId('location-search').textContent ?? '';
+      expect(search).toContain('status=all');
+      expect(search).toContain('searchMode=semantic');
+      expect(search).not.toContain('tag=');
+    });
+  });
+
+  it('clears the selected publisher from the filter rail without changing other filters', async () => {
+    render(
+      <MemoryRouter initialEntries={[
+        '/catalog?status=all&publisher=Riot+Games%2C+Inc&searchMode=semantic',
+      ]}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Eliminar el editor seleccionado',
+    }));
+
+    await waitFor(() => {
+      const search = screen.getByTestId('location-search').textContent ?? '';
+      expect(search).toContain('status=all');
+      expect(search).toContain('searchMode=semantic');
+      expect(search).not.toContain('publisher=');
+    });
+  });
+
   it('chains selected tags with AND while refreshing the compatible directory', async () => {
     vi.mocked(catalogApi.fetchCatalogFacets).mockImplementation(async ({ tags }) => ({
       tags: tags?.includes('automation')
@@ -625,6 +669,9 @@ describe('home loading', () => {
 
     expect(await screen.findByText('+12')).toBeInTheDocument();
     expect(container.querySelectorAll('.bundle-card .mini-apps .mini-icon')).toHaveLength(5);
+    expect(container.querySelector('.bundle-card-header-home .bundle-card-count')).toHaveTextContent('17 apps');
+    expect(container.querySelector('.bundle-card-preview')).toContainElement(screen.getByText('+12'));
+    expect(container.querySelector('.bundle-card > .bundle-download-action-compact')).not.toBeNull();
   });
 
   it('muestra el selector de SO del bundle en su detalle', async () => {

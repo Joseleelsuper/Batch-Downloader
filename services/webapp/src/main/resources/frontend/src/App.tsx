@@ -375,19 +375,21 @@ function BundleCard({ bundle }: { bundle: BundleSummary }) {
   );
 
   return (
-    <article className="bundle-card">
+    <article className="bundle-card bundle-card-home">
       <Link className="bundle-card-link" to={`/bundles/${bundle.id}`}>
-        <div className="bundle-card-header">
+        <div className="bundle-card-header bundle-card-header-home">
           <span className="bundle-icon">
             <Boxes size={22} />
           </span>
-          <div>
-            <h3>{bundle.name}</h3>
-            <small>{t('bundle.appCount', { count: bundle.appCount })}</small>
-          </div>
+          <h3>{bundle.name}</h3>
+          <small className="bundle-card-count">
+            {t('bundle.appCount', { count: bundle.appCount })}
+          </small>
         </div>
-        <p>{bundle.description || t('bundle.fallbackDescription')}</p>
-        <div className="mini-apps">
+        <p className="bundle-card-description">
+          {bundle.description || t('bundle.fallbackDescription')}
+        </p>
+        <div className="mini-apps bundle-card-preview">
           {visibleApps.map((app) => (
             <AppMiniIcon app={app} key={app.id} />
           ))}
@@ -711,6 +713,8 @@ function CatalogPage() {
           onToggleOperatingSystem={(operatingSystem) => {
             updateFilters({ operatingSystems: toggleOperatingSystem(filters.operatingSystems, operatingSystem) });
           }}
+          onClearTags={() => updateFilters({ tags: [] })}
+          onClearPublisher={() => updateFilters({ publisher: undefined })}
           onDownloadSelected={() => void downloadSelection()}
           onClearSelection={clearDownloadSelection}
           onRemoveSelected={(id) => removeDownloadSelections([id])}

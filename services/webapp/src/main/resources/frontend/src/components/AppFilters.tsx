@@ -40,6 +40,8 @@ interface Props {
   downloading?: boolean;
   onDownloadSelected?: () => void;
   onClearSelection?: () => void;
+  onClearTags?: () => void;
+  onClearPublisher?: () => void;
   onRemoveSelected?: (appId: string) => void;
   operatingSystems?: OperatingSystem[];
   onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
@@ -56,6 +58,8 @@ export function AppFilters({
   downloading = false,
   onDownloadSelected,
   onClearSelection,
+  onClearTags,
+  onClearPublisher,
   onRemoveSelected,
   operatingSystems = ['windows', 'linux', 'macos'],
   onToggleOperatingSystem,
@@ -89,16 +93,42 @@ export function AppFilters({
         })}
       </nav>
       <section className="facet-links-panel">
-        <Link className="facet-link-button" to={`/catalog/tags${facetSearch}`}>
-          <Tags size={18} />
-          <span>{t('facet.tags.title')}</span>
-          <strong>{selectedTagCount.toLocaleString('es-ES')}</strong>
-        </Link>
-        <Link className="facet-link-button" to={`/catalog/editors${facetSearch}`}>
-          <Building2 size={18} />
-          <span>{t('facet.publishers.title')}</span>
-          <strong>{selectedPublisherCount.toLocaleString('es-ES')}</strong>
-        </Link>
+        <div className={`facet-link-row ${selectedTagCount > 0 ? 'facet-link-row-clearable' : ''}`}>
+          <Link className="facet-link-button" to={`/catalog/tags${facetSearch}`}>
+            <Tags size={18} />
+            <span>{t('facet.tags.title')}</span>
+            <strong>{selectedTagCount.toLocaleString('es-ES')}</strong>
+          </Link>
+          {selectedTagCount > 0 ? (
+            <button
+              className="facet-clear-button"
+              type="button"
+              title={t('catalog.filters.clearTags')}
+              aria-label={t('catalog.filters.clearTags')}
+              onClick={onClearTags}
+            >
+              <X size={16} />
+            </button>
+          ) : null}
+        </div>
+        <div className={`facet-link-row ${selectedPublisherCount > 0 ? 'facet-link-row-clearable' : ''}`}>
+          <Link className="facet-link-button" to={`/catalog/editors${facetSearch}`}>
+            <Building2 size={18} />
+            <span>{t('facet.publishers.title')}</span>
+            <strong>{selectedPublisherCount.toLocaleString('es-ES')}</strong>
+          </Link>
+          {selectedPublisherCount > 0 ? (
+            <button
+              className="facet-clear-button"
+              type="button"
+              title={t('catalog.filters.clearPublisher')}
+              aria-label={t('catalog.filters.clearPublisher')}
+              onClick={onClearPublisher}
+            >
+              <X size={16} />
+            </button>
+          ) : null}
+        </div>
       </section>
       <section className="platform-filter" aria-label={t('catalog.platforms')}>
         <span>S.O.</span>

@@ -365,6 +365,8 @@
   "catalog.filter.missing": "",
   "catalog.filter.review": "",
   "catalog.filters": "",
+  "catalog.filters.clearPublisher": "",
+  "catalog.filters.clearTags": "",
   "catalog.filters.close": "",
   "catalog.filters.open": "",
   "catalog.platform.linux": "",
