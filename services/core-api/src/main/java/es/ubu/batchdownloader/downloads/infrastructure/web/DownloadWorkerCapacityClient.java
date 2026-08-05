@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +24,7 @@ final class DownloadWorkerCapacityClient {
     private final Duration timeout;
 
     /** Inicializa el cliente interno con esperas acotadas. */
+    @Autowired
     DownloadWorkerCapacityClient(
             @Value("${app.download.worker-capacity-url}") String workerUrl,
             @Value("${app.download.worker-capacity-timeout}") Duration timeout,

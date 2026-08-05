@@ -9,6 +9,8 @@ import java.util.List;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.web.util.ContentCachingResponseWrapper;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.filter.ShallowEtagHeaderFilter;
 
@@ -36,15 +38,18 @@ class PublicCatalogHttpCacheConfiguration {
                     HttpServletRequest request,
                     HttpServletResponse response,
                     FilterChain chain) throws ServletException, IOException {
-                chain.doFilter(request, response);
+                ContentCachingResponseWrapper wrapped = new ContentCachingResponseWrapper(response);
+                chain.doFilter(request, wrapped);
                 if ("GET".equals(request.getMethod())
-                        && response.getStatus() < 400
-                        && request.getUserPrincipal() == null) {
-                    response.setHeader(
+                        && wrapped.getStatus() < 400
+                        && (request.getUserPrincipal() == null
+                                || request.getUserPrincipal() instanceof AnonymousAuthenticationToken)) {
+                    wrapped.setHeader(
                             "Cache-Control", "public, max-age=5, stale-while-revalidate=15");
                 } else {
-                    response.setHeader("Cache-Control", "private, no-store");
+                    wrapped.setHeader("Cache-Control", "private, no-store");
                 }
+                wrapped.copyBodyToResponse();
             }
         };
         FilterRegistrationBean<OncePerRequestFilter> registration = new FilterRegistrationBean<>();

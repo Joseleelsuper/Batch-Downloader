@@ -14,6 +14,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -51,6 +52,7 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
      *
      * @param heartbeat Intervalo entre señales de vida.
      */
+    @Autowired
     public SseDownloadJobNotifier(@Value("${app.download.sse-heartbeat}") Duration heartbeat) {
         this(heartbeat, () -> new SseEmitter(SSE_TIMEOUT_MILLIS));
     }

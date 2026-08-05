@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +33,7 @@ class PublicCatalogCache {
      * @param maximumSize Número máximo de claves.
      * @param ttl Vigencia máxima de una respuesta.
      */
+    @Autowired
     PublicCatalogCache(
             @Value("${app.catalog.cache-maximum-size}") long maximumSize,
             @Value("${app.catalog.cache-ttl}") Duration ttl) {
