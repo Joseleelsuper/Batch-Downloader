@@ -2,7 +2,9 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from functools import lru_cache
+from zoneinfo import ZoneInfo
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,6 +37,18 @@ class Settings(BaseSettings):
     database_password: SecretStr = SecretStr("batch_downloader")
     """Campo declarado `database_password` de `Settings`.
     """
+    database_role: str = Field(default="api", pattern="^(api|indexer|model_worker)$")
+    """Rol del proceso que determina el presupuesto del pool."""
+    api_db_pool_min: int = Field(default=1, ge=0)
+    api_db_pool_max: int = Field(default=3, ge=1)
+    indexer_db_pool_min: int = Field(default=0, ge=0)
+    indexer_db_pool_max: int = Field(default=1, ge=1)
+    model_worker_db_pool_min: int = Field(default=0, ge=0)
+    model_worker_db_pool_max: int = Field(default=1, ge=1)
+    db_pool_timeout_seconds: float = Field(default=2.0, gt=0)
+    """Espera máxima para adquirir PostgreSQL."""
+    db_pool_max_lifetime_seconds: float = Field(default=1500.0, ge=60)
+    """Vida máxima de una conexión del pool."""
     postgres_dsn_override: str | None = Field(default=None, exclude=True)
     """Campo declarado `postgres_dsn_override` de `Settings`.
     """
@@ -79,6 +93,16 @@ class Settings(BaseSettings):
     search_timeout_seconds: float = 3.0
     """Campo declarado `search_timeout_seconds` de `Settings`.
     """
+    search_concurrency: int = Field(default=2, ge=1)
+    """Búsquedas semánticas que pueden usar CPU y PostgreSQL simultáneamente."""
+    search_capacity_wait_seconds: float = Field(default=2.0, gt=0)
+    """Espera máxima para obtener una plaza de búsqueda."""
+    background_timezone: str = "Europe/Madrid"
+    """Zona horaria utilizada para aislar los trabajos pesados."""
+    background_start_hour: int = Field(default=1, ge=0, le=23)
+    """Primera hora incluida de la ventana fuera de punta."""
+    background_end_hour: int = Field(default=7, ge=0, le=23)
+    """Última hora excluida de la ventana fuera de punta."""
     operation_poll_seconds: float = 2.0
     """Campo declarado `operation_poll_seconds` de `Settings`.
     """
@@ -127,6 +151,28 @@ class Settings(BaseSettings):
             user=self.database_username,
             password=self.database_password.get_secret_value(),
         )
+
+    @property
+    def database_pool_limits(self) -> tuple[int, int]:
+        """Devuelve el mínimo y máximo asignados al rol del proceso."""
+        if self.database_role == "indexer":
+            return self.indexer_db_pool_min, self.indexer_db_pool_max
+        if self.database_role == "model_worker":
+            return self.model_worker_db_pool_min, self.model_worker_db_pool_max
+        return self.api_db_pool_min, self.api_db_pool_max
+
+    def background_window_open(self, moment: datetime | None = None) -> bool:
+        """Indica si puede iniciarse indexación o preparación de modelos."""
+        current = (moment or datetime.now(timezone.utc)).astimezone(
+            ZoneInfo(self.background_timezone)
+        )
+        start = self.background_start_hour
+        end = self.background_end_hour
+        if start == end:
+            return True
+        if start < end:
+            return start <= current.hour < end
+        return current.hour >= start or current.hour < end
 
 
 @lru_cache

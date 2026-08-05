@@ -209,6 +209,9 @@ class SemanticModelWorker:
         """Ejecuta la operación `loop`.
         """
         while True:
+            if not self.settings.background_window_open():
+                time.sleep(min(60.0, max(0.5, self.settings.operation_poll_seconds)))
+                continue
             worked = self.run_once()
             if not worked:
                 time.sleep(max(0.5, self.settings.operation_poll_seconds))
@@ -456,23 +459,19 @@ class SemanticModelWorker:
         operation_id = str(operation["id"])
         model_id = str(operation["model_id"])
         model_version = self.store.mark_preparing(model_id)
-        indexer = SemanticIndexer()
-        indexer.open()
-        try:
-            report = indexer.run_once(
-                model_version,
-                progress=lambda phase, current, total: self.store.update_operation(
-                    operation_id,
-                    phase=phase,
-                    current=current,
-                    total=total,
-                    unit="documents",
-                    message="Preparando la proyección del catálogo",
-                ),
-                cancelled=lambda: self.store.cancel_requested(operation_id),
-            )
-        finally:
-            indexer.close()
+        indexer = SemanticIndexer(settings=self.settings, database=self.database)
+        report = indexer.run_once(
+            model_version,
+            progress=lambda phase, current, total: self.store.update_operation(
+                operation_id,
+                phase=phase,
+                current=current,
+                total=total,
+                unit="documents",
+                message="Preparando la proyección del catálogo",
+            ),
+            cancelled=lambda: self.store.cancel_requested(operation_id),
+        )
         if not report["complete"]:
             raise RuntimeError("semantic_model_coverage_incomplete")
         if not self.store.begin_finalization(

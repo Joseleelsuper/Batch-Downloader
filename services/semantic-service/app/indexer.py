@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
 from app.store import SemanticStore
@@ -24,29 +24,37 @@ logger = logging.getLogger("semantic-indexer")
 class SemanticIndexer:
     """Representa el componente `SemanticIndexer`.
     """
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        database: Database | None = None,
+    ) -> None:
         """Inicializa una instancia de `SemanticIndexer`.
         """
-        self.settings = get_settings()
+        self.settings = settings or get_settings()
         """Estado de instancia asociado a `settings`.
         """
-        self.database = Database(self.settings)
+        self.database = database or Database(self.settings)
         """Estado de instancia asociado a `database`.
         """
         self.store = SemanticStore(self.database)
         """Estado de instancia asociado a `store`.
         """
+        self._owns_database = database is None
+        """Indica si esta instancia debe abrir y cerrar el pool."""
 
     def open(self) -> None:
         """Ejecuta `open` dentro de `SemanticIndexer`.
         """
-        self.database.open()
-        self.database.migrate()
+        if self._owns_database:
+            self.database.open()
+            self.database.migrate()
 
     def close(self) -> None:
         """Ejecuta `close` dentro de `SemanticIndexer`.
         """
-        self.database.close()
+        if self._owns_database:
+            self.database.close()
 
     def run_once(
         self,
@@ -70,6 +78,21 @@ class SemanticIndexer:
         Throws:
             InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
         """
+        with self.database.exclusive_background_operation():
+            return self._run_once(
+                requested_model_version,
+                progress=progress,
+                cancelled=cancelled,
+            )
+
+    def _run_once(
+        self,
+        requested_model_version: str | None = None,
+        *,
+        progress: Callable[[str, int, int], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        """Ejecuta el barrido mientras la exclusión distribuida permanece adquirida."""
         model_version = requested_model_version or self.store.selected_model_version(
             self.settings.initial_model_version
         )
@@ -175,6 +198,9 @@ def main() -> None:
     indexer.open()
     try:
         while True:
+            if arguments.loop and not indexer.settings.background_window_open():
+                time.sleep(min(60.0, max(5.0, indexer.settings.index_interval_seconds)))
+                continue
             try:
                 report = indexer.run_once(arguments.model_version)
                 logger.info("semantic_index_completed %s", report)

@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   TERMINAL_DOWNLOAD_STATUSES,
   type DownloadJobRequest,
   useDownloadJobs,
 } from '../downloads/DownloadJobsContext';
+import type { DownloadJob } from '../types/catalog';
 
 export type { DownloadJobRequest };
 
@@ -11,20 +12,25 @@ export function useDownloadJob() {
   const downloads = useDownloadJobs();
   const [jobId, setJobId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const startInFlight = useRef<Promise<DownloadJob> | null>(null);
   const [localError, setLocalError] = useState(false);
   const entry = jobId ? downloads.jobs.find((candidate) => candidate.id === jobId) : undefined;
 
   const start = useCallback(async (request: DownloadJobRequest, label?: string) => {
+    if (startInFlight.current) return startInFlight.current;
     setStarting(true);
     setLocalError(false);
+    const operation = downloads.start(request, label);
+    startInFlight.current = operation;
     try {
-      const created = await downloads.start(request, label);
+      const created = await operation;
       setJobId(created.id);
       return created;
     } catch (cause) {
       setLocalError(true);
       throw cause;
     } finally {
+      startInFlight.current = null;
       setStarting(false);
     }
   }, [downloads]);

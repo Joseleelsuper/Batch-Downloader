@@ -38,6 +38,56 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 let cachedCsrfToken: string | undefined;
+let csrfRequest: Promise<string | undefined> | undefined;
+const pendingDownloadCreations = new Map<string, Promise<DownloadJob>>();
+const RETRY_DELAYS_MS = [2500, 5000, 10000, 30000] as const;
+
+function retryDelay(attempt: number): number {
+  const base = RETRY_DELAYS_MS[Math.min(Math.max(attempt, 0), RETRY_DELAYS_MS.length - 1)];
+  return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+
+function browserCanRetry(): boolean {
+  return document.visibilityState !== 'hidden' && navigator.onLine !== false;
+}
+
+function createRetryScheduler(task: () => void) {
+  let timer: number | undefined;
+  let pendingAttempt: number | undefined;
+  let stopped = false;
+
+  const resume = () => {
+    if (stopped || pendingAttempt === undefined || !browserCanRetry()) return;
+    const attempt = pendingAttempt;
+    pendingAttempt = undefined;
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      if (stopped) return;
+      if (!browserCanRetry()) {
+        pendingAttempt = attempt;
+        return;
+      }
+      task();
+    }, retryDelay(attempt));
+  };
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('online', resume);
+
+  return {
+    schedule(attempt: number) {
+      if (timer) window.clearTimeout(timer);
+      pendingAttempt = attempt;
+      resume();
+    },
+    stop() {
+      stopped = true;
+      pendingAttempt = undefined;
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('online', resume);
+    },
+  };
+}
 
 function cookieValue(name: string): string | undefined {
   return document.cookie
@@ -49,23 +99,32 @@ function cookieValue(name: string): string | undefined {
 
 async function ensureCsrfToken(forceRefresh = false): Promise<string | undefined> {
   if (!forceRefresh && cachedCsrfToken) return cachedCsrfToken;
-  const response = await fetch(`${API_BASE}/api/v1/auth/csrf`, { credentials: 'include' });
-  if (response.ok) {
-    const body = await response.json().catch(() => null) as { token?: string } | null;
-    if (body?.token) {
-      cachedCsrfToken = body.token;
-      return cachedCsrfToken;
+  if (csrfRequest) return csrfRequest;
+  csrfRequest = (async () => {
+    const response = await fetch(`${API_BASE}/api/v1/auth/csrf`, { credentials: 'include' });
+    if (response.ok) {
+      const body = await response.json().catch(() => null) as { token?: string } | null;
+      if (body?.token) {
+        cachedCsrfToken = body.token;
+        return cachedCsrfToken;
+      }
     }
+    const token = cookieValue('XSRF-TOKEN');
+    cachedCsrfToken = token ? decodeURIComponent(token) : undefined;
+    return cachedCsrfToken;
+  })();
+  try {
+    return await csrfRequest;
+  } finally {
+    csrfRequest = undefined;
   }
-  const token = cookieValue('XSRF-TOKEN');
-  cachedCsrfToken = token ? decodeURIComponent(token) : undefined;
-  return cachedCsrfToken;
 }
 
 export class ApiRequestError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: string,
+    public readonly retryAfter: string | null = null,
   ) {
     super(code);
     this.name = 'ApiRequestError';
@@ -107,6 +166,7 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     throw new ApiRequestError(
       response.status,
       payload?.code ?? detailCode ?? `request_failed_${response.status}`,
+      response.headers.get('Retry-After'),
     );
   }
   if (response.status === 204) return undefined as T;
@@ -173,10 +233,19 @@ export async function createDownloadJob(
   request: { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean }
     | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean },
 ): Promise<DownloadJob> {
-  return requestJson<DownloadJob>('/api/v1/download-jobs', {
+  const key = JSON.stringify(request);
+  const pending = pendingDownloadCreations.get(key);
+  if (pending) return pending;
+  const creation = requestJson<DownloadJob>('/api/v1/download-jobs', {
     method: 'POST',
     body: JSON.stringify(request),
   });
+  pendingDownloadCreations.set(key, creation);
+  try {
+    return await creation;
+  } finally {
+    pendingDownloadCreations.delete(key);
+  }
 }
 
 export async function fetchDownloadJob(jobId: string): Promise<DownloadJob> {
@@ -208,15 +277,16 @@ export function connectDownloadJobEvents(
   onError?: (cause?: unknown) => void,
 ): () => void {
   let stopped = false;
-  let pollingTimer: number | undefined;
   let source: EventSource | undefined;
+  let pollingAttempt = 0;
+  const polling = createRetryScheduler(() => void poll());
 
   const accept = (job: DownloadJob) => {
     if (stopped) return;
     onJob(job);
     if (TERMINAL_DOWNLOAD_STATUSES.has(job.status)) {
       source?.close();
-      if (pollingTimer) window.clearTimeout(pollingTimer);
+      polling.stop();
     }
   };
 
@@ -226,11 +296,13 @@ export function connectDownloadJobEvents(
       const job = await fetchDownloadJob(jobId);
       accept(job);
       if (!TERMINAL_DOWNLOAD_STATUSES.has(job.status)) {
-        pollingTimer = window.setTimeout(poll, 2500);
+        pollingAttempt = 0;
+        polling.schedule(pollingAttempt);
       }
     } catch (cause) {
       onError?.(cause);
-      pollingTimer = window.setTimeout(poll, 4000);
+      pollingAttempt++;
+      polling.schedule(pollingAttempt);
     }
   };
 
@@ -243,7 +315,7 @@ export function connectDownloadJobEvents(
   };
 
   if (typeof EventSource === 'undefined') {
-    void poll();
+    polling.schedule(0);
   } else {
     source = new EventSource(
       `${API_BASE}/api/v1/download-jobs/${encodeURIComponent(jobId)}/events`,
@@ -253,14 +325,14 @@ export function connectDownloadJobEvents(
     source.addEventListener('job', consume as EventListener);
     source.addEventListener('error', () => {
       source?.close();
-      void poll();
+      polling.schedule(0);
     });
   }
 
   return () => {
     stopped = true;
     source?.close();
-    if (pollingTimer) window.clearTimeout(pollingTimer);
+    polling.stop();
   };
 }
 
@@ -384,13 +456,17 @@ export async function exportAdminAppsCsv(): Promise<void> {
 export function connectCatalogEvents(onEvent: (event: CatalogChangeEvent) => void, onState?: (state: 'live' | 'reconnecting' | 'offline') => void): () => void {
   let socket: WebSocket | null = null;
   let stopped = false;
-  let reconnectTimer: number | undefined;
+  let reconnectAttempt = 0;
+  const reconnect = createRetryScheduler(connect);
 
   function connect() {
     if (stopped) return;
     onState?.('reconnecting');
     socket = new WebSocket(catalogWebSocketUrl());
-    socket.addEventListener('open', () => onState?.('live'));
+    socket.addEventListener('open', () => {
+      reconnectAttempt = 0;
+      onState?.('live');
+    });
     socket.addEventListener('message', (event) => {
       try {
         const payload = JSON.parse(event.data) as CatalogChangeEvent;
@@ -402,7 +478,7 @@ export function connectCatalogEvents(onEvent: (event: CatalogChangeEvent) => voi
     socket.addEventListener('close', () => {
       if (stopped) return;
       onState?.('offline');
-      reconnectTimer = window.setTimeout(connect, 2500);
+      reconnect.schedule(reconnectAttempt++);
     });
     socket.addEventListener('error', () => {
       onState?.('offline');
@@ -414,7 +490,7 @@ export function connectCatalogEvents(onEvent: (event: CatalogChangeEvent) => voi
 
   return () => {
     stopped = true;
-    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    reconnect.stop();
     socket?.close();
   };
 }
@@ -575,13 +651,17 @@ export async function enqueueMissingScraperDescriptions(): Promise<ContentEnqueu
 export function connectScraperEvents(onEvent: (event: ScraperEvent) => void, onState?: (state: 'live' | 'reconnecting' | 'offline') => void): () => void {
   let socket: WebSocket | null = null;
   let stopped = false;
-  let reconnectTimer: number | undefined;
+  let reconnectAttempt = 0;
+  const reconnect = createRetryScheduler(connect);
 
   function connect() {
     if (stopped) return;
     onState?.('reconnecting');
     socket = new WebSocket(scraperWebSocketUrl());
-    socket.addEventListener('open', () => onState?.('live'));
+    socket.addEventListener('open', () => {
+      reconnectAttempt = 0;
+      onState?.('live');
+    });
     socket.addEventListener('message', (event) => {
       try {
         const payload = JSON.parse(event.data) as ScraperEvent;
@@ -593,7 +673,7 @@ export function connectScraperEvents(onEvent: (event: ScraperEvent) => void, onS
     socket.addEventListener('close', () => {
       if (stopped) return;
       onState?.('offline');
-      reconnectTimer = window.setTimeout(connect, 2500);
+      reconnect.schedule(reconnectAttempt++);
     });
     socket.addEventListener('error', () => {
       onState?.('offline');
@@ -605,7 +685,7 @@ export function connectScraperEvents(onEvent: (event: ScraperEvent) => void, onS
 
   return () => {
     stopped = true;
-    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    reconnect.stop();
     socket?.close();
   };
 }

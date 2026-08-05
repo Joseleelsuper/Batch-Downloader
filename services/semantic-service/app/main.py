@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import secrets
 from collections import OrderedDict
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse, JSONResponse
 from huggingface_hub.errors import HfHubHTTPError
+from psycopg_pool import PoolTimeout
 
 from app.admin_schemas import (
     ActivateModelRequest,
@@ -48,6 +51,8 @@ hub_catalog = HuggingFaceCatalog()
 runtime_cache: OrderedDict[str, EmbeddingRuntime] = OrderedDict()
 """Estado global asociado a `runtime_cache`.
 """
+search_slots = asyncio.Semaphore(settings.search_concurrency)
+"""Plazas de búsqueda que protegen CPU y el pool de PostgreSQL."""
 
 
 @asynccontextmanager
@@ -71,6 +76,19 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Batch Downloader Semantic Service", lifespan=lifespan)
 """Estado global asociado a `app`.
 """
+
+
+@app.exception_handler(PoolTimeout)
+async def database_capacity_exhausted(
+    _request: Request,
+    _exception: PoolTimeout,
+) -> JSONResponse:
+    """Convierte el agotamiento del pool en una respuesta temporal explícita."""
+    return JSONResponse(
+        status_code=503,
+        content={"code": "service_busy", "message": "Capacidad temporal agotada."},
+        headers={"Retry-After": "1"},
+    )
 
 
 def runtime_for(model):
@@ -134,6 +152,25 @@ async def require_internal_service_token(
         raise HTTPException(status_code=401, detail={"code": "invalid_internal_token"})
 
 
+async def require_search_capacity() -> AsyncIterator[None]:
+    """Reserva una de las dos plazas de búsqueda con espera acotada."""
+    try:
+        await asyncio.wait_for(
+            search_slots.acquire(),
+            timeout=settings.search_capacity_wait_seconds,
+        )
+    except TimeoutError as exception:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "service_busy"},
+            headers={"Retry-After": "1"},
+        ) from exception
+    try:
+        yield
+    finally:
+        search_slots.release()
+
+
 @app.get("/semantic/health")
 async def health() -> dict[str, object]:
     """Ejecuta la operación `health`.
@@ -159,11 +196,31 @@ async def health() -> dict[str, object]:
     }
 
 
+@app.get(
+    "/internal/v1/metrics",
+    response_class=PlainTextResponse,
+    dependencies=[Depends(require_internal_service_token)],
+)
+async def internal_metrics() -> PlainTextResponse:
+    """Expone los contadores del pool en formato Prometheus."""
+    lines: list[str] = []
+    for key, value in database.metrics().items():
+        metric = "semantic_db_pool_" + key.replace("-", "_")
+        lines.extend((f"# TYPE {metric} gauge", f"{metric} {value}"))
+    return PlainTextResponse(
+        "\n".join(lines) + "\n",
+        media_type="text/plain; version=0.0.4",
+    )
+
+
 @app.post(
     "/internal/v1/semantic/search",
     response_model=SemanticSearchResponse,
     response_model_by_alias=True,
-    dependencies=[Depends(require_internal_service_token)],
+    dependencies=[
+        Depends(require_internal_service_token),
+        Depends(require_search_capacity),
+    ],
     responses={401: {}, 503: {}},
 )
 async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchResponse:
