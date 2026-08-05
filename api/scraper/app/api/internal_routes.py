@@ -10,7 +10,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -18,7 +18,7 @@ from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import ResolvedSource
-from app.db.session import get_session
+from app.db.session import engine, get_session
 from app.domain.source_resolution import SourceTrustStatus, source_trust_status
 from app.repositories.catalog import CatalogRepository
 from app.repositories.pipeline import (
@@ -99,6 +99,22 @@ async def require_internal_service_token(
     token_matches = secrets.compare_digest(provided_token or "", expected_token)
     if not expected_token or not token_matches:
         raise HTTPException(status_code=401, detail={"code": "invalid_internal_token"})
+
+
+@internal_router.get("/metrics", response_class=PlainTextResponse, responses={401: {}})
+async def internal_metrics(
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+) -> PlainTextResponse:
+    """Expone el estado del pool en formato Prometheus sin otro contenedor."""
+    pool = engine.pool
+    values = {
+        "scrapper_db_pool_size": pool.size(),
+        "scrapper_db_pool_checked_out": pool.checkedout(),
+        "scrapper_db_pool_checked_in": pool.checkedin(),
+        "scrapper_db_pool_overflow": pool.overflow(),
+    }
+    body = "".join(f"# TYPE {name} gauge\n{name} {value}\n" for name, value in values.items())
+    return PlainTextResponse(body, media_type="text/plain; version=0.0.4")
 
 
 @internal_router.get(

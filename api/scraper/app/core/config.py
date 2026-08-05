@@ -75,6 +75,14 @@ class Settings(BaseSettings):
     database_password: SecretStr = SecretStr("batch_downloader")
     """Campo declarado `database_password` de `Settings`.
     """
+    database_pool_max: int = Field(default=2, ge=1)
+    """Número máximo de conexiones persistentes del proceso."""
+    database_max_overflow: int = Field(default=0, ge=0)
+    """Conexiones adicionales permitidas sobre el pool; se mantiene en cero."""
+    database_pool_timeout_seconds: float = Field(default=2.0, gt=0)
+    """Espera máxima para adquirir una conexión."""
+    database_pool_recycle_seconds: int = Field(default=1500, ge=60)
+    """Antigüedad máxima de una conexión antes de reciclarla."""
     database_url_override: str | None = Field(
         default=None,
         description="Test-only full URL override; runtime configuration uses database components.",
@@ -142,7 +150,7 @@ class Settings(BaseSettings):
     scheduler_minute: int = 0
     """Campo declarado `scheduler_minute` de `Settings`.
     """
-    run_on_startup: bool = True
+    run_on_startup: bool = False
     """Campo declarado `run_on_startup` de `Settings`.
     """
     url_protection_secret: str = "replace-with-a-long-random-secret"

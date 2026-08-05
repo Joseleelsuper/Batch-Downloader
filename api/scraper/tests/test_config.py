@@ -31,3 +31,13 @@ def test_database_url_override_is_limited_to_explicit_test_configuration() -> No
     settings = Settings(database_url_override="sqlite+aiosqlite:///:memory:")
 
     assert settings.database_url.drivername == "sqlite+aiosqlite"
+
+
+def test_database_pool_is_bounded_without_overflow() -> None:
+    """El proceso API parte de dos conexiones y nunca crea overflow oculto."""
+    settings = Settings(_env_file=None)
+
+    assert settings.database_pool_max == 2
+    assert settings.database_max_overflow == 0
+    assert settings.database_pool_timeout_seconds == 2
+    assert settings.run_on_startup is False

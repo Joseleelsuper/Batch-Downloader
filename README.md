@@ -23,6 +23,22 @@ La interfaz queda disponible a través de Nginx en `http://localhost:3000`.
 MySQL conserva el catálogo autoritativo; PostgreSQL/pgvector contiene una
 proyección semántica reconstruible.
 
+Cada API y servicio dispone además de un `.env.example` local con sus ajustes
+no sensibles. El `.env` de la raíz continúa siendo la fuente global de Docker
+Compose y el único lugar para contraseñas, tokens, claves de firma y API keys.
+Los `.env` locales se generan sin copiar credenciales:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/sync-service-env-files.ps1
+powershell -ExecutionPolicy Bypass -File scripts/sync-service-env-files.ps1 -Check
+```
+
+Los procesos que comparten una imagen tienen variantes como `.env.scheduler`,
+`.env.indexer`, `.env.model-worker` y `.env.trainer`. Docker Compose sigue
+inyectando la configuración global; estos archivos locales sirven para ejecutar
+o inspeccionar cada componente de forma aislada cuando se cargan explícitamente
+junto con sus credenciales globales.
+
 Para probar las imágenes publicadas en GitHub Container Registry:
 
 ```bash
