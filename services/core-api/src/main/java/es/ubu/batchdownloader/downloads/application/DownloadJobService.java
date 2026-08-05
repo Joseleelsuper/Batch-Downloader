@@ -4,6 +4,7 @@ import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.RateLimitException;
+import es.ubu.batchdownloader.common.ServiceUnavailableException;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup;
 import es.ubu.batchdownloader.downloads.application.port.DownloadArtifactCleaner;
@@ -34,6 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Coordina las operaciones de negocio de {@code DownloadJobService}.
@@ -106,6 +108,12 @@ public class DownloadJobService {
      * Estado {@code anonymousMaxCreatesPerIpHour} mantenido por {@code DownloadJobService}.
      */
     private final int anonymousMaxCreatesPerIpHour;
+    /** Máximo de trabajos no terminales por cuenta autenticada. */
+    private final int authenticatedMaxActiveJobs;
+    /** Máximo global de trabajos que pueden permanecer pendientes. */
+    private final int globalMaxPendingJobs;
+    /** Ejecuta la fase corta de expiración dentro de MySQL. */
+    private final TransactionTemplate transactions;
 
     /**
      * Inicializa una instancia de {@code DownloadJobService}.
@@ -127,6 +135,9 @@ public class DownloadJobService {
      *     la operación.
      * @param anonymousMaxCreatesPerIpHour Valor de {@code anonymousMaxCreatesPerIpHour} utilizado
      *     por la operación.
+     * @param authenticatedMaxActiveJobs Máximo de trabajos por cuenta autenticada.
+     * @param globalMaxPendingJobs Máximo global de trabajos no terminales.
+     * @param transactions Gestor de transacciones cortas.
      */
     public DownloadJobService(
             DownloadJobStore jobs,
@@ -142,7 +153,10 @@ public class DownloadJobService {
             @Value("${app.download.presigned-url-ttl}") Duration signedUrlTtl,
             @Value("${app.download.anonymous-max-active-jobs}") int anonymousMaxActiveJobs,
             @Value("${app.download.anonymous-max-creates-per-hour}") int anonymousMaxCreatesPerHour,
-            @Value("${app.download.anonymous-max-creates-per-ip-hour}") int anonymousMaxCreatesPerIpHour) {
+            @Value("${app.download.anonymous-max-creates-per-ip-hour}") int anonymousMaxCreatesPerIpHour,
+            @Value("${app.download.authenticated-max-active-jobs}") int authenticatedMaxActiveJobs,
+            @Value("${app.download.global-max-pending-jobs}") int globalMaxPendingJobs,
+            TransactionTemplate transactions) {
         this.jobs = jobs;
         this.sources = sources;
         this.users = users;
@@ -157,6 +171,9 @@ public class DownloadJobService {
         this.anonymousMaxActiveJobs = anonymousMaxActiveJobs;
         this.anonymousMaxCreatesPerHour = anonymousMaxCreatesPerHour;
         this.anonymousMaxCreatesPerIpHour = anonymousMaxCreatesPerIpHour;
+        this.authenticatedMaxActiveJobs = authenticatedMaxActiveJobs;
+        this.globalMaxPendingJobs = globalMaxPendingJobs;
+        this.transactions = transactions;
     }
 
     /**
@@ -183,8 +200,20 @@ public class DownloadJobService {
         if (appIds.isEmpty() || appIds.size() > maxApps) {
             throw new BadRequestException("invalid_job_size", "Selecciona entre 1 y " + maxApps + " aplicaciones.");
         }
+        jobs.lockAdmission();
         Instant now = clock.instant();
-        if (!owner.authenticated()) {
+        if (jobs.countNonTerminal() >= globalMaxPendingJobs) {
+            throw new ServiceUnavailableException(
+                    "service_busy", "La cola de descargas está llena. Inténtalo de nuevo.", 30);
+        }
+        if (owner.authenticated()) {
+            if (jobs.countNonTerminalByOwner(owner.userId()) >= authenticatedMaxActiveJobs) {
+                throw new RateLimitException(
+                        "rate_limited",
+                        "La cuenta ya tiene el máximo de descargas activas o pendientes.",
+                        60);
+            }
+        } else {
             enforceAnonymousLimits(owner, now);
         }
         Map<UUID, CatalogSourceLookup.VerifiedSource> selected =
@@ -296,7 +325,6 @@ public class DownloadJobService {
      * @throws ConflictException Si no puede completarse la operación bajo las condiciones
      *     requeridas.
      */
-    @Transactional(readOnly = true)
     public URI file(RequestOwner owner, UUID jobId) {
         DownloadJob job = accessibleJob(owner, jobId);
         if (!job.status().downloadable() || job.objectKey() == null || !job.expiresAt().isAfter(clock.instant())) {
@@ -323,9 +351,17 @@ public class DownloadJobService {
             long bytesDownloaded,
             String sha256,
             String errorCode) {
-        DownloadJob job = requireJob(jobId);
-        job.updateItem(itemId, status, bytesDownloaded, sha256, errorCode, clock.instant());
-        notifyAfterSave(jobs.save(job));
+        DownloadJob job = jobs.applyProgress(
+                        jobId,
+                        itemId,
+                        status,
+                        bytesDownloaded,
+                        sha256,
+                        errorCode,
+                        clock.instant())
+                .orElseThrow(() -> new NotFoundException(
+                        "download_job_not_found", "No existe el trabajo."));
+        notifyAfterSave(job);
     }
 
     /**
@@ -364,23 +400,38 @@ public class DownloadJobService {
      * Ejecuta la operación {@code expireReadyJobs}.
      */
     @Scheduled(fixedDelayString = "PT10M")
-    @Transactional
     public void expireReadyJobs() {
         Instant now = clock.instant();
-        jobs.findDownloadableExpiredBefore(now).forEach(job -> {
-            if (job.expire(now)) {
-                DownloadJob expired = jobs.save(job);
-                try {
-                    artifacts.deleteJobArtifacts(expired.id());
-                } catch (RuntimeException exception) {
-                    // El trabajo ya no está disponible para los usuarios. Permite la
-                    // siguiente limpieza operativa en vez de reactivar una descarga
-                    // caducada. El ciclo de vida del almacenamiento añade otra protección.
-                    LOGGER.warn("Could not remove expired download artifacts for job {}", expired.id(), exception);
-                }
-                notifyAfterSave(expired);
-            }
+        List<DownloadJobView> expiredViews = transactions.execute(status ->
+                jobs.findDownloadableExpiredBefore(now).stream()
+                        .filter(job -> job.expire(now))
+                        .map(jobs::save)
+                        .map(DownloadJobView::from)
+                        .toList());
+        if (expiredViews == null) {
+            return;
+        }
+        expiredViews.forEach(view -> {
+            deleteExpiredArtifacts(view.id());
+            notifier.changed(view);
         });
+    }
+
+    /**
+     * Reintenta la compensación fuera de MySQL; la regla de ciclo de vida de MinIO queda como
+     * respaldo si los tres intentos inmediatos fallan.
+     */
+    private void deleteExpiredArtifacts(UUID jobId) {
+        RuntimeException failure = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                artifacts.deleteJobArtifacts(jobId);
+                return;
+            } catch (RuntimeException exception) {
+                failure = exception;
+            }
+        }
+        LOGGER.warn("Could not remove expired download artifacts for job {} after 3 attempts", jobId, failure);
     }
 
     /**

@@ -7,15 +7,21 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.common.BadRequestException;
 import java.sql.ResultSet;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.RowCallbackHandler;
 
 /**
  * Agrupa los escenarios de prueba de {@code CatalogRepositoryTest}.
@@ -23,6 +29,36 @@ import org.springframework.jdbc.core.RowMapper;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 class CatalogRepositoryTest {
+    /** Comprueba que el enriquecimiento de cualquier conjunto usa cuatro consultas por lote. */
+    @Test
+    void listItemsUsesFourQueriesRegardlessOfRequestedCardinality() throws Exception {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        UUID appId = UUID.randomUUID();
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    RowMapper<?> mapper = invocation.getArgument(1);
+                    ResultSet row = org.mockito.Mockito.mock(ResultSet.class);
+                    when(row.getBytes("id"))
+                            .thenReturn(es.ubu.batchdownloader.common.UuidBytes.fromUuid(appId));
+                    when(row.getString("slug")).thenReturn("example");
+                    when(row.getString("name")).thenReturn("Example");
+                    when(row.getString("catalog_status")).thenReturn("available");
+                    when(row.getTimestamp("updated_at"))
+                            .thenReturn(Timestamp.valueOf(LocalDateTime.of(2026, 8, 5, 0, 0)));
+                    return List.of(mapper.mapRow(row, 0));
+                });
+        doAnswer(invocation -> null)
+                .when(jdbc)
+                .query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
+        CatalogRepository repository = repository(jdbc);
+
+        assertThat(repository.listItems(List.of(appId))).containsKey(appId);
+
+        verify(jdbc, times(1)).query(anyString(), any(RowMapper.class), any(Object[].class));
+        verify(jdbc, times(3)).query(
+                anyString(), any(RowCallbackHandler.class), any(Object[].class));
+    }
+
     /**
      * Comprueba el escenario {@code manualAppsExposeTheirSourcePageInsteadOfAFakeWinstallUrl}.
      */

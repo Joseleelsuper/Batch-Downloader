@@ -56,12 +56,26 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         }
         List<String> systems = normalizedSystems(operatingSystems);
         StringBuilder sql = new StringBuilder("""
-                SELECT ds.software_app_id, rs.id AS source_ref, ds.operating_system, ds.architecture,
-                       app.name AS app_name, app.official_url
-                FROM software_apps app
-                JOIN download_sources ds ON ds.software_app_id = app.id
-                JOIN resolved_sources rs ON rs.download_source_id = ds.id
-                WHERE ds.software_app_id IN (
+                SELECT software_app_id, source_ref, operating_system, architecture,
+                       app_name, official_url
+                FROM (
+                    SELECT ds.software_app_id, rs.id AS source_ref,
+                           ds.operating_system, ds.architecture,
+                           app.name AS app_name, app.official_url,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY ds.software_app_id
+                               ORDER BY FIELD(ds.operating_system, 'windows', 'linux', 'macos') ASC,
+                                        (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
+                                        rs.is_latest DESC,
+                                        COALESCE(rs.release_rank, 2147483647) ASC,
+                                        rs.score DESC,
+                                        rs.checked_at DESC,
+                                        rs.id ASC
+                           ) AS source_rank
+                    FROM software_apps app
+                    JOIN download_sources ds ON ds.software_app_id = app.id
+                    JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                    WHERE ds.software_app_id IN (
                 """);
         appendPlaceholders(sql, ids.size());
         sql.append("""
@@ -76,15 +90,11 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
                 """);
         appendPlaceholders(sql, systems.size());
         sql.append("""
-                )
-                ORDER BY ds.software_app_id,
-                         FIELD(ds.operating_system, 'windows', 'linux', 'macos') ASC,
-                         (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
-                         rs.is_latest DESC,
-                         COALESCE(rs.release_rank, 2147483647) ASC,
-                         rs.score DESC,
-                         rs.checked_at DESC,
-                         rs.id ASC
+                    )
+                ) ranked_sources
+                WHERE source_rank = 1
+                ORDER BY software_app_id
+                LIMIT 101
                 """);
         List<Object> parameters = new ArrayList<>(ids.size() + systems.size());
         ids.forEach(id -> parameters.add(UuidBytes.fromUuid(id)));

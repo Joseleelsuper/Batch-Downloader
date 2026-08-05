@@ -41,6 +41,8 @@ public class CatalogController {
      * Estado {@code semanticSearch} mantenido por {@code CatalogController}.
      */
     private final SemanticSearchClient semanticSearch;
+    /** Caché breve de respuestas públicas. */
+    private final PublicCatalogCache cache;
 
     /**
      * Inicializa una instancia de {@code CatalogController}.
@@ -49,9 +51,13 @@ public class CatalogController {
      * @param semanticSearch Valor de {@code semanticSearch} utilizado por la operación.
      */
     @Autowired
-    public CatalogController(CatalogRepository catalog, SemanticSearchClient semanticSearch) {
+    public CatalogController(
+            CatalogRepository catalog,
+            SemanticSearchClient semanticSearch,
+            PublicCatalogCache cache) {
         this.catalog = catalog;
         this.semanticSearch = semanticSearch;
+        this.cache = cache;
     }
 
     /**
@@ -60,7 +66,7 @@ public class CatalogController {
      * @param catalog Acceso al catálogo utilizado por la operación.
      */
     CatalogController(CatalogRepository catalog) {
-        this(catalog, SemanticSearchClient.disabled());
+        this(catalog, SemanticSearchClient.disabled(), PublicCatalogCache.disabled());
     }
 
     /**
@@ -98,38 +104,31 @@ public class CatalogController {
         List<String> systems = normalizedOperatingSystems(operatingSystems);
         List<String> tagList = parseRepeatedAndCsv(tag, tags);
         List<String> publisherList = optionalPublisher(publisher);
-        SemanticCandidateSet candidates = semanticSearch.resolve(
-                CatalogSearchMode.parse(searchMode),
-                query);
-        return new AppSearchResponse(
-                catalog.search(
-                        query,
-                        status,
-                        systems,
-                        architecture,
-                        tagList,
-                        publisherList,
-                        "all",
-                        sort,
-                        safePage,
-                        safePageSize,
-                        candidates),
-                safePage,
-                safePageSize,
-                catalog.count(
-                        query,
-                        status,
-                        systems,
-                        architecture,
-                        tagList,
-                        publisherList,
-                        "all",
-                        candidates),
-                candidates.requestedMode().wireValue(),
-                candidates.appliedMode().wireValue(),
-                candidates.modelVersion(),
-                candidates.indexVersion(),
-                candidates.degradedReason());
+        String normalizedStatus = status;
+        return cache.get(
+                "apps",
+                catalog::cacheVersion,
+                List.of(
+                        String.valueOf(query), normalizedStatus, systems, String.valueOf(architecture),
+                        tagList, publisherList, sort, safePage, safePageSize, searchMode),
+                () -> {
+                    SemanticCandidateSet candidates = semanticSearch.resolve(
+                            CatalogSearchMode.parse(searchMode), query);
+                    return new AppSearchResponse(
+                            catalog.search(
+                                    query, normalizedStatus, systems, architecture, tagList,
+                                    publisherList, "all", sort, safePage, safePageSize, candidates),
+                            safePage,
+                            safePageSize,
+                            catalog.count(
+                                    query, normalizedStatus, systems, architecture, tagList,
+                                    publisherList, "all", candidates),
+                            candidates.requestedMode().wireValue(),
+                            candidates.appliedMode().wireValue(),
+                            candidates.modelVersion(),
+                            candidates.indexVersion(),
+                            candidates.degradedReason());
+                });
     }
 
     /**
@@ -195,7 +194,7 @@ public class CatalogController {
      */
     @GetMapping("/apps/stats")
     public CatalogStatsResponse stats() {
-        return catalog.stats();
+        return cache.get("stats", catalog::cacheVersion, List.of(), catalog::stats);
     }
 
     /**
@@ -222,26 +221,31 @@ public class CatalogController {
             @RequestParam(required = false) String publisher,
             @RequestParam(defaultValue = "lexical") String searchMode) {
         status = publicCatalogStatus(status);
-        SemanticCandidateSet candidates = semanticSearch.resolve(
-                CatalogSearchMode.parse(searchMode),
-                query);
-        CatalogFacetsResponse facets = catalog.facets(
-                query,
-                status,
-                normalizedOperatingSystems(operatingSystems),
-                architecture,
-                parseRepeatedAndCsv(tag, tags),
-                optionalPublisher(publisher),
-                "all",
-                candidates);
-        return new CatalogFacetsResponse(
-                facets.tags(),
-                facets.publishers(),
-                candidates.requestedMode().wireValue(),
-                candidates.appliedMode().wireValue(),
-                candidates.modelVersion(),
-                candidates.indexVersion(),
-                candidates.degradedReason());
+        List<String> systems = normalizedOperatingSystems(operatingSystems);
+        List<String> tagList = parseRepeatedAndCsv(tag, tags);
+        List<String> publisherList = optionalPublisher(publisher);
+        String normalizedStatus = status;
+        return cache.get(
+                "facets",
+                catalog::cacheVersion,
+                List.of(
+                        String.valueOf(query), normalizedStatus, systems, String.valueOf(architecture),
+                        tagList, publisherList, searchMode),
+                () -> {
+                    SemanticCandidateSet candidates = semanticSearch.resolve(
+                            CatalogSearchMode.parse(searchMode), query);
+                    CatalogFacetsResponse facets = catalog.facets(
+                            query, normalizedStatus, systems, architecture, tagList,
+                            publisherList, "all", candidates);
+                    return new CatalogFacetsResponse(
+                            facets.tags(),
+                            facets.publishers(),
+                            candidates.requestedMode().wireValue(),
+                            candidates.appliedMode().wireValue(),
+                            candidates.modelVersion(),
+                            candidates.indexVersion(),
+                            candidates.degradedReason());
+                });
     }
 
     /**
@@ -283,7 +287,7 @@ public class CatalogController {
      */
     @GetMapping("/apps/{appId}")
     public AppDetails details(@PathVariable String appId) {
-        return catalog.details(appId);
+        return cache.get("details", catalog::cacheVersion, List.of(appId), () -> catalog.details(appId));
     }
 
     /**

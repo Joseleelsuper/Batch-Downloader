@@ -30,7 +30,8 @@ class IdentityControllerTest {
     private final IdentityController controller = new IdentityController(
             identities,
             mock(AuthenticationManager.class),
-            mock(SecurityContextRepository.class));
+            mock(SecurityContextRepository.class),
+            new AuthRateLimiter(100, 100, 100));
 
     /**
      * Comprueba el escenario {@code anonymousCurrentIdentityReturnsNoContent}.

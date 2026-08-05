@@ -75,6 +75,13 @@ class OutboxEventEntity {
      */
     @Column(name = "last_error", length = 500)
     private String lastError;
+    /** Identificador efímero de la reclamación que está publicando el evento. */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "claim_token", length = 36)
+    private UUID claimToken;
+    /** Instante desde el que la reclamación permanece activa. */
+    @Column(name = "claimed_at")
+    private Instant claimedAt;
 
     /**
      * Inicializa una instancia de {@code OutboxEventEntity}.
@@ -121,6 +128,7 @@ class OutboxEventEntity {
     void markPublished(Instant now) {
         publishedAt = now;
         lastError = null;
+        releaseClaim();
     }
 
     /**
@@ -136,6 +144,19 @@ class OutboxEventEntity {
         String message = exception.getMessage();
         lastError = (message == null ? exception.getClass().getSimpleName() : message).substring(
                 0, Math.min(500, message == null ? exception.getClass().getSimpleName().length() : message.length()));
+        releaseClaim();
+    }
+
+    /** Reserva el evento para publicarlo fuera de la transacción que lo seleccionó. */
+    void claim(UUID token, Instant now) {
+        claimToken = token;
+        claimedAt = now;
+    }
+
+    /** Libera la reclamación al confirmar o aplazar el evento. */
+    private void releaseClaim() {
+        claimToken = null;
+        claimedAt = null;
     }
 
     /**

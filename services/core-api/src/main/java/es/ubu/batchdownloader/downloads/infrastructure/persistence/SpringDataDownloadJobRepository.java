@@ -65,4 +65,10 @@ interface SpringDataDownloadJobRepository extends JpaRepository<DownloadJobEntit
      */
     long countByAnonymousIpHashAndCreatedAtGreaterThanEqual(
             String anonymousIpHash, Instant createdAt);
+
+    /** Cuenta los trabajos cuyo estado no pertenece a la colección indicada. */
+    long countByStatusNotIn(Collection<DownloadJobStatus> statuses);
+
+    /** Cuenta los trabajos no terminales de una cuenta. */
+    long countByOwnerIdAndStatusNotIn(UUID ownerId, Collection<DownloadJobStatus> statuses);
 }

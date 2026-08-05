@@ -12,6 +12,7 @@ import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,7 +71,14 @@ public class BundleRepository {
                 ORDER BY %s
                 LIMIT ? OFFSET ?
                 """.formatted(order);
-        return jdbc.query(sql, (rs, rowNum) -> summary(rs), blankToNull(type), blankToNull(type), pageSize, (page - 1) * pageSize);
+        List<BundleBase> bundles = jdbc.query(
+                sql,
+                (rs, rowNum) -> bundleBase(rs),
+                blankToNull(type),
+                blankToNull(type),
+                pageSize,
+                (page - 1) * pageSize);
+        return enrichSummaries(bundles);
     }
 
     /**
@@ -108,13 +116,14 @@ public class BundleRepository {
                 ORDER BY %s
                 LIMIT ? OFFSET ?
                 """.formatted(order);
-        return jdbc.query(
+        List<BundleBase> bundles = jdbc.query(
                 sql,
-                (rs, rowNum) -> summary(rs),
+                (rs, rowNum) -> bundleBase(rs),
                 blankToNull(type),
                 blankToNull(type),
                 pageSize,
                 (page - 1) * pageSize);
+        return enrichSummaries(bundles);
     }
 
     /**
@@ -174,14 +183,9 @@ public class BundleRepository {
      *     requeridas.
      */
     public List<UUID> appIdsForDownload(String publicId, String username, boolean administrator) {
-        BundleRecord bundle = findBundle(publicId);
+        BundleAccess bundle = findBundleAccess(publicId);
         if (!isVisibleTo(bundle, username, administrator)) {
             throw new NotFoundException("bundle_not_found", "El bundle no existe.");
-        }
-        if (bundle.details().appCount() > MAX_BUNDLE_APPS) {
-            throw new ConflictException(
-                    "bundle_too_large",
-                    "Este bundle supera el máximo de " + MAX_BUNDLE_APPS + " aplicaciones y debe reducirse antes de descargarse.");
         }
         List<UUID> appIds = jdbc.query(
                 """
@@ -191,15 +195,44 @@ public class BundleRepository {
                 WHERE item.bundle_id = ?
                   AND app.app_status = 'active'
                 ORDER BY item.sort_order ASC
+                LIMIT 101
                 """,
                 (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("software_app_id")),
-                UuidBytes.fromUuid(UUID.fromString(bundle.details().id())));
+                UuidBytes.fromUuid(bundle.id()));
         if (appIds.size() > MAX_BUNDLE_APPS) {
             throw new ConflictException(
                     "bundle_too_large",
                     "Este bundle supera el máximo de " + MAX_BUNDLE_APPS + " aplicaciones y debe reducirse antes de descargarse.");
         }
         return List.copyOf(appIds);
+    }
+
+    /**
+     * Carga únicamente los campos necesarios para autorizar una descarga de bundle.
+     *
+     * @param publicId Identificador público o slug.
+     * @return Datos mínimos de acceso.
+     */
+    private BundleAccess findBundleAccess(String publicId) {
+        List<BundleAccess> bundles = jdbc.query(
+                """
+                SELECT id, visibility, owner_id, owner_username
+                FROM bundles
+                WHERE (? IS NOT NULL AND id = ?) OR slug = ?
+                LIMIT 1
+                """,
+                (rs, rowNum) -> new BundleAccess(
+                        UuidBytes.toUuid(rs.getBytes("id")),
+                        rs.getString("visibility"),
+                        nullableUuid(rs, "owner_id"),
+                        rs.getString("owner_username")),
+                uuidBytesOrNull(publicId),
+                uuidBytesOrNull(publicId),
+                publicId);
+        if (bundles.isEmpty()) {
+            throw new NotFoundException("bundle_not_found", "El bundle no existe.");
+        }
+        return bundles.get(0);
     }
 
     /**
@@ -390,23 +423,129 @@ public class BundleRepository {
      * @return Resultado producido por {@code summary}.
      * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
      */
-    private BundleSummary summary(ResultSet rs) throws SQLException {
-        UUID id = UuidBytes.toUuid(rs.getBytes("id"));
-        List<PlatformAvailability> availability = platformAvailability(id);
-        return new BundleSummary(
-                id.toString(),
+    private BundleBase bundleBase(ResultSet rs) throws SQLException {
+        return new BundleBase(
+                UuidBytes.toUuid(rs.getBytes("id")),
                 rs.getString("slug"),
                 rs.getString("name"),
                 rs.getString("description"),
                 rs.getString("type"),
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
-                activeAppCount(id),
-                availability.stream().map(PlatformAvailability::operatingSystem).toList(),
-                availability,
-                tags(id),
-                previewApps(id, 6),
                 rs.getTimestamp("updated_at").toLocalDateTime());
+    }
+
+    /**
+     * Enriquece una página completa mediante consultas por lotes y fuera del mapeador JDBC.
+     *
+     * @param bundles Filas base de la página.
+     * @return Resúmenes completos en el mismo orden.
+     */
+    private List<BundleSummary> enrichSummaries(List<BundleBase> bundles) {
+        if (bundles.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> bundleIds = bundles.stream().map(BundleBase::id).toList();
+        String placeholders = String.join(",", java.util.Collections.nCopies(bundleIds.size(), "?"));
+        Object[] parameters = bundleIds.stream().map(UuidBytes::fromUuid).toArray();
+
+        Map<UUID, List<String>> tagsByBundle = new LinkedHashMap<>();
+        jdbc.query(
+                "SELECT bundle_id, tag FROM bundle_tags WHERE bundle_id IN (" + placeholders
+                        + ") ORDER BY bundle_id, tag",
+                (org.springframework.jdbc.core.RowCallbackHandler) row -> tagsByBundle
+                        .computeIfAbsent(
+                                UuidBytes.toUuid(row.getBytes("bundle_id")),
+                                ignored -> new ArrayList<>())
+                        .add(row.getString("tag")),
+                parameters);
+
+        Map<UUID, LinkedHashSet<UUID>> activeAppsByBundle = new LinkedHashMap<>();
+        Map<UUID, Map<String, LinkedHashSet<UUID>>> platformAppsByBundle = new LinkedHashMap<>();
+        jdbc.query(
+                """
+                SELECT DISTINCT
+                    item.bundle_id,
+                    app.id AS software_app_id,
+                    item.sort_order,
+                    CASE
+                        WHEN app.catalog_status = 'available'
+                         AND source.resolution_status IN ('direct', 'fallback')
+                         AND source.validation_status = 'valid'
+                         AND source.catalog_available = 1
+                         AND artifact.catalog_downloadable = 1
+                         AND source.operating_system IN ('windows', 'linux', 'macos')
+                        THEN source.operating_system
+                        ELSE NULL
+                    END AS operating_system
+                FROM bundle_items item
+                JOIN software_apps app ON app.id = item.software_app_id
+                LEFT JOIN download_sources source ON source.software_app_id = item.software_app_id
+                LEFT JOIN resolved_sources artifact ON artifact.download_source_id = source.id
+                WHERE item.bundle_id IN (%s)
+                  AND app.app_status = 'active'
+                ORDER BY item.bundle_id, item.sort_order, operating_system
+                """.formatted(placeholders),
+                (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+                    UUID bundleId = UuidBytes.toUuid(row.getBytes("bundle_id"));
+                    UUID appId = UuidBytes.toUuid(row.getBytes("software_app_id"));
+                    activeAppsByBundle
+                            .computeIfAbsent(bundleId, ignored -> new LinkedHashSet<>())
+                            .add(appId);
+                    String operatingSystem = row.getString("operating_system");
+                    if (operatingSystem != null) {
+                        platformAppsByBundle
+                                .computeIfAbsent(bundleId, ignored -> new LinkedHashMap<>())
+                                .computeIfAbsent(operatingSystem, ignored -> new LinkedHashSet<>())
+                                .add(appId);
+                    }
+                },
+                parameters);
+
+        LinkedHashSet<UUID> previewIds = new LinkedHashSet<>();
+        activeAppsByBundle.values().forEach(ids -> ids.stream().limit(6).forEach(previewIds::add));
+        platformAppsByBundle.values().forEach(platforms ->
+                platforms.values().forEach(ids -> ids.stream().limit(6).forEach(previewIds::add)));
+        Map<UUID, AppListItem> apps = catalog.listItems(previewIds);
+
+        return bundles.stream().map(bundle -> {
+            List<UUID> activeIds = List.copyOf(activeAppsByBundle.getOrDefault(
+                    bundle.id(), new LinkedHashSet<>()));
+            Map<String, LinkedHashSet<UUID>> platformIds = platformAppsByBundle.getOrDefault(
+                    bundle.id(), Map.of());
+            List<PlatformAvailability> availability = List.of("windows", "linux", "macos").stream()
+                    .filter(platformIds::containsKey)
+                    .map(operatingSystem -> {
+                        List<UUID> ids = List.copyOf(platformIds.get(operatingSystem));
+                        return new PlatformAvailability(
+                                operatingSystem,
+                                ids.size(),
+                                ids.stream()
+                                        .limit(6)
+                                        .map(apps::get)
+                                        .filter(java.util.Objects::nonNull)
+                                        .toList());
+                    })
+                    .toList();
+            return new BundleSummary(
+                    bundle.id().toString(),
+                    bundle.slug(),
+                    bundle.name(),
+                    bundle.description(),
+                    bundle.type(),
+                    bundle.visibility(),
+                    bundle.starCount(),
+                    activeIds.size(),
+                    availability.stream().map(PlatformAvailability::operatingSystem).toList(),
+                    availability,
+                    List.copyOf(tagsByBundle.getOrDefault(bundle.id(), List.of())),
+                    activeIds.stream()
+                            .limit(6)
+                            .map(apps::get)
+                            .filter(java.util.Objects::nonNull)
+                            .toList(),
+                    bundle.updatedAt());
+        }).toList();
     }
 
     /**
@@ -698,7 +837,19 @@ public class BundleRepository {
      * @return Indica si se cumple la condición evaluada.
      */
     private boolean isVisibleTo(BundleRecord bundle, String username, boolean administrator) {
-        String visibility = bundle.details().visibility();
+        return isVisibleTo(
+                new BundleAccess(
+                        UUID.fromString(bundle.details().id()),
+                        bundle.details().visibility(),
+                        bundle.ownerId(),
+                        bundle.ownerUsername()),
+                username,
+                administrator);
+    }
+
+    /** Comprueba la visibilidad utilizando únicamente los datos mínimos de acceso. */
+    private boolean isVisibleTo(BundleAccess bundle, String username, boolean administrator) {
+        String visibility = bundle.visibility();
         if ("public".equals(visibility) || "official".equals(visibility) || administrator) {
             return true;
         }
@@ -751,4 +902,18 @@ public class BundleRepository {
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      */
     private record BundleRecord(BundleDetails details, UUID ownerId, String ownerUsername) {}
+
+    /** Fila base de una página, todavía sin relaciones. */
+    private record BundleBase(
+            UUID id,
+            String slug,
+            String name,
+            String description,
+            String type,
+            String visibility,
+            int starCount,
+            LocalDateTime updatedAt) {}
+
+    /** Datos mínimos para autorizar el acceso a un bundle. */
+    private record BundleAccess(UUID id, String visibility, UUID ownerId, String ownerUsername) {}
 }

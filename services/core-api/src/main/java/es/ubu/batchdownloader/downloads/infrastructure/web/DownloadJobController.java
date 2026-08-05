@@ -72,6 +72,8 @@ public class DownloadJobController {
      * Estado {@code notifier} mantenido por {@code DownloadJobController}.
      */
     private final SseDownloadJobNotifier notifier;
+    /** Admisión rápida del almacenamiento temporal del worker. */
+    private final DownloadWorkerCapacityClient workerCapacity;
     /**
      * Estado {@code secureCookie} mantenido por {@code DownloadJobController}.
      */
@@ -84,6 +86,7 @@ public class DownloadJobController {
      * @param owners Valor de {@code owners} utilizado por la operación.
      * @param bundles Valor de {@code bundles} utilizado por la operación.
      * @param notifier Valor de {@code notifier} utilizado por la operación.
+     * @param workerCapacity Comprobación interna previa a la transacción.
      * @param secureCookie Valor de {@code secureCookie} utilizado por la operación.
      */
     public DownloadJobController(
@@ -91,11 +94,13 @@ public class DownloadJobController {
             DownloadRequestOwner owners,
             BundleRepository bundles,
             SseDownloadJobNotifier notifier,
+            DownloadWorkerCapacityClient workerCapacity,
             @Value("${app.download.anonymous-cookie-secure}") boolean secureCookie) {
         this.jobs = jobs;
         this.owners = owners;
         this.bundles = bundles;
         this.notifier = notifier;
+        this.workerCapacity = workerCapacity;
         this.secureCookie = secureCookie;
     }
 
@@ -121,6 +126,7 @@ public class DownloadJobController {
         List<UUID> appIds = request.bundleId() == null
                 ? distinctAppIds(request.appIds())
                 : bundles.appIdsForDownload(request.bundleId(), actor(authentication), isAdmin(authentication));
+        workerCapacity.requireAvailable();
         DownloadJobView created = jobs.create(
                 owner,
                 appIds,

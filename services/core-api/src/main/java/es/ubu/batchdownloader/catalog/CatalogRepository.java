@@ -825,6 +825,22 @@ public class CatalogRepository {
     }
 
     /**
+     * Obtiene la versión barata que invalida las respuestas públicas almacenadas localmente.
+     *
+     * @return Versión y contadores autoritativos de MySQL.
+     */
+    public String cacheVersion() {
+        return jdbc.queryForObject(
+                """
+                SELECT CONCAT(version, ':', total_count, ':', available_count, ':', review_count, ':', missing_count)
+                FROM catalog_counters
+                WHERE id = ?
+                """,
+                String.class,
+                1);
+    }
+
+    /**
      * Ejecuta la operación {@code changeEvent}.
      *
      * @return Resultado producido por {@code changeEvent}.

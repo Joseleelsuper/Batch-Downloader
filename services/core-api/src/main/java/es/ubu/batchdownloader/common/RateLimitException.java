@@ -10,6 +10,8 @@ public class RateLimitException extends RuntimeException {
      * Estado {@code code} mantenido por {@code RateLimitException}.
      */
     private final String code;
+    /** Segundos que debe esperar el cliente antes de reintentar. */
+    private final int retryAfterSeconds;
 
     /**
      * Inicializa una instancia de {@code RateLimitException}.
@@ -18,8 +20,20 @@ public class RateLimitException extends RuntimeException {
      * @param message Mensaje que debe procesarse.
      */
     public RateLimitException(String code, String message) {
+        this(code, message, 60);
+    }
+
+    /**
+     * Inicializa un límite con una espera explícita.
+     *
+     * @param code Código estable de la respuesta.
+     * @param message Mensaje seguro para el cliente.
+     * @param retryAfterSeconds Segundos mínimos antes del reintento.
+     */
+    public RateLimitException(String code, String message, int retryAfterSeconds) {
         super(message);
         this.code = code;
+        this.retryAfterSeconds = Math.max(1, retryAfterSeconds);
     }
 
     /**
@@ -29,5 +43,14 @@ public class RateLimitException extends RuntimeException {
      */
     public String code() {
         return code;
+    }
+
+    /**
+     * Obtiene el valor de la cabecera {@code Retry-After}.
+     *
+     * @return Segundos mínimos antes del reintento.
+     */
+    public int retryAfterSeconds() {
+        return retryAfterSeconds;
     }
 }

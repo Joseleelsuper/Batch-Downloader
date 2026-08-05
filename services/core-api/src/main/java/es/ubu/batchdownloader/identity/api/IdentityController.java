@@ -48,6 +48,8 @@ public class IdentityController {
      * Estado {@code securityContexts} mantenido por {@code IdentityController}.
      */
     private final SecurityContextRepository securityContexts;
+    /** Límite de peticiones costosas de autenticación. */
+    private final AuthRateLimiter rateLimiter;
 
     /**
      * Inicializa una instancia de {@code IdentityController}.
@@ -60,10 +62,12 @@ public class IdentityController {
     public IdentityController(
             IdentityService identities,
             AuthenticationManager authenticationManager,
-            SecurityContextRepository securityContexts) {
+            SecurityContextRepository securityContexts,
+            AuthRateLimiter rateLimiter) {
         this.identities = identities;
         this.authenticationManager = authenticationManager;
         this.securityContexts = securityContexts;
+        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -73,7 +77,10 @@ public class IdentityController {
      * @return Resultado producido por {@code register}.
      */
     @PostMapping("/register")
-    ResponseEntity<IdentityView> register(@Valid @RequestBody RegisterRequest request) {
+    ResponseEntity<IdentityView> register(
+            @Valid @RequestBody RegisterRequest request,
+            HttpServletRequest servletRequest) {
+        rateLimiter.registration(clientIp(servletRequest), request.email());
         IdentityView created = identities.register(request.username(), request.email(), request.password());
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(created);
     }
@@ -91,6 +98,7 @@ public class IdentityController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest servletRequest,
             HttpServletResponse servletResponse) {
+        rateLimiter.login(clientIp(servletRequest), request.username());
         Authentication authentication = authenticationManager.authenticate(
                 UsernamePasswordAuthenticationToken.unauthenticated(request.username(), request.password()));
         SecurityContext context = SecurityContextHolder.createEmptyContext();
@@ -157,7 +165,10 @@ public class IdentityController {
      * @return Resultado producido por {@code requestPasswordReset}.
      */
     @PostMapping("/password-reset/request")
-    ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
+    ResponseEntity<Void> requestPasswordReset(
+            @Valid @RequestBody PasswordResetRequest request,
+            HttpServletRequest servletRequest) {
+        rateLimiter.reset(clientIp(servletRequest), request.email());
         identities.requestPasswordReset(request.email());
         return ResponseEntity.accepted().build();
     }
@@ -184,6 +195,16 @@ public class IdentityController {
     @PatchMapping("/preferences")
     IdentityView updatePreferences(@Valid @RequestBody PreferencesRequest request, Principal principal) {
         return identities.updateNotificationPreference(principal.getName(), request.notifyOnJobCompletion());
+    }
+
+    /**
+     * Obtiene la IP ya normalizada por la estrategia de cabeceras reenviadas de Spring.
+     *
+     * @param request Solicitud HTTP.
+     * @return Dirección utilizada por los límites locales.
+     */
+    private String clientIp(HttpServletRequest request) {
+        return request.getRemoteAddr();
     }
 
     /**

@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,6 +41,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Agrupa los escenarios de prueba de {@code DownloadJobServiceTest}.
@@ -86,6 +92,8 @@ class DownloadJobServiceTest {
      */
     @BeforeEach
     void setUp() {
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         service = new DownloadJobService(
                 jobs,
                 sources,
@@ -100,7 +108,10 @@ class DownloadJobServiceTest {
                 Duration.ofMinutes(5),
                 2,
                 10,
-                30);
+                30,
+                3,
+                100,
+                new TransactionTemplate(transactionManager));
         lenient().when(jobs.save(any(DownloadJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -208,11 +219,15 @@ class DownloadJobServiceTest {
                 NOW.minusSeconds(1));
         ready.markReady(DownloadJobStatus.READY, "jobs/example/bundle.zip", NOW.minusSeconds(1), NOW.minusSeconds(1));
         when(jobs.findDownloadableExpiredBefore(NOW)).thenReturn(List.of(ready));
+        doThrow(new IllegalStateException("minio unavailable"))
+                .doThrow(new IllegalStateException("minio unavailable"))
+                .doNothing()
+                .when(artifacts).deleteJobArtifacts(ready.id());
 
         service.expireReadyJobs();
 
         assertThat(ready.status()).isEqualTo(DownloadJobStatus.EXPIRED);
-        verify(artifacts).deleteJobArtifacts(ready.id());
+        verify(artifacts, times(3)).deleteJobArtifacts(ready.id());
         verify(notifier).changed(any(DownloadJobView.class));
     }
 

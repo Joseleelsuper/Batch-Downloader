@@ -42,6 +42,9 @@ class JpaCatalogSourceLookupTest {
         assertThat(sql.getValue()).doesNotContain("transport_security");
         assertThat(sql.getValue()).contains("FIELD(ds.operating_system, 'windows', 'linux', 'macos') ASC");
         assertThat(sql.getValue()).contains("rs.id ASC");
+        assertThat(sql.getValue()).contains("ROW_NUMBER() OVER (");
+        assertThat(sql.getValue()).contains("WHERE source_rank = 1");
+        assertThat(sql.getValue()).contains("LIMIT 101");
         assertThat(Arrays.stream(parameters.getValue())
                 .filter(String.class::isInstance)
                 .map(String.class::cast)

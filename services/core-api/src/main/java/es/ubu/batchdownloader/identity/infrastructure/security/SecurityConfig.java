@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.common.ApiError;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import java.util.Map;
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -98,9 +99,14 @@ public class SecurityConfig {
      * @param strength Valor de {@code strength} utilizado por la operación.
      * @return Resultado producido por {@code passwordEncoder}.
      */
-    @Bean
-    PasswordEncoder passwordEncoder(@Value("${app.auth.bcrypt-strength}") int strength) {
-        return new BCryptPasswordEncoder(strength);
+    @Bean(destroyMethod = "close")
+    PasswordEncoder passwordEncoder(
+            @Value("${app.auth.bcrypt-strength}") int strength,
+            @Value("${app.auth.hash-concurrency}") int concurrency,
+            @Value("${app.auth.hash-queue}") int queueCapacity,
+            @Value("${app.auth.hash-wait}") Duration wait) {
+        return new BoundedPasswordEncoder(
+                new BCryptPasswordEncoder(strength), concurrency, queueCapacity, wait);
     }
 
     /**

@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.downloads.application.port;
 
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
+import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -12,6 +13,11 @@ import java.util.UUID;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 public interface DownloadJobStore {
+    /**
+     * Serializa la comprobación de límites y la inserción dentro de la transacción actual.
+     */
+    void lockAdmission();
+
     /**
      * Guarda el recurso solicitado mediante {@code save}.
      *
@@ -56,4 +62,30 @@ public interface DownloadJobStore {
      * @return Número de elementos afectados por la operación.
      */
     long countAnonymousIpCreatedSince(String anonymousIpHash, Instant createdAfter);
+    /**
+     * Cuenta todos los trabajos que todavía consumen capacidad de cola.
+     *
+     * @return Número de trabajos no terminales.
+     */
+    long countNonTerminal();
+    /**
+     * Cuenta los trabajos activos o pendientes de una cuenta.
+     *
+     * @param ownerId Identificador de la cuenta.
+     * @return Número de trabajos no terminales de la cuenta.
+     */
+    long countNonTerminalByOwner(UUID ownerId);
+    /**
+     * Actualiza un único item y el agregado del trabajo sin reescribir todo el grafo.
+     *
+     * @return Trabajo actualizado, si existe.
+     */
+    Optional<DownloadJob> applyProgress(
+            UUID jobId,
+            UUID itemId,
+            DownloadItemStatus status,
+            long bytesDownloaded,
+            String sha256,
+            String errorCode,
+            Instant now);
 }

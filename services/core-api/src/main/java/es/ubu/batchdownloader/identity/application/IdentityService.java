@@ -21,8 +21,10 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Coordina las operaciones de negocio de {@code IdentityService}.
@@ -63,6 +65,8 @@ public class IdentityService {
      * Estado {@code resetTtl} mantenido por {@code IdentityService}.
      */
     private final Duration resetTtl;
+    /** Ejecuta únicamente los fragmentos que necesitan atomicidad en MySQL. */
+    private final TransactionTemplate transactions;
 
     /**
      * Inicializa una instancia de {@code IdentityService}.
@@ -74,6 +78,7 @@ public class IdentityService {
      * @param clock Valor de {@code clock} utilizado por la operación.
      * @param verificationTtl Valor de {@code verificationTtl} utilizado por la operación.
      * @param resetTtl Valor de {@code resetTtl} utilizado por la operación.
+     * @param transactions Gestor de las transacciones cortas de escritura.
      */
     public IdentityService(
             UserAccountStore users,
@@ -82,7 +87,8 @@ public class IdentityService {
             IdentityEventPublisher events,
             Clock clock,
             @Value("${app.auth.verification-ttl}") Duration verificationTtl,
-            @Value("${app.auth.password-reset-ttl}") Duration resetTtl) {
+            @Value("${app.auth.password-reset-ttl}") Duration resetTtl,
+            TransactionTemplate transactions) {
         this.users = users;
         this.tokens = tokens;
         this.passwords = passwords;
@@ -90,6 +96,7 @@ public class IdentityService {
         this.clock = clock;
         this.verificationTtl = verificationTtl;
         this.resetTtl = resetTtl;
+        this.transactions = transactions;
     }
 
     /**
@@ -102,7 +109,6 @@ public class IdentityService {
      * @throws ConflictException Si no puede completarse la operación bajo las condiciones
      *     requeridas.
      */
-    @Transactional
     public IdentityView register(String username, String email, String rawPassword) {
         String cleanUsername = username.strip();
         String cleanEmail = email.strip();
@@ -115,11 +121,31 @@ public class IdentityService {
             throw new ConflictException("email_already_exists", "El correo ya está registrado.");
         }
 
-        Instant now = clock.instant();
-        UserAccount user = users.save(UserAccount.register(
-                cleanUsername, normalizedUsername, cleanEmail, normalizedEmail, passwords.hash(rawPassword), now));
-        issueToken(user, IdentityToken.Type.EMAIL_VERIFICATION, verificationTtl);
-        return IdentityView.from(user);
+        String passwordHash = passwords.hash(rawPassword);
+        try {
+            return transactions.execute(status -> {
+                requireAvailable(normalizedUsername, normalizedEmail);
+                Instant now = clock.instant();
+                UserAccount user = users.save(UserAccount.register(
+                        cleanUsername,
+                        normalizedUsername,
+                        cleanEmail,
+                        normalizedEmail,
+                        passwordHash,
+                        now));
+                issueToken(user, IdentityToken.Type.EMAIL_VERIFICATION, verificationTtl);
+                return IdentityView.from(user);
+            });
+        } catch (DataIntegrityViolationException exception) {
+            if (users.existsByNormalizedUsername(normalizedUsername)) {
+                throw new ConflictException(
+                        "username_already_exists", "El nombre de usuario ya está registrado.");
+            }
+            if (users.existsByNormalizedEmail(normalizedEmail)) {
+                throw new ConflictException("email_already_exists", "El correo ya está registrado.");
+            }
+            throw exception;
+        }
     }
 
     /**
@@ -181,16 +207,37 @@ public class IdentityService {
      * @param rawToken Valor de {@code rawToken} utilizado por la operación.
      * @param newPassword Valor de {@code newPassword} utilizado por la operación.
      */
-    @Transactional
     public void resetPassword(String rawToken, String newPassword) {
-        IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET);
-        UserAccount user = users.findById(token.userId())
-                .orElseThrow(() -> new BadRequestException("invalid_token", "El token no es válido."));
-        Instant now = clock.instant();
-        user.changePassword(passwords.hash(newPassword), now);
-        token.consume(now);
-        users.save(user);
-        tokens.save(token);
+        transactions.executeWithoutResult(status ->
+                requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET));
+        String passwordHash = passwords.hash(newPassword);
+        transactions.executeWithoutResult(status -> {
+            IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET);
+            UserAccount user = users.findById(token.userId())
+                    .orElseThrow(() -> new BadRequestException(
+                            "invalid_token", "El token no es válido."));
+            Instant now = clock.instant();
+            user.changePassword(passwordHash, now);
+            token.consume(now);
+            users.save(user);
+            tokens.save(token);
+        });
+    }
+
+    /**
+     * Comprueba las claves naturales inmediatamente antes de escribir.
+     *
+     * @param normalizedUsername Nombre normalizado.
+     * @param normalizedEmail Correo normalizado.
+     */
+    private void requireAvailable(String normalizedUsername, String normalizedEmail) {
+        if (users.existsByNormalizedUsername(normalizedUsername)) {
+            throw new ConflictException(
+                    "username_already_exists", "El nombre de usuario ya está registrado.");
+        }
+        if (users.existsByNormalizedEmail(normalizedEmail)) {
+            throw new ConflictException("email_already_exists", "El correo ya está registrado.");
+        }
     }
 
     /**

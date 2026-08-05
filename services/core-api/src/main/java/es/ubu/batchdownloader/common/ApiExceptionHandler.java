@@ -2,12 +2,16 @@ package es.ubu.batchdownloader.common;
 
 import java.util.Map;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -84,6 +88,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ServiceUnavailableException.class)
     ResponseEntity<ApiError> unavailable(ServiceUnavailableException exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Integer.toString(exception.retryAfterSeconds()))
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
@@ -96,7 +101,39 @@ public class ApiExceptionHandler {
     @ExceptionHandler(RateLimitException.class)
     ResponseEntity<ApiError> rateLimited(RateLimitException exception) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Integer.toString(exception.retryAfterSeconds()))
                 .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
+    /**
+     * Convierte el agotamiento del pool en una respuesta rápida y reintentable.
+     *
+     * @param exception Error de adquisición de conexión.
+     * @return Respuesta temporal de capacidad.
+     */
+    @ExceptionHandler({
+        DataAccessResourceFailureException.class,
+        CannotCreateTransactionException.class
+    })
+    ResponseEntity<ApiError> databaseUnavailable(RuntimeException exception) {
+        log.warn("Database connection unavailable: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(ApiError.of("service_busy", "El servicio está ocupado. Inténtalo de nuevo."));
+    }
+
+    /**
+     * Evita convertir el agotamiento de base de datos durante el login en credenciales inválidas.
+     *
+     * @param exception Fallo interno del proveedor de autenticación.
+     * @return Respuesta temporal de capacidad.
+     */
+    @ExceptionHandler(AuthenticationServiceException.class)
+    ResponseEntity<ApiError> authenticationServiceUnavailable(AuthenticationServiceException exception) {
+        log.warn("Authentication service unavailable: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(ApiError.of("service_busy", "El servicio está ocupado. Inténtalo de nuevo."));
     }
 
     /**
