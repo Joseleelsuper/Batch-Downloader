@@ -41,6 +41,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipInputStream;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -128,9 +129,12 @@ class DownloadJobProcessorTest {
         assertThat(store.objects.keySet())
                 .doesNotContain("jobs/" + event.payload().jobId() + "/files/Good.exe");
         String manifest = new String(store.objects.get("jobs/" + event.payload().jobId() + "/manifest.json"));
-        assertThat(manifest).contains("\"status\" : \"PARTIAL\"")
+        assertThat(manifest).contains("\"manifestVersion\" : 2")
+                .contains("\"status\" : \"PARTIAL\"")
                 .contains("remote_http_404")
                 .contains("\"appName\" : \"Bad app\"")
+                .contains("\"archivePath\" : \"Good.exe\"")
+                .contains("\"objectKey\" : null")
                 .contains("\"manualShortcut\" : \"Descargas manuales/Bad app.url\"")
                 .contains("Good.exe");
         assertThat(zipEntry(
@@ -340,9 +344,10 @@ class DownloadJobProcessorTest {
                 filename(item.itemId()),
                 "windows",
                 "x86_64",
-                null,
+                1_024L,
                 null,
                 null);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
         return new DownloadJobProcessor(
                 resolver,
                 metadataLookup,
@@ -357,7 +362,11 @@ class DownloadJobProcessorTest {
                 downloadProperties,
                 storage,
                 Clock.fixed(Instant.parse("2026-07-11T12:00:00Z"), ZoneOffset.UTC),
-                new DownloadCancellationRegistry());
+                new DownloadCancellationRegistry(),
+                new JobCapacity(downloadProperties.jobConcurrency(), registry),
+                new java.util.concurrent.Semaphore(downloadProperties.packagingConcurrency(), true),
+                new DownloadWorkerMetrics(registry),
+                new TemporaryDiskCapacity(downloadProperties));
     }
 
     /**

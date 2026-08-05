@@ -1,8 +1,6 @@
 package es.ubu.batchdownloader.downloadworker.infrastructure.archive;
 
 import es.ubu.batchdownloader.downloadworker.application.InfrastructureException;
-import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ArchiveEntry;
-import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadedArtifact;
 import es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder;
 import java.io.IOException;
 import java.io.InputStream;
@@ -10,7 +8,6 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -31,23 +28,24 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
      *     requeridas.
      */
     @Override
-    public void build(
-            Path target,
-            List<DownloadedArtifact> artifacts,
-            List<ArchiveEntry> supplementalEntries,
-            Path manifest) {
-        try {
-            Files.createDirectories(target.getParent());
-            try (OutputStream output = Files.newOutputStream(target);
-                    ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
-                for (DownloadedArtifact artifact : artifacts) {
-                    add(zip, artifact.filename(), artifact.path());
+    public void build(OutputStream target, int compressionLevel, ArchiveContents contents) {
+        try (ZipOutputStream zip = new ZipOutputStream(target, StandardCharsets.UTF_8)) {
+            zip.setLevel(Math.clamp(compressionLevel, 0, 9));
+            contents.write(new ArchiveWriter() {
+                /** {@inheritDoc} */
+                @Override
+                public void add(String path, Path source) throws IOException {
+                    ZipArchiveBuilder.this.add(zip, safeEntryName(path), source);
                 }
-                for (ArchiveEntry entry : supplementalEntries) {
-                    add(zip, safeEntryName(entry.path()), entry.source());
+
+                /** {@inheritDoc} */
+                @Override
+                public void add(String path, byte[] content) throws IOException {
+                    zip.putNextEntry(new ZipEntry(safeEntryName(path)));
+                    zip.write(content);
+                    zip.closeEntry();
                 }
-                add(zip, "manifest.json", manifest);
-            }
+            });
         } catch (IOException exception) {
             throw new InfrastructureException("zip_creation_failed", exception);
         }

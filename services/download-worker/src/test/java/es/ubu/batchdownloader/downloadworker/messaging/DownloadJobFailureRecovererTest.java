@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobFailedEvent;
+import es.ubu.batchdownloader.downloadworker.application.InfrastructureException;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRequestedEvent;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
@@ -27,6 +28,19 @@ import org.springframework.amqp.core.Message;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 class DownloadJobFailureRecovererTest {
+    @Test
+    void keepsStorageCapacityFailuresInTheInputQueue() {
+        RecordingPublisher publisher = new RecordingPublisher();
+        DownloadJobFailureRecoverer recoverer = new DownloadJobFailureRecoverer(
+                new ObjectMapper(), publisher, Clock.systemUTC());
+
+        assertThatThrownBy(() -> recoverer.recover(
+                        new Message(new byte[0]),
+                        new InfrastructureException("storage_busy", new IllegalStateException())))
+                .isInstanceOf(ImmediateRequeueAmqpException.class);
+        assertThat(publisher.events).isEmpty();
+    }
+
     /**
      * Comprueba el escenario {@code publishesATerminalFailureBeforeRejectingTheCommandToItsDlq}.
      *

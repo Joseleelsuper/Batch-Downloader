@@ -72,6 +72,10 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
      */
     @Override
     public void recover(Message message, Throwable cause) {
+        if (causedByStorageCapacity(cause)) {
+            throw new ImmediateRequeueAmqpException(
+                    "Temporary storage capacity is unavailable", cause);
+        }
         DownloadJobRequestedEvent requested;
         try {
             requested = objectMapper.readValue(message.getBody(), DownloadJobRequestedEvent.class);
@@ -122,5 +126,17 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
         return UUID.nameUUIDFromBytes(
                 (jobId + ":" + EventTypes.JOB_FAILED + ":" + FAILURE_CODE)
                         .getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Mantiene en cola los trabajos que solo esperan espacio temporal en el SSD. */
+    private boolean causedByStorageCapacity(Throwable cause) {
+        Throwable current = cause;
+        while (current != null) {
+            if ("storage_busy".equals(current.getMessage())) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

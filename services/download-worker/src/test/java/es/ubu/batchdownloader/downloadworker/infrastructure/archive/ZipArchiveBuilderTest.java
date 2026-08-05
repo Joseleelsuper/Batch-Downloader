@@ -2,11 +2,9 @@ package es.ubu.batchdownloader.downloadworker.infrastructure.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadedArtifact;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.UUID;
 import java.util.zip.ZipFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,14 +29,15 @@ class ZipArchiveBuilderTest {
     @Test
     void createsArchiveWithArtifactsAndManifest() throws Exception {
         Path installer = temp.resolve("App.exe");
-        Path manifest = temp.resolve("manifest-source.json");
         Files.writeString(installer, "binary");
-        Files.writeString(manifest, "{\"status\":\"completed\"}");
         Path zip = temp.resolve("bundle.zip");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
 
-        new ZipArchiveBuilder().build(zip, List.of(new DownloadedArtifact(
-                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                "App.exe", installer, 6, "sha", "key")), List.of(), manifest);
+        new ZipArchiveBuilder().build(output, 1, writer -> {
+            writer.add("App.exe", installer);
+            writer.add("manifest.json", "{\"status\":\"completed\"}".getBytes());
+        });
+        Files.write(zip, output.toByteArray());
 
         try (ZipFile opened = new ZipFile(zip.toFile())) {
             assertThat(opened.getEntry("App.exe")).isNotNull();

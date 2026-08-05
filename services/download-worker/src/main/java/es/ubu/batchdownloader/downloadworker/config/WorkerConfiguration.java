@@ -1,5 +1,6 @@
 package es.ubu.batchdownloader.downloadworker.config;
 
+import es.ubu.batchdownloader.downloadworker.application.JobCapacity;
 import es.ubu.batchdownloader.downloadworker.infrastructure.archive.ZipArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.DnsHostResolver;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.HostResolver;
@@ -18,10 +19,14 @@ import es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver;
 import io.minio.MinioClient;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -241,6 +246,27 @@ public class WorkerConfiguration {
             thread.setDaemon(true);
             return thread;
         };
-        return Executors.newFixedThreadPool(properties.concurrency(), factory);
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                properties.concurrency(),
+                properties.concurrency(),
+                0,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(properties.concurrency()),
+                factory,
+                new ThreadPoolExecutor.AbortPolicy());
+        executor.prestartAllCoreThreads();
+        return executor;
+    }
+
+    /** Crea la admisión justa de trabajos normales y exclusivos. */
+    @Bean
+    JobCapacity jobCapacity(DownloadProperties properties, MeterRegistry registry) {
+        return new JobCapacity(properties.jobConcurrency(), registry);
+    }
+
+    /** Limita la escritura intensiva sobre el único SSD. */
+    @Bean("packagingSemaphore")
+    Semaphore packagingSemaphore(DownloadProperties properties) {
+        return new Semaphore(properties.packagingConcurrency(), true);
     }
 }

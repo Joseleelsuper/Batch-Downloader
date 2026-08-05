@@ -56,6 +56,7 @@ public final class DownloadModels {
      * @param path Valor de {@code path} incluido en el record.
      * @param sizeBytes Valor de {@code sizeBytes} incluido en el record.
      * @param sha256 Valor de {@code sha256} incluido en el record.
+     * @param archivePath Ruta de la entrada dentro del ZIP.
      * @param objectKey Valor de {@code objectKey} incluido en el record.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      */
@@ -141,6 +142,7 @@ public final class DownloadModels {
             String status,
             Long sizeBytes,
             String sha256,
+            String archivePath,
             String objectKey,
             String error,
             String manualShortcut) {
@@ -149,7 +151,7 @@ public final class DownloadModels {
     /**
      * Representa los datos inmutables de {@code DownloadManifest}.
      *
-     * @param schemaVersion Valor de {@code schemaVersion} incluido en el record.
+     * @param manifestVersion Versión del formato de manifiesto.
      * @param jobId Valor de {@code jobId} incluido en el record.
      * @param generatedAt Valor de {@code generatedAt} incluido en el record.
      * @param status Valor de {@code status} incluido en el record.
@@ -157,7 +159,7 @@ public final class DownloadModels {
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      */
     public record DownloadManifest(
-            int schemaVersion,
+            int manifestVersion,
             UUID jobId,
             Instant generatedAt,
             String status,

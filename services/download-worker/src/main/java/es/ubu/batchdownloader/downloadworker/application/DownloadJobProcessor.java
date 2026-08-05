@@ -12,21 +12,22 @@ import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRe
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadProgressPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadReadyPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ArchiveEntry;
-import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadManifest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadItemMetadata;
+import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadManifest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadedArtifact;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.FailedDownload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ManifestItem;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ResolvedDownloadItem;
 import es.ubu.batchdownloader.downloadworker.domain.EventTypes;
-import es.ubu.batchdownloader.downloadworker.infrastructure.Hashing;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy;
 import es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
+import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore.StoredArtifact;
 import es.ubu.batchdownloader.downloadworker.ports.EventPublisher;
 import es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver;
+import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,118 +52,55 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
- * Implementa el componente {@code DownloadJobProcessor}.
+ * Descarga y empaqueta un trabajo con ventanas acotadas y subida directa a MinIO.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 @Service
 public class DownloadJobProcessor {
-    /**
-     * Constante que define {@code LOGGER}.
-     */
+    /** Registro de diagnóstico. */
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobProcessor.class);
-    /**
-     * Constante que define {@code SENSITIVE_QUERY_NAMES}.
-     */
+    /** Versión del manifiesto interno del ZIP. */
+    private static final int MANIFEST_VERSION = 2;
+    /** Nombres de parámetros que nunca deben conservarse en accesos manuales. */
     private static final Set<String> SENSITIVE_QUERY_NAMES = Set.of(
-            "access_token",
-            "api_key",
-            "apikey",
-            "auth",
-            "authorization",
-            "key",
-            "password",
-            "sig",
-            "signature",
-            "token");
-    /**
-     * Constante que define {@code SENSITIVE_QUERY_MARKER}.
-     */
+            "access_token", "api_key", "apikey", "auth", "authorization", "key",
+            "password", "sig", "signature", "token");
+    /** Detector defensivo de nombres de credenciales. */
     private static final Pattern SENSITIVE_QUERY_MARKER = Pattern.compile(
             "access_?key|api_?key|authorization|credential|password|secret|signature|token");
 
-    /**
-     * Estado {@code sourceResolver} mantenido por {@code DownloadJobProcessor}.
-     */
     private final SourceReferenceResolver sourceResolver;
-    /**
-     * Estado {@code metadataLookup} mantenido por {@code DownloadJobProcessor}.
-     */
     private final JobItemMetadataLookup metadataLookup;
-    /**
-     * Estado {@code remoteDownloader} mantenido por {@code DownloadJobProcessor}.
-     */
     private final RemoteDownloader remoteDownloader;
-    /**
-     * Dependencia {@code artifactStore} utilizada por {@code DownloadJobProcessor}.
-     */
     private final ArtifactStore artifactStore;
-    /**
-     * Estado {@code archiveBuilder} mantenido por {@code DownloadJobProcessor}.
-     */
     private final ArchiveBuilder archiveBuilder;
-    /**
-     * Dependencia {@code eventPublisher} utilizada por {@code DownloadJobProcessor}.
-     */
     private final EventPublisher eventPublisher;
-    /**
-     * Estado {@code filenamePolicy} mantenido por {@code DownloadJobProcessor}.
-     */
     private final FilenamePolicy filenamePolicy;
-    /**
-     * Estado {@code publicHttpsUriPolicy} mantenido por {@code DownloadJobProcessor}.
-     */
     private final PublicHttpsUriPolicy publicHttpsUriPolicy;
-    /**
-     * Dependencia {@code objectMapper} utilizada por {@code DownloadJobProcessor}.
-     */
     private final ObjectMapper objectMapper;
-    /**
-     * Estado {@code executor} mantenido por {@code DownloadJobProcessor}.
-     */
     private final ExecutorService executor;
-    /**
-     * Estado {@code properties} mantenido por {@code DownloadJobProcessor}.
-     */
     private final DownloadProperties properties;
-    /**
-     * Estado {@code storageProperties} mantenido por {@code DownloadJobProcessor}.
-     */
     private final StorageProperties storageProperties;
-    /**
-     * Estado {@code clock} mantenido por {@code DownloadJobProcessor}.
-     */
     private final Clock clock;
-    /**
-     * Estado {@code cancellations} mantenido por {@code DownloadJobProcessor}.
-     */
     private final DownloadCancellationRegistry cancellations;
+    private final JobCapacity jobCapacity;
+    private final Semaphore packagingSemaphore;
+    private final DownloadWorkerMetrics metrics;
+    /** Reserva global del SSD para los temporales en vuelo. */
+    private final TemporaryDiskCapacity diskCapacity;
 
-    /**
-     * Inicializa una instancia de {@code DownloadJobProcessor}.
-     *
-     * @param sourceResolver Valor de {@code sourceResolver} utilizado por la operación.
-     * @param metadataLookup Valor de {@code metadataLookup} utilizado por la operación.
-     * @param remoteDownloader Valor de {@code remoteDownloader} utilizado por la operación.
-     * @param artifactStore Valor de {@code artifactStore} utilizado por la operación.
-     * @param archiveBuilder Valor de {@code archiveBuilder} utilizado por la operación.
-     * @param eventPublisher Valor de {@code eventPublisher} utilizado por la operación.
-     * @param filenamePolicy Valor de {@code filenamePolicy} utilizado por la operación.
-     * @param publicHttpsUriPolicy Valor de {@code publicHttpsUriPolicy} utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param executor Valor de {@code executor} utilizado por la operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @param storageProperties Valor de {@code storageProperties} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
-     * @param cancellations Valor de {@code cancellations} utilizado por la operación.
-     */
+    /** Inicializa todas las dependencias del pipeline. */
     public DownloadJobProcessor(
             SourceReferenceResolver sourceResolver,
             JobItemMetadataLookup metadataLookup,
@@ -176,7 +115,11 @@ public class DownloadJobProcessor {
             DownloadProperties properties,
             StorageProperties storageProperties,
             Clock clock,
-            DownloadCancellationRegistry cancellations) {
+            DownloadCancellationRegistry cancellations,
+            JobCapacity jobCapacity,
+            @Qualifier("packagingSemaphore") Semaphore packagingSemaphore,
+            DownloadWorkerMetrics metrics,
+            TemporaryDiskCapacity diskCapacity) {
         this.sourceResolver = sourceResolver;
         this.metadataLookup = metadataLookup;
         this.remoteDownloader = remoteDownloader;
@@ -191,12 +134,16 @@ public class DownloadJobProcessor {
         this.storageProperties = storageProperties;
         this.clock = clock;
         this.cancellations = cancellations;
+        this.jobCapacity = jobCapacity;
+        this.packagingSemaphore = packagingSemaphore;
+        this.metrics = metrics;
+        this.diskCapacity = diskCapacity;
     }
 
     /**
-     * Procesa los datos recibidos mediante {@code process}.
+     * Procesa un evento validado por el listener.
      *
-     * @param event Evento que debe procesarse.
+     * @param event Solicitud de trabajo.
      */
     public void process(DownloadJobRequestedEvent event) {
         String invalidReason = validateJob(event);
@@ -204,78 +151,92 @@ public class DownloadJobProcessor {
             publishJobFailure(event, invalidReason, event.payload().items().size());
             return;
         }
-
         UUID jobId = event.payload().jobId();
-        if (cancellations.cancelled(jobId)) {
-            cancellations.finish(jobId);
-            return;
-        }
-        Path jobDirectory = createJobDirectory(jobId);
-        List<DownloadedArtifact> stagedArtifacts = List.of();
+        Path jobDirectory = null;
+        String prefix = "jobs/" + jobId;
+        String manifestObjectKey = prefix + "/manifest.json";
+        String zipObjectKey = prefix + "/bundle.zip";
+        boolean readyPublished = false;
         try {
-            ProcessedDownloads processed = downloadItems(event, jobDirectory);
             if (cancellations.cancelled(jobId)) {
                 return;
             }
-            stagedArtifacts = storeFiles(jobId, processed.downloaded());
+            diskCapacity.requireAvailable(Path.of(properties.tempDirectory()));
+            PreparedDownloads prepared = resolveItems(event);
             if (cancellations.cancelled(jobId)) {
                 return;
             }
-            Map<UUID, DownloadItemMetadata> failedMetadata = failedMetadata(event, processed.failed());
-            ManualShortcuts manualShortcuts =
-                    writeManualShortcuts(processed.failed(), failedMetadata, jobDirectory);
-            if (stagedArtifacts.isEmpty() && manualShortcuts.entries().isEmpty()) {
-                publishJobFailure(event, "all_downloads_failed", processed.failed().size());
-                return;
+            int weight = capacityWeight(prepared.resolved());
+            try (JobCapacity.Lease ignored = jobCapacity.acquire(weight)) {
+                jobDirectory = createJobDirectory(jobId);
+                try (TemporaryDiskCapacity.Lease ignoredDisk =
+                        diskCapacity.reserve(jobDirectory, 0L)) {
+                    // La adquisición comprueba la reserva mínima antes de iniciar el trabajo.
+                }
+                Path activeDirectory = jobDirectory;
+                int window = weight > 1 ? 1 : properties.perJobConcurrency();
+                DownloadPipeline pipeline = new DownloadPipeline(
+                        event, prepared.resolved(), activeDirectory, window);
+                Timer.Sample wait = metrics.startPackagingWait();
+                acquirePackaging();
+                metrics.stopPackagingWait(wait);
+                try {
+                    AtomicReference<ArchiveOutcome> outcomeReference = new AtomicReference<>();
+                    StoredArtifact storedZip = artifactStore.putStreaming(
+                            zipObjectKey,
+                            "application/zip",
+                            properties.multipartPartSize().toBytes(),
+                            output -> archiveBuilder.build(
+                                    output,
+                                    properties.zipLevel(),
+                                    writer -> outcomeReference.set(writeArchive(
+                                            event, prepared.failed(), pipeline, writer, activeDirectory))));
+                    ArchiveOutcome outcome = outcomeReference.get();
+                    if (outcome == null) {
+                        throw new InfrastructureException(
+                                "zip_outcome_missing", new IllegalStateException("Archive produced no result"));
+                    }
+                    if (cancellations.cancelled(jobId)) {
+                        return;
+                    }
+                    artifactStore.putBytes(
+                            manifestObjectKey,
+                            outcome.manifest(),
+                            "application/json",
+                            properties.multipartPartSize().toBytes());
+                    if (cancellations.cancelled(jobId)) {
+                        return;
+                    }
+                    publishReadyEvent(event, outcome, storedZip, zipObjectKey);
+                    readyPublished = true;
+                } catch (AllDownloadsFailedException exception) {
+                    publishJobFailure(event, "all_downloads_failed", exception.failedItems());
+                } catch (CancellationException exception) {
+                    if (!cancellations.cancelled(jobId)) {
+                        throw exception;
+                    }
+                } finally {
+                    packagingSemaphore.release();
+                }
             }
-            String status = stagedArtifacts.isEmpty()
-                    ? "MANUAL_ONLY"
-                    : processed.failed().isEmpty() ? "READY" : "PARTIAL";
-            Path manifestPath = writeManifest(
-                    event,
-                    status,
-                    stagedArtifacts,
-                    processed.failed(),
-                    failedMetadata,
-                    manualShortcuts.pathsByItem(),
-                    jobDirectory.resolve("manifest.json"));
-            Path zipPath = jobDirectory.resolve("batch-downloader-" + jobId + ".zip");
-            archiveBuilder.build(zipPath, stagedArtifacts, manualShortcuts.entries(), manifestPath);
-            if (cancellations.cancelled(jobId)) {
-                return;
+        } catch (CancellationException exception) {
+            if (!cancellations.cancelled(jobId)) {
+                throw exception;
             }
-
-            String prefix = "jobs/" + jobId;
-            String manifestObjectKey = prefix + "/manifest.json";
-            String zipObjectKey = prefix + "/bundle.zip";
-            artifactStore.put(manifestObjectKey, manifestPath, "application/json");
-            artifactStore.put(zipObjectKey, zipPath, "application/zip");
-            List<DownloadedArtifact> completedArtifacts = stagedArtifacts;
-            deleteStagedArtifacts(stagedArtifacts);
-            stagedArtifacts = List.of();
-            if (cancellations.cancelled(jobId)) {
-                return;
-            }
-            publishReadyEvent(
-                    event,
-                    status,
-                    completedArtifacts.size(),
-                    processed.failed().size(),
-                    zipPath,
-                    zipObjectKey);
         } finally {
-            deleteStagedArtifacts(stagedArtifacts);
+            if (!readyPublished) {
+                deleteStoredObject(zipObjectKey);
+                deleteStoredObject(manifestObjectKey);
+            }
             cancellations.finish(jobId);
-            deleteRecursively(jobDirectory);
+            if (jobDirectory != null) {
+                metrics.temporaryRemoved(directorySize(jobDirectory));
+                deleteRecursively(jobDirectory);
+            }
         }
     }
 
-    /**
-     * Valida los datos recibidos mediante {@code validateJob}.
-     *
-     * @param event Evento que debe procesarse.
-     * @return Resultado producido por {@code validateJob}.
-     */
+    /** Valida cardinalidad e identificadores duplicados. */
     private String validateJob(DownloadJobRequestedEvent event) {
         if (event.payload().items().size() > properties.maxItems()) {
             return "too_many_items";
@@ -290,85 +251,254 @@ public class DownloadJobProcessor {
     }
 
     /**
-     * Ejecuta la operación {@code downloadItems}.
-     *
-     * @param event Evento que debe procesarse.
-     * @param jobDirectory Valor de {@code jobDirectory} utilizado por la operación.
-     * @return Resultado producido por {@code downloadItems}.
+     * Resuelve las fuentes con una ventana acotada antes de decidir si el trabajo es exclusivo.
      */
-    private ProcessedDownloads downloadItems(DownloadJobRequestedEvent event, Path jobDirectory) {
-        long maxJobBytes = properties.maxTotalSize().toBytes();
-        long maxFileBytes = properties.maxFileSize().toBytes();
-        int parallelism = properties.concurrency();
-        DownloadBudget totalBudget = new DownloadBudget(maxJobBytes);
-        Semaphore semaphore = new Semaphore(parallelism);
-        Set<String> usedNames = filenamePolicy.newNameSet();
-        CompletionService<DownloadAttempt> completions = new ExecutorCompletionService<>(executor);
-        List<Future<DownloadAttempt>> futures = new ArrayList<>();
-        for (DownloadItemRequest item : event.payload().items()) {
-            if (cancellations.cancelled(event.payload().jobId())) {
-                break;
-            }
-            publishProgress(event, clock.instant(), item.itemId(), "RESOLVING", 0, null, null, null);
-            futures.add(completions.submit(() -> downloadOne(
-                    event, item, jobDirectory, totalBudget, maxFileBytes, semaphore, usedNames)));
+    private PreparedDownloads resolveItems(DownloadJobRequestedEvent event) {
+        List<DownloadItemRequest> items = event.payload().items();
+        CompletionService<ResolutionAttempt> completions = new ExecutorCompletionService<>(executor);
+        List<Future<ResolutionAttempt>> futures = new ArrayList<>();
+        int next = 0;
+        int completed = 0;
+        int window = Math.min(properties.perJobConcurrency(), items.size());
+        while (next < window) {
+            submitResolution(event, items.get(next++), completions, futures);
         }
-        cancellations.track(event.payload().jobId(), futures);
-
-        List<DownloadedArtifact> downloaded = new ArrayList<>();
+        List<ResolvedDownloadItem> resolved = new ArrayList<>();
         List<FailedDownload> failed = new ArrayList<>();
-        try {
-            for (int index = 0; index < futures.size(); index++) {
-                DownloadAttempt attempt = awaitCompleted(completions);
-                if (cancellations.cancelled(event.payload().jobId())) {
-                    return new ProcessedDownloads(List.of(), List.of());
-                }
-                if (attempt.artifact() != null) {
-                    downloaded.add(attempt.artifact());
-                    DownloadedArtifact artifact = attempt.artifact();
-                    publishProgress(
-                            event,
-                            clock.instant(),
-                            artifact.itemId(),
-                            "COMPLETED",
-                            artifact.sizeBytes(),
-                            artifact.sizeBytes(),
-                            artifact.sha256(),
-                            null);
-                } else {
-                    failed.add(attempt.failure());
-                    publishProgress(
-                            event,
-                            clock.instant(),
-                            attempt.failure().itemId(),
-                            "FAILED",
-                            0,
-                            null,
-                            null,
-                            attempt.failure().errorCode());
-                }
+        while (completed < items.size()) {
+            ResolutionAttempt attempt = awaitCompleted(completions);
+            completed++;
+            if (attempt.resolved() != null) {
+                resolved.add(attempt.resolved());
+            } else {
+                failed.add(attempt.failure());
+                publishProgress(
+                        event, clock.instant(), attempt.failure().itemId(), "FAILED",
+                        0, null, null, attempt.failure().errorCode());
             }
-        } catch (CancellationException exception) {
+            if (next < items.size()) {
+                submitResolution(event, items.get(next++), completions, futures);
+            }
             if (cancellations.cancelled(event.payload().jobId())) {
-                return new ProcessedDownloads(List.of(), List.of());
+                futures.forEach(future -> future.cancel(true));
+                throw new CancellationException("download_job_cancelled");
             }
-            throw exception;
-        } catch (RuntimeException exception) {
-            futures.forEach(future -> future.cancel(true));
-            throw exception;
         }
-        return new ProcessedDownloads(downloaded, failed);
+        return new PreparedDownloads(List.copyOf(resolved), List.copyOf(failed));
+    }
+
+    /** Envía una resolución al ejecutor global y actualiza el registro de cancelación. */
+    private void submitResolution(
+            DownloadJobRequestedEvent event,
+            DownloadItemRequest item,
+            CompletionService<ResolutionAttempt> completions,
+            List<Future<ResolutionAttempt>> futures) {
+        publishProgress(event, clock.instant(), item.itemId(), "RESOLVING", 0, null, null, null);
+        try {
+            futures.add(completions.submit(() -> resolveOne(item)));
+            cancellations.track(event.payload().jobId(), futures);
+        } catch (RejectedExecutionException exception) {
+            throw new InfrastructureException("download_executor_saturated", exception);
+        }
+    }
+
+    /** Resuelve una fuente y convierte únicamente los rechazos funcionales en fallo de item. */
+    private ResolutionAttempt resolveOne(DownloadItemRequest item) {
+        try {
+            return ResolutionAttempt.success(sourceResolver.resolve(item));
+        } catch (DownloadRejectedException exception) {
+            return ResolutionAttempt.failure(new FailedDownload(
+                    item.itemId(), item.appId(), item.sourceRef(),
+                    "installer-" + item.itemId() + ".bin", exception.code()));
+        }
+    }
+
+    /** Calcula el peso usando tamaños declarados; cualquier desconocido fuerza exclusividad. */
+    private int capacityWeight(List<ResolvedDownloadItem> items) {
+        long total = 0;
+        for (ResolvedDownloadItem item : items) {
+            if (item.expectedSizeBytes() == null || item.expectedSizeBytes() < 0) {
+                return properties.jobConcurrency();
+            }
+            if (Long.MAX_VALUE - total < item.expectedSizeBytes()) {
+                return properties.jobConcurrency();
+            }
+            total += item.expectedSizeBytes();
+            if (total > properties.largeJobThreshold().toBytes()) {
+                return properties.jobConcurrency();
+            }
+        }
+        return 1;
+    }
+
+    /** Adquiere la fase única de empaquetado de forma interrumpible. */
+    private void acquirePackaging() {
+        try {
+            packagingSemaphore.acquire();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new InfrastructureException("download_job_interrupted", exception);
+        }
     }
 
     /**
-     * Ejecuta la operación {@code awaitCompleted}.
-     *
-     * @param completions Valor de {@code completions} utilizado por la operación.
-     * @return Resultado producido por {@code awaitCompleted}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * Consume una ventana de descargas directamente hacia el ZIP y elimina cada temporal.
      */
-    private DownloadAttempt awaitCompleted(CompletionService<DownloadAttempt> completions) {
+    private ArchiveOutcome writeArchive(
+            DownloadJobRequestedEvent event,
+            List<FailedDownload> resolutionFailures,
+            DownloadPipeline pipeline,
+            ArchiveBuilder.ArchiveWriter writer,
+            Path jobDirectory) throws IOException {
+        List<DownloadedArtifact> downloaded = new ArrayList<>();
+        List<FailedDownload> failed = new ArrayList<>(resolutionFailures);
+        while (pipeline.hasNext()) {
+            DownloadAttempt attempt = pipeline.next();
+            if (cancellations.cancelled(event.payload().jobId())) {
+                throw new CancellationException("download_job_cancelled");
+            }
+            if (attempt.artifact() != null) {
+                DownloadedArtifact artifact = attempt.artifact();
+                try {
+                    writer.add(artifact.filename(), artifact.path());
+                    downloaded.add(artifact);
+                    publishProgress(
+                            event, clock.instant(), artifact.itemId(), "COMPLETED",
+                            artifact.sizeBytes(), artifact.sizeBytes(), artifact.sha256(), null);
+                } finally {
+                    deleteTemporary(artifact.path());
+                    metrics.temporaryRemoved(artifact.sizeBytes());
+                }
+            } else {
+                failed.add(attempt.failure());
+                publishProgress(
+                        event, clock.instant(), attempt.failure().itemId(), "FAILED",
+                        0, null, null, attempt.failure().errorCode());
+            }
+        }
+
+        Map<UUID, DownloadItemMetadata> failedMetadata = failedMetadata(event, failed);
+        ManualShortcuts shortcuts = writeManualShortcuts(failed, failedMetadata, jobDirectory);
+        if (downloaded.isEmpty() && shortcuts.entries().isEmpty()) {
+            throw new AllDownloadsFailedException(failed.size());
+        }
+        for (ArchiveEntry entry : shortcuts.entries()) {
+            writer.add(entry.path(), entry.source());
+        }
+        String status = downloaded.isEmpty()
+                ? "MANUAL_ONLY"
+                : failed.isEmpty() ? "READY" : "PARTIAL";
+        byte[] manifest = manifest(
+                event, status, downloaded, failed, failedMetadata, shortcuts.pathsByItem());
+        writer.add("manifest.json", manifest);
+        return new ArchiveOutcome(status, downloaded.size(), failed.size(), manifest);
+    }
+
+    /**
+     * Ventana incremental que mantiene como máximo cuatro descargas en vuelo por trabajo.
+     */
+    private final class DownloadPipeline {
+        private final DownloadJobRequestedEvent event;
+        private final List<ResolvedDownloadItem> items;
+        private final Path jobDirectory;
+        private final int window;
+        private final CompletionService<DownloadAttempt> completions = new ExecutorCompletionService<>(executor);
+        private final List<Future<DownloadAttempt>> futures = new ArrayList<>();
+        private final DownloadBudget budget = new DownloadBudget(properties.maxTotalSize().toBytes());
+        private final Set<String> usedNames = filenamePolicy.newNameSet();
+        private int submitted;
+        private int completed;
+
+        /** Inicializa y precarga solamente la primera ventana. */
+        private DownloadPipeline(
+                DownloadJobRequestedEvent event,
+                List<ResolvedDownloadItem> items,
+                Path jobDirectory,
+                int window) {
+            this.event = event;
+            this.items = items;
+            this.jobDirectory = jobDirectory;
+            this.window = Math.min(window, items.size());
+            while (submitted < this.window) {
+                submitNext();
+            }
+        }
+
+        /** @return Si queda algún resultado por consumir. */
+        private boolean hasNext() {
+            return completed < items.size();
+        }
+
+        /** Obtiene el siguiente resultado y repone una única plaza. */
+        private DownloadAttempt next() {
+            DownloadAttempt attempt = awaitCompleted(completions);
+            completed++;
+            if (submitted < items.size()) {
+                submitNext();
+            }
+            return attempt;
+        }
+
+        /** Envía una única descarga al ejecutor global. */
+        private void submitNext() {
+            ResolvedDownloadItem item = items.get(submitted++);
+            publishProgress(
+                    event, clock.instant(), item.itemId(), "DOWNLOADING",
+                    0, item.expectedSizeBytes(), null, null);
+            try {
+                futures.add(completions.submit(() -> downloadOne(
+                        event, item, jobDirectory, budget, usedNames)));
+                cancellations.track(event.payload().jobId(), futures);
+            } catch (RejectedExecutionException exception) {
+                throw new InfrastructureException("download_executor_saturated", exception);
+            }
+        }
+    }
+
+    /** Descarga una fuente ya resuelta dentro del presupuesto global del trabajo. */
+    private DownloadAttempt downloadOne(
+            DownloadJobRequestedEvent event,
+            ResolvedDownloadItem resolved,
+            Path jobDirectory,
+            DownloadBudget totalBudget,
+            Set<String> usedNames) {
+        String filename;
+        synchronized (usedNames) {
+            filename = filenamePolicy.filenameFor(resolved, usedNames);
+        }
+        Path target = jobDirectory.resolve("files").resolve(filename);
+        try {
+            try (TemporaryDiskCapacity.Lease disk =
+                    diskCapacity.reserve(jobDirectory, resolved.expectedSizeBytes())) {
+                metrics.downloadStarted();
+                try {
+                    DownloadedArtifact artifact = remoteDownloader.download(
+                            resolved,
+                            filename,
+                            target,
+                            totalBudget,
+                            properties.maxFileSize().toBytes());
+                    disk.completed();
+                    metrics.temporaryAdded(artifact.sizeBytes());
+                    return DownloadAttempt.success(artifact);
+                } finally {
+                    metrics.downloadFinished();
+                }
+            }
+        } catch (DownloadRejectedException exception) {
+            return DownloadAttempt.failure(new FailedDownload(
+                    resolved.itemId(), resolved.appId(), resolved.sourceRef(), filename, exception.code()));
+        } catch (RuntimeException exception) {
+            deleteTemporary(target);
+            if (cancellations.cancelled(event.payload().jobId())) {
+                throw new CancellationException("download_job_cancelled");
+            }
+            throw exception;
+        }
+    }
+
+    /** Espera un resultado y preserva su causa original. */
+    private <T> T awaitCompleted(CompletionService<T> completions) {
         try {
             return await(completions.take());
         } catch (InterruptedException exception) {
@@ -377,91 +507,8 @@ public class DownloadJobProcessor {
         }
     }
 
-    /**
-     * Ejecuta la operación {@code downloadOne}.
-     *
-     * @param event Evento que debe procesarse.
-     * @param item Elemento sobre el que se realiza la operación.
-     * @param jobDirectory Valor de {@code jobDirectory} utilizado por la operación.
-     * @param totalBudget Valor de {@code totalBudget} utilizado por la operación.
-     * @param maxFileBytes Valor de {@code maxFileBytes} utilizado por la operación.
-     * @param semaphore Valor de {@code semaphore} utilizado por la operación.
-     * @param usedNames Valor de {@code usedNames} utilizado por la operación.
-     * @return Resultado producido por {@code downloadOne}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    private DownloadAttempt downloadOne(
-            DownloadJobRequestedEvent event,
-            DownloadItemRequest item,
-            Path jobDirectory,
-            DownloadBudget totalBudget,
-            long maxFileBytes,
-            Semaphore semaphore,
-            Set<String> usedNames) {
-        boolean acquired = false;
-        String filename = "installer-" + item.itemId() + ".bin";
-        try {
-            if (cancellations.cancelled(event.payload().jobId())) {
-                return cancelledAttempt(item, filename);
-            }
-            semaphore.acquire();
-            acquired = true;
-            if (cancellations.cancelled(event.payload().jobId())) {
-                return cancelledAttempt(item, filename);
-            }
-            ResolvedDownloadItem resolved = sourceResolver.resolve(item);
-            if (cancellations.cancelled(event.payload().jobId())) {
-                return cancelledAttempt(item, filename);
-            }
-            publishProgress(event, clock.instant(), item.itemId(), "DOWNLOADING", 0,
-                    resolved.expectedSizeBytes(), null, null);
-            synchronized (usedNames) {
-                filename = filenamePolicy.filenameFor(resolved, usedNames);
-            }
-            Path target = jobDirectory.resolve("files").resolve(filename);
-            DownloadedArtifact downloaded = remoteDownloader.download(
-                    resolved, filename, target, totalBudget, maxFileBytes);
-            return cancellations.cancelled(event.payload().jobId())
-                    ? cancelledAttempt(item, filename)
-                    : DownloadAttempt.success(downloaded);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            if (cancellations.cancelled(event.payload().jobId())) {
-                return cancelledAttempt(item, filename);
-            }
-            throw new InfrastructureException("download_job_interrupted", exception);
-        } catch (DownloadRejectedException rejected) {
-            return DownloadAttempt.failure(new FailedDownload(
-                    item.itemId(), item.appId(), item.sourceRef(), filename, rejected.code()));
-        } finally {
-            if (acquired) {
-                semaphore.release();
-            }
-        }
-    }
-
-    /**
-     * Indica si puede realizarse la operación mediante {@code cancelledAttempt}.
-     *
-     * @param item Elemento sobre el que se realiza la operación.
-     * @param filename Valor de {@code filename} utilizado por la operación.
-     * @return Resultado producido por {@code cancelledAttempt}.
-     */
-    private DownloadAttempt cancelledAttempt(DownloadItemRequest item, String filename) {
-        return DownloadAttempt.failure(new FailedDownload(
-                item.itemId(), item.appId(), item.sourceRef(), filename, "cancelled"));
-    }
-
-    /**
-     * Ejecuta la operación {@code await}.
-     *
-     * @param future Valor de {@code future} utilizado por la operación.
-     * @return Resultado producido por {@code await}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    private DownloadAttempt await(Future<DownloadAttempt> future) {
+    /** Extrae el resultado de un futuro. */
+    private <T> T await(Future<T> future) {
         try {
             return future.get();
         } catch (InterruptedException exception) {
@@ -476,34 +523,7 @@ public class DownloadJobProcessor {
         }
     }
 
-    /**
-     * Ejecuta la operación {@code storeFiles}.
-     *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param downloads Valor de {@code downloads} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     */
-    private List<DownloadedArtifact> storeFiles(UUID jobId, List<DownloadedArtifact> downloads) {
-        List<DownloadedArtifact> stored = new ArrayList<>();
-        for (DownloadedArtifact artifact : downloads) {
-            String objectKey = "jobs/" + jobId + "/files/" + artifact.filename();
-            artifactStore.put(objectKey, artifact.path(), "application/octet-stream");
-            stored.add(new DownloadedArtifact(
-                    artifact.itemId(), artifact.appId(), artifact.sourceRef(), artifact.filename(),
-                    artifact.path(), artifact.sizeBytes(), artifact.sha256(), objectKey));
-        }
-        return stored;
-    }
-
-    /**
-     * Ejecuta la operación {@code failedMetadata}.
-     *
-     * @param event Evento que debe procesarse.
-     * @param failures Valor de {@code failures} utilizado por la operación.
-     * @return Mapa con los datos producidos por la operación.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
+    /** Recupera metadatos internos únicamente para los elementos fallidos. */
     private Map<UUID, DownloadItemMetadata> failedMetadata(
             DownloadJobRequestedEvent event,
             List<FailedDownload> failures) {
@@ -524,16 +544,7 @@ public class DownloadJobProcessor {
         return metadataLookup.find(event.payload().jobId(), failedItems);
     }
 
-    /**
-     * Ejecuta la operación {@code writeManualShortcuts}.
-     *
-     * @param failures Valor de {@code failures} utilizado por la operación.
-     * @param metadata Valor de {@code metadata} utilizado por la operación.
-     * @param jobDirectory Valor de {@code jobDirectory} utilizado por la operación.
-     * @return Resultado producido por {@code writeManualShortcuts}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
+    /** Crea accesos directos seguros para descargas manuales. */
     private ManualShortcuts writeManualShortcuts(
             List<FailedDownload> failures,
             Map<UUID, DownloadItemMetadata> metadata,
@@ -569,12 +580,7 @@ public class DownloadJobProcessor {
         return new ManualShortcuts(List.copyOf(entries), Map.copyOf(pathsByItem));
     }
 
-    /**
-     * Ejecuta la operación {@code safeOfficialPage}.
-     *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code safeOfficialPage}.
-     */
+    /** Valida que una URL manual sea pública y no incluya secretos. */
     private URI safeOfficialPage(String value) {
         if (value == null
                 || value.isBlank()
@@ -593,12 +599,7 @@ public class DownloadJobProcessor {
         }
     }
 
-    /**
-     * Indica si existe el recurso mediante {@code hasSensitiveQuery}.
-     *
-     * @param uri Valor de {@code uri} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
-     */
+    /** Detecta parámetros de consulta que podrían contener credenciales. */
     private boolean hasSensitiveQuery(URI uri) {
         String query = uri.getRawQuery();
         if (query == null || query.isBlank()) {
@@ -622,93 +623,46 @@ public class DownloadJobProcessor {
         }
     }
 
-    /**
-     * Elimina el recurso solicitado mediante {@code deleteStagedArtifacts}.
-     *
-     * @param artifacts Valor de {@code artifacts} utilizado por la operación.
-     */
-    private void deleteStagedArtifacts(List<DownloadedArtifact> artifacts) {
-        for (DownloadedArtifact artifact : artifacts) {
-            try {
-                artifactStore.delete(artifact.objectKey());
-            } catch (RuntimeException exception) {
-                LOGGER.warn("Could not delete staged object {}", artifact.objectKey(), exception);
-            }
-        }
-    }
-
-    /**
-     * Ejecuta la operación {@code writeManifest}.
-     *
-     * @param event Evento que debe procesarse.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param downloaded Valor de {@code downloaded} utilizado por la operación.
-     * @param failed Valor de {@code failed} utilizado por la operación.
-     * @param failedMetadata Valor de {@code failedMetadata} utilizado por la operación.
-     * @param manualShortcutPaths Valor de {@code manualShortcutPaths} utilizado por la operación.
-     * @param target Valor de {@code target} utilizado por la operación.
-     * @return Resultado producido por {@code writeManifest}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    private Path writeManifest(
+    /** Serializa el manifiesto v2 que también se inserta dentro del ZIP. */
+    private byte[] manifest(
             DownloadJobRequestedEvent event,
             String status,
             List<DownloadedArtifact> downloaded,
             List<FailedDownload> failed,
             Map<UUID, DownloadItemMetadata> failedMetadata,
-            Map<UUID, String> manualShortcutPaths,
-            Path target) {
+            Map<UUID, String> manualShortcutPaths) {
         Map<UUID, ManifestItem> items = new HashMap<>();
         for (DownloadedArtifact artifact : downloaded) {
             items.put(artifact.itemId(), new ManifestItem(
-                    artifact.itemId(), artifact.appId(), artifact.sourceRef(), null, artifact.filename(),
-                    "COMPLETED", artifact.sizeBytes(), artifact.sha256(), artifact.objectKey(), null, null));
+                    artifact.itemId(), artifact.appId(), artifact.sourceRef(), null,
+                    artifact.filename(), "COMPLETED", artifact.sizeBytes(), artifact.sha256(),
+                    artifact.filename(), null, null, null));
         }
         for (FailedDownload failure : failed) {
             DownloadItemMetadata metadata = failedMetadata.get(failure.itemId());
+            String shortcut = manualShortcutPaths.get(failure.itemId());
             items.put(failure.itemId(), new ManifestItem(
-                    failure.itemId(),
-                    failure.appId(),
-                    failure.sourceRef(),
+                    failure.itemId(), failure.appId(), failure.sourceRef(),
                     metadata == null ? failure.appId().toString() : metadata.appName(),
-                    failure.filename(),
-                    "FAILED",
-                    null,
-                    null,
-                    null,
-                    failure.errorCode(),
-                    manualShortcutPaths.get(failure.itemId())));
+                    failure.filename(), "FAILED", null, null,
+                    shortcut, null, failure.errorCode(), shortcut));
         }
         List<ManifestItem> ordered = event.payload().items().stream()
                 .map(item -> items.get(item.itemId()))
                 .toList();
-        DownloadManifest manifest = new DownloadManifest(
-                EventTypes.CURRENT_VERSION, event.payload().jobId(), clock.instant(), status, ordered);
         try {
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(target.toFile(), manifest);
-            return target;
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(new DownloadManifest(
+                    MANIFEST_VERSION, event.payload().jobId(), clock.instant(), status, ordered));
         } catch (IOException exception) {
             throw new InfrastructureException("manifest_creation_failed", exception);
         }
     }
 
-    /**
-     * Publica el contenido solicitado mediante {@code publishReadyEvent}.
-     *
-     * @param event Evento que debe procesarse.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param successfulItems Valor de {@code successfulItems} utilizado por la operación.
-     * @param failedItems Valor de {@code failedItems} utilizado por la operación.
-     * @param zipPath Valor de {@code zipPath} utilizado por la operación.
-     * @param zipObjectKey Valor de {@code zipObjectKey} utilizado por la operación.
-     */
+    /** Publica el evento terminal después de confirmar ZIP y manifiesto. */
     private void publishReadyEvent(
             DownloadJobRequestedEvent event,
-            String status,
-            int successfulItems,
-            int failedItems,
-            Path zipPath,
+            ArchiveOutcome outcome,
+            StoredArtifact zip,
             String zipObjectKey) {
         Instant occurredAt = clock.instant();
         Duration ttl = storageProperties.presignedUrlTtl().compareTo(Duration.ofDays(7)) > 0
@@ -716,12 +670,12 @@ public class DownloadJobProcessor {
                 : storageProperties.presignedUrlTtl();
         DownloadReadyPayload payload = new DownloadReadyPayload(
                 event.payload().jobId(),
-                status,
+                outcome.status(),
                 zipObjectKey,
-                fileSize(zipPath),
-                Hashing.sha256(zipPath),
-                successfulItems,
-                failedItems,
+                zip.sizeBytes(),
+                zip.sha256(),
+                outcome.successfulItems(),
+                outcome.failedItems(),
                 occurredAt.plus(ttl));
         eventPublisher.publish(EventTypes.JOB_READY_ROUTING_KEY, new DownloadJobReadyEvent(
                 deterministicEventId(event.payload().jobId(), EventTypes.JOB_READY, "bundle"),
@@ -733,18 +687,7 @@ public class DownloadJobProcessor {
                 payload));
     }
 
-    /**
-     * Publica el contenido solicitado mediante {@code publishProgress}.
-     *
-     * @param event Evento que debe procesarse.
-     * @param occurredAt Valor de {@code occurredAt} utilizado por la operación.
-     * @param itemId Identificador de {@code item} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param bytesDownloaded Valor de {@code bytesDownloaded} utilizado por la operación.
-     * @param sizeBytes Valor de {@code sizeBytes} utilizado por la operación.
-     * @param sha256 Valor de {@code sha256} utilizado por la operación.
-     * @param errorCode Valor de {@code errorCode} utilizado por la operación.
-     */
+    /** Publica un cambio de estado de item conservando el contrato v1. */
     private void publishProgress(
             DownloadJobRequestedEvent event,
             Instant occurredAt,
@@ -769,13 +712,7 @@ public class DownloadJobProcessor {
                 payload));
     }
 
-    /**
-     * Publica el contenido solicitado mediante {@code publishJobFailure}.
-     *
-     * @param event Evento que debe procesarse.
-     * @param code Valor de {@code code} utilizado por la operación.
-     * @param failedItems Valor de {@code failedItems} utilizado por la operación.
-     */
+    /** Publica un fallo terminal del trabajo. */
     private void publishJobFailure(DownloadJobRequestedEvent event, String code, int failedItems) {
         DownloadFailedPayload payload = new DownloadFailedPayload(
                 event.payload().jobId(), code, Math.max(1, failedItems));
@@ -789,27 +726,13 @@ public class DownloadJobProcessor {
                 payload));
     }
 
-    /**
-     * Ejecuta la operación {@code deterministicEventId}.
-     *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @param discriminator Valor de {@code discriminator} utilizado por la operación.
-     * @return Resultado producido por {@code deterministicEventId}.
-     */
+    /** Construye identificadores estables para que el inbox pueda deduplicar reintentos. */
     private UUID deterministicEventId(UUID jobId, String type, String discriminator) {
         return UUID.nameUUIDFromBytes(
                 (jobId + ":" + type + ":" + discriminator).getBytes(StandardCharsets.UTF_8));
     }
 
-    /**
-     * Crea el recurso solicitado mediante {@code createJobDirectory}.
-     *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code createJobDirectory}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
+    /** Crea un directorio temporal aislado para el trabajo. */
     private Path createJobDirectory(UUID jobId) {
         try {
             Path base = Path.of(properties.tempDirectory());
@@ -820,27 +743,43 @@ public class DownloadJobProcessor {
         }
     }
 
-    /**
-     * Ejecuta la operación {@code fileSize}.
-     *
-     * @param path Ruta del recurso que debe procesarse.
-     * @return Resultado producido por {@code fileSize}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    private long fileSize(Path path) {
+    /** Elimina un temporal individual sin ocultar el resultado principal. */
+    private void deleteTemporary(Path path) {
         try {
-            return Files.size(path);
+            Files.deleteIfExists(path);
         } catch (IOException exception) {
-            throw new InfrastructureException("file_size_read_failed", exception);
+            LOGGER.debug("Could not delete temporary download path {}", path, exception);
         }
     }
 
-    /**
-     * Elimina el recurso solicitado mediante {@code deleteRecursively}.
-     *
-     * @param root Valor de {@code root} utilizado por la operación.
-     */
+    /** Elimina un objeto de almacenamiento como compensación. */
+    private void deleteStoredObject(String objectKey) {
+        try {
+            artifactStore.delete(objectKey);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Could not delete incomplete object {}", objectKey, exception);
+        }
+    }
+
+    /** Calcula los bytes que todavía quedan en un directorio temporal. */
+    private long directorySize(Path root) {
+        if (root == null || !Files.exists(root)) {
+            return 0;
+        }
+        try (var paths = Files.walk(root)) {
+            return paths.filter(Files::isRegularFile).mapToLong(path -> {
+                try {
+                    return Files.size(path);
+                } catch (IOException ignored) {
+                    return 0;
+                }
+            }).sum();
+        } catch (IOException exception) {
+            return 0;
+        }
+    }
+
+    /** Elimina el árbol temporal del trabajo. */
     private void deleteRecursively(Path root) {
         if (root == null || !Files.exists(root)) {
             return;
@@ -858,54 +797,56 @@ public class DownloadJobProcessor {
         }
     }
 
-    /**
-     * Representa los datos inmutables de {@code DownloadAttempt}.
-     *
-     * @param artifact Valor de {@code artifact} incluido en el record.
-     * @param failure Valor de {@code failure} incluido en el record.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     */
+    /** Resultado de una resolución individual. */
+    private record ResolutionAttempt(ResolvedDownloadItem resolved, FailedDownload failure) {
+        private static ResolutionAttempt success(ResolvedDownloadItem resolved) {
+            return new ResolutionAttempt(resolved, null);
+        }
+
+        private static ResolutionAttempt failure(FailedDownload failure) {
+            return new ResolutionAttempt(null, failure);
+        }
+    }
+
+    /** Resultado de la fase de resolución. */
+    private record PreparedDownloads(
+            List<ResolvedDownloadItem> resolved,
+            List<FailedDownload> failed) {}
+
+    /** Resultado de una descarga individual. */
     private record DownloadAttempt(DownloadedArtifact artifact, FailedDownload failure) {
-        /**
-         * Ejecuta la operación {@code success}.
-         *
-         * @param artifact Valor de {@code artifact} utilizado por la operación.
-         * @return Resultado producido por {@code success}.
-         */
-        static DownloadAttempt success(DownloadedArtifact artifact) {
+        private static DownloadAttempt success(DownloadedArtifact artifact) {
             return new DownloadAttempt(artifact, null);
         }
 
-        /**
-         * Ejecuta la operación {@code failure}.
-         *
-         * @param failure Valor de {@code failure} utilizado por la operación.
-         * @return Resultado producido por {@code failure}.
-         */
-        static DownloadAttempt failure(FailedDownload failure) {
+        private static DownloadAttempt failure(FailedDownload failure) {
             return new DownloadAttempt(null, failure);
         }
     }
 
-    /**
-     * Representa los datos inmutables de {@code ProcessedDownloads}.
-     *
-     * @param downloaded Valor de {@code downloaded} incluido en el record.
-     * @param failed Valor de {@code failed} incluido en el record.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     */
-    private record ProcessedDownloads(List<DownloadedArtifact> downloaded, List<FailedDownload> failed) {
-    }
-
-    /**
-     * Representa los datos inmutables de {@code ManualShortcuts}.
-     *
-     * @param entries Valor de {@code entries} incluido en el record.
-     * @param pathsByItem Valor de {@code pathsByItem} incluido en el record.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     */
+    /** Accesos manuales y sus rutas dentro del ZIP. */
     private record ManualShortcuts(
             List<ArchiveEntry> entries,
-            Map<UUID, String> pathsByItem) {
+            Map<UUID, String> pathsByItem) {}
+
+    /** Datos terminales calculados al cerrar el ZIP. */
+    private record ArchiveOutcome(
+            String status,
+            int successfulItems,
+            int failedItems,
+            byte[] manifest) {}
+
+    /** Señala que no existe ningún contenido útil para el usuario. */
+    private static final class AllDownloadsFailedException extends RuntimeException {
+        private final int failedItems;
+
+        private AllDownloadsFailedException(int failedItems) {
+            super("all_downloads_failed");
+            this.failedItems = Math.max(1, failedItems);
+        }
+
+        private int failedItems() {
+            return failedItems;
+        }
     }
 }

@@ -207,13 +207,16 @@ public class RabbitTopologyConfiguration {
     SimpleRabbitListenerContainerFactory downloadRabbitListenerContainerFactory(
             ConnectionFactory connectionFactory,
             MessageConverter rabbitMessageConverter,
-            RetryOperationsInterceptor downloadRetryInterceptor) {
+            RetryOperationsInterceptor downloadRetryInterceptor,
+            DownloadProperties downloadProperties) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(rabbitMessageConverter);
         factory.setAdviceChain(downloadRetryInterceptor);
         factory.setDefaultRequeueRejected(false);
         factory.setPrefetchCount(1);
+        factory.setConcurrentConsumers(downloadProperties.jobConcurrency());
+        factory.setMaxConcurrentConsumers(downloadProperties.jobConcurrency());
         return factory;
     }
 }

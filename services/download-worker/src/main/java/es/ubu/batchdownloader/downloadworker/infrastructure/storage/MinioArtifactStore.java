@@ -6,9 +6,20 @@ import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.UploadObjectArgs;
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.nio.file.Path;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Implementa el componente {@code MinioArtifactStore}.
@@ -66,6 +77,92 @@ public class MinioArtifactStore implements ArtifactStore {
     }
 
     /**
+     * Sube el objeto a medida que se produce y calcula sus metadatos sin releerlo.
+     *
+     * @param objectKey Clave del objeto.
+     * @param contentType Tipo MIME.
+     * @param partSize Tamaño de cada parte multipart.
+     * @param writer Productor del contenido.
+     * @return Tamaño y SHA-256 calculados en línea.
+     */
+    @Override
+    public StoredArtifact putStreaming(
+            String objectKey,
+            String contentType,
+            long partSize,
+            StreamWriter writer) {
+        ensureBucket();
+        AtomicReference<Throwable> uploadFailure = new AtomicReference<>();
+        AtomicReference<Throwable> producerFailure = new AtomicReference<>();
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            int pipeBuffer = (int) Math.clamp(partSize, 64L * 1024, 16L * 1024 * 1024);
+            try (PipedInputStream pipeInput = new PipedInputStream(pipeBuffer);
+                    PipedOutputStream pipe = new PipedOutputStream(pipeInput);
+                    InputStream input = new ProducerAwareInputStream(pipeInput, producerFailure)) {
+                Thread uploader = Thread.ofVirtual().name("minio-multipart-upload").start(() -> {
+                    try {
+                        client.putObject(PutObjectArgs.builder()
+                                .bucket(properties.bucket())
+                                .object(objectKey)
+                                .contentType(contentType)
+                                .stream(input, -1, partSize)
+                                .build());
+                    } catch (Throwable exception) {
+                        uploadFailure.set(exception);
+                        try {
+                            input.close();
+                        } catch (IOException ignored) {
+                            // La excepción original conserva la causa útil.
+                        }
+                    }
+                });
+                CountingOutputStream counting = new CountingOutputStream(
+                        new DigestOutputStream(pipe, digest));
+                Throwable writeFailure = null;
+                try {
+                    writer.write(counting);
+                    counting.close();
+                } catch (Throwable exception) {
+                    writeFailure = exception;
+                    if (uploadFailure.get() == null) {
+                        producerFailure.compareAndSet(null, exception);
+                    }
+                    try {
+                        counting.close();
+                    } catch (IOException ignored) {
+                        // La excepción de escritura es la causa principal.
+                    }
+                }
+                try {
+                    uploader.join();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    uploader.interrupt();
+                    throw new InfrastructureException("minio_upload_interrupted", exception);
+                }
+                if (producerFailure.get() != null) {
+                    rethrowWriterFailure(producerFailure.get());
+                }
+                if (uploadFailure.get() != null) {
+                    throw new InfrastructureException("minio_upload_failed", uploadFailure.get());
+                }
+                if (writeFailure != null) {
+                    rethrowWriterFailure(writeFailure);
+                }
+                return new StoredArtifact(
+                        counting.count(), HexFormat.of().formatHex(digest.digest()));
+            }
+        } catch (IOException | NoSuchAlgorithmException exception) {
+            deleteQuietly(objectKey);
+            throw new InfrastructureException("minio_upload_failed", exception);
+        } catch (RuntimeException exception) {
+            deleteQuietly(objectKey);
+            throw exception;
+        }
+    }
+
+    /**
      * Elimina el recurso solicitado mediante {@code delete}.
      *
      * @param objectKey Valor de {@code objectKey} utilizado por la operación.
@@ -108,6 +205,67 @@ public class MinioArtifactStore implements ArtifactStore {
                 bucketReady = true;
             } catch (Exception exception) {
                 throw new InfrastructureException("minio_bucket_initialization_failed", exception);
+            }
+        }
+    }
+
+    /** Propaga las excepciones de negocio producidas por el generador del objeto. */
+    private void rethrowWriterFailure(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        throw new InfrastructureException("minio_stream_writer_failed", failure);
+    }
+
+    /** Elimina cualquier objeto parcial visible después de un error. */
+    private void deleteQuietly(String objectKey) {
+        try {
+            client.removeObject(RemoveObjectArgs.builder()
+                    .bucket(properties.bucket())
+                    .object(objectKey)
+                    .build());
+        } catch (Exception ignored) {
+            // El SDK aborta el multipart; el ciclo de vida actúa como respaldo adicional.
+        }
+    }
+
+    /**
+     * Convierte el cierre anticipado del productor en un error de lectura. De este modo el SDK
+     * aborta la subida multipart en vez de interpretar el cierre como un objeto completo.
+     */
+    private static final class ProducerAwareInputStream extends FilterInputStream {
+        /** Fallo original del productor, si lo hubo. */
+        private final AtomicReference<Throwable> producerFailure;
+
+        /** Inicializa la vista de lectura sobre la tubería. */
+        private ProducerAwareInputStream(
+                InputStream input,
+                AtomicReference<Throwable> producerFailure) {
+            super(input);
+            this.producerFailure = producerFailure;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public int read() throws IOException {
+            int value = super.read();
+            failOnPrematureEnd(value);
+            return value;
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            int read = super.read(bytes, offset, length);
+            failOnPrematureEnd(read);
+            return read;
+        }
+
+        /** Lanza la causa original cuando el productor no terminó correctamente. */
+        private void failOnPrematureEnd(int read) throws IOException {
+            Throwable failure = producerFailure.get();
+            if (read < 0 && failure != null) {
+                throw new IOException("Multipart producer failed", failure);
             }
         }
     }
