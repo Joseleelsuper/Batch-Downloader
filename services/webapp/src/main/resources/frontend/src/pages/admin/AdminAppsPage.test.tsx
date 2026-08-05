@@ -268,6 +268,19 @@ describe('AdminAppsPage', () => {
     expect(iconCell?.contains(copyColumn)).toBe(false);
   });
 
+  it('opens the editable official website from its default field action', async () => {
+    render(<AdminAppsPage />);
+
+    fireEvent.click(await screen.findByRole('option', { name: /Example App/ }));
+    const officialWebsite = await screen.findByRole('link', {
+      name: 'Abrir la web oficial en una pestaña nueva',
+    });
+
+    expect(officialWebsite).toHaveAttribute('href', 'https://example.com/');
+    expect(officialWebsite).toHaveAttribute('target', '_blank');
+    expect(screen.getByLabelText('Web oficial')).toHaveValue('https://example.com');
+  });
+
   it('creates a new app from its website and optional OS installers', async () => {
     render(<AdminAppsPage />);
 

@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   CheckCircle2,
+  ExternalLink,
   FileDown,
   Loader2,
   PackageCheck,
@@ -1253,6 +1254,8 @@ export function AdminAppsPage() {
                     label={t('admin.field.officialUrl')}
                     value={form.officialUrl}
                     type="url"
+                    externalHref={clickableHttpUrl(form.officialUrl)}
+                    externalLabel={t('admin.apps.openOfficialUrl')}
                     disabled={previewPending}
                     provenance={suggestionProvenance(provenance?.officialUrl, form.officialUrl)}
                     onChange={(value) => setForm((current) => ({ ...current, officialUrl: value }))}
@@ -1430,6 +1433,8 @@ function EditorField({
   type = 'text',
   required = false,
   disabled = false,
+  externalHref,
+  externalLabel,
 }: {
   id: string;
   label: string;
@@ -1439,22 +1444,38 @@ function EditorField({
   type?: 'text' | 'url';
   required?: boolean;
   disabled?: boolean;
+  externalHref?: string | null;
+  externalLabel?: string;
 }) {
   return (
-    <label className="admin-app-field" htmlFor={id}>
-      <span>
+    <div className="admin-app-field">
+      <label className="admin-app-field-label" htmlFor={id}>
         {label}
         {provenance ? <ProvenanceBadge source={provenance} /> : null}
-      </span>
-      <input
-        id={id}
-        type={type}
-        required={required}
-        disabled={disabled}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
+      </label>
+      <div className={externalHref ? 'admin-app-field-control admin-app-field-control-linked' : 'admin-app-field-control'}>
+        <input
+          id={id}
+          type={type}
+          required={required}
+          disabled={disabled}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {externalHref && externalLabel ? (
+          <a
+            className="icon-action admin-app-url-action"
+            href={externalHref}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={externalLabel}
+            title={externalLabel}
+          >
+            <ExternalLink size={17} />
+          </a>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -1779,6 +1800,15 @@ function editorPayload(form: EditorForm) {
 
 function nullable(value: string): string | null {
   return value.trim() || null;
+}
+
+function clickableHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function isUnresolved(app: AppDetails): boolean {

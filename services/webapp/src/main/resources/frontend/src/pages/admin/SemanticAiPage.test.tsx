@@ -192,6 +192,101 @@ describe('semantic administration page', () => {
     expect(screen.getByRole('checkbox', { name: /candidate-model/ })).toBeChecked();
   });
 
+  it('keeps activation actionable and routes candidates without current evidence to comparison', async () => {
+    const candidate: SemanticModel = {
+      ...activeModel,
+      id: '00000000-0000-0000-0000-000000000002',
+      displayName: 'candidate-model',
+      repository: 'owner/candidate-model',
+      active: false,
+      deploymentState: 'not_prepared',
+      activatedAt: null,
+      lastBenchmark: null,
+    };
+    vi.mocked(semanticApi.fetchSemanticModels).mockResolvedValue([activeModel, candidate]);
+
+    render(
+      <MemoryRouter initialEntries={['/admin/semantic/models']}>
+        <Routes>
+          <Route path="/admin/semantic/:semanticSection" element={<SemanticAiPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const activate = await screen.findByRole('button', { name: 'Activar' });
+    expect(activate).toBeEnabled();
+    expect(activate).toHaveAttribute(
+      'title',
+      'Abrir la comparativa para generar evidencia antes de activar',
+    );
+    fireEvent.click(activate);
+
+    expect(await screen.findByRole('button', { name: 'Ejecutar benchmark' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: /candidate-model/ })).toBeChecked();
+  });
+
+  it('prepares a current evaluated candidate from the activation action', async () => {
+    const runId = '10000000-0000-0000-0000-000000000098';
+    const candidateBase: SemanticModel = {
+      ...activeModel,
+      id: '00000000-0000-0000-0000-000000000098',
+      displayName: 'candidate-model',
+      repository: 'owner/candidate-model',
+      active: false,
+      deploymentState: 'not_prepared',
+      activatedAt: null,
+    };
+    const activeMetric = benchmarkMetric(activeModel, 0.8);
+    const candidateMetric = benchmarkMetric(candidateBase, 0.9);
+    const candidate: SemanticModel = {
+      ...candidateBase,
+      lastBenchmark: {
+        id: runId,
+        datasetHash: 'b'.repeat(64),
+        scope: 'full',
+        current: true,
+        metric: candidateMetric,
+        createdAt: '2026-07-26T10:00:00Z',
+      },
+    };
+    vi.mocked(semanticApi.fetchSemanticModels).mockResolvedValue([activeModel, candidate]);
+    vi.mocked(semanticApi.fetchSemanticBenchmarks).mockResolvedValue([{
+      id: runId,
+      datasetHash: 'b'.repeat(64),
+      seed: 20260723,
+      configuration: {},
+      metrics: [activeMetric, candidateMetric],
+      modelIds: [activeModel.id, candidate.id],
+      scope: 'full',
+      hardwareFingerprint: 'fixture',
+      documentCount: 100,
+      queryCount: 20,
+      metricsSchemaVersion: 2,
+      createdAt: '2026-07-26T10:00:00Z',
+    }]);
+    vi.mocked(semanticApi.prepareSemanticModel).mockResolvedValue({
+      operationId: 'prepare-operation',
+      status: 'queued',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/admin/semantic/models']}>
+        <Routes>
+          <Route path="/admin/semantic/:semanticSection" element={<SemanticAiPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const activate = await screen.findByRole('button', { name: 'Activar' });
+    expect(activate).toBeEnabled();
+    expect(activate).toHaveAttribute('title', 'Preparar el índice antes de activar');
+    fireEvent.click(activate);
+
+    await waitFor(() => {
+      expect(semanticApi.prepareSemanticModel).toHaveBeenCalledWith(candidate.id);
+    });
+  });
+
   it('requires the explicit second confirmation for a measured regression', async () => {
     const runId = '10000000-0000-0000-0000-000000000099';
     const activeMetric = benchmarkMetric(activeModel, 0.8);

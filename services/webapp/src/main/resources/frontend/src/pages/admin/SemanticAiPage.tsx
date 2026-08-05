@@ -436,8 +436,25 @@ function ModelLibrary({
                 <button
                   className="primary-button compact-button"
                   type="button"
-                  disabled={busy || running || !prepared || !hasFullBenchmark || model.active}
-                  onClick={() => setConfirmation({ modelId: model.id, kind: 'activate' })}
+                  disabled={busy || running || model.artifactState !== 'ready' || model.active}
+                  title={
+                    !hasFullBenchmark
+                      ? t('semantic.actions.activationNeedsBenchmark')
+                      : !prepared
+                        ? t('semantic.actions.activationNeedsPreparation')
+                        : t('semantic.actions.activationReady')
+                  }
+                  onClick={() => {
+                    if (!hasFullBenchmark) {
+                      onEvaluate(model.id);
+                      return;
+                    }
+                    if (!prepared) {
+                      onPrepare(model.id);
+                      return;
+                    }
+                    setConfirmation({ modelId: model.id, kind: 'activate' });
+                  }}
                 >
                   {model.activatedAt ? <RotateCcw size={16} /> : <Play size={16} />}
                   {model.activatedAt ? t('semantic.actions.rollback') : t('semantic.actions.activate')}
