@@ -131,4 +131,32 @@ class ProcessEmailNotificationTest {
 
         verify(sender, never()).send(notification);
     }
+
+    @Test
+    void preservesRetryAfterMetadataForRabbitRetryHandling() {
+        when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
+                .thenReturn(NotificationInbox.ClaimResult.ACQUIRED);
+        RetryableNotificationException failure = new RetryableNotificationException(
+                "resend_temporarily_unavailable", java.time.Duration.ofSeconds(12));
+        org.mockito.Mockito.doThrow(failure).when(sender).send(notification);
+
+        assertThatThrownBy(() -> processor.execute(notification))
+                .isSameAs(failure)
+                .isInstanceOfSatisfying(RetryableNotificationException.class,
+                        exception -> org.assertj.core.api.Assertions.assertThat(exception.retryAfter())
+                                .isEqualTo(java.time.Duration.ofSeconds(12)));
+        verify(inbox).markFailed(EVENT_ID, "resend_temporarily_unavailable");
+    }
+
+    @Test
+    void propagatesPermanentFailuresForImmediateDeadLettering() {
+        when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
+                .thenReturn(NotificationInbox.ClaimResult.ACQUIRED);
+        PermanentNotificationException failure =
+                new PermanentNotificationException("resend_request_rejected");
+        org.mockito.Mockito.doThrow(failure).when(sender).send(notification);
+
+        assertThatThrownBy(() -> processor.execute(notification)).isSameAs(failure);
+        verify(inbox).markFailed(EVENT_ID, "resend_request_rejected");
+    }
 }
