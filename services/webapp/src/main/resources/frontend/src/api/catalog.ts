@@ -125,6 +125,7 @@ export class ApiRequestError extends Error {
     public readonly status: number,
     public readonly code: string,
     public readonly retryAfter: string | null = null,
+    public readonly details: Record<string, unknown> = {},
   ) {
     super(code);
     this.name = 'ApiRequestError';
@@ -146,7 +147,10 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     ...init,
     headers,
   });
-  if (response.status === 403 && UNSAFE_METHODS.has(method)) {
+  const forbiddenCode = response.status === 403
+    ? await response.clone().json().then((body: { code?: string }) => body.code).catch(() => undefined)
+    : undefined;
+  if (response.status === 403 && forbiddenCode === 'forbidden' && UNSAFE_METHODS.has(method)) {
     cachedCsrfToken = undefined;
     const retryHeaders = new Headers(headers);
     const csrfToken = await ensureCsrfToken(true);
@@ -161,12 +165,14 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     const payload = await response.json().catch(() => null) as {
       code?: string;
       detail?: { code?: string } | string;
+      details?: Record<string, unknown>;
     } | null;
     const detailCode = typeof payload?.detail === 'object' ? payload.detail.code : undefined;
     throw new ApiRequestError(
       response.status,
       payload?.code ?? detailCode ?? `request_failed_${response.status}`,
       response.headers.get('Retry-After'),
+      payload?.details ?? {},
     );
   }
   if (response.status === 204) return undefined as T;
@@ -382,8 +388,15 @@ export async function updateAdminBundle(bundleId: string, payload: Record<string
   });
 }
 
-export async function login(username: string, password: string): Promise<AuthUser> {
+export async function login(email: string, password: string): Promise<AuthUser> {
   return requestJson<AuthUser>('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function adminLogin(username: string, password: string): Promise<AuthUser> {
+  return requestJson<AuthUser>('/api/admin/auth/login', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
   });
@@ -391,6 +404,10 @@ export async function login(username: string, password: string): Promise<AuthUse
 
 export async function logout(): Promise<void> {
   await requestJson<void>('/api/v1/auth/logout', { method: 'POST' });
+}
+
+export async function adminLogout(): Promise<void> {
+  await requestJson<void>('/api/admin/auth/logout', { method: 'POST' });
 }
 
 export async function me(): Promise<AuthUser | null> {

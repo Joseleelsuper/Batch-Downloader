@@ -323,8 +323,14 @@ export interface BundleResponse {
 }
 
 export interface AuthUser {
+  id: string;
   username: string;
-  role: string;
+  email: string;
+  emailVerified: boolean;
+  role: 'USER' | 'ADMIN';
+  notifyOnJobCompletion: boolean;
+  createdAt: string;
+  authenticationMethods: Array<'LOCAL' | 'GOOGLE'>;
 }
 
 export interface ScraperRunSummary {

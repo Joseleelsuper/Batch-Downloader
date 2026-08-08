@@ -29,8 +29,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /auth/login:
     post:
       operationId: login
@@ -55,6 +61,16 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La contraseña es correcta, pero el correo todavía no está verificado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /auth/logout:
     post:
       operationId: logout
@@ -75,8 +91,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+        '204':
+          description: No existe una sesión autenticada.
   /auth/email-verification/confirm:
     post:
       operationId: confirmEmailVerification
@@ -93,6 +109,48 @@ paths:
           description: Correo verificado.
         '400':
           $ref: '#/components/responses/BadRequest'
+        '410':
+          description: Token caducado o utilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/email-verification/resend:
+    post:
+      operationId: resendEmailVerification
+      summary: Reenviar la verificación con respuesta uniforme
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '202':
+          description: Solicitud aceptada sin revelar si existe la cuenta.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/oauth2/google:
+    get:
+      operationId: startGoogleLogin
+      summary: Iniciar Google OIDC
+      security: []
+      parameters:
+        - name: returnTo
+          in: query
+          schema:
+            type: string
+          description: Ruta relativa interna; los destinos externos se descartan.
+      responses:
+        '302':
+          description: Redirección al endpoint de autorización de Spring Security.
   /auth/password-reset/request:
     post:
       operationId: requestPasswordReset
@@ -114,6 +172,10 @@ paths:
           description: Solicitud aceptada aunque el correo no exista.
         '400':
           $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /auth/password-reset/confirm:
     post:
       operationId: confirmPasswordReset
@@ -138,6 +200,237 @@ paths:
           description: Contraseña actualizada.
         '400':
           $ref: '#/components/responses/BadRequest'
+        '410':
+          description: Token caducado o utilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /users/me:
+    get:
+      operationId: getOwnProfile
+      summary: Consultar el perfil de la cuenta USER
+      responses:
+        '200':
+          description: Perfil actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      operationId: updateOwnProfile
+      summary: Cambiar el username de presentación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsernameUpdateRequest'
+      responses:
+        '200':
+          description: Perfil actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /users/me/dashboard:
+    get:
+      operationId: getOwnDashboard
+      summary: Consultar el resumen privado de la cuenta
+      responses:
+        '200':
+          description: Conteos y actividad reciente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDashboard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /users/me/downloads:
+    get:
+      operationId: listOwnDownloadHistory
+      summary: Listar el historial registrado al alcanzar READY
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Historial paginado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadHistoryPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /users/me/bundles:
+    get:
+      operationId: listOwnBundles
+      summary: Listar bundles propios
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bundles propios paginados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundlePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createOwnBundle
+      summary: Crear un bundle USER privado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOwnBundleRequest'
+      responses:
+        '201':
+          description: Bundle privado creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /users/me/bundles/{bundleId}:
+    parameters:
+      - name: bundleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getOwnBundle
+      summary: Consultar un bundle editable propio
+      responses:
+        '200':
+          description: Bundle propio.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateOwnBundle
+      summary: Actualizar un bundle con control optimista
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOwnBundleRequest'
+      responses:
+        '200':
+          description: Bundle actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteOwnBundle
+      summary: Eliminar un bundle propio
+      responses:
+        '204':
+          description: Bundle eliminado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/auth/login:
+    servers:
+      - url: /
+    post:
+      operationId: adminLogin
+      summary: Iniciar sesión administrativa por username
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+      responses:
+        '200':
+          description: Sesión ADMIN iniciada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/admin/auth/me:
+    servers:
+      - url: /
+    get:
+      operationId: currentAdmin
+      summary: Consultar la sesión ADMIN
+      responses:
+        '200':
+          description: Administrador autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/admin/auth/logout:
+    servers:
+      - url: /
+    post:
+      operationId: adminLogout
+      summary: Cerrar la sesión administrativa
+      responses:
+        '204':
+          description: Sesión invalidada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /apps:
     get:
       operationId: searchApps
@@ -328,13 +621,13 @@ paths:
         '409':
           description: Ninguna aplicación solicitada tiene una fuente verificable o el bundle excede el límite.
           content:
-            application/problem+json:
+            application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
         '429':
           description: Cuota superada.
           content:
-            application/problem+json:
+            application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
   /download-jobs/{jobId}:
@@ -1135,43 +1428,61 @@ components:
     BadRequest:
       description: Entrada no válida.
       content:
-        application/problem+json:
+        application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     Unauthorized:
       description: Sesión ausente o inválida.
       content:
-        application/problem+json:
+        application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     Forbidden:
-      description: La sesión no tiene permisos de administración.
+      description: La sesión o el estado de la cuenta no permiten la operación.
       content:
-        application/problem+json:
+        application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     NotFound:
       description: Recurso no encontrado.
       content:
-        application/problem+json:
+        application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     Conflict:
       description: El estado actual impide la operación.
       content:
-        application/problem+json:
+        application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     UnprocessableEntity:
       description: La URL o el instalador no superan la validación segura.
       content:
-        application/problem+json:
+        application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     ServiceUnavailable:
       description: Un fallo transitorio impide completar la operación.
+      headers:
+        Retry-After:
+          required: true
+          schema:
+            type: integer
+            minimum: 1
       content:
-        application/problem+json:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: Límite temporal alcanzado.
+      headers:
+        Retry-After:
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     SemanticOperationAccepted:
@@ -1183,12 +1494,9 @@ components:
   schemas:
     RegisterRequest:
       type: object
-      required: [username, email, password]
+      additionalProperties: false
+      required: [email, password]
       properties:
-        username:
-          type: string
-          minLength: 3
-          maxLength: 80
         email:
           type: string
           format: email
@@ -1198,12 +1506,40 @@ components:
           maxLength: 128
     LoginRequest:
       type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    AdminLoginRequest:
+      type: object
+      additionalProperties: false
       required: [username, password]
       properties:
         username:
           type: string
         password:
           type: string
+    EmailRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    UsernameUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [username]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 40
     TokenRequest:
       type: object
       required: [token]
@@ -1212,7 +1548,7 @@ components:
           type: string
     User:
       type: object
-      required: [id, username, email, emailVerified, role, notifyOnJobCompletion]
+      required: [id, username, email, emailVerified, role, notifyOnJobCompletion, createdAt, authenticationMethods]
       properties:
         id:
           type: string
@@ -1229,6 +1565,15 @@ components:
           enum: [USER, ADMIN]
         notifyOnJobCompletion:
           type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        authenticationMethods:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [LOCAL, GOOGLE]
     App:
       type: object
       required: [id, slug, packageId, name, tags, operatingSystems, downloadable, updatedAt]
@@ -2082,6 +2427,195 @@ components:
         total:
           type: integer
           format: int64
+    OwnBundleSummary:
+      type: object
+      additionalProperties: false
+      required: [id, slug, name, visibility, appCount, tags, updatedAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        visibility:
+          type: string
+          enum: [private, public]
+        appCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        tags:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    OwnBundle:
+      allOf:
+        - $ref: '#/components/schemas/OwnBundleSummary'
+        - type: object
+          additionalProperties: false
+          required: [apps]
+          properties:
+            apps:
+              type: array
+              maxItems: 100
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/App'
+    OwnBundlePage:
+      type: object
+      additionalProperties: false
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnBundleSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+    CreateOwnBundleRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        slug:
+          type: [string, 'null']
+          maxLength: 180
+        tags:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 80
+        appIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+    UpdateOwnBundleRequest:
+      type: object
+      additionalProperties: false
+      required: [name, visibility, expectedVersion]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        slug:
+          type: [string, 'null']
+          maxLength: 180
+        visibility:
+          type: string
+          enum: [private, public]
+        tags:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 80
+        appIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+        expectedVersion:
+          type: integer
+          format: int64
+          minimum: 0
+    DownloadHistoryItem:
+      type: object
+      additionalProperties: false
+      required: [appId, appName, jobId, downloadedAt]
+      properties:
+        appId:
+          type: string
+          format: uuid
+        appName:
+          type: string
+        slug:
+          type: [string, 'null']
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+        jobId:
+          type: string
+          format: uuid
+        downloadedAt:
+          type: string
+          format: date-time
+    DownloadHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadHistoryItem'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+    AccountDashboard:
+      type: object
+      additionalProperties: false
+      required: [account, counts, recentDownloads, recentBundles]
+      properties:
+        account:
+          $ref: '#/components/schemas/User'
+        counts:
+          type: object
+          additionalProperties: false
+          required: [bundles, publicBundles, privateBundles, downloads]
+          properties:
+            bundles: { type: integer, format: int64 }
+            publicBundles: { type: integer, format: int64 }
+            privateBundles: { type: integer, format: int64 }
+            downloads: { type: integer, format: int64 }
+        recentDownloads:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/DownloadHistoryItem'
+        recentBundles:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/OwnBundleSummary'
     SemanticArtifactState:
       type: string
       enum: [downloading, validating, ready, incompatible, failed]
@@ -2617,13 +3151,12 @@ components:
           default: false
     Problem:
       type: object
-      required: [code, message, correlationId]
+      additionalProperties: false
+      required: [code, message, details]
       properties:
         code:
           type: string
         message:
-          type: string
-        correlationId:
           type: string
         details:
           type: object

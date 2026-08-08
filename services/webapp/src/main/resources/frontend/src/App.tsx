@@ -49,9 +49,6 @@ import {
   fetchBundles,
   fetchCatalogFacets,
   fetchCatalogStats,
-  login,
-  logout,
-  me,
   pruneTerminalScraperQueueItems,
   recoverStuckScraperQueueItems,
   retryFailedScraperQueueItems,
@@ -86,9 +83,23 @@ import { OperatingSystemList } from './components/OperatingSystemIcons';
 import { Pagination } from './components/Pagination';
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 import { useDownloadJob } from './hooks/useDownloadJob';
 import { AdminAppsPage as AdminAppsWorkbenchPage } from './pages/admin/AdminAppsPage';
 import { SemanticAiPage } from './pages/admin/SemanticAiPage';
+import {
+  AccountBundlesPage,
+  AccountLayout,
+  AdminLoginPage,
+  BundleEditorPage,
+  DashboardPage,
+  ForgotPasswordPage,
+  ProfilePage,
+  RegisterPage,
+  ResetPasswordPage,
+  UserLoginPage,
+  VerifyEmailPage,
+} from './pages/account/AccountPages';
 import { t } from './services/i18n';
 import type {
   AppDetails,
@@ -121,33 +132,49 @@ const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 const CATALOG_REFRESH_INTERVAL_MS = 5_000;
 
 export default function App() {
-  const [auth, setAuth] = useState<AuthUser | null>(null);
-  const [checkingAuth, setCheckingAuth] = useState(true);
+  return <AuthProvider><AppRoutes /></AuthProvider>;
+}
 
-  useEffect(() => {
-    me()
-      .then(setAuth)
-      .catch(() => setAuth(null))
-      .finally(() => setCheckingAuth(false));
-  }, []);
+function AppRoutes() {
+  const { account: auth, status, signOut } = useAuth();
+  const checkingAuth = status === 'checking';
+  const onLogout = () => { void signOut(); };
 
   return (
     <DownloadJobsProvider>
       <Routes>
-        <Route element={<PublicLayout auth={auth} onLogout={() => handleLogout(setAuth)} />}>
+        <Route element={<PublicLayout auth={auth} onLogout={onLogout} />}>
           <Route index element={<HomePage />} />
           <Route path="catalog" element={<CatalogPage />} />
           <Route path="catalog/app/:appId" element={<CatalogPage />} />
           <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
           <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
           <Route path="bundles/:slug" element={<BundleDetailPage />} />
-          <Route path="login" element={<LoginPage onLogin={setAuth} />} />
+          <Route path="login" element={<UserLoginPage />} />
+          <Route path="register" element={<RegisterPage />} />
+          <Route path="verify-email" element={<VerifyEmailPage />} />
+          <Route path="forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="reset-password" element={<ResetPasswordPage />} />
+          <Route path="admin/login" element={<AdminLoginPage />} />
+        </Route>
+        <Route
+          element={
+            <RequireAccount auth={auth} checking={checkingAuth}>
+              <AccountLayout />
+            </RequireAccount>
+          }
+        >
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="dashboard/bundles" element={<AccountBundlesPage />} />
+          <Route path="dashboard/bundles/new" element={<BundleEditorPage />} />
+          <Route path="dashboard/bundles/:id/edit" element={<BundleEditorPage />} />
+          <Route path="profile" element={<ProfilePage />} />
         </Route>
         <Route
           path="admin"
           element={
             <RequireAdmin auth={auth} checking={checkingAuth}>
-              <AdminLayout onLogout={() => handleLogout(setAuth)} />
+              <AdminLayout onLogout={onLogout} />
             </RequireAdmin>
           }
         >
@@ -197,7 +224,7 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
           <Globe2 size={20} />
           {t('language.current')}
         </button>
-        {auth ? (
+        {auth?.role === 'ADMIN' ? (
           <>
             <NavLink className="admin-link" to="/admin">
               <Shield size={18} />
@@ -207,6 +234,14 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
               <LogOut size={18} />
               {t('nav.logout')}
             </button>
+          </>
+        ) : auth?.role === 'USER' ? (
+          <>
+            <NavLink className="admin-link" to="/dashboard">
+              <UserCircle size={22} />
+              {auth.username}
+            </NavLink>
+            <button type="button" onClick={onLogout}><LogOut size={18} />{t('nav.logout')}</button>
           </>
         ) : (
           <NavLink className="admin-link" to="/login">
@@ -308,7 +343,7 @@ function HomePage() {
       <section className="home-section">
         <div className="section-heading">
           <h2>{t('home.appsRecent')}</h2>
-          {apps.length > 5 ? <Link to="/catalog">{t('common.viewAll')}</Link> : null}
+          {apps.length > 5 ? <Link to="/catalog?sort=updated">{t('common.viewAll')}</Link> : null}
         </div>
         {loadingApps ? <p className="loading-label">{t('common.loading')}</p> : null}
         <div className="app-compact-grid">
@@ -412,7 +447,7 @@ function BundleCard({ bundle }: { bundle: BundleSummary }) {
 
 function AppCompactCard({ app }: { app: CatalogApp }) {
   return (
-    <Link className="app-compact-card" to={`/catalog/app/${app.id}`}>
+    <Link className="app-compact-card" to={`/catalog/app/${app.id}?sort=updated`}>
       <AppMiniIcon app={app} />
       <div>
         <strong>{app.name}</strong>
@@ -1001,53 +1036,11 @@ function BundleDetailPage() {
   );
 }
 
-function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
-  const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    try {
-      const user = await login(username, password);
-      onLogin(user);
-      navigate('/admin');
-    } catch {
-      setError(t('login.invalid'));
-    }
-  }
-
-  return (
-    <main className="login-page">
-      <form className="login-card" onSubmit={submit}>
-        <h2>{t('login.title')}</h2>
-        <label>
-          {t('login.username')}
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-        </label>
-        <label>
-          {t('login.password')}
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-          />
-        </label>
-        {error ? <p className="error-banner">{error}</p> : null}
-        <button className="primary-button" type="submit">{t('login.submit')}</button>
-      </form>
-    </main>
-  );
-}
-
 function Footer() {
   return (
     <footer className="site-footer">
       <Link to="/catalog">{t('footer.catalog')}</Link>
-      <Link to="/login">{t('footer.admin')}</Link>
+      <Link to="/admin/login">{t('footer.admin')}</Link>
       <span>Batch Downloader MVP</span>
     </footer>
   );
@@ -1062,8 +1055,24 @@ function RequireAdmin({
   checking: boolean;
   children: JSX.Element;
 }) {
+  const location = useLocation();
   if (checking) return <main className="content-page"><p className="loading-label">{t('login.checkingSession')}</p></main>;
-  if (!auth) return <Navigate to="/login" replace />;
+  if (!auth || auth.role !== 'ADMIN') return <Navigate to="/admin/login" replace state={{ from: location }} />;
+  return children;
+}
+
+function RequireAccount({
+  auth,
+  checking,
+  children,
+}: {
+  auth: AuthUser | null;
+  checking: boolean;
+  children: JSX.Element;
+}) {
+  const location = useLocation();
+  if (checking) return <main className="content-page"><p className="loading-label">{t('login.checkingSession')}</p></main>;
+  if (!auth || auth.role !== 'USER') return <Navigate to="/login" replace state={{ from: location }} />;
   return children;
 }
 
@@ -1782,11 +1791,6 @@ function metadataBoolean(metadata: Record<string, unknown>, key: string): boolea
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
-}
-
-async function handleLogout(setAuth: (value: AuthUser | null) => void) {
-  await logout().catch(() => undefined);
-  setAuth(null);
 }
 
 function formatLastScrape(stats: CatalogStats | null): string {

@@ -630,6 +630,31 @@ describe('home loading', () => {
     expect(await screen.findByText('No se pudo cargar la página principal.')).toBeInTheDocument();
   });
 
+  it('abre las aplicaciones recientes con la ordenacion por actualizacion', async () => {
+    const recentApps = Array.from({ length: 6 }, (_, index) => ({
+      ...catalogApp,
+      id: `recent-${index + 1}`,
+      name: `Reciente ${index + 1}`,
+    }));
+    vi.spyOn(catalogApi, 'fetchApps').mockResolvedValue({
+      data: recentApps,
+      page: 1,
+      pageSize: 6,
+      total: recentApps.length,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('link', { name: /Reciente 1/ }))
+      .toHaveAttribute('href', '/catalog/app/recent-1?sort=updated');
+    expect(screen.getByRole('link', { name: 'Ver todo' }))
+      .toHaveAttribute('href', '/catalog?sort=updated');
+  });
+
   it('calcula el indicador restante a partir de las miniaturas que realmente muestra', async () => {
     const previewApps = Array.from({ length: 6 }, (_, index) => ({
       ...catalogApp,
@@ -701,7 +726,16 @@ describe('admin bundle editor', () => {
   };
 
   beforeEach(() => {
-    vi.spyOn(catalogApi, 'me').mockResolvedValue({ username: 'admin', role: 'admin' });
+    vi.spyOn(catalogApi, 'me').mockResolvedValue({
+      id: '00000000-0000-0000-0000-000000000001',
+      username: 'admin',
+      email: 'admin@example.test',
+      emailVerified: true,
+      role: 'ADMIN',
+      notifyOnJobCompletion: false,
+      createdAt: '2026-08-08T00:00:00Z',
+      authenticationMethods: ['LOCAL'],
+    });
     vi.spyOn(catalogApi, 'fetchBundles').mockResolvedValue({
       data: [officialBundle],
       page: 1,
