@@ -1,6 +1,5 @@
 package es.ubu.batchdownloader.notification.infrastructure.mail;
 
-import es.ubu.batchdownloader.notification.application.port.NotificationSender;
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import java.nio.charset.StandardCharsets;
@@ -20,7 +19,7 @@ import org.springframework.web.util.UriComponentsBuilder;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 @Component
-public class SmtpNotificationSender implements NotificationSender {
+public class SmtpNotificationSender {
 
     /**
      * Constante que define {@code SPANISH}.
@@ -59,7 +58,6 @@ public class SmtpNotificationSender implements NotificationSender {
      *
      * @param notification Valor de {@code notification} utilizado por la operación.
      */
-    @Override
     public void send(EmailNotification notification) {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(properties.from());

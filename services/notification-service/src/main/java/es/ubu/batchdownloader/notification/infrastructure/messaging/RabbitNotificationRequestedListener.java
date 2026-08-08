@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import es.ubu.batchdownloader.notification.application.ProcessEmailNotification;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import java.io.IOException;
+import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -64,7 +66,11 @@ public class RabbitNotificationRequestedListener {
             @Header(AmqpHeaders.RECEIVED_ROUTING_KEY) String routingKey) {
         NotificationRequestedMessage message = deserialize(payload);
         EmailNotification notification = messageMapper.map(message, routingKey);
-        processor.execute(notification);
+        try {
+            processor.execute(notification);
+        } catch (PermanentNotificationException exception) {
+            throw new AmqpRejectAndDontRequeueException("notification_permanently_rejected", exception);
+        }
     }
 
     /**

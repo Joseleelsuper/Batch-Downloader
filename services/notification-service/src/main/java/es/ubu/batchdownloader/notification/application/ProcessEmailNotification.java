@@ -68,6 +68,12 @@ public class ProcessEmailNotification {
                     notification.template());
         } catch (RuntimeException exception) {
             markFailure(notification, exception);
+            if (exception instanceof PermanentNotificationException permanent) {
+                throw permanent;
+            }
+            if (exception instanceof RetryableNotificationException retryable) {
+                throw retryable;
+            }
             throw new NotificationProcessingException(
                     "No se pudo enviar la notificación del evento " + notification.eventId(), exception);
         }
