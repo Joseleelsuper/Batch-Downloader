@@ -799,6 +799,27 @@ public class CatalogRepository {
         return ids.get(0);
     }
 
+    /** Resuelve solo aplicaciones visibles en el catálogo público. */
+    public UUID publicSoftwareAppId(String publicId) {
+        UUID parsed = parseUuid(publicId);
+        List<UUID> ids = jdbc.query(
+                """
+                SELECT id FROM software_apps
+                WHERE app_status = 'active'
+                  AND ((? IS NOT NULL AND id = ?) OR slug = ? OR winstall_id = ?)
+                LIMIT 1
+                """,
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                parsed == null ? null : UuidBytes.fromUuid(parsed),
+                parsed == null ? null : UuidBytes.fromUuid(parsed),
+                publicId,
+                publicId);
+        if (ids.isEmpty()) {
+            throw new NotFoundException("app_not_found", "La aplicación no existe.");
+        }
+        return ids.get(0);
+    }
+
     /**
      * Ejecuta la operación {@code stats}.
      *

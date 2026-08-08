@@ -67,13 +67,15 @@ public class BundleRepository {
         String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
         String sql = """
                 SELECT * FROM bundles
-                WHERE (? IS NULL OR type = ?) AND visibility IN ('public', 'official')
+                WHERE (? IS NULL OR type = ? OR (? = 'community' AND type = 'user'))
+                  AND visibility IN ('public', 'official')
                 ORDER BY %s
                 LIMIT ? OFFSET ?
                 """.formatted(order);
         List<BundleBase> bundles = jdbc.query(
                 sql,
                 (rs, rowNum) -> bundleBase(rs),
+                blankToNull(type),
                 blankToNull(type),
                 blankToNull(type),
                 pageSize,
@@ -91,9 +93,11 @@ public class BundleRepository {
         Long count = jdbc.queryForObject(
                 """
                 SELECT COUNT(*) FROM bundles
-                WHERE (? IS NULL OR type = ?) AND visibility IN ('public', 'official')
+                WHERE (? IS NULL OR type = ? OR (? = 'community' AND type = 'user'))
+                  AND visibility IN ('public', 'official')
                 """,
                 Long.class,
+                blankToNull(type),
                 blankToNull(type),
                 blankToNull(type));
         return count == null ? 0 : count;
@@ -151,13 +155,18 @@ public class BundleRepository {
      * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
      *     requeridas.
      */
-    public BundleDetails details(String publicId, String username, boolean administrator) {
+    public BundleDetails detailsForViewer(String publicId, UUID viewerId, boolean administrator) {
         BundleRecord bundle = findBundle(publicId);
-        if (!isVisibleTo(bundle, username, administrator)) {
+        if (!isVisibleTo(bundle, viewerId, administrator)) {
             // No revela si existe un identificador o slug privado.
             throw new NotFoundException("bundle_not_found", "El bundle no existe.");
         }
         return bundle.details();
+    }
+
+    /** Compatibilidad de sesiones antiguas: resuelve el username, pero nunca autoriza por snapshot. */
+    public BundleDetails details(String publicId, String legacyUsername, boolean administrator) {
+        return detailsForViewer(publicId, userId(legacyUsername), administrator);
     }
 
     /**
@@ -182,9 +191,10 @@ public class BundleRepository {
      * @throws ConflictException Si no puede completarse la operación bajo las condiciones
      *     requeridas.
      */
-    public List<UUID> appIdsForDownload(String publicId, String username, boolean administrator) {
+    public List<UUID> appIdsForDownloadForViewer(
+            String publicId, UUID viewerId, boolean administrator) {
         BundleAccess bundle = findBundleAccess(publicId);
-        if (!isVisibleTo(bundle, username, administrator)) {
+        if (!isVisibleTo(bundle, viewerId, administrator)) {
             throw new NotFoundException("bundle_not_found", "El bundle no existe.");
         }
         List<UUID> appIds = jdbc.query(
@@ -205,6 +215,12 @@ public class BundleRepository {
                     "Este bundle supera el máximo de " + MAX_BUNDLE_APPS + " aplicaciones y debe reducirse antes de descargarse.");
         }
         return List.copyOf(appIds);
+    }
+
+    /** Compatibilidad temporal de llamadas basadas en el username histórico. */
+    public List<UUID> appIdsForDownload(
+            String publicId, String legacyUsername, boolean administrator) {
+        return appIdsForDownloadForViewer(publicId, userId(legacyUsername), administrator);
     }
 
     /**
@@ -836,31 +852,24 @@ public class BundleRepository {
      * @param administrator Valor de {@code administrator} utilizado por la operación.
      * @return Indica si se cumple la condición evaluada.
      */
-    private boolean isVisibleTo(BundleRecord bundle, String username, boolean administrator) {
+    private boolean isVisibleTo(BundleRecord bundle, UUID viewerId, boolean administrator) {
         return isVisibleTo(
                 new BundleAccess(
                         UUID.fromString(bundle.details().id()),
                         bundle.details().visibility(),
                         bundle.ownerId(),
                         bundle.ownerUsername()),
-                username,
+                viewerId,
                 administrator);
     }
 
     /** Comprueba la visibilidad utilizando únicamente los datos mínimos de acceso. */
-    private boolean isVisibleTo(BundleAccess bundle, String username, boolean administrator) {
+    private boolean isVisibleTo(BundleAccess bundle, UUID viewerId, boolean administrator) {
         String visibility = bundle.visibility();
         if ("public".equals(visibility) || "official".equals(visibility) || administrator) {
             return true;
         }
-        if (username == null || username.isBlank()) {
-            return false;
-        }
-        UUID userId = userId(username);
-        if (bundle.ownerId() != null && bundle.ownerId().equals(userId)) {
-            return true;
-        }
-        return bundle.ownerUsername() != null && bundle.ownerUsername().equalsIgnoreCase(username.trim());
+        return viewerId != null && bundle.ownerId() != null && bundle.ownerId().equals(viewerId);
     }
 
     /**

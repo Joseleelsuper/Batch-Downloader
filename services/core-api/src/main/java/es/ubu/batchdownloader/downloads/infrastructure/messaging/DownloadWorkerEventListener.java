@@ -152,7 +152,26 @@ public class DownloadWorkerEventListener {
         } catch (IllegalArgumentException exception) {
             throw invalid("invalid_download_job_status");
         }
-        jobs.applyReady(uuid(payload, "jobId"), status, text(payload, "objectKey"), expiresAt);
+        UUID jobId = uuid(payload, "jobId");
+        jobs.applyReady(jobId, status, text(payload, "objectKey"), expiresAt);
+        recordAuthenticatedHistory(jobId);
+    }
+
+    /** El READY y su historial se confirman en la misma transacción del inbox. */
+    private void recordAuthenticatedHistory(UUID jobId) {
+        jdbc.update(
+                """
+                INSERT IGNORE INTO user_download_history
+                    (id, user_id, job_id, app_id, app_name, downloaded_at)
+                SELECT UUID_TO_BIN(UUID()), job.owner_id, job.id, UUID_TO_BIN(item.app_id),
+                       COALESCE(NULLIF(item.app_name, ''), item.app_id), ?
+                FROM download_jobs job
+                JOIN download_job_items item ON item.job_id = job.id
+                WHERE job.id = ?
+                  AND job.owner_id IS NOT NULL
+                  AND item.status = 'COMPLETED'
+                """,
+                java.sql.Timestamp.from(clock.instant()), jobId.toString());
     }
 
     /**

@@ -6,6 +6,7 @@ import es.ubu.batchdownloader.downloads.application.DownloadJobService;
 import es.ubu.batchdownloader.downloads.application.DownloadJobView;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
+import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
@@ -125,7 +126,7 @@ public class DownloadJobController {
         RequestOwner owner = requestOwner(authentication, token, servletRequest);
         List<UUID> appIds = request.bundleId() == null
                 ? distinctAppIds(request.appIds())
-                : bundles.appIdsForDownload(request.bundleId(), actor(authentication), isAdmin(authentication));
+                : bundleAppIds(request.bundleId(), authentication);
         workerCapacity.requireAvailable();
         DownloadJobView created = jobs.create(
                 owner,
@@ -225,10 +226,23 @@ public class DownloadJobController {
      */
     private RequestOwner requestOwner(
             Authentication authentication, String browserToken, HttpServletRequest servletRequest) {
+        if (isSignedIn(authentication)
+                && authentication.getPrincipal() instanceof AccountPrincipal account) {
+            return owners.resolve(account.userId(), browserToken, servletRequest.getRemoteAddr());
+        }
         return owners.resolve(
                 actor(authentication),
                 browserToken,
                 servletRequest.getRemoteAddr());
+    }
+
+    private List<UUID> bundleAppIds(String bundleId, Authentication authentication) {
+        if (isSignedIn(authentication)
+                && authentication.getPrincipal() instanceof AccountPrincipal account) {
+            return bundles.appIdsForDownloadForViewer(
+                    bundleId, account.userId(), isAdmin(authentication));
+        }
+        return bundles.appIdsForDownload(bundleId, actor(authentication), isAdmin(authentication));
     }
 
     /**

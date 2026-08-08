@@ -26,14 +26,16 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
      * Estado {@code outbox} mantenido por {@code IdentityOutboxPublisher}.
      */
     private final OutboxWriter outbox;
+    private final NotificationTokenCipher tokenCipher;
 
     /**
      * Inicializa una instancia de {@code IdentityOutboxPublisher}.
      *
      * @param outbox Valor de {@code outbox} utilizado por la operación.
      */
-    IdentityOutboxPublisher(OutboxWriter outbox) {
+    IdentityOutboxPublisher(OutboxWriter outbox, NotificationTokenCipher tokenCipher) {
         this.outbox = outbox;
+        this.tokenCipher = tokenCipher;
     }
 
     /**
@@ -72,6 +74,8 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
                 Map.of(
                         "recipient", user.email(),
                         "template", template,
-                        "parameters", Map.of("username", user.username(), "token", rawToken)));
+                        "parameters", Map.of(
+                                "username", user.username(),
+                                "token", tokenCipher.encrypt(rawToken))));
     }
 }

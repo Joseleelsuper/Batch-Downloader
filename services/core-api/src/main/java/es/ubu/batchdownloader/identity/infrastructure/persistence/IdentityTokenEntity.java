@@ -7,6 +7,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -59,6 +60,8 @@ class IdentityTokenEntity {
      */
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+    @Version
+    private long version;
 
     /**
      * Inicializa una instancia de {@code IdentityTokenEntity}.
@@ -74,6 +77,7 @@ class IdentityTokenEntity {
     static IdentityTokenEntity from(IdentityToken token) {
         IdentityTokenEntity entity = new IdentityTokenEntity();
         entity.id = token.id();
+        entity.version = token.version();
         entity.updateFrom(token);
         return entity;
     }
@@ -98,6 +102,6 @@ class IdentityTokenEntity {
      * @return Resultado producido por {@code toDomain}.
      */
     IdentityToken toDomain() {
-        return IdentityToken.rehydrate(id, userId, tokenHash, type, expiresAt, consumedAt, createdAt);
+        return IdentityToken.rehydrate(id, userId, tokenHash, type, expiresAt, consumedAt, createdAt, version);
     }
 }

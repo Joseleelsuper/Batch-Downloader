@@ -131,6 +131,14 @@ class OutboxEventEntity {
         releaseClaim();
     }
 
+    /** Sustituye la carga por su forma sanitizada después del acuse del broker. */
+    void replacePayload(String sanitizedPayload) {
+        if (sanitizedPayload == null || sanitizedPayload.isBlank()) {
+            throw new IllegalArgumentException("sanitized_payload_required");
+        }
+        payload = sanitizedPayload;
+    }
+
     /**
      * Marca el recurso solicitado mediante {@code markFailed}.
      *

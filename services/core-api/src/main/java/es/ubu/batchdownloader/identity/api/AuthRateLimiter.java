@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,12 +23,14 @@ class AuthRateLimiter {
     private final Cache<String, AtomicInteger> registrations;
     /** Contadores de restablecimiento con ventana de una hora. */
     private final Cache<String, AtomicInteger> resets;
+    private final Cache<String, AtomicInteger> verifications;
     /** Máximo de login por minuto. */
     private final int loginLimit;
     /** Máximo de registros por hora. */
     private final int registrationLimit;
     /** Máximo de restablecimientos por hora. */
     private final int resetLimit;
+    private final int verificationLimit;
 
     /**
      * Inicializa los contadores acotados.
@@ -36,16 +39,24 @@ class AuthRateLimiter {
      * @param registrationLimit Máximo de registros por hora.
      * @param resetLimit Máximo de restablecimientos por hora.
      */
+    @Autowired
     AuthRateLimiter(
             @Value("${app.auth.login-max-per-minute}") int loginLimit,
             @Value("${app.auth.register-max-per-hour}") int registrationLimit,
-            @Value("${app.auth.reset-max-per-hour}") int resetLimit) {
+            @Value("${app.auth.reset-max-per-hour}") int resetLimit,
+            @Value("${app.auth.verification-resend-max-per-hour}") int verificationLimit) {
         this.loginLimit = loginLimit;
         this.registrationLimit = registrationLimit;
         this.resetLimit = resetLimit;
+        this.verificationLimit = verificationLimit;
         this.logins = cache(Duration.ofMinutes(1));
         this.registrations = cache(Duration.ofHours(1));
         this.resets = cache(Duration.ofHours(1));
+        this.verifications = cache(Duration.ofHours(1));
+    }
+
+    AuthRateLimiter(int loginLimit, int registrationLimit, int resetLimit) {
+        this(loginLimit, registrationLimit, resetLimit, registrationLimit);
     }
 
     /** Limita un intento de login. */
@@ -61,6 +72,10 @@ class AuthRateLimiter {
     /** Limita una petición de restablecimiento. */
     void reset(String ip, String email) {
         require(resets, key(ip, email), resetLimit, 3600);
+    }
+
+    void verification(String ip, String email) {
+        require(verifications, key(ip, email), verificationLimit, 3600);
     }
 
     /** Crea una caché con tamaño defensivo y caducidad fija. */

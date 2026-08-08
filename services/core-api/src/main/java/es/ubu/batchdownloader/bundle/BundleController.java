@@ -5,6 +5,7 @@ import es.ubu.batchdownloader.bundle.BundleDtos.BundleDetails;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSearchResponse;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSummary;
 import es.ubu.batchdownloader.bundle.BundleDtos.UpsertBundleRequest;
+import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.List;
@@ -78,6 +79,9 @@ public class BundleController {
      */
     @GetMapping({"/api/v1/bundles/{bundleId}", "/api/bundles/{bundleId}"})
     public BundleDetails getBundle(@PathVariable String bundleId, Authentication authentication) {
+        if (authentication != null && authentication.getPrincipal() instanceof AccountPrincipal account) {
+            return bundles.detailsForViewer(bundleId, account.userId(), isAdmin(authentication));
+        }
         return bundles.details(bundleId, actor(authentication), isAdmin(authentication));
     }
 
@@ -160,6 +164,10 @@ public class BundleController {
      * @return Resultado producido por {@code actor}.
      */
     private String actor(Principal principal) {
+        if (principal instanceof Authentication authentication
+                && authentication.getPrincipal() instanceof AccountPrincipal account) {
+            return account.displayUsername();
+        }
         return principal == null ? null : principal.getName();
     }
 

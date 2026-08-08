@@ -2,13 +2,18 @@ package es.ubu.batchdownloader.identity.application;
 
 import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
+import es.ubu.batchdownloader.common.GoneException;
 import es.ubu.batchdownloader.common.NotFoundException;
+import es.ubu.batchdownloader.identity.application.port.AccountSessionInvalidator;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
 import es.ubu.batchdownloader.identity.application.port.IdentityTokenStore;
+import es.ubu.batchdownloader.identity.application.port.OauthIdentityStore;
 import es.ubu.batchdownloader.identity.application.port.PasswordHasher;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
+import es.ubu.batchdownloader.identity.domain.OauthIdentity;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
+import es.ubu.batchdownloader.identity.infrastructure.security.PasswordPolicy;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,162 +31,147 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Coordina las operaciones de negocio de {@code IdentityService}.
- *
- * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- */
+/** Casos de uso de cuentas locales, perfil y tokens de identidad. */
 @Service
 public class IdentityService {
-    /**
-     * Constante que define {@code SECURE_RANDOM}.
-     */
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-    /**
-     * Estado {@code users} mantenido por {@code IdentityService}.
-     */
+    private static final char[] USERNAME_SUFFIX = "0123456789abcdefghijklmnopqrstuvwxyz".toCharArray();
+
     private final UserAccountStore users;
-    /**
-     * Estado {@code tokens} mantenido por {@code IdentityService}.
-     */
     private final IdentityTokenStore tokens;
-    /**
-     * Estado {@code passwords} mantenido por {@code IdentityService}.
-     */
+    private final OauthIdentityStore oauthIdentities;
     private final PasswordHasher passwords;
-    /**
-     * Estado {@code events} mantenido por {@code IdentityService}.
-     */
     private final IdentityEventPublisher events;
-    /**
-     * Estado {@code clock} mantenido por {@code IdentityService}.
-     */
+    private final AccountSessionInvalidator sessions;
     private final Clock clock;
-    /**
-     * Estado {@code verificationTtl} mantenido por {@code IdentityService}.
-     */
     private final Duration verificationTtl;
-    /**
-     * Estado {@code resetTtl} mantenido por {@code IdentityService}.
-     */
     private final Duration resetTtl;
-    /** Ejecuta únicamente los fragmentos que necesitan atomicidad en MySQL. */
     private final TransactionTemplate transactions;
 
-    /**
-     * Inicializa una instancia de {@code IdentityService}.
-     *
-     * @param users Valor de {@code users} utilizado por la operación.
-     * @param tokens Valor de {@code tokens} utilizado por la operación.
-     * @param passwords Valor de {@code passwords} utilizado por la operación.
-     * @param events Valor de {@code events} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
-     * @param verificationTtl Valor de {@code verificationTtl} utilizado por la operación.
-     * @param resetTtl Valor de {@code resetTtl} utilizado por la operación.
-     * @param transactions Gestor de las transacciones cortas de escritura.
-     */
     public IdentityService(
             UserAccountStore users,
             IdentityTokenStore tokens,
+            OauthIdentityStore oauthIdentities,
             PasswordHasher passwords,
             IdentityEventPublisher events,
+            AccountSessionInvalidator sessions,
             Clock clock,
             @Value("${app.auth.verification-ttl}") Duration verificationTtl,
             @Value("${app.auth.password-reset-ttl}") Duration resetTtl,
             TransactionTemplate transactions) {
         this.users = users;
         this.tokens = tokens;
+        this.oauthIdentities = oauthIdentities;
         this.passwords = passwords;
         this.events = events;
+        this.sessions = sessions;
         this.clock = clock;
         this.verificationTtl = verificationTtl;
         this.resetTtl = resetTtl;
         this.transactions = transactions;
     }
 
-    /**
-     * Ejecuta la operación {@code register}.
-     *
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param email Dirección de correo electrónico asociada a la operación.
-     * @param rawPassword Valor de {@code rawPassword} utilizado por la operación.
-     * @return Resultado producido por {@code register}.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    public IdentityView register(String username, String email, String rawPassword) {
-        String cleanUsername = username.strip();
-        String cleanEmail = email.strip();
-        String normalizedUsername = normalize(cleanUsername);
+    /** Registra una cuenta local y encola su verificación en la misma transacción. */
+    public IdentityView register(String email, String rawPassword) {
+        PasswordPolicy.requireValid(rawPassword);
+        String cleanEmail = cleanEmail(email);
         String normalizedEmail = normalize(cleanEmail);
-        if (users.existsByNormalizedUsername(normalizedUsername)) {
-            throw new ConflictException("username_already_exists", "El nombre de usuario ya está registrado.");
-        }
-        if (users.existsByNormalizedEmail(normalizedEmail)) {
-            throw new ConflictException("email_already_exists", "El correo ya está registrado.");
-        }
+        if (users.existsByNormalizedEmail(normalizedEmail)) throw emailAlreadyExists();
 
         String passwordHash = passwords.hash(rawPassword);
-        try {
-            return transactions.execute(status -> {
-                requireAvailable(normalizedUsername, normalizedEmail);
-                Instant now = clock.instant();
-                UserAccount user = users.save(UserAccount.register(
-                        cleanUsername,
-                        normalizedUsername,
-                        cleanEmail,
-                        normalizedEmail,
-                        passwordHash,
-                        now));
-                issueToken(user, IdentityToken.Type.EMAIL_VERIFICATION, verificationTtl);
-                return IdentityView.from(user);
-            });
-        } catch (DataIntegrityViolationException exception) {
-            if (users.existsByNormalizedUsername(normalizedUsername)) {
-                throw new ConflictException(
-                        "username_already_exists", "El nombre de usuario ya está registrado.");
+        String baseUsername = UsernamePolicy.fromEmail(cleanEmail);
+        for (int attempt = 0; attempt < 12; attempt++) {
+            String username = attempt == 0
+                    ? baseUsername
+                    : UsernamePolicy.collisionCandidate(baseUsername, randomUsernameSuffix());
+            try {
+                IdentityView created = transactions.execute(status -> {
+                    if (users.existsByNormalizedEmail(normalizedEmail)) throw emailAlreadyExists();
+                    if (users.existsByNormalizedUsername(UsernamePolicy.normalize(username))) {
+                        throw new UsernameCollisionException();
+                    }
+                    Instant now = clock.instant();
+                    UserAccount user = users.save(UserAccount.register(
+                            username,
+                            UsernamePolicy.normalize(username),
+                            cleanEmail,
+                            normalizedEmail,
+                            passwordHash,
+                            now));
+                    issueToken(user, IdentityToken.Type.EMAIL_VERIFICATION, verificationTtl);
+                    return view(user);
+                });
+                if (created != null) return created;
+            } catch (UsernameCollisionException exception) {
+                // Se elige un nuevo sufijo sin repetir BCrypt.
+            } catch (DataIntegrityViolationException exception) {
+                if (users.existsByNormalizedEmail(normalizedEmail)) throw emailAlreadyExists();
             }
-            if (users.existsByNormalizedEmail(normalizedEmail)) {
-                throw new ConflictException("email_already_exists", "El correo ya está registrado.");
-            }
-            throw exception;
         }
+        throw new ConflictException(
+                "username_generation_failed", "No se pudo reservar un username para la cuenta.");
     }
 
-    /**
-     * Busca el resultado solicitado mediante {@code findByUsername}.
-     *
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @return Resultado producido por {@code findByUsername}.
-     */
+    /** Crea una cuenta verificada sin contraseña para el primer acceso OIDC. */
+    public UserAccount createOauthAccount(String email) {
+        String cleanEmail = cleanEmail(email);
+        String normalizedEmail = normalize(cleanEmail);
+        String baseUsername = UsernamePolicy.fromEmail(cleanEmail);
+        for (int attempt = 0; attempt < 12; attempt++) {
+            String username = attempt == 0
+                    ? baseUsername
+                    : UsernamePolicy.collisionCandidate(baseUsername, randomUsernameSuffix());
+            try {
+                UserAccount created = transactions.execute(status -> {
+                    if (users.existsByNormalizedEmail(normalizedEmail)) {
+                        return users.findByNormalizedEmail(normalizedEmail).orElseThrow();
+                    }
+                    if (users.existsByNormalizedUsername(UsernamePolicy.normalize(username))) {
+                        throw new UsernameCollisionException();
+                    }
+                    Instant now = clock.instant();
+                    return users.save(UserAccount.registerOauth(
+                            username, UsernamePolicy.normalize(username), cleanEmail, normalizedEmail, now));
+                });
+                if (created != null) return created;
+            } catch (UsernameCollisionException exception) {
+                // Reintento con otro sufijo.
+            } catch (DataIntegrityViolationException exception) {
+                UserAccount existing = users.findByNormalizedEmail(normalizedEmail).orElse(null);
+                if (existing != null) return existing;
+            }
+        }
+        throw new ConflictException(
+                "username_generation_failed", "No se pudo reservar un username para la cuenta.");
+    }
+
+    @Transactional(readOnly = true)
+    public IdentityView findById(UUID id) {
+        return view(requireById(id));
+    }
+
     @Transactional(readOnly = true)
     public IdentityView findByUsername(String username) {
-        return IdentityView.from(requireByUsername(username));
+        return view(requireByUsername(username));
     }
 
-    /**
-     * Ejecuta la operación {@code requireByUsername}.
-     *
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @return Resultado producido por {@code requireByUsername}.
-     */
     @Transactional(readOnly = true)
-    public UserAccount requireByUsername(String username) {
-        return users.findByNormalizedUsername(normalize(username))
-                .filter(UserAccount::enabled)
+    public UserAccount requireById(UUID id) {
+        return users.findById(id).filter(UserAccount::enabled)
                 .orElseThrow(() -> new NotFoundException("user_not_found", "No existe el usuario."));
     }
 
-    /**
-     * Ejecuta la operación {@code confirmEmail}.
-     *
-     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
-     */
+    @Transactional(readOnly = true)
+    public UserAccount requireByUsername(String username) {
+        return users.findByNormalizedUsername(normalize(username)).filter(UserAccount::enabled)
+                .orElseThrow(() -> new NotFoundException("user_not_found", "No existe el usuario."));
+    }
+
     @Transactional
     public void confirmEmail(String rawToken) {
-        IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.EMAIL_VERIFICATION);
+        IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.EMAIL_VERIFICATION, true);
         UserAccount user = users.findById(token.userId())
-                .orElseThrow(() -> new BadRequestException("invalid_token", "El token no es válido."));
+                .orElseThrow(() -> invalidToken(IdentityToken.Type.EMAIL_VERIFICATION));
         Instant now = clock.instant();
         user.verifyEmail(now);
         token.consume(now);
@@ -189,82 +179,84 @@ public class IdentityService {
         tokens.save(token);
     }
 
-    /**
-     * Ejecuta la operación {@code requestPasswordReset}.
-     *
-     * @param email Dirección de correo electrónico asociada a la operación.
-     */
+    /** Respuesta deliberadamente uniforme para no revelar cuentas. */
+    @Transactional
+    public void resendEmailVerification(String email) {
+        users.findByNormalizedEmail(normalize(email))
+                .filter(UserAccount::enabled)
+                .filter(user -> !user.emailVerified() && user.hasPassword())
+                .ifPresent(user -> issueToken(user, IdentityToken.Type.EMAIL_VERIFICATION, verificationTtl));
+    }
+
+    /** Respuesta deliberadamente uniforme para cuentas inexistentes y OAuth-only. */
     @Transactional
     public void requestPasswordReset(String email) {
         users.findByNormalizedEmail(normalize(email))
                 .filter(UserAccount::enabled)
+                .filter(UserAccount::hasPassword)
                 .ifPresent(user -> issueToken(user, IdentityToken.Type.PASSWORD_RESET, resetTtl));
     }
 
-    /**
-     * Ejecuta la operación {@code resetPassword}.
-     *
-     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
-     * @param newPassword Valor de {@code newPassword} utilizado por la operación.
-     */
     public void resetPassword(String rawToken, String newPassword) {
+        PasswordPolicy.requireValid(newPassword);
         transactions.executeWithoutResult(status ->
-                requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET));
+                requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET, false));
         String passwordHash = passwords.hash(newPassword);
-        transactions.executeWithoutResult(status -> {
-            IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET);
+        UserAccount changed = transactions.execute(status -> {
+            IdentityToken token = requireUsableToken(rawToken, IdentityToken.Type.PASSWORD_RESET, true);
             UserAccount user = users.findById(token.userId())
-                    .orElseThrow(() -> new BadRequestException(
-                            "invalid_token", "El token no es válido."));
+                    .orElseThrow(() -> invalidToken(IdentityToken.Type.PASSWORD_RESET));
             Instant now = clock.instant();
             user.changePassword(passwordHash, now);
             token.consume(now);
-            users.save(user);
             tokens.save(token);
+            return users.save(user);
         });
+        if (changed != null) sessions.invalidateAll(changed.id(), changed.username());
     }
 
-    /**
-     * Comprueba las claves naturales inmediatamente antes de escribir.
-     *
-     * @param normalizedUsername Nombre normalizado.
-     * @param normalizedEmail Correo normalizado.
-     */
-    private void requireAvailable(String normalizedUsername, String normalizedEmail) {
-        if (users.existsByNormalizedUsername(normalizedUsername)) {
-            throw new ConflictException(
-                    "username_already_exists", "El nombre de usuario ya está registrado.");
-        }
-        if (users.existsByNormalizedEmail(normalizedEmail)) {
-            throw new ConflictException("email_already_exists", "El correo ya está registrado.");
-        }
-    }
-
-    /**
-     * Actualiza el recurso solicitado mediante {@code updateNotificationPreference}.
-     *
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param enabled Valor de {@code enabled} utilizado por la operación.
-     * @return Resultado producido por {@code updateNotificationPreference}.
-     */
     @Transactional
-    public IdentityView updateNotificationPreference(String username, boolean enabled) {
-        UserAccount user = requireByUsername(username);
-        user.updateNotificationPreference(enabled, clock.instant());
-        return IdentityView.from(users.save(user));
+    public IdentityView updateUsername(UUID userId, String requestedUsername) {
+        UserAccount user = requireById(userId);
+        String clean = UsernamePolicy.validateManual(requestedUsername);
+        String normalized = UsernamePolicy.normalize(clean);
+        if (!normalized.equals(user.normalizedUsername()) && users.existsByNormalizedUsername(normalized)) {
+            throw usernameTaken();
+        }
+        try {
+            user.changeUsername(clean, normalized, clock.instant());
+            return view(users.save(user));
+        } catch (DataIntegrityViolationException exception) {
+            throw usernameTaken();
+        }
     }
 
-    /**
-     * Indica si se cumple la condición mediante {@code issueToken}.
-     *
-     * @param user Valor de {@code user} utilizado por la operación.
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @param ttl Valor de {@code ttl} utilizado por la operación.
-     */
+    @Transactional
+    public IdentityView updateNotificationPreference(UUID userId, boolean enabled) {
+        UserAccount user = requireById(userId);
+        user.updateNotificationPreference(enabled, clock.instant());
+        return view(users.save(user));
+    }
+
+    @Transactional
+    public UserAccount markVerified(UUID userId) {
+        UserAccount user = requireById(userId);
+        if (!user.emailVerified()) {
+            user.verifyEmail(clock.instant());
+            return users.save(user);
+        }
+        return user;
+    }
+
+    public IdentityView view(UserAccount user) {
+        boolean google = oauthIdentities.existsByUserIdAndProvider(user.id(), OauthIdentity.Provider.GOOGLE);
+        return IdentityView.from(user, google);
+    }
+
     private void issueToken(UserAccount user, IdentityToken.Type type, Duration ttl) {
-        tokens.invalidateUnconsumedForUser(user.id(), type);
-        String rawToken = newRawToken();
         Instant now = clock.instant();
+        tokens.invalidateUnconsumedForUser(user.id(), type, now);
+        String rawToken = newRawToken();
         tokens.save(IdentityToken.issue(user.id(), hashToken(rawToken), type, now.plus(ttl), now));
         if (type == IdentityToken.Type.EMAIL_VERIFICATION) {
             events.emailVerificationRequested(user, rawToken);
@@ -273,54 +265,73 @@ public class IdentityService {
         }
     }
 
-    /**
-     * Ejecuta la operación {@code requireUsableToken}.
-     *
-     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @return Resultado producido por {@code requireUsableToken}.
-     */
-    private IdentityToken requireUsableToken(String rawToken, IdentityToken.Type type) {
-        return tokens.findByHashAndType(hashToken(rawToken), type)
-                .filter(token -> token.usableAt(clock.instant()))
-                .orElseThrow(() -> new BadRequestException("invalid_or_expired_token", "El token no es válido o ha caducado."));
+    private IdentityToken requireUsableToken(
+            String rawToken, IdentityToken.Type type, boolean forUpdate) {
+        String hash = hashToken(rawToken);
+        IdentityToken token = (forUpdate
+                        ? tokens.findByHashAndTypeForUpdate(hash, type)
+                        : tokens.findByHashAndType(hash, type))
+                .orElseThrow(() -> invalidToken(type));
+        if (token.consumedAt() != null) throw usedToken(type);
+        if (!token.expiresAt().isAfter(clock.instant())) throw expiredToken(type);
+        return token;
     }
 
-    /**
-     * Normaliza el valor recibido mediante {@code normalize}.
-     *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code normalize}.
-     */
-    static String normalize(String value) {
-        return value.strip().toLowerCase(Locale.ROOT);
+    private BadRequestException invalidToken(IdentityToken.Type type) {
+        return new BadRequestException(tokenPrefix(type) + "_token_invalid", "El token no es válido.");
     }
 
-    /**
-     * Indica si existe el recurso mediante {@code hashToken}.
-     *
-     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
-     * @return Resultado producido por {@code hashToken}.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
-     */
-    static String hashToken(String rawToken) {
+    private GoneException expiredToken(IdentityToken.Type type) {
+        return new GoneException(tokenPrefix(type) + "_token_expired", "El token ha caducado.");
+    }
+
+    private GoneException usedToken(IdentityToken.Type type) {
+        return new GoneException(tokenPrefix(type) + "_token_used", "El token ya se ha utilizado.");
+    }
+
+    private String tokenPrefix(IdentityToken.Type type) {
+        return type == IdentityToken.Type.EMAIL_VERIFICATION ? "verification" : "reset";
+    }
+
+    private ConflictException emailAlreadyExists() {
+        return new ConflictException("email_already_exists", "El correo ya está registrado.");
+    }
+
+    private ConflictException usernameTaken() {
+        return new ConflictException("username_taken", "El username ya está ocupado.");
+    }
+
+    private static String cleanEmail(String value) {
+        return value == null ? "" : value.strip();
+    }
+
+    public static String normalize(String value) {
+        return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+    }
+
+    public static String hashToken(String rawToken) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(rawToken.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 unavailable", exception);
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
         }
     }
 
-    /**
-     * Ejecuta la operación {@code newRawToken}.
-     *
-     * @return Resultado producido por {@code newRawToken}.
-     */
     private static String newRawToken() {
         byte[] bytes = new byte[32];
         SECURE_RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
+
+    private static String randomUsernameSuffix() {
+        char[] suffix = new char[8];
+        for (int index = 0; index < suffix.length; index++) {
+            suffix[index] = USERNAME_SUFFIX[SECURE_RANDOM.nextInt(USERNAME_SUFFIX.length)];
+        }
+        return new String(suffix);
+    }
+
+    private static final class UsernameCollisionException extends RuntimeException {}
 }

@@ -68,6 +68,13 @@ public class DownloadRequestOwner {
         return new RequestOwner(userId, browserHash, ipHash);
     }
 
+    /** Resuelve sesiones nuevas por el UUID estable, sin consulta ni dependencia del username. */
+    public RequestOwner resolve(UUID userId, String browserToken, String remoteAddress) {
+        String browserHash = browserToken == null || browserToken.isBlank() ? null : hash(browserToken);
+        String ipHash = remoteAddress == null || remoteAddress.isBlank() ? null : hash("ip:" + remoteAddress);
+        return new RequestOwner(userId, browserHash, ipHash);
+    }
+
     /**
      * Indica si existe el recurso mediante {@code hash}.
      *

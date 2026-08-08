@@ -51,6 +51,7 @@ PASSWORD_RESET }
      * Estado {@code consumedAt} mantenido por {@code IdentityToken}.
      */
     private Instant consumedAt;
+    private long version;
 
     /**
      * Inicializa una instancia de {@code IdentityToken}.
@@ -64,7 +65,8 @@ PASSWORD_RESET }
      * @param createdAt Valor de {@code createdAt} utilizado por la operación.
      */
     private IdentityToken(
-            UUID id, UUID userId, String tokenHash, Type type, Instant expiresAt, Instant consumedAt, Instant createdAt) {
+            UUID id, UUID userId, String tokenHash, Type type, Instant expiresAt, Instant consumedAt,
+            Instant createdAt, long version) {
         this.id = Objects.requireNonNull(id);
         this.userId = Objects.requireNonNull(userId);
         this.tokenHash = Objects.requireNonNull(tokenHash);
@@ -72,6 +74,7 @@ PASSWORD_RESET }
         this.expiresAt = Objects.requireNonNull(expiresAt);
         this.consumedAt = consumedAt;
         this.createdAt = Objects.requireNonNull(createdAt);
+        this.version = version;
     }
 
     /**
@@ -85,7 +88,7 @@ PASSWORD_RESET }
      * @return Indica si se cumple la condición evaluada.
      */
     public static IdentityToken issue(UUID userId, String tokenHash, Type type, Instant expiresAt, Instant now) {
-        return new IdentityToken(UUID.randomUUID(), userId, tokenHash, type, expiresAt, null, now);
+        return new IdentityToken(UUID.randomUUID(), userId, tokenHash, type, expiresAt, null, now, 0);
     }
 
     /**
@@ -101,8 +104,9 @@ PASSWORD_RESET }
      * @return Resultado producido por {@code rehydrate}.
      */
     public static IdentityToken rehydrate(
-            UUID id, UUID userId, String tokenHash, Type type, Instant expiresAt, Instant consumedAt, Instant createdAt) {
-        return new IdentityToken(id, userId, tokenHash, type, expiresAt, consumedAt, createdAt);
+            UUID id, UUID userId, String tokenHash, Type type, Instant expiresAt, Instant consumedAt,
+            Instant createdAt, long version) {
+        return new IdentityToken(id, userId, tokenHash, type, expiresAt, consumedAt, createdAt, version);
     }
 
     /**
@@ -168,4 +172,5 @@ PASSWORD_RESET }
      * @return Resultado producido por {@code createdAt}.
      */
     public Instant createdAt() { return createdAt; }
+    public long version() { return version; }
 }

@@ -17,11 +17,11 @@ public final class UserAccount {
     /**
      * Estado {@code username} mantenido por {@code UserAccount}.
      */
-    private final String username;
+    private String username;
     /**
      * Estado {@code normalizedUsername} mantenido por {@code UserAccount}.
      */
-    private final String normalizedUsername;
+    private String normalizedUsername;
     /**
      * Estado {@code email} mantenido por {@code UserAccount}.
      */
@@ -100,7 +100,7 @@ public final class UserAccount {
         this.normalizedUsername = requireText(normalizedUsername, "normalizedUsername");
         this.email = requireText(email, "email");
         this.normalizedEmail = requireText(normalizedEmail, "normalizedEmail");
-        this.passwordHash = requireText(passwordHash, "passwordHash");
+        this.passwordHash = passwordHash == null ? null : requireText(passwordHash, "passwordHash");
         this.emailVerified = emailVerified;
         this.role = Objects.requireNonNull(role);
         this.notifyOnJobCompletion = notifyOnJobCompletion;
@@ -131,6 +131,18 @@ public final class UserAccount {
         return new UserAccount(
                 UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, passwordHash,
                 false, UserRole.USER, true, true, now, now, 0);
+    }
+
+    /** Crea una cuenta que utiliza exclusivamente una identidad OAuth. */
+    public static UserAccount registerOauth(
+            String username,
+            String normalizedUsername,
+            String email,
+            String normalizedEmail,
+            Instant now) {
+        return new UserAccount(
+                UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, null,
+                true, UserRole.USER, true, true, now, now, 0);
     }
 
     /**
@@ -214,6 +226,13 @@ public final class UserAccount {
         updatedAt = Objects.requireNonNull(now);
     }
 
+    /** Actualiza el nombre visible sin alterar la identidad estable del propietario. */
+    public void changeUsername(String value, String normalizedValue, Instant now) {
+        username = requireText(value, "username");
+        normalizedUsername = requireText(normalizedValue, "normalizedUsername");
+        updatedAt = Objects.requireNonNull(now);
+    }
+
     /**
      * Actualiza el recurso solicitado mediante {@code updateNotificationPreference}.
      *
@@ -275,6 +294,8 @@ public final class UserAccount {
      * @return Resultado producido por {@code passwordHash}.
      */
     public String passwordHash() { return passwordHash; }
+    /** Indica si la cuenta admite autenticación mediante contraseña. */
+    public boolean hasPassword() { return passwordHash != null && !passwordHash.isBlank(); }
     /**
      * Ejecuta la operación {@code emailVerified}.
      *

@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.bundle;
 
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppListItem;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -122,4 +123,47 @@ public class BundleDtos {
             String visibility,
             List<String> tags,
             @Size(max = 100) List<String> appIds) {}
+
+    /** Resumen editable que nunca expone campos administrativos ni de propietario. */
+    public record OwnBundleSummary(
+            String id,
+            String slug,
+            String name,
+            String description,
+            String visibility,
+            int appCount,
+            List<String> tags,
+            LocalDateTime updatedAt,
+            long version) {}
+
+    public record OwnBundleDetails(
+            String id,
+            String slug,
+            String name,
+            String description,
+            String visibility,
+            int appCount,
+            List<String> tags,
+            List<AppListItem> apps,
+            LocalDateTime updatedAt,
+            long version) {}
+
+    public record OwnBundlePage(
+            List<OwnBundleSummary> data, int page, int pageSize, long total) {}
+
+    public record CreateOwnBundleRequest(
+            @NotBlank @Size(max = 160) String name,
+            @Size(max = 4000) String description,
+            @Size(max = 180) String slug,
+            @Size(max = 30) List<@NotBlank @Size(max = 80) String> tags,
+            @Size(max = 100) List<@NotBlank String> appIds) {}
+
+    public record UpdateOwnBundleRequest(
+            @NotBlank @Size(max = 160) String name,
+            @Size(max = 4000) String description,
+            @Size(max = 180) String slug,
+            @NotBlank String visibility,
+            @Size(max = 30) List<@NotBlank @Size(max = 80) String> tags,
+            @Size(max = 100) List<@NotBlank String> appIds,
+            @NotNull Long expectedVersion) {}
 }

@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.identity.application.port;
 
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
 import java.util.Optional;
+import java.time.Instant;
 
 /**
  * Define el contrato de {@code IdentityTokenStore}.
@@ -24,11 +25,12 @@ public interface IdentityTokenStore {
      * @return Resultado producido por {@code findByHashAndType}.
      */
     Optional<IdentityToken> findByHashAndType(String tokenHash, IdentityToken.Type type);
+    Optional<IdentityToken> findByHashAndTypeForUpdate(String tokenHash, IdentityToken.Type type);
     /**
      * Ejecuta la operación {@code invalidateUnconsumedForUser}.
      *
      * @param userId Identificador de {@code user} utilizado por la operación.
      * @param type Valor de {@code type} utilizado por la operación.
      */
-    void invalidateUnconsumedForUser(java.util.UUID userId, IdentityToken.Type type);
+    void invalidateUnconsumedForUser(java.util.UUID userId, IdentityToken.Type type, Instant now);
 }

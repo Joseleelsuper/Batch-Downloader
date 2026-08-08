@@ -67,6 +67,18 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    @ExceptionHandler(GoneException.class)
+    ResponseEntity<ApiError> gone(GoneException exception) {
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    ResponseEntity<ApiError> forbiddenCode(ForbiddenException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
     /**
      * Ejecuta la operación {@code unprocessable}.
      *
@@ -186,9 +198,13 @@ public class ApiExceptionHandler {
                 .body(new ApiError(
                         "validation_failed",
                         "La solicitud contiene datos invalidos.",
-                        Map.of("errors", exception.getBindingResult().getFieldErrors().stream()
-                                .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                                .toList())));
+                        Map.of("fieldErrors", exception.getBindingResult().getFieldErrors().stream()
+                                .collect(java.util.stream.Collectors.groupingBy(
+                                        org.springframework.validation.FieldError::getField,
+                                        java.util.LinkedHashMap::new,
+                                        java.util.stream.Collectors.mapping(
+                                                org.springframework.validation.FieldError::getDefaultMessage,
+                                                java.util.stream.Collectors.toList()))))));
     }
 
     /**

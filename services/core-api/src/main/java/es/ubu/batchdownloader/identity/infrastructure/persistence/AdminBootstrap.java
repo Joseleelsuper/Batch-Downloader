@@ -2,13 +2,14 @@ package es.ubu.batchdownloader.identity.infrastructure.persistence;
 
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
+import es.ubu.batchdownloader.identity.domain.UserRole;
 import java.time.Clock;
 import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Implementa el componente {@code AdminBootstrap}.
@@ -34,9 +35,10 @@ class AdminBootstrap implements ApplicationRunner {
      */
     private final String email;
     /**
-     * Estado {@code passwordHash} mantenido por {@code AdminBootstrap}.
+     * Contraseña de arranque que se codifica antes de persistirla.
      */
-    private final String passwordHash;
+    private final String password;
+    private final PasswordEncoder passwords;
 
     /**
      * Inicializa una instancia de {@code AdminBootstrap}.
@@ -45,19 +47,22 @@ class AdminBootstrap implements ApplicationRunner {
      * @param clock Valor de {@code clock} utilizado por la operación.
      * @param username Valor de {@code username} utilizado por la operación.
      * @param email Dirección de correo electrónico asociada a la operación.
-     * @param passwordHash Valor de {@code passwordHash} utilizado por la operación.
+     * @param password Contraseña administrativa que se codificará antes de persistirla.
+     * @param passwords Codificador de contraseñas configurado por la aplicación.
      */
     AdminBootstrap(
             UserAccountStore users,
             Clock clock,
             @Value("${app.auth.bootstrap-admin-username}") String username,
             @Value("${app.auth.bootstrap-admin-email}") String email,
-            @Value("${app.auth.bootstrap-admin-password-hash}") String passwordHash) {
+            @Value("${app.auth.bootstrap-admin-password}") String password,
+            PasswordEncoder passwords) {
         this.users = users;
         this.clock = clock;
         this.username = username;
         this.email = email;
-        this.passwordHash = passwordHash;
+        this.password = password;
+        this.passwords = passwords;
     }
 
     /**
@@ -66,14 +71,24 @@ class AdminBootstrap implements ApplicationRunner {
      * @param arguments Valor de {@code arguments} utilizado por la operación.
      */
     @Override
-    @Transactional
     public void run(ApplicationArguments arguments) {
-        if (username.isBlank() || passwordHash.isBlank()) return;
+        if (username.isBlank() || password.isBlank()) return;
         String normalizedUsername = username.strip().toLowerCase(Locale.ROOT);
-        if (users.existsByNormalizedUsername(normalizedUsername)) return;
+        UserAccount existing = users.findByNormalizedUsername(normalizedUsername).orElse(null);
+        if (existing != null) {
+            if (existing.role() != UserRole.ADMIN) {
+                throw new IllegalStateException("bootstrap_admin_username_conflict");
+            }
+            if (existing.hasPassword() && passwords.matches(password, existing.passwordHash())) return;
+            String encodedPassword = passwords.encode(password);
+            existing.changePassword(encodedPassword, clock.instant());
+            users.save(existing);
+            return;
+        }
+        String encodedPassword = passwords.encode(password);
         String cleanEmail = email.strip();
         users.save(UserAccount.bootstrapAdmin(
                 username.strip(), normalizedUsername, cleanEmail, cleanEmail.toLowerCase(Locale.ROOT),
-                passwordHash, clock.instant()));
+                encodedPassword, clock.instant()));
     }
 }

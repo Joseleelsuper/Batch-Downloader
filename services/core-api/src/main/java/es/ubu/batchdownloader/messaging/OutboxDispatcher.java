@@ -54,6 +54,7 @@ class OutboxDispatcher {
     private final Duration confirmTimeout;
     /** Delimita las transacciones breves de reclamación y confirmación. */
     private final TransactionTemplate transactions;
+    private final OutboxPayloadSanitizer payloadSanitizer;
 
     /**
      * Inicializa una instancia de {@code OutboxDispatcher}.
@@ -73,7 +74,8 @@ class OutboxDispatcher {
             @Value("${app.messaging.exchange}") String exchange,
             @Value("${app.messaging.outbox-claim-lease}") Duration claimLease,
             @Value("${app.messaging.outbox-confirm-timeout}") Duration confirmTimeout,
-            TransactionTemplate transactions) {
+            TransactionTemplate transactions,
+            OutboxPayloadSanitizer payloadSanitizer) {
         this.repository = repository;
         this.rabbitTemplate = rabbitTemplate;
         this.clock = clock;
@@ -81,6 +83,7 @@ class OutboxDispatcher {
         this.claimLease = claimLease;
         this.confirmTimeout = confirmTimeout;
         this.transactions = transactions;
+        this.payloadSanitizer = payloadSanitizer;
     }
 
     /**
@@ -144,6 +147,7 @@ class OutboxDispatcher {
     private void confirmPublished(ClaimedEvent claim) {
         transactions.execute(status -> {
             repository.findByIdAndClaimToken(claim.id(), claim.token()).ifPresent(event -> {
+                event.replacePayload(payloadSanitizer.afterPublish(event.eventType(), event.payload()));
                 event.markPublished(clock.instant());
                 repository.save(event);
             });

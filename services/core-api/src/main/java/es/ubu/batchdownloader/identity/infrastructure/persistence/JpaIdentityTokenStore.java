@@ -4,6 +4,7 @@ import es.ubu.batchdownloader.identity.application.port.IdentityTokenStore;
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -52,6 +53,11 @@ class JpaIdentityTokenStore implements IdentityTokenStore {
         return repository.findByTokenHashAndType(tokenHash, type).map(IdentityTokenEntity::toDomain);
     }
 
+    @Override
+    public Optional<IdentityToken> findByHashAndTypeForUpdate(String tokenHash, IdentityToken.Type type) {
+        return repository.findForUpdate(tokenHash, type).map(IdentityTokenEntity::toDomain);
+    }
+
     /**
      * Implementa {@code invalidateUnconsumedForUser} para {@code JpaIdentityTokenStore}.
      *
@@ -59,7 +65,7 @@ class JpaIdentityTokenStore implements IdentityTokenStore {
      * @param type Valor de {@code type} utilizado por la operación.
      */
     @Override
-    public void invalidateUnconsumedForUser(UUID userId, IdentityToken.Type type) {
-        repository.deleteByUserIdAndTypeAndConsumedAtIsNull(userId, type);
+    public void invalidateUnconsumedForUser(UUID userId, IdentityToken.Type type, Instant now) {
+        repository.consumeUnconsumed(userId, type, now);
     }
 }

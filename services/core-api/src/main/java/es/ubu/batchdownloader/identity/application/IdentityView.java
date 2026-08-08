@@ -2,6 +2,9 @@ package es.ubu.batchdownloader.identity.application;
 
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.domain.UserRole;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -21,7 +24,13 @@ public record IdentityView(
         String email,
         boolean emailVerified,
         UserRole role,
-        boolean notifyOnJobCompletion) {
+        boolean notifyOnJobCompletion,
+        Instant createdAt,
+        List<String> authenticationMethods) {
+
+    public IdentityView {
+        authenticationMethods = List.copyOf(authenticationMethods);
+    }
 
     /**
      * Ejecuta la operación {@code from}.
@@ -30,8 +39,16 @@ public record IdentityView(
      * @return Resultado producido por {@code from}.
      */
     public static IdentityView from(UserAccount user) {
+        return from(user, false);
+    }
+
+    /** Crea la vista incluyendo las identidades externas enlazadas. */
+    public static IdentityView from(UserAccount user, boolean googleLinked) {
+        List<String> methods = new ArrayList<>(2);
+        if (user.hasPassword()) methods.add("LOCAL");
+        if (googleLinked) methods.add("GOOGLE");
         return new IdentityView(
                 user.id(), user.username(), user.email(), user.emailVerified(), user.role(),
-                user.notifyOnJobCompletion());
+                user.notifyOnJobCompletion(), user.createdAt(), methods);
     }
 }
