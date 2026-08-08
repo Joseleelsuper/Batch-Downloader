@@ -44,7 +44,9 @@ function Test-SensitiveSetting {
         [AllowEmptyString()][string]$ExampleValue
     )
 
-    $sensitiveName = $Name -match "(?i)(PASSWORD|PASS$|SECRET|TOKEN|API_KEY|ACCESS_KEY|PRIVATE_KEY|SIGNING_KEY|ADMIN_(EMAIL|USERNAME|PASSWORD)|SMTP_USERNAME)"
+    # PASSWORD_RESET_TTL describe una duracion, no una credencial. Se consideran
+    # sensibles las contrasenas terminales/hashes y los tokens o claves reales.
+    $sensitiveName = $Name -match "(?i)(PASSWORD$|PASSWORD_HASH$|PASS$|SECRET|(^|_)TOKEN($|_)|API_KEY|ACCESS_KEY|PRIVATE_KEY|SIGNING_KEY|ADMIN_(EMAIL|USERNAME|PASSWORD)|SMTP_USERNAME)"
     $placeholderValue = $ExampleValue -match "(?i)(change[_-]?me|replace-with|your[_-])"
     return $sensitiveName -or $placeholderValue
 }
@@ -89,6 +91,27 @@ function Render-EnvironmentFile {
     }
     $lines.Add("")
     return [string]::Join("`n", $lines)
+}
+
+function Render-EnvironmentFromTemplate {
+    param(
+        [Parameter(Mandatory = $true)][string]$TemplatePath,
+        [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Values
+    )
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in [System.IO.File]::ReadAllLines($TemplatePath)) {
+        if ($line -match "^\s*([A-Z][A-Z0-9_]*)=") {
+            $name = $Matches[1]
+            if (-not $Values.Contains($name)) {
+                throw "Falta $name al renderizar la configuracion global."
+            }
+            $lines.Add("$name=$($Values[$name])")
+            continue
+        }
+        $lines.Add($line)
+    }
+    return [string]::Join("`n", $lines) + "`n"
 }
 
 function Save-OrCheckFile {
@@ -150,14 +173,9 @@ foreach ($name in $globalExample.Keys) {
     $globalValues[$name] = $globalExample[$name]
 }
 
-$globalContent = Render-EnvironmentFile `
-    -Title "Batch Downloader (valores globales)" `
-    -Values $globalValues `
-    -OrderedKeys @($globalExample.Keys) `
-    -HeaderLines @(
-        "Solo contiene infraestructura compartida, puertos y credenciales.",
-        "Los ajustes operativos pertenecen a los .env de cada servicio."
-    )
+$globalContent = Render-EnvironmentFromTemplate `
+    -TemplatePath $globalExamplePath `
+    -Values $globalValues
 Save-OrCheckFile -RelativePath ".env" -Content $globalContent
 
 foreach ($target in $targets) {
