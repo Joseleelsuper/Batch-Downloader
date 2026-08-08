@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -80,7 +81,8 @@ class OutboxDispatcherTest {
                 "batch.commands",
                 lease,
                 Duration.ofSeconds(2),
-                transactions);
+                transactions,
+                new OutboxPayloadSanitizer(new ObjectMapper()));
 
         dispatcher.publishPending();
 

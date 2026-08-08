@@ -25,7 +25,7 @@ class DownloadRequestOwnerTest {
         DownloadRequestOwner resolver = new DownloadRequestOwner(
                 Mockito.mock(UserAccountStore.class), "test-owner-secret");
 
-        var owner = resolver.resolve(null, "plain-browser-token", "203.0.113.9");
+        var owner = resolver.resolve((UUID) null, "plain-browser-token", "203.0.113.9");
 
         assertThat(owner.authenticated()).isFalse();
         assertThat(owner.anonymousOwnerHash()).hasSize(64).isNotEqualTo("plain-browser-token");
@@ -44,7 +44,7 @@ class DownloadRequestOwnerTest {
         when(users.findByNormalizedUsername("alice")).thenReturn(Optional.of(account));
         DownloadRequestOwner resolver = new DownloadRequestOwner(users, "test-owner-secret");
 
-        var anonymous = resolver.resolve(null, "same-browser", "203.0.113.9");
+        var anonymous = resolver.resolve((UUID) null, "same-browser", "203.0.113.9");
         var signedIn = resolver.resolve(" ALICE ", "same-browser", "203.0.113.9");
 
         assertThat(signedIn.authenticated()).isTrue();

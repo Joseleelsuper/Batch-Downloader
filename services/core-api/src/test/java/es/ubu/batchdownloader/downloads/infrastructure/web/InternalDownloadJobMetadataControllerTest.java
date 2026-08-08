@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import es.ubu.batchdownloader.downloads.application.DownloadJobService;
 import es.ubu.batchdownloader.downloads.application.DownloadJobService.DownloadItemMetadata;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
+import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthFailureHandler;
+import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.util.List;
 import java.util.UUID;
@@ -34,6 +36,9 @@ import org.springframework.test.web.servlet.MockMvc;
     "spring.session.timeout=30m",
     "app.security.require-https=true",
     "app.auth.bcrypt-strength=4",
+    "app.auth.hash-concurrency=2",
+    "app.auth.hash-queue=20",
+    "app.auth.hash-wait=2s",
     "app.scraper-internal-service-token=test-internal-service-token"
 })
 class InternalDownloadJobMetadataControllerTest {
@@ -67,6 +72,12 @@ class InternalDownloadJobMetadataControllerTest {
      */
     @MockBean
     private UserAccountStore users;
+
+    @MockBean
+    private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
+
+    @MockBean
+    private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
      * Comprueba el escenario {@code acceptsContainerHttpWithoutCsrfWhenTheInternalTokenMatches}.

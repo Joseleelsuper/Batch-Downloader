@@ -14,12 +14,13 @@ class HikariConfigurationTest {
     void hikariDurationsUseNumericMilliseconds() throws IOException {
         Properties properties = loadApplicationProperties();
 
+        assertThat(properties.getProperty("spring.datasource.hikari.connection-timeout"))
+                .isEqualTo("${CORE_API_DB_POOL_TIMEOUT}");
         for (String key : List.of(
-                "spring.datasource.hikari.connection-timeout",
                 "spring.datasource.hikari.validation-timeout",
                 "spring.datasource.hikari.max-lifetime",
                 "spring.datasource.hikari.keepalive-time")) {
-            assertThat(placeholderDefault(properties.getProperty(key)))
+            assertThat(properties.getProperty(key))
                     .as(key)
                     .matches("[0-9]+");
         }
@@ -32,12 +33,5 @@ class HikariConfigurationTest {
             properties.load(input);
         }
         return properties;
-    }
-
-    private static String placeholderDefault(String value) {
-        if (value != null && value.startsWith("${") && value.endsWith("}")) {
-            return value.substring(value.indexOf(':') + 1, value.length() - 1);
-        }
-        return value;
     }
 }

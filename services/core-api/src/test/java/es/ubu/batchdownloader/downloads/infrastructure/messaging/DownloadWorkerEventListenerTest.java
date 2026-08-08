@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -66,6 +67,40 @@ class DownloadWorkerEventListenerTest {
         verify(jdbc, never()).update(startsWith("UPDATE core_inbox_messages"), any(Object[].class));
     }
 
+    @Test
+    void recordsCompletedItemsWhenAnAuthenticatedJobBecomesReady() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
+                .thenReturn(1);
+        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        UUID jobId = UUID.randomUUID();
+        DownloadWorkerEventListener listener = listener(jdbc, jobs);
+
+        listener.receive(message(ready(jobId)));
+
+        verify(jobs).applyReady(
+                org.mockito.ArgumentMatchers.eq(jobId),
+                org.mockito.ArgumentMatchers.eq(es.ubu.batchdownloader.downloads.domain.DownloadJobStatus.READY),
+                org.mockito.ArgumentMatchers.eq("zips/final.zip"),
+                org.mockito.ArgumentMatchers.eq(Instant.parse("2026-08-09T12:00:00Z")));
+        verify(jdbc).update(startsWith("INSERT IGNORE INTO user_download_history"), any(Object[].class));
+        verify(jdbc).update(startsWith("UPDATE core_inbox_messages"), any(Object[].class));
+    }
+
+    @Test
+    void ignoresDuplicateReadyEventsBeforeHistoryCanBeInsertedAgain() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
+                .thenReturn(0);
+        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadWorkerEventListener listener = listener(jdbc, jobs);
+
+        listener.receive(message(ready(UUID.randomUUID())));
+
+        verifyNoInteractions(jobs);
+        verify(jdbc, never()).update(startsWith("INSERT IGNORE INTO user_download_history"), any(Object[].class));
+    }
+
     /**
      * Enumera los elementos solicitados mediante {@code listener}.
      *
@@ -100,5 +135,13 @@ class DownloadWorkerEventListenerTest {
                 {"eventId":"%s","type":"download.job.progressed","schemaVersion":1,
                  "payload":{"jobId":"%s","itemId":"%s","status":"DOWNLOADING","bytesDownloaded":42}}
                 """.formatted(UUID.randomUUID(), jobId, itemId);
+    }
+
+    private String ready(UUID jobId) {
+        return """
+                {"eventId":"%s","type":"download.job.ready","schemaVersion":1,
+                 "payload":{"jobId":"%s","status":"READY","objectKey":"zips/final.zip",
+                 "expiresAt":"2026-08-09T12:00:00Z"}}
+                """.formatted(UUID.randomUUID(), jobId);
     }
 }

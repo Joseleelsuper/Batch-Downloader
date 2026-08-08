@@ -13,6 +13,8 @@ import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
 import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
+import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthFailureHandler;
+import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,7 +38,10 @@ import org.springframework.test.web.servlet.MockMvc;
     "server.servlet.session.cookie.secure=false",
     "spring.session.timeout=30m",
     "app.security.require-https=false",
-    "app.auth.bcrypt-strength=4"
+    "app.auth.bcrypt-strength=4",
+    "app.auth.hash-concurrency=2",
+    "app.auth.hash-queue=20",
+    "app.auth.hash-wait=2s"
 })
 class AdminAppSecurityTest {
     /**
@@ -79,6 +84,12 @@ class AdminAppSecurityTest {
      */
     @MockBean
     private UserAccountStore users;
+
+    @MockBean
+    private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
+
+    @MockBean
+    private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
      * Comprueba el escenario {@code inspectionEndpointsRequireAnAdministratorSession}.

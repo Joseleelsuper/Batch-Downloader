@@ -1,17 +1,19 @@
 package es.ubu.batchdownloader.identity.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import es.ubu.batchdownloader.identity.application.port.AccountSessionInvalidator;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
 import es.ubu.batchdownloader.identity.application.port.IdentityTokenStore;
+import es.ubu.batchdownloader.identity.application.port.OauthIdentityStore;
 import es.ubu.batchdownloader.identity.application.port.PasswordHasher;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
-import es.ubu.batchdownloader.common.ConflictException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,44 +46,49 @@ class IdentityServiceTransactionTest {
         IdentityService service = new IdentityService(
                 users,
                 tokens,
+                mock(OauthIdentityStore.class),
                 passwords,
                 mock(IdentityEventPublisher.class),
+                mock(AccountSessionInvalidator.class),
                 Clock.fixed(Instant.parse("2026-08-05T00:00:00Z"), ZoneOffset.UTC),
                 Duration.ofHours(24),
                 Duration.ofHours(1),
                 new TransactionTemplate(new FlagTransactionManager(transactionActive)));
 
-        service.register("user", "user@example.com", "password");
+        service.register("user@example.com", "long-enough-password");
 
         assertThat(transactionActive).isFalse();
     }
 
     @Test
-    void translatesAnAtomicUsernameCollisionAfterThePrecheck() {
+    void retriesAnAtomicUsernameCollisionWithoutHashingAgain() {
         AtomicBoolean transactionActive = new AtomicBoolean();
         UserAccountStore users = mock(UserAccountStore.class);
         IdentityTokenStore tokens = mock(IdentityTokenStore.class);
         PasswordHasher passwords = mock(PasswordHasher.class);
         when(passwords.hash(anyString())).thenReturn("bcrypt-hash");
-        when(users.existsByNormalizedUsername("user")).thenReturn(false, false, true);
-        when(users.existsByNormalizedEmail("user@example.com")).thenReturn(false, false);
-        when(users.save(any())).thenThrow(new DataIntegrityViolationException("duplicate"));
+        when(users.existsByNormalizedUsername(anyString())).thenReturn(false);
+        when(users.existsByNormalizedEmail("user@example.com")).thenReturn(false);
+        when(users.save(any()))
+                .thenThrow(new DataIntegrityViolationException("duplicate"))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(tokens.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         IdentityService service = new IdentityService(
                 users,
                 tokens,
+                mock(OauthIdentityStore.class),
                 passwords,
                 mock(IdentityEventPublisher.class),
+                mock(AccountSessionInvalidator.class),
                 Clock.fixed(Instant.parse("2026-08-05T00:00:00Z"), ZoneOffset.UTC),
                 Duration.ofHours(24),
                 Duration.ofHours(1),
                 new TransactionTemplate(new FlagTransactionManager(transactionActive)));
 
-        assertThatThrownBy(() -> service.register(
-                        "user", "user@example.com", "password"))
-                .isInstanceOfSatisfying(
-                        ConflictException.class,
-                        exception -> assertThat(exception.code())
-                                .isEqualTo("username_already_exists"));
+        service.register("user@example.com", "long-enough-password");
+
+        verify(passwords, times(1)).hash("long-enough-password");
+        verify(users, times(2)).save(any());
         assertThat(transactionActive).isFalse();
     }
 
