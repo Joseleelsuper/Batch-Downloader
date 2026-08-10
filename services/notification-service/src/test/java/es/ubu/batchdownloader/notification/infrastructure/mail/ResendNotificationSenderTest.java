@@ -117,6 +117,21 @@ class ResendNotificationSenderTest {
     }
 
     @Test
+    void missingCredentialsDisableOnlyResendDelivery() {
+        ResendNotificationSender disabled = new ResendNotificationSender(
+                new ResendProperties(
+                        URI.create("https://api.resend.com"), "", "",
+                        Duration.ofSeconds(1), Duration.ofSeconds(1)),
+                new MailTemplateProperties(
+                        "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com")),
+                new NotificationTokenCipher(KEY), mapper);
+
+        assertThatThrownBy(() -> disabled.send(notification("Ada", "token")))
+                .isInstanceOf(PermanentNotificationException.class)
+                .hasMessage("resend_not_configured");
+    }
+
+    @Test
     void springUsesTheProductionConstructorWhenTheHttpClientTestSeamAlsoExists() {
         URI baseUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         ResendProperties properties = new ResendProperties(

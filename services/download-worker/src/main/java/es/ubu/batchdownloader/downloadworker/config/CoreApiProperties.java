@@ -19,6 +19,6 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties("download-worker.core-api")
 public record CoreApiProperties(
         @DefaultValue("http://core-api:8080") @NotBlank String baseUrl,
-        @DefaultValue("development-internal-token") @NotBlank String serviceToken,
+        @DefaultValue("") String serviceToken,
         @DefaultValue("10s") @NotNull Duration timeout) {
 }

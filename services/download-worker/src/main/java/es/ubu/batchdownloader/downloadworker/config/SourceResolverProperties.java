@@ -19,6 +19,6 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties("download-worker.source-resolver")
 public record SourceResolverProperties(
         @DefaultValue("http://scraper-api:8000") @NotBlank String baseUrl,
-        @DefaultValue("development-internal-token") @NotBlank String serviceToken,
+        @DefaultValue("") String serviceToken,
         @DefaultValue("10s") @NotNull Duration timeout) {
 }

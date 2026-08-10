@@ -68,9 +68,9 @@ final class WorkerCapacityController {
 
     /** Compara la credencial sin filtraciones temporales triviales. */
     private boolean validToken(String providedToken) {
+        if (serviceToken == null || serviceToken.isBlank() || providedToken == null) return false;
         return MessageDigest.isEqual(
                 serviceToken.getBytes(StandardCharsets.UTF_8),
-                (providedToken == null ? "" : providedToken)
-                        .getBytes(StandardCharsets.UTF_8));
+                providedToken.getBytes(StandardCharsets.UTF_8));
     }
 }

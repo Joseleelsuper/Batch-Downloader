@@ -4,6 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,12 +17,21 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class OAuthLoginController {
     public static final String RETURN_TO_SESSION_ATTRIBUTE =
             OAuthLoginController.class.getName() + ".RETURN_TO";
+    private final ClientRegistrationRepository registrations;
+
+    public OAuthLoginController(ClientRegistrationRepository registrations) {
+        this.registrations = registrations;
+    }
 
     @GetMapping("/google")
     public void google(
             @RequestParam(required = false) String returnTo,
             HttpServletRequest request,
             HttpServletResponse response) throws IOException {
+        if (registrations.findByRegistrationId("google") == null) {
+            response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), "google_oauth_not_configured");
+            return;
+        }
         HttpSession session = request.getSession(true);
         session.setAttribute(RETURN_TO_SESSION_ATTRIBUTE, safeReturnTo(returnTo));
         response.sendRedirect(request.getContextPath()

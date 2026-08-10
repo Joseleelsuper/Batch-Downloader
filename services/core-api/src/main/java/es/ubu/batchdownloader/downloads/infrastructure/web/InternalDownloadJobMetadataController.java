@@ -78,7 +78,8 @@ public class InternalDownloadJobMetadataController {
         byte[] supplied = suppliedToken == null
                 ? new byte[0]
                 : suppliedToken.getBytes(StandardCharsets.UTF_8);
-        if (suppliedToken == null || !MessageDigest.isEqual(expectedToken, supplied)) {
+        if (expectedToken.length == 0 || suppliedToken == null
+                || !MessageDigest.isEqual(expectedToken, supplied)) {
             throw new UnauthorizedException(
                     "internal_service_token_invalid",
                     "La credencial interna no es válida.");

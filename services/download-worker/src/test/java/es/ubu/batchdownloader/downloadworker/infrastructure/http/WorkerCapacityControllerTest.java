@@ -29,6 +29,14 @@ class WorkerCapacityControllerTest {
     }
 
     @Test
+    void rejectsRequestsWhenTheInternalTokenIsNotConfigured() {
+        WorkerCapacityController controller = controller(mock(TemporaryDiskCapacity.class), "");
+
+        assertThat(controller.check("").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(controller.check(null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
     void returnsStorageBusyWithRetryAfter() {
         TemporaryDiskCapacity capacity = mock(TemporaryDiskCapacity.class);
         doThrow(new InfrastructureException("storage_busy", new IllegalStateException()))
@@ -45,6 +53,12 @@ class WorkerCapacityControllerTest {
     }
 
     private WorkerCapacityController controller(TemporaryDiskCapacity capacity) {
+        return controller(capacity, "token");
+    }
+
+    private WorkerCapacityController controller(
+            TemporaryDiskCapacity capacity,
+            String serviceToken) {
         DownloadProperties properties = new DownloadProperties(
                 100,
                 DataSize.ofGigabytes(4),
@@ -58,6 +72,6 @@ class WorkerCapacityControllerTest {
         return new WorkerCapacityController(
                 capacity,
                 properties,
-                new CoreApiProperties("http://core", "token", Duration.ofSeconds(1)));
+                new CoreApiProperties("http://core", serviceToken, Duration.ofSeconds(1)));
     }
 }

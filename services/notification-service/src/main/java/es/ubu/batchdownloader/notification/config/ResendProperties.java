@@ -16,15 +16,18 @@ public record ResendProperties(
     public ResendProperties {
         baseUrl = Objects.requireNonNull(baseUrl, "notification.resend.base-url es obligatorio");
         if (!baseUrl.isAbsolute()) throw new IllegalArgumentException("resend_base_url_must_be_absolute");
-        apiKey = requireText(apiKey, "notification.resend.api-key");
-        from = requireText(from, "notification.resend.from");
+        apiKey = optionalText(apiKey);
+        from = optionalText(from);
         connectTimeout = requirePositive(connectTimeout, "notification.resend.connect-timeout");
         requestTimeout = requirePositive(requestTimeout, "notification.resend.request-timeout");
     }
 
-    private static String requireText(String value, String name) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " es obligatorio");
-        return value.strip();
+    public boolean enabled() {
+        return !apiKey.isBlank() && !from.isBlank();
+    }
+
+    private static String optionalText(String value) {
+        return value == null ? "" : value.strip();
     }
 
     private static Duration requirePositive(Duration value, String name) {

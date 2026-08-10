@@ -56,6 +56,9 @@ public class ResendNotificationSender {
     }
 
     public void send(EmailNotification notification) {
+        if (!properties.enabled()) {
+            throw new PermanentNotificationException("resend_not_configured");
+        }
         Rendered rendered;
         try {
             rendered = render(notification);
