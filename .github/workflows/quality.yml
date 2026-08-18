@@ -101,9 +101,25 @@ jobs:
       - name: Validate AsyncAPI
         run: npx --yes @asyncapi/cli@3.4.2 validate shared/contracts/asyncapi/messaging.yaml
 
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Render both Compose deployments
+        run: |
+          docker compose --env-file .env.example -f docker-compose.yml --profile "*" config --quiet
+          docker compose --env-file .env.example -f docker-compose.ghcr.yml --profile "*" config --quiet
+      - name: Verify Compose health policy and parity
+        run: python scripts/compose_health.py validate --env-file .env.example
+      - name: Test Compose health aggregation
+        run: python -m unittest discover -s scripts/tests -v
+
   sonar:
     if: github.event_name == 'push'
-    needs: [java, scraper, scraper-free-threaded, semantic, frontend, contracts]
+    needs: [java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose]
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

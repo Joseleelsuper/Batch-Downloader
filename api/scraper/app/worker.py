@@ -405,9 +405,13 @@ async def run_scheduler() -> None:
         )
         logger.info("startup_scrape_scheduled")
     try:
-        await asyncio.Event().wait()
+        # El supervisor es el trabajo persistente real del contenedor. Si termina por
+        # una excepción no controlada, se propaga el fallo para que Docker pueda
+        # reiniciar el proceso en lugar de dejar un scheduler aparentemente sano.
+        await enrichment_task
     finally:
-        enrichment_task.cancel()
+        if not enrichment_task.done():
+            enrichment_task.cancel()
         await asyncio.gather(enrichment_task, return_exceptions=True)
         scheduler.shutdown(wait=False)
 

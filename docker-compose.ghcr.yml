@@ -3,6 +3,7 @@ name: batch-downloader
 services:
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
     command: ["--log-bin-trust-function-creators=1", "--max-connections=20", "--long-query-time=0.5"]
     cpu_shares: 1024
     environment:
@@ -15,13 +16,15 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "MYSQL_PWD=$${MYSQL_PASSWORD} mysql --protocol=TCP -h 127.0.0.1 -u$${MYSQL_USER} -D $${MYSQL_DATABASE} --silent --skip-column-names -e 'SELECT 1' | grep -qx 1"]
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 12
+      start_period: 60s
 
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     command: ["postgres", "-c", "max_connections=20"]
     cpu_shares: 512
     environment:
@@ -33,13 +36,15 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc 'SELECT 1' | grep -qx 1"]
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 12
+      start_period: 30s
 
   rabbitmq:
     image: rabbitmq:3.13-management
+    restart: unless-stopped
     cpu_shares: 1024
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
@@ -51,13 +56,15 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 12
+      start_period: 60s
 
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
     cpu_shares: 1024
     command: server /data --console-address ":9001"
     environment:
@@ -69,20 +76,35 @@ services:
       - "${MINIO_CONSOLE_HOST_PORT}:9001"
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/cluster >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: "no"
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do sleep 2; done;
-      mc mb --ignore-existing local/zips;
-      mc ilm import local/zips < /config/lifecycle-zips.json;
+      set -eu;
+      attempts=0;
+      until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do
+        attempts=$$((attempts + 1));
+        if [ $$attempts -ge 30 ]; then echo 'MinIO no está disponible para inicialización.' >&2; exit 1; fi;
+        sleep 2;
+      done;
+      mc mb --ignore-existing "local/$${MINIO_ZIP_BUCKET}";
+      mc ilm import "local/$${MINIO_ZIP_BUCKET}" < /config/lifecycle-zips.json;
       "
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
     volumes:
       - ./docker/minio/lifecycle-zips.json:/config/lifecycle-zips.json:ro
 
@@ -104,6 +126,7 @@ services:
       SCRAPPER_LLM_DEEPSEEK_API_KEY: ${SCRAPPER_LLM_DEEPSEEK_API_KEY}
       SCRAPPER_INTERNAL_SERVICE_TOKEN: ${SCRAPPER_INTERNAL_SERVICE_TOKEN}
     cpu_shares: 512
+    restart: unless-stopped
     ports:
       - "${SCRAPPER_API_HOST_PORT}:8000"
     depends_on:
@@ -115,11 +138,12 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3).read()",
         ]
       interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 12
+      start_period: 120s
 
   scraper-scheduler:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-scraper:${GHCR_IMAGE_TAG}
@@ -139,19 +163,33 @@ services:
       SCRAPPER_LLM_GROQ_API_KEY: ${SCRAPPER_LLM_GROQ_API_KEY}
       SCRAPPER_LLM_DEEPSEEK_API_KEY: ${SCRAPPER_LLM_DEEPSEEK_API_KEY}
     cpu_shares: 256
+    restart: unless-stopped
     depends_on:
       scraper-api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   webapp:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-webapp:${GHCR_IMAGE_TAG}
     cpu_shares: 1024
+    restart: unless-stopped
     pull_policy: always
     ports:
       - "${WEBAPP_HOST_PORT}:80"
     depends_on:
       core-api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   core-api:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-core-api:${GHCR_IMAGE_TAG}
@@ -187,6 +225,7 @@ services:
       MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
       MINIO_REGION: ${MINIO_REGION}
     cpu_shares: 1024
+    restart: unless-stopped
     ports:
       - "${CORE_API_HOST_PORT}:8080"
     depends_on:
@@ -194,10 +233,12 @@ services:
         condition: service_healthy
       scraper-api:
         condition: service_healthy
-      semantic-service:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
 
   semantic-service:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
@@ -217,6 +258,7 @@ services:
       SEMANTIC_MODEL_CACHE_DIR: /models
       SEMANTIC_REPORTS_DIR: /reports
     cpu_shares: 512
+    restart: unless-stopped
     ports:
       - "${SEMANTIC_SERVICE_HOST_PORT}:8000"
     depends_on:
@@ -231,11 +273,12 @@ services:
           "CMD",
           "python",
           "-c",
-          "import json,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/semantic/health', timeout=3)); assert data['database']",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/semantic/health/ready', timeout=3).read()",
         ]
       interval: 10s
       timeout: 5s
-      retries: 30
+      retries: 12
+      start_period: 180s
 
   semantic-indexer:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
@@ -265,6 +308,12 @@ services:
       - semantic_models:/models
       - semantic_reports:/reports
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck", "--writable", "/models", "--writable", "/reports"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 
   semantic-model-worker:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
@@ -295,9 +344,16 @@ services:
       - semantic_models:/models
       - semantic_reports:/reports
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck", "--writable", "/models", "--writable", "/reports"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 
   semantic-trainer:
     profiles: ["training"]
+    restart: "no"
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
     pull_policy: always
     command: ["python", "-m", "app.trainer"]
@@ -325,9 +381,16 @@ services:
   mailpit:
     image: axllent/mailpit:v1.30.0
     cpu_shares: 128
+    restart: unless-stopped
     ports:
       - "${MAILPIT_SMTP_HOST_PORT}:1025"
       - "${MAILPIT_UI_HOST_PORT}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   notification-service:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-notification-service:${GHCR_IMAGE_TAG}
@@ -350,15 +413,20 @@ services:
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL}
       NOTIFICATION_TOKEN_ENCRYPTION_KEY: ${NOTIFICATION_TOKEN_ENCRYPTION_KEY}
     cpu_shares: 256
+    restart: unless-stopped
     ports:
       - "${NOTIFICATION_SERVICE_HOST_PORT}:8080"
     depends_on:
       rabbitmq:
         condition: service_healthy
-      mailpit:
-        condition: service_started
     volumes:
       - notification_service_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
 
   download-worker:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-download-worker:${GHCR_IMAGE_TAG}
@@ -379,17 +447,26 @@ services:
       MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
       SCRAPPER_INTERNAL_SERVICE_TOKEN: ${SCRAPPER_INTERNAL_SERVICE_TOKEN}
     cpu_shares: 768
+    restart: unless-stopped
     ports:
       - "${DOWNLOAD_WORKER_HOST_PORT}:8080"
     depends_on:
       rabbitmq:
         condition: service_healthy
-      minio:
-        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
       core-api:
-        condition: service_started
+        condition: service_healthy
+      scraper-api:
+        condition: service_healthy
     volumes:
       - download_worker_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
 
   translation-service:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-translation-service:${GHCR_IMAGE_TAG}
@@ -399,8 +476,15 @@ services:
       - path: ./services/translation-service/.env
         required: false
     cpu_shares: 128
+    restart: unless-stopped
     ports:
       - "${TRANSLATION_SERVICE_HOST_PORT}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
 volumes:
   mysql_data:

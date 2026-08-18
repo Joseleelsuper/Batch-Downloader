@@ -2,6 +2,8 @@
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import app.worker as worker
@@ -69,3 +71,46 @@ async def test_startup_scrape_continues_when_known_app_repair_fails(monkeypatch)
     await worker.run_startup_scrape()
 
     assert calls == ["repair", ("scrape", True)]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_exits_when_enrichment_supervisor_fails(monkeypatch) -> None:
+    """Comprueba que un fallo del supervisor persistente termine el scheduler."""
+    scheduler_stopped: list[bool] = []
+
+    class SchedulerStub:
+        """Sustituye APScheduler sin crear tareas persistentes."""
+
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def add_job(self, *_args, **_kwargs) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def shutdown(self, *, wait: bool) -> None:
+            scheduler_stopped.append(not wait)
+
+    class SupervisorStub:
+        """Simula la terminación inesperada del supervisor interno."""
+
+        async def run(self) -> None:
+            raise RuntimeError("supervisor stopped")
+
+    settings = SimpleNamespace(
+        scheduler_zoneinfo="UTC",
+        scheduler_hour=3,
+        scheduler_minute=0,
+        scheduler_timezone="UTC",
+        run_on_startup=False,
+    )
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker, "AsyncIOScheduler", SchedulerStub)
+    monkeypatch.setattr(worker, "ContentEnrichmentSupervisor", SupervisorStub)
+
+    with pytest.raises(RuntimeError, match="supervisor stopped"):
+        await worker.run_scheduler()
+
+    assert scheduler_stopped == [True]

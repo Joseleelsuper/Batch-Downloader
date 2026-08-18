@@ -15,8 +15,8 @@ imágenes publicadas usa `docker-compose.ghcr.yml`. Ambos leen el mismo `.env`.
 
 ```bash
 cp .env.example .env
-docker compose --env-file .env up --build -d
-docker compose --env-file .env ps
+python scripts/compose_health.py start --deployment local --env-file .env
+python scripts/compose_health.py status --deployment local --env-file .env
 ```
 
 La interfaz queda disponible a través de Nginx en `http://localhost:3000`.
@@ -42,12 +42,74 @@ junto con sus credenciales globales.
 Para probar las imágenes publicadas en GitHub Container Registry:
 
 ```bash
-docker compose --env-file .env -f docker-compose.ghcr.yml up -d
+python scripts/compose_health.py start --deployment ghcr --env-file .env
 ```
 
 El Compose GHCR usa imágenes como
 `ghcr.io/joseleelsuper/batch-downloader-webapp:main`. Para arrancar sin
 `docker login ghcr.io`, los paquetes de GHCR deben estar marcados como públicos.
+
+### Salud, prioridad y degradación
+
+Los dos Compose declaran probes explícitos para todos los procesos persistentes.
+Las dependencias que necesitan un servicio operativo usan `service_healthy`; los
+inicializadores y benchmarks usan `service_completed_successfully`. El orden base
+es MySQL, Scraper API, Core API y, por último, Webapp.
+
+`minio-init` se mantiene como job separado: crea el bucket configurado y aplica
+su lifecycle una sola vez, falla de forma observable y permite que Download
+Worker espere su finalización correcta. Integrarlo en el daemon de MinIO mezclaría
+la vida del almacenamiento con una migración idempotente y eliminaría ese punto
+de sincronización.
+
+La herramienta operativa separa la disponibilidad global de las capacidades
+degradables:
+
+- Si falla la cadena base, devuelve código `1`, no inicia sus descendientes y
+  conserva los contenedores y logs para diagnóstico.
+- Si fallan PostgreSQL o el servicio semántico, el catálogo continúa con búsqueda
+  literal.
+- Si fallan RabbitMQ, MinIO o `minio-init`, se marca como degradada la capacidad
+  de descarga sin derribar la web.
+- Notificaciones, traducciones y procesos de fondo se informan por separado.
+
+Por defecto `start` exige solamente la capacidad base. Una operación puede hacer
+obligatoria otra capacidad, por ejemplo:
+
+```bash
+python scripts/compose_health.py start --deployment local --env-file .env \
+  --require downloads --timeout 600
+```
+
+Los comandos disponibles son:
+
+```bash
+# Validación estática de topología, jobs, probes y paridad local/GHCR
+python scripts/compose_health.py validate --env-file .env.example
+
+# Estado actual sin crear, reiniciar ni eliminar contenedores
+python scripts/compose_health.py status --deployment local --env-file .env
+```
+
+`status` muestra la causa raíz y los descendientes bloqueados de cada capacidad:
+
+| Estado | Significado |
+|---|---|
+| `ready` | Todos sus daemons están sanos y sus jobs terminaron con código cero. |
+| `starting` | Al menos un probe o job sigue dentro de su ventana de arranque. |
+| `degraded` | Falló una capacidad no requerida; la cadena base puede seguir operativa. |
+| `failed` | Falló o agotó el timeout una capacidad requerida. |
+
+Tanto `start` como `status` devuelven `0` cuando la base y todas las capacidades
+indicadas con `--require` están listas, y `1` ante validación inválida, fallo o
+timeout de alguna de ellas. Ante un fallo crítico, `start` muestra `docker compose
+ps`, el estado del probe y los últimos 80 registros del servicio raíz, censurando
+los secretos conocidos del archivo de entorno. Nunca ejecuta `down`.
+
+Docker continúa ejecutando los healthchecks tras el arranque. Los daemons usan
+`restart: unless-stopped` para recuperarse cuando el proceso termina; un proceso
+que permanezca `unhealthy` se muestra como fallo persistente, pero no se reinicia
+mediante un contenedor privilegiado ni se monta el socket de Docker.
 
 ## Descargas por lotes
 

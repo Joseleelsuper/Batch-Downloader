@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -12,6 +12,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
 from app.core.config import Settings, get_settings
 from app.core.time import utc_after, utc_now
@@ -106,7 +107,7 @@ async def internal_metrics(
     _authorized: Annotated[None, Depends(require_internal_service_token)],
 ) -> PlainTextResponse:
     """Expone el estado del pool en formato Prometheus sin otro contenedor."""
-    pool = engine.pool
+    pool = cast(AsyncAdaptedQueuePool, engine.pool)
     values = {
         "scrapper_db_pool_size": pool.size(),
         "scrapper_db_pool_checked_out": pool.checkedout(),

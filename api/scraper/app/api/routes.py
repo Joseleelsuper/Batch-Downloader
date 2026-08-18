@@ -1,6 +1,8 @@
 """Implementa las responsabilidades del módulo `routes`.
 """
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.app_mapper import to_details, to_list_item
@@ -34,6 +36,36 @@ async def health(settings: Settings = Depends(get_settings)) -> dict[str, str]:
         dict[str, str]: Mapa con los datos producidos por la operación.
     """
     return {"status": "ok", "service": settings.app_name}
+
+
+@router.get("/health/live")
+async def health_live(settings: Settings = Depends(get_settings)) -> dict[str, str]:
+    """Confirma que el proceso HTTP y su bucle de eventos siguen respondiendo."""
+    return {"status": "ok", "service": settings.app_name}
+
+
+async def database_ready() -> bool:
+    """Comprueba MySQL con una consulta real y una conexión del pool de la API."""
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
+@router.get("/health/ready")
+async def health_ready(settings: Settings = Depends(get_settings)) -> JSONResponse:
+    """Indica si la API puede atender operaciones respaldadas por MySQL."""
+    ready = await database_ready()
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ok" if ready else "degraded",
+            "service": settings.app_name,
+            "database": ready,
+        },
+    )
 
 
 @router.get("/apps", response_model=AppSearchResponse, response_model_by_alias=True)

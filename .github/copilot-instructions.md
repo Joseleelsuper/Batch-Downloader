@@ -67,6 +67,8 @@ docker compose --env-file .env --profile training run --rm semantic-trainer
 docker compose --env-file .env --profile benchmark up --build --exit-code-from scraper-python314-benchmark-report scraper-python314-benchmark-report
 cd services/webapp/src/main/resources/frontend; npm ci; npm test -- --run; npm run build
 docker compose --env-file .env config --quiet
+python scripts/compose_health.py validate --env-file .env.example
+python scripts/compose_health.py status --deployment local --env-file .env
 docker compose --env-file .env up --build
 docker compose --env-file .env ps; docker compose --env-file .env logs --tail 200
 ```

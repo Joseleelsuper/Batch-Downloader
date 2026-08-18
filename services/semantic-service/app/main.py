@@ -25,6 +25,7 @@ from app.admin_store import SemanticAdminStore
 from app.config import get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
+from app.healthcheck import directory_writable
 from app.huggingface_catalog import HuggingFaceCatalog
 from app.schemas import SemanticSearchRequest, SemanticSearchResponse
 from app.store import SemanticStore
@@ -194,6 +195,31 @@ async def health() -> dict[str, object]:
         "modelVersion": active[0].model_version if search_ready and active else None,
         "indexVersion": active[1] if search_ready and active else None,
     }
+
+
+@app.get("/semantic/health/live")
+async def health_live() -> dict[str, object]:
+    """Confirma que el proceso HTTP y el bucle de eventos siguen respondiendo."""
+    return {"status": "ok", "service": "semantic-service"}
+
+
+@app.get("/semantic/health/ready")
+async def health_ready() -> JSONResponse:
+    """Comprueba PostgreSQL y el caché que puede escribir el runtime semántico."""
+    database_ready, cache_ready = await asyncio.gather(
+        asyncio.to_thread(database.healthy),
+        asyncio.to_thread(directory_writable, settings.model_cache_dir),
+    )
+    ready = database_ready and cache_ready
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ok" if ready else "degraded",
+            "service": "semantic-service",
+            "database": database_ready,
+            "modelCacheWritable": cache_ready,
+        },
+    )
 
 
 @app.get(
