@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Awaitable, Callable
+from functools import partial
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import get_settings
 from app.core.free_threading import assert_free_threaded_runtime
@@ -75,21 +78,33 @@ class ContentEnrichmentSupervisor:
 
         workers = [
             asyncio.create_task(
-                self._consume_descriptions(),
+                self._restart_on_pool_timeout(
+                    "descriptor",
+                    self._consume_descriptions,
+                ),
                 name="descriptor-supervisor",
             ),
             asyncio.create_task(
-                self._consume_manual_installers(),
+                self._restart_on_pool_timeout(
+                    "manual-installer",
+                    self._consume_manual_installers,
+                ),
                 name="manual-installer-supervisor",
             ),
             asyncio.create_task(
-                self._consume_website_discoveries(),
+                self._restart_on_pool_timeout(
+                    "website-discovery",
+                    self._consume_website_discoveries,
+                ),
                 name="website-discovery-supervisor",
             ),
         ]
         workers.extend(
             asyncio.create_task(
-                self._consume_so_filters(index),
+                self._restart_on_pool_timeout(
+                    f"so-filter-{index}",
+                    partial(self._consume_so_filters, index),
+                ),
                 name=f"so-filter-supervisor-{index}",
             )
             for index in range(max(1, self.settings.so_filter_concurrency))
@@ -100,6 +115,35 @@ class ContentEnrichmentSupervisor:
             for task in workers:
                 task.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
+
+    async def _restart_on_pool_timeout(
+        self,
+        component: str,
+        consumer: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Reintenta un consumidor cuando la contención agota temporalmente el pool.
+
+        Los demás errores siguen propagándose para que Docker reinicie un scheduler
+        realmente averiado. Un timeout de adquisición, en cambio, es esperable bajo
+        la concurrencia interna y no debe derribar todos los consumidores.
+
+        Args:
+            component (str): Nombre estable del consumidor afectado.
+            consumer (Callable[[], Awaitable[None]]): Bucle de consumo supervisado.
+        """
+        while True:
+            try:
+                await consumer()
+            except asyncio.CancelledError:
+                raise
+            except SQLAlchemyTimeoutError:
+                logger.warning(
+                    "content_enrichment_pool_timeout",
+                    component=component,
+                    pool_size=self.settings.database_pool_max,
+                    timeout_seconds=self.settings.database_pool_timeout_seconds,
+                )
+                await asyncio.sleep(1)
 
     async def _consume_descriptions(self) -> None:
         """Ejecuta el paso interno `_consume_descriptions`.

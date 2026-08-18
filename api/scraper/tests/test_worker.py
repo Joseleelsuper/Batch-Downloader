@@ -2,6 +2,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -114,3 +115,28 @@ async def test_scheduler_exits_when_enrichment_supervisor_fails(monkeypatch) -> 
         await worker.run_scheduler()
 
     assert scheduler_stopped == [True]
+
+
+@pytest.mark.asyncio
+async def test_enrichment_consumer_retries_pool_timeout() -> None:
+    """Comprueba que la contención transitoria no termine el scheduler completo."""
+    supervisor = worker.ContentEnrichmentSupervisor.__new__(
+        worker.ContentEnrichmentSupervisor
+    )
+    supervisor.settings = SimpleNamespace(
+        database_pool_max=2,
+        database_pool_timeout_seconds=5,
+    )
+    calls = 0
+
+    async def consumer() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise worker.SQLAlchemyTimeoutError()
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await supervisor._restart_on_pool_timeout("so-filter-0", consumer)
+
+    assert calls == 2

@@ -182,6 +182,33 @@ class ComposeHealthTest(unittest.TestCase):
 
         self.assertIn("paridad:core-api: configuración funcional distinta", errors)
 
+    def test_private_h2_passwords_are_not_rotated_by_compose(self) -> None:
+        """Impide reintroducir secretos externos para los H2 persistentes privados."""
+        services = {
+            "NOTIFICATION_SERVICE_INBOX_PASSWORD": (
+                "services/notification-service/src/main/resources/application.properties"
+            ),
+            "DOWNLOAD_WORKER_INBOX_PASSWORD": (
+                "services/download-worker/src/main/resources/application.properties"
+            ),
+        }
+        compose_sources = [
+            path.read_text(encoding="utf-8")
+            for path in compose_health.COMPOSE_FILES.values()
+        ]
+        global_example = (compose_health.REPOSITORY_ROOT / ".env.example").read_text(
+            encoding="utf-8"
+        )
+
+        for setting, properties_path in services.items():
+            for compose_source in compose_sources:
+                self.assertNotIn(f"{setting}: ${{{setting}}}", compose_source)
+            self.assertNotIn(f"{setting}=", global_example)
+            properties = (
+                compose_health.REPOSITORY_ROOT / properties_path
+            ).read_text(encoding="utf-8")
+            self.assertIn(f"spring.datasource.password=${{{setting}:}}", properties)
+
 
 if __name__ == "__main__":
     unittest.main()
