@@ -148,7 +148,6 @@
 }
 
 .semantic-tabs a:focus-visible,
-.semantic-hub-results button:focus-visible,
 .semantic-operation-meta button:focus-visible {
   outline: 3px solid #0284c7;
   outline-offset: 2px;
@@ -321,8 +320,7 @@
 }
 
 .semantic-model-facts dt,
-.semantic-model-evidence > span,
-.semantic-hub-facts dt {
+.semantic-model-evidence > span {
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
@@ -496,8 +494,7 @@
   margin-bottom: 16px;
 }
 
-.semantic-benchmark-controls fieldset,
-.semantic-runtime-config {
+.semantic-benchmark-controls fieldset {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -507,8 +504,7 @@
   border-radius: 7px;
 }
 
-.semantic-benchmark-controls legend,
-.semantic-runtime-config legend {
+.semantic-benchmark-controls legend {
   padding: 0 6px;
   color: #344052;
   font-size: 12px;
@@ -549,9 +545,7 @@
   font-weight: 680;
 }
 
-.semantic-run-selector select,
-.semantic-runtime-config input,
-.semantic-hub-search input {
+.semantic-run-selector select {
   width: 100%;
   min-height: 40px;
   padding: 0 11px;
@@ -829,218 +823,12 @@
   margin-top: 8px;
 }
 
-.semantic-hub-search {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 16px;
-  padding: 0 12px;
-  color: var(--muted);
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-}
-
-.semantic-hub-search:focus-within {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 3px rgba(0, 140, 149, 0.12);
-}
-
-.semantic-hub-search input {
-  padding: 0;
-  border: 0;
-  outline: 0;
-}
-
-.semantic-hub-layout {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.85fr) minmax(380px, 1.15fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.semantic-hub-results {
-  display: grid;
-  max-height: 680px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-}
-
-.semantic-hub-results > button {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-height: 64px;
-  padding: 10px 12px;
-  color: #293548;
-  text-align: left;
-  background: #ffffff;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.semantic-hub-results > button:last-child {
-  border-bottom: 0;
-}
-
-.semantic-hub-results > button:hover {
-  background: #f8fbfc;
-}
-
-.semantic-hub-results > .semantic-hub-result-active {
-  background: var(--teal-soft);
-}
-
-.semantic-hub-results button > span:nth-child(2) {
-  display: grid;
-  min-width: 0;
-}
-
-.semantic-hub-results button strong,
-.semantic-hub-results button small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.semantic-hub-results button small {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.semantic-hub-popularity {
-  display: grid;
-  justify-items: end;
-  color: #344052;
-}
-
-.semantic-hub-detail {
-  min-height: 340px;
-  padding: 18px;
-  background: #f8fbfc;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-}
-
-.semantic-hub-detail-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.semantic-hub-detail-heading h4,
-.semantic-hub-detail-heading p {
-  margin: 0;
-}
-
-.semantic-hub-detail-heading h4 {
-  color: #172033;
-  font-size: 18px;
-}
-
-.semantic-hub-detail-heading p {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.semantic-hub-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  margin: 0 0 16px;
-  overflow: hidden;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.semantic-hub-facts div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  padding: 10px 11px;
-  background: #ffffff;
-}
-
-.semantic-hub-facts dd {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: #293548;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 680;
-}
-
-.semantic-mono {
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-}
-
-.semantic-compatibility-error {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 10px 12px;
-  color: var(--semantic-danger);
-  background: var(--semantic-danger-soft);
-  border: 1px solid #f2c1cc;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.semantic-runtime-config {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-bottom: 12px;
-  background: #ffffff;
-}
-
-.semantic-runtime-config label {
-  display: grid;
-  gap: 6px;
-  color: #465266;
-  font-size: 11px;
-  font-weight: 680;
-}
-
-.semantic-runtime-config label:last-child {
-  grid-column: 1 / -1;
-}
-
-.semantic-license-check {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin: 10px 0;
-  color: #6a4808;
-  font-size: 12px;
-}
-
-.semantic-download-model {
-  width: 100%;
-  margin-top: 8px;
-}
-
-.semantic-download-model small {
-  margin-left: auto;
-  color: rgba(255, 255, 255, 0.82);
-}
-
-.semantic-skeleton,
-.semantic-detail-skeleton {
+.semantic-skeleton {
   display: grid;
   gap: 12px;
 }
 
-.semantic-skeleton span,
-.semantic-detail-skeleton span {
+.semantic-skeleton span {
   display: block;
   height: 72px;
   background: #e8eef1;
@@ -1048,24 +836,8 @@
   animation: semantic-pulse 1.4s ease-in-out infinite alternate;
 }
 
-.semantic-detail-skeleton span {
-  height: 34px;
-}
-
-.semantic-detail-skeleton span:first-child {
-  width: 62%;
-}
-
-.semantic-spin {
-  animation: semantic-spin 0.85s linear infinite;
-}
-
 @keyframes semantic-pulse {
   to { background: #f3f6f8; }
-}
-
-@keyframes semantic-spin {
-  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 1380px) {
@@ -1128,7 +900,6 @@
   .semantic-status-strip,
   .semantic-model-row,
   .semantic-benchmark-controls,
-  .semantic-hub-layout,
   .semantic-operation-list {
     grid-template-columns: 1fr;
   }
@@ -1167,14 +938,6 @@
     flex-direction: column;
   }
 
-  .semantic-hub-layout {
-    gap: 12px;
-  }
-
-  .semantic-hub-results {
-    max-height: 420px;
-  }
-
   .semantic-operation:nth-child(odd) {
     border-right: 0;
   }
@@ -1185,9 +948,7 @@
     transition: none;
   }
 
-  .semantic-skeleton span,
-  .semantic-detail-skeleton span,
-  .semantic-spin {
+  .semantic-skeleton span {
     animation: none;
   }
 }

@@ -12,7 +12,7 @@ from typing import Any
 from psycopg import sql
 
 from app.database import Database
-from app.model_registry import downloaded_model_identity, model_index_name
+from app.model_registry import local_model_identity, model_index_name
 
 ACTIVE_OPERATION_STATES = ("queued", "running", "cancel_requested")
 """Constante que define `ACTIVE_OPERATION_STATES`.
@@ -49,7 +49,7 @@ class SemanticAdminStore:
         Returns:
             dict[str, Any]: Mapa con los datos producidos por la operación.
         """
-        models = self.models()
+        models = self.local_models()
         active = next((model for model in models if model["active"]), None)
         operation_count = self.database.run(
             lambda connection: int(
@@ -153,6 +153,24 @@ class SemanticAdminStore:
             ).fetchall()
         )
         return [self._model(row) for row in rows]
+
+    def local_models(self) -> list[dict[str, Any]]:
+        """Devuelve únicamente modelos cuyo artefacto existe en almacenamiento local."""
+        return [
+            model
+            for model in self.models()
+            if model.get("localPath") and Path(model["localPath"]).is_dir()
+        ]
+
+    def local_model(self, model_id: str) -> dict[str, Any]:
+        """Obtiene un modelo visible solo cuando su artefacto local está disponible."""
+        model = next(
+            (row for row in self.local_models() if row["id"] == model_id),
+            None,
+        )
+        if model is None:
+            raise LookupError("semantic_model_not_found")
+        return model
 
     def eligible_benchmark(self, model_id: str) -> dict[str, Any] | None:
         """Ejecuta `eligible_benchmark` dentro de `SemanticAdminStore`.
@@ -425,198 +443,6 @@ class SemanticAdminStore:
             for row in rows
         ]
 
-    def create_download_operation(
-        self,
-        *,
-        repository: str,
-        requested_revision: str | None,
-        resolved_revision: str,
-        display_name: str,
-        metadata: dict[str, Any],
-        query_prefix: str,
-        passage_prefix: str,
-        minimum_similarity: float,
-        actor: str,
-        idempotency_key: str | None,
-        request_payload: dict[str, Any],
-        progress_total: int,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Crea la operación `download_operation`.
-
-        Args:
-            repository (str): Valor de `repository` utilizado por la operación.
-            requested_revision (str | None): Valor de `requested_revision` utilizado por la
-                operación.
-            resolved_revision (str): Valor de `resolved_revision` utilizado por la operación.
-            display_name (str): Valor de `display_name` utilizado por la operación.
-            metadata (dict[str, Any]): Valor de `metadata` utilizado por la operación.
-            query_prefix (str): Valor de `query_prefix` utilizado por la operación.
-            passage_prefix (str): Valor de `passage_prefix` utilizado por la operación.
-            minimum_similarity (float): Valor de `minimum_similarity` utilizado por la operación.
-            actor (str): Valor de `actor` utilizado por la operación.
-            idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
-            request_payload (dict[str, Any]): Valor de `request_payload` utilizado por la operación.
-            progress_total (int): Valor de `progress_total` utilizado por la operación.
-
-        Returns:
-            tuple[dict[str, Any], dict[str, Any]]: Mapa con los datos producidos por la operación.
-        """
-        payload_json = json.dumps(
-            request_payload,
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-
-        def mutate(connection):
-            """Aplica la mutación definida para el escenario.
-
-            Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
-
-            Throws:
-                RuntimeError: Si el estado de ejecución impide completar la operación.
-            """
-            if idempotency_key:
-                connection.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
-                    (idempotency_key,),
-                )
-                existing_operation = connection.execute(
-                    """
-                    SELECT *
-                    FROM semantic_operations
-                    WHERE idempotency_key = %s
-                    """,
-                    (idempotency_key,),
-                ).fetchone()
-                if existing_operation:
-                    if (
-                        existing_operation["operation_kind"] != "download"
-                        or dict(existing_operation["request_payload"] or {})
-                        != request_payload
-                        or existing_operation["repository"] != repository
-                        or existing_operation["resolved_revision"]
-                        != resolved_revision
-                    ):
-                        raise RuntimeError("semantic_idempotency_key_conflict")
-                    artifact = connection.execute(
-                        """
-                        SELECT *
-                        FROM semantic_model_artifacts
-                        WHERE id = %s
-                        """,
-                        (existing_operation["model_id"],),
-                    ).fetchone()
-                    if not artifact:
-                        raise RuntimeError("semantic_idempotency_target_missing")
-                    return dict(artifact), dict(existing_operation)
-
-            artifact = connection.execute(
-                """
-                SELECT *
-                FROM semantic_model_artifacts
-                WHERE hf_repository = %s AND resolved_revision = %s
-                FOR UPDATE
-                """,
-                (repository, resolved_revision),
-            ).fetchone()
-            if artifact:
-                if (
-                    artifact["query_prefix"] != query_prefix
-                    or artifact["passage_prefix"] != passage_prefix
-                    or float(artifact["minimum_similarity"])
-                    != float(minimum_similarity)
-                ):
-                    raise RuntimeError("semantic_model_configuration_conflict")
-                artifact = connection.execute(
-                    """
-                    UPDATE semantic_model_artifacts
-                    SET requested_revision = %s,
-                        display_name = %s,
-                        metadata = metadata || %s::jsonb,
-                        artifact_state = CASE
-                            WHEN artifact_state = 'ready' THEN 'ready'
-                            ELSE 'downloading'
-                        END,
-                        validation_message = NULL,
-                        deleted_at = NULL
-                    WHERE id = %s
-                    RETURNING *
-                    """,
-                    (
-                        requested_revision,
-                        display_name,
-                        json.dumps(metadata, ensure_ascii=False),
-                        artifact["id"],
-                    ),
-                ).fetchone()
-            else:
-                artifact = connection.execute(
-                    """
-                    INSERT INTO semantic_model_artifacts (
-                        hf_repository, requested_revision, resolved_revision,
-                        display_name, artifact_state, metadata,
-                        query_prefix, passage_prefix, minimum_similarity
-                    ) VALUES (
-                        %s, %s, %s, %s, 'downloading', %s::jsonb, %s, %s, %s
-                    )
-                    RETURNING *
-                    """,
-                    (
-                        repository,
-                        requested_revision,
-                        resolved_revision,
-                        display_name,
-                        json.dumps(metadata, ensure_ascii=False),
-                        query_prefix,
-                        passage_prefix,
-                        minimum_similarity,
-                    ),
-                ).fetchone()
-
-            existing_operation = connection.execute(
-                """
-                SELECT *
-                FROM semantic_operations
-                WHERE operation_kind = 'download'
-                  AND status IN ('queued', 'running', 'cancel_requested')
-                  AND request_payload = %s::jsonb
-                  AND model_id = %s
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (payload_json, artifact["id"]),
-            ).fetchone()
-            if existing_operation:
-                return dict(artifact), dict(existing_operation)
-
-            operation = connection.execute(
-                """
-                INSERT INTO semantic_operations (
-                    id, operation_kind, model_id, repository,
-                    resolved_revision, progress_total, progress_unit,
-                    request_payload, actor, idempotency_key
-                ) VALUES (
-                    %s, 'download', %s, %s, %s, %s, 'bytes',
-                    %s::jsonb, %s, %s
-                )
-                RETURNING *
-                """,
-                (
-                    str(uuid.uuid4()),
-                    artifact["id"],
-                    repository,
-                    resolved_revision,
-                    progress_total,
-                    payload_json,
-                    actor,
-                    idempotency_key,
-                ),
-            ).fetchone()
-            return dict(artifact), dict(operation)
-
-        return self.database.run(mutate)
-
     def mark_artifact_state(
         self,
         model_id: str,
@@ -702,7 +528,7 @@ class SemanticAdminStore:
             ).fetchone()
             if not artifact:
                 raise LookupError("semantic_model_not_found")
-            model_key, model_version = downloaded_model_identity(
+            model_key, model_version = local_model_identity(
                 artifact["hf_repository"],
                 artifact["resolved_revision"],
             )
@@ -1275,6 +1101,8 @@ class SemanticAdminStore:
                 raise LookupError("semantic_operation_not_found")
             if source["status"] not in {"failed", "cancelled"}:
                 raise RuntimeError("semantic_operation_not_retryable")
+            if source["operation_kind"] == "download":
+                raise RuntimeError("semantic_remote_model_download_disabled")
             if idempotency_key:
                 connection.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
@@ -1328,15 +1156,6 @@ class SemanticAdminStore:
                     idempotency_key,
                 ),
             ).fetchone()
-            if source["operation_kind"] == "download" and source["model_id"]:
-                connection.execute(
-                    """
-                    UPDATE semantic_model_artifacts
-                    SET artifact_state = 'downloading', validation_message = NULL
-                    WHERE id = %s AND artifact_state IN ('failed', 'incompatible')
-                    """,
-                    (source["model_id"],),
-                )
             return self._operation(row)
 
         return self.database.run(mutate)

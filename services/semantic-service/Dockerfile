@@ -3,8 +3,9 @@ FROM python:3.14.6-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    HF_HOME=/models/huggingface \
-    SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    SENTENCE_TRANSFORMERS_HOME=/models/runtime-cache
 
 WORKDIR /app
 

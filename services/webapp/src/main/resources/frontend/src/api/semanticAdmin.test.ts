@@ -3,7 +3,6 @@ import { requestJson } from './catalog';
 import {
   activateSemanticModel,
   cancelSemanticOperation,
-  searchHuggingFaceModels,
   startSemanticBenchmark,
 } from './semanticAdmin';
 
@@ -54,17 +53,10 @@ describe('semantic administration client', () => {
     );
   });
 
-  it('encodes Hub searches and cancellation identifiers', async () => {
-    await searchHuggingFaceModels('  multilingual e5  ');
+  it('encodes cancellation identifiers', async () => {
     await cancelSemanticOperation('operation/1');
 
-    expect(requestJson).toHaveBeenNthCalledWith(
-      1,
-      '/api/admin/semantic/hugging-face/models?query=multilingual+e5&limit=25',
-      { signal: undefined },
-    );
-    expect(requestJson).toHaveBeenNthCalledWith(
-      2,
+    expect(requestJson).toHaveBeenCalledWith(
       '/api/admin/semantic/operations/operation%2F1',
       { method: 'DELETE' },
     );

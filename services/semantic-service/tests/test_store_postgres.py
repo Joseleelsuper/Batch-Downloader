@@ -276,62 +276,7 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
         assert e5["artifactState"] == "ready"
         assert e5["minimumSimilarity"] == 0.82
 
-        download_request = {
-            "repository": "fixture/semantic-model",
-            "revision": "main",
-            "queryPrefix": "query: ",
-            "passagePrefix": "passage: ",
-            "minimumSimilarity": 0.4,
-        }
-        artifact, download = admin.create_download_operation(
-            repository="fixture/semantic-model",
-            requested_revision="main",
-            resolved_revision="d" * 40,
-            display_name="semantic-model",
-            metadata={"libraryName": "sentence-transformers"},
-            query_prefix="query: ",
-            passage_prefix="passage: ",
-            minimum_similarity=0.4,
-            actor="admin-test",
-            idempotency_key="download-idempotency-test",
-            request_payload=download_request,
-            progress_total=1024,
-        )
-        same_artifact, same_download = admin.create_download_operation(
-            repository="fixture/semantic-model",
-            requested_revision="main",
-            resolved_revision="d" * 40,
-            display_name="semantic-model",
-            metadata={"libraryName": "sentence-transformers"},
-            query_prefix="query: ",
-            passage_prefix="passage: ",
-            minimum_similarity=0.4,
-            actor="admin-test",
-            idempotency_key="download-idempotency-test",
-            request_payload=download_request,
-            progress_total=1024,
-        )
-        assert same_artifact["id"] == artifact["id"]
-        assert same_download["id"] == download["id"]
-        with pytest.raises(
-            RuntimeError,
-            match="semantic_idempotency_key_conflict",
-        ):
-            admin.create_download_operation(
-                repository="fixture/other-model",
-                requested_revision="main",
-                resolved_revision="e" * 40,
-                display_name="other-model",
-                metadata={"libraryName": "sentence-transformers"},
-                query_prefix="",
-                passage_prefix="",
-                minimum_similarity=0.0,
-                actor="admin-test",
-                idempotency_key="download-idempotency-test",
-                request_payload={"repository": "fixture/other-model"},
-                progress_total=2048,
-            )
-        assert admin.request_cancel(str(download["id"]))["status"] == "cancelled"
+        artifact = models[2]
         delete = admin.create_operation(
             kind="delete",
             actor="admin-test",

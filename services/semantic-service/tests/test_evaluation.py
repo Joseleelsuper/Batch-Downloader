@@ -327,8 +327,8 @@ def test_snapshot_persists_catalog_and_is_immutable(tmp_path) -> None:
     assert (snapshot_dir / "manifest.json").read_text(encoding="utf-8") == manifest
 
 
-def test_training_model_definitions_have_immutable_hugging_face_sources() -> None:
-    """Comprueba el escenario `training_model_definitions_have_immutable_hugging_face_sources`.
+def test_training_model_definitions_have_immutable_local_artifact_identifiers() -> None:
+    """Comprueba que los modelos locales mantienen identificadores reproducibles.
     """
     assert len(MODEL_DEFINITIONS) == 3
     for definition in MODEL_DEFINITIONS:

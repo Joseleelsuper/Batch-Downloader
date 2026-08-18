@@ -136,35 +136,6 @@ export interface SemanticBenchmarkRun {
   createdAt: string;
 }
 
-export interface HuggingFaceModelSummary {
-  repository: string;
-  displayName: string;
-  pipelineTag?: string | null;
-  libraryName?: string | null;
-  downloads: number;
-  likes: number;
-  lastModified?: string | null;
-}
-
-export interface HuggingFaceModelDetail extends HuggingFaceModelSummary {
-  sha: string;
-  gated: boolean;
-  private: boolean;
-  license?: string | null;
-  languages: string[];
-  architecture?: string | null;
-  parameterCount?: number | null;
-  maxSequenceLength?: number | null;
-  estimatedBytes: number;
-  files: Array<{ path: string; size: number }>;
-  compatible: boolean;
-  compatibilityReason?: string | null;
-  securityStatus: string;
-  suggestedQueryPrefix?: string | null;
-  suggestedPassagePrefix?: string | null;
-  suggestedMinimumSimilarity?: number | null;
-}
-
 export interface SemanticOperation {
   id: string;
   kind: SemanticOperationKind;

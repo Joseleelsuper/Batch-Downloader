@@ -15,9 +15,6 @@ vi.mock('../../api/semanticAdmin', () => ({
   fetchSemanticModels: vi.fn(),
   fetchSemanticBenchmarks: vi.fn(),
   fetchSemanticOperations: vi.fn(),
-  searchHuggingFaceModels: vi.fn(),
-  fetchHuggingFaceModel: vi.fn(),
-  downloadHuggingFaceModel: vi.fn(),
   startSemanticBenchmark: vi.fn(),
   prepareSemanticModel: vi.fn(),
   activateSemanticModel: vi.fn(),
@@ -144,10 +141,8 @@ describe('semantic administration page', () => {
       'href',
       '/admin/semantic/benchmarks',
     );
-    expect(screen.getByRole('link', { name: /Hugging Face/ })).toHaveAttribute(
-      'href',
-      '/admin/semantic/hugging-face',
-    );
+    expect(screen.getByRole('navigation', { name: 'Secciones de IA semántica' })
+      .querySelectorAll('a')).toHaveLength(2);
     expect(screen.getAllByText('multilingual-e5-base').length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(semanticApi.fetchSemanticOperations).toHaveBeenCalledTimes(1);

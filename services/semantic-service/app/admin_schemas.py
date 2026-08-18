@@ -16,68 +16,6 @@ class AdminModel(BaseModel):
     """
 
 
-class DownloadModelRequest(AdminModel):
-    """Representa una solicitud de `DownloadModel`.
-    """
-    repository: str = Field(min_length=3, max_length=200)
-    """Campo declarado `repository` de `DownloadModelRequest`.
-    """
-    revision: str | None = Field(default=None, max_length=200)
-    """Campo declarado `revision` de `DownloadModelRequest`.
-    """
-    query_prefix: str = Field(default="", alias="queryPrefix", max_length=100)
-    """Campo declarado `query_prefix` de `DownloadModelRequest`.
-    """
-    passage_prefix: str = Field(default="", alias="passagePrefix", max_length=100)
-    """Campo declarado `passage_prefix` de `DownloadModelRequest`.
-    """
-    minimum_similarity: float = Field(
-        default=0.0,
-        alias="minimumSimilarity",
-        ge=-1,
-        le=1,
-    )
-    """Campo declarado `minimum_similarity` de `DownloadModelRequest`.
-    """
-    acknowledge_unknown_license: bool = Field(
-        default=False,
-        alias="acknowledgeUnknownLicense",
-    )
-    """Campo declarado `acknowledge_unknown_license` de `DownloadModelRequest`.
-    """
-    acknowledge_missing_configuration: bool = Field(
-        default=False,
-        alias="acknowledgeMissingConfiguration",
-    )
-    """Campo declarado `acknowledge_missing_configuration` de `DownloadModelRequest`.
-    """
-
-    @field_validator("repository")
-    @classmethod
-    def validate_repository(cls, value: str) -> str:
-        """Valida la operación `repository`.
-
-        Args:
-            value (str): Valor que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
-
-        Throws:
-            ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
-        """
-        normalized = value.strip()
-        parts = normalized.split("/")
-        if (
-            len(parts) != 2
-            or any(not part for part in parts)
-            or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
-                   for part in parts for char in part)
-        ):
-            raise ValueError("repository_must_be_owner_and_name")
-        return normalized
-
-
 class BenchmarkModelsRequest(AdminModel):
     """Representa una solicitud de `BenchmarkModels`.
     """

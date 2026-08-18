@@ -136,21 +136,17 @@ class EmbeddingRuntime:
         with self._lock:
             if self._model is not None:
                 return self._model
-            source = self.registered.hf_repository
-            revision: str | None = self.registered.hf_revision
-            if self.registered.artifact_path:
-                artifact = Path(self.registered.artifact_path)
-                if not artifact.exists():
-                    raise RuntimeError("model_artifact_missing")
-                source = str(artifact)
-                revision = None
+            if not self.registered.artifact_path:
+                raise RuntimeError("model_artifact_missing")
+            artifact = Path(self.registered.artifact_path)
+            if not artifact.is_dir():
+                raise RuntimeError("model_artifact_missing")
             self._model = SentenceTransformer(
-                source,
-                revision=revision,
+                str(artifact),
                 device=self.device,
                 cache_folder=self.cache_dir,
                 trust_remote_code=False,
-                local_files_only=bool(self.registered.artifact_path),
+                local_files_only=True,
             )
             actual = self._model.get_embedding_dimension()
             if actual != self.registered.dimensions:

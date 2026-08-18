@@ -10,23 +10,19 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 from uuid import UUID
 
-import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, JSONResponse
-from huggingface_hub.errors import HfHubHTTPError
 from psycopg_pool import PoolTimeout
 
 from app.admin_schemas import (
     ActivateModelRequest,
     BenchmarkModelsRequest,
-    DownloadModelRequest,
 )
 from app.admin_store import SemanticAdminStore
 from app.config import get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
 from app.healthcheck import directory_writable
-from app.huggingface_catalog import HuggingFaceCatalog
 from app.schemas import SemanticSearchRequest, SemanticSearchResponse
 from app.store import SemanticStore
 
@@ -45,9 +41,6 @@ store = SemanticStore(database)
 """
 admin_store = SemanticAdminStore(database)
 """Estado global asociado a `admin_store`.
-"""
-hub_catalog = HuggingFaceCatalog()
-"""Estado global asociado a `hub_catalog`.
 """
 runtime_cache: OrderedDict[str, EmbeddingRuntime] = OrderedDict()
 """Estado global asociado a `runtime_cache`.
@@ -333,7 +326,7 @@ async def semantic_admin_models() -> list[dict[str, object]]:
     Returns:
         list[dict[str, object]]: Colección de elementos obtenidos por la operación.
     """
-    return await asyncio.to_thread(admin_store.models)
+    return await asyncio.to_thread(admin_store.local_models)
 
 
 @app.get(
@@ -353,7 +346,7 @@ async def semantic_admin_model(model_id: UUID) -> dict[str, object]:
         HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
     """
     try:
-        return await asyncio.to_thread(admin_store.model, str(model_id))
+        return await asyncio.to_thread(admin_store.local_model, str(model_id))
     except LookupError as exception:
         raise HTTPException(
             status_code=404,
@@ -377,200 +370,6 @@ async def semantic_admin_benchmarks(
         list[dict[str, object]]: Colección de elementos obtenidos por la operación.
     """
     return await asyncio.to_thread(admin_store.benchmarks, limit)
-
-
-@app.get(
-    "/internal/v1/admin/semantic/hugging-face/models",
-    dependencies=admin_dependencies,
-)
-async def semantic_admin_hub_models(
-    query: str = Query(min_length=2, max_length=120),
-    limit: int = Query(default=25, ge=1, le=50),
-) -> list[dict[str, object]]:
-    """Ejecuta la operación `semantic_admin_hub_models`.
-
-    Args:
-        query (str): Valor de `query` utilizado por la operación.
-        limit (int): Número máximo de elementos que se recuperarán.
-
-    Returns:
-        list[dict[str, object]]: Colección de elementos obtenidos por la operación.
-
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
-    """
-    try:
-        return await asyncio.to_thread(hub_catalog.search, query, limit=limit)
-    except HfHubHTTPError as exception:
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "hugging_face_unavailable"},
-        ) from exception
-    except httpx.HTTPError as exception:
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "hugging_face_unavailable"},
-        ) from exception
-
-
-@app.get(
-    "/internal/v1/admin/semantic/hugging-face/model",
-    dependencies=admin_dependencies,
-)
-async def semantic_admin_hub_model(
-    repository: str = Query(min_length=3, max_length=200),
-    revision: str | None = Query(default=None, max_length=200),
-) -> dict[str, object]:
-    """Ejecuta la operación `semantic_admin_hub_model`.
-
-    Args:
-        repository (str): Valor de `repository` utilizado por la operación.
-        revision (str | None): Valor de `revision` utilizado por la operación.
-
-    Returns:
-        dict[str, object]: Mapa con los datos producidos por la operación.
-
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
-    """
-    if not _valid_repository(repository):
-        raise HTTPException(
-            status_code=422,
-            detail={"code": "invalid_hugging_face_repository"},
-        )
-    try:
-        detail = await asyncio.to_thread(
-            hub_catalog.detail,
-            repository,
-            revision,
-        )
-        return detail.as_dict()
-    except HfHubHTTPError as exception:
-        status = (
-            404
-            if getattr(exception.response, "status_code", None) == 404
-            else 502
-        )
-        raise HTTPException(
-            status_code=status,
-            detail={"code": "hugging_face_model_unavailable"},
-        ) from exception
-    except httpx.HTTPError as exception:
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "hugging_face_model_unavailable"},
-        ) from exception
-
-
-@app.post(
-    "/internal/v1/admin/semantic/downloads",
-    status_code=202,
-    dependencies=admin_dependencies,
-)
-async def semantic_admin_download(
-    request: DownloadModelRequest,
-    actor: Annotated[str | None, Header(alias="X-Admin-Actor")] = None,
-    idempotency_key: Annotated[
-        str | None,
-        Header(alias="Idempotency-Key"),
-    ] = None,
-) -> dict[str, object]:
-    """Ejecuta la operación `semantic_admin_download`.
-
-    Args:
-        request (DownloadModelRequest): Solicitud recibida por la operación.
-        actor (str | None): Valor de `actor` utilizado por la operación.
-        idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
-
-    Returns:
-        dict[str, object]: Mapa con los datos producidos por la operación.
-
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
-    """
-    try:
-        detail = await asyncio.to_thread(
-            hub_catalog.detail,
-            request.repository,
-            request.revision,
-        )
-    except HfHubHTTPError as exception:
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "hugging_face_model_unavailable"},
-        ) from exception
-    except httpx.HTTPError as exception:
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "hugging_face_model_unavailable"},
-        ) from exception
-    if not detail.compatible:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": detail.compatibility_reason or "semantic_model_incompatible"
-            },
-        )
-    if not detail.license and not request.acknowledge_unknown_license:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "model_license_acknowledgement_required"},
-        )
-    if (
-        (
-            not request.query_prefix
-            or not request.passage_prefix
-            or detail.suggested_query_prefix is None
-            or detail.suggested_passage_prefix is None
-            or detail.suggested_minimum_similarity is None
-        )
-        and not request.acknowledge_missing_configuration
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "model_configuration_acknowledgement_required"},
-        )
-    if detail.estimated_bytes > settings.model_max_bytes:
-        raise HTTPException(
-            status_code=422,
-            detail={"code": "semantic_model_too_large"},
-        )
-    try:
-        artifact, operation = await asyncio.to_thread(
-            admin_store.create_download_operation,
-            repository=detail.repository,
-            requested_revision=request.revision,
-            resolved_revision=detail.sha,
-            display_name=detail.display_name,
-            metadata=detail.as_dict(),
-            query_prefix=request.query_prefix,
-            passage_prefix=request.passage_prefix,
-            minimum_similarity=request.minimum_similarity,
-            actor=_admin_actor(actor),
-            idempotency_key=_idempotency(idempotency_key),
-            request_payload=request.model_dump(by_alias=True),
-            progress_total=detail.estimated_bytes,
-        )
-    except RuntimeError as exception:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": str(exception)},
-        ) from exception
-    if artifact["artifact_state"] == "ready" and operation["status"] == "queued":
-        await asyncio.to_thread(
-            admin_store.complete_operation,
-            str(operation["id"]),
-            {"modelId": str(artifact["id"]), "alreadyDownloaded": True},
-        )
-        operation = {
-            **operation,
-            "status": "succeeded",
-        }
-    return {
-        "operationId": str(operation["id"]),
-        "status": operation["status"],
-        "modelId": str(artifact["id"]),
-    }
 
 
 @app.post(
@@ -965,17 +764,3 @@ def _idempotency(value: str | None) -> str | None:
     """
     normalized = (value or "").strip()
     return normalized[:200] or None
-
-
-def _valid_repository(repository: str) -> bool:
-    """Ejecuta el paso interno `_valid_repository`.
-
-    Args:
-        repository (str): Valor de `repository` utilizado por la operación.
-
-    Returns:
-        bool: Indica si se cumple la condición evaluada.
-    """
-    parts = repository.strip().split("/")
-    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
-    return len(parts) == 2 and all(part and set(part) <= allowed for part in parts)

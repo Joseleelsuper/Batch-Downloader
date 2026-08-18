@@ -1,14 +1,14 @@
 /*
  * THESIS: Un modelo no es una opción de menú, sino una entrega verificable; la vista
- * rechaza mezclar descarga, evidencia y producción en una sola acción.
+ * separa el inventario local, la evidencia y la activación en producción.
  * OWN-WORLD: Hereda el administrador claro y teal, con una banda de estado, tablas
  * densas, etiquetas semánticas y barras comparativas contenidas.
  * STORY: El operador identifica el modelo activo, reúne evidencia, prepara el
  * candidato y confirma el cambio sin perder de vista producción.
- * FIRST VIEWPORT: Estado operativo arriba, navegación de tres tareas debajo y el
+ * FIRST VIEWPORT: Estado operativo arriba, navegación de dos tareas debajo y el
  * contenido principal acompañado por una cola de trabajos recuperable.
- * FORM: Superficie Operate de control progresivo; biblioteca, comparativa y catálogo
- * remoto permanecen rutas familiares dentro del mundo visual existente.
+ * FORM: Superficie Operate de control progresivo; biblioteca y comparativa
+ * permanecen rutas familiares dentro del mundo visual existente.
  */
 import {
   Activity,
@@ -18,14 +18,12 @@ import {
   Cpu,
   Database,
   Download,
-  ExternalLink,
   Gauge,
   HardDrive,
   Library,
   LoaderCircle,
   Play,
   RotateCcw,
-  Search,
   ShieldCheck,
   Trash2,
   X,
@@ -48,21 +46,16 @@ import {
   activateSemanticModel,
   cancelSemanticOperation,
   deleteSemanticModel,
-  downloadHuggingFaceModel,
-  fetchHuggingFaceModel,
   fetchSemanticBenchmarks,
   fetchSemanticModels,
   fetchSemanticOperations,
   fetchSemanticOverview,
   prepareSemanticModel,
   retrySemanticOperation,
-  searchHuggingFaceModels,
   startSemanticBenchmark,
 } from '../../api/semanticAdmin';
 import { t } from '../../services/i18n';
 import type {
-  HuggingFaceModelDetail,
-  HuggingFaceModelSummary,
   SemanticBenchmarkMetric,
   SemanticBenchmarkRun,
   SemanticModel,
@@ -77,7 +70,7 @@ const NON_CANCELLABLE_PHASES = new Set([
   'finalizing',
   'publishing',
 ]);
-const SECTIONS = new Set(['models', 'benchmarks', 'hugging-face']);
+const SECTIONS = new Set(['models', 'benchmarks']);
 
 export function SemanticAiPage() {
   const { semanticSection = 'models' } = useParams<{ semanticSection: string }>();
@@ -155,10 +148,6 @@ export function SemanticAiPage() {
           <Gauge size={17} />
           {t('semantic.tabs.benchmarks')}
         </NavLink>
-        <NavLink to="/admin/semantic/hugging-face">
-          <Download size={17} />
-          {t('semantic.tabs.huggingFace')}
-        </NavLink>
       </nav>
 
       {error ? (
@@ -211,13 +200,6 @@ export function SemanticAiPage() {
                     location.state as { candidateModelId?: string } | null
                   )?.candidateModelId}
                   onStart={(modelIds) => runAction(() => startSemanticBenchmark(modelIds))}
-                />
-              ) : null}
-              {semanticSection === 'hugging-face' ? (
-                <HuggingFaceBrowser
-                  busy={busy}
-                  disk={overview?.disk}
-                  onDownload={(payload) => runAction(() => downloadHuggingFaceModel(payload))}
                 />
               ) : null}
             </>
@@ -734,287 +716,6 @@ function BenchmarkTable({ run }: { run: SemanticBenchmarkRun }) {
   );
 }
 
-function HuggingFaceBrowser({
-  busy,
-  disk,
-  onDownload,
-}: {
-  busy: boolean;
-  disk?: SemanticOverview['disk'];
-  onDownload: (payload: {
-    repository: string;
-    revision?: string;
-    queryPrefix: string;
-    passagePrefix: string;
-    minimumSimilarity: number;
-    acknowledgeUnknownLicense: boolean;
-    acknowledgeMissingConfiguration: boolean;
-  }) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<HuggingFaceModelSummary[]>([]);
-  const [selectedRepository, setSelectedRepository] = useState<string | null>(null);
-  const [detail, setDetail] = useState<HuggingFaceModelDetail | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [queryPrefix, setQueryPrefix] = useState('');
-  const [passagePrefix, setPassagePrefix] = useState('');
-  const [minimumSimilarity, setMinimumSimilarity] = useState(0);
-  const [licenseAcknowledged, setLicenseAcknowledged] = useState(false);
-  const [prefixesAcknowledged, setPrefixesAcknowledged] = useState(false);
-  const downloadBlock = detail
-    ? detail.estimatedBytes > (disk?.maximumModelBytes ?? Number.POSITIVE_INFINITY)
-      ? 'semantic_model_too_large'
-      : detail.estimatedBytes > Math.max(
-        0,
-        (disk?.freeBytes ?? Number.POSITIVE_INFINITY) - (disk?.reservedBytes ?? 0),
-      )
-        ? 'semantic_model_insufficient_disk'
-        : null
-    : null;
-
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      setResults([]);
-      return undefined;
-    }
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setSearching(true);
-      searchHuggingFaceModels(query, controller.signal)
-        .then((items) => {
-          setResults(items);
-          setLocalError(null);
-        })
-        .catch((cause) => {
-          if (!controller.signal.aborted) setLocalError(errorMessage(cause));
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setSearching(false);
-        });
-    }, 450);
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  }, [query]);
-
-  useEffect(() => {
-    if (!selectedRepository) {
-      setDetail(null);
-      return undefined;
-    }
-    const controller = new AbortController();
-    setDetailLoading(true);
-    fetchHuggingFaceModel(selectedRepository, controller.signal)
-      .then((value) => {
-        setDetail(value);
-        setQueryPrefix(value.suggestedQueryPrefix ?? '');
-        setPassagePrefix(value.suggestedPassagePrefix ?? '');
-        setMinimumSimilarity(value.suggestedMinimumSimilarity ?? 0);
-        setLicenseAcknowledged(Boolean(value.license));
-        setPrefixesAcknowledged(false);
-        setLocalError(null);
-      })
-      .catch((cause) => {
-        if (!controller.signal.aborted) setLocalError(errorMessage(cause));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setDetailLoading(false);
-      });
-    return () => controller.abort();
-  }, [selectedRepository]);
-
-  return (
-    <section className="semantic-section semantic-hub" aria-labelledby="semantic-hub-title">
-      <div className="semantic-section-heading">
-        <div>
-          <h3 id="semantic-hub-title">{t('semantic.hub.title')}</h3>
-          <p>{t('semantic.hub.description')}</p>
-        </div>
-        <a href="https://huggingface.co/models" target="_blank" rel="noreferrer">
-          {t('semantic.hub.openCatalog')}<ExternalLink size={15} />
-        </a>
-      </div>
-      <label className="semantic-hub-search">
-        <Search size={19} />
-        <span className="sr-only">{t('semantic.hub.searchLabel')}</span>
-        <input
-          type="search"
-          value={query}
-          placeholder={t('semantic.hub.searchPlaceholder')}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        {searching ? <LoaderCircle className="semantic-spin" size={18} aria-label={t('common.loading')} /> : null}
-      </label>
-      {localError ? <p className="error-banner">{localError}</p> : null}
-      <div className="semantic-hub-layout">
-        <div className="semantic-hub-results" aria-live="polite">
-          {query.trim().length < 2 ? (
-            <div className="semantic-empty semantic-hub-prompt">
-              <Search size={27} />
-              <h4>{t('semantic.hub.promptTitle')}</h4>
-              <p>{t('semantic.hub.promptBody')}</p>
-            </div>
-          ) : null}
-          {!searching && query.trim().length >= 2 && !results.length ? (
-            <p className="empty-state">{t('semantic.hub.noResults')}</p>
-          ) : null}
-          {results.map((model) => (
-            <button
-              className={model.repository === selectedRepository ? 'semantic-hub-result-active' : ''}
-              type="button"
-              key={model.repository}
-              onClick={() => setSelectedRepository(model.repository)}
-            >
-              <span className="semantic-model-icon" aria-hidden="true"><BrainCircuit size={18} /></span>
-              <span>
-                <strong>{model.displayName}</strong>
-                <small>{model.repository}</small>
-              </span>
-              <span className="semantic-hub-popularity">
-                <strong>{compactNumber(model.downloads)}</strong>
-                <small>{t('semantic.hub.downloads')}</small>
-              </span>
-            </button>
-          ))}
-        </div>
-        <aside className="semantic-hub-detail" aria-busy={detailLoading}>
-          {detailLoading ? <SemanticDetailSkeleton /> : null}
-          {!detailLoading && !detail ? (
-            <div className="semantic-empty">
-              <Library size={28} />
-              <h4>{t('semantic.hub.detailEmptyTitle')}</h4>
-              <p>{t('semantic.hub.detailEmptyBody')}</p>
-            </div>
-          ) : null}
-          {!detailLoading && detail ? (
-            <>
-              <div className="semantic-hub-detail-heading">
-                <div>
-                  <h4>{detail.displayName}</h4>
-                  <p>{detail.repository}</p>
-                </div>
-                <StatusBadge
-                  tone={detail.compatible ? 'success' : 'danger'}
-                  label={detail.compatible ? t('semantic.hub.compatible') : t('semantic.hub.incompatible')}
-                />
-              </div>
-              <dl className="semantic-hub-facts">
-                <Fact label={t('semantic.hub.revision')} value={detail.sha.slice(0, 12)} mono />
-                <Fact label={t('semantic.hub.license')} value={detail.license ?? t('semantic.hub.unknown')} />
-                <Fact label={t('semantic.hub.languages')} value={detail.languages.join(', ') || t('semantic.hub.unknown')} />
-                <Fact label={t('semantic.hub.task')} value={detail.pipelineTag ?? t('semantic.hub.unknown')} />
-                <Fact label={t('semantic.hub.library')} value={detail.libraryName ?? t('semantic.hub.unknown')} />
-                <Fact label={t('semantic.hub.architecture')} value={detail.architecture ?? t('semantic.hub.unknown')} />
-                <Fact label={t('semantic.hub.parameters')} value={detail.parameterCount ? compactNumber(detail.parameterCount) : t('semantic.hub.unknown')} />
-                <Fact label={t('semantic.hub.size')} value={formatBytes(detail.estimatedBytes)} />
-                <Fact label={t('semantic.hub.formats')} value={modelFormats(detail)} />
-                <Fact label={t('semantic.hub.sequence')} value={detail.maxSequenceLength?.toLocaleString('es-ES') ?? t('semantic.hub.unknown')} />
-                <Fact
-                  label={t('semantic.hub.security')}
-                  value={t(`semantic.security.${detail.securityStatus}`)}
-                />
-              </dl>
-              {!detail.compatible ? (
-                <p className="semantic-compatibility-error">
-                  <XCircle size={17} />
-                  {t(`semantic.error.${detail.compatibilityReason ?? 'semantic_model_incompatible'}`)}
-                </p>
-              ) : null}
-              {detail.compatible && downloadBlock ? (
-                <p className="semantic-compatibility-error">
-                  <HardDrive size={17} />
-                  {t(`semantic.error.${downloadBlock}`)}
-                </p>
-              ) : null}
-              <fieldset className="semantic-runtime-config" disabled={!detail.compatible || busy}>
-                <legend>{t('semantic.hub.runtimeConfig')}</legend>
-                <label>
-                  {t('semantic.hub.queryPrefix')}
-                  <input value={queryPrefix} onChange={(event) => setQueryPrefix(event.target.value)} />
-                </label>
-                <label>
-                  {t('semantic.hub.passagePrefix')}
-                  <input value={passagePrefix} onChange={(event) => setPassagePrefix(event.target.value)} />
-                </label>
-                <label>
-                  {t('semantic.hub.minimumSimilarity')}
-                  <input
-                    type="number"
-                    min="-1"
-                    max="1"
-                    step="0.01"
-                    value={minimumSimilarity}
-                    onChange={(event) => setMinimumSimilarity(Number(event.target.value))}
-                  />
-                </label>
-              </fieldset>
-              {!detail.license ? (
-                <label className="semantic-license-check">
-                  <input
-                    type="checkbox"
-                    checked={licenseAcknowledged}
-                    onChange={(event) => setLicenseAcknowledged(event.target.checked)}
-                  />
-                  <span>{t('semantic.hub.licenseAcknowledgement')}</span>
-                </label>
-              ) : null}
-              {(
-                !queryPrefix
-                || !passagePrefix
-                || detail.suggestedQueryPrefix == null
-                || detail.suggestedPassagePrefix == null
-                || detail.suggestedMinimumSimilarity == null
-              ) ? (
-                <label className="semantic-license-check">
-                  <input
-                    type="checkbox"
-                    checked={prefixesAcknowledged}
-                    onChange={(event) => setPrefixesAcknowledged(event.target.checked)}
-                  />
-                  <span>{t('semantic.hub.prefixAcknowledgement')}</span>
-                </label>
-              ) : null}
-              <button
-                className="primary-button semantic-download-model"
-                type="button"
-                disabled={
-                  !detail.compatible
-                  || Boolean(downloadBlock)
-                  || busy
-                  || (!detail.license && !licenseAcknowledged)
-                  || ((
-                    !queryPrefix
-                    || !passagePrefix
-                    || detail.suggestedQueryPrefix == null
-                    || detail.suggestedPassagePrefix == null
-                    || detail.suggestedMinimumSimilarity == null
-                  ) && !prefixesAcknowledged)
-                }
-                onClick={() => onDownload({
-                  repository: detail.repository,
-                  revision: detail.sha,
-                  queryPrefix,
-                  passagePrefix,
-                  minimumSimilarity,
-                  acknowledgeUnknownLicense: licenseAcknowledged,
-                  acknowledgeMissingConfiguration: prefixesAcknowledged,
-                })}
-              >
-                <Download size={17} />
-                {t('semantic.hub.downloadAction')}
-                <small>{formatBytes(detail.estimatedBytes)}</small>
-              </button>
-            </>
-          ) : null}
-        </aside>
-      </div>
-    </section>
-  );
-}
-
 function OperationTray({
   operations,
   onCancel,
@@ -1099,7 +800,8 @@ function OperationTray({
                 </>
               ) : null}
               {operation.errorCode ? <code>{operation.errorCode}</code> : null}
-              {operation.status === 'failed' || operation.status === 'cancelled' ? (
+              {(operation.status === 'failed' || operation.status === 'cancelled')
+                && operation.kind !== 'download' ? (
                 <button
                   className="secondary-button compact-button semantic-retry-operation"
                   type="button"
@@ -1126,29 +828,9 @@ function StatusBadge({
   return <span className={`semantic-badge semantic-badge-${tone}`}>{label}</span>;
 }
 
-function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd className={mono ? 'semantic-mono' : ''}>{value}</dd>
-    </div>
-  );
-}
-
 function SemanticSkeleton() {
   return (
     <div className="semantic-skeleton" aria-label={t('common.loading')}>
-      <span />
-      <span />
-      <span />
-    </div>
-  );
-}
-
-function SemanticDetailSkeleton() {
-  return (
-    <div className="semantic-detail-skeleton" aria-label={t('common.loading')}>
-      <span />
       <span />
       <span />
       <span />
@@ -1208,15 +890,6 @@ function compactNumber(value: number): string {
 
 function integer(value: number): string {
   return Math.round(value).toLocaleString('es-ES');
-}
-
-function modelFormats(detail: HuggingFaceModelDetail): string {
-  const formats = new Set(
-    detail.files
-      .map((file) => file.path.split('.').pop()?.toLowerCase())
-      .filter((value): value is string => Boolean(value)),
-  );
-  return [...formats].sort().join(', ') || t('semantic.hub.unknown');
 }
 
 function decimal(value: number): string {

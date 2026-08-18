@@ -89,8 +89,8 @@ def model_index_name(model_version: str) -> str:
     return f"ix_embeddings_{digest}_hnsw"
 
 
-def downloaded_model_identity(repository: str, revision: str) -> tuple[str, str]:
-    """Ejecuta la operación `downloaded_model_identity`.
+def local_model_identity(repository: str, revision: str) -> tuple[str, str]:
+    """Construye la identidad estable de un artefacto local.
 
     Args:
         repository (str): Valor de `repository` utilizado por la operación.

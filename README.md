@@ -197,8 +197,9 @@ y una transacción crea o reutiliza sus fuentes, cifra los candidatos
 explícitamente; nunca se inventa. Las URL finales de los ejecutables no aparecen
 en respuestas, auditorías, logs ni cargas de cola.
 
-Los pesos se descargan desde Hugging Face, pero las descripciones, metadatos y
-consultas permanecen dentro del despliegue local:
+Los pesos no se descargan desde la aplicación. Cada modelo debe copiarse
+manualmente al almacenamiento local antes de poder cargarse; descripciones,
+metadatos y consultas permanecen dentro del despliegue:
 
 `SEMANTIC_MINIMUM_SIMILARITY=0.82` es el umbral inicial medido para E5-base; se
 mantiene configurable porque debe recalibrarse si se promociona otra familia de
@@ -212,7 +213,7 @@ docker compose --env-file .env run --rm semantic-indexer \
 # Entrenar y comparar MiniLM, E5-base y BGE-M3 (perfil explícito)
 docker compose --env-file .env --profile training run --rm semantic-trainer
 
-# Verificar descarga, LoRA, evaluación e informes con un lote acotado
+# Verificar carga local, LoRA, evaluación e informes con un lote acotado
 docker compose --env-file .env --profile training run --rm semantic-trainer \
   python -m app.trainer --smoke
 ```
@@ -231,29 +232,28 @@ ni activa un modelo; sirve únicamente para verificar el flujo reproducible.
 
 ## Administración de modelos semánticos
 
-Un administrador puede abrir `/admin/semantic/models`,
-`/admin/semantic/benchmarks` y `/admin/semantic/hugging-face`. El navegador solo
-habla con Core API; Core aplica sesión `ADMIN`, CSRF y auditoría y usa el token
-interno únicamente al comunicarse con `semantic-service`.
+Un administrador puede abrir `/admin/semantic/models` y
+`/admin/semantic/benchmarks`. El navegador solo habla con Core API; Core aplica
+sesión `ADMIN`, CSRF y auditoría y usa el token interno únicamente al comunicarse
+con `semantic-service`.
 
 `semantic-model-worker` se inicia siempre con Compose y ejecuta una operación
 pesada cada vez. Las operaciones se guardan en PostgreSQL con lease, reintentos,
 progreso e idempotencia, por lo que continúan después de recargar el navegador o
 reiniciar el worker. El flujo de producción es deliberadamente explícito:
 
-1. Descargar una revisión pública e inmutable, exclusivamente con
-   `safetensors`, y validarla offline con `trust_remote_code=False`.
+1. Copiar manualmente un artefacto compatible en
+   `/models/manual/<organización>--<modelo>/<revisión>` —o directamente en la
+   carpeta del modelo— y registrarlo en el inventario semántico.
 2. Compararla con el modelo activo mediante un benchmark completo y vigente.
 3. Preparar embeddings e índice para todos los `contentHash` actuales.
 4. Calentar el candidato sin cambiar producción.
 5. Activar o hacer rollback atómicamente desde la interfaz.
 
-El descubrimiento usa
-[`HfApi`](https://huggingface.co/docs/huggingface_hub/en/package_reference/hf_api)
-y fija cada descarga a la revisión SHA resuelta antes de llamar a
-[`snapshot_download`](https://huggingface.co/docs/huggingface_hub/main/en/package_reference/file_download).
-La ficha muestra licencia y estado de los
-[escaneos de seguridad del Hub](https://huggingface.co/docs/hub/security).
+El servicio no expone catálogo remoto ni endpoints de descarga. El runtime y el
+entrenador exigen una ruta local existente, usan `local_files_only=True` y se
+ejecutan con `HF_HUB_OFFLINE=1` y `TRANSFORMERS_OFFLINE=1`; si falta el artefacto,
+la carga falla sin intentar resolverlo por Internet.
 
 Los benchmarks `smoke`, heredados o con un catálogo/configuración diferente se
 muestran como diagnóstico, pero nunca habilitan preparación o recomendación.
@@ -263,9 +263,8 @@ su umbral `0.82`; cada modelo nuevo guarda sus propios `queryPrefix`,
 
 Las cuotas se controlan con `SEMANTIC_MODEL_MAX_BYTES` y
 `SEMANTIC_MODEL_MIN_FREE_BYTES`; el lease con
-`SEMANTIC_OPERATION_LEASE_SECONDS`. No se admiten repositorios privados o
-gated, tokens de Hugging Face, pesos pickle, código remoto, LoRA ni entrenamiento
-desde esta interfaz.
+`SEMANTIC_OPERATION_LEASE_SECONDS`. No se admiten descargas remotas, resolución
+de catálogos externos, pesos pickle ni código remoto desde esta interfaz.
 
 ## Scraper CPython 3.14t
 

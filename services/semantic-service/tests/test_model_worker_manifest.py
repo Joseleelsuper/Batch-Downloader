@@ -7,17 +7,17 @@ import pytest
 from app.model_worker import SemanticModelWorker
 
 
-def test_manifest_validation_ignores_hub_cache_and_checks_expected_sizes(
+def test_manifest_validation_ignores_runtime_cache_and_checks_expected_sizes(
     tmp_path: Path,
 ) -> None:
-    """Comprueba el escenario `manifest_validation_ignores_hub_cache_and_checks_expected_sizes`.
+    """Comprueba que la caché auxiliar no altera el manifiesto del modelo.
 
     Args:
         tmp_path (Path): Directorio temporal proporcionado por pytest.
     """
     (tmp_path / "model.safetensors").write_bytes(b"weights")
     (tmp_path / "config.json").write_text("{}", encoding="utf-8")
-    cache = tmp_path / ".cache" / "huggingface"
+    cache = tmp_path / ".cache" / "runtime"
     cache.mkdir(parents=True)
     cache_file = cache / "download.json"
     cache_file.write_text('{"timestamp": 1}', encoding="utf-8")
@@ -43,3 +43,20 @@ def test_manifest_validation_ignores_hub_cache_and_checks_expected_sizes(
                 {"path": "config.json", "size": 2},
             ],
         )
+
+
+def test_local_artifact_only_resolves_manual_or_managed_directories(
+    tmp_path: Path,
+) -> None:
+    """Comprueba que la resolución de modelos se limita al almacenamiento local."""
+    worker = object.__new__(SemanticModelWorker)
+    worker.artifacts_root = tmp_path / "artifacts"
+    worker.manual_root = tmp_path / "manual"
+    revision = "a" * 40
+
+    assert worker._local_artifact("model-id", "owner/model", revision) is None
+
+    manual = worker.manual_root / "owner--model" / revision
+    manual.mkdir(parents=True)
+
+    assert worker._local_artifact("model-id", "owner/model", revision) == manual

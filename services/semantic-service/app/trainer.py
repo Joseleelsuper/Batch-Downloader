@@ -518,12 +518,19 @@ def train_model(
 
     random.seed(settings.trainer_seed)
     np.random.seed(settings.trainer_seed)
+    manual_root = Path(settings.model_cache_dir) / "manual"
+    directory_name = base.repository.replace("/", "--")
+    base_path = manual_root / directory_name / base.revision
+    if not base_path.is_dir():
+        base_path = manual_root / directory_name
+    if not base_path.is_dir():
+        raise RuntimeError("model_artifact_missing")
     model = SentenceTransformer(
-        base.repository,
-        revision=base.revision,
+        str(base_path),
         device=settings.device,
         cache_folder=settings.model_cache_dir,
         trust_remote_code=False,
+        local_files_only=True,
     )
     transformer_module = model[0]
     auto_model = transformer_module.auto_model
@@ -624,6 +631,7 @@ def train_model(
         device=settings.device,
         cache_folder=settings.model_cache_dir,
         trust_remote_code=False,
+        local_files_only=True,
     )
     actual_dimensions = reloaded.get_embedding_dimension()
     if actual_dimensions != base.dimensions:

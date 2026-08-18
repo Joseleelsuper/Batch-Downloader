@@ -48,7 +48,7 @@ class SemanticAdminClientTest {
         AtomicReference<String> idempotency = new AtomicReference<>();
         AtomicReference<String> body = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/internal/v1/admin/semantic/downloads", exchange -> {
+        server.createContext("/internal/v1/admin/semantic/benchmarks", exchange -> {
             token.set(exchange.getRequestHeaders().getFirst("X-Internal-Service-Token"));
             actor.set(exchange.getRequestHeaders().getFirst("X-Admin-Actor"));
             idempotency.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
@@ -63,17 +63,17 @@ class SemanticAdminClientTest {
         server.start();
 
         SemanticAdminClient.Result result = client().post(
-                "/internal/v1/admin/semantic/downloads",
-                new ObjectMapper().readTree("{\"repository\":\"owner/model\"}"),
+                "/internal/v1/admin/semantic/benchmarks",
+                new ObjectMapper().readTree("{\"modelIds\":[\"model-a\",\"model-b\"]}"),
                 "administrator",
-                "semantic-download-test");
+                "semantic-benchmark-test");
 
         assertThat(result.status()).isEqualTo(202);
         assertThat(result.body().path("status").asText()).isEqualTo("queued");
         assertThat(token).hasValue("internal-secret");
         assertThat(actor).hasValue("administrator");
-        assertThat(idempotency).hasValue("semantic-download-test");
-        assertThat(body.get()).contains("owner/model").doesNotContain("internal-secret");
+        assertThat(idempotency).hasValue("semantic-benchmark-test");
+        assertThat(body.get()).contains("model-a").doesNotContain("internal-secret");
     }
 
     /**

@@ -118,6 +118,8 @@ class SemanticModelWorker:
         self.artifacts_root = Path(self.settings.model_cache_dir) / "artifacts"
         """Estado de instancia asociado a `artifacts_root`.
         """
+        self.manual_root = Path(self.settings.model_cache_dir) / "manual"
+        """Directorio que contiene exclusivamente modelos aprovisionados a mano."""
 
     def open(self) -> None:
         """Ejecuta `open` dentro de `SemanticModelWorker`.
@@ -126,6 +128,7 @@ class SemanticModelWorker:
         self.database.migrate()
         self.artifacts_root.mkdir(parents=True, exist_ok=True)
         (self.artifacts_root / ".staging").mkdir(parents=True, exist_ok=True)
+        self.manual_root.mkdir(parents=True, exist_ok=True)
         self.reconcile_registered_models()
 
     def close(self) -> None:
@@ -159,18 +162,10 @@ class SemanticModelWorker:
                 else:
                     self.store.complete_operation(operation_id, result)
             except InterruptedError:
-                self._cleanup_operation_staging(operation)
-                if operation["operation_kind"] == "download" and operation["model_id"]:
-                    self.store.mark_artifact_state(
-                        str(operation["model_id"]),
-                        "failed",
-                        message="semantic_operation_cancelled",
-                    )
                 if operation["operation_kind"] == "prepare" and operation["model_id"]:
                     self.store.restore_deployment_state(str(operation["model_id"]))
                 self.store.mark_cancelled(operation_id)
             except Exception as exception:
-                self._cleanup_operation_staging(operation)
                 code = _error_code(exception)
                 logger.exception(
                     "semantic_operation_failed id=%s kind=%s code=%s",
@@ -178,12 +173,6 @@ class SemanticModelWorker:
                     operation["operation_kind"],
                     code,
                 )
-                if operation["operation_kind"] == "download" and operation["model_id"]:
-                    self.store.mark_artifact_state(
-                        str(operation["model_id"]),
-                        "incompatible" if "incompatible" in code else "failed",
-                        message=code,
-                    )
                 if operation["operation_kind"] == "prepare" and operation["model_id"]:
                     self.store.mark_deployment_failed(str(operation["model_id"]))
                 self.store.fail_operation(
@@ -192,18 +181,6 @@ class SemanticModelWorker:
                     _safe_message(code),
                 )
         return True
-
-    def _cleanup_operation_staging(self, operation: dict[str, Any]) -> None:
-        """Ejecuta el paso interno `_cleanup_operation_staging`.
-
-        Args:
-            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
-        """
-        if operation["operation_kind"] != "download":
-            return
-        staging = self.artifacts_root / ".staging" / str(operation["id"])
-        if staging.exists():
-            self._safe_remove(staging)
 
     def run_loop(self) -> None:
         """Ejecuta la operación `loop`.
@@ -229,7 +206,8 @@ class SemanticModelWorker:
                     artifact_bytes=directory_bytes(local_path),
                 )
                 continue
-            snapshot = self._cached_snapshot(
+            snapshot = self._local_artifact(
+                model["id"],
                 model["repository"],
                 model["revision"],
             )
@@ -254,7 +232,7 @@ class SemanticModelWorker:
         """
         kind = operation["operation_kind"]
         if kind == "download":
-            return self._download(operation)
+            raise RuntimeError("semantic_remote_model_download_disabled")
         if kind == "benchmark":
             return self._benchmark(operation)
         if kind == "prepare":
@@ -264,148 +242,6 @@ class SemanticModelWorker:
         if kind == "delete":
             return self._delete(operation)
         raise RuntimeError("unsupported_semantic_operation")
-
-    def _download(self, operation: dict[str, Any]) -> dict[str, Any]:
-        """Ejecuta el paso interno `_download`.
-
-        Args:
-            operation (dict[str, Any]): Valor de `operation` utilizado por la operación.
-
-        Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
-
-        Throws:
-            RuntimeError: Si el estado de ejecución impide completar la operación.
-            InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
-        """
-        operation_id = str(operation["id"])
-        model_id = str(operation["model_id"])
-        repository = str(operation["repository"])
-        revision = str(operation["resolved_revision"])
-        request = dict(operation["request_payload"] or {})
-        total = int(operation["progress_total"] or 0)
-        artifact = self.store.artifact(model_id)
-        expected_files = list(
-            (artifact.get("metadata") or {}).get("files") or []
-        )
-        if (
-            artifact["artifact_state"] == "ready"
-            and artifact.get("model_version")
-            and artifact.get("local_path")
-            and Path(artifact["local_path"]).is_dir()
-        ):
-            return {
-                "modelId": model_id,
-                "modelVersion": artifact["model_version"],
-                "revision": revision,
-                "recovered": True,
-            }
-        if total > self.settings.model_max_bytes:
-            raise RuntimeError("semantic_model_too_large")
-        usage = shutil.disk_usage(self.settings.model_cache_dir)
-        required = max(total, 1)
-        if usage.free - required < self.settings.model_min_free_bytes:
-            raise RuntimeError("semantic_model_insufficient_disk")
-        staging = self.artifacts_root / ".staging" / operation_id
-        final = self.artifacts_root / model_id
-        self._assert_managed(staging)
-        self._assert_managed(final)
-        staging.mkdir(parents=True, exist_ok=True)
-        self.store.update_operation(
-            operation_id,
-            phase="downloading",
-            current=directory_bytes(staging),
-            total=total,
-            unit="bytes",
-            message="Descargando archivos del modelo",
-        )
-        progress_stopped = threading.Event()
-        progress_thread = threading.Thread(
-            target=self._track_directory_progress,
-            args=(operation_id, staging, total, progress_stopped),
-            daemon=True,
-        )
-        progress_thread.start()
-        try:
-            self._run_json_subprocess(
-                operation_id,
-                [
-                    sys.executable,
-                    "-m",
-                    "app.model_download",
-                    "--repository",
-                    repository,
-                    "--revision",
-                    revision,
-                    "--staging",
-                    str(staging),
-                ],
-            )
-        finally:
-            progress_stopped.set()
-            progress_thread.join(timeout=2)
-        self._cancel_checkpoint(operation_id, cleanup=staging)
-        self.store.mark_artifact_state(model_id, "validating")
-        self.store.update_operation(
-            operation_id,
-            phase="verifying",
-            current=total,
-            total=total,
-            unit="bytes",
-            message="Verificando el manifiesto",
-        )
-        manifest_digest = self._verify_and_digest(
-            staging,
-            expected_files=expected_files,
-        )
-        self._cancel_checkpoint(operation_id, cleanup=staging)
-        self.store.update_operation(
-            operation_id,
-            phase="validating",
-            message="Validando embeddings en un proceso aislado",
-        )
-        validation = self._validate_subprocess(
-            operation_id,
-            staging,
-            query_prefix=str(request.get("queryPrefix") or ""),
-            passage_prefix=str(request.get("passagePrefix") or ""),
-        )
-        self._cancel_checkpoint(operation_id, cleanup=staging)
-        if not self.store.begin_finalization(
-            operation_id,
-            owner=self.owner,
-            phase="publishing",
-            message="Publicando el artefacto validado",
-        ):
-            raise InterruptedError("semantic_operation_cancelled")
-        if final.exists():
-            if (
-                self._verify_and_digest(
-                    final,
-                    expected_files=expected_files,
-                )
-                != manifest_digest
-            ):
-                raise RuntimeError("semantic_model_artifact_collision")
-            self._safe_remove(staging)
-        else:
-            os.replace(staging, final)
-        model_version = self.store.register_validated_artifact(
-            model_id,
-            local_path=str(final),
-            artifact_bytes=directory_bytes(final),
-            manifest_digest=manifest_digest,
-            dimensions=int(validation["dimensions"]),
-            metadata={
-                "validation": validation,
-                "downloadedBy": "semantic-model-worker",
-            },
-        )
-        return {
-            "modelId": model_id,
-            "modelVersion": model_version,
-            "revision": revision,
-        }
 
     def _benchmark(self, operation: dict[str, Any]) -> dict[str, Any]:
         """Ejecuta el paso interno `_benchmark`.
@@ -745,34 +581,6 @@ class SemanticModelWorker:
                 raise RuntimeError("semantic_model_incompatible_remote_code")
         return digest.hexdigest()
 
-    def _track_directory_progress(
-        self,
-        operation_id: str,
-        directory: Path,
-        total: int,
-        stopped: threading.Event,
-    ) -> None:
-        """Ejecuta el paso interno `_track_directory_progress`.
-
-        Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            directory (Path): Valor de `directory` utilizado por la operación.
-            total (int): Valor de `total` utilizado por la operación.
-            stopped (threading.Event): Valor de `stopped` utilizado por la operación.
-        """
-        while not stopped.wait(1):
-            try:
-                self.store.update_operation(
-                    operation_id,
-                    phase="downloading",
-                    current=min(directory_bytes(directory), total) if total else directory_bytes(directory),
-                    total=total,
-                    unit="bytes",
-                    message="Descargando archivos del modelo",
-                )
-            except Exception:
-                logger.exception("semantic_download_progress_failed")
-
     def _cancel_checkpoint(
         self,
         operation_id: str,
@@ -794,35 +602,29 @@ class SemanticModelWorker:
             self._safe_remove(cleanup)
         raise InterruptedError("semantic_operation_cancelled")
 
-    def _cached_snapshot(self, repository: str, revision: str) -> Path | None:
-        """Ejecuta el paso interno `_cached_snapshot`.
+    def _local_artifact(
+        self,
+        model_id: str,
+        repository: str,
+        revision: str,
+    ) -> Path | None:
+        """Localiza un artefacto aprovisionado manualmente sin consultar redes.
 
         Args:
+            model_id (str): Identificador estable del modelo registrado.
             repository (str): Valor de `repository` utilizado por la operación.
             revision (str): Valor de `revision` utilizado por la operación.
 
         Returns:
             Path | None: Resultado producido por la operación.
         """
-        cache_name = "models--" + repository.replace("/", "--")
-        roots = (
-            Path(self.settings.model_cache_dir) / cache_name / "snapshots" / revision,
-            Path(self.settings.model_cache_dir) / "huggingface" / "hub" / cache_name / "snapshots" / revision,
-            Path(self.settings.model_cache_dir) / "sentence-transformers" / cache_name / "snapshots" / revision,
+        directory_name = repository.replace("/", "--")
+        candidates = (
+            self.artifacts_root / model_id,
+            self.manual_root / directory_name / revision,
+            self.manual_root / directory_name,
         )
-        return next((path for path in roots if path.is_dir()), None)
-
-    def _assert_managed(self, path: Path) -> None:
-        """Ejecuta el paso interno `_assert_managed`.
-
-        Args:
-            path (Path): Ruta del recurso que debe procesarse.
-
-        Throws:
-            RuntimeError: Si el estado de ejecución impide completar la operación.
-        """
-        if not path.resolve().is_relative_to(self.artifacts_root.resolve()):
-            raise RuntimeError("semantic_model_path_outside_artifacts")
+        return next((path for path in candidates if path.is_dir()), None)
 
     def _assert_model_cache_path(self, path: Path) -> None:
         """Ejecuta el paso interno `_assert_model_cache_path`.

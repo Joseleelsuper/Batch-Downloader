@@ -1,7 +1,5 @@
 import { requestJson } from './catalog';
 import type {
-  HuggingFaceModelDetail,
-  HuggingFaceModelSummary,
   SemanticBenchmarkRun,
   SemanticModel,
   SemanticOperation,
@@ -39,43 +37,6 @@ export function fetchSemanticModels(): Promise<SemanticModel[]> {
 
 export function fetchSemanticBenchmarks(): Promise<SemanticBenchmarkRun[]> {
   return requestJson<SemanticBenchmarkRun[]>('/api/admin/semantic/benchmarks');
-}
-
-export function searchHuggingFaceModels(
-  query: string,
-  signal?: AbortSignal,
-): Promise<HuggingFaceModelSummary[]> {
-  const params = new URLSearchParams({ query: query.trim(), limit: '25' });
-  return requestJson<HuggingFaceModelSummary[]>(
-    `/api/admin/semantic/hugging-face/models?${params}`,
-    { signal },
-  );
-}
-
-export function fetchHuggingFaceModel(
-  repository: string,
-  signal?: AbortSignal,
-): Promise<HuggingFaceModelDetail> {
-  const params = new URLSearchParams({ repository });
-  return requestJson<HuggingFaceModelDetail>(
-    `/api/admin/semantic/hugging-face/model?${params}`,
-    { signal },
-  );
-}
-
-export function downloadHuggingFaceModel(payload: {
-  repository: string;
-  revision?: string;
-  queryPrefix: string;
-  passagePrefix: string;
-  minimumSimilarity: number;
-  acknowledgeUnknownLicense: boolean;
-  acknowledgeMissingConfiguration: boolean;
-}): Promise<SemanticOperationAccepted> {
-  return command('/api/admin/semantic/downloads', 'download', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
 }
 
 export function startSemanticBenchmark(
