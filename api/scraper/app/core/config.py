@@ -12,10 +12,7 @@ from sqlalchemy import URL, make_url
 class GroqDescriptionModel(StrEnum):
     """Enumera los valores admitidos por `GroqDescriptionModel`.
     """
-
-    LLAMA_3_3_70B = "llama-3.3-70b-versatile"
-    """Constante que define `LLAMA_3_3_70B`.
-    """
+    
     GPT_OSS_120B = "openai/gpt-oss-120b"
     """Constante que define `GPT_OSS_120B`.
     """
@@ -34,7 +31,6 @@ class GroqDescriptionModel(StrEnum):
 
 
 DEFAULT_GROQ_DESCRIPTION_FALLBACKS = (
-    GroqDescriptionModel.LLAMA_3_3_70B,
     GroqDescriptionModel.QWEN_3_32B,
     GroqDescriptionModel.QWEN_3_6_27B,
     GroqDescriptionModel.LLAMA_4_SCOUT,

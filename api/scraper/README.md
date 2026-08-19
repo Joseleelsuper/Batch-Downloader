@@ -44,10 +44,9 @@ La clave `SCRAPPER_LLM_GROQ_API_KEY` activa Groq. El modelo primario se configur
 con `SCRAPPER_LLM_GROQ_MODEL`; cuando alcanza una cuota o sufre un fallo transitorio,
 el descriptor rota, sin duplicados, por estos modelos de texto:
 
-1. `llama-3.3-70b-versatile`
-2. `qwen/qwen3-32b`
-3. `qwen/qwen3.6-27b`
-4. `meta-llama/llama-4-scout-17b-16e-instruct`
+1. `qwen/qwen3-32b`
+2. `qwen/qwen3.6-27b`
+3. `meta-llama/llama-4-scout-17b-16e-instruct`
 
 La lista puede sobrescribirse mediante `SCRAPPER_LLM_GROQ_FALLBACK_MODELS` como un
 array JSON. `openai/gpt-oss-120b` no se incluye por defecto porque el endpoint
