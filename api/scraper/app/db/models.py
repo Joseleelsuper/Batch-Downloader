@@ -23,10 +23,12 @@ from sqlalchemy.orm import Mapped, mapped_column, query_expression, relationship
 from app.core.time import utc_now
 from app.db.base import Base
 from app.db.enums import (
+    AbsenceVerificationStatus,
     AppStatus,
     LongDescriptionStatus,
     ResolutionStatus,
     ScrapeRunStatus,
+    ScrapeScope,
     ValidationStatus,
 )
 from app.db.types import GUID, uuid_pk
@@ -111,6 +113,14 @@ class SoftwareApp(Base, TimestampMixin):
     latest_version: Mapped[str | None] = mapped_column(String(100))
     """Campo declarado `latest_version` de `SoftwareApp`.
     """
+    winstall_latest_version: Mapped[str | None] = mapped_column(String(100))
+    """Última versión anunciada por Winstall, separada de una corrección manual."""
+    winstall_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    """Marca temporal publicada por Winstall cuando está disponible."""
+    winstall_summary_fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    """Huella de los campos ligeros utilizada por el scope incremental."""
+    winstall_detail_fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    """Huella del detalle autoritativo, incluidas sus listas de instaladores."""
     app_status: Mapped[str] = mapped_column(
         String(32), default=AppStatus.ACTIVE.value, index=True, nullable=False
     )
@@ -409,6 +419,8 @@ class ResolvedSource(Base):
     metadata_json: Mapped[dict | None] = mapped_column(JSON)
     """Campo declarado `metadata_json` de `ResolvedSource`.
     """
+    artifact_fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    """Huella estable del artefacto para evitar duplicados entre revalidaciones."""
     # Alembic 0010 es responsable de la columna física generada. Mapearla únicamente
     # como expresión de consulta mantiene intacto el esquema de pruebas de SQLite.
     catalog_downloadable: Mapped[bool | None] = query_expression()
@@ -477,6 +489,18 @@ class ScrapeRun(Base):
     )
     """Campo declarado `status` de `ScrapeRun`.
     """
+    scope: Mapped[str] = mapped_column(
+        String(32), default=ScrapeScope.INCREMENTAL.value, index=True, nullable=False
+    )
+    """Scope solicitado para esta ejecución."""
+    request_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True)
+    """Solicitud durable que originó la ejecución."""
+    target_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    """Número de aplicaciones de la instantánea objetivo."""
+    target_app_ids_json: Mapped[list[str] | None] = mapped_column(JSON)
+    """Manifest inmutable de UUID locales cuando el scope parte del catálogo."""
+    target_winstall_ids_json: Mapped[list[str] | None] = mapped_column(JSON)
+    """Manifest inmutable de identificadores Winstall procesables."""
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     """Campo declarado `started_at` de `ScrapeRun`.
     """
@@ -498,6 +522,14 @@ class ScrapeRun(Base):
     apps_skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     """Campo declarado `apps_skipped` de `ScrapeRun`.
     """
+    apps_confirmed_missing: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    """Ausencias respaldadas por una verificación activa."""
+    apps_needs_review: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    """Casos que requieren comprobación humana o evidencia adicional."""
+    apps_transient_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    """Fallos temporales que conservaron el estado publicado anterior."""
+    apps_skipped_unchanged: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    """Aplicaciones omitidas porque su huella no cambió."""
     worker_id: Mapped[str] = mapped_column(String(120), nullable=False)
     """Campo declarado `worker_id` de `ScrapeRun`.
     """
@@ -534,6 +566,12 @@ class ScraperCommand(Base):
     command: Mapped[str] = mapped_column(String(32), nullable=False)
     """Campo declarado `command` de `ScraperCommand`.
     """
+    scope: Mapped[str | None] = mapped_column(String(32), index=True)
+    """Scope de una solicitud ``run_once``; nulo para controles históricos."""
+    app_ids_json: Mapped[list[str] | None] = mapped_column(JSON)
+    """Selección explícita, limitada y validada por la API administrativa."""
+    run_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True)
+    """Ejecución reclamada por el scheduler."""
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True, nullable=False)
     """Campo declarado `status` de `ScraperCommand`.
     """
@@ -549,10 +587,51 @@ class ScraperCommand(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime)
     """Campo declarado `consumed_at` de `ScraperCommand`.
     """
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    """Instante en que el scheduler reclamó la solicitud."""
 
     __table_args__ = (Index("ix_scraper_commands_status_created", "status", "created_at"),)
     """Campo declarado `__table_args__` de `ScraperCommand`.
     """
+
+
+class InstallerAbsenceVerification(Base, TimestampMixin):
+    """Evidencia auditable de que una aplicación no ofrece un binario validable."""
+
+    __tablename__ = "installer_absence_verifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid_pk)
+    software_app_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("software_apps.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default=AbsenceVerificationStatus.ACTIVE.value,
+        index=True,
+        nullable=False,
+    )
+    reason_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    notes: Mapped[str | None] = mapped_column(String(2000))
+    checked_urls_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    evidence_json: Mapped[dict | None] = mapped_column(JSON)
+    verified_by: Mapped[str] = mapped_column(String(180), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    app_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    winstall_latest_version: Mapped[str | None] = mapped_column(String(100))
+    winstall_summary_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    winstall_detail_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    official_url_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    invalidation_reason: Mapped[str | None] = mapped_column(String(180))
+
+    __table_args__ = (
+        Index(
+            "ix_installer_absence_verifications_app_status",
+            "software_app_id",
+            "status",
+            "verified_at",
+        ),
+    )
 
 
 class ManualInstallerInspection(Base, TimestampMixin):

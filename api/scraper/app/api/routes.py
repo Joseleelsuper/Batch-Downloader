@@ -1,6 +1,6 @@
 """Implementa las responsabilidades del módulo `routes`.
 """
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,15 +9,16 @@ from app.api.app_mapper import to_details, to_list_item
 from app.core.config import Settings, get_settings
 from app.core.time import utc_now
 from app.core.url_protector import UrlProtector
+from app.db.enums import ScrapeScope
 from app.db.session import AsyncSessionLocal, get_session
 from app.repositories.catalog import CatalogRepository
+from app.repositories.runs import ScrapeRunRepository
 from app.schemas.apps import (
     AppDetails,
     AppSearchResponse,
     CatalogStatsResponse,
     LastScrapeRun,
 )
-from app.scraper.catalog_fetcher import CatalogFetcher
 
 router = APIRouter(prefix="/api")
 """Estado global asociado a `router`.
@@ -171,17 +172,26 @@ async def get_app(
 
 
 @router.post("/internal/scraper/run-once", status_code=202)
-async def run_scraper_once(background_tasks: BackgroundTasks) -> dict[str, bool]:
+async def run_scraper_once(
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, str | bool]:
     """Ejecuta la operación `scraper_once`.
 
     Args:
-        background_tasks (BackgroundTasks): Valor de `background_tasks` utilizado por la operación.
+        session (AsyncSession): Sesión que hace durable la solicitud.
+        settings (Settings): Configuración del servicio.
 
     Returns:
         dict[str, bool]: Mapa con los datos producidos por la operación.
     """
-    background_tasks.add_task(_run_scrape_once_background)
-    return {"accepted": True}
+    request = await ScrapeRunRepository(session, settings).enqueue_run_request(
+        scope=ScrapeScope.INCREMENTAL,
+        app_ids=None,
+        created_by="legacy:internal-api",
+    )
+    await session.commit()
+    return {"accepted": True, "requestId": str(request.id)}
 
 
 def _catalog(session: AsyncSession, settings: Settings) -> CatalogRepository:
@@ -195,11 +205,3 @@ def _catalog(session: AsyncSession, settings: Settings) -> CatalogRepository:
         CatalogRepository: Resultado producido por la operación.
     """
     return CatalogRepository(session, UrlProtector(settings.url_protection_secret))
-
-
-async def _run_scrape_once_background() -> None:
-    """Ejecuta el paso interno `_run_scrape_once_background`.
-    """
-    settings = get_settings()
-    async with AsyncSessionLocal() as session:
-        await CatalogFetcher(settings, session).scrape_once(recover_running=True)

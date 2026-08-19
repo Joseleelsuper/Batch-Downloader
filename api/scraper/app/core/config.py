@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     max_redirects: int = 5
     """Campo declarado `max_redirects` de `Settings`.
     """
-    max_download_size_bytes: int = 1_500_000_000
+    max_download_size_bytes: int = 4_000_000_000
     """Campo declarado `max_download_size_bytes` de `Settings`.
     """
     icon_max_bytes: int = 5_000_000

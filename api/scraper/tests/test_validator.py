@@ -9,12 +9,34 @@ import respx
 from app.core.config import Settings
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.validator import (
+    BROWSER_COMPATIBLE_USER_AGENT,
     DownloadValidator,
     ValidationConfidence,
     domain_has_public_dns,
+    is_non_binary_installer_reference,
     is_public_ip,
+    is_sourceforge_download_url,
     same_site_referer,
 )
+
+
+def test_validator_uses_a_browser_compatible_user_agent() -> None:
+    """Los CDN reciben una cabecera interoperable sin alterar el veredicto HTTP."""
+    assert BROWSER_COMPATIBLE_USER_AGENT.startswith("Mozilla/5.0 (Windows NT 10.0")
+    assert "BatchDownloaderScraper" not in BROWSER_COMPATIBLE_USER_AGENT
+
+
+def test_store_pages_and_winstall_wrappers_are_not_installers() -> None:
+    """Store, comandos y wrappers no sustituyen a un binario HTTP(S) validado."""
+    assert is_non_binary_installer_reference(
+        "https://winstall.app/api/installer?id=Valve.Steam"
+    )
+    assert is_non_binary_installer_reference(
+        "https://apps.microsoft.com/detail/9NBLGGH4NNS1"
+    )
+    assert not is_non_binary_installer_reference(
+        "https://cdn.example.test/releases/App.msix"
+    )
 
 
 @pytest.mark.asyncio
@@ -1006,9 +1028,6 @@ async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflar
         "https://sourceforge.net/projects/beebeep/files/Windows/"
         "beebeep-setup-5.8.6.exe/download"
     )
-    respx.head(url).mock(
-        return_value=httpx.Response(200, headers={"content-type": "text/html"})
-    )
     respx.get(url).mock(
         return_value=httpx.Response(
             403,
@@ -1031,6 +1050,17 @@ async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflar
     assert result.extension == ".exe"
     assert result.transport_security == "https_winstall_edge_attested"
     assert result.confidence == ValidationConfidence.ATTESTED
+
+
+def test_sourceforge_download_hosts_use_the_provider_specific_flow() -> None:
+    """Incluye la página y los mirrors, pero no dominios parecidos."""
+    assert is_sourceforge_download_url(
+        "https://sourceforge.net/projects/app/files/App.exe/download"
+    )
+    assert is_sourceforge_download_url(
+        "https://netix.dl.sourceforge.net/project/app/App.exe"
+    )
+    assert not is_sourceforge_download_url("https://sourceforge.example/App.exe")
 
 
 @pytest.mark.asyncio

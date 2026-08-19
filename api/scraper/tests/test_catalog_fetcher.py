@@ -2,15 +2,18 @@
 """
 import asyncio
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import httpx
 import pytest
+import respx
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 import app.scraper.catalog_fetcher as catalog_fetcher
 from app.core.config import Settings
 from app.core.time import utc_now
-from app.db.enums import ResolutionStatus
+from app.db.enums import ResolutionStatus, ScrapeScope
 from app.scraper.candidates import InstallerCandidate, infer_operating_system
 from app.scraper.catalog_fetcher import (
     CatalogFetcher,
@@ -19,23 +22,133 @@ from app.scraper.catalog_fetcher import (
     PlatformScraperWorker,
     SearcherWorker,
     ValidInstaller,
+    catalog_url_for_installer,
     dedupe_valid_installers,
     fallback_candidates,
     first_task_failure,
     infer_validated_operating_system,
     is_actionable_installer_candidate,
+    is_catalog_publishable_installer,
     is_stale_control_command,
     is_transient_mysql_lock_error,
     is_windows_winstall_archive,
     known_official_candidates,
+    provider_snapshot_absence_outcome,
     rank_installers,
+    retry_database_pool_operation,
     should_collect_official_installers,
     use_only_known_official_candidates,
     use_winstall_fallback_only,
     validated_installer_version,
+    validated_installers_cover_latest_version,
     winstall_parent_index_url,
 )
-from app.scraper.validator import ValidationResult
+from app.scraper.validator import ValidationConfidence, ValidationResult
+from app.scraper.winstall import parse_winstall_app, winstall_summary_fingerprint
+
+
+@pytest.mark.asyncio
+async def test_database_pool_contention_is_retried_without_becoming_app_failure(
+    monkeypatch,
+) -> None:
+    """La espera local por una conexión no se confunde con un fallo del proveedor."""
+    attempts = 0
+
+    async def operation() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise SQLAlchemyTimeoutError()
+        return "completed"
+
+    async def no_wait(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(catalog_fetcher.asyncio, "sleep", no_wait)
+    settings = SimpleNamespace(
+        database_pool_max=2,
+        database_pool_timeout_seconds=5,
+    )
+
+    result = await retry_database_pool_operation(settings, "test", operation)
+
+    assert result == "completed"
+    assert attempts == 3
+
+
+def test_stable_provider_absence_is_not_a_transient_failure() -> None:
+    """El acta decide entre missing confirmado y revisión, nunca partial."""
+    assert provider_snapshot_absence_outcome(False).value == "needs_review"
+    assert provider_snapshot_absence_outcome(True).value == "confirmed_missing"
+
+
+@pytest.mark.asyncio
+async def test_incremental_scope_selects_new_unresolved_and_changed_apps(monkeypatch) -> None:
+    """Incremental omite únicamente las available cuya huella sigue idéntica."""
+    unchanged = parse_winstall_app({
+        "_id": "Vendor.Unchanged",
+        "name": "Unchanged",
+        "latestVersion": "1.0",
+    })
+    changed = parse_winstall_app({
+        "_id": "Vendor.Changed",
+        "name": "Changed",
+        "latestVersion": "2.0",
+    })
+    unresolved = parse_winstall_app({"_id": "Vendor.Review", "name": "Review"})
+    new = parse_winstall_app({"_id": "Vendor.New", "name": "New"})
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeCatalog:
+        def __init__(self, *_args):
+            pass
+
+        async def winstall_refresh_states(self):
+            return {
+                unchanged.package_id: (
+                    uuid4(),
+                    "available",
+                    winstall_summary_fingerprint(unchanged),
+                ),
+                changed.package_id: (uuid4(), "available", "old-fingerprint"),
+                unresolved.package_id: (uuid4(), "review", None),
+            }
+
+    monkeypatch.setattr(catalog_fetcher, "CatalogRepository", FakeCatalog)
+    monkeypatch.setattr(
+        catalog_fetcher,
+        "async_session_local",
+        lambda: lambda: FakeSession(),
+    )
+    settings = Settings()
+    runtime = PipelineRuntime(
+        settings=settings,
+        run_id=uuid4(),
+        run_started_at=utc_now(),
+        scope=ScrapeScope.INCREMENTAL,
+    )
+
+    targets, _app_ids, winstall_ids, missing, skipped = (
+        await SearcherWorker(settings)._select_scope_targets(
+            runtime,
+            [unchanged, changed, unresolved, new],
+        )
+    )
+
+    assert [app.package_id for app in targets] == [
+        "Vendor.Changed",
+        "Vendor.Review",
+        "Vendor.New",
+    ]
+    assert winstall_ids == [app.package_id for app in targets]
+    assert missing == []
+    assert skipped == 1
 
 
 def test_fallback_candidates_include_winstall_api_and_page_links() -> None:
@@ -156,6 +269,45 @@ def test_validated_version_prefers_the_final_binary_name() -> None:
     )
 
     assert validated_installer_version(candidate, result) == "1.0.3.535"
+
+
+def test_winstall_version_context_identifies_an_unversioned_binary() -> None:
+    """El detalle autoritativo aporta la versión aunque el nombre no la incluya."""
+    candidate = InstallerCandidate(
+        url="https://cdn.example.com/setup.exe",
+        source="winstall_api",
+        context="2.4.0",
+    )
+    result = ValidationResult(
+        ok=True,
+        url=candidate.url,
+        final_url=candidate.url,
+        filename="setup.exe",
+        extension=".exe",
+    )
+
+    assert validated_installer_version(candidate, result) == "2.4.0"
+
+
+def test_public_version_advances_only_when_the_new_artifact_was_validated() -> None:
+    """Validar un binario antiguo no basta para promover la versión de Winstall."""
+    old = valid(
+        "https://cdn.example.com/App-1.9.0.exe",
+        "windows",
+        "x86_64",
+        "1.9.0",
+        100,
+    )
+    current = valid(
+        "https://cdn.example.com/App-2.0.0.exe",
+        "windows",
+        "x86_64",
+        "v2.0.0",
+        100,
+    )
+
+    assert not validated_installers_cover_latest_version("2.0.0", [old])
+    assert validated_installers_cover_latest_version("2.0.0", [old, current])
 
 
 def test_validated_operating_system_uses_validation_extension_first() -> None:
@@ -306,6 +458,146 @@ async def test_platform_worker_includes_parent_index_fallback(monkeypatch) -> No
     )
 
     assert result == [current]
+
+
+def test_platform_worker_retries_winstall_asset_with_same_site_official_referer() -> None:
+    """Un CDN del fabricante puede exigir el origen oficial sin alterar el destino."""
+    worker = PlatformScraperWorker(Settings())
+    candidate = InstallerCandidate(
+        url="https://dl.dell.com/FOLDER123/AppSetup.exe",
+        source="winstall_api",
+        context="2.0",
+        asset_kind="winstall_download",
+    )
+
+    refreshed = worker._collect_winstall_official_referer_candidates(
+        SimpleNamespace(homepage="https://www.dell.com/support/home"),
+        [
+            candidate,
+            InstallerCandidate(
+                url="https://downloads.example.net/Other.exe",
+                source="winstall_api",
+                asset_kind="winstall_download",
+            ),
+        ],
+    )
+
+    assert len(refreshed) == 1
+    assert refreshed[0].url == candidate.url
+    assert refreshed[0].referer == "https://www.dell.com/support/home"
+    assert refreshed[0].source == "winstall_official_referer"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_platform_worker_expands_same_site_winstall_download_page(
+    monkeypatch,
+) -> None:
+    """Una página intermedia produce candidatos, pero su vacío nunca prueba ausencia."""
+
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr(catalog_fetcher, "domain_has_public_dns", public_dns)
+    landing_url = "https://vendor.example.com/download/latest"
+    route = respx.get(landing_url).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text=(
+                '<a href="/files/VendorSetup.exe">Download Windows</a>'
+                '<a href="https://cdn.other.net/VendorSetup.exe">Other CDN</a>'
+            ),
+        )
+    )
+    worker = PlatformScraperWorker(Settings())
+    landing = InstallerCandidate(
+        url=landing_url,
+        source="winstall_api",
+        context="4.2",
+        asset_kind="winstall_download",
+    )
+
+    refreshed = await worker._collect_winstall_landing_candidates(
+        SimpleNamespace(homepage="https://vendor.example.com/products/app"),
+        [landing],
+    )
+
+    assert route.called
+    assert route.calls[0].request.headers["referer"] == (
+        "https://vendor.example.com/products/app"
+    )
+    assert [candidate.url for candidate in refreshed] == [
+        "https://vendor.example.com/files/VendorSetup.exe"
+    ]
+    assert refreshed[0].source == "winstall_download_page"
+    assert refreshed[0].context == "4.2"
+    assert refreshed[0].referer == landing_url
+
+
+@pytest.mark.asyncio
+async def test_platform_worker_resolves_sourceforge_signed_url_with_playwright(
+    monkeypatch,
+) -> None:
+    """La URL firmada solo sirve para validar y conserva la ruta estable."""
+    worker = PlatformScraperWorker(Settings())
+    stable = InstallerCandidate(
+        url=(
+            "https://sourceforge.net/projects/example/files/2.0/"
+            "ExampleSetup.exe/download"
+        ),
+        source="winstall_api",
+        context="2.0",
+        asset_kind="winstall_download",
+    )
+    signed = InstallerCandidate(
+        url=(
+            "https://downloads.sourceforge.net/project/example/2.0/"
+            "ExampleSetup.exe?ts=signed&use_mirror=active"
+        ),
+        source="playwright_data_release_url",
+        referer=stable.url,
+    )
+
+    async def collect(_url: str):
+        return [signed]
+
+    async def no_parent(_candidates):
+        return []
+
+    monkeypatch.setattr(worker.playwright, "collect", collect)
+    monkeypatch.setattr(worker, "_collect_winstall_parent_index_candidates", no_parent)
+
+    result = await worker._collect_winstall_github_candidates(
+        SimpleNamespace(latest_version="2.0"),
+        [stable],
+    )
+
+    assert len(result) == 1
+    refreshed = result[0]
+    assert refreshed.source == "playwright_data_release_url"
+    assert refreshed.referer == stable.url
+    assert refreshed.asset_kind == "winstall_download"
+
+    installer = ValidInstaller(
+        candidate=refreshed,
+        result=ValidationResult(
+            ok=True,
+            url=refreshed.url,
+            final_url=(
+                "https://active.dl.sourceforge.net/project/example/"
+                "AppSetup.exe"
+            ),
+            final_domain="sourceforge.net",
+            extension=".exe",
+            confidence=ValidationConfidence.VALIDATED,
+        ),
+        status=ResolutionStatus.FALLBACK,
+        operating_system="windows",
+        architecture="x86_64",
+        version="2.0",
+    )
+    assert catalog_url_for_installer(installer) == stable.url
 
 
 def test_epic_games_launcher_has_known_official_candidate() -> None:
@@ -750,7 +1042,12 @@ async def test_searcher_backpressure_waits_until_queue_depth_drops(monkeypatch) 
             """
             pass
 
-        async def queue_depth(self, _queue: str) -> int:
+        async def queue_depth(
+            self,
+            _queue: str,
+            *,
+            run_id: UUID | None = None,
+        ) -> int:
             """Ejecuta `queue_depth` dentro de `FakePipeline`.
 
             Args:
@@ -759,6 +1056,7 @@ async def test_searcher_backpressure_waits_until_queue_depth_drops(monkeypatch) 
             Returns:
                 int: Resultado producido por la operación.
             """
+            assert run_id is not None
             return depths.pop(0)
 
     class FakeSession:
@@ -888,7 +1186,11 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
         """
         return None
 
+    async def no_active_work(*_args, **_kwargs) -> bool:
+        return False
+
     monkeypatch.setattr(catalog_fetcher, "claim_item", fake_claim)
+    monkeypatch.setattr(catalog_fetcher, "queue_has_active_work", no_active_work)
     monkeypatch.setattr(catalog_fetcher.asyncio, "sleep", fake_sleep)
     settings = Settings()
     runtime = PipelineRuntime(settings=settings, run_id=uuid4(), run_started_at=utc_now())
@@ -900,6 +1202,30 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
     assert calls == 2
 
 
+def test_only_fully_validated_installers_are_publishable() -> None:
+    """Una atestación de borde se conserva como diagnóstico, no como instalador público."""
+    validated = valid(
+        "https://downloads.example.test/App.exe",
+        "windows",
+        "x86_64",
+        "1.0",
+        100,
+        confidence=ValidationConfidence.VALIDATED,
+    )
+    attested = valid(
+        "https://downloads.example.test/App.exe",
+        "windows",
+        "x86_64",
+        "1.0",
+        100,
+        confidence=ValidationConfidence.ATTESTED,
+        transport_security="https_winstall_edge_attested",
+    )
+
+    assert is_catalog_publishable_installer(validated)
+    assert not is_catalog_publishable_installer(attested)
+
+
 def valid(
     url: str,
     os: str,
@@ -908,6 +1234,8 @@ def valid(
     score: int,
     *,
     status: ResolutionStatus = ResolutionStatus.DIRECT,
+    confidence: ValidationConfidence = ValidationConfidence.UNVERIFIED,
+    transport_security: str | None = None,
 ) -> ValidInstaller:
     """Ejecuta la operación `valid`.
 
@@ -932,6 +1260,8 @@ def valid(
             final_domain="example.com",
             filename=url.rsplit("/", 1)[-1],
             extension=candidate.extension,
+            confidence=confidence,
+            transport_security=transport_security,
         ),
         status=status,
         operating_system=os,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import uuid
 from collections.abc import Awaitable, Callable
 from functools import partial
 
@@ -15,7 +16,7 @@ from app.core.config import get_settings
 from app.core.free_threading import assert_free_threaded_runtime
 from app.core.logging import configure_logging, get_logger
 from app.core.url_protector import UrlProtector
-from app.db.enums import ResolutionStatus, ScrapeRunStatus, ValidationStatus
+from app.db.enums import ResolutionStatus, ScrapeRunStatus, ScrapeScope, ValidationStatus
 from app.db.models import ScrapeRun
 from app.db.session import AsyncSessionLocal
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
@@ -29,6 +30,7 @@ from app.repositories.pipeline import (
     STATUS_DISCARDED,
     PipelineRepository,
 )
+from app.repositories.runs import ScrapeRunRepository
 from app.scraper.candidates import extract_version, infer_architecture, registered_domain
 from app.scraper.catalog_fetcher import (
     CatalogFetcher,
@@ -150,6 +152,9 @@ class ContentEnrichmentSupervisor:
         """
         worker = DescriptorWorker(self.settings)
         while True:
+            if await self._scrape_run_active():
+                await asyncio.sleep(1)
+                continue
             if await self._paused_or_stopping():
                 await asyncio.sleep(1)
                 continue
@@ -253,8 +258,29 @@ class ContentEnrichmentSupervisor:
             )
             return bool(run and (run.paused_at is not None or run.stop_requested))
 
+    async def _scrape_run_active(self) -> bool:
+        """Reserva el pool acotado para el pipeline mientras exista un run activo.
 
-async def scrape_once(recover_running: bool = False) -> None:
+        Las descripciones se conservan en su cola durable y se enriquecen al terminar
+        el scrape. Así una llamada LLM no ocupa una de las dos conexiones durante el
+        procesamiento de instaladores.
+        """
+        async with AsyncSessionLocal() as session:
+            run_id = await session.scalar(
+                select(ScrapeRun.id)
+                .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+                .limit(1)
+            )
+            return run_id is not None
+
+
+async def scrape_once(
+    recover_running: bool = False,
+    *,
+    scope: ScrapeScope = ScrapeScope.INCREMENTAL,
+    selected_app_ids: list[uuid.UUID] | None = None,
+    request_id: uuid.UUID | None = None,
+) -> None:
     """Ejecuta la operación `scrape_once`.
 
     Args:
@@ -264,13 +290,78 @@ async def scrape_once(recover_running: bool = False) -> None:
     async with AsyncSessionLocal() as session:
         try:
             counters = await CatalogFetcher(settings, session).scrape_once(
-                recover_running=recover_running
+                recover_running=recover_running,
+                scope=scope,
+                selected_app_ids=selected_app_ids,
+                request_id=request_id,
             )
         except Exception as exc:
             await session.rollback()
             logger.warning("scrape_once_failed", error=exc.__class__.__name__)
             raise
-    logger.info("scrape_finished", **counters.__dict__)
+    logger.info("scrape_finished", scope=scope.value, **counters.__dict__)
+
+
+async def enqueue_scrape_request(
+    scope: ScrapeScope,
+    *,
+    created_by: str,
+    app_ids: list[str] | None = None,
+) -> uuid.UUID:
+    """Persiste una solicitud para que el coordinador la reclame sin solapamientos."""
+    settings = get_settings()
+    async with AsyncSessionLocal() as session:
+        request = await ScrapeRunRepository(session, settings).enqueue_run_request(
+            scope=scope,
+            app_ids=app_ids,
+            created_by=created_by,
+        )
+        await session.commit()
+        return request.id
+
+
+async def run_request_dispatcher() -> None:
+    """Reclama solicitudes durables de una en una y conserva las pendientes."""
+    settings = get_settings()
+    while True:
+        request_id: uuid.UUID | None = None
+        try:
+            async with AsyncSessionLocal() as session:
+                repository = ScrapeRunRepository(session, settings)
+                request = await repository.next_pending_run_request()
+                if request is None:
+                    await session.rollback()
+                else:
+                    request_id = request.id
+                    try:
+                        scope = ScrapeScope(request.scope or ScrapeScope.INCREMENTAL.value)
+                        selected_ids = [
+                            uuid.UUID(value) for value in (request.app_ids_json or [])
+                        ]
+                        if (scope == ScrapeScope.SELECTED) != bool(selected_ids):
+                            raise ValueError("invalid_scope_selection")
+                        if len(selected_ids) > 500:
+                            raise ValueError("selected_scope_limit_exceeded")
+                    except (TypeError, ValueError):
+                        await repository.consume_command(
+                            request,
+                            status="failed",
+                            message="Invalid durable scrape request payload.",
+                        )
+                        await session.commit()
+                    else:
+                        await CatalogFetcher(settings, session).scrape_once(
+                            scope=scope,
+                            selected_app_ids=selected_ids,
+                            request_id=request.id,
+                        )
+        except Exception as exc:
+            logger.warning(
+                "scrape_request_dispatch_failed",
+                request_id=str(request_id) if request_id else None,
+                error=exc.__class__.__name__,
+            )
+        await asyncio.sleep(2)
 
 
 async def repair_platforms() -> None:
@@ -410,7 +501,24 @@ async def run_startup_scrape() -> None:
             "startup_known_apps_repair_failed",
             error=exc.__class__.__name__,
         )
-    await scrape_once(recover_running=True)
+    recovered = await recover_scheduler_runs()
+    if recovered:
+        logger.warning("scrape_running_locks_recovered", recovered=recovered)
+    await enqueue_scrape_request(
+        ScrapeScope.INCREMENTAL,
+        created_by="scheduler:startup",
+    )
+
+
+async def recover_scheduler_runs() -> int:
+    """Cierra leases de coordinador interrumpidas antes de aceptar trabajo nuevo."""
+    settings = get_settings()
+    async with AsyncSessionLocal() as session:
+        recovered = await ScrapeRunRepository(session, settings).recover_running(
+            "Recovered before startup because the scheduler container was restarted."
+        )
+        await session.commit()
+    return recovered
 
 
 async def run_scheduler() -> None:
@@ -419,18 +527,43 @@ async def run_scheduler() -> None:
     settings = get_settings()
     scheduler = AsyncIOScheduler(timezone=settings.scheduler_zoneinfo)
     scheduler.add_job(
-        scrape_once,
+        enqueue_scrape_request,
         trigger="cron",
+        day_of_week="mon-sat",
         hour=settings.scheduler_hour,
         minute=settings.scheduler_minute,
-        id="daily-winstall-scrape",
+        kwargs={
+            "scope": ScrapeScope.INCREMENTAL,
+            "created_by": "scheduler:incremental",
+        },
+        id="incremental-winstall-scrape",
         replace_existing=True,
         max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        enqueue_scrape_request,
+        trigger="cron",
+        day_of_week="sun",
+        hour=settings.scheduler_hour,
+        minute=settings.scheduler_minute,
+        kwargs={
+            "scope": ScrapeScope.FULL,
+            "created_by": "scheduler:full",
+        },
+        id="weekly-full-winstall-scrape",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
     scheduler.start()
     enrichment_task = asyncio.create_task(
         ContentEnrichmentSupervisor().run(),
         name="content-enrichment-supervisor",
+    )
+    dispatcher_task = asyncio.create_task(
+        run_request_dispatcher(),
+        name="scrape-request-dispatcher",
     )
     logger.info(
         "scheduler_started",
@@ -452,11 +585,12 @@ async def run_scheduler() -> None:
         # El supervisor es el trabajo persistente real del contenedor. Si termina por
         # una excepción no controlada, se propaga el fallo para que Docker pueda
         # reiniciar el proceso en lugar de dejar un scheduler aparentemente sano.
-        await enrichment_task
+        await asyncio.gather(enrichment_task, dispatcher_task)
     finally:
-        if not enrichment_task.done():
-            enrichment_task.cancel()
-        await asyncio.gather(enrichment_task, return_exceptions=True)
+        for task in (enrichment_task, dispatcher_task):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(enrichment_task, dispatcher_task, return_exceptions=True)
         scheduler.shutdown(wait=False)
 
 

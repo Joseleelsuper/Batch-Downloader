@@ -32,6 +32,7 @@ import {
   connectScraperEvents,
   clearAllScraperQueueItems,
   clearPendingScraperQueueItems,
+  createScraperRun,
   createAdminBundle,
   enqueueMissingScraperDescriptions,
   fetchAdminApps,
@@ -117,6 +118,7 @@ import type {
   ScraperQueueState,
   ScraperRunSummary,
   ScraperSnapshotItem,
+  ScrapeScope,
   SoftwareRequestItem,
   SortKey,
 } from './types/catalog';
@@ -1370,11 +1372,25 @@ function AdminScraperPage() {
     setSnapshots(event.snapshots);
   }, setSocketState), []);
 
-  async function command(value: 'pause' | 'resume' | 'stop' | 'force_stop' | 'run_once') {
+  async function command(value: 'pause' | 'resume' | 'stop' | 'force_stop') {
     setMessage(null);
     try {
       await sendScraperCommand(value);
       setMessage(t('admin.message.acceptedCommand'));
+      await load();
+    } catch {
+      setMessage(t('admin.message.sendCommandError'));
+    }
+  }
+
+  async function requestRun(scope: Exclude<ScrapeScope, 'selected'>) {
+    setMessage(null);
+    try {
+      const request = await createScraperRun(scope);
+      setMessage(t('admin.message.acceptedRun', {
+        scope: request.scope,
+        requestId: request.requestId,
+      }));
       await load();
     } catch {
       setMessage(t('admin.message.sendCommandError'));
@@ -1433,6 +1449,10 @@ function AdminScraperPage() {
           <strong>{current?.status ?? '-'}</strong>
         </div>
         <div>
+          <span>{t('admin.scraper.scope')}</span>
+          <strong>{current?.scope ?? '-'}</strong>
+        </div>
+        <div>
           <span>{t('admin.scraper.app')}</span>
           <strong>{current?.currentAppName ?? '-'}</strong>
         </div>
@@ -1450,7 +1470,9 @@ function AdminScraperPage() {
         <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
         <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
         <button className="secondary-button danger-button" type="button" disabled={!controlState.forceStop.enabled} title={controlState.forceStop.reason} onClick={() => command('force_stop')}><Square size={16} />{t('admin.scraper.forceStop')}</button>
-        <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => command('run_once')}>{t('admin.scraper.runNow')}</button>
+        <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('incremental')}>{t('admin.scraper.runIncremental')}</button>
+        <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('unresolved')}>{t('admin.scraper.runUnresolved')}</button>
+        <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('full')}>{t('admin.scraper.runFull')}</button>
       </div>
       <div className="button-row queue-maintenance-row">
         <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
@@ -1483,6 +1505,7 @@ function AdminScraperPage() {
           title={t('admin.scraper.runs')}
           rows={runs.map((run) => [
             run.status,
+            `${run.scope} · ${run.targetCount}`,
             formatScrapeProgress(run),
             run.currentAppName || run.currentPackageId || t('admin.scraper.noApp'),
             run.currentPhase || run.errorSummary || t('admin.scraper.noPhase'),
@@ -1674,6 +1697,9 @@ function formatScrapeProgress(run: ScraperRunSummary): string {
     t('admin.scraper.progress.discovered', { count: run.appsDiscovered }),
     t('admin.scraper.progress.failed', { count: run.appsFailed }),
     t('admin.scraper.progress.skipped', { count: run.appsSkipped }),
+    t('admin.scraper.progress.review', { count: run.appsNeedsReview }),
+    t('admin.scraper.progress.confirmedMissing', { count: run.appsConfirmedMissing }),
+    t('admin.scraper.progress.transient', { count: run.appsTransientFailed }),
   ].join(' · ');
 }
 

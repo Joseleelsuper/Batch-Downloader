@@ -11,12 +11,20 @@ from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.base import Base
 from app.db.enums import ResolutionStatus, ValidationStatus
-from app.db.models import DownloadSource, ResolvedSource, SoftwareApp
+from app.db.models import (
+    DownloadSource,
+    InstallerAbsenceVerification,
+    ResolvedSource,
+    SoftwareApp,
+)
 from app.repositories.catalog import (
     CatalogRepository,
+    ResolvedSourceCreate,
     has_current_available_installer,
     inferred_platform_for_resolved_source,
+    text_fingerprint,
 )
+from app.scraper.winstall import parse_winstall_app
 
 
 def make_app_with_source(
@@ -205,6 +213,202 @@ async def test_should_scrape_retries_review_apps_but_skips_resolved_apps() -> No
 
         assert await repository.should_scrape_winstall_package("Vendor.App") is True
 
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_winstall_refresh_updates_provider_fields_but_preserves_manual_values() -> None:
+    """Un full refresca versiones/tags sin pisar un nombre marcado como manual."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    protector = UrlProtector("test-secret")
+    initial = parse_winstall_app({
+        "_id": "Vendor.Refresh",
+        "name": "Provider Name",
+        "latestVersion": "1.0.0",
+        "tags": ["old"],
+        "versions": [{"version": "1.0.0", "installers": []}],
+    })
+    refreshed = parse_winstall_app({
+        "_id": "Vendor.Refresh",
+        "name": "Provider Renamed",
+        "latestVersion": "2.0.0",
+        "tags": ["new"],
+        "updatedAt": "2026-08-19T08:00:00Z",
+        "versions": [{"version": "2.0.0", "installers": []}],
+    })
+    async with session_factory() as session:
+        repository = CatalogRepository(session, protector)
+        app = await repository.upsert_winstall_app(initial)
+        app.name = "Reviewed Name"
+        app.normalized_name = "reviewed name"
+        app.metadata_json = {
+            **(app.metadata_json or {}),
+            "manual_installer": {"field_sources": {"name": "manual"}},
+        }
+        source = await repository.default_source_for_app(app.id)
+        assert source is not None
+        source.resolver_type = "manual_http"
+        source.resolver_config = {"source": "admin_manual"}
+        source.initial_url = "https://manual.example.test/download"
+        await session.commit()
+
+        updated, created = await repository.upsert_winstall_app_with_created(refreshed)
+        await session.commit()
+
+        assert created is False
+        assert updated.name == "Reviewed Name"
+        assert updated.latest_version == "2.0.0"
+        assert updated.winstall_latest_version == "2.0.0"
+        assert updated.winstall_summary_fingerprint
+        assert updated.winstall_detail_fingerprint
+        assert [tag.tag for tag in updated.tags] == ["new"]
+        assert source.resolver_type == "manual_http"
+        assert source.initial_url == "https://manual.example.test/download"
+        sources = list(await session.scalars(
+            select(DownloadSource).where(DownloadSource.software_app_id == app.id)
+        ))
+        provider_sources = [item for item in sources if item.resolver_type != "manual_http"]
+        assert len(provider_sources) == 1
+        assert provider_sources[0].resolver_config == {"winstall_id": "Vendor.Refresh"}
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_resolved_artifact_fingerprint_deduplicates_revalidation() -> None:
+    """Revalidar el mismo binario renueva su fila sin perder el historial de otros."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        repository = CatalogRepository(session, UrlProtector("test-secret"))
+        app = await repository.upsert_winstall_app(parse_winstall_app({
+            "_id": "Vendor.Dedupe",
+            "name": "Dedupe",
+            "versions": [],
+        }))
+        source = await repository.default_source_for_app(app.id)
+        assert source is not None
+        create = ResolvedSourceCreate(
+            source_id=source.id,
+            url="https://cdn.example.test/releases/App-1.0.exe?token=first",
+            final_domain="example.test",
+            filename="App-1.0.exe",
+            extension=".exe",
+            content_type="application/octet-stream",
+            size_bytes=4096,
+            version="1.0.0",
+            score=100,
+            status=ResolutionStatus.DIRECT,
+            validation_status=ValidationStatus.VALID,
+            metadata={"operating_system": "windows", "architecture": "x86_64"},
+        )
+        first = await repository.save_resolved_source(create)
+        await session.flush()
+        second = await repository.save_resolved_source(create)
+        await session.flush()
+        rows = list(await session.scalars(select(ResolvedSource)))
+
+        assert first.id == second.id
+        assert len(rows) == 1
+        assert rows[0].artifact_fingerprint
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_available_app_promotes_new_version_only_after_validation() -> None:
+    """Un fallo transitorio no adelanta la versión pública respecto al binario vigente."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        repository = CatalogRepository(session, UrlProtector("test-secret"))
+        app = await repository.upsert_winstall_app(parse_winstall_app({
+            "_id": "Vendor.Promote",
+            "name": "Promote",
+            "latestVersion": "1.0.0",
+            "versions": [],
+        }))
+        app.catalog_available_source_count = 1
+        await session.commit()
+        await session.refresh(app)
+
+        await repository.upsert_winstall_app(parse_winstall_app({
+            "_id": "Vendor.Promote",
+            "name": "Promote",
+            "latestVersion": "2.0.0",
+            "versions": [],
+        }))
+        assert app.latest_version == "1.0.0"
+        assert app.winstall_latest_version == "2.0.0"
+
+        assert await repository.promote_winstall_latest_version(app.id) is True
+        assert app.latest_version == "2.0.0"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_absence_evidence_persists_until_provider_fingerprints_change() -> None:
+    """Una relectura idéntica conserva el acta; un instalador nuevo la invalida."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        repository = CatalogRepository(session, UrlProtector("test-secret"))
+        payload = {
+            "_id": "Vendor.Absence",
+            "name": "Absence",
+            "homepage": "https://vendor.example.test/downloads",
+            "latestVersion": "1.0.0",
+            "versions": [
+                {
+                    "version": "1.0.0",
+                    "installers": ["https://vendor.example.test/unsupported.appx"],
+                }
+            ],
+        }
+        app = await repository.upsert_winstall_app(parse_winstall_app(payload))
+        verification = InstallerAbsenceVerification(
+            software_app_id=app.id,
+            status="active",
+            reason_code="no_supported_binary",
+            checked_urls_json=["https://winstall.app/apps/Vendor.Absence"],
+            verified_by="tester",
+            app_version=app.version,
+            winstall_latest_version=app.winstall_latest_version,
+            winstall_summary_fingerprint=app.winstall_summary_fingerprint,
+            winstall_detail_fingerprint=app.winstall_detail_fingerprint,
+            official_url_fingerprint=text_fingerprint(app.official_url),
+        )
+        session.add(verification)
+        await session.commit()
+
+        await repository.upsert_winstall_app(parse_winstall_app(payload))
+        await session.flush()
+        assert verification.status == "active"
+
+        changed = {
+            **payload,
+            "versions": [
+                {
+                    "version": "1.0.0",
+                    "installers": ["https://vendor.example.test/new-installer.exe"],
+                }
+            ],
+        }
+        await repository.upsert_winstall_app(parse_winstall_app(changed))
+        await session.flush()
+
+        source = await repository.default_source_for_app(app.id)
+        assert verification.status == "invalidated"
+        assert verification.invalidation_reason == "winstall_changed_or_candidate_appeared"
+        assert source is not None
+        assert source.resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
     await engine.dispose()
 
 

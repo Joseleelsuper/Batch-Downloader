@@ -25,6 +25,7 @@ import {
   applyManualInstallerInspection,
   applyWebsiteAppDiscovery,
   createManualInstallerInspection,
+  createScraperRun,
   createWebsiteAppDiscovery,
   deleteAdminApp,
   deleteAllAdminApps,
@@ -32,6 +33,7 @@ import {
   fetchAdminApps,
   fetchAppDetails,
   fetchCatalogStats,
+  fetchAbsenceVerificationSummary,
   fetchCurrentManualInstallerInspection,
   fetchManualInstallerInspection,
   fetchWebsiteAppDiscovery,
@@ -50,6 +52,7 @@ import type {
   ManualInstallerInspection,
   ManualInstallerSuggestions,
   ManualSuggestionSource,
+  InstallerAbsenceVerificationSummary,
   OperatingSystem,
   WebsiteAppDiscovery,
 } from '../../types/catalog';
@@ -93,6 +96,8 @@ export function AdminAppsPage() {
   const [total, setTotal] = useState(0);
   const [apps, setApps] = useState<CatalogApp[]>([]);
   const [stats, setStats] = useState<CatalogStats | null>(null);
+  const [absenceSummary, setAbsenceSummary] =
+    useState<InstallerAbsenceVerificationSummary | null>(null);
   const [listState, setListState] = useState<ListState>('loading');
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -123,6 +128,7 @@ export function AdminAppsPage() {
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [retryingSelected, setRetryingSelected] = useState(false);
   const [dangerConfirm, setDangerConfirm] = useState('');
 
   const listRequestRef = useRef(0);
@@ -149,6 +155,9 @@ export function AdminAppsPage() {
     fetchCatalogStats()
       .then(setStats)
       .catch(() => setStats(null));
+    fetchAbsenceVerificationSummary()
+      .then(setAbsenceSummary)
+      .catch(() => setAbsenceSummary(null));
   }, []);
 
   useEffect(() => {
@@ -730,6 +739,21 @@ export function AdminAppsPage() {
     }
   }
 
+  async function retrySelectedApp() {
+    if (!selected || retryingSelected) return;
+    setRetryingSelected(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const request = await createScraperRun('selected', [selected.id]);
+      setMessage(t('admin.apps.selectedRunQueued', { requestId: request.requestId }));
+    } catch (requestError) {
+      setError(errorMessage(requestError, 'admin.message.sendCommandError'));
+    } finally {
+      setRetryingSelected(false);
+    }
+  }
+
   async function exportCsv() {
     if (exportingCsv) return;
     setExportingCsv(true);
@@ -805,6 +829,15 @@ export function AdminAppsPage() {
 
       {message ? <div className="admin-apps-notice" role="status">{message}</div> : null}
       {error ? <div className="admin-apps-error" role="alert">{error}</div> : null}
+      {absenceSummary ? (
+        <div className="admin-apps-notice" role="status">
+          {t('admin.apps.absenceSummary', {
+            active: absenceSummary.active,
+            missing: absenceSummary.missing,
+            unjustified: absenceSummary.missingWithoutActiveEvidence,
+          })}
+        </div>
+      ) : null}
 
       <div className="admin-apps-workbench">
         <section className="admin-apps-master" aria-label={t('admin.apps.list.label')}>
@@ -989,6 +1022,19 @@ export function AdminAppsPage() {
                   </div>
                 </div>
                 {selected ? <small title={selected.id}>{selected.id}</small> : null}
+                {selected && isUnresolved(selected) ? (
+                  <button
+                    type="button"
+                    className="secondary-button compact-button"
+                    disabled={retryingSelected}
+                    onClick={() => void retrySelectedApp()}
+                  >
+                    {retryingSelected
+                      ? <Loader2 className="spin" size={16} />
+                      : <Search size={16} />}
+                    {t('admin.apps.retrySelected')}
+                  </button>
+                ) : null}
               </div>
 
               {creating ? (

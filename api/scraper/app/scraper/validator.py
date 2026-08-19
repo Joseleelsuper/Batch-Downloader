@@ -51,6 +51,14 @@ _DNS_CACHE: dict[str, tuple[float, bool]] = {}
 _DNS_INFLIGHT: dict[tuple[int, str], asyncio.Task[bool]] = {}
 """Constante que define `_DNS_INFLIGHT`.
 """
+_SOURCEFORGE_LOCKS: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+_SOURCEFORGE_NEXT_REQUEST: dict[asyncio.AbstractEventLoop, float] = {}
+SOURCEFORGE_MIN_INTERVAL_SECONDS = 1.0
+BROWSER_COMPATIBLE_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/139.0.0.0 Safari/537.36"
+)
 
 
 class ValidationConfidence(StrEnum):
@@ -158,6 +166,8 @@ class DownloadValidator:
             return self._fail(candidate.url, "missing_domain")
         if parsed.username is not None or parsed.password is not None:
             return self._fail(candidate.url, "url_credentials_forbidden")
+        if is_non_binary_installer_reference(candidate.url):
+            return self._fail(candidate.url, "non_binary_installer_reference")
         if is_github_source_archive(candidate.url):
             return self._fail(candidate.url, "github_source_archive")
         if (
@@ -505,7 +515,7 @@ def metadata_headers(referer: str | None = None, *, partial: bool = False) -> di
     headers = {
         "Accept": "application/octet-stream,application/x-msdownload,application/x-msi,*/*",
         "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
-        "User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1",
+        "User-Agent": BROWSER_COMPATIBLE_USER_AGENT,
     }
     if referer:
         headers["Referer"] = referer
@@ -533,6 +543,9 @@ async def request_metadata(
     Returns:
         httpx.Response: Resultado producido por la operación.
     """
+    if is_sourceforge_download_url(url):
+        return await request_sourceforge_metadata(client, url, referer=referer)
+
     response = await client.head(url, headers=metadata_headers(referer))
     content_type = response.headers.get("content-type", "").lower()
     if not response.is_redirect and (
@@ -546,6 +559,41 @@ async def request_metadata(
     ):
         response = await request_partial(client, url, referer=referer)
     return response
+
+
+async def request_sourceforge_metadata(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    referer: str | None = None,
+) -> httpx.Response:
+    """Sigue el contrato de descarga de SourceForge sin disparar su protección.
+
+    SourceForge documenta GET con redirección a su red de mirrors. Los HEAD
+    paralelos suelen devolver una página de desafío y no el artefacto. Se serializa
+    este proveedor y se descarga solo el prefijo necesario para validar la firma.
+    """
+    loop = asyncio.get_running_loop()
+    lock = _SOURCEFORGE_LOCKS.setdefault(loop, asyncio.Lock())
+    async with lock:
+        delay = _SOURCEFORGE_NEXT_REQUEST.get(loop, 0.0) - loop.time()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        try:
+            return await request_partial(client, url, referer=referer)
+        finally:
+            _SOURCEFORGE_NEXT_REQUEST[loop] = (
+                loop.time() + SOURCEFORGE_MIN_INTERVAL_SECONDS
+            )
+
+
+def is_sourceforge_download_url(url: str) -> bool:
+    """Identifica tanto la página de descarga como cualquiera de sus mirrors."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == "sourceforge.net" or host.endswith(".sourceforge.net")
 
 
 async def request_partial(
@@ -810,6 +858,25 @@ def unsupported_filename_extension(value: str | None) -> str | None:
         if parsed_path.endswith(extension):
             return extension
     return None
+
+
+def is_non_binary_installer_reference(url: str) -> bool:
+    """Rechaza tiendas, comandos y wrappers que no son un artefacto instalable."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return True
+    hostname = (parsed.hostname or "").lower()
+    path = parsed.path.rstrip("/").lower()
+    if hostname in {"winstall.app", "www.winstall.app"} and path == "/api/installer":
+        return True
+    if detect_extension(url):
+        return False
+    if hostname in {"apps.microsoft.com", "www.microsoft.com"} and (
+        "/store/" in path or path.startswith("/detail/")
+    ):
+        return True
+    return False
 
 
 async def domain_has_public_dns(hostname: str | None) -> bool:

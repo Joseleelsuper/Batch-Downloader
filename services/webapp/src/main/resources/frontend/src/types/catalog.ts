@@ -336,6 +336,9 @@ export interface AuthUser {
 export interface ScraperRunSummary {
   id: string;
   status: string;
+  scope: ScrapeScope;
+  requestId?: string | null;
+  targetCount: number;
   startedAt: string;
   heartbeatAt: string;
   finishedAt?: string | null;
@@ -343,12 +346,60 @@ export interface ScraperRunSummary {
   appsResolved: number;
   appsFailed: number;
   appsSkipped: number;
+  appsConfirmedMissing: number;
+  appsNeedsReview: number;
+  appsTransientFailed: number;
+  appsSkippedUnchanged: number;
   currentPackageId?: string | null;
   currentAppName?: string | null;
   currentPhase?: string | null;
   stopRequested: boolean;
   pausedAt?: string | null;
   errorSummary?: string | null;
+}
+
+export type ScrapeScope = 'incremental' | 'unresolved' | 'selected' | 'full';
+
+export interface ScraperRunRequestResponse {
+  requestId: string;
+  scope: ScrapeScope;
+  status: string;
+}
+
+export interface InstallerAbsenceVerificationRequest {
+  reasonCode: 'no_supported_binary' | 'store_only' | 'command_only' | 'wrapper_only' | 'vendor_discontinued';
+  manifestUrl: string;
+  officialPageUrl?: string | null;
+  winstallConfirmedAbsent: true;
+  manifestConfirmedAbsent: true;
+  officialConfirmedAbsent: boolean;
+  ambiguousAccess: false;
+  notes?: string | null;
+}
+
+export interface InstallerAbsenceVerification {
+  id: string;
+  appId: string;
+  status: string;
+  reasonCode: string;
+  notes?: string | null;
+  checkedUrls: string;
+  verifiedBy: string;
+  verifiedAt: string;
+  appVersion: number;
+  winstallLatestVersion?: string | null;
+  winstallSummaryFingerprint?: string | null;
+  winstallDetailFingerprint?: string | null;
+  officialUrlFingerprint?: string | null;
+  invalidatedAt?: string | null;
+  invalidationReason?: string | null;
+}
+
+export interface InstallerAbsenceVerificationSummary {
+  active: number;
+  missing: number;
+  missingWithoutActiveEvidence: number;
+  review: number;
 }
 
 export interface ResolverLogItem {

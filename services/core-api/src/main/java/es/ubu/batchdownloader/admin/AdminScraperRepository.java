@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -366,7 +367,10 @@ public class AdminScraperRepository {
         if (!COMMANDS.contains(command)) {
             throw new ConflictException("unsupported_scraper_command", "Comando de scraper no soportado.");
         }
-        String status = "run_once".equals(command) ? "completed" : "pending";
+        if ("run_once".equals(command)) {
+            enqueueRun("incremental", List.of(), actor);
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
         jdbc.update(
                 """
@@ -376,11 +380,41 @@ public class AdminScraperRepository {
                 """,
                 UuidBytes.fromUuid(UUID.randomUUID()),
                 command,
-                status,
-                "run_once".equals(command) ? "Triggered through scraper internal API." : null,
+                "pending",
+                null,
                 actor,
                 now,
-                "run_once".equals(command) ? now : null);
+                null);
+    }
+
+    /**
+     * Persiste una solicitud de scraping hasta que el scheduler la reclame.
+     *
+     * @param scope Alcance validado por el controlador.
+     * @param appIds UUID concretos para {@code selected}.
+     * @param actor Identidad autenticada.
+     * @return Identificador durable de la solicitud.
+     */
+    public UUID enqueueRun(String scope, List<UUID> appIds, String actor) {
+        UUID requestId = UUID.randomUUID();
+        String appIdsJson = appIds == null || appIds.isEmpty()
+                ? null
+                : appIds.stream()
+                        .map(id -> "\"" + id + "\"")
+                        .collect(Collectors.joining(",", "[", "]"));
+        jdbc.update(
+                """
+                INSERT INTO scraper_commands
+                (id, command, scope, app_ids_json, status, message, created_by,
+                 created_at, consumed_at, started_at, run_id)
+                VALUES (?, 'run_once', ?, ?, 'pending', NULL, ?, ?, NULL, NULL, NULL)
+                """,
+                UuidBytes.fromUuid(requestId),
+                scope,
+                appIdsJson,
+                actor,
+                LocalDateTime.now());
+        return requestId;
     }
 
     /**
@@ -418,6 +452,9 @@ public class AdminScraperRepository {
         return new ScraperRunSummary(
                 UuidBytes.toUuid(rs.getBytes("id")).toString(),
                 rs.getString("status"),
+                rs.getString("scope"),
+                nullableUuid(rs, "request_id"),
+                rs.getInt("target_count"),
                 rs.getTimestamp("started_at").toLocalDateTime(),
                 rs.getTimestamp("heartbeat_at").toLocalDateTime(),
                 nullableDate(rs, "finished_at"),
@@ -425,12 +462,22 @@ public class AdminScraperRepository {
                 rs.getInt("apps_resolved"),
                 rs.getInt("apps_failed"),
                 rs.getInt("apps_skipped"),
+                rs.getInt("apps_confirmed_missing"),
+                rs.getInt("apps_needs_review"),
+                rs.getInt("apps_transient_failed"),
+                rs.getInt("apps_skipped_unchanged"),
                 rs.getString("current_package_id"),
                 rs.getString("current_app_name"),
                 rs.getString("current_phase"),
                 rs.getBoolean("stop_requested"),
                 nullableDate(rs, "paused_at"),
                 rs.getString("error_summary"));
+    }
+
+    /** Devuelve un UUID binario opcional como texto. */
+    private String nullableUuid(ResultSet rs, String column) throws SQLException {
+        byte[] value = rs.getBytes(column);
+        return value == null ? null : UuidBytes.toUuid(value).toString();
     }
 
     /**

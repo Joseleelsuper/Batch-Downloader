@@ -8,11 +8,14 @@ import es.ubu.batchdownloader.admin.AdminDtos.ScraperMetricItem;
 import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueMaintenanceResult;
 import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueState;
 import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunSummary;
+import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunRequestResponse;
 import es.ubu.batchdownloader.admin.AdminDtos.ScraperSnapshotItem;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,6 +70,30 @@ public class AdminScraperController {
     @GetMapping("/api/admin/scraper/runs")
     public List<ScraperRunSummary> runs(@RequestParam(defaultValue = "30") int limit) {
         return scraper.runs(limit);
+    }
+
+    /**
+     * Crea una solicitud durable; el scheduler la ejecutará cuando no exista otro run activo.
+     *
+     * @param request Scope y selección ya validados.
+     * @param principal Identidad autenticada.
+     * @return Acuse con el ID estable de la solicitud.
+     */
+    @PostMapping("/api/admin/scraper/runs")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ScraperRunRequestResponse createRun(
+            @Valid @RequestBody ScraperRunRequest request,
+            Principal principal) {
+        String actor = actor(principal);
+        List<UUID> appIds = request.appIds() == null ? List.of() : List.copyOf(request.appIds());
+        UUID requestId = scraper.enqueueRun(request.scope(), appIds, actor);
+        audit.record(
+                actor,
+                "scraper.run.requested",
+                "scraper_run_request",
+                requestId.toString(),
+                Map.of("scope", request.scope(), "appCount", appIds.size()));
+        return new ScraperRunRequestResponse(requestId.toString(), request.scope(), "pending");
     }
 
     /**
@@ -220,9 +247,6 @@ public class AdminScraperController {
                     request.command(),
                     Map.of("runs", stopped, "recoveredQueueItems", recovered));
             return Map.of("status", "accepted", "command", request.command());
-        }
-        if ("run_once".equals(request.command())) {
-            scraperClient.triggerRunOnce();
         }
         audit.record(actor, "scraper.command", "scraper", request.command(), null);
         return Map.of("status", "accepted", "command", request.command());

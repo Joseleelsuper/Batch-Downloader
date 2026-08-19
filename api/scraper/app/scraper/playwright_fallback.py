@@ -184,6 +184,26 @@ async def collect_page_candidates(collected, page, base_url: str) -> None:
         page (Any): Número de página solicitado.
         base_url (str): Dirección de `base` que debe procesarse.
     """
+    # SourceForge expone el mirror actual mediante una URL firmada y efímera en
+    # ``data-release-url``. No aparece como ``href`` y, por tanto, el extractor
+    # HTML genérico no puede verla. La URL se usa únicamente para atestar los
+    # bytes; ``referer`` conserva la ruta estable que se publicará en catálogo.
+    try:
+        release_urls = await page.locator("[data-release-url]").evaluate_all(
+            "elements => elements.map(element => "
+            "element.getAttribute('data-release-url')).filter(Boolean)"
+        )
+    except Exception:
+        release_urls = []
+    for release_url in release_urls:
+        if isinstance(release_url, str):
+            collect_url(
+                collected,
+                release_url,
+                "playwright_data_release_url",
+                referer=base_url,
+            )
+
     html = await page.content()
     for candidate in extract_candidates(html, base_url):
         collected.setdefault(candidate.url, candidate)

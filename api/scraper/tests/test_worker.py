@@ -24,20 +24,19 @@ async def test_startup_scrape_repairs_known_apps_before_catalog(monkeypatch) -> 
         """
         calls.append("repair")
 
-    async def scrape(*, recover_running: bool = False) -> None:
-        """Ejecuta la operación `scrape`.
+    async def recover() -> int:
+        return 0
 
-        Args:
-            recover_running (bool): Valor de `recover_running` utilizado por la operación.
-        """
-        calls.append(("scrape", recover_running))
+    async def enqueue(scope, *, created_by: str) -> None:
+        calls.append(("enqueue", scope.value, created_by))
 
     monkeypatch.setattr(worker, "repair_known_apps", repair)
-    monkeypatch.setattr(worker, "scrape_once", scrape)
+    monkeypatch.setattr(worker, "recover_scheduler_runs", recover)
+    monkeypatch.setattr(worker, "enqueue_scrape_request", enqueue)
 
     await worker.run_startup_scrape()
 
-    assert calls == ["repair", ("scrape", True)]
+    assert calls == ["repair", ("enqueue", "incremental", "scheduler:startup")]
 
 
 @pytest.mark.asyncio
@@ -58,20 +57,19 @@ async def test_startup_scrape_continues_when_known_app_repair_fails(monkeypatch)
         calls.append("repair")
         raise RuntimeError("temporary provider failure")
 
-    async def scrape(*, recover_running: bool = False) -> None:
-        """Ejecuta la operación `scrape`.
+    async def recover() -> int:
+        return 0
 
-        Args:
-            recover_running (bool): Valor de `recover_running` utilizado por la operación.
-        """
-        calls.append(("scrape", recover_running))
+    async def enqueue(scope, *, created_by: str) -> None:
+        calls.append(("enqueue", scope.value, created_by))
 
     monkeypatch.setattr(worker, "repair_known_apps", repair)
-    monkeypatch.setattr(worker, "scrape_once", scrape)
+    monkeypatch.setattr(worker, "recover_scheduler_runs", recover)
+    monkeypatch.setattr(worker, "enqueue_scrape_request", enqueue)
 
     await worker.run_startup_scrape()
 
-    assert calls == ["repair", ("scrape", True)]
+    assert calls == ["repair", ("enqueue", "incremental", "scheduler:startup")]
 
 
 @pytest.mark.asyncio

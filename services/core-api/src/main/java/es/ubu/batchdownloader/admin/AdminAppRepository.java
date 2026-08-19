@@ -3,6 +3,9 @@ package es.ubu.batchdownloader.admin;
 import es.ubu.batchdownloader.admin.AdminDtos.PatchAppRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.UpsertAppRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerification;
+import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationSummary;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
@@ -10,7 +13,11 @@ import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -92,6 +99,123 @@ public class AdminAppRepository {
     }
 
     /**
+     * Registra una ausencia únicamente cuando las tres comprobaciones son concluyentes.
+     *
+     * @param publicId Aplicación revisada.
+     * @param request Evidencia estructurada.
+     * @param actor Administrador responsable.
+     * @return Acta activa recién creada.
+     */
+    @Transactional
+    public InstallerAbsenceVerification confirmInstallerAbsence(
+            String publicId,
+            InstallerAbsenceVerificationRequest request,
+            String actor) {
+        UUID appId = softwareAppId(publicId);
+        AbsenceAppState app = jdbc.query(
+                        """
+                        SELECT winstall_id, official_url, version, winstall_latest_version,
+                               winstall_summary_fingerprint, winstall_detail_fingerprint
+                        FROM software_apps
+                        WHERE id = ?
+                        FOR UPDATE
+                        """,
+                        rs -> rs.next()
+                                ? new AbsenceAppState(
+                                        rs.getString("winstall_id"),
+                                        rs.getString("official_url"),
+                                        rs.getLong("version"),
+                                        rs.getString("winstall_latest_version"),
+                                        rs.getString("winstall_summary_fingerprint"),
+                                        rs.getString("winstall_detail_fingerprint"))
+                                : null,
+                        UuidBytes.fromUuid(appId));
+        if (app == null) {
+            throw new NotFoundException("app_not_found", "Aplicación no encontrada.");
+        }
+        if (!isBlank(app.officialUrl()) && isBlank(request.officialPageUrl())) {
+            throw new ConflictException(
+                    "official_site_verification_required",
+                    "Debes comprobar también una página oficial accesible.");
+        }
+        Long candidates = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM resolved_sources rs
+                JOIN download_sources ds ON ds.id = rs.download_source_id
+                WHERE ds.software_app_id = ? AND rs.catalog_downloadable = 1
+                """,
+                Long.class,
+                UuidBytes.fromUuid(appId));
+        if (candidates != null && candidates > 0) {
+            throw new ConflictException(
+                    "validated_installer_exists",
+                    "La aplicación ya tiene un instalador validado.");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        jdbc.update(
+                """
+                UPDATE installer_absence_verifications
+                SET status = 'superseded', invalidated_at = ?,
+                    invalidation_reason = 'reverified', updated_at = ?
+                WHERE software_app_id = ? AND status = 'active'
+                """,
+                now,
+                now,
+                UuidBytes.fromUuid(appId));
+        UUID verificationId = UUID.randomUUID();
+        insertAbsenceVerification(verificationId, appId, app, request, actor, now);
+        jdbc.update(
+                """
+                UPDATE download_sources
+                SET resolution_status = 'missing', validation_status = 'unchecked',
+                    updated_at = ?, version = version + 1
+                WHERE software_app_id = ?
+                """,
+                now,
+                UuidBytes.fromUuid(appId));
+        return absenceVerification(verificationId);
+    }
+
+    /** Obtiene el acta activa más reciente de una aplicación. */
+    public InstallerAbsenceVerification activeAbsenceVerification(String publicId) {
+        UUID appId = softwareAppId(publicId);
+        List<InstallerAbsenceVerification> rows = jdbc.query(
+                """
+                SELECT * FROM installer_absence_verifications
+                WHERE software_app_id = ? AND status = 'active'
+                ORDER BY verified_at DESC LIMIT 1
+                """,
+                this::mapAbsenceVerification,
+                UuidBytes.fromUuid(appId));
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** Resume los ``missing`` sin evidencia usando la proyección autoritativa. */
+    public InstallerAbsenceVerificationSummary absenceVerificationSummary() {
+        return jdbc.queryForObject(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM installer_absence_verifications
+                     WHERE status = 'active') active,
+                    SUM(a.catalog_status = 'missing') missing_count,
+                    SUM(a.catalog_status = 'review') review_count,
+                    SUM(a.catalog_status = 'missing' AND NOT EXISTS (
+                        SELECT 1 FROM installer_absence_verifications v
+                        WHERE v.software_app_id = a.id AND v.status = 'active'
+                    )) missing_without_evidence
+                FROM software_apps a
+                WHERE a.app_status = 'active'
+                """,
+                (rs, rowNum) -> new InstallerAbsenceVerificationSummary(
+                        rs.getLong("active"),
+                        rs.getLong("missing_count"),
+                        rs.getLong("missing_without_evidence"),
+                        rs.getLong("review_count")));
+    }
+
+    /**
      * Ejecuta la operación {@code patch}.
      *
      * @param publicId Identificador de {@code public} utilizado por la operación.
@@ -122,6 +246,10 @@ public class AdminAppRepository {
                 isBlank(request.appStatus()) ? "active" : request.appStatus(),
                 LocalDateTime.now(),
                 UuidBytes.fromUuid(id));
+        if (request.officialUrl() != null
+                && !request.officialUrl().equals(before.officialUrl())) {
+            invalidateAbsenceEvidence(id, "official_url_changed");
+        }
         return catalog.details(id.toString());
     }
 
@@ -497,6 +625,140 @@ public class AdminAppRepository {
         }
     }
 
+    /** Inserta el acta con dos o tres páginas revisadas, nunca con URLs de binarios. */
+    private void insertAbsenceVerification(
+            UUID verificationId,
+            UUID appId,
+            AbsenceAppState app,
+            InstallerAbsenceVerificationRequest request,
+            String actor,
+            LocalDateTime now) {
+        String winstallUrl = "https://winstall.app/apps/" + app.winstallId();
+        boolean hasOfficialPage = !isBlank(request.officialPageUrl());
+        String checkedUrls = hasOfficialPage
+                ? "JSON_ARRAY(?, ?, ?)"
+                : "JSON_ARRAY(?, ?)";
+        String sql = """
+                INSERT INTO installer_absence_verifications
+                (id, software_app_id, status, reason_code, notes, checked_urls_json,
+                evidence_json, verified_by, verified_at, app_version,
+                 winstall_latest_version, winstall_summary_fingerprint,
+                 winstall_detail_fingerprint, official_url_fingerprint,
+                 invalidated_at, invalidation_reason, created_at, updated_at)
+                VALUES (?, ?, 'active', ?, ?, %s,
+                        JSON_OBJECT('winstall', TRUE, 'manifest', TRUE, 'official', ?,
+                                    'ambiguousAccess', FALSE),
+                        ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+                """.formatted(checkedUrls);
+        List<Object> parameters = new java.util.ArrayList<>();
+        parameters.add(UuidBytes.fromUuid(verificationId));
+        parameters.add(UuidBytes.fromUuid(appId));
+        parameters.add(request.reasonCode());
+        parameters.add(request.notes());
+        parameters.add(winstallUrl);
+        parameters.add(request.manifestUrl());
+        if (hasOfficialPage) {
+            parameters.add(request.officialPageUrl());
+        }
+        parameters.add(hasOfficialPage && request.officialConfirmedAbsent());
+        parameters.add(actor);
+        parameters.add(now);
+        parameters.add(app.version());
+        parameters.add(app.winstallLatestVersion());
+        parameters.add(app.summaryFingerprint());
+        parameters.add(app.detailFingerprint());
+        parameters.add(fingerprint(app.officialUrl()));
+        parameters.add(now);
+        parameters.add(now);
+        jdbc.update(sql, parameters.toArray());
+    }
+
+    /** Carga una verificación por su clave estable. */
+    private InstallerAbsenceVerification absenceVerification(UUID verificationId) {
+        return jdbc.queryForObject(
+                "SELECT * FROM installer_absence_verifications WHERE id = ?",
+                this::mapAbsenceVerification,
+                UuidBytes.fromUuid(verificationId));
+    }
+
+    /** Convierte una fila de evidencia sin descifrar ni exponer instaladores. */
+    private InstallerAbsenceVerification mapAbsenceVerification(ResultSet rs, int rowNum)
+            throws SQLException {
+        return new InstallerAbsenceVerification(
+                UuidBytes.toUuid(rs.getBytes("id")).toString(),
+                UuidBytes.toUuid(rs.getBytes("software_app_id")).toString(),
+                rs.getString("status"),
+                rs.getString("reason_code"),
+                rs.getString("notes"),
+                rs.getString("checked_urls_json"),
+                rs.getString("verified_by"),
+                rs.getTimestamp("verified_at").toLocalDateTime(),
+                rs.getLong("app_version"),
+                rs.getString("winstall_latest_version"),
+                rs.getString("winstall_summary_fingerprint"),
+                rs.getString("winstall_detail_fingerprint"),
+                rs.getString("official_url_fingerprint"),
+                nullableDate(rs, "invalidated_at"),
+                rs.getString("invalidation_reason"));
+    }
+
+    /** Invalida la evidencia al cambiar la página oficial y devuelve el caso a revisión. */
+    private void invalidateAbsenceEvidence(UUID appId, String reason) {
+        LocalDateTime now = LocalDateTime.now();
+        int invalidated = jdbc.update(
+                """
+                UPDATE installer_absence_verifications
+                SET status = 'invalidated', invalidated_at = ?, invalidation_reason = ?,
+                    updated_at = ?
+                WHERE software_app_id = ? AND status = 'active'
+                """,
+                now,
+                reason,
+                now,
+                UuidBytes.fromUuid(appId));
+        if (invalidated == 0) {
+            return;
+        }
+        Long available = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM download_sources
+                WHERE software_app_id = ? AND catalog_available = 1
+                """,
+                Long.class,
+                UuidBytes.fromUuid(appId));
+        if (available == null || available == 0) {
+            jdbc.update(
+                    """
+                    UPDATE download_sources
+                    SET resolution_status = 'requires_manual_review',
+                        validation_status = 'unchecked', updated_at = ?, version = version + 1
+                    WHERE software_app_id = ?
+                    """,
+                    now,
+                    UuidBytes.fromUuid(appId));
+        }
+    }
+
+    /** Calcula una huella de página sin almacenar cabeceras, credenciales ni instaladores. */
+    private String fingerprint(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.trim().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 no está disponible.", exception);
+        }
+    }
+
+    /** Lee una fecha SQL opcional. */
+    private LocalDateTime nullableDate(ResultSet rs, String column) throws SQLException {
+        var timestamp = rs.getTimestamp(column);
+        return timestamp == null ? null : timestamp.toLocalDateTime();
+    }
+
     /**
      * Analiza el contenido recibido mediante {@code parseUuid}.
      *
@@ -640,6 +902,15 @@ public class AdminAppRepository {
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      */
     public record AppCsvExport(String content, int rowCount) {}
+
+    /** Campos locales que sellan una verificación negativa frente a cambios posteriores. */
+    private record AbsenceAppState(
+            String winstallId,
+            String officialUrl,
+            long version,
+            String winstallLatestVersion,
+            String summaryFingerprint,
+            String detailFingerprint) {}
 
     /**
      * Representa los datos inmutables de {@code ExportCandidate}.

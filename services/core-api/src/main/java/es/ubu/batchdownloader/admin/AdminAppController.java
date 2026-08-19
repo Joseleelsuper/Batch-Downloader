@@ -14,6 +14,9 @@ import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyRequest;
 import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyResponse;
 import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyResult;
 import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerification;
+import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationRequest;
+import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationSummary;
 import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
@@ -120,6 +123,38 @@ public class AdminAppController {
                 safePage,
                 safePageSize,
                 catalog.count(query, status, operatingSystem == null || operatingSystem.isBlank() ? List.of() : List.of(operatingSystem), architecture, tagList, List.of(), tagMode));
+    }
+
+    /** Devuelve el criterio de cierre de la campaña de ausencias. */
+    @GetMapping("/api/admin/apps/absence-verifications/summary")
+    public InstallerAbsenceVerificationSummary absenceVerificationSummary() {
+        return adminApps.absenceVerificationSummary();
+    }
+
+    /** Obtiene la evidencia activa de una aplicación, si existe. */
+    @GetMapping("/api/admin/apps/{appId}/absence-verification")
+    public InstallerAbsenceVerification activeAbsenceVerification(
+            @PathVariable String appId) {
+        return adminApps.activeAbsenceVerification(appId);
+    }
+
+    /** Registra una ausencia confirmada y audita al responsable sin guardar binarios. */
+    @PostMapping("/api/admin/apps/{appId}/absence-verification")
+    @ResponseStatus(HttpStatus.CREATED)
+    public InstallerAbsenceVerification confirmInstallerAbsence(
+            @PathVariable String appId,
+            @Valid @RequestBody InstallerAbsenceVerificationRequest request,
+            Principal principal) {
+        String actor = actor(principal);
+        InstallerAbsenceVerification verification =
+                adminApps.confirmInstallerAbsence(appId, request, actor);
+        audit.record(
+                actor,
+                "app.installer_absence.confirm",
+                "app",
+                appId,
+                Map.of("reasonCode", request.reasonCode()));
+        return verification;
     }
 
     /**

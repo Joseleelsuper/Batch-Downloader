@@ -1,8 +1,10 @@
 """Implementa las responsabilidades del módulo `catalog`.
 """
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import tldextract
@@ -13,17 +15,28 @@ from sqlalchemy.orm import selectinload, with_expression
 from app.core.json_safe import json_safe
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
-from app.db.enums import AppStatus, LongDescriptionStatus, ResolutionStatus, ValidationStatus
+from app.db.enums import (
+    AbsenceVerificationStatus,
+    AppStatus,
+    LongDescriptionStatus,
+    ResolutionStatus,
+    ValidationStatus,
+)
 from app.db.models import (
     CatalogCounter,
     DownloadSource,
+    InstallerAbsenceVerification,
     ResolvedSource,
     ScrapeRun,
     SoftwareApp,
     SoftwareAppTag,
 )
 from app.scraper.text import normalize_text, slugify
-from app.scraper.winstall import WinstallApp
+from app.scraper.winstall import (
+    WinstallApp,
+    winstall_detail_fingerprint,
+    winstall_summary_fingerprint,
+)
 
 AVAILABLE_RESOLUTION_STATUSES = {
     ResolutionStatus.DIRECT.value,
@@ -88,6 +101,8 @@ class ResolvedSourceCreate:
     metadata: dict | None = None
     """Atributo de clase `metadata` de `ResolvedSourceCreate`.
     """
+    artifact_fingerprint: str | None = None
+    """Huella aportada por un resolver especializado; se calcula si se omite."""
 
 
 class CatalogRepository:
@@ -107,7 +122,12 @@ class CatalogRepository:
         """Estado de instancia asociado a `url_protector`.
         """
 
-    async def should_scrape_winstall_package(self, package_id: str) -> bool:
+    async def should_scrape_winstall_package(
+        self,
+        package_id: str,
+        *,
+        force_refresh: bool = False,
+    ) -> bool:
         """Ejecuta `should_scrape_winstall_package` dentro de `CatalogRepository`.
 
         Args:
@@ -116,6 +136,8 @@ class CatalogRepository:
         Returns:
             bool: Indica si se cumple la condición evaluada.
         """
+        if force_refresh:
+            return True
         existing_id = await self.session.scalar(
             select(SoftwareApp.id).where(SoftwareApp.winstall_id == package_id).limit(1)
         )
@@ -135,6 +157,41 @@ class CatalogRepository:
         # Mantiene inmutables las aplicaciones correctas durante las pasadas normales del
         # catálogo y permite que resultados review o missing aprovechen mejoras del resolver.
         return resolved_source is None
+
+    async def winstall_refresh_states(self) -> dict[str, tuple[uuid.UUID, str | None, str | None]]:
+        """Devuelve estado y huella local para seleccionar el scope incremental."""
+        rows = await self.session.execute(
+            select(
+                SoftwareApp.winstall_id,
+                SoftwareApp.id,
+                SoftwareApp.catalog_status,
+                SoftwareApp.winstall_summary_fingerprint,
+            ).where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+        )
+        return {
+            winstall_id: (app_id, catalog_status, fingerprint)
+            for winstall_id, app_id, catalog_status, fingerprint in rows
+        }
+
+    async def snapshot_refresh_targets(
+        self,
+        *,
+        statuses: set[str] | None = None,
+        app_ids: list[uuid.UUID] | None = None,
+    ) -> list[SoftwareApp]:
+        """Captura de forma ordenada el manifest local de una solicitud dirigida."""
+        stmt = (
+            select(SoftwareApp)
+            .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+            .order_by(SoftwareApp.id)
+        )
+        if statuses is not None:
+            stmt = stmt.where(SoftwareApp.catalog_status.in_(sorted(statuses)))
+        if app_ids is not None:
+            if not app_ids:
+                return []
+            stmt = stmt.where(SoftwareApp.id.in_(app_ids))
+        return list(await self.session.scalars(stmt))
 
     async def repair_resolved_source_platforms(self) -> int:
         """Ejecuta `repair_resolved_source_platforms` dentro de `CatalogRepository`.
@@ -219,6 +276,8 @@ class CatalogRepository:
             .where(SoftwareApp.winstall_id == app.package_id)
         )
         if existing is not None:
+            await self._sync_existing_winstall_app(existing, app)
+            await self._refresh_catalog_status(existing)
             return existing, False
 
         slug = slugify(app.package_id)
@@ -238,6 +297,12 @@ class CatalogRepository:
             icon_url=icon_url,
             official_url=app.homepage,
             latest_version=app.latest_version,
+            winstall_latest_version=app.latest_version,
+            winstall_updated_at=parse_provider_datetime(app.raw.get("updatedAt")),
+            winstall_summary_fingerprint=winstall_summary_fingerprint(app),
+            winstall_detail_fingerprint=(
+                winstall_detail_fingerprint(app) if app.installer_data_complete else None
+            ),
             app_status=AppStatus.ACTIVE.value,
             metadata_json=json_safe(app.raw),
         )
@@ -246,7 +311,130 @@ class CatalogRepository:
 
         await self._sync_tags(existing, app.tags)
         await self._ensure_default_source(existing, app)
+        await self._refresh_catalog_status(existing)
         return existing, True
+
+    async def _refresh_catalog_status(self, software_app: SoftwareApp) -> None:
+        """Carga explícitamente la proyección modificada por triggers tras el flush.
+
+        MySQL invalida el atributo calculado al actualizar la fila. Acceder después
+        de forma síncrona desde el ORM async intentaría una carga implícita y provoca
+        ``MissingGreenlet``.
+        """
+        await self.session.flush()
+        await self.session.refresh(software_app, attribute_names=["catalog_status"])
+
+    async def _sync_existing_winstall_app(
+        self,
+        software_app: SoftwareApp,
+        app: WinstallApp,
+    ) -> None:
+        """Sincroniza datos del proveedor conservando cada campo marcado como manual."""
+        old_summary = software_app.winstall_summary_fingerprint
+        old_detail = software_app.winstall_detail_fingerprint
+        new_summary = winstall_summary_fingerprint(app)
+        new_detail = (
+            winstall_detail_fingerprint(app) if app.installer_data_complete else old_detail
+        )
+        verification = (
+            await self.active_absence_verification(software_app.id)
+            if software_app.catalog_status == "missing"
+            else None
+        )
+        manual_fields = manual_field_sources(software_app)
+        changed = False
+
+        icon_url = app.icon_url
+        if app.icon and not app.icon.startswith("http"):
+            icon_key = app.icon.removesuffix(".png")
+            icon_url = f"https://api.winstall.app/icons/next/{icon_key}.webp"
+        provider_fields = {
+            "name": app.name or app.package_id,
+            "publisher": app.publisher,
+            "officialUrl": app.homepage,
+            "latestVersion": app.latest_version,
+            "description": app.description,
+            "iconUrl": icon_url,
+        }
+        attributes = {
+            "name": "name",
+            "publisher": "publisher",
+            "officialUrl": "official_url",
+            "latestVersion": "latest_version",
+            "description": "description",
+            "iconUrl": "icon_url",
+        }
+        for field_name, value in provider_fields.items():
+            if manual_fields.get(field_name) == "manual":
+                continue
+            if (
+                field_name == "latestVersion"
+                and software_app.catalog_status == "available"
+                and software_app.latest_version != value
+            ):
+                # La versión publicada se promueve después de validar su artefacto.
+                continue
+            attribute = attributes[field_name]
+            if getattr(software_app, attribute) != value:
+                setattr(software_app, attribute, value)
+                changed = True
+                if attribute == "name":
+                    software_app.normalized_name = normalize_text(value or app.package_id)
+
+        metadata = dict(software_app.metadata_json or {})
+        provider_metadata = dict(json_safe(app.raw) or {})
+        for key in ("manual_installer", "website_discovery"):
+            if key in metadata:
+                provider_metadata[key] = metadata[key]
+        if provider_metadata != metadata:
+            software_app.metadata_json = provider_metadata
+            changed = True
+
+        if software_app.winstall_latest_version != app.latest_version:
+            software_app.winstall_latest_version = app.latest_version
+            changed = True
+        provider_updated_at = parse_provider_datetime(app.raw.get("updatedAt"))
+        if provider_updated_at and software_app.winstall_updated_at != provider_updated_at:
+            software_app.winstall_updated_at = provider_updated_at
+            changed = True
+        if old_summary != new_summary:
+            software_app.winstall_summary_fingerprint = new_summary
+            changed = True
+        if new_detail != old_detail:
+            software_app.winstall_detail_fingerprint = new_detail
+            changed = True
+
+        evidence_change = verification is not None and (
+            verification.winstall_summary_fingerprint != new_summary
+            or verification.winstall_detail_fingerprint != new_detail
+            or verification.official_url_fingerprint
+            != text_fingerprint(software_app.official_url)
+        )
+        if evidence_change:
+            await self.invalidate_absence_verifications(
+                software_app.id,
+                "winstall_changed_or_candidate_appeared",
+            )
+
+        await self._sync_tags(software_app, app.tags)
+        await self._ensure_default_source(software_app, app)
+        if changed:
+            software_app.updated_at = utc_now()
+            software_app.version += 1
+
+    async def promote_winstall_latest_version(self, software_app_id: uuid.UUID) -> bool:
+        """Promueve la versión anunciada solo después de validar el reemplazo."""
+        software_app = await self.session.get(SoftwareApp, software_app_id)
+        if software_app is None:
+            return False
+        if manual_field_sources(software_app).get("latestVersion") == "manual":
+            return False
+        if software_app.latest_version == software_app.winstall_latest_version:
+            return False
+        software_app.latest_version = software_app.winstall_latest_version
+        software_app.updated_at = utc_now()
+        software_app.version += 1
+        return True
 
     async def _sync_tags(self, software_app: SoftwareApp, raw_tags: list[str]) -> None:
         """Ejecuta el paso interno `_sync_tags`.
@@ -294,6 +482,8 @@ class CatalogRepository:
         if changed:
             software_app.updated_at = utc_now()
             software_app.version += 1
+            await self.session.flush()
+            await self.session.refresh(software_app, attribute_names=["tags"])
 
     async def update_icon_url(self, software_app_id: uuid.UUID, icon_url: str) -> bool:
         """Actualiza la operación `icon_url`.
@@ -463,11 +653,15 @@ class CatalogRepository:
         Returns:
             DownloadSource: Resultado producido por la operación.
         """
-        source = await self.session.scalar(
+        sources = list(await self.session.scalars(
             select(DownloadSource)
             .where(DownloadSource.software_app_id == software_app_id)
             .where(DownloadSource.operating_system == operating_system)
             .where(DownloadSource.architecture == architecture)
+        ))
+        source = next(
+            (candidate for candidate in sources if not is_manual_download_source(candidate)),
+            None,
         )
         if source is None:
             source = DownloadSource(
@@ -647,26 +841,52 @@ class CatalogRepository:
             ResolvedSource: Resultado producido por la operación.
         """
         encrypted_url = self.url_protector.protect(item.url)
-        resolved = ResolvedSource(
-            download_source_id=item.source_id,
-            resolved_url_encrypted=encrypted_url,
-            final_domain=item.final_domain,
-            filename=item.filename,
-            extension=item.extension,
-            content_type=item.content_type,
-            size_bytes=item.size_bytes,
-            version=item.version,
-            release_rank=item.release_rank,
-            is_latest=item.is_latest,
-            version_status=item.version_status,
-            score=item.score,
-            status=item.status.value,
-            validation_status=item.validation_status.value,
-            checked_at=utc_now(),
-            expires_at=utc_after(hours=24),
-            metadata_json=json_safe(item.metadata),
+        fingerprint = item.artifact_fingerprint or artifact_fingerprint(item)
+        resolved = await self.session.scalar(
+            select(ResolvedSource)
+            .where(ResolvedSource.download_source_id == item.source_id)
+            .where(ResolvedSource.artifact_fingerprint == fingerprint)
+            .limit(1)
         )
-        self.session.add(resolved)
+        if resolved is None:
+            resolved = ResolvedSource(
+                download_source_id=item.source_id,
+                resolved_url_encrypted=encrypted_url,
+                final_domain=item.final_domain,
+                filename=item.filename,
+                extension=item.extension,
+                content_type=item.content_type,
+                size_bytes=item.size_bytes,
+                version=item.version,
+                release_rank=item.release_rank,
+                is_latest=item.is_latest,
+                version_status=item.version_status,
+                score=item.score,
+                status=item.status.value,
+                validation_status=item.validation_status.value,
+                checked_at=utc_now(),
+                expires_at=utc_after(hours=24),
+                metadata_json=json_safe(item.metadata),
+                artifact_fingerprint=fingerprint,
+            )
+            self.session.add(resolved)
+        else:
+            resolved.resolved_url_encrypted = encrypted_url
+            resolved.final_domain = item.final_domain
+            resolved.filename = item.filename
+            resolved.extension = item.extension
+            resolved.content_type = item.content_type
+            resolved.size_bytes = item.size_bytes
+            resolved.version = item.version
+            resolved.release_rank = item.release_rank
+            resolved.is_latest = item.is_latest
+            resolved.version_status = item.version_status
+            resolved.score = item.score
+            resolved.status = item.status.value
+            resolved.validation_status = item.validation_status.value
+            resolved.checked_at = utc_now()
+            resolved.expires_at = utc_after(hours=24)
+            resolved.metadata_json = json_safe(item.metadata)
 
         source = await self.session.get(DownloadSource, item.source_id)
         if source:
@@ -674,7 +894,67 @@ class CatalogRepository:
             source.validation_status = item.validation_status.value
             source.updated_at = utc_now()
             source.version += 1
+            await self.invalidate_absence_verifications(
+                source.software_app_id,
+                "validated_installer_appeared",
+            )
         return resolved
+
+    async def active_absence_verification(
+        self,
+        software_app_id: uuid.UUID,
+    ) -> InstallerAbsenceVerification | None:
+        """Obtiene la evidencia negativa vigente más reciente."""
+        return await self.session.scalar(
+            select(InstallerAbsenceVerification)
+            .where(InstallerAbsenceVerification.software_app_id == software_app_id)
+            .where(
+                InstallerAbsenceVerification.status
+                == AbsenceVerificationStatus.ACTIVE.value
+            )
+            .order_by(InstallerAbsenceVerification.verified_at.desc())
+            .limit(1)
+        )
+
+    async def invalidate_absence_verifications(
+        self,
+        software_app_id: uuid.UUID,
+        reason: str,
+    ) -> int:
+        """Invalida actas activas y devuelve la aplicación a revisión si procede."""
+        rows = list(
+            await self.session.scalars(
+                select(InstallerAbsenceVerification)
+                .where(InstallerAbsenceVerification.software_app_id == software_app_id)
+                .where(
+                    InstallerAbsenceVerification.status
+                    == AbsenceVerificationStatus.ACTIVE.value
+                )
+            )
+        )
+        if not rows:
+            return 0
+        now = utc_now()
+        for verification in rows:
+            verification.status = AbsenceVerificationStatus.INVALIDATED.value
+            verification.invalidated_at = now
+            verification.invalidation_reason = reason[:180]
+            verification.updated_at = now
+
+        has_available = await self.session.scalar(
+            select(DownloadSource.id)
+            .where(DownloadSource.software_app_id == software_app_id)
+            .where(DownloadSource.resolution_status.in_(AVAILABLE_RESOLUTION_STATUSES))
+            .where(DownloadSource.validation_status == ValidationStatus.VALID.value)
+            .limit(1)
+        )
+        if has_available is None:
+            source = await self.default_source_for_app(software_app_id)
+            if source:
+                source.resolution_status = ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+                source.validation_status = ValidationStatus.UNCHECKED.value
+                source.updated_at = now
+        return len(rows)
 
     async def apps_for_description_enrichment(
         self,
@@ -1288,3 +1568,66 @@ def normalized_extension(value: str | None) -> str | None:
         return None
     extension = value.lower().strip()
     return extension if extension.startswith(".") else f".{extension}"
+
+
+def is_manual_download_source(source: DownloadSource) -> bool:
+    """Impide que una sincronización Winstall reutilice una fuente publicada a mano."""
+    return source.resolver_type == "manual_http" or (
+        (source.resolver_config or {}).get("source") == "admin_manual"
+    )
+
+
+def manual_field_sources(software_app: SoftwareApp) -> dict[str, str]:
+    """Extrae únicamente la procedencia explícita de una revisión manual."""
+    metadata = software_app.metadata_json or {}
+    manual = metadata.get("manual_installer")
+    if not isinstance(manual, dict):
+        return {}
+    sources = manual.get("field_sources")
+    if not isinstance(sources, dict):
+        return {}
+    return {str(key): str(value) for key, value in sources.items()}
+
+
+def parse_provider_datetime(value: object) -> datetime | None:
+    """Normaliza marcas ISO de Winstall al DATETIME UTC sin zona usado por MySQL."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed
+
+
+def artifact_fingerprint(item: ResolvedSourceCreate) -> str:
+    """Genera una identidad estable sin depender de tokens efímeros de la URL."""
+    metadata = item.metadata or {}
+    parsed = urlparse(item.url)
+    payload = {
+        "domain": (item.final_domain or parsed.hostname or "").lower(),
+        "path": parsed.path,
+        "filename": (item.filename or "").lower(),
+        "extension": (item.extension or "").lower(),
+        "size": item.size_bytes,
+        "version": item.version,
+        "sha256": metadata.get("sha256") or metadata.get("expected_sha256"),
+        "operating_system": metadata.get("operating_system"),
+        "architecture": metadata.get("architecture"),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def text_fingerprint(value: str | None) -> str | None:
+    """Replica la huella estable usada por Core para una página oficial."""
+    if value is None or not value.strip():
+        return None
+    return hashlib.sha256(value.strip().encode("utf-8")).hexdigest()

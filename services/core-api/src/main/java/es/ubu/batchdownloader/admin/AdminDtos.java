@@ -3,6 +3,7 @@ package es.ubu.batchdownloader.admin;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.AssertFalse;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -10,6 +11,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Implementa el componente {@code AdminDtos}.
@@ -536,6 +538,9 @@ public class AdminDtos {
     public record ScraperRunSummary(
             String id,
             String status,
+            String scope,
+            String requestId,
+            int targetCount,
             LocalDateTime startedAt,
             LocalDateTime heartbeatAt,
             LocalDateTime finishedAt,
@@ -543,12 +548,79 @@ public class AdminDtos {
             int appsResolved,
             int appsFailed,
             int appsSkipped,
+            int appsConfirmedMissing,
+            int appsNeedsReview,
+            int appsTransientFailed,
+            int appsSkippedUnchanged,
             String currentPackageId,
             String currentAppName,
             String currentPhase,
             boolean stopRequested,
             LocalDateTime pausedAt,
             String errorSummary) {}
+
+    /** Solicitud durable para una ejecución del scraper. */
+    public record ScraperRunRequest(
+            @NotBlank
+            @Pattern(regexp = "incremental|unresolved|selected|full")
+            String scope,
+            @Size(max = 500) List<UUID> appIds) {
+        /** Impide selecciones ambiguas y mantiene el contrato de scopes disjunto. */
+        @AssertTrue(message = "selected requiere appIds y los demás scopes no los admiten")
+        public boolean isSelectionValid() {
+            boolean hasIds = appIds != null && !appIds.isEmpty();
+            return "selected".equals(scope) == hasIds;
+        }
+    }
+
+    /** Acuse durable devuelto antes de que el scheduler reclame la solicitud. */
+    public record ScraperRunRequestResponse(String requestId, String scope, String status) {}
+
+    /** Declaración humana estructurada que nunca admite un resultado ambiguo. */
+    public record InstallerAbsenceVerificationRequest(
+            @NotBlank
+            @Pattern(
+                    regexp = "no_supported_binary|store_only|command_only|wrapper_only|vendor_discontinued")
+            String reasonCode,
+            @NotBlank @Pattern(regexp = "(?i)^https://.+") String manifestUrl,
+            @Pattern(regexp = "(?i)^https://.+") String officialPageUrl,
+            @AssertTrue boolean winstallConfirmedAbsent,
+            @AssertTrue boolean manifestConfirmedAbsent,
+            boolean officialConfirmedAbsent,
+            @AssertFalse boolean ambiguousAccess,
+            @Size(max = 2000) String notes) {
+        /** Exige confirmación oficial solo cuando existe una página que comprobar. */
+        @AssertTrue(message = "officialConfirmedAbsent debe coincidir con officialPageUrl")
+        public boolean isOfficialConfirmationValid() {
+            boolean hasOfficialPage = officialPageUrl != null && !officialPageUrl.isBlank();
+            return hasOfficialPage == officialConfirmedAbsent;
+        }
+    }
+
+    /** Vista segura del acta; solo contiene páginas revisadas, nunca URLs ejecutables. */
+    public record InstallerAbsenceVerification(
+            String id,
+            String appId,
+            String status,
+            String reasonCode,
+            String notes,
+            String checkedUrls,
+            String verifiedBy,
+            LocalDateTime verifiedAt,
+            long appVersion,
+            String winstallLatestVersion,
+            String winstallSummaryFingerprint,
+            String winstallDetailFingerprint,
+            String officialUrlFingerprint,
+            LocalDateTime invalidatedAt,
+            String invalidationReason) {}
+
+    /** Totales autoritativos para detectar cualquier ``missing`` sin acta activa. */
+    public record InstallerAbsenceVerificationSummary(
+            long active,
+            long missing,
+            long missingWithoutActiveEvidence,
+            long review) {}
 
     /**
      * Representa los datos inmutables de {@code ResolverLogItem}.

@@ -145,11 +145,11 @@ async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -
     )
 
     assert result.provider == "groq"
-    assert result.model == "llama-3.3-70b-versatile"
+    assert result.model == "qwen/qwen3-32b"
     assert result.description == "Descripcion larga valida para la app."
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
         "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
+        "qwen/qwen3-32b",
     ]
     assert not deepseek_route.called
 
@@ -193,7 +193,6 @@ async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable()
     assert result.provider == "deepseek"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
         "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
         "qwen/qwen3-32b",
         "qwen/qwen3.6-27b",
         "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -209,7 +208,7 @@ async def test_groq_model_400_cools_down_and_tries_next_model() -> None:
         llm_groq_api_key="groq-key",
         llm_deepseek_api_key="deepseek-key",
         llm_request_timeout_seconds=5,
-        llm_groq_fallback_models=("llama-3.3-70b-versatile",),
+        llm_groq_fallback_models=("qwen/qwen3-32b",),
     )
     groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
         side_effect=[
@@ -255,10 +254,10 @@ async def test_groq_model_400_cools_down_and_tries_next_model() -> None:
     ).generate({"name": "Vendor App"})
 
     assert result.provider == "groq"
-    assert result.model == "llama-3.3-70b-versatile"
+    assert result.model == "qwen/qwen3-32b"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
         "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
+        "qwen/qwen3-32b",
     ]
     assert not deepseek_route.called
 
@@ -272,7 +271,7 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
     cooldowns = InMemoryModelCooldownStore(monotonic=clock)
     settings = Settings(
         llm_groq_api_key="groq-key",
-        llm_groq_fallback_models=("llama-3.3-70b-versatile",),
+        llm_groq_fallback_models=("qwen/qwen3-32b",),
         llm_request_timeout_seconds=5,
     )
     valid_response = httpx.Response(
@@ -309,13 +308,13 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
     clock.advance(61)
     third = await client.generate({"name": "Third"})
 
-    assert first.model == "llama-3.3-70b-versatile"
-    assert second.model == "llama-3.3-70b-versatile"
+    assert first.model == "qwen/qwen3-32b"
+    assert second.model == "qwen/qwen3-32b"
     assert third.model == "llama-3.1-8b-instant"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
         "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "llama-3.3-70b-versatile",
+        "qwen/qwen3-32b",
+        "qwen/qwen3-32b",
         "llama-3.1-8b-instant",
     ]
 

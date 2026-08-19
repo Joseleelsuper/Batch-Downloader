@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
@@ -11,7 +12,14 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 from packaging.version import InvalidVersion, Version
-from sqlalchemy.exc import OperationalError, StatementError
+from sqlalchemy import select
+from sqlalchemy.exc import (
+    OperationalError,
+    StatementError,
+)
+from sqlalchemy.exc import (
+    TimeoutError as SQLAlchemyTimeoutError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -19,8 +27,15 @@ from app.core.cpu_pool import run_cpu_bound
 from app.core.json_safe import json_safe
 from app.core.logging import get_logger
 from app.core.url_protector import UrlProtector
-from app.db.enums import LongDescriptionStatus, ResolutionStatus, ScrapeRunStatus, ValidationStatus
-from app.db.models import ScraperWorkItem, SoftwareApp
+from app.db.enums import (
+    LongDescriptionStatus,
+    ResolutionStatus,
+    ScrapeOutcome,
+    ScrapeRunStatus,
+    ScrapeScope,
+    ValidationStatus,
+)
+from app.db.models import ScraperCommand, ScraperWorkItem, SoftwareApp
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
@@ -58,12 +73,57 @@ from app.scraper.strategies import (
     CandidateResolverStrategyRegistry,
     ScrapeRuntime,
 )
-from app.scraper.validator import DownloadValidator, ValidationResult, domain_has_public_dns
-from app.scraper.winstall import WinstallApp, WinstallClient, parse_winstall_app
+from app.scraper.validator import (
+    DownloadValidator,
+    ValidationConfidence,
+    ValidationResult,
+    domain_has_public_dns,
+    is_sourceforge_download_url,
+)
+from app.scraper.winstall import (
+    WinstallApp,
+    WinstallClient,
+    WinstallDetailIncompleteError,
+    parse_winstall_app,
+    winstall_detail_fingerprint,
+    winstall_summary_fingerprint,
+)
 
 logger = get_logger(__name__)
 """Estado global asociado a `logger`.
 """
+
+DATABASE_POOL_RETRY_ATTEMPTS = 12
+
+
+async def retry_database_pool_operation[DatabaseResult](
+    settings: Settings,
+    component: str,
+    operation: Callable[[], Awaitable[DatabaseResult]],
+) -> DatabaseResult:
+    """Reintenta exclusivamente la contención local del pool de conexiones.
+
+    Un ``SQLAlchemyTimeoutError`` en este servicio significa que todas las conexiones
+    acotadas del proceso están ocupadas. No equivale a un fallo del proveedor ni debe
+    degradar una aplicación. Los errores de red o SQL reales siguen propagándose.
+    """
+    for attempt in range(1, DATABASE_POOL_RETRY_ATTEMPTS + 1):
+        try:
+            return await operation()
+        except SQLAlchemyTimeoutError:
+            logger.warning(
+                "scraper_database_pool_retry",
+                component=component,
+                attempt=attempt,
+                max_attempts=DATABASE_POOL_RETRY_ATTEMPTS,
+                pool_size=settings.database_pool_max,
+                timeout_seconds=settings.database_pool_timeout_seconds,
+            )
+            if attempt >= DATABASE_POOL_RETRY_ATTEMPTS:
+                raise
+            await asyncio.sleep(min(2.0, 0.25 * (2 ** min(attempt - 1, 3))))
+
+    raise RuntimeError("database_pool_retry_exhausted")
 
 
 def async_session_local():
@@ -90,6 +150,14 @@ class ScrapeCounters:
     apps_skipped: int = 0
     """Atributo de clase `apps_skipped` de `ScrapeCounters`.
     """
+    apps_confirmed_missing: int = 0
+    """Ausencias con evidencia activa que no convierten la ejecución en parcial."""
+    apps_needs_review: int = 0
+    """Casos sin evidencia suficiente para confirmar una ausencia."""
+    apps_transient_failed: int = 0
+    """Fallos recuperables que preservan fuentes y estado previos."""
+    apps_skipped_unchanged: int = 0
+    """Aplicaciones disponibles cuyo fingerprint no ha cambiado."""
 
 
 @dataclass
@@ -105,6 +173,12 @@ class PipelineRuntime:
     run_started_at: datetime
     """Atributo de clase `run_started_at` de `PipelineRuntime`.
     """
+    scope: ScrapeScope = ScrapeScope.INCREMENTAL
+    """Scope inmutable asociado al manifest de la ejecución."""
+    selected_app_ids: tuple[uuid.UUID, ...] = ()
+    """UUID locales solicitados por el scope selected."""
+    request_id: uuid.UUID | None = None
+    """Solicitud durable que originó esta ejecución."""
     counters: ScrapeCounters = field(default_factory=ScrapeCounters)
     """Atributo de clase `counters` de `PipelineRuntime`.
     """
@@ -304,7 +378,14 @@ class CatalogFetcher:
         """Estado de instancia asociado a `runs`.
         """
 
-    async def scrape_once(self, recover_running: bool = False) -> ScrapeCounters:
+    async def scrape_once(
+        self,
+        recover_running: bool = False,
+        *,
+        scope: ScrapeScope = ScrapeScope.INCREMENTAL,
+        selected_app_ids: list[uuid.UUID] | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> ScrapeCounters:
         """Ejecuta `scrape_once` dentro de `CatalogFetcher`.
 
         Args:
@@ -324,11 +405,23 @@ class CatalogFetcher:
                 logger.warning("scrape_running_locks_recovered", recovered=recovered)
                 await self.session.commit()
 
-        run = await self.runs.acquire()
+        selected_app_ids = selected_app_ids or []
+        if scope == ScrapeScope.SELECTED and not selected_app_ids:
+            raise ValueError("selected_scope_requires_app_ids")
+        if scope != ScrapeScope.SELECTED and selected_app_ids:
+            raise ValueError("app_ids_only_allowed_for_selected_scope")
+        if len(selected_app_ids) > 500:
+            raise ValueError("selected_scope_limit_exceeded")
+
+        run = await self.runs.acquire(scope=scope, request_id=request_id)
         if run is None:
             logger.info("scrape_skipped", reason="active_recent_run")
             return ScrapeCounters()
         run_id = run.id
+        if request_id is not None:
+            request = await self.session.get(ScraperCommand, request_id)
+            if request is not None:
+                await self.runs.mark_run_request_started(request, run_id)
         await self.session.commit()
 
         repaired_platforms = await self.catalog.repair_resolved_source_platforms()
@@ -354,10 +447,15 @@ class CatalogFetcher:
             settings=self.settings,
             run_id=run_id,
             run_started_at=run.started_at,
+            scope=scope,
+            selected_app_ids=tuple(selected_app_ids),
+            request_id=request_id,
         )
         logger.info(
             "scrape_started",
             run_id=str(run_id),
+            scope=scope.value,
+            request_id=str(request_id) if request_id else None,
             recover_running=recover_running,
             pending_work=pending_work,
             max_apps=self.settings.scrape_max_apps,
@@ -398,7 +496,7 @@ class CatalogFetcher:
             ScrapeRunStatus.FAILED
             if worker_error
             else ScrapeRunStatus.PARTIAL
-            if runtime.stopped_by_command or runtime.counters.apps_failed
+            if runtime.stopped_by_command or runtime.counters.apps_transient_failed
             else ScrapeRunStatus.COMPLETED
         )
         await self.runs.finish(
@@ -409,6 +507,18 @@ class CatalogFetcher:
             ),
             **runtime.counters.__dict__,
         )
+        if request_id is not None:
+            await self.runs.finish_run_request(
+                request_id,
+                status=final_status.value,
+                message=(
+                    worker_error.__class__.__name__
+                    if worker_error
+                    else "Stopped by admin command"
+                    if runtime.stopped_by_command
+                    else None
+                ),
+            )
         await self.session.commit()
         if worker_error:
             raise worker_error
@@ -530,7 +640,37 @@ class SearcherWorker:
         """
         try:
             async with WinstallClient(self.settings) as winstall:
-                async for lightweight_app in winstall.iter_apps():
+                await set_current(
+                    self.settings,
+                    runtime.run_id,
+                    None,
+                    None,
+                    "searcher_stabilizing_winstall_catalog",
+                )
+                catalog_snapshot = await winstall.catalog_snapshot()
+                (
+                    targets,
+                    manifest_app_ids,
+                    manifest_winstall_ids,
+                    provider_missing,
+                    skipped_unchanged,
+                ) = await retry_database_pool_operation(
+                    self.settings,
+                    "searcher_select_scope",
+                    lambda: self._select_scope_targets(runtime, catalog_snapshot),
+                )
+                await self._save_manifest(
+                    runtime,
+                    manifest_app_ids,
+                    manifest_winstall_ids,
+                )
+                if skipped_unchanged:
+                    await runtime.increment("apps_skipped", skipped_unchanged)
+                    await runtime.increment("apps_skipped_unchanged", skipped_unchanged)
+                for package_id in provider_missing:
+                    await self._record_provider_absence(runtime, package_id)
+
+                for lightweight_app in targets:
                     if not await runtime.before_next_item():
                         break
                     if (
@@ -544,71 +684,252 @@ class SearcherWorker:
                         self.settings,
                         runtime.run_id,
                         lightweight_app.package_id,
-                        getattr(lightweight_app, "name", None),
+                        lightweight_app.name,
                         "searcher_fetching_winstall_app",
                     )
                     try:
                         app = await winstall.get_app(lightweight_app.package_id)
-                    except Exception:
-                        app = lightweight_app
-                    try:
-                        page_links = await winstall.get_page_links(app.package_id)
-                    except Exception:
-                        page_links = None
+                    except WinstallDetailIncompleteError:
+                        await self._record_provider_failure(
+                            runtime,
+                            lightweight_app.package_id,
+                            "detail_incomplete",
+                        )
+                        continue
+                    except Exception as exc:
+                        await self._record_provider_failure(
+                            runtime,
+                            lightweight_app.package_id,
+                            exc.__class__.__name__,
+                        )
+                        continue
 
-                    official_url = (
-                        page_links.official_url
-                        if page_links and page_links.official_url
-                        else app.homepage
-                    )
                     payload: dict[str, Any] = {
                         "package_id": app.package_id,
-                        "winstall_url": f"{self.settings.winstall_base_url}/apps/{app.package_id}",
-                        "official_url": official_url,
-                        "source_code_url": page_links.source_code_url if page_links else None,
-                        "winstall_download_urls": [
-                            download.url
-                            for download in (page_links.downloads if page_links else [])
-                        ],
+                        "winstall_url": (
+                            f"{self.settings.winstall_base_url}/apps/{app.package_id}"
+                        ),
+                        "official_url": app.homepage,
+                        "source_code_url": None,
+                        "winstall_download_urls": app.installer_urls,
                         "winstall_downloads": [
-                            {
-                                "url": download.url,
-                                "label": download.label,
-                                "context": download.context,
-                            }
-                            for download in (page_links.downloads if page_links else [])
+                            {"url": url, "label": None, "context": "winstall_api"}
+                            for url in app.installer_urls
                         ],
+                        "provider_detail_complete": app.installer_data_complete,
+                        "winstall_summary_fingerprint": winstall_summary_fingerprint(app),
+                        "winstall_detail_fingerprint": winstall_detail_fingerprint(app),
+                        "scope": runtime.scope.value,
+                        "force_refresh": True,
                         "app": app.raw,
                     }
-                    async with async_session_local()() as session:
-                        pipeline = PipelineRepository(session)
-                        await pipeline.enqueue(
-                            QUEUE_SEARCHER_FILTER,
-                            app.package_id,
-                            app.name,
-                            payload,
-                            runtime.run_id,
-                        )
-                        depth = await pipeline.queue_depth(QUEUE_SEARCHER_FILTER)
-                        await pipeline.save_snapshot(
-                            run_id=runtime.run_id,
-                            worker_id=self.worker_id,
-                            stage="searcher",
-                            package_id=app.package_id,
-                            app_name=app.name,
-                            url=payload["winstall_url"],
-                            html=None,
-                        )
-                        await session.commit()
+                    depth = await self._enqueue_app(runtime, app, payload)
                     logger.info(
                         "searcher_item_enqueued",
                         queue=QUEUE_SEARCHER_FILTER,
                         winstall_id=app.package_id,
+                        scope=runtime.scope.value,
                         depth=depth,
                     )
                     await runtime.increment("apps_discovered")
         finally:
             runtime.searcher_done.set()
+
+    async def _select_scope_targets(
+        self,
+        runtime: PipelineRuntime,
+        remote_apps: list[WinstallApp],
+    ) -> tuple[list[WinstallApp], list[str], list[str], list[str], int]:
+        """Materializa un manifest local/remote antes de solicitar ningún detalle."""
+        remote_by_id = {app.package_id: app for app in remote_apps}
+        async with async_session_local()() as session:
+            catalog = CatalogRepository(
+                session,
+                UrlProtector(self.settings.url_protection_secret),
+            )
+            if runtime.scope == ScrapeScope.UNRESOLVED:
+                local_targets = await catalog.snapshot_refresh_targets(
+                    statuses={"review", "missing"}
+                )
+            elif runtime.scope == ScrapeScope.SELECTED:
+                local_targets = await catalog.snapshot_refresh_targets(
+                    app_ids=list(runtime.selected_app_ids)
+                )
+                found = {app.id for app in local_targets}
+                if found != set(runtime.selected_app_ids):
+                    raise ValueError("selected_scope_contains_unknown_app_id")
+            else:
+                local_targets = []
+
+            if runtime.scope in {ScrapeScope.UNRESOLVED, ScrapeScope.SELECTED}:
+                winstall_ids = [app.winstall_id for app in local_targets]
+                targets = [remote_by_id[value] for value in winstall_ids if value in remote_by_id]
+                missing = [value for value in winstall_ids if value not in remote_by_id]
+                return (
+                    targets,
+                    [str(app.id) for app in local_targets],
+                    winstall_ids,
+                    missing,
+                    0,
+                )
+
+            states = await catalog.winstall_refresh_states()
+
+        if runtime.scope == ScrapeScope.FULL:
+            return (
+                remote_apps,
+                [str(states[app.package_id][0]) for app in remote_apps if app.package_id in states],
+                [app.package_id for app in remote_apps],
+                [],
+                0,
+            )
+
+        targets: list[WinstallApp] = []
+        unchanged = 0
+        manifest_app_ids: list[str] = []
+        for app in remote_apps:
+            state = states.get(app.package_id)
+            fingerprint = winstall_summary_fingerprint(app)
+            if state is None or state[1] != "available" or state[2] != fingerprint:
+                targets.append(app)
+                if state is not None:
+                    manifest_app_ids.append(str(state[0]))
+            else:
+                unchanged += 1
+        return (
+            targets,
+            manifest_app_ids,
+            [app.package_id for app in targets],
+            [],
+            unchanged,
+        )
+
+    async def _save_manifest(
+        self,
+        runtime: PipelineRuntime,
+        app_ids: list[str],
+        winstall_ids: list[str],
+    ) -> None:
+        async def persist() -> None:
+            async with async_session_local()() as session:
+                runs = ScrapeRunRepository(session, self.settings)
+                await runs.set_manifest(
+                    runtime.run_id,
+                    app_ids=app_ids,
+                    winstall_ids=winstall_ids,
+                )
+                await session.commit()
+
+        await retry_database_pool_operation(
+            self.settings,
+            "searcher_save_manifest",
+            persist,
+        )
+
+    async def _enqueue_app(
+        self,
+        runtime: PipelineRuntime,
+        app: WinstallApp,
+        payload: dict[str, Any],
+    ) -> int:
+        """Persiste un elemento sin convertir la contención del pool en fallo del run."""
+
+        async def persist() -> int:
+            async with async_session_local()() as session:
+                pipeline = PipelineRepository(session)
+                await pipeline.enqueue(
+                    QUEUE_SEARCHER_FILTER,
+                    app.package_id,
+                    app.name,
+                    payload,
+                    runtime.run_id,
+                    force=True,
+                )
+                depth = await pipeline.queue_depth(
+                    QUEUE_SEARCHER_FILTER,
+                    run_id=runtime.run_id,
+                )
+                await pipeline.save_snapshot(
+                    run_id=runtime.run_id,
+                    worker_id=self.worker_id,
+                    stage="searcher",
+                    package_id=app.package_id,
+                    app_name=app.name,
+                    url=payload["winstall_url"],
+                    html=None,
+                )
+                await session.commit()
+                return depth
+
+        return await retry_database_pool_operation(
+            self.settings,
+            "searcher_enqueue",
+            persist,
+        )
+
+    async def _record_provider_failure(
+        self,
+        runtime: PipelineRuntime,
+        package_id: str,
+        reason: str,
+    ) -> None:
+        await runtime.increment("apps_failed")
+        await runtime.increment("apps_transient_failed")
+        logger.warning(
+            "winstall_provider_incomplete",
+            winstall_id=package_id,
+            scope=runtime.scope.value,
+            reason=reason,
+        )
+
+    async def _record_provider_absence(
+        self,
+        runtime: PipelineRuntime,
+        package_id: str,
+    ) -> None:
+        """Clasifica una ausencia en el snapshot estable sin inventar un fallo transitorio."""
+        has_verification = False
+        async with async_session_local()() as session:
+            catalog = CatalogRepository(
+                session,
+                UrlProtector(self.settings.url_protection_secret),
+            )
+            logs = ResolverLogRepository(session)
+            software_app = await session.scalar(
+                select(SoftwareApp)
+                .where(SoftwareApp.winstall_id == package_id)
+                .limit(1)
+            )
+            if software_app is not None:
+                has_verification = (
+                    await catalog.active_absence_verification(software_app.id)
+                ) is not None
+                if not has_verification:
+                    source = await catalog.default_source_for_app(software_app.id)
+                    if source is not None:
+                        await catalog.mark_source_status(
+                            source.id,
+                            ResolutionStatus.REQUIRES_MANUAL_REVIEW,
+                        )
+            outcome = provider_snapshot_absence_outcome(has_verification)
+            await logs.add(
+                phase="provider",
+                status=outcome.value,
+                message="The package is absent from the stable Winstall snapshot.",
+                safe_metadata={"winstall_id": package_id},
+            )
+            await session.commit()
+
+        if outcome == ScrapeOutcome.CONFIRMED_MISSING:
+            await runtime.increment("apps_confirmed_missing")
+        else:
+            await runtime.increment("apps_needs_review")
+        logger.info(
+            "winstall_package_absent",
+            winstall_id=package_id,
+            scope=runtime.scope.value,
+            outcome=outcome.value,
+        )
 
     async def _wait_for_backpressure(self, runtime: PipelineRuntime) -> bool:
         """Ejecuta el paso interno `_wait_for_backpressure`.
@@ -625,8 +946,18 @@ class SearcherWorker:
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
                 return False
-            async with async_session_local()() as session:
-                depth = await PipelineRepository(session).queue_depth(QUEUE_SEARCHER_FILTER)
+            async def read_depth() -> int:
+                async with async_session_local()() as session:
+                    return await PipelineRepository(session).queue_depth(
+                        QUEUE_SEARCHER_FILTER,
+                        run_id=runtime.run_id,
+                    )
+
+            depth = await retry_database_pool_operation(
+                self.settings,
+                "searcher_backpressure",
+                read_depth,
+            )
             if depth < limit:
                 return True
             await set_current(
@@ -677,9 +1008,18 @@ class FilterWorker:
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
                 break
-            item = await claim_item(self.settings, QUEUE_SEARCHER_FILTER, self.worker_id)
+            item = await claim_item(
+                self.settings,
+                QUEUE_SEARCHER_FILTER,
+                self.worker_id,
+                run_id=runtime.run_id,
+            )
             if item is None:
-                if runtime.searcher_done.is_set():
+                if runtime.searcher_done.is_set() and not await queue_has_active_work(
+                    self.settings,
+                    QUEUE_SEARCHER_FILTER,
+                    runtime.run_id,
+                ):
                     break
                 await asyncio.sleep(1)
                 continue
@@ -699,9 +1039,13 @@ class FilterWorker:
                         session,
                         UrlProtector(self.settings.url_protection_secret),
                     )
-                    if not await catalog.should_scrape_winstall_package(app.package_id):
+                    if not await catalog.should_scrape_winstall_package(
+                        app.package_id,
+                        force_refresh=bool(payload.get("force_refresh")),
+                    ):
                         await finish_item(self.settings, item, "discard", "already_exists")
                         await runtime.increment("apps_skipped")
+                        await runtime.increment("apps_skipped_unchanged")
                         continue
 
                 official_url = payload.get("official_url") or app.homepage
@@ -709,16 +1053,6 @@ class FilterWorker:
                 fallback_valid = False
                 if not official_valid:
                     fallback_valid = await self._fallback_download_valid(payload, app)
-                if not official_valid and not fallback_valid:
-                    await finish_item(
-                        self.settings,
-                        item,
-                        "discard",
-                        "no_valid_official_or_fallback",
-                    )
-                    await runtime.increment("apps_failed")
-                    continue
-
                 payload["filter"] = {
                     "official_valid": official_valid,
                     "fallback_valid": fallback_valid,
@@ -747,6 +1081,7 @@ class FilterWorker:
             except Exception as exc:
                 await finish_item(self.settings, item, "fail", exc.__class__.__name__)
                 await runtime.increment("apps_failed")
+                await runtime.increment("apps_transient_failed")
                 logger.warning(
                     "filter_app_failed",
                     winstall_id=item.package_id,
@@ -1043,7 +1378,12 @@ class PlatformScraperWorker:
             if not await runtime.before_next_item():
                 break
             try:
-                item = await claim_item(self.settings, QUEUE_FILTER_SCRAPER, self.worker_id)
+                item = await claim_item(
+                    self.settings,
+                    QUEUE_FILTER_SCRAPER,
+                    self.worker_id,
+                    run_id=runtime.run_id,
+                )
             except OperationalError as exc:
                 logger.warning(
                     "scraper_claim_retry",
@@ -1063,18 +1403,34 @@ class PlatformScraperWorker:
                 await asyncio.sleep(1)
                 continue
             if item is None:
-                if runtime.searcher_done.is_set() and runtime.filter_done.is_set():
+                if (
+                    runtime.searcher_done.is_set()
+                    and runtime.filter_done.is_set()
+                    and not await queue_has_active_work(
+                        self.settings,
+                        QUEUE_FILTER_SCRAPER,
+                        runtime.run_id,
+                    )
+                ):
                     break
                 await asyncio.sleep(1)
                 continue
             try:
                 async with asyncio.timeout(self.settings.scrape_app_timeout_seconds):
-                    resolved = await self._scrape_item(runtime, item)
+                    outcome = await self._scrape_item(runtime, item)
                 await finish_item(self.settings, item, "complete", None)
-                if resolved:
+                if outcome == ScrapeOutcome.RESOLVED:
                     await runtime.increment("apps_resolved")
-                else:
+                elif outcome == ScrapeOutcome.CONFIRMED_MISSING:
+                    await runtime.increment("apps_confirmed_missing")
+                elif outcome == ScrapeOutcome.NEEDS_REVIEW:
+                    await runtime.increment("apps_needs_review")
+                elif outcome == ScrapeOutcome.TRANSIENT_FAILED:
                     await runtime.increment("apps_failed")
+                    await runtime.increment("apps_transient_failed")
+                elif outcome == ScrapeOutcome.SKIPPED_UNCHANGED:
+                    await runtime.increment("apps_skipped")
+                    await runtime.increment("apps_skipped_unchanged")
             except TimeoutError:
                 await finish_item(
                     self.settings,
@@ -1083,6 +1439,7 @@ class PlatformScraperWorker:
                     f"Timeout after {self.settings.scrape_app_timeout_seconds:.0f}s",
                 )
                 await runtime.increment("apps_failed")
+                await runtime.increment("apps_transient_failed")
                 logger.warning(
                     "scrape_app_timeout",
                     winstall_id=item.package_id,
@@ -1100,6 +1457,7 @@ class PlatformScraperWorker:
                     continue
                 await finish_item(self.settings, item, "fail", "OperationalError")
                 await runtime.increment("apps_failed")
+                await runtime.increment("apps_transient_failed")
                 logger.warning(
                     "scraper_app_failed",
                     winstall_id=item.package_id,
@@ -1109,6 +1467,7 @@ class PlatformScraperWorker:
             except Exception as exc:
                 await finish_item(self.settings, item, "fail", exc.__class__.__name__)
                 await runtime.increment("apps_failed")
+                await runtime.increment("apps_transient_failed")
                 logger.warning(
                     "scraper_app_failed",
                     winstall_id=item.package_id,
@@ -1116,7 +1475,11 @@ class PlatformScraperWorker:
                     detail=exception_detail(exc),
                 )
 
-    async def _scrape_item(self, runtime: PipelineRuntime, item: ScraperWorkItem) -> bool:
+    async def _scrape_item(
+        self,
+        runtime: PipelineRuntime,
+        item: ScraperWorkItem,
+    ) -> ScrapeOutcome:
         """Ejecuta el paso interno `_scrape_item`.
 
         Args:
@@ -1140,10 +1503,20 @@ class PlatformScraperWorker:
         )
         async with async_session_local()() as session:
             catalog = CatalogRepository(session, self.url_protector)
-            logs = ResolverLogRepository(session)
             software_app, _created = await catalog.upsert_winstall_app_with_created(app)
-            await self._enrich_github_icon(catalog, logs, software_app, app)
+            software_app_id = software_app.id
+            software_app_official_url = software_app.official_url
+            software_app_icon_url = software_app.icon_url
+            software_app_winstall_id = software_app.winstall_id
             await session.commit()
+
+        await self._enrich_github_icon(
+            software_app_id,
+            software_app_official_url,
+            software_app_icon_url,
+            software_app_winstall_id,
+            app,
+        )
 
         direct_candidates: list[InstallerCandidate] = []
         fallback = fallback_candidates(payload, app)
@@ -1214,7 +1587,10 @@ class PlatformScraperWorker:
             "direct": direct_diagnostics.as_metadata(),
             "fallback": fallback_diagnostics.as_metadata(),
         }
-        if not valid_installers:
+        if not any(
+            is_catalog_publishable_installer(installer)
+            for installer in valid_installers
+        ):
             elapsed = asyncio.get_running_loop().time() - item_started_at
             remaining = self.settings.scrape_app_timeout_seconds - elapsed - 5.0
             if remaining > 5.0:
@@ -1245,6 +1621,18 @@ class PlatformScraperWorker:
                         refreshed_diagnostics.as_metadata()
                     )
 
+        observed_installers = valid_installers
+        valid_installers = [
+            installer
+            for installer in observed_installers
+            if is_catalog_publishable_installer(installer)
+        ]
+        validation_diagnostics["publication"] = {
+            "observed": len(observed_installers),
+            "publishable": len(valid_installers),
+            "attested_or_non_public": len(observed_installers) - len(valid_installers),
+        }
+
         await set_current(
             self.settings,
             runtime.run_id,
@@ -1258,19 +1646,44 @@ class PlatformScraperWorker:
             pipeline = PipelineRepository(session)
             software_app = await catalog.upsert_winstall_app(app)
             if not valid_installers:
+                if software_app.catalog_status == "available":
+                    await logs.add(
+                        phase="resolve",
+                        status="transient_failed",
+                        message=(
+                            "No replacement was validated; the published installer "
+                            "was preserved."
+                        ),
+                        safe_metadata={
+                            "winstall_id": app.package_id,
+                            "candidate_diagnostics": validation_diagnostics,
+                        },
+                    )
+                    await session.commit()
+                    return ScrapeOutcome.TRANSIENT_FAILED
                 source = await catalog.default_source_for_app(software_app.id)
+                verification = await catalog.active_absence_verification(software_app.id)
                 if source:
                     await catalog.mark_source_status(
                         source.id,
-                        ResolutionStatus.REQUIRES_MANUAL_REVIEW
-                        if official_url
-                        else ResolutionStatus.MISSING,
+                        ResolutionStatus.MISSING
+                        if verification
+                        else ResolutionStatus.REQUIRES_MANUAL_REVIEW,
                     )
                     await logs.add(
                         phase="resolve",
-                        status="requires_manual_review",
+                        status=(
+                            "confirmed_missing" if verification else "requires_manual_review"
+                        ),
                         download_source_id=source.id,
-                        message="No safe installer candidate was found.",
+                        message=(
+                            "No safe installer candidate was found and active evidence exists."
+                            if verification
+                            else (
+                                "No safe installer candidate was found; "
+                                "manual evidence is required."
+                            )
+                        ),
                         safe_metadata={
                             "winstall_id": app.package_id,
                             "candidate_diagnostics": validation_diagnostics,
@@ -1282,7 +1695,11 @@ class PlatformScraperWorker:
                     software_app,
                 )
                 await session.commit()
-                return False
+                return (
+                    ScrapeOutcome.CONFIRMED_MISSING
+                    if verification
+                    else ScrapeOutcome.NEEDS_REVIEW
+                )
             await self._save_valid_installers(
                 catalog,
                 logs,
@@ -1297,13 +1714,14 @@ class PlatformScraperWorker:
                 software_app,
             )
             await session.commit()
-            return True
+            return ScrapeOutcome.RESOLVED
 
     async def _enrich_github_icon(
         self,
-        catalog: CatalogRepository,
-        logs: ResolverLogRepository,
-        software_app: SoftwareApp,
+        software_app_id: uuid.UUID,
+        official_url: str | None,
+        icon_url: str | None,
+        winstall_id: str,
         app: WinstallApp,
     ) -> None:
         """Ejecuta el paso interno `_enrich_github_icon`.
@@ -1316,44 +1734,46 @@ class PlatformScraperWorker:
         """
         from app.repositories.catalog import is_github_homepage, is_replaceable_github_icon
 
-        if not (
-            is_github_homepage(software_app.official_url)
-            and is_replaceable_github_icon(software_app.icon_url)
-        ):
+        if not (is_github_homepage(official_url) and is_replaceable_github_icon(icon_url)):
             return
         try:
             result = await self.icon_resolver.resolve(
                 replace(
                     app,
-                    homepage=software_app.official_url,
-                    icon_url=software_app.icon_url,
+                    homepage=official_url,
+                    icon_url=icon_url,
                 )
             )
         except Exception as exc:
             logger.warning(
                 "scraper_inline_icon_failed",
-                winstall_id=software_app.winstall_id,
+                winstall_id=winstall_id,
                 error=exc.__class__.__name__,
             )
             return
-        if result is None:
-            await logs.add(
-                phase="icon",
-                status="discarded",
-                message="no_safe_github_image",
-                safe_metadata={"winstall_id": software_app.winstall_id},
-            )
-            return
-        updated = await catalog.update_icon_url(software_app.id, result.url)
-        await logs.add(
-            phase="icon",
-            status="resolved" if updated else "skipped",
-            safe_metadata={
-                "winstall_id": software_app.winstall_id,
-                "source": result.source,
-                "domain": registered_domain(result.url),
-            },
-        )
+
+        async with async_session_local()() as session:
+            catalog = CatalogRepository(session, self.url_protector)
+            logs = ResolverLogRepository(session)
+            if result is None:
+                await logs.add(
+                    phase="icon",
+                    status="discarded",
+                    message="no_safe_github_image",
+                    safe_metadata={"winstall_id": winstall_id},
+                )
+            else:
+                updated = await catalog.update_icon_url(software_app_id, result.url)
+                await logs.add(
+                    phase="icon",
+                    status="resolved" if updated else "skipped",
+                    safe_metadata={
+                        "winstall_id": winstall_id,
+                        "source": result.source,
+                        "domain": registered_domain(result.url),
+                    },
+                )
+            await session.commit()
 
     async def _collect_official_candidates(
         self,
@@ -1551,7 +1971,7 @@ class PlatformScraperWorker:
         Returns:
             list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
         """
-        refreshed: list[InstallerCandidate] = []
+        refreshed = self._collect_winstall_official_referer_candidates(app, candidates)
         seen_repositories: set[tuple[str, str]] = set()
         for candidate in candidates:
             repo = parse_github_repo(candidate.url)
@@ -1580,7 +2000,195 @@ class PlatformScraperWorker:
                         referer=candidate.referer,
                     )
                 )
+        refreshed.extend(
+            await self._collect_winstall_sourceforge_candidates(app, candidates)
+        )
+        refreshed.extend(await self._collect_winstall_landing_candidates(app, candidates))
         refreshed.extend(await self._collect_winstall_parent_index_candidates(candidates))
+        return dedupe_candidates(refreshed)
+
+    def _collect_winstall_official_referer_candidates(
+        self,
+        app: WinstallApp,
+        candidates: list[InstallerCandidate],
+    ) -> list[InstallerCandidate]:
+        """Reintenta artefactos del proveedor con un ``Referer`` oficial seguro.
+
+        Algunos CDN rechazan una petición directa pero entregan el mismo artefacto
+        cuando procede de la página oficial. La variante solo se crea cuando ambos
+        recursos comparten dominio registrable y el destino ya fue declarado por
+        Winstall; no convierte enlaces HTML arbitrarios en instaladores.
+        """
+        homepage = getattr(app, "homepage", None)
+        homepage_domain = registered_domain(homepage) if homepage else None
+        if not homepage or not homepage_domain or urlparse(homepage).scheme != "https":
+            return []
+
+        refreshed: list[InstallerCandidate] = []
+        for candidate in dedupe_candidates(candidates):
+            if (
+                registered_domain(candidate.url) != homepage_domain
+                or urlparse(candidate.url).scheme != "https"
+                or candidate.referer == homepage
+            ):
+                continue
+            refreshed.append(
+                replace(
+                    candidate,
+                    source="winstall_official_referer",
+                    referer=homepage,
+                )
+            )
+        return refreshed
+
+    async def _collect_winstall_landing_candidates(
+        self,
+        app: WinstallApp,
+        candidates: list[InstallerCandidate],
+    ) -> list[InstallerCandidate]:
+        """Expande páginas de descarga declaradas por Winstall sin usarlas como ausencia.
+
+        Solo se consultan destinos HTTPS sin extensión binaria (o con extensión web),
+        se limita el HTML a 1 MB y únicamente se conservan enlaces del mismo dominio
+        registrable. Un error, una página vacía o un desafío devuelve cero candidatos;
+        nunca implica que el producto carezca de instalador.
+        """
+        web_extensions = {None, ".htm", ".html", ".php", ".asp", ".aspx"}
+        landing_pages = [
+            candidate
+            for candidate in dedupe_candidates(candidates)
+            if (
+                candidate.asset_kind == "winstall_download"
+                and urlparse(candidate.url).scheme == "https"
+                and candidate.extension in web_extensions
+            )
+        ][:6]
+        if not landing_pages:
+            return []
+
+        async def fetch_landing(
+            client: httpx.AsyncClient,
+            landing: InstallerCandidate,
+        ) -> list[InstallerCandidate]:
+            parsed = urlparse(landing.url)
+            if not parsed.hostname or not await domain_has_public_dns(parsed.hostname):
+                return []
+            headers: dict[str, str] = {}
+            homepage = getattr(app, "homepage", None)
+            if (
+                homepage
+                and registered_domain(homepage) == registered_domain(landing.url)
+            ):
+                headers["Referer"] = homepage
+            try:
+                async with client.stream("GET", landing.url, headers=headers) as response:
+                    if not response.is_success:
+                        return []
+                    if "html" not in response.headers.get("content-type", "").lower():
+                        return []
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        remaining = 1_000_000 - len(content)
+                        if remaining <= 0:
+                            break
+                        content.extend(chunk[:remaining])
+                    html = bytes(content).decode("utf-8", errors="ignore")
+                    base_url = str(response.url)
+            except Exception:
+                return []
+
+            landing_domain = registered_domain(base_url)
+            nested: list[InstallerCandidate] = []
+            for item in extract_candidates(html, base_url):
+                if registered_domain(item.url) != landing_domain:
+                    continue
+                if not item.extension and not candidate_has_download_intent(item):
+                    continue
+                nested.append(
+                    InstallerCandidate(
+                        url=item.url,
+                        source="winstall_download_page",
+                        label=item.label or landing.label,
+                        context=landing.context,
+                        asset_kind="winstall_download",
+                        match_tokens=landing.match_tokens,
+                        referer=base_url,
+                    )
+                )
+                if len(nested) >= 200:
+                    break
+            return nested
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.settings.request_timeout_seconds,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
+            ) as client:
+                batches = await asyncio.gather(
+                    *(fetch_landing(client, landing) for landing in landing_pages),
+                    return_exceptions=True,
+                )
+        except Exception:
+            return []
+
+        refreshed: list[InstallerCandidate] = []
+        for batch in batches:
+            if isinstance(batch, list):
+                refreshed.extend(batch)
+        return dedupe_candidates(refreshed)
+
+    async def _collect_winstall_sourceforge_candidates(
+        self,
+        app: WinstallApp,
+        candidates: list[InstallerCandidate],
+    ) -> list[InstallerCandidate]:
+        """Obtiene la URL FRS efímera sin publicarla como destino permanente.
+
+        El HTML de SourceForge selecciona un mirror y añade una firma temporal en
+        ``data-release-url``. Playwright resuelve esa capa dinámica; el candidato
+        conserva como ``referer`` la URL estable de Winstall para que la capa de
+        persistencia no almacene el token temporal.
+        """
+        sourceforge_candidates = [
+            candidate
+            for candidate in dedupe_candidates(candidates)
+            if is_sourceforge_download_url(candidate.url)
+        ]
+        if not sourceforge_candidates:
+            return []
+
+        latest = [
+            candidate
+            for candidate in sourceforge_candidates
+            if candidate.context == app.latest_version
+        ]
+        selected = (latest or sourceforge_candidates)[:1]
+        refreshed: list[InstallerCandidate] = []
+        for stable_candidate in selected:
+            try:
+                timeout_seconds = max(
+                    5.0,
+                    self.settings.playwright_timeout_ms / 1000 + 2.0,
+                )
+                async with asyncio.timeout(timeout_seconds):
+                    browser_candidates = await self.playwright.collect(
+                        stable_candidate.url
+                    )
+            except Exception:
+                continue
+            for candidate in browser_candidates:
+                if candidate.source != "playwright_data_release_url":
+                    continue
+                refreshed.append(
+                    replace(
+                        candidate,
+                        label=stable_candidate.label,
+                        context=stable_candidate.context,
+                        asset_kind="winstall_download",
+                        referer=stable_candidate.url,
+                    )
+                )
         return dedupe_candidates(refreshed)
 
     async def _collect_winstall_parent_index_candidates(
@@ -1804,8 +2412,11 @@ class PlatformScraperWorker:
             installers (list[ValidInstaller]): Valor de `installers` utilizado por la operación.
         """
         ranked = rank_installers(installers)
+        if validated_installers_cover_latest_version(app.latest_version, installers):
+            await catalog.promote_winstall_latest_version(software_app_id)
         expired_sources: set[uuid.UUID] = set()
         for installer, release_rank, is_latest in ranked:
+            catalog_url = catalog_url_for_installer(installer)
             source = await catalog.ensure_download_source(
                 software_app_id=software_app_id,
                 app=app,
@@ -1819,9 +2430,9 @@ class PlatformScraperWorker:
             await catalog.save_resolved_source(
                 ResolvedSourceCreate(
                     source_id=source.id,
-                    url=installer.result.final_url or installer.candidate.url,
-                    final_domain=installer.result.final_domain
-                    or registered_domain(installer.result.final_url or installer.candidate.url)
+                    url=catalog_url,
+                    final_domain=registered_domain(catalog_url)
+                    or installer.result.final_domain
                     or "",
                     filename=installer.result.filename,
                     extension=installer.result.extension,
@@ -2004,7 +2615,12 @@ class DescriptorWorker:
             if not await runtime.reserve_descriptor_attempt():
                 logger.info("descriptor_budget_exhausted")
                 break
-            item = await claim_item(self.settings, QUEUE_SO_FILTER_DESCRIPTOR, self.worker_id)
+            item = await claim_item(
+                self.settings,
+                QUEUE_SO_FILTER_DESCRIPTOR,
+                self.worker_id,
+                run_id=runtime.run_id,
+            )
             if item is None:
                 await runtime.release_descriptor_attempt()
                 if runtime.so_filter_done.is_set():
@@ -2118,7 +2734,11 @@ class SOFilterWorker:
                 break
             processed = await self.process_one(runtime)
             if not processed:
-                if runtime.scraper_done.is_set():
+                if runtime.scraper_done.is_set() and not await queue_has_active_work(
+                    self.settings,
+                    QUEUE_SCRAPER_SO_FILTER,
+                    runtime.run_id,
+                ):
                     break
                 await asyncio.sleep(1)
 
@@ -2131,7 +2751,12 @@ class SOFilterWorker:
         Returns:
             bool: Indica si se cumple la condición evaluada.
         """
-        item = await claim_item(self.settings, QUEUE_SCRAPER_SO_FILTER, self.worker_id)
+        item = await claim_item(
+            self.settings,
+            QUEUE_SCRAPER_SO_FILTER,
+            self.worker_id,
+            run_id=runtime.run_id if runtime is not None else None,
+        )
         if item is None:
             return False
         return await self._process_claimed_item(item, runtime)
@@ -2229,6 +2854,8 @@ async def claim_item(
     settings: Settings,
     queue: str,
     worker_id_value: str,
+    *,
+    run_id: uuid.UUID | None = None,
 ) -> ScraperWorkItem | None:
     """Reserva la operación `item`.
 
@@ -2240,25 +2867,52 @@ async def claim_item(
     Returns:
         ScraperWorkItem | None: Resultado producido por la operación.
     """
-    async with async_session_local()() as session:
-        pipeline = PipelineRepository(session)
-        item = await pipeline.claim_next(
-            queue,
-            worker_id=worker_id_value,
-            lease_seconds=max(60, int(settings.scrape_app_timeout_seconds * 2)),
-        )
-        depth = await pipeline.queue_depth(queue)
-        await session.commit()
-        if item:
-            logger.info(
-                "scraper_pipeline_item_claimed",
-                queue=queue,
-                winstall_id=item.package_id,
+    async def claim() -> ScraperWorkItem | None:
+        async with async_session_local()() as session:
+            pipeline = PipelineRepository(session)
+            item = await pipeline.claim_next(
+                queue,
                 worker_id=worker_id_value,
-                attempts=item.attempts,
-                depth=depth,
+                lease_seconds=max(60, int(settings.scrape_app_timeout_seconds * 2)),
+                run_id=run_id,
             )
-        return item
+            depth = await pipeline.queue_depth(queue, run_id=run_id)
+            await session.commit()
+            if item:
+                logger.info(
+                    "scraper_pipeline_item_claimed",
+                    queue=queue,
+                    winstall_id=item.package_id,
+                    worker_id=worker_id_value,
+                    attempts=item.attempts,
+                    depth=depth,
+                )
+            return item
+
+    return await retry_database_pool_operation(
+        settings,
+        f"claim:{queue}",
+        claim,
+    )
+
+
+async def queue_has_active_work(
+    settings: Settings,
+    queue: str,
+    run_id: uuid.UUID,
+) -> bool:
+    """Comprueba trabajo queued/in_progress aunque aún no sea reclamable."""
+
+    async def check() -> bool:
+        async with async_session_local()() as session:
+            depth = await PipelineRepository(session).queue_depth(queue, run_id=run_id)
+            return depth > 0
+
+    return await retry_database_pool_operation(
+        settings,
+        f"drain:{queue}",
+        check,
+    )
 
 
 async def finish_item(
@@ -2278,33 +2932,40 @@ async def finish_item(
         message (str | None): Mensaje que debe procesarse.
         delay_seconds (int): Valor de `delay_seconds` utilizado por la operación.
     """
-    async with async_session_local()() as session:
-        pipeline = PipelineRepository(session)
-        db_item = await session.get(ScraperWorkItem, item.id)
-        if not db_item:
-            return
-        if action == "complete":
-            await pipeline.complete(db_item)
-        elif action == "discard":
-            await pipeline.discard(db_item, message or "discarded")
-        elif action == "requeue":
-            await pipeline.requeue(
-                db_item,
-                message or "retry",
-                delay_seconds=delay_seconds,
+    async def finish() -> None:
+        async with async_session_local()() as session:
+            pipeline = PipelineRepository(session)
+            db_item = await session.get(ScraperWorkItem, item.id)
+            if not db_item:
+                return
+            if action == "complete":
+                await pipeline.complete(db_item)
+            elif action == "discard":
+                await pipeline.discard(db_item, message or "discarded")
+            elif action == "requeue":
+                await pipeline.requeue(
+                    db_item,
+                    message or "retry",
+                    delay_seconds=delay_seconds,
+                )
+            else:
+                await pipeline.fail(db_item, message or "failed")
+            depth = await pipeline.queue_depth(db_item.queue, run_id=db_item.run_id)
+            await session.commit()
+            logger.info(
+                "scraper_pipeline_item_finished",
+                queue=db_item.queue,
+                winstall_id=db_item.package_id,
+                action=action,
+                reason=message,
+                depth=depth,
             )
-        else:
-            await pipeline.fail(db_item, message or "failed")
-        depth = await pipeline.queue_depth(db_item.queue)
-        await session.commit()
-        logger.info(
-            "scraper_pipeline_item_finished",
-            queue=db_item.queue,
-            winstall_id=db_item.package_id,
-            action=action,
-            reason=message,
-            depth=depth,
-        )
+
+    await retry_database_pool_operation(
+        settings,
+        f"finish:{item.queue}",
+        finish,
+    )
 
 
 async def set_current(
@@ -2323,10 +2984,17 @@ async def set_current(
         app_name (str | None): Valor de `app_name` utilizado por la operación.
         phase (str): Valor de `phase` utilizado por la operación.
     """
-    async with async_session_local()() as session:
-        runs = ScrapeRunRepository(session, settings)
-        await runs.set_current(run_id, package_id, app_name, phase)
-        await session.commit()
+    async def persist() -> None:
+        async with async_session_local()() as session:
+            runs = ScrapeRunRepository(session, settings)
+            await runs.set_current(run_id, package_id, app_name, phase)
+            await session.commit()
+
+    await retry_database_pool_operation(
+        settings,
+        "run_set_current",
+        persist,
+    )
 
 
 def parse_payload_app(payload: dict[str, Any], fallback_package_id: str) -> WinstallApp:
@@ -2357,6 +3025,17 @@ def payload_package_id(payload: dict[str, Any], item: ScraperWorkItem) -> str:
     """
     value = payload.get("package_id") or item.package_id
     return str(value)
+
+
+def provider_snapshot_absence_outcome(
+    has_active_verification: bool,
+) -> ScrapeOutcome:
+    """Distingue una ausencia acreditada de un caso que aún requiere revisión."""
+    return (
+        ScrapeOutcome.CONFIRMED_MISSING
+        if has_active_verification
+        else ScrapeOutcome.NEEDS_REVIEW
+    )
 
 
 def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
@@ -2797,7 +3476,7 @@ def dedupe_valid_installers(installers: list[ValidInstaller]) -> list[ValidInsta
     """
     deduped: dict[tuple[str, str, str], ValidInstaller] = {}
     for installer in installers:
-        url = installer.result.final_url or installer.candidate.url
+        url = catalog_url_for_installer(installer)
         parsed = urlparse(url)
         stable_url = parsed._replace(query="", fragment="").geturl()
         key = (stable_url, installer.operating_system, installer.architecture)
@@ -2826,7 +3505,48 @@ def validated_installer_version(
         label=result.filename or candidate.label,
         context=candidate.context,
     )
-    return extract_version(final_candidate) or extract_version(candidate)
+    return (
+        extract_version(final_candidate)
+        or extract_version(candidate)
+        or (
+            candidate.context
+            if candidate.source == "winstall_api" and candidate.context
+            else None
+        )
+    )
+
+
+def validated_installers_cover_latest_version(
+    latest_version: str | None,
+    installers: list[ValidInstaller],
+) -> bool:
+    """Exige que al menos un binario validado corresponda a la versión anunciada."""
+    if not latest_version or not latest_version.strip():
+        return False
+    expected = parse_version(latest_version)
+    for installer in installers:
+        if not installer.version:
+            continue
+        actual = parse_version(installer.version)
+        if expected is not None and actual is not None:
+            if expected == actual:
+                return True
+            continue
+        if normalized_version_label(latest_version) == normalized_version_label(
+            installer.version
+        ):
+            return True
+    return False
+
+
+def normalized_version_label(value: str) -> str:
+    """Normaliza prefijos decorativos sin confundir versiones estructuralmente distintas."""
+    normalized = value.strip().casefold()
+    if normalized.startswith("version"):
+        normalized = normalized[len("version") :].lstrip(" :-_")
+    if normalized.startswith("v") and len(normalized) > 1 and normalized[1].isdigit():
+        normalized = normalized[1:]
+    return normalized
 
 
 def rank_installers(installers: list[ValidInstaller]) -> list[tuple[ValidInstaller, int, bool]]:
@@ -2980,7 +3700,32 @@ def resolved_metadata(installer: ValidInstaller, is_latest: bool) -> dict:
     }
     if installer.result.transport_security:
         metadata["transport_security"] = installer.result.transport_security
+    if catalog_url_for_installer(installer) != (
+        installer.result.final_url or installer.candidate.url
+    ):
+        metadata["validated_final_domain"] = installer.result.final_domain
     return metadata
+
+
+def catalog_url_for_installer(installer: ValidInstaller) -> str:
+    """Devuelve una URL estable aunque la validación use un token temporal."""
+    candidate = installer.candidate
+    if (
+        candidate.source == "playwright_data_release_url"
+        and candidate.referer
+        and is_sourceforge_download_url(candidate.referer)
+    ):
+        return candidate.referer
+    return installer.result.final_url or candidate.url
+
+
+def is_catalog_publishable_installer(installer: ValidInstaller) -> bool:
+    """Replica el contrato materializado de ``catalog_downloadable`` antes de guardar."""
+    return (
+        installer.result.confidence == ValidationConfidence.VALIDATED
+        and installer.result.transport_security
+        not in {"https_winstall_edge_attested", "http_winstall_verified"}
+    )
 
 
 def scrape_app_failure_metadata(exc: Exception, winstall_id: str) -> dict:

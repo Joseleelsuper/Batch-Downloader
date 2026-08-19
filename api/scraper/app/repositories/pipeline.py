@@ -374,6 +374,10 @@ class PipelineRepository:
                 existing.run_id = run_id or existing.run_id
                 existing.priority = max(existing.priority, priority)
                 existing.last_error = None
+                existing.lease_owner = None
+                existing.lease_expires_at = None
+                if belongs_to_new_run:
+                    existing.attempts = 0
                 existing.available_at = now
                 existing.updated_at = now
             return existing
@@ -459,6 +463,8 @@ class PipelineRepository:
         queue: str,
         worker_id: str,
         lease_seconds: int,
+        *,
+        run_id: uuid.UUID | None = None,
     ) -> ScraperWorkItem | None:
         """Reserva la operación `next`.
 
@@ -471,7 +477,7 @@ class PipelineRepository:
             ScraperWorkItem | None: Resultado producido por la operación.
         """
         now = utc_now()
-        item_id = await self.session.scalar(
+        statement = (
             select(ScraperWorkItem.id)
             .where(ScraperWorkItem.queue == queue)
             .where(ScraperWorkItem.status == STATUS_QUEUED)
@@ -484,6 +490,9 @@ class PipelineRepository:
             .limit(1)
             .with_for_update(skip_locked=True)
         )
+        if run_id is not None:
+            statement = statement.where(ScraperWorkItem.run_id == run_id)
+        item_id = await self.session.scalar(statement)
         if not item_id:
             return None
         item = await self.session.get(ScraperWorkItem, item_id)
@@ -574,7 +583,12 @@ class PipelineRepository:
         )
         return bool(count)
 
-    async def queue_depth(self, queue: str) -> int:
+    async def queue_depth(
+        self,
+        queue: str,
+        *,
+        run_id: uuid.UUID | None = None,
+    ) -> int:
         """Ejecuta `queue_depth` dentro de `PipelineRepository`.
 
         Args:
@@ -583,7 +597,7 @@ class PipelineRepository:
         Returns:
             int: Resultado producido por la operación.
         """
-        return await self._count_queue(queue)
+        return await self._count_queue(queue, run_id=run_id)
 
     async def queue_states(self, limit: int = 20) -> list[QueueState]:
         """Ejecuta `queue_states` dentro de `PipelineRepository`.
@@ -793,7 +807,12 @@ class PipelineRepository:
             for item in reversed(list(result))
         ]
 
-    async def _count_queue(self, queue: str) -> int:
+    async def _count_queue(
+        self,
+        queue: str,
+        *,
+        run_id: uuid.UUID | None = None,
+    ) -> int:
         """Ejecuta el paso interno `_count_queue`.
 
         Args:
@@ -802,14 +821,14 @@ class PipelineRepository:
         Returns:
             int: Número de elementos afectados por la operación.
         """
-        return int(
-            await self.session.scalar(
-                select(func.count(ScraperWorkItem.id))
-                .where(ScraperWorkItem.queue == queue)
-                .where(ScraperWorkItem.status.in_([STATUS_QUEUED, STATUS_IN_PROGRESS]))
-            )
-            or 0
+        statement = (
+            select(func.count(ScraperWorkItem.id))
+            .where(ScraperWorkItem.queue == queue)
+            .where(ScraperWorkItem.status.in_([STATUS_QUEUED, STATUS_IN_PROGRESS]))
         )
+        if run_id is not None:
+            statement = statement.where(ScraperWorkItem.run_id == run_id)
+        return int(await self.session.scalar(statement) or 0)
 
     async def _count_apps_with_statuses(
         self,

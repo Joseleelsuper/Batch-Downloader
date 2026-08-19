@@ -3,8 +3,10 @@
 from app.scraper.candidates import (
     InstallerCandidate,
     detect_extension,
+    elcomsoft_download_variant,
     extract_candidates,
     extract_version,
+    https_upgrade_variant,
     infer_architecture,
     infer_operating_system,
     is_download_candidate,
@@ -239,6 +241,82 @@ def test_sourceforge_download_path_keeps_installer_extension_and_score() -> None
     assert candidate.score > 0
 
 
+def test_http_candidate_gets_https_variant_without_changing_the_original() -> None:
+    """La sonda TLS se añade antes de considerar el enlace HTTP atestado."""
+    original = InstallerCandidate(
+        url="http://downloads.example.com/AppSetup.msi",
+        source="winstall_api",
+        asset_kind="winstall_download",
+    )
+
+    upgraded = https_upgrade_variant(original)
+
+    assert upgraded is not None
+    assert upgraded.url == "https://downloads.example.com/AppSetup.msi"
+    assert upgraded.source == "winstall_api_https_upgrade"
+    assert upgraded.asset_kind == "winstall_download"
+    assert original.url.startswith("http://")
+
+
+def test_github_raw_branch_binary_is_not_misclassified_as_source_archive() -> None:
+    """Un MSI/EXE versionado en una rama sigue siendo un binario validable."""
+    candidate = score_candidate(
+        InstallerCandidate(
+            url=(
+                "https://github.com/Zype-Z/Compass/raw/refs/heads/main/"
+                "download/setup-1.1.0.msi"
+            ),
+            source="winstall_api",
+            asset_kind="winstall_download",
+        ),
+        app_name="Compass",
+        package_id="Zype.Compass",
+        version="1.1.0",
+    )
+
+    assert not is_github_source_archive(candidate.url)
+    assert candidate.asset_kind == "winstall_download"
+    assert candidate.score > 0
+
+
+def test_winstall_github_raw_zip_is_scored_as_declared_binary() -> None:
+    """Un blob ZIP explícito no se confunde con el archivo fuente generado."""
+    candidate = score_candidate(
+        InstallerCandidate(
+            url=(
+                "https://github.com/TextAnalysisTool/Releases/raw/refs/heads/"
+                "master/TextAnalysisTool.NET.zip"
+            ),
+            source="winstall_api",
+            asset_kind="winstall_download",
+        ),
+        app_name="TextAnalysisTool.NET",
+        package_id="DavidAnson.TextAnalysisToolNET",
+        version="1.0.9456.32311",
+    )
+
+    assert not is_github_source_archive(candidate.url)
+    assert candidate.asset_kind == "winstall_download"
+    assert candidate.score > 0
+
+
+def test_github_generated_source_zip_remains_rejected() -> None:
+    """El permiso de blobs raw no habilita los archivos fuente de GitHub."""
+    candidate = score_candidate(
+        InstallerCandidate(
+            url="https://github.com/vendor/app/archive/refs/heads/main.zip",
+            source="winstall_api",
+            asset_kind="winstall_download",
+        ),
+        app_name="App",
+        package_id="Vendor.App",
+    )
+
+    assert is_github_source_archive(candidate.url)
+    assert candidate.asset_kind == "source_archive"
+    assert candidate.score < 0
+
+
 def test_extensionless_winstall_download_is_eligible_for_final_url_validation() -> None:
     """Comprueba que una descarga sin extensión puede validar su URL final."""
     candidate = InstallerCandidate(
@@ -309,6 +387,23 @@ def test_s3_legacy_bucket_uses_secure_path_style_variant() -> None:
     assert variant.source == "winstall_page_s3_path_style"
 
 
+def test_elcomsoft_download_uses_the_canonical_tls_valid_cdn() -> None:
+    """El endpoint oficial estable evita el mirror regional con certificado inválido."""
+    candidate = InstallerCandidate(
+        url="https://www.elcomsoft.com/download/apdfpr_setup_en.msi",
+        source="winstall_api",
+        asset_kind="winstall_download",
+        referer="https://www.elcomsoft.com/apdfpr.html",
+    )
+
+    variant = elcomsoft_download_variant(candidate)
+
+    assert variant is not None
+    assert variant.url == "https://download.elcomsoft.com/apdfpr_setup_en.msi"
+    assert variant.source == "winstall_api_elcomsoft_canonical"
+    assert variant.asset_kind == "winstall_download"
+
+
 def test_sourceforge_manifest_placeholder_uses_public_router() -> None:
     """Comprueba el escenario `sourceforge_manifest_placeholder_uses_public_router`.
     """
@@ -339,6 +434,22 @@ def test_sourceforge_manifest_placeholder_uses_public_router() -> None:
     )
     assert regional is not None
     assert regional.url == "https://downloads.sourceforge.net/project/app/AppPortable.zip"
+
+    download_page = sourceforge_mirror_variant(
+        InstallerCandidate(
+            url=(
+                "https://sourceforge.net/projects/jdreplace/files/4.3/"
+                "jdReplace-4.3-WindowsInstaller.exe/download"
+            ),
+            source="winstall_api",
+            asset_kind="winstall_download",
+        )
+    )
+    assert download_page is not None
+    assert download_page.url == (
+        "https://downloads.sourceforge.net/project/jdreplace/4.3/"
+        "jdReplace-4.3-WindowsInstaller.exe"
+    )
 
 
 def test_version_extraction_does_not_treat_ip_host_as_version() -> None:

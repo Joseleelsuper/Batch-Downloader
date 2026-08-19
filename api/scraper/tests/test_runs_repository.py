@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.config import Settings
 from app.core.time import utc_now
 from app.db.base import Base
-from app.db.enums import ScrapeRunStatus
+from app.db.enums import ScrapeRunStatus, ScrapeScope
 from app.db.models import ScrapeRun
 from app.repositories.runs import RUN_LOCK_STALE_MINUTES, ScrapeRunRepository
 
@@ -81,3 +81,36 @@ async def test_acquire_recovers_an_expired_coordinator_lease(session_factory) ->
         assert stale.active_lock is None
         assert stale.status == ScrapeRunStatus.FAILED.value
         assert stale.finished_at is not None
+
+
+@pytest.mark.asyncio
+async def test_durable_run_request_is_not_consumed_as_control_command(session_factory) -> None:
+    """Las solicitudes pendientes sobreviven hasta que no exista un run activo."""
+    async with session_factory() as session:
+        repository = ScrapeRunRepository(session, Settings())
+        request = await repository.enqueue_run_request(
+            scope=ScrapeScope.SELECTED,
+            app_ids=["11111111-1111-4111-8111-111111111111"],
+            created_by="test-admin",
+        )
+        await session.commit()
+
+        assert await repository.next_pending_command() is None
+        claimed = await repository.next_pending_run_request()
+        assert claimed is not None
+        assert claimed.id == request.id
+
+        run = await repository.acquire(scope=ScrapeScope.SELECTED, request_id=request.id)
+        assert run is not None
+        await repository.mark_run_request_started(request, run.id)
+        await repository.set_manifest(
+            run.id,
+            app_ids=request.app_ids_json or [],
+            winstall_ids=["Vendor.App"],
+        )
+        await session.commit()
+
+        assert request.status == "running"
+        assert request.run_id == run.id
+        assert run.scope == ScrapeScope.SELECTED.value
+        assert run.target_count == 1

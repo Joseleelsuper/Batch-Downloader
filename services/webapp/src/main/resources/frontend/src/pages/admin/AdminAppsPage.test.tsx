@@ -163,6 +163,12 @@ describe('AdminAppsPage', () => {
       lastScrape: null,
       generatedAt: '2026-07-28T08:00:00Z',
     });
+    vi.spyOn(catalogApi, 'fetchAbsenceVerificationSummary').mockResolvedValue({
+      active: 1,
+      missing: 1,
+      missingWithoutActiveEvidence: 0,
+      review: 3,
+    });
     vi.spyOn(catalogApi, 'fetchAppDetails').mockImplementation(async (id) => (
       details(id === secondApp.id ? secondApp : unresolvedApp)
     ));

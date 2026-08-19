@@ -71,6 +71,33 @@ class ScrapeRunStatus(StrEnum):
     """
 
 
+class ScrapeScope(StrEnum):
+    """Define el conjunto estable que debe procesar una solicitud de scraping."""
+
+    INCREMENTAL = "incremental"
+    UNRESOLVED = "unresolved"
+    SELECTED = "selected"
+    FULL = "full"
+
+
+class ScrapeOutcome(StrEnum):
+    """Clasifica el resultado por aplicación sin confundir ausencia y fallo temporal."""
+
+    RESOLVED = "resolved"
+    CONFIRMED_MISSING = "confirmed_missing"
+    NEEDS_REVIEW = "needs_review"
+    TRANSIENT_FAILED = "transient_failed"
+    SKIPPED_UNCHANGED = "skipped_unchanged"
+
+
+class AbsenceVerificationStatus(StrEnum):
+    """Estados del acta durable que acredita una ausencia de instalador."""
+
+    ACTIVE = "active"
+    INVALIDATED = "invalidated"
+    SUPERSEDED = "superseded"
+
+
 class LongDescriptionStatus(StrEnum):
     """Enumera los valores admitidos por `LongDescriptionStatus`.
     """

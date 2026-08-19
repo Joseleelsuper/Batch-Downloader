@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.time import utc_now
-from app.db.enums import ScrapeRunStatus
+from app.db.enums import ScrapeRunStatus, ScrapeScope
 from app.db.models import ScraperCommand, ScrapeRun
 
 RUN_LOCK_STALE_MINUTES = 90
@@ -35,7 +35,12 @@ class ScrapeRunRepository:
         """Estado de instancia asociado a `settings`.
         """
 
-    async def acquire(self) -> ScrapeRun | None:
+    async def acquire(
+        self,
+        *,
+        scope: ScrapeScope = ScrapeScope.INCREMENTAL,
+        request_id: uuid.UUID | None = None,
+    ) -> ScrapeRun | None:
         """Ejecuta `acquire` dentro de `ScrapeRunRepository`.
 
         Returns:
@@ -60,10 +65,18 @@ class ScrapeRunRepository:
             active.heartbeat_at = recovered_at
             active.current_phase = ScrapeRunStatus.FAILED.value
             active.error_summary = "The coordinator lease expired before a new run was acquired."
+            if active.request_id:
+                await self.finish_run_request(
+                    active.request_id,
+                    status=ScrapeRunStatus.FAILED.value,
+                    message="The coordinator lease expired.",
+                )
 
         run = ScrapeRun(
             active_lock=1,
             status=ScrapeRunStatus.RUNNING.value,
+            scope=scope.value,
+            request_id=request_id,
             worker_id=worker_id(),
         )
         self.session.add(run)
@@ -74,6 +87,22 @@ class ScrapeRunRepository:
             await self.session.rollback()
             return None
         return run
+
+    async def set_manifest(
+        self,
+        run_id: uuid.UUID,
+        *,
+        app_ids: list[str],
+        winstall_ids: list[str],
+    ) -> None:
+        """Persiste el conjunto exacto que debe poder auditarse al cerrar la ejecución."""
+        run = await self.session.get(ScrapeRun, run_id)
+        if run is None:
+            return
+        run.target_app_ids_json = app_ids
+        run.target_winstall_ids_json = winstall_ids
+        run.target_count = len(winstall_ids)
+        run.heartbeat_at = utc_now()
 
     async def recover_running(self, error_summary: str) -> int:
         """Recupera la operación `running`.
@@ -98,6 +127,12 @@ class ScrapeRunRepository:
             run.stop_requested = False
             run.paused_at = None
             run.error_summary = error_summary
+            if run.request_id:
+                await self.finish_run_request(
+                    run.request_id,
+                    status=ScrapeRunStatus.FAILED.value,
+                    message=error_summary,
+                )
         await self.session.flush()
         return len(runs)
 
@@ -206,9 +241,73 @@ class ScrapeRunRepository:
         return await self.session.scalar(
             select(ScraperCommand)
             .where(ScraperCommand.status == "pending")
+            .where(ScraperCommand.command.in_(("pause", "resume", "stop", "force_stop")))
             .order_by(ScraperCommand.created_at.asc())
             .limit(1)
         )
+
+    async def next_pending_run_request(self) -> ScraperCommand | None:
+        """Bloquea la siguiente solicitud durable sin consumir controles de una ejecución."""
+        active = await self.session.scalar(
+            select(ScrapeRun.id)
+            .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+            .limit(1)
+        )
+        if active is not None:
+            return None
+        return await self.session.scalar(
+            select(ScraperCommand)
+            .where(ScraperCommand.status == "pending")
+            .where(ScraperCommand.command == "run_once")
+            .order_by(ScraperCommand.created_at.asc())
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+
+    async def mark_run_request_started(
+        self,
+        request: ScraperCommand,
+        run_id: uuid.UUID,
+    ) -> None:
+        """Asocia la solicitud con el run adquirido por el coordinador."""
+        request.status = "running"
+        request.run_id = run_id
+        request.started_at = utc_now()
+        request.message = None
+
+    async def finish_run_request(
+        self,
+        request_id: uuid.UUID,
+        *,
+        status: str,
+        message: str | None = None,
+    ) -> None:
+        """Cierra la solicitud sin perder el vínculo con su ejecución."""
+        request = await self.session.get(ScraperCommand, request_id)
+        if request is None:
+            return
+        request.status = status
+        request.message = message
+        request.consumed_at = utc_now()
+
+    async def enqueue_run_request(
+        self,
+        *,
+        scope: ScrapeScope,
+        app_ids: list[str] | None,
+        created_by: str,
+    ) -> ScraperCommand:
+        """Crea una solicitud que sobrevivirá a reinicios del scheduler."""
+        request = ScraperCommand(
+            command="run_once",
+            scope=scope.value,
+            app_ids_json=app_ids,
+            status="pending",
+            created_by=created_by,
+        )
+        self.session.add(request)
+        await self.session.flush()
+        return request
 
     async def consume_command(
         self,

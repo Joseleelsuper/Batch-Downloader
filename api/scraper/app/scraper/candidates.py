@@ -342,7 +342,11 @@ def score_candidate(
     elif extension in PREFERRED_EXTENSIONS:
         score += 50
     if extension == ".zip" and registered_domain(candidate.url) == "github.com":
-        score += 10 if is_github_release_asset(candidate.url) else -90
+        trusted_binary_blob = (
+            candidate.asset_kind == "winstall_download"
+            and is_github_raw_file(candidate.url)
+        )
+        score += 10 if is_github_release_asset(candidate.url) or trusted_binary_blob else -90
     if any(
         keyword_present(text, keyword)
         for keyword in (
@@ -428,7 +432,7 @@ def is_github_source_archive(url: str) -> bool:
     if host == "codeload.github.com":
         return True
     if host.endswith("github.com") and any(
-        marker in path for marker in ("/archive/", "/zipball/", "/tarball/", "/refs/heads/")
+        marker in path for marker in ("/archive/", "/zipball/", "/tarball/")
     ):
         return True
     filename = PurePosixPath(path).name
@@ -448,6 +452,16 @@ def is_github_release_asset(url: str) -> bool:
     return (
         parsed.netloc.lower().endswith("github.com")
         and "/releases/download/" in parsed.path.lower()
+    )
+
+
+def is_github_raw_file(url: str) -> bool:
+    """Distingue un blob explícito de los ZIP de código generados por GitHub."""
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    return host == "raw.githubusercontent.com" or (
+        host.endswith("github.com") and "/raw/" in path
     )
 
 
@@ -639,11 +653,61 @@ def candidate_variants(candidate: InstallerCandidate) -> list[InstallerCandidate
         list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
     """
     variants = [candidate]
-    for variant_factory in (s3_path_style_variant, sourceforge_mirror_variant):
+    for variant_factory in (
+        https_upgrade_variant,
+        elcomsoft_download_variant,
+        s3_path_style_variant,
+        sourceforge_mirror_variant,
+    ):
         variant = variant_factory(candidate)
         if variant and variant.url not in {item.url for item in variants}:
             variants.append(variant)
     return variants
+
+
+def https_upgrade_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
+    """Prueba el mismo artefacto por TLS sin relajar la prohibición de HTTP."""
+    parsed = urlparse(candidate.url)
+    if parsed.scheme.lower() != "http" or not parsed.hostname:
+        return None
+    return InstallerCandidate(
+        url=urlunparse(parsed._replace(scheme="https")),
+        source=f"{candidate.source}_https_upgrade",
+        label=candidate.label,
+        context=candidate.context,
+        asset_kind=candidate.asset_kind,
+        referer=candidate.referer,
+    )
+
+
+def elcomsoft_download_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
+    """Evita el mirror regional con TLS roto usando el CDN oficial canónico."""
+    parsed = urlparse(candidate.url)
+    host = (parsed.hostname or "").lower()
+    if host not in {"elcomsoft.com", "www.elcomsoft.com", "us.elcomsoft.com"}:
+        return None
+    if not parsed.path.lower().startswith("/download/") or not candidate.extension:
+        return None
+    artifact_path = parsed.path.removeprefix("/download/").lstrip("/")
+    if not artifact_path:
+        return None
+    return InstallerCandidate(
+        url=urlunparse(
+            (
+                "https",
+                "download.elcomsoft.com",
+                f"/{artifact_path}",
+                "",
+                parsed.query,
+                "",
+            )
+        ),
+        source=f"{candidate.source}_elcomsoft_canonical",
+        label=candidate.label,
+        context=candidate.context,
+        asset_kind=candidate.asset_kind,
+        referer=candidate.referer,
+    )
 
 
 def s3_path_style_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
@@ -693,10 +757,32 @@ def sourceforge_mirror_variant(candidate: InstallerCandidate) -> InstallerCandid
         InstallerCandidate | None: Resultado producido por la operación.
     """
     parsed = urlparse(candidate.url)
-    if not (parsed.hostname or "").lower().endswith(".dl.sourceforge.net"):
+    host = (parsed.hostname or "").lower()
+    if host in {"sourceforge.net", "www.sourceforge.net"}:
+        match = re.fullmatch(
+            r"/projects?/([^/]+)/files/(.+)/download/?",
+            parsed.path,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        project, artifact_path = match.groups()
+        routed_url = urlunparse(
+            (
+                "https",
+                "downloads.sourceforge.net",
+                f"/project/{project}/{artifact_path}",
+                "",
+                "",
+                "",
+            )
+        )
+    elif host.endswith(".dl.sourceforge.net"):
+        routed_url = urlunparse(parsed._replace(netloc="downloads.sourceforge.net"))
+    else:
         return None
     return InstallerCandidate(
-        url=urlunparse(parsed._replace(netloc="downloads.sourceforge.net")),
+        url=routed_url,
         source=f"{candidate.source}_sourceforge_router",
         label=candidate.label,
         context=candidate.context,

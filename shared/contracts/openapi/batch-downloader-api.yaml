@@ -1264,6 +1264,120 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/admin/scraper/runs:
+    servers:
+      - url: /
+    get:
+      operationId: listScraperRuns
+      summary: Listar las ejecuciones recientes y sus manifests
+      tags: [Scraper admin]
+      responses:
+        '200':
+          description: Ejecuciones recientes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScraperRunSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createScraperRun
+      summary: Crear una solicitud durable sin solaparla con la ejecución activa
+      tags: [Scraper admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScraperRunRequest'
+      responses:
+        '202':
+          description: Solicitud persistida para que el scheduler la reclame.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperRunRequestResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/apps/absence-verifications/summary:
+    servers:
+      - url: /
+    get:
+      operationId: getInstallerAbsenceVerificationSummary
+      summary: Contar ausencias activas y missing sin evidencia
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Criterio de cierre autoritativo de la campaña.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallerAbsenceVerificationSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/admin/apps/{appId}/absence-verification:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      operationId: getActiveInstallerAbsenceVerification
+      summary: Obtener la evidencia negativa activa de una aplicación
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Acta activa o null.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InstallerAbsenceVerification'
+                  - type: 'null'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: confirmInstallerAbsence
+      summary: Confirmar que no existe un binario instalable tras revisar todas las fuentes
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstallerAbsenceVerificationRequest'
+      responses:
+        '201':
+          description: Evidencia persistente creada y aplicación clasificada como missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallerAbsenceVerification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
 components:
   securitySchemes:
     sessionCookie:
@@ -1413,6 +1527,138 @@ components:
           schema:
             $ref: '#/components/schemas/SemanticOperationAccepted'
   schemas:
+    ScraperRunRequest:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      properties:
+        scope:
+          type: string
+          enum: [incremental, unresolved, selected, full]
+        appIds:
+          type: array
+          maxItems: 500
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: Obligatorio solo para selected; rechazado en los demás scopes.
+    ScraperRunRequestResponse:
+      type: object
+      additionalProperties: false
+      required: [requestId, scope, status]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          enum: [incremental, unresolved, selected, full]
+        status:
+          type: string
+          enum: [pending]
+    ScraperRunSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - scope
+        - targetCount
+        - startedAt
+        - heartbeatAt
+        - appsDiscovered
+        - appsResolved
+        - appsFailed
+        - appsSkipped
+        - appsConfirmedMissing
+        - appsNeedsReview
+        - appsTransientFailed
+        - appsSkippedUnchanged
+        - stopRequested
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [running, completed, partial, failed]}
+        scope: {type: string, enum: [incremental, unresolved, selected, full]}
+        requestId: {type: [string, 'null'], format: uuid}
+        targetCount: {type: integer, minimum: 0}
+        startedAt: {type: string, format: date-time}
+        heartbeatAt: {type: string, format: date-time}
+        finishedAt: {type: [string, 'null'], format: date-time}
+        appsDiscovered: {type: integer, minimum: 0}
+        appsResolved: {type: integer, minimum: 0}
+        appsFailed: {type: integer, minimum: 0}
+        appsSkipped: {type: integer, minimum: 0}
+        appsConfirmedMissing: {type: integer, minimum: 0}
+        appsNeedsReview: {type: integer, minimum: 0}
+        appsTransientFailed: {type: integer, minimum: 0}
+        appsSkippedUnchanged: {type: integer, minimum: 0}
+        currentPackageId: {type: [string, 'null']}
+        currentAppName: {type: [string, 'null']}
+        currentPhase: {type: [string, 'null']}
+        stopRequested: {type: boolean}
+        pausedAt: {type: [string, 'null'], format: date-time}
+        errorSummary: {type: [string, 'null']}
+    InstallerAbsenceVerificationRequest:
+      type: object
+      additionalProperties: false
+      oneOf:
+        - required: [officialPageUrl]
+          properties:
+            officialPageUrl: {type: string, format: uri, pattern: '^https://'}
+            officialConfirmedAbsent: {type: boolean, const: true}
+        - properties:
+            officialPageUrl: {type: 'null'}
+            officialConfirmedAbsent: {type: boolean, const: false}
+      required:
+        - reasonCode
+        - manifestUrl
+        - winstallConfirmedAbsent
+        - manifestConfirmedAbsent
+        - officialConfirmedAbsent
+        - ambiguousAccess
+      properties:
+        reasonCode:
+          type: string
+          enum: [no_supported_binary, store_only, command_only, wrapper_only, vendor_discontinued]
+        manifestUrl: {type: string, format: uri, pattern: '^https://'}
+        officialPageUrl: {type: [string, 'null'], format: uri, pattern: '^https://'}
+        winstallConfirmedAbsent: {type: boolean, const: true}
+        manifestConfirmedAbsent: {type: boolean, const: true}
+        officialConfirmedAbsent: {type: boolean}
+        ambiguousAccess: {type: boolean, const: false}
+        notes: {type: [string, 'null'], maxLength: 2000}
+    InstallerAbsenceVerification:
+      type: object
+      additionalProperties: false
+      required: [id, appId, status, reasonCode, checkedUrls, verifiedBy, verifiedAt, appVersion]
+      properties:
+        id: {type: string, format: uuid}
+        appId: {type: string, format: uuid}
+        status: {type: string, enum: [active, invalidated, superseded]}
+        reasonCode: {type: string}
+        notes: {type: [string, 'null']}
+        checkedUrls:
+          type: string
+          description: JSON con páginas públicas revisadas; nunca contiene URLs de binarios.
+        verifiedBy: {type: string}
+        verifiedAt: {type: string, format: date-time}
+        appVersion: {type: integer, format: int64, minimum: 0}
+        winstallLatestVersion: {type: [string, 'null']}
+        winstallSummaryFingerprint: {type: [string, 'null']}
+        winstallDetailFingerprint: {type: [string, 'null']}
+        officialUrlFingerprint: {type: [string, 'null']}
+        invalidatedAt: {type: [string, 'null'], format: date-time}
+        invalidationReason: {type: [string, 'null']}
+    InstallerAbsenceVerificationSummary:
+      type: object
+      additionalProperties: false
+      required: [active, missing, missingWithoutActiveEvidence, review]
+      properties:
+        active: {type: integer, format: int64, minimum: 0}
+        missing: {type: integer, format: int64, minimum: 0}
+        missingWithoutActiveEvidence: {type: integer, format: int64, minimum: 0}
+        review: {type: integer, format: int64, minimum: 0}
     RegisterRequest:
       type: object
       additionalProperties: false

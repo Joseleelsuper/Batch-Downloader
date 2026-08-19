@@ -173,6 +173,7 @@ async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session)
             {"package_id": f"Vendor.{queue}"},
             previous_run,
         )
+        item.attempts = 9
         await repository.complete(item)
     await db_session.commit()
 
@@ -186,6 +187,7 @@ async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session)
         )
         assert item.status == STATUS_QUEUED
         assert item.run_id == next_run
+        assert item.attempts == 0
 
 
 @pytest.mark.asyncio

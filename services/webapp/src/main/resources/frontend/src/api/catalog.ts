@@ -18,6 +18,11 @@ import type {
   ScraperQueueMaintenanceResult,
   ScraperQueueState,
   ScraperRunSummary,
+  ScrapeScope,
+  ScraperRunRequestResponse,
+  InstallerAbsenceVerification,
+  InstallerAbsenceVerificationRequest,
+  InstallerAbsenceVerificationSummary,
   ScraperSnapshotItem,
   SoftwareRequestItem,
   OperatingSystem,
@@ -605,6 +610,40 @@ export async function fetchAdminRuns(): Promise<ScraperRunSummary[]> {
 
 export async function fetchAdminCurrentRun(): Promise<ScraperRunSummary | null> {
   return requestJson<ScraperRunSummary | null>('/api/admin/scraper/current');
+}
+
+export async function createScraperRun(
+  scope: ScrapeScope,
+  appIds?: string[],
+): Promise<ScraperRunRequestResponse> {
+  return requestJson<ScraperRunRequestResponse>('/api/admin/scraper/runs', {
+    method: 'POST',
+    body: JSON.stringify({ scope, appIds }),
+  });
+}
+
+export async function fetchAbsenceVerificationSummary(): Promise<InstallerAbsenceVerificationSummary> {
+  return requestJson<InstallerAbsenceVerificationSummary>(
+    '/api/admin/apps/absence-verifications/summary',
+  );
+}
+
+export async function fetchActiveAbsenceVerification(
+  appId: string,
+): Promise<InstallerAbsenceVerification | null> {
+  return requestJson<InstallerAbsenceVerification | null>(
+    `/api/admin/apps/${encodeURIComponent(appId)}/absence-verification`,
+  );
+}
+
+export async function confirmInstallerAbsence(
+  appId: string,
+  payload: InstallerAbsenceVerificationRequest,
+): Promise<InstallerAbsenceVerification> {
+  return requestJson<InstallerAbsenceVerification>(
+    `/api/admin/apps/${encodeURIComponent(appId)}/absence-verification`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
 }
 
 export async function fetchAdminLogs(): Promise<ResolverLogItem[]> {
