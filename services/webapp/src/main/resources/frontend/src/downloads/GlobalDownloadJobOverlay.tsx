@@ -33,7 +33,12 @@ export function GlobalDownloadJobOverlay() {
           </button>
         </div>
       ) : null}
-      <div className="download-job-overlay-list">
+      <div
+        className="download-job-overlay-list"
+        role="region"
+        aria-label={t('download.overlay.jobs')}
+        tabIndex={0}
+      >
         {jobs.map((entry) => entry.job ? (
           <DownloadJobPanel
             key={entry.id}

@@ -60,7 +60,7 @@ class JsonFileLocaleCatalogTest {
 
         LocaleDocument spanish = catalog.findByLocale("es").orElseThrow();
         JsonNode messages = new ObjectMapper().readTree(spanish.content());
-        assertThat(messages.size()).isEqualTo(795);
+        assertThat(messages.size()).isEqualTo(796);
         assertThat(messages.has("catalog.title")).isTrue();
         assertThat(messages.has("admin.apps.subtitle")).isTrue();
         assertThat(messages.has("account.login.title")).isTrue();

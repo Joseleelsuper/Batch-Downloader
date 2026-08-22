@@ -297,9 +297,11 @@
   right: 18px;
   bottom: 18px;
   z-index: 90;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   width: min(420px, calc(100vw - 36px));
   max-height: min(76vh, 720px);
+  max-height: min(76dvh, 720px);
   overflow: hidden;
   color: #1f2937;
   background: #ffffff;
@@ -315,6 +317,7 @@
   min-height: 48px;
   padding: 11px 14px;
   border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 
 .download-job-overlay-header > div,
@@ -342,13 +345,22 @@
 .download-job-overlay-list {
   display: grid;
   gap: 10px;
+  flex: 1 1 auto;
   min-height: 0;
   padding: 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+}
+
+.download-job-overlay-list:focus-visible {
+  outline: 3px solid #0284c7;
+  outline-offset: -3px;
 }
 
 .download-job-start-error {
+  flex: 0 0 auto;
   padding: 10px 12px;
   color: #9f1239;
   background: #fff1f2;

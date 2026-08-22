@@ -42,5 +42,6 @@
   "download.job.apiError.anonymous_ip_rate_limit": "Se han iniciado demasiadas descargas desde esta red.",
   "download.job.apiError.invalid_job_size": "La selección debe contener entre 1 y 100 aplicaciones.",
   "download.job.apiError.no_downloadable_apps": "Ninguna aplicación seleccionada tiene un instalador disponible para ese sistema.",
+  "download.overlay.jobs": "Trabajos de descarga",
   "download.overlay.title": "Descargas"
 }
