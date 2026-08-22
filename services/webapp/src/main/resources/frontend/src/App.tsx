@@ -202,14 +202,13 @@ function AppRoutes() {
 
 function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
   const location = useLocation();
-  const catalogSurface = location.pathname.startsWith('/catalog');
   const lockedCatalogSurface = location.pathname === '/catalog' || location.pathname.startsWith('/catalog/app/');
 
   return (
     <div className={`site-shell ${lockedCatalogSurface ? 'site-shell-app' : ''}`}>
       <Topbar auth={auth} onLogout={onLogout} />
       <Outlet />
-      {catalogSurface ? null : <Footer />}
+      <Footer />
     </div>
   );
 }

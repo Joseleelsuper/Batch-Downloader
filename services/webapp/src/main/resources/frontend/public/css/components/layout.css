@@ -16,8 +16,8 @@
 }
 
 .site-shell-app {
-  height: 100vh;
-  overflow: hidden;
+  height: auto;
+  overflow: visible;
 }
 
 .topbar {
@@ -143,10 +143,11 @@
 }
 
 .site-footer-column h2 {
-  margin: 0 0 4px;
+  margin: 0 0 8px;
   color: #152033;
-  font-size: 15px;
-  font-weight: 760;
+  font-size: 19px;
+  line-height: 1.25;
+  font-weight: 780;
 }
 
 .site-footer-column a {
@@ -180,6 +181,7 @@
   padding-top: 18px;
   border-top: 1px solid var(--border);
   font-size: 13px;
+  text-align: center;
 }
 
 .brand,

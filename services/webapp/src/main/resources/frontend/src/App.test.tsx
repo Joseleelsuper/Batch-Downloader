@@ -120,6 +120,24 @@ describe('catalog workspace', () => {
     await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalled());
   });
 
+  it('keeps the public footer available after the catalog workspace', async () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalled());
+    const shell = container.querySelector('.site-shell-app');
+    const workspace = shell?.querySelector('.workspace');
+    const footer = shell?.querySelector('.site-footer');
+
+    expect(workspace).not.toBeNull();
+    expect(footer).not.toBeNull();
+    expect(workspace?.nextElementSibling).toBe(footer);
+    expect(within(footer as HTMLElement).getByRole('heading', { name: 'Páginas' })).toBeInTheDocument();
+  });
+
   it('renders catalog totals even when the app page request fails', async () => {
     vi.mocked(catalogApi.fetchApps).mockRejectedValue(new Error('request_failed_500'));
     vi.mocked(catalogApi.fetchCatalogStats).mockResolvedValue({
