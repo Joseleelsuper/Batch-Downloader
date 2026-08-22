@@ -16,7 +16,7 @@ from app.core.config import get_settings
 from app.core.free_threading import assert_free_threaded_runtime
 from app.core.logging import configure_logging, get_logger
 from app.core.url_protector import UrlProtector
-from app.db.enums import ResolutionStatus, ScrapeRunStatus, ScrapeScope, ValidationStatus
+from app.db.enums import ResolutionStatus, ScrapeScope, ValidationStatus
 from app.db.models import ScrapeRun
 from app.db.session import AsyncSessionLocal
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
@@ -250,13 +250,14 @@ class ContentEnrichmentSupervisor:
             bool: Indica si se cumple la condición evaluada.
         """
         async with AsyncSessionLocal() as session:
-            run = await session.scalar(
-                select(ScrapeRun)
-                .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
-                .order_by(ScrapeRun.started_at.desc())
-                .limit(1)
-            )
-            return bool(run and (run.paused_at is not None or run.stop_requested))
+            control = (
+                await session.execute(
+                    select(ScrapeRun.paused_at, ScrapeRun.stop_requested)
+                    .where(ScrapeRun.active_lock == 1)
+                    .limit(1)
+                )
+            ).one_or_none()
+            return bool(control and (control.paused_at is not None or control.stop_requested))
 
     async def _scrape_run_active(self) -> bool:
         """Reserva el pool acotado para el pipeline mientras exista un run activo.
@@ -268,7 +269,7 @@ class ContentEnrichmentSupervisor:
         async with AsyncSessionLocal() as session:
             run_id = await session.scalar(
                 select(ScrapeRun.id)
-                .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+                .where(ScrapeRun.active_lock == 1)
                 .limit(1)
             )
             return run_id is not None

@@ -1,11 +1,13 @@
-"""Implementa las responsabilidades del módulo `routes`.
-"""
+"""Implementa las responsabilidades del módulo `routes`."""
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.app_mapper import to_details, to_list_item
+from app.api.dependencies import require_internal_service_token
 from app.core.config import Settings, get_settings
 from app.core.time import utc_now
 from app.core.url_protector import UrlProtector
@@ -173,6 +175,7 @@ async def get_app(
 
 @router.post("/internal/scraper/run-once", status_code=202)
 async def run_scraper_once(
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, str | bool]:

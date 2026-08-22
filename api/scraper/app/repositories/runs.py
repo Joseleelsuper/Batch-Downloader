@@ -50,8 +50,7 @@ class ScrapeRunRepository:
         running = list(
             await self.session.scalars(
                 select(ScrapeRun)
-                .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
-                .order_by(ScrapeRun.started_at.desc())
+                .where(ScrapeRun.active_lock == 1)
                 .with_for_update()
             )
         )
@@ -250,7 +249,7 @@ class ScrapeRunRepository:
         """Bloquea la siguiente solicitud durable sin consumir controles de una ejecución."""
         active = await self.session.scalar(
             select(ScrapeRun.id)
-            .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+            .where(ScrapeRun.active_lock == 1)
             .limit(1)
         )
         if active is not None:

@@ -2,18 +2,24 @@
 """
 from __future__ import annotations
 
-import secrets
+import secrets as secrets
 from datetime import datetime
 from typing import Annotated, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 
+from app.api.dependencies import (
+    INTERNAL_SERVICE_TOKEN_HEADER as INTERNAL_SERVICE_TOKEN_HEADER,
+)
+from app.api.dependencies import (
+    require_internal_service_token,
+)
 from app.core.config import Settings, get_settings
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
@@ -71,35 +77,9 @@ from app.scraper.website_discovery import (
     website_discovery_view,
 )
 
-INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token"
-"""Constante que define `INTERNAL_SERVICE_TOKEN_HEADER`.
-"""
-
 internal_router = APIRouter(prefix="/internal/v1")
 """Estado global asociado a `internal_router`.
 """
-
-
-async def require_internal_service_token(
-    settings: Annotated[Settings, Depends(get_settings)],
-    provided_token: Annotated[
-        str | None,
-        Header(alias=INTERNAL_SERVICE_TOKEN_HEADER),
-    ] = None,
-) -> None:
-    """Ejecuta la operación `require_internal_service_token`.
-
-    Args:
-        settings (Settings): Configuración del servicio.
-        provided_token (str | None): Valor de `provided_token` utilizado por la operación.
-
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
-    """
-    expected_token = settings.internal_service_token.get_secret_value()
-    token_matches = secrets.compare_digest(provided_token or "", expected_token)
-    if not expected_token or not token_matches:
-        raise HTTPException(status_code=401, detail={"code": "invalid_internal_token"})
 
 
 @internal_router.get("/metrics", response_class=PlainTextResponse, responses={401: {}})

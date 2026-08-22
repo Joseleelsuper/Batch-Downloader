@@ -552,6 +552,12 @@ class ScrapeRun(Base):
     """Campo declarado `paused_at` de `ScrapeRun`.
     """
 
+    __table_args__ = (
+        Index("ix_scrape_runs_started_at", "started_at"),
+        Index("ix_scrape_runs_status_started_at", "status", "started_at"),
+    )
+    """Los historiales recientes se resuelven por índice sin filesort."""
+
 
 class ScraperCommand(Base):
     """Representa el componente `ScraperCommand`.
