@@ -827,15 +827,13 @@ public class CatalogRepository {
      */
     public CatalogStatsResponse stats() {
         StatsSnapshot snapshot = jdbc.queryForObject("""
-                SELECT total_count, available_count, review_count, missing_count
-                FROM catalog_counters
-                WHERE id = ?
+                SELECT total_apps, available_apps, review_apps, missing_installer_apps
+                FROM application_totals
                 """, (rs, rowNum) -> new StatsSnapshot(
-                        rs.getLong("total_count"),
-                        rs.getLong("available_count"),
-                        rs.getLong("review_count"),
-                        rs.getLong("missing_count")),
-                1);
+                        rs.getLong("total_apps"),
+                        rs.getLong("available_apps"),
+                        rs.getLong("review_apps"),
+                        rs.getLong("missing_installer_apps")));
         Map<String, Long> filters = new LinkedHashMap<>();
         filters.put("all", snapshot.total());
         filters.put("available", snapshot.available());

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import secrets
 from collections import OrderedDict
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 from uuid import UUID
@@ -23,12 +21,9 @@ from app.config import get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
 from app.healthcheck import directory_writable
+from app.http_policies import InternalServiceTokenGuard, SearchCapacityGuard
 from app.schemas import SemanticSearchRequest, SemanticSearchResponse
 from app.store import SemanticStore
-
-INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token"
-"""Constante que define `INTERNAL_SERVICE_TOKEN_HEADER`.
-"""
 
 settings = get_settings()
 """Estado global asociado a `settings`.
@@ -47,6 +42,15 @@ runtime_cache: OrderedDict[str, EmbeddingRuntime] = OrderedDict()
 """
 search_slots = asyncio.Semaphore(settings.search_concurrency)
 """Plazas de búsqueda que protegen CPU y el pool de PostgreSQL."""
+require_internal_service_token = InternalServiceTokenGuard(
+    settings.internal_service_token.get_secret_value()
+)
+"""Wrapper compartido de autorización para endpoints internos."""
+require_search_capacity = SearchCapacityGuard(
+    search_slots,
+    settings.search_capacity_wait_seconds,
+)
+"""Wrapper de admisión aplicado antes de ejecutar una búsqueda."""
 
 
 @asynccontextmanager
@@ -125,44 +129,6 @@ async def create_admin_operation(**kwargs: object) -> dict[str, object]:
             status_code=409,
             detail={"code": str(exception)},
         ) from exception
-
-
-async def require_internal_service_token(
-    provided_token: Annotated[
-        str | None,
-        Header(alias=INTERNAL_SERVICE_TOKEN_HEADER),
-    ] = None,
-) -> None:
-    """Ejecuta la operación `require_internal_service_token`.
-
-    Args:
-        provided_token (str | None): Valor de `provided_token` utilizado por la operación.
-
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
-    """
-    expected = settings.internal_service_token.get_secret_value()
-    if not expected or not secrets.compare_digest(provided_token or "", expected):
-        raise HTTPException(status_code=401, detail={"code": "invalid_internal_token"})
-
-
-async def require_search_capacity() -> AsyncIterator[None]:
-    """Reserva una de las dos plazas de búsqueda con espera acotada."""
-    try:
-        await asyncio.wait_for(
-            search_slots.acquire(),
-            timeout=settings.search_capacity_wait_seconds,
-        )
-    except TimeoutError as exception:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "service_busy"},
-            headers={"Retry-After": "1"},
-        ) from exception
-    try:
-        yield
-    finally:
-        search_slots.release()
 
 
 @app.get("/semantic/health")

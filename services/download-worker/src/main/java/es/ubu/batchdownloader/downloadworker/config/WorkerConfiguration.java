@@ -1,16 +1,21 @@
 package es.ubu.batchdownloader.downloadworker.config;
 
+import es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler;
+import es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor;
 import es.ubu.batchdownloader.downloadworker.application.JobCapacity;
 import es.ubu.batchdownloader.downloadworker.infrastructure.archive.ZipArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.DnsHostResolver;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.HostResolver;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.JdkHttpsRemoteDownloader;
+import es.ubu.batchdownloader.downloadworker.infrastructure.http.MeteredRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy;
 import es.ubu.batchdownloader.downloadworker.infrastructure.messaging.RabbitEventPublisher;
 import es.ubu.batchdownloader.downloadworker.infrastructure.persistence.JdbcInboxRepository;
 import es.ubu.batchdownloader.downloadworker.infrastructure.storage.MinioArtifactStore;
 import es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpJobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpSourceReferenceResolver;
+import es.ubu.batchdownloader.downloadworker.messaging.InboxDownloadJobHandler;
+import es.ubu.batchdownloader.downloadworker.messaging.ValidatedDownloadJobHandler;
 import es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
 import es.ubu.batchdownloader.downloadworker.ports.EventPublisher;
@@ -18,22 +23,23 @@ import es.ubu.batchdownloader.downloadworker.ports.InboxRepository;
 import es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver;
-import io.minio.MinioClient;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.minio.MinioClient;
+import jakarta.validation.Validator;
 import java.net.http.HttpClient;
 import java.time.Clock;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -50,6 +56,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
     CoreApiProperties.class
 })
 public class WorkerConfiguration {
+    /** Compone validación e idempotencia alrededor del procesador funcional. */
+    @Bean("downloadJobHandler")
+    DownloadJobHandler downloadJobHandler(
+            Validator validator,
+            InboxRepository inbox,
+            DownloadProperties properties,
+            DownloadJobProcessor processor) {
+        DownloadJobHandler handler = processor::process;
+        handler = new InboxDownloadJobHandler(inbox, properties, handler);
+        return new ValidatedDownloadJobHandler(validator, handler);
+    }
+
     /**
      * Ejecuta la operación {@code clock}.
      *
@@ -101,14 +119,20 @@ public class WorkerConfiguration {
      * @param downloadHttpClient Valor de {@code downloadHttpClient} utilizado por la operación.
      * @param publicHttpsUriPolicy Valor de {@code publicHttpsUriPolicy} utilizado por la operación.
      * @param properties Valor de {@code properties} utilizado por la operación.
+     * @param meterRegistry registro utilizado por el wrapper de observabilidad.
      * @return Resultado producido por {@code remoteDownloader}.
      */
     @Bean
     RemoteDownloader remoteDownloader(
             @Qualifier("downloadHttpClient") HttpClient downloadHttpClient,
             PublicHttpsUriPolicy publicHttpsUriPolicy,
-            DownloadProperties properties) {
-        return new JdkHttpsRemoteDownloader(downloadHttpClient, publicHttpsUriPolicy, properties);
+            DownloadProperties properties,
+            MeterRegistry meterRegistry) {
+        RemoteDownloader downloader = new JdkHttpsRemoteDownloader(
+                downloadHttpClient,
+                publicHttpsUriPolicy,
+                properties);
+        return new MeteredRemoteDownloader(downloader, meterRegistry);
     }
 
     /**

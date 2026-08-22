@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, urlparse, urlunparse
 
-import httpx
-
+from app.scraper.http import (
+    FetchRequest,
+    HttpxPublicResourceFetcher,
+    SafeHttpError,
+    SafeHttpResponse,
+)
 from app.scraper.validator import domain_has_public_dns
 
 SENSITIVE_QUERY_KEYS = {
@@ -24,47 +27,6 @@ SENSITIVE_QUERY_KEYS = {
 }
 """Constante que define `SENSITIVE_QUERY_KEYS`.
 """
-
-
-class SafeHttpError(Exception):
-    """Representa un error relacionado con `SafeHttp`.
-    """
-
-    def __init__(self, code: str, *, transient: bool = False) -> None:
-        """Inicializa una instancia de `SafeHttpError`.
-
-        Args:
-            code (str): Valor de `code` utilizado por la operación.
-            transient (bool): Valor de `transient` utilizado por la operación.
-        """
-        super().__init__(code)
-        self.code = code
-        """Estado de instancia asociado a `code`.
-        """
-        self.transient = transient
-        """Estado de instancia asociado a `transient`.
-        """
-
-
-@dataclass(frozen=True)
-class SafeHttpResponse:
-    """Representa una respuesta de `SafeHttp`.
-    """
-    final_url: str
-    """Atributo de clase `final_url` de `SafeHttpResponse`.
-    """
-    status_code: int
-    """Atributo de clase `status_code` de `SafeHttpResponse`.
-    """
-    content_type: str | None
-    """Atributo de clase `content_type` de `SafeHttpResponse`.
-    """
-    content: bytes
-    """Atributo de clase `content` de `SafeHttpResponse`.
-    """
-    headers: httpx.Headers
-    """Atributo de clase `headers` de `SafeHttpResponse`.
-    """
 
 
 def validate_public_https_syntax(url: str) -> str:
@@ -176,61 +138,13 @@ async def fetch_public_resource(
     Throws:
         SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
     """
-    current_url = await validate_public_https_url(url)
-    async with httpx.AsyncClient(
-        timeout=timeout,
-        follow_redirects=False,
-        headers={
-            "Accept": accept,
-            "User-Agent": "BatchDownloaderScraper/0.1",
-        },
-    ) as client:
-        for _redirect in range(max_redirects + 1):
-            try:
-                async with client.stream("GET", current_url) as response:
-                    if response.is_redirect:
-                        location = response.headers.get("location")
-                        if not location:
-                            raise SafeHttpError("redirect_without_location")
-                        try:
-                            current_url = urljoin(current_url, location)
-                        except ValueError as exc:
-                            raise SafeHttpError("redirect_invalid_url") from exc
-                        current_url = await validate_public_https_url(current_url)
-                        continue
-                    if response.status_code >= 400:
-                        transient = response.status_code in {408, 425, 429}
-                        transient = transient or response.status_code >= 500
-                        raise SafeHttpError(
-                            f"http_{response.status_code}",
-                            transient=transient,
-                        )
-                    declared_size = response.headers.get("content-length")
-                    if declared_size and declared_size.isdigit() and int(declared_size) > max_bytes:
-                        raise SafeHttpError("content_too_large")
-                    content = bytearray()
-                    async for chunk in response.aiter_raw():
-                        remaining = max_bytes + 1 - len(content)
-                        if remaining <= 0:
-                            break
-                        content.extend(chunk[:remaining])
-                        if len(content) > max_bytes:
-                            raise SafeHttpError("content_too_large")
-                    content_type = (
-                        response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-                        or None
-                    )
-                    return SafeHttpResponse(
-                        final_url=str(response.url),
-                        status_code=response.status_code,
-                        content_type=content_type,
-                        content=bytes(content),
-                        headers=response.headers,
-                    )
-            except SafeHttpError:
-                raise
-            except httpx.TimeoutException as exc:
-                raise SafeHttpError("timeout", transient=True) from exc
-            except httpx.RequestError as exc:
-                raise SafeHttpError("network_error", transient=True) from exc
-    raise SafeHttpError("too_many_redirects")
+    fetcher = HttpxPublicResourceFetcher(validate_public_https_url)
+    return await fetcher.fetch(
+        FetchRequest(
+            url=url,
+            timeout=timeout,
+            max_redirects=max_redirects,
+            max_bytes=max_bytes,
+            accept=accept,
+        )
+    )

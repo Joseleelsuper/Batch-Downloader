@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor;
+import es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler;
 import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
@@ -58,8 +59,10 @@ class DownloadJobListenerTest {
     /**
      * Dato compartido {@code listener} para los escenarios de prueba.
      */
-    private final DownloadJobListener listener = new DownloadJobListener(
-            validator, inbox, processor, properties);
+    private final DownloadJobHandler handler = new ValidatedDownloadJobHandler(
+            validator,
+            new InboxDownloadJobHandler(inbox, properties, processor::process));
+    private final DownloadJobListener listener = new DownloadJobListener(handler);
 
     /**
      * Comprueba el escenario {@code skipsAlreadyProcessedEvent}.

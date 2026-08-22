@@ -15,14 +15,23 @@ import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.ServiceUnavailableException;
 import es.ubu.batchdownloader.common.UnprocessableEntityException;
+import es.ubu.batchdownloader.common.http.InternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.InternalHttpRequest;
+import es.ubu.batchdownloader.common.http.InternalHttpResponse;
+import es.ubu.batchdownloader.common.http.InternalHttpTransportException;
+import es.ubu.batchdownloader.common.http.JdkInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.MeteredInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.ServiceTokenInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.TimeoutInternalHttpExecutor;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,9 +42,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class ScraperInternalClient {
     /**
-     * Dependencia {@code httpClient} utilizada por {@code ScraperInternalClient}.
+     * Ejecutor HTTP interno con políticas transversales compuestas.
      */
-    private final HttpClient httpClient;
+    private final InternalHttpExecutor executor;
     /**
      * Dependencia {@code objectMapper} utilizada por {@code ScraperInternalClient}.
      */
@@ -45,25 +54,46 @@ public class ScraperInternalClient {
      */
     private final String scraperApiUrl;
     /**
-     * Estado {@code internalServiceToken} mantenido por {@code ScraperInternalClient}.
-     */
-    private final String internalServiceToken;
-
-    /**
      * Inicializa una instancia de {@code ScraperInternalClient}.
      *
      * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
      * @param scraperApiUrl Dirección de {@code scraperApi} que debe procesarse.
      * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
+     * @param registry Registro opcional para observar las llamadas internas.
      */
+    @Autowired
     public ScraperInternalClient(
             ObjectMapper objectMapper,
             @Value("${app.scraper-api-url}") String scraperApiUrl,
-            @Value("${app.scraper-internal-service-token}") String internalServiceToken) {
-        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+            @Value("${app.scraper-internal-service-token}") String internalServiceToken,
+            @Nullable MeterRegistry registry) {
+        this(
+                objectMapper,
+                scraperApiUrl,
+                instrumentedExecutor(internalServiceToken, registry));
+    }
+
+    /**
+     * Constructor conservado para pruebas y consumidores sin registro de métricas.
+     *
+     * @param objectMapper serializador de los contratos internos.
+     * @param scraperApiUrl dirección base del scraper.
+     * @param internalServiceToken credencial compartida entre servicios.
+     */
+    public ScraperInternalClient(
+            ObjectMapper objectMapper,
+            String scraperApiUrl,
+            String internalServiceToken) {
+        this(objectMapper, scraperApiUrl, executor(internalServiceToken));
+    }
+
+    private ScraperInternalClient(
+            ObjectMapper objectMapper,
+            String scraperApiUrl,
+            InternalHttpExecutor executor) {
+        this.executor = executor;
         this.objectMapper = objectMapper;
         this.scraperApiUrl = scraperApiUrl.replaceAll("/+$", "");
-        this.internalServiceToken = internalServiceToken;
     }
 
     /**
@@ -294,21 +324,17 @@ public class ScraperInternalClient {
             String body,
             Class<T> responseType,
             String failureCode) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(scraperApiUrl + path))
-                .timeout(Duration.ofSeconds(30))
-                .header("X-Internal-Service-Token", internalServiceToken);
-        if ("GET".equals(method)) {
-            builder.GET();
-        } else {
-            builder.POST(HttpRequest.BodyPublishers.ofString(body));
-        }
+        InternalHttpRequest request = new InternalHttpRequest(
+                "scraper",
+                failureCode,
+                method,
+                URI.create(scraperApiUrl + path),
+                "GET".equals(method) ? null : body);
         if (!body.isEmpty()) {
-            builder.header("Content-Type", "application/json");
+            request = request.withHeader("Content-Type", "application/json");
         }
         try {
-            HttpResponse<String> response = httpClient.send(
-                    builder.build(), HttpResponse.BodyHandlers.ofString());
+            InternalHttpResponse response = executor.execute(request);
             if (response.statusCode() >= 400) {
                 throw upstreamFailure(response.statusCode(), response.body(), failureCode);
             }
@@ -316,14 +342,25 @@ public class ScraperInternalClient {
                 return null;
             }
             return objectMapper.readValue(response.body(), responseType);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw failure(failureCode);
-        } catch (IOException exception) {
+        } catch (InternalHttpTransportException | IOException exception) {
             throw failure(failureCode);
         } catch (IllegalArgumentException exception) {
             throw failure(failureCode);
         }
+    }
+
+    private static InternalHttpExecutor executor(String token) {
+        InternalHttpExecutor result = new JdkInternalHttpExecutor(
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
+        result = new ServiceTokenInternalHttpExecutor(result, token);
+        return new TimeoutInternalHttpExecutor(result, Duration.ofSeconds(30));
+    }
+
+    private static InternalHttpExecutor instrumentedExecutor(
+            String token,
+            MeterRegistry registry) {
+        InternalHttpExecutor result = executor(token);
+        return registry == null ? result : new MeteredInternalHttpExecutor(result, registry);
     }
 
     /**

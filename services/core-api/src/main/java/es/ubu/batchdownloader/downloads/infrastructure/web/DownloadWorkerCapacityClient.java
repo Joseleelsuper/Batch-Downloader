@@ -1,39 +1,50 @@
 package es.ubu.batchdownloader.downloads.infrastructure.web;
 
 import es.ubu.batchdownloader.common.ServiceUnavailableException;
-import java.io.IOException;
+import es.ubu.batchdownloader.common.http.InternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.InternalHttpRequest;
+import es.ubu.batchdownloader.common.http.InternalHttpResponse;
+import es.ubu.batchdownloader.common.http.InternalHttpTransportException;
+import es.ubu.batchdownloader.common.http.JdkInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.MeteredInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.ServiceTokenInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.TimeoutInternalHttpExecutor;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /** Comprueba la capacidad temporal del único worker antes de persistir un trabajo. */
 @Component
 final class DownloadWorkerCapacityClient {
-    /** Cliente HTTP con conexiones reutilizables. */
-    private final HttpClient httpClient;
+    /** Ejecutor HTTP interno con políticas transversales compuestas. */
+    private final InternalHttpExecutor executor;
     /** Endpoint interno de admisión. */
     private final URI endpoint;
-    /** Credencial compartida entre servicios. */
-    private final String serviceToken;
-    /** Tiempo total máximo de la comprobación. */
-    private final Duration timeout;
-
     /** Inicializa el cliente interno con esperas acotadas. */
     @Autowired
     DownloadWorkerCapacityClient(
             @Value("${app.download.worker-capacity-url}") String workerUrl,
             @Value("${app.download.worker-capacity-timeout}") Duration timeout,
-            @Value("${app.scraper-internal-service-token}") String serviceToken) {
+            @Value("${app.scraper-internal-service-token}") String serviceToken,
+            @Nullable MeterRegistry registry) {
         this(
-                HttpClient.newBuilder().connectTimeout(timeout).build(),
                 URI.create(workerUrl.replaceAll("/+$", "") + "/internal/v1/capacity/check"),
-                timeout,
-                serviceToken);
+                instrumentedExecutor(serviceToken, timeout, registry));
+    }
+
+    /** Constructor compatible para contextos sin observabilidad. */
+    DownloadWorkerCapacityClient(
+            String workerUrl,
+            Duration timeout,
+            String serviceToken) {
+        this(
+                URI.create(workerUrl.replaceAll("/+$", "") + "/internal/v1/capacity/check"),
+                instrumentedExecutor(serviceToken, timeout, null));
     }
 
     /** Constructor verificable sin red real. */
@@ -42,24 +53,24 @@ final class DownloadWorkerCapacityClient {
             URI endpoint,
             Duration timeout,
             String serviceToken) {
-        this.httpClient = httpClient;
+        this(endpoint, executor(httpClient, serviceToken, timeout));
+    }
+
+    private DownloadWorkerCapacityClient(
+            URI endpoint,
+            InternalHttpExecutor executor) {
+        this.executor = executor;
         this.endpoint = endpoint;
-        this.timeout = timeout;
-        this.serviceToken = serviceToken;
     }
 
     /**
      * Requiere margen temporal antes de entrar en la transacción de creación.
      */
     void requireAvailable() {
-        HttpRequest request = HttpRequest.newBuilder(endpoint)
-                .timeout(timeout)
-                .header("X-Internal-Service-Token", serviceToken)
-                .POST(HttpRequest.BodyPublishers.noBody())
-                .build();
+        InternalHttpRequest request = new InternalHttpRequest(
+                "download-worker", "capacity", "POST", endpoint, null);
         try {
-            HttpResponse<Void> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.discarding());
+            InternalHttpResponse response = executor.execute(request);
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 return;
             }
@@ -70,16 +81,31 @@ final class DownloadWorkerCapacityClient {
                         retryAfter(response));
             }
             throw unavailable();
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw unavailable();
-        } catch (IOException exception) {
+        } catch (InternalHttpTransportException exception) {
             throw unavailable();
         }
     }
 
+    private static InternalHttpExecutor executor(
+            HttpClient client,
+            String token,
+            Duration timeout) {
+        InternalHttpExecutor result = new JdkInternalHttpExecutor(client);
+        result = new ServiceTokenInternalHttpExecutor(result, token);
+        return new TimeoutInternalHttpExecutor(result, timeout);
+    }
+
+    private static InternalHttpExecutor instrumentedExecutor(
+            String token,
+            Duration timeout,
+            MeterRegistry registry) {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(timeout).build();
+        InternalHttpExecutor result = executor(client, token, timeout);
+        return registry == null ? result : new MeteredInternalHttpExecutor(result, registry);
+    }
+
     /** Obtiene un Retry-After entero y acotado. */
-    private static int retryAfter(HttpResponse<?> response) {
+    private static int retryAfter(InternalHttpResponse response) {
         return response.headers().firstValue("Retry-After")
                 .flatMap(value -> {
                     try {

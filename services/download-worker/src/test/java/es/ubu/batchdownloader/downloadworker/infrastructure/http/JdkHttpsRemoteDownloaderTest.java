@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -27,6 +29,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -246,17 +249,54 @@ class JdkHttpsRemoteDownloaderTest {
         when(response.body()).thenReturn(new ByteArrayInputStream(content));
         when(client.send(any(), any(HttpResponse.BodyHandler.class))).thenReturn(response);
 
+        Path target = temp.resolve("Pinned.exe");
         assertThatThrownBy(() -> downloader(client, DataSize.ofBytes(100)).download(
                 item(
                         "https://downloads.example.com/Pinned.exe",
                         8L,
                         "0000000000000000000000000000000000000000000000000000000000000000"),
                 "Pinned.exe",
-                temp.resolve("Pinned.exe"),
+                target,
                 new DownloadBudget(100),
                 100))
                 .isInstanceOf(DownloadRejectedException.class)
                 .hasMessage("source_sha256_mismatch");
+        assertThat(target).doesNotExist();
+    }
+
+    /** Comprueba que cada redirect se ejecuta como un salto explícito y vuelve a pasar la política. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void followsRedirectsOneHopAtATime() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        HttpResponse<java.io.InputStream> redirect = mock(HttpResponse.class);
+        when(redirect.statusCode()).thenReturn(302);
+        when(redirect.headers()).thenReturn(HttpHeaders.of(
+                Map.of("location", List.of("/releases/App.exe")),
+                (name, value) -> true));
+        when(redirect.body()).thenReturn(new ByteArrayInputStream(new byte[0]));
+        HttpResponse<java.io.InputStream> success = mock(HttpResponse.class);
+        when(success.statusCode()).thenReturn(200);
+        when(success.headers()).thenReturn(headers(3));
+        when(success.body()).thenReturn(new ByteArrayInputStream(new byte[] {1, 2, 3}));
+        when(client.send(any(), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(redirect, success);
+
+        downloader(client, DataSize.ofBytes(10)).download(
+                item("https://downloads.example.com/latest"),
+                "App.exe",
+                temp.resolve("App.exe"),
+                new DownloadBudget(10),
+                10);
+
+        ArgumentCaptor<java.net.http.HttpRequest> requests =
+                ArgumentCaptor.forClass(java.net.http.HttpRequest.class);
+        verify(client, times(2)).send(requests.capture(), any(HttpResponse.BodyHandler.class));
+        assertThat(requests.getAllValues())
+                .extracting(request -> request.uri().toString())
+                .containsExactly(
+                        "https://downloads.example.com/latest",
+                        "https://downloads.example.com/releases/App.exe");
     }
 
     /**

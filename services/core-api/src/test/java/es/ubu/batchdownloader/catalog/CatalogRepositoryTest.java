@@ -458,14 +458,14 @@ class CatalogRepositoryTest {
     @Test
     void statsReadsTheSingletonProjectionByPrimaryKey() throws Exception {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+        when(jdbc.queryForObject(anyString(), any(RowMapper.class))).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             RowMapper<Object> mapper = invocation.getArgument(1);
             ResultSet rs = org.mockito.Mockito.mock(ResultSet.class);
-            when(rs.getLong("total_count")).thenReturn(10L);
-            when(rs.getLong("available_count")).thenReturn(4L);
-            when(rs.getLong("review_count")).thenReturn(2L);
-            when(rs.getLong("missing_count")).thenReturn(4L);
+            when(rs.getLong("total_apps")).thenReturn(10L);
+            when(rs.getLong("available_apps")).thenReturn(4L);
+            when(rs.getLong("review_apps")).thenReturn(2L);
+            when(rs.getLong("missing_installer_apps")).thenReturn(4L);
             return mapper.mapRow(rs, 0);
         });
         when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of());
@@ -478,11 +478,9 @@ class CatalogRepositoryTest {
                 org.assertj.core.data.MapEntry.entry("missing", 4L));
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
-        verify(jdbc).queryForObject(sql.capture(), any(RowMapper.class), params.capture());
-        assertThat(sql.getValue()).contains("FROM catalog_counters", "WHERE id = ?");
+        verify(jdbc).queryForObject(sql.capture(), any(RowMapper.class));
+        assertThat(sql.getValue()).contains("FROM application_totals");
         assertThat(sql.getValue()).doesNotContain("COUNT(", "SUM(", " JOIN ", "software_apps", "pending");
-        assertThat(params.getValue()).containsExactly(1);
     }
 
     /**

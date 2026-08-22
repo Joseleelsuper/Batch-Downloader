@@ -37,13 +37,9 @@ import type {
   SearchMode,
   SortKey,
 } from '../types/catalog';
+import { API_BASE, apiFetch, requestJson } from './http';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-
-const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-let cachedCsrfToken: string | undefined;
-let csrfRequest: Promise<string | undefined> | undefined;
+export { ApiRequestError, requestJson } from './http';
 const pendingDownloadCreations = new Map<string, Promise<DownloadJob>>();
 const RETRY_DELAYS_MS = [2500, 5000, 10000, 30000] as const;
 
@@ -92,98 +88,6 @@ function createRetryScheduler(task: () => void) {
       window.removeEventListener('online', resume);
     },
   };
-}
-
-function cookieValue(name: string): string | undefined {
-  return document.cookie
-    .split(';')
-    .map((value) => value.trim())
-    .find((value) => value.startsWith(`${name}=`))
-    ?.slice(name.length + 1);
-}
-
-async function ensureCsrfToken(forceRefresh = false): Promise<string | undefined> {
-  if (!forceRefresh && cachedCsrfToken) return cachedCsrfToken;
-  if (csrfRequest) return csrfRequest;
-  csrfRequest = (async () => {
-    const response = await fetch(`${API_BASE}/api/v1/auth/csrf`, { credentials: 'include' });
-    if (response.ok) {
-      const body = await response.json().catch(() => null) as { token?: string } | null;
-      if (body?.token) {
-        cachedCsrfToken = body.token;
-        return cachedCsrfToken;
-      }
-    }
-    const token = cookieValue('XSRF-TOKEN');
-    cachedCsrfToken = token ? decodeURIComponent(token) : undefined;
-    return cachedCsrfToken;
-  })();
-  try {
-    return await csrfRequest;
-  } finally {
-    csrfRequest = undefined;
-  }
-}
-
-export class ApiRequestError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    public readonly retryAfter: string | null = null,
-    public readonly details: Record<string, unknown> = {},
-  ) {
-    super(code);
-    this.name = 'ApiRequestError';
-  }
-}
-
-export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const method = (init?.method ?? 'GET').toUpperCase();
-  const headers = new Headers(init?.headers);
-  if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
-  }
-  if (UNSAFE_METHODS.has(method)) {
-    const csrfToken = await ensureCsrfToken();
-    if (csrfToken) headers.set('X-XSRF-TOKEN', csrfToken);
-  }
-  let response = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    ...init,
-    headers,
-  });
-  const forbiddenCode = response.status === 403
-    ? await response.clone().json().then((body: { code?: string }) => body.code).catch(() => undefined)
-    : undefined;
-  if (response.status === 403 && forbiddenCode === 'forbidden' && UNSAFE_METHODS.has(method)) {
-    cachedCsrfToken = undefined;
-    const retryHeaders = new Headers(headers);
-    const csrfToken = await ensureCsrfToken(true);
-    if (csrfToken) retryHeaders.set('X-XSRF-TOKEN', csrfToken);
-    response = await fetch(`${API_BASE}${path}`, {
-      credentials: 'include',
-      ...init,
-      headers: retryHeaders,
-    });
-  }
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null) as {
-      code?: string;
-      detail?: { code?: string } | string;
-      details?: Record<string, unknown>;
-    } | null;
-    const detailCode = typeof payload?.detail === 'object' ? payload.detail.code : undefined;
-    throw new ApiRequestError(
-      response.status,
-      payload?.code ?? detailCode ?? `request_failed_${response.status}`,
-      response.headers.get('Retry-After'),
-      payload?.details ?? {},
-    );
-  }
-  if (response.status === 204) return undefined as T;
-  const text = await response.text();
-  if (!text) return null as T;
-  return JSON.parse(text) as T;
 }
 
 export async function fetchApps(params: {
@@ -460,9 +364,7 @@ export async function deleteAllAdminApps(): Promise<{ deleted: number }> {
 }
 
 export async function exportAdminAppsCsv(): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/admin/apps/export.csv`, {
-    credentials: 'include',
-  });
+  const response = await apiFetch('/api/admin/apps/export.csv');
   if (!response.ok) throw new Error(`request_failed_${response.status}`);
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);

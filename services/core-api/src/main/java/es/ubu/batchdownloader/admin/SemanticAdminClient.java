@@ -4,14 +4,22 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import es.ubu.batchdownloader.common.ConflictException;
+import es.ubu.batchdownloader.common.http.InternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.InternalHttpRequest;
+import es.ubu.batchdownloader.common.http.InternalHttpResponse;
+import es.ubu.batchdownloader.common.http.InternalHttpTransportException;
+import es.ubu.batchdownloader.common.http.JdkInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.MeteredInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.ServiceTokenInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.TimeoutInternalHttpExecutor;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,9 +30,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class SemanticAdminClient {
     /**
-     * Dependencia {@code httpClient} utilizada por {@code SemanticAdminClient}.
+     * Ejecutor HTTP interno con políticas transversales compuestas.
      */
-    private final HttpClient httpClient;
+    private final InternalHttpExecutor executor;
     /**
      * Dependencia {@code objectMapper} utilizada por {@code SemanticAdminClient}.
      */
@@ -34,34 +42,44 @@ public class SemanticAdminClient {
      */
     private final String serviceUrl;
     /**
-     * Estado {@code internalServiceToken} mantenido por {@code SemanticAdminClient}.
-     */
-    private final String internalServiceToken;
-    /**
-     * Estado {@code requestTimeout} mantenido por {@code SemanticAdminClient}.
-     */
-    private final Duration requestTimeout;
-
-    /**
      * Inicializa una instancia de {@code SemanticAdminClient}.
      *
      * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
      * @param serviceUrl Dirección de {@code service} que debe procesarse.
      * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
      * @param requestTimeout Valor de {@code requestTimeout} utilizado por la operación.
+     * @param registry Registro opcional para observar las llamadas internas.
      */
     @Autowired
     public SemanticAdminClient(
             ObjectMapper objectMapper,
             @Value("${app.semantic-service-url}") String serviceUrl,
             @Value("${app.semantic-internal-service-token}") String internalServiceToken,
-            @Value("${app.semantic-admin-request-timeout}") Duration requestTimeout) {
+            @Value("${app.semantic-admin-request-timeout}") Duration requestTimeout,
+            @Nullable MeterRegistry registry) {
         this(
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build(),
                 objectMapper,
                 serviceUrl,
-                internalServiceToken,
-                requestTimeout);
+                instrumentedExecutor(internalServiceToken, requestTimeout, registry));
+    }
+
+    /**
+     * Constructor público compatible para consumidores sin registro de métricas.
+     *
+     * @param objectMapper serializador de los contratos internos.
+     * @param serviceUrl dirección base del servicio semántico.
+     * @param internalServiceToken credencial compartida entre servicios.
+     * @param requestTimeout límite temporal de cada petición.
+     */
+    public SemanticAdminClient(
+            ObjectMapper objectMapper,
+            String serviceUrl,
+            String internalServiceToken,
+            Duration requestTimeout) {
+        this(
+                objectMapper,
+                serviceUrl,
+                instrumentedExecutor(internalServiceToken, requestTimeout, null));
     }
 
     /**
@@ -79,11 +97,19 @@ public class SemanticAdminClient {
             String serviceUrl,
             String internalServiceToken,
             Duration requestTimeout) {
-        this.httpClient = httpClient;
+        this(
+                objectMapper,
+                serviceUrl,
+                executor(httpClient, internalServiceToken, requestTimeout));
+    }
+
+    private SemanticAdminClient(
+            ObjectMapper objectMapper,
+            String serviceUrl,
+            InternalHttpExecutor executor) {
+        this.executor = executor;
         this.objectMapper = objectMapper;
         this.serviceUrl = serviceUrl.replaceAll("/+$", "");
-        this.internalServiceToken = internalServiceToken;
-        this.requestTimeout = requestTimeout;
     }
 
     /**
@@ -144,28 +170,23 @@ public class SemanticAdminClient {
             JsonNode body,
             String actor,
             String idempotencyKey) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(serviceUrl + path))
-                .timeout(requestTimeout)
-                .header("X-Internal-Service-Token", internalServiceToken);
+        InternalHttpRequest request = new InternalHttpRequest(
+                "semantic",
+                "admin_" + method.toLowerCase(java.util.Locale.ROOT),
+                method,
+                URI.create(serviceUrl + path),
+                body == null ? null : write(body));
         if (actor != null && !actor.isBlank()) {
-            builder.header("X-Admin-Actor", actor);
+            request = request.withHeader("X-Admin-Actor", actor);
         }
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            builder.header("Idempotency-Key", idempotencyKey);
+            request = request.withHeader("Idempotency-Key", idempotencyKey);
         }
         if (body != null) {
-            builder.header("Content-Type", "application/json");
+            request = request.withHeader("Content-Type", "application/json");
         }
-        builder.method(
-                method,
-                body == null
-                        ? HttpRequest.BodyPublishers.noBody()
-                        : HttpRequest.BodyPublishers.ofString(write(body)));
         try {
-            HttpResponse<String> response = httpClient.send(
-                    builder.build(),
-                    HttpResponse.BodyHandlers.ofString());
+            InternalHttpResponse response = executor.execute(request);
             if (response.statusCode() == 401) {
                 throw unavailable("semantic_admin_internal_unauthorized");
             }
@@ -173,12 +194,33 @@ public class SemanticAdminClient {
                     ? NullNode.getInstance()
                     : objectMapper.readTree(response.body());
             return new Result(response.statusCode(), payload);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw unavailable("semantic_admin_interrupted");
+        } catch (InternalHttpTransportException exception) {
+            throw unavailable(exception.interrupted()
+                    ? "semantic_admin_interrupted"
+                    : "semantic_admin_unavailable");
         } catch (IOException | IllegalArgumentException exception) {
             throw unavailable("semantic_admin_unavailable");
         }
+    }
+
+    private static InternalHttpExecutor executor(
+            HttpClient client,
+            String token,
+            Duration timeout) {
+        InternalHttpExecutor result = new JdkInternalHttpExecutor(client);
+        result = new ServiceTokenInternalHttpExecutor(result, token);
+        return new TimeoutInternalHttpExecutor(result, timeout);
+    }
+
+    private static InternalHttpExecutor instrumentedExecutor(
+            String token,
+            Duration timeout,
+            MeterRegistry registry) {
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        InternalHttpExecutor result = executor(client, token, timeout);
+        return registry == null ? result : new MeteredInternalHttpExecutor(result, registry);
     }
 
     /**

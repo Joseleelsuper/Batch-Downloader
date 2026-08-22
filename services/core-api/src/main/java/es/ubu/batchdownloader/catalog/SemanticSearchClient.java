@@ -2,15 +2,23 @@ package es.ubu.batchdownloader.catalog;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.ubu.batchdownloader.common.http.InternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.InternalHttpRequest;
+import es.ubu.batchdownloader.common.http.InternalHttpResponse;
+import es.ubu.batchdownloader.common.http.InternalHttpTransportException;
+import es.ubu.batchdownloader.common.http.JdkInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.MeteredInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.ServiceTokenInternalHttpExecutor;
+import es.ubu.batchdownloader.common.http.TimeoutInternalHttpExecutor;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,9 +34,9 @@ public class SemanticSearchClient {
     private static final int FUNCTIONAL_CANDIDATE_LIMIT = 20000;
 
     /**
-     * Dependencia {@code httpClient} utilizada por {@code SemanticSearchClient}.
+     * Ejecutor HTTP interno con políticas transversales compuestas.
      */
-    private final HttpClient httpClient;
+    private final InternalHttpExecutor executor;
     /**
      * Dependencia {@code objectMapper} utilizada por {@code SemanticSearchClient}.
      */
@@ -37,14 +45,6 @@ public class SemanticSearchClient {
      * Estado {@code serviceUrl} mantenido por {@code SemanticSearchClient}.
      */
     private final String serviceUrl;
-    /**
-     * Estado {@code internalServiceToken} mantenido por {@code SemanticSearchClient}.
-     */
-    private final String internalServiceToken;
-    /**
-     * Estado {@code requestTimeout} mantenido por {@code SemanticSearchClient}.
-     */
-    private final Duration requestTimeout;
     /**
      * Estado {@code enabled} mantenido por {@code SemanticSearchClient}.
      */
@@ -57,19 +57,39 @@ public class SemanticSearchClient {
      * @param serviceUrl Dirección de {@code service} que debe procesarse.
      * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
      * @param requestTimeout Valor de {@code requestTimeout} utilizado por la operación.
+     * @param registry Registro opcional para observar las llamadas internas.
      */
     @Autowired
     public SemanticSearchClient(
             ObjectMapper objectMapper,
             @Value("${app.semantic-service-url}") String serviceUrl,
             @Value("${app.semantic-internal-service-token}") String internalServiceToken,
-            @Value("${app.semantic-request-timeout}") Duration requestTimeout) {
+            @Value("${app.semantic-request-timeout}") Duration requestTimeout,
+            @Nullable MeterRegistry registry) {
         this(
-                HttpClient.newBuilder().connectTimeout(requestTimeout).build(),
                 objectMapper,
                 serviceUrl,
-                internalServiceToken,
-                requestTimeout,
+                instrumentedExecutor(internalServiceToken, requestTimeout, registry),
+                true);
+    }
+
+    /**
+     * Constructor público compatible para consumidores sin registro de métricas.
+     *
+     * @param objectMapper serializador de los contratos internos.
+     * @param serviceUrl dirección base del servicio semántico.
+     * @param internalServiceToken credencial compartida entre servicios.
+     * @param requestTimeout límite temporal de la búsqueda.
+     */
+    public SemanticSearchClient(
+            ObjectMapper objectMapper,
+            String serviceUrl,
+            String internalServiceToken,
+            Duration requestTimeout) {
+        this(
+                objectMapper,
+                serviceUrl,
+                instrumentedExecutor(internalServiceToken, requestTimeout, null),
                 true);
     }
 
@@ -90,11 +110,21 @@ public class SemanticSearchClient {
             String internalServiceToken,
             Duration requestTimeout,
             boolean enabled) {
-        this.httpClient = httpClient;
+        this(
+                objectMapper,
+                serviceUrl,
+                executor(httpClient, internalServiceToken, requestTimeout),
+                enabled);
+    }
+
+    private SemanticSearchClient(
+            ObjectMapper objectMapper,
+            String serviceUrl,
+            InternalHttpExecutor executor,
+            boolean enabled) {
+        this.executor = executor;
         this.objectMapper = objectMapper;
         this.serviceUrl = serviceUrl == null ? "" : serviceUrl.replaceAll("/+$", "");
-        this.internalServiceToken = internalServiceToken == null ? "" : internalServiceToken;
-        this.requestTimeout = requestTimeout;
         this.enabled = enabled;
     }
 
@@ -133,9 +163,7 @@ public class SemanticSearchClient {
                     "semantic_service_unavailable");
         }
         try {
-            HttpResponse<String> response = httpClient.send(
-                    request(query),
-                    HttpResponse.BodyHandlers.ofString());
+            InternalHttpResponse response = executor.execute(request(query));
             if (response.statusCode() == 401) {
                 return fallback("semantic_unauthorized");
             }
@@ -161,9 +189,10 @@ public class SemanticSearchClient {
                     semantic.modelVersion(),
                     semantic.indexVersion(),
                     null);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            return fallback("semantic_request_interrupted");
+        } catch (InternalHttpTransportException exception) {
+            return fallback(exception.interrupted()
+                    ? "semantic_request_interrupted"
+                    : "semantic_service_unavailable");
         } catch (IOException | RuntimeException exception) {
             return fallback("semantic_service_unavailable");
         }
@@ -177,16 +206,35 @@ public class SemanticSearchClient {
      * @throws JsonProcessingException Si no puede completarse la operación bajo las condiciones
      *     requeridas.
      */
-    private HttpRequest request(String query) throws JsonProcessingException {
+    private InternalHttpRequest request(String query) throws JsonProcessingException {
         String body = objectMapper.writeValueAsString(
                 new SemanticRequest(query.trim(), FUNCTIONAL_CANDIDATE_LIMIT));
-        return HttpRequest.newBuilder()
-                .uri(URI.create(serviceUrl + "/internal/v1/semantic/search"))
-                .timeout(requestTimeout)
-                .header("Content-Type", "application/json")
-                .header("X-Internal-Service-Token", internalServiceToken)
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
+        return new InternalHttpRequest(
+                        "semantic",
+                        "search",
+                        "POST",
+                        URI.create(serviceUrl + "/internal/v1/semantic/search"),
+                        body)
+                .withHeader("Content-Type", "application/json");
+    }
+
+    private static InternalHttpExecutor executor(
+            HttpClient client,
+            String token,
+            Duration timeout) {
+        InternalHttpExecutor result = new JdkInternalHttpExecutor(client);
+        result = new ServiceTokenInternalHttpExecutor(
+                result, token == null ? "" : token);
+        return new TimeoutInternalHttpExecutor(result, timeout);
+    }
+
+    private static InternalHttpExecutor instrumentedExecutor(
+            String token,
+            Duration timeout,
+            MeterRegistry registry) {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(timeout).build();
+        InternalHttpExecutor result = executor(client, token, timeout);
+        return registry == null ? result : new MeteredInternalHttpExecutor(result, registry);
     }
 
     /**

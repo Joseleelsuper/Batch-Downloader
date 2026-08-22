@@ -590,6 +590,15 @@ async def assert_counters(
         counters.review_count,
         counters.missing_count,
     ) == (total, available, review, missing)
+    totals = (
+        await session.execute(
+            text(
+                "SELECT total_apps, available_apps, review_apps, missing_installer_apps "
+                "FROM application_totals"
+            )
+        )
+    ).one()
+    assert tuple(totals) == (total, available, review, missing)
     assert total == available + review + missing
 
 

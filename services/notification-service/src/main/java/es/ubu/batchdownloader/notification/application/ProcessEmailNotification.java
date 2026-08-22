@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 @Service
-public class ProcessEmailNotification {
+public class ProcessEmailNotification implements NotificationHandler {
 
     /**
      * Constante que define {@code LOGGER}.
@@ -48,6 +48,12 @@ public class ProcessEmailNotification {
      *     condiciones requeridas.
      */
     public void execute(EmailNotification notification) {
+        handle(notification);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void handle(EmailNotification notification) {
         NotificationInbox.ClaimResult claim = inbox.claim(notification.eventId(), notification.eventType());
         if (claim == NotificationInbox.ClaimResult.ALREADY_PROCESSED) {
             LOGGER.info("Evento de notificación duplicado ignorado: eventId={}", notification.eventId());
