@@ -11,15 +11,16 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 class OAuthLoginControllerTest {
     @Test
-    void reportsOnlyGoogleAsUnavailableWhenCredentialsAreMissing() throws IOException {
+    void redirectsToThePublicErrorPageWhenGoogleCredentialsAreMissing() throws IOException {
         OAuthLoginController controller = new OAuthLoginController(registrationId -> null);
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         controller.google("/dashboard", request, response);
 
-        assertThat(response.getStatus()).isEqualTo(503);
-        assertThat(response.getErrorMessage()).isEqualTo("google_oauth_not_configured");
+        assertThat(response.getStatus()).isEqualTo(302);
+        assertThat(response.getRedirectedUrl())
+                .isEqualTo("/error?code=google_oauth_not_configured&status=503");
         assertThat(request.getSession(false)).isNull();
     }
 

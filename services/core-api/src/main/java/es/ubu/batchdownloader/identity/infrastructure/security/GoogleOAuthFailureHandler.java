@@ -23,6 +23,6 @@ public class GoogleOAuthFailureHandler implements AuthenticationFailureHandler {
         if (session != null) {
             session.removeAttribute(OAuthLoginController.RETURN_TO_SESSION_ATTRIBUTE);
         }
-        response.sendRedirect("/login?oauthError=oauth_failed");
+        response.sendRedirect("/error?code=oauth_failed&status=401");
     }
 }

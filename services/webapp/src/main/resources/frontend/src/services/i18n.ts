@@ -18,7 +18,9 @@ import downloads from '@batch-locales/es/downloads.json';
 import facetDirectory from '@batch-locales/es/facet-directory.json';
 import forgotPassword from '@batch-locales/es/forgot-password.json';
 import home from '@batch-locales/es/home.json';
+import legal from '@batch-locales/es/legal.json';
 import login from '@batch-locales/es/login.json';
+import errorPage from '@batch-locales/es/error.json';
 import register from '@batch-locales/es/register.json';
 import resetPassword from '@batch-locales/es/reset-password.json';
 import shared from '@batch-locales/es/shared.json';
@@ -27,6 +29,8 @@ import verifyEmail from '@batch-locales/es/verify-email.json';
 const es = {
   ...shared,
   ...home,
+  ...legal,
+  ...errorPage,
   ...catalogPage,
   ...facetDirectory,
   ...bundleDetail,

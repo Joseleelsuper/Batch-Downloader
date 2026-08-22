@@ -4,7 +4,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,7 +28,8 @@ public class OAuthLoginController {
             HttpServletRequest request,
             HttpServletResponse response) throws IOException {
         if (registrations.findByRegistrationId("google") == null) {
-            response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), "google_oauth_not_configured");
+            response.sendRedirect(request.getContextPath()
+                    + "/error?code=google_oauth_not_configured&status=503");
             return;
         }
         HttpSession session = request.getSession(true);

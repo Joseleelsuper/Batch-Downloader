@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Globe2,
+  Github,
   Home,
   ListFilter,
   LogOut,
@@ -157,6 +158,9 @@ function AppRoutes() {
           <Route path="verify-email" element={<VerifyEmailPage />} />
           <Route path="forgot-password" element={<ForgotPasswordPage />} />
           <Route path="reset-password" element={<ResetPasswordPage />} />
+          <Route path="error" element={<PublicErrorPage />} />
+          <Route path="terms" element={<LegalPage kind="terms" />} />
+          <Route path="privacy" element={<LegalPage kind="privacy" />} />
           <Route path="admin/login" element={<AdminLoginPage />} />
         </Route>
         <Route
@@ -1066,10 +1070,77 @@ function BundleDetailPage() {
 function Footer() {
   return (
     <footer className="site-footer">
-      <Link to="/catalog">{t('footer.catalog')}</Link>
-      <Link to="/admin/login">{t('footer.admin')}</Link>
-      <span>Batch Downloader MVP</span>
+      <div className="site-footer-grid">
+        <nav className="site-footer-column" aria-labelledby="footer-pages-title">
+          <h2 id="footer-pages-title">{t('footer.pages')}</h2>
+          <Link to="/">{t('nav.home')}</Link>
+          <Link to="/catalog">{t('nav.catalog')}</Link>
+          <Link to="/login">{t('footer.login')}</Link>
+          <Link to="/register">{t('footer.register')}</Link>
+        </nav>
+        <nav className="site-footer-column" aria-labelledby="footer-legal-title">
+          <h2 id="footer-legal-title">{t('footer.legal')}</h2>
+          <Link to="/terms">{t('footer.terms')}</Link>
+          <Link to="/privacy">{t('footer.privacy')}</Link>
+        </nav>
+        <section className="site-footer-column" aria-labelledby="footer-project-title">
+          <h2 id="footer-project-title">{t('footer.project')}</h2>
+          <a href="https://joseleelportfolio.vercel.app/" target="_blank" rel="noreferrer">
+            <img className="site-footer-icon" src="/assets/google-material-language.svg" alt="" aria-hidden="true" />
+            <span>{t('footer.portfolio')}</span>
+          </a>
+          <a href="https://github.com/Joseleelsuper/Batch-Downloader" target="_blank" rel="noreferrer">
+            <Github aria-hidden="true" />
+            <span>{t('footer.github')}</span>
+          </a>
+        </section>
+      </div>
+      <p className="site-footer-meta">Batch Downloader MVP</p>
     </footer>
+  );
+}
+
+function PublicErrorPage() {
+  const [search] = useSearchParams();
+  const code = search.get('code');
+  const knownError = code === 'google_oauth_not_configured' || code === 'oauth_failed' ? code : 'unexpected_error';
+  const status = knownError === 'google_oauth_not_configured' ? '503' : knownError === 'oauth_failed' ? '401' : null;
+
+  return (
+    <main className="content-page public-message-page">
+      <section className="public-message-card" role="alert">
+        {status ? <span className="public-message-status">{t('error.status', { status })}</span> : null}
+        <h2>{t(`error.${knownError}.title`)}</h2>
+        <p>{t(`error.${knownError}.body`)}</p>
+        <div className="public-message-actions">
+          <Link className="primary-button" to="/login">{t('error.backToLogin')}</Link>
+          <Link className="secondary-button" to="/">{t('error.backToHome')}</Link>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
+  const sections = kind === 'terms'
+    ? ['use', 'sources', 'availability']
+    : ['data', 'purpose', 'rights'];
+  return (
+    <main className="content-page legal-page">
+      <header className="legal-page-header">
+        <span>{t('legal.eyebrow')}</span>
+        <h2>{t(`legal.${kind}.title`)}</h2>
+        <p>{t(`legal.${kind}.intro`)}</p>
+      </header>
+      <div className="legal-sections">
+        {sections.map((section) => (
+          <section key={section}>
+            <h3>{t(`legal.${kind}.${section}.title`)}</h3>
+            <p>{t(`legal.${kind}.${section}.body`)}</p>
+          </section>
+        ))}
+      </div>
+    </main>
   );
 }
 

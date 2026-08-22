@@ -776,6 +776,53 @@ describe('home loading', () => {
   });
 });
 
+describe('public support pages', () => {
+  beforeEach(() => {
+    vi.spyOn(catalogApi, 'me').mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('shows a recoverable branded error for missing Google configuration', async () => {
+    render(
+      <MemoryRouter initialEntries={['/error?code=google_oauth_not_configured&status=503']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Google no está disponible');
+    expect(screen.getByText('Error 503')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Volver al login' })).toHaveAttribute('href', '/login');
+  });
+
+  it('renders the three footer columns with real internal and external destinations', async () => {
+    render(
+      <MemoryRouter initialEntries={['/terms']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Términos y condiciones', level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Páginas' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Legales' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Proyecto' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Política de privacidad' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute(
+      'href',
+      'https://joseleelportfolio.vercel.app/',
+    );
+    expect(screen.getByRole('link', { name: 'Código en GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/Joseleelsuper/Batch-Downloader',
+    );
+    expect(screen.getByRole('link', { name: 'Portfolio' }).querySelector('img'))
+      .toHaveAttribute('src', '/assets/google-material-language.svg');
+  });
+});
+
 describe('admin bundle editor', () => {
   const candidateApp: CatalogApp = {
     ...catalogApp,
