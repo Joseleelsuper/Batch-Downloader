@@ -13,12 +13,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -34,13 +38,13 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
      */
     private static final String SPANISH_LOCALE = "es";
     /**
-     * Constante que define {@code TEMPLATE_FILE}.
+     * Constante que define {@code TEMPLATE_DIRECTORY}.
      */
-    private static final String TEMPLATE_FILE = "template.json";
+    private static final String TEMPLATE_DIRECTORY = "template";
     /**
-     * Constante que define {@code SPANISH_FILE}.
+     * Constante que define {@code SPANISH_DIRECTORY}.
      */
-    private static final String SPANISH_FILE = "es.json";
+    private static final String SPANISH_DIRECTORY = "es";
 
     /**
      * Estado {@code cache} mantenido por {@code JsonFileLocaleCatalog}.
@@ -55,11 +59,14 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     public JsonFileLocaleCatalog(TranslationProperties properties) {
         Path localesPath = properties.localesPath();
         ObjectMapper strictMapper = strictObjectMapper();
-        ObjectNode template = readObject(localesPath.resolve(TEMPLATE_FILE), strictMapper);
-        byte[] spanishContent = readBytes(localesPath.resolve(SPANISH_FILE));
-        ObjectNode spanish = readObject(spanishContent, SPANISH_FILE, strictMapper);
-        validateTemplate(template);
-        validateSpanishLocale(template, spanish);
+        Map<String, ObjectNode> templatePages = readPages(
+                localesPath.resolve(TEMPLATE_DIRECTORY), strictMapper);
+        Map<String, ObjectNode> spanishPages = readPages(
+                localesPath.resolve(SPANISH_DIRECTORY), strictMapper);
+        validateTemplate(templatePages);
+        validateSpanishLocale(templatePages, spanishPages);
+        ObjectNode spanish = mergePages(spanishPages, strictMapper, SPANISH_DIRECTORY);
+        byte[] spanishContent = writeBytes(spanish, strictMapper);
         cache = Map.of(
                 SPANISH_LOCALE,
                 new LocaleDocument(SPANISH_LOCALE, spanishContent, calculateEtag(spanishContent)));
@@ -89,14 +96,40 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Ejecuta la operación {@code readObject}.
+     * Lee los archivos de página de un catálogo.
      *
-     * @param path Ruta del recurso que debe procesarse.
+     * @param directory Directorio del catálogo que debe procesarse.
      * @param mapper Valor de {@code mapper} utilizado por la operación.
-     * @return Resultado producido por {@code readObject}.
+     * @return Páginas indexadas por nombre de archivo.
      */
-    private ObjectNode readObject(Path path, ObjectMapper mapper) {
-        return readObject(readBytes(path), path.getFileName().toString(), mapper);
+    private Map<String, ObjectNode> readPages(Path directory, ObjectMapper mapper) {
+        if (!Files.isDirectory(directory)) {
+            throw new LocaleCatalogConfigurationException(
+                    "No existe el directorio de traducciones requerido: " + directory.getFileName());
+        }
+        List<Path> pageFiles;
+        try (Stream<Path> paths = Files.list(directory)) {
+            pageFiles = paths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
+        } catch (IOException exception) {
+            throw new LocaleCatalogConfigurationException(
+                    "No se pudo listar el directorio de traducciones " + directory.getFileName(),
+                    exception);
+        }
+        if (pageFiles.isEmpty()) {
+            throw new LocaleCatalogConfigurationException(
+                    "El directorio de traducciones no contiene páginas JSON: "
+                            + directory.getFileName());
+        }
+        Map<String, ObjectNode> pages = new LinkedHashMap<>();
+        for (Path pageFile : pageFiles) {
+            String fileName = pageFile.getFileName().toString();
+            pages.put(fileName, readObject(readBytes(pageFile), fileName, mapper));
+        }
+        return pages;
     }
 
     /**
@@ -147,50 +180,99 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     /**
      * Valida los datos recibidos mediante {@code validateTemplate}.
      *
-     * @param template Valor de {@code template} utilizado por la operación.
+     * @param templatePages Páginas que definen el contrato de traducciones.
      * @throws LocaleCatalogConfigurationException Si no puede completarse la operación bajo las
      *     condiciones requeridas.
      */
-    private void validateTemplate(ObjectNode template) {
-        if (template.isEmpty()) {
-            throw new LocaleCatalogConfigurationException("template.json no puede estar vacío");
-        }
-        Iterator<Map.Entry<String, JsonNode>> fields = template.fields();
-        while (fields.hasNext()) {
-            Map.Entry<String, JsonNode> field = fields.next();
-            if (field.getKey().isBlank() || !field.getValue().isTextual()) {
+    private void validateTemplate(Map<String, ObjectNode> templatePages) {
+        for (Map.Entry<String, ObjectNode> page : templatePages.entrySet()) {
+            if (page.getValue().isEmpty()) {
                 throw new LocaleCatalogConfigurationException(
-                        "La plantilla solo puede contener claves no vacías y valores de texto");
+                        "La página de plantilla no puede estar vacía: " + page.getKey());
+            }
+            Iterator<Map.Entry<String, JsonNode>> fields = page.getValue().properties().iterator();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (field.getKey().isBlank() || !field.getValue().isTextual()) {
+                    throw new LocaleCatalogConfigurationException(
+                            "La plantilla " + page.getKey()
+                                    + " solo puede contener claves no vacías y valores de texto");
+                }
             }
         }
+        mergePages(templatePages, strictObjectMapper(), TEMPLATE_DIRECTORY);
     }
 
     /**
      * Valida los datos recibidos mediante {@code validateSpanishLocale}.
      *
-     * @param template Valor de {@code template} utilizado por la operación.
-     * @param spanish Valor de {@code spanish} utilizado por la operación.
+     * @param templatePages Páginas que definen el contrato de traducciones.
+     * @param spanishPages Páginas con los mensajes en español.
      * @throws LocaleCatalogConfigurationException Si no puede completarse la operación bajo las
      *     condiciones requeridas.
      */
-    private void validateSpanishLocale(ObjectNode template, ObjectNode spanish) {
-        Set<String> expectedKeys = fieldNames(template);
-        Set<String> actualKeys = fieldNames(spanish);
-        Set<String> missingKeys = difference(expectedKeys, actualKeys);
-        Set<String> unexpectedKeys = difference(actualKeys, expectedKeys);
-        if (!missingKeys.isEmpty() || !unexpectedKeys.isEmpty()) {
+    private void validateSpanishLocale(
+            Map<String, ObjectNode> templatePages, Map<String, ObjectNode> spanishPages) {
+        Set<String> missingPages = difference(templatePages.keySet(), spanishPages.keySet());
+        Set<String> unexpectedPages = difference(spanishPages.keySet(), templatePages.keySet());
+        if (!missingPages.isEmpty() || !unexpectedPages.isEmpty()) {
             throw new LocaleCatalogConfigurationException(
-                    "es.json no coincide con template.json; faltan=" + missingKeys
-                            + ", sobran=" + unexpectedKeys);
+                    "Las páginas de es no coinciden con template; faltan=" + missingPages
+                            + ", sobran=" + unexpectedPages);
         }
-
-        Iterator<Map.Entry<String, JsonNode>> fields = spanish.fields();
-        while (fields.hasNext()) {
-            Map.Entry<String, JsonNode> field = fields.next();
-            if (!field.getValue().isTextual() || field.getValue().textValue().isBlank()) {
+        for (Map.Entry<String, ObjectNode> page : templatePages.entrySet()) {
+            String pageName = page.getKey();
+            ObjectNode spanishPage = spanishPages.get(pageName);
+            Set<String> expectedKeys = fieldNames(page.getValue());
+            Set<String> actualKeys = fieldNames(spanishPage);
+            Set<String> missingKeys = difference(expectedKeys, actualKeys);
+            Set<String> unexpectedKeys = difference(actualKeys, expectedKeys);
+            if (!missingKeys.isEmpty() || !unexpectedKeys.isEmpty()) {
                 throw new LocaleCatalogConfigurationException(
-                        "La traducción española debe ser texto no vacío para la clave " + field.getKey());
+                        "La página es/" + pageName + " no coincide con template/" + pageName
+                                + "; faltan=" + missingKeys + ", sobran=" + unexpectedKeys);
             }
+            Iterator<Map.Entry<String, JsonNode>> fields = spanishPage.properties().iterator();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                if (!field.getValue().isTextual() || field.getValue().textValue().isBlank()) {
+                    throw new LocaleCatalogConfigurationException(
+                            "La traducción española debe ser texto no vacío para la clave "
+                                    + field.getKey() + " en " + pageName);
+                }
+            }
+        }
+        mergePages(spanishPages, strictObjectMapper(), SPANISH_DIRECTORY);
+    }
+
+    /** Fusiona las páginas, rechazando claves repetidas entre archivos. */
+    private ObjectNode mergePages(
+            Map<String, ObjectNode> pages, ObjectMapper mapper, String catalogName) {
+        ObjectNode merged = mapper.createObjectNode();
+        Set<String> duplicated = new HashSet<>();
+        for (ObjectNode page : pages.values()) {
+            page.properties().forEach(field -> {
+                if (merged.has(field.getKey())) {
+                    duplicated.add(field.getKey());
+                } else {
+                    merged.set(field.getKey(), field.getValue());
+                }
+            });
+        }
+        if (!duplicated.isEmpty()) {
+            throw new LocaleCatalogConfigurationException(
+                    "El catálogo " + catalogName + " repite claves entre páginas: " + duplicated);
+        }
+        return merged;
+    }
+
+    /** Serializa el catálogo fusionado que se entrega al cliente. */
+    private byte[] writeBytes(ObjectNode content, ObjectMapper mapper) {
+        try {
+            return mapper.writeValueAsBytes(content);
+        } catch (IOException exception) {
+            throw new LocaleCatalogConfigurationException(
+                    "No se pudo serializar el catálogo de traducciones", exception);
         }
     }
 

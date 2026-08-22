@@ -1,7 +1,9 @@
+import { ChevronDown } from 'lucide-react';
+import { Fragment } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
 import { t } from '../services/i18n';
-import type { CatalogApp } from '../types/catalog';
-import { AppStatusBadge } from './AppStatusBadge';
+import type { AppDetails, CatalogApp } from '../types/catalog';
+import { AppDetailsPanel } from './AppDetailsPanel';
 import { OperatingSystemList } from './OperatingSystemIcons';
 
 interface Props {
@@ -10,7 +12,9 @@ interface Props {
   selectedIds?: Set<string>;
   selectedCount?: number;
   loading?: boolean;
-  onSelect: (app: CatalogApp) => void;
+  details?: AppDetails | null;
+  loadingDetails?: boolean;
+  onToggleDetails: (app: CatalogApp) => void;
   onToggleSelection?: (app: CatalogApp) => void;
 }
 
@@ -20,7 +24,9 @@ export function AppTable({
   selectedIds = new Set(),
   selectedCount = 0,
   loading = false,
-  onSelect,
+  details,
+  loadingDetails = false,
+  onToggleDetails,
   onToggleSelection,
 }: Props) {
   return (
@@ -35,41 +41,77 @@ export function AppTable({
             <th>{t('catalog.column.publisher')}</th>
             <th>S.O.</th>
             <th>{t('catalog.column.version')}</th>
-            <th>{t('catalog.column.status')}</th>
+            <th className="details-toggle-column"><span className="sr-only">{t('catalog.column.details')}</span></th>
           </tr>
         </thead>
         <tbody>
           {apps.map((app) => {
             const checked = selectedIds.has(app.id);
             const disabled = !isCatalogAppSelectable(app) || (!checked && selectedCount >= 100);
+            const expanded = selectedId === app.id;
+            const detailsId = `app-details-${app.id}`;
             return (
-              <tr
-                key={app.id}
-                className={selectedId === app.id ? 'selected-row' : ''}
-                onClick={() => onSelect(app)}
-              >
-                <td className="selection-column" onClick={(event) => event.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    aria-label={t('catalog.selectApp', { name: app.name })}
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={() => onToggleSelection?.(app)}
-                  />
-                </td>
-                <td>
-                  <div className="app-cell">
-                    <AppIcon app={app} />
-                    <span>{app.name}</span>
-                  </div>
-                </td>
-                <td>{app.publisher ?? '-'}</td>
-                <td><OperatingSystemList operatingSystems={app.operatingSystems} /></td>
-                <td>{app.latestVersion ?? '-'}</td>
-                <td>
-                  <AppStatusBadge status={app.resolutionStatus} />
-                </td>
-              </tr>
+              <Fragment key={app.id}>
+                <tr
+                  className={`app-summary-row ${expanded ? 'selected-row' : ''}`}
+                  onClick={() => onToggleDetails(app)}
+                >
+                  <td className="selection-column" onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={t('catalog.selectApp', { name: app.name })}
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => onToggleSelection?.(app)}
+                    />
+                  </td>
+                  <td>
+                    <div className="app-cell">
+                      <AppIcon app={app} />
+                      <span>{app.name}</span>
+                    </div>
+                  </td>
+                  <td>{app.publisher ?? '-'}</td>
+                  <td><OperatingSystemList operatingSystems={app.operatingSystems} /></td>
+                  <td>{app.latestVersion ?? '-'}</td>
+                  <td className="details-toggle-column" onClick={(event) => event.stopPropagation()}>
+                    <button
+                      className="details-toggle"
+                      type="button"
+                      aria-expanded={expanded}
+                      aria-controls={detailsId}
+                      aria-label={expanded
+                        ? t('catalog.details.close', { name: app.name })
+                        : t('catalog.details.open', { name: app.name })}
+                      onClick={() => onToggleDetails(app)}
+                    >
+                      <ChevronDown size={20} />
+                    </button>
+                  </td>
+                </tr>
+                <tr
+                  className={`app-detail-row ${expanded ? 'app-detail-row-open' : ''}`}
+                  aria-hidden={!expanded}
+                >
+                  <td colSpan={6}>
+                    <div className="app-detail-expander">
+                      <div
+                        className="app-detail-expander-inner"
+                        id={detailsId}
+                        aria-hidden={!expanded}
+                        ref={(element) => {
+                          if (element) element.inert = !expanded;
+                        }}
+                      >
+                        <AppDetailsPanel
+                          app={details?.id === app.id ? details : null}
+                          loading={expanded && loadingDetails}
+                        />
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </Fragment>
             );
           })}
         </tbody>

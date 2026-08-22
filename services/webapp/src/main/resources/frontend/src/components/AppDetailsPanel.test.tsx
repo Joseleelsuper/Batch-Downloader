@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetails } from '../types/catalog';
-import { AppDetailsDrawer } from './AppDetailsDrawer';
+import { AppDetailsPanel } from './AppDetailsPanel';
 
 vi.mock('../hooks/useDownloadJob', () => ({
   useDownloadJob: () => ({
@@ -31,10 +31,12 @@ const app: AppDetails = {
   validationStatus: 'valid',
   downloadable: true,
   updatedAt: '2026-06-26T03:00:00Z',
+  officialUrl: 'https://www.geogebra.org',
+  originUrl: 'https://winstall.app/apps/GeoGebra.GraphingCalculator',
   installerFilename: 'GeoGebraGraphing.exe',
   installerType: 'EXE',
   score: 130,
-  sizeBytes: 1024,
+  sizeBytes: 13_107_200,
   checkedAt: '2026-06-26T03:00:00Z',
   notes: 'Instalador obtenido directamente desde el sitio oficial.',
   downloadOptions: [
@@ -69,53 +71,57 @@ const app: AppDetails = {
   ],
 };
 
-describe('AppDetailsDrawer', () => {
+describe('AppDetailsPanel', () => {
   afterEach(cleanup);
 
-  it('centers the empty message without showing a close button', () => {
-    render(<AppDetailsDrawer onClose={vi.fn()} />);
+  it('shows only the useful catalog details and actions', () => {
+    render(<AppDetailsPanel app={app} />);
 
-    expect(screen.getByText(/^Selecciona una aplicaci/)).toHaveClass('drawer-empty');
-    expect(screen.queryByRole('button', { name: 'Cerrar' })).not.toBeInTheDocument();
-  });
-
-  it('shows multiple detected installers when available', () => {
-    render(<AppDetailsDrawer app={app} onClose={vi.fn()} />);
-
-    expect(screen.getByText('Instaladores detectados')).toBeInTheDocument();
-    expect(screen.getByText('math')).toBeInTheDocument();
     expect(screen.getByText(/permite crear graficas/)).toBeInTheDocument();
-    expect(screen.getAllByText('GeoGebraGraphing.exe')).toHaveLength(2);
+    expect(screen.getByText('math')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /geogebra\.org/i })).toHaveAttribute(
+      'href',
+      'https://www.geogebra.org',
+    );
+    expect(screen.getByText('12,5 MB')).toBeInTheDocument();
+    expect(screen.getByText('GeoGebraGraphing.exe')).toBeInTheDocument();
     expect(screen.getByText('GeoGebraSuite.exe')).toBeInTheDocument();
-    expect(screen.getByText(/130 - Última/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Descargar' })).toBeEnabled();
+    expect(screen.getByRole('link', { name: 'Ver origen' })).toHaveAttribute(
+      'href',
+      'https://winstall.app/apps/GeoGebra.GraphingCalculator',
+    );
+
+    expect(screen.queryByText('Estado')).not.toBeInTheDocument();
+    expect(screen.queryByText('Confianza')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tipo')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fuente')).not.toBeInTheDocument();
+    expect(screen.queryByText('Notas')).not.toBeInTheDocument();
+    expect(screen.queryByText('Instalador detectado')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sitio oficial')).not.toBeInTheDocument();
+    expect(screen.queryByText('130')).not.toBeInTheDocument();
   });
 
-  it('falls back to the short description when long description is missing', () => {
-    render(<AppDetailsDrawer app={{ ...app, longDescription: null }} onClose={vi.fn()} />);
+  it('falls back to the short description when the long one is missing', () => {
+    render(<AppDetailsPanel app={{ ...app, longDescription: null }} />);
 
     expect(screen.getByText('Dynamic mathematics app.')).toBeInTheDocument();
   });
 
-  it('shows an AI pending message when both descriptions are missing', () => {
-    render(
-      <AppDetailsDrawer
-        app={{ ...app, description: null, longDescription: null }}
-        onClose={vi.fn()}
-      />,
-    );
+  it('shows a pending message when both descriptions are missing', () => {
+    render(<AppDetailsPanel app={{ ...app, description: null, longDescription: null }} />);
 
     expect(screen.getByText('Descripción IA pendiente de generar.')).toBeInTheDocument();
   });
 
-  it('keeps review applications non-selectable even with an inconsistent downloadable flag', () => {
+  it('keeps review applications non-downloadable without exposing their status', () => {
     render(
-      <AppDetailsDrawer
+      <AppDetailsPanel
         app={{ ...app, resolutionStatus: 'requires_manual_review', downloadable: true }}
-        onClose={vi.fn()}
       />,
     );
 
-    expect(screen.getByText('Revisión')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Descargar' })).toBeDisabled();
+    expect(screen.queryByText('Revisión')).not.toBeInTheDocument();
   });
 });

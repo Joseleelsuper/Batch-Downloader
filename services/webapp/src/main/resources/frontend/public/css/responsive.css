@@ -8,10 +8,6 @@
     grid-template-columns: 0 22px minmax(0, 1fr);
   }
 
-  .details-drawer {
-    display: none;
-  }
-
   .bundle-grid,
   .app-compact-grid,
   .metric-grid,

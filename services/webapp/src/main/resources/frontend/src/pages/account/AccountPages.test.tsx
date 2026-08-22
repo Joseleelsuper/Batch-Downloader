@@ -81,6 +81,9 @@ describe('account flows', () => {
       </MemoryRouter>,
     );
 
+    expect(container.querySelector('img.google-auth-icon'))
+      .toHaveAttribute('src', '/assets/google-g.png');
+
     fireEvent.change(container.querySelector('input[type="email"]')!, {
       target: { value: 'Person@Example.com' },
     });

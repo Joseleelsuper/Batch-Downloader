@@ -113,7 +113,10 @@ export function UserLoginPage() {
         </label>
         {error ? <p className="error-banner">{error}</p> : null}
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
-        <button type="button" className="secondary-button" onClick={google} disabled={submitting}>{t('account.login.google')}</button>
+        <button type="button" className="secondary-button google-auth-button" onClick={google} disabled={submitting}>
+          <img className="google-auth-icon" src="/assets/google-g.png" alt="" aria-hidden="true" />
+          <span>{t('account.login.google')}</span>
+        </button>
       </form>
       <div className="auth-links">
         <Link to="/register">{t('account.register.link')}</Link>

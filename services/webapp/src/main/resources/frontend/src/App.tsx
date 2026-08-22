@@ -73,7 +73,6 @@ import {
   isCatalogAppSelectable,
   validateCatalogSelection,
 } from './catalogSelection';
-import { AppDetailsDrawer } from './components/AppDetailsDrawer';
 import { AppFilters } from './components/AppFilters';
 import { AppSearchBar } from './components/AppSearchBar';
 import { AppStatusBadge } from './components/AppStatusBadge';
@@ -661,8 +660,8 @@ function CatalogPage() {
   useEffect(() => {
     let cancelled = false;
     if (!appId) {
-      setSelected(null);
       setSelectedId(undefined);
+      setLoadingDetails(false);
       return () => {
         cancelled = true;
       };
@@ -688,7 +687,13 @@ function CatalogPage() {
     };
   }, [appId, refreshToken]);
 
-  function selectApp(app: CatalogApp) {
+  function toggleAppDetails(app: CatalogApp) {
+    if (selectedId === app.id) {
+      setSelectedId(undefined);
+      setLoadingDetails(false);
+      navigate({ pathname: '/catalog', search: searchKey });
+      return;
+    }
     setSelectedId(app.id);
     navigate({ pathname: `/catalog/app/${app.id}`, search: searchKey });
   }
@@ -824,7 +829,9 @@ function CatalogPage() {
           selectedId={selectedId}
           selectedIds={selectedDownloadIds}
           selectedCount={selectedDownloadIds.size}
-          onSelect={selectApp}
+          details={selected}
+          loadingDetails={loadingDetails}
+          onToggleDetails={toggleAppDetails}
           onToggleSelection={toggleDownloadSelection}
         />
         <Pagination
@@ -837,15 +844,6 @@ function CatalogPage() {
           }}
         />
       </section>
-      <AppDetailsDrawer
-        app={selected}
-        loading={loadingDetails}
-        onClose={() => {
-          setSelected(null);
-          setSelectedId(undefined);
-          navigate({ pathname: '/catalog', search: searchKey });
-        }}
-      />
     </main>
   );
 }

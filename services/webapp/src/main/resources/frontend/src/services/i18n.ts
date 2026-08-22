@@ -1,4 +1,56 @@
-import es from '@batch-locales/es.json';
+import accountBundles from '@batch-locales/es/account-bundles.json';
+import accountDashboard from '@batch-locales/es/account-dashboard.json';
+import accountLayout from '@batch-locales/es/account-layout.json';
+import accountProfile from '@batch-locales/es/account-profile.json';
+import adminApps from '@batch-locales/es/admin-apps.json';
+import adminAudit from '@batch-locales/es/admin-audit.json';
+import adminBundles from '@batch-locales/es/admin-bundles.json';
+import adminDashboard from '@batch-locales/es/admin-dashboard.json';
+import adminLayout from '@batch-locales/es/admin-layout.json';
+import adminRequests from '@batch-locales/es/admin-requests.json';
+import adminScraper from '@batch-locales/es/admin-scraper.json';
+import adminSemantic from '@batch-locales/es/admin-semantic.json';
+import adminShared from '@batch-locales/es/admin-shared.json';
+import authenticationShared from '@batch-locales/es/authentication-shared.json';
+import bundleDetail from '@batch-locales/es/bundle-detail.json';
+import catalogPage from '@batch-locales/es/catalog.json';
+import downloads from '@batch-locales/es/downloads.json';
+import facetDirectory from '@batch-locales/es/facet-directory.json';
+import forgotPassword from '@batch-locales/es/forgot-password.json';
+import home from '@batch-locales/es/home.json';
+import login from '@batch-locales/es/login.json';
+import register from '@batch-locales/es/register.json';
+import resetPassword from '@batch-locales/es/reset-password.json';
+import shared from '@batch-locales/es/shared.json';
+import verifyEmail from '@batch-locales/es/verify-email.json';
+
+const es = {
+  ...shared,
+  ...home,
+  ...catalogPage,
+  ...facetDirectory,
+  ...bundleDetail,
+  ...downloads,
+  ...authenticationShared,
+  ...login,
+  ...register,
+  ...verifyEmail,
+  ...forgotPassword,
+  ...resetPassword,
+  ...accountLayout,
+  ...accountDashboard,
+  ...accountBundles,
+  ...accountProfile,
+  ...adminLayout,
+  ...adminDashboard,
+  ...adminApps,
+  ...adminBundles,
+  ...adminScraper,
+  ...adminSemantic,
+  ...adminRequests,
+  ...adminAudit,
+  ...adminShared,
+};
 
 export type TranslationKey = keyof typeof es;
 

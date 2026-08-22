@@ -93,7 +93,7 @@ describe('catalog workspace', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps every desktop grid region in place while the filter rail is hidden', async () => {
+  it('keeps the three desktop grid regions in place while the filter rail is hidden', async () => {
     window.localStorage.setItem('catalog.filters.open', 'false');
     const { container } = render(
       <MemoryRouter initialEntries={['/catalog']}>
@@ -107,7 +107,8 @@ describe('catalog workspace', () => {
     expect(workspace?.children[0]).toHaveAttribute('hidden');
     expect(workspace?.children[1]).toHaveClass('filter-bookmark');
     expect(workspace?.children[2]).toHaveClass('catalog-panel');
-    expect(workspace?.children[3]).toHaveClass('details-drawer');
+    expect(workspace?.children).toHaveLength(3);
+    expect(container.querySelector('.details-drawer')).not.toBeInTheDocument();
 
     const bookmark = screen.getByRole('button', { name: 'Abrir filtros' });
     expect(bookmark).toHaveAttribute('aria-expanded', 'false');
@@ -615,39 +616,46 @@ describe('catalog workspace', () => {
     expect(await screen.findByText('No hay aplicaciones que coincidan con la búsqueda.')).toBeInTheDocument();
   });
 
-  it('keeps an opened detail drawer without injecting it into a filtered page', async () => {
-    const reviewApp: CatalogApp = {
-      ...catalogApp,
-      id: 'review-app',
-      name: 'Aplicación en revisión',
-      resolutionStatus: 'requires_manual_review',
-      validationStatus: 'unchecked',
-      downloadable: false,
-    };
+  it('loads an application into an expandable row and closes it from the same chevron', async () => {
     vi.mocked(catalogApi.fetchApps).mockResolvedValue({
-      data: [reviewApp],
+      data: [catalogApp],
       page: 1,
       pageSize: 12,
       total: 1,
     });
     vi.spyOn(catalogApi, 'fetchAppDetails').mockResolvedValue({
       ...catalogApp,
-      id: 'detail-app',
-      name: 'Detalle disponible',
+      longDescription: 'Detalle disponible debajo de la fila.',
+      officialUrl: 'https://example.test',
+      originUrl: 'https://winstall.app/apps/Example.App',
       notes: '',
       downloadOptions: [],
     });
 
     render(
-      <MemoryRouter initialEntries={['/catalog/app/detail-app?status=review']}>
+      <MemoryRouter initialEntries={['/catalog?status=all']}>
         <App />
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Detalle disponible' })).toBeInTheDocument();
-    const table = screen.getByRole('table');
-    expect(within(table).getByText('Aplicación en revisión')).toBeInTheDocument();
-    expect(within(table).queryByText('Detalle disponible')).not.toBeInTheDocument();
+    const open = await screen.findByRole('button', {
+      name: 'Mostrar detalles de Aplicación reciente',
+    });
+    fireEvent.click(open);
+
+    await waitFor(() => expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
+    expect(await screen.findByText('Detalle disponible debajo de la fila.')).toBeInTheDocument();
+    const close = screen.getByRole('button', {
+      name: 'Ocultar detalles de Aplicación reciente',
+    });
+    expect(close).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(close);
+
+    expect(screen.getByRole('button', {
+      name: 'Mostrar detalles de Aplicación reciente',
+    })).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('.app-detail-row')).not.toHaveClass('app-detail-row-open');
   });
 });
 
