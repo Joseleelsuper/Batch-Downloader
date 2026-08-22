@@ -1,0 +1,16 @@
+{
+  "account.adminLogin.title": "Acceso de administración",
+  "account.adminLogin.link": "Acceso de administración",
+  "account.login.google": "Continuar con Google",
+  "account.login.invalid": "No se pudo iniciar sesión.",
+  "account.login.link": "Volver al inicio de sesión",
+  "account.login.oauthError": "Google no pudo completar el acceso. Inténtalo de nuevo.",
+  "account.login.title": "Inicia sesión",
+  "account.userLogin.link": "Acceso para usuarios",
+  "login.invalid": "Credenciales inválidas.",
+  "login.checkingSession": "Comprobando sesión...",
+  "login.password": "Contraseña",
+  "login.submit": "Entrar",
+  "login.title": "Acceso administrador",
+  "login.username": "Usuario"
+}

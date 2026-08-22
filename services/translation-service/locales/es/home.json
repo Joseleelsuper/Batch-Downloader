@@ -1,0 +1,10 @@
+{
+  "home.appsRecent": "Aplicaciones recientes",
+  "home.bundleCommunity": "Bundles comunitarios",
+  "home.bundleOfficial": "Bundles oficiales",
+  "home.emptyBundles": "Todavía no hay bundles en esta sección.",
+  "home.hero.body": "Revisa paquetes oficiales, explora aplicaciones disponibles y comprueba el estado del scraper desde el panel de administración.",
+  "home.hero.cta": "Abrir catálogo",
+  "home.hero.title": "Bundles y catálogo de instaladores verificados",
+  "home.loadError": "No se pudo cargar la página principal."
+}

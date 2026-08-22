@@ -1,0 +1,10 @@
+{
+  "account.verify.checking": "",
+  "account.verify.failed": "",
+  "account.verify.instructions": "",
+  "account.verify.resend": "",
+  "account.verify.resendFailed": "",
+  "account.verify.resent": "",
+  "account.verify.success": "",
+  "account.verify.title": ""
+}

@@ -1,0 +1,13 @@
+{
+  "bundle.appCount": "{count} apps",
+  "bundle.appsCount": "{count} aplicaciones",
+  "bundle.downloadCount": "Descargar {count}",
+  "bundle.fallbackDescription": "Bundle preparado para descarga en lote.",
+  "bundle.loadError": "No se pudo cargar el bundle.",
+  "bundle.loading": "Cargando bundle...",
+  "bundle.noAvailablePlatform": "Ninguna aplicación del bundle tiene un instalador disponible.",
+  "bundle.platformAvailability": "{platform}: {count} aplicaciones disponibles",
+  "bundle.platforms": "Sistema operativo",
+  "bundle.downloadAll": "Descargar todas",
+  "bundle.tooLarge": "Este bundle supera el límite de 100 aplicaciones."
+}

@@ -1,0 +1,10 @@
+{
+  "account.verify.checking": "Comprobando el enlace...",
+  "account.verify.failed": "No se pudo verificar el correo.",
+  "account.verify.instructions": "Revisa tu correo o solicita un nuevo enlace.",
+  "account.verify.resend": "Reenviar verificación",
+  "account.verify.resendFailed": "No se pudo procesar el reenvío.",
+  "account.verify.resent": "Si la cuenta necesita verificación, recibirás un nuevo enlace.",
+  "account.verify.success": "Correo verificado correctamente.",
+  "account.verify.title": "Verifica tu correo"
+}

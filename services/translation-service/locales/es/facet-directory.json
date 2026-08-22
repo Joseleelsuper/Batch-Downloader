@@ -1,0 +1,15 @@
+{
+  "facet.availableAria": "{title} disponibles",
+  "facet.backToCatalog": "Volver al catálogo",
+  "facet.emptyCompatible": "No hay filtros compatibles con la selección actual.",
+  "facet.emptyLetter": "No hay filtros en esta letra.",
+  "facet.header": "Filtros del catálogo",
+  "facet.lettersAria": "Letras de {title}",
+  "facet.loadError": "No se pudieron cargar los filtros.",
+  "facet.loading": "Cargando filtros...",
+  "facet.publishers.subtitle": "Selecciona un editor para filtrar el catálogo.",
+  "facet.publishers.title": "Editor",
+  "facet.resetFilters": "Restablecer tags y editor",
+  "facet.tags.subtitle": "Selecciona una o varias tags para filtrar el catálogo.",
+  "facet.tags.title": "Tags"
+}

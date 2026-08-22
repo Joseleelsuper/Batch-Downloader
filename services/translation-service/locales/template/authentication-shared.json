@@ -1,0 +1,23 @@
+{
+  "account.email": "",
+  "account.error.auth_busy": "",
+  "account.error.bundle_conflict": "",
+  "account.error.bundle_slug_exists": "",
+  "account.error.email_already_exists": "",
+  "account.error.email_not_verified": "",
+  "account.error.invalid_credentials": "",
+  "account.error.rate_limited": "",
+  "account.error.reset_token_expired": "",
+  "account.error.reset_token_invalid": "",
+  "account.error.reset_token_used": "",
+  "account.error.service_busy": "",
+  "account.error.username_taken": "",
+  "account.error.verification_token_expired": "",
+  "account.error.verification_token_invalid": "",
+  "account.error.verification_token_used": "",
+  "account.password.confirm": "",
+  "account.password.help": "",
+  "account.password.mismatch": "",
+  "account.password.tooLong": "",
+  "account.sending": ""
+}
