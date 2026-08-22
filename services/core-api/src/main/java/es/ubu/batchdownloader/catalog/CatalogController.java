@@ -123,6 +123,11 @@ public class CatalogController {
                             catalog.count(
                                     query, normalizedStatus, systems, architecture, tagList,
                                     publisherList, "all", candidates),
+                            "name".equals(sort)
+                                    ? catalog.alphabet(
+                                            query, normalizedStatus, systems, architecture, tagList,
+                                            publisherList, "all", safePageSize, candidates)
+                                    : List.of(),
                             candidates.requestedMode().wireValue(),
                             candidates.appliedMode().wireValue(),
                             candidates.modelVersion(),

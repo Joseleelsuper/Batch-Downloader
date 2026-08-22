@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.catalog;
 
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppListItem;
+import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogAlphabetEntry;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
@@ -256,6 +257,84 @@ public class CatalogRepository {
         appendFilters(sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMode);
         Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return count == null ? 0 : count;
+    }
+
+    /**
+     * Calcula la primera página de cada letra sin ordenar ni materializar el catálogo completo.
+     *
+     * @param query Texto de búsqueda activo.
+     * @param status Estado público activo.
+     * @param operatingSystems Sistemas operativos activos.
+     * @param architecture Arquitectura activa.
+     * @param tags Tags activas.
+     * @param publishers Editores activos.
+     * @param tagMode Modo de coincidencia de tags.
+     * @param pageSize Tamaño de página actual.
+     * @param candidates Candidatos semánticos o degradación literal de la misma petición.
+     * @return Entradas disponibles del índice alfabético.
+     */
+    public List<CatalogAlphabetEntry> alphabet(
+            String query,
+            String status,
+            List<String> operatingSystems,
+            String architecture,
+            List<String> tags,
+            List<String> publishers,
+            String tagMode,
+            int pageSize,
+            SemanticCandidateSet candidates) {
+        status = normalizeCatalogStatus(status);
+        int safePageSize = Math.max(1, pageSize);
+        List<Object> params = new ArrayList<>();
+        StringBuilder sql = new StringBuilder();
+        if (candidates.semantic()) {
+            sql.append(semanticCandidateCte(query, candidates, params));
+        }
+        sql.append("SELECT COALESCE(SUM(UPPER(LEFT(TRIM(a.normalized_name), 1)) "
+                + "NOT REGEXP '^[A-Z]$'), 0) AS count_other");
+        for (char letter = 'A'; letter <= 'Z'; letter++) {
+            String alias = Character.toString(Character.toLowerCase(letter));
+            sql.append(", COALESCE(SUM(a.normalized_name < ?), 0) AS before_")
+                    .append(alias)
+                    .append(", COALESCE(SUM(UPPER(LEFT(TRIM(a.normalized_name), 1)) = ?), 0) AS count_")
+                    .append(alias);
+            params.add(alias);
+            params.add(Character.toString(letter));
+        }
+        sql.append(" FROM software_apps a");
+        if (candidates.semantic()) {
+            sql.append(" JOIN semantic_candidates ranked ON ranked.id = a.id");
+        }
+        sql.append(" WHERE a.app_status = 'active'");
+        if (candidates.semantic()) {
+            appendStructuredFilters(
+                    sql, params, status, operatingSystems, architecture, tags, publishers, tagMode);
+        } else {
+            appendFilters(
+                    sql, params, query, status, operatingSystems, architecture, tags, publishers, tagMode);
+        }
+        List<List<CatalogAlphabetEntry>> rows = jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> {
+                    List<CatalogAlphabetEntry> entries = new ArrayList<>();
+                    long otherCount = rs.getLong("count_other");
+                    if (otherCount > 0) {
+                        entries.add(new CatalogAlphabetEntry("#", 1, otherCount));
+                    }
+                    for (char letter = 'A'; letter <= 'Z'; letter++) {
+                        String alias = Character.toString(Character.toLowerCase(letter));
+                        long count = rs.getLong("count_" + alias);
+                        if (count < 1) {
+                            continue;
+                        }
+                        long preceding = rs.getLong("before_" + alias);
+                        int page = Math.toIntExact((preceding / safePageSize) + 1);
+                        entries.add(new CatalogAlphabetEntry(Character.toString(letter), page, count));
+                    }
+                    return List.copyOf(entries);
+                },
+                params.toArray());
+        return rows.isEmpty() ? List.of() : rows.getFirst();
     }
 
     /**
@@ -1435,7 +1514,7 @@ public class CatalogRepository {
                     "a.download_count DESC, " + relevanceOrder + "a.normalized_name ASC, a.id ASC";
             default -> "a.normalized_name ASC, " + relevanceOrder + "a.id ASC";
         };
-        return reviewLastOrder() + ", " + selectedOrder;
+        return "name".equals(sort) ? selectedOrder : reviewLastOrder() + ", " + selectedOrder;
     }
 
     /**

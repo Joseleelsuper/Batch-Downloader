@@ -109,6 +109,7 @@ import type {
   BundleDetails,
   BundleSummary,
   CatalogFacets,
+  CatalogAlphabetEntry,
   CatalogApp,
   CatalogStats,
   FacetItem,
@@ -492,6 +493,7 @@ function CatalogPage() {
   const [query, setQuery] = useState(filters.query);
   const [apps, setApps] = useState<CatalogApp[]>([]);
   const [total, setTotal] = useState(0);
+  const [alphabet, setAlphabet] = useState<CatalogAlphabetEntry[]>([]);
   const [loadingApps, setLoadingApps] = useState(true);
   const [stats, setStats] = useState<CatalogStats | null>(null);
   const [selected, setSelected] = useState<AppDetails | null>(null);
@@ -578,6 +580,7 @@ function CatalogPage() {
     if (!catalogStatusCanonical) {
       setApps([]);
       setTotal(0);
+      setAlphabet([]);
       setLoadingApps(true);
       return undefined;
     }
@@ -590,6 +593,7 @@ function CatalogPage() {
     if (replacingQuery) {
       setApps([]);
       setTotal(0);
+      setAlphabet([]);
       setLoadingApps(true);
     }
     setError(null);
@@ -617,6 +621,7 @@ function CatalogPage() {
         if (refreshInspection) removeDownloadSelections(refreshInspection.invalidIds);
         setApps(response.data);
         setTotal(response.total);
+        setAlphabet(response.alphabet ?? []);
         setSearchNotice(response.degradedReason ? t('catalog.search.degraded') : null);
         lastLoadedPage.current = { searchKey: canonicalSearchKey, apps: response.data };
         if (refreshInspection?.missingIds.length) {
@@ -791,6 +796,28 @@ function CatalogPage() {
         />
         {searchNotice ? <p className="semantic-notice">{searchNotice}</p> : null}
         {error ? <p className="error-banner">{error}</p> : null}
+        {filters.sort === 'name' ? (
+          <nav className="catalog-alphabet" aria-label={t('catalog.alphabet.aria')}>
+            {FACET_ALPHABET.map((letter) => {
+              const entry = alphabet.find((candidate) => candidate.letter === letter);
+              return (
+                <button
+                  key={letter}
+                  type="button"
+                  disabled={!entry}
+                  aria-label={entry
+                    ? t('catalog.alphabet.letter', { letter, count: entry.count })
+                    : t('catalog.alphabet.empty', { letter })}
+                  onClick={() => {
+                    if (entry) updateFilters({ page: entry.page }, false);
+                  }}
+                >
+                  {letter}
+                </button>
+              );
+            })}
+          </nav>
+        ) : null}
         <AppTable
           apps={apps}
           loading={loadingApps}

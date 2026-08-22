@@ -292,7 +292,44 @@ class CatalogRepositoryTest {
 
         ArgumentCaptor<String> sortedSql = ArgumentCaptor.forClass(String.class);
         verify(jdbc, org.mockito.Mockito.times(2)).query(sortedSql.capture(), any(RowMapper.class), any(Object[].class));
-        assertThat(sortedSql.getAllValues().get(1)).contains("END ASC, a.normalized_name ASC, a.id ASC");
+        assertThat(sortedSql.getAllValues().get(1))
+                .contains("ORDER BY a.normalized_name ASC, a.id ASC")
+                .doesNotContain("CASE WHEN a.catalog_status");
+    }
+
+    /** Comprueba que el índice alfabético calcula páginas sin ordenar filas. */
+    @Test
+    void alphabetUsesFilteredAggregatePositionsWithoutSorting() throws Exception {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            RowMapper<List<CatalogDtos.CatalogAlphabetEntry>> mapper = invocation.getArgument(1);
+            ResultSet rs = org.mockito.Mockito.mock(ResultSet.class);
+            when(rs.getLong(anyString())).thenAnswer(column -> switch ((String) column.getArgument(0)) {
+                case "count_other" -> 2L;
+                case "count_a" -> 5L;
+                case "before_a" -> 2L;
+                case "count_b" -> 3L;
+                case "before_b" -> 17L;
+                default -> 0L;
+            });
+            return List.of(mapper.mapRow(rs, 0));
+        });
+        CatalogRepository repository = repository(jdbc);
+
+        assertThat(repository.alphabet(
+                        "", "all", null, null, List.of(), List.of(), "all", 12,
+                        SemanticCandidateSet.lexical()))
+                .containsExactly(
+                        new CatalogDtos.CatalogAlphabetEntry("#", 1, 2),
+                        new CatalogDtos.CatalogAlphabetEntry("A", 1, 5),
+                        new CatalogDtos.CatalogAlphabetEntry("B", 2, 3));
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue())
+                .contains("SUM(a.normalized_name < ?)", "WHERE a.app_status = 'active'")
+                .doesNotContain("ORDER BY", "SELECT a.*");
     }
 
     /**

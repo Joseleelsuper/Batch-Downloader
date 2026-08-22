@@ -1,5 +1,6 @@
 package es.ubu.batchdownloader.catalog;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -28,6 +29,31 @@ class CatalogControllerTest {
      */
     @Mock
     private CatalogRepository catalog;
+
+    /** Comprueba que el orden por nombre publica el índice de la misma búsqueda. */
+    @Test
+    void nameOrderingIncludesAlphabetPositions() {
+        List<CatalogDtos.CatalogAlphabetEntry> alphabet = List.of(
+                new CatalogDtos.CatalogAlphabetEntry("A", 1, 15),
+                new CatalogDtos.CatalogAlphabetEntry("C", 3, 13));
+        when(catalog.search(
+                        any(), any(), any(), any(), anyList(), anyList(), any(), any(),
+                        anyInt(), anyInt(), any(SemanticCandidateSet.class)))
+                .thenReturn(List.of());
+        when(catalog.alphabet(
+                        any(), any(), any(), any(), anyList(), anyList(), any(), anyInt(),
+                        any(SemanticCandidateSet.class)))
+                .thenReturn(alphabet);
+        CatalogController controller = new CatalogController(catalog);
+
+        CatalogDtos.AppSearchResponse response = controller.apps(
+                null, "all", null, null, null, null, null, "name", 1, 12, "lexical");
+
+        assertThat(response.alphabet()).isEqualTo(alphabet);
+        verify(catalog).alphabet(
+                isNull(), eq("all"), eq(List.of()), isNull(), eq(List.of()), eq(List.of()),
+                eq("all"), eq(12), any(SemanticCandidateSet.class));
+    }
 
     /**
      * Comprueba el escenario {@code appsMergesTagsAndUsesOnePublisherWithAllMatching}.

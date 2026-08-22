@@ -602,6 +602,41 @@
   width: 31%;
 }
 
+.catalog-alphabet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -6px 0 14px;
+  padding: 10px 12px;
+  background: #f8fbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.catalog-alphabet button {
+  width: 32px;
+  height: 32px;
+  color: #344052;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-weight: 800;
+}
+
+.catalog-alphabet button:not(:disabled):hover,
+.catalog-alphabet button:not(:disabled):focus-visible {
+  color: #ffffff;
+  background: var(--teal);
+  border-color: var(--teal);
+}
+
+.catalog-alphabet button:disabled {
+  color: #98a2b3;
+  background: #f1f4f6;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .app-table th:nth-child(3),
 .app-table td:nth-child(3) {
   width: 23%;

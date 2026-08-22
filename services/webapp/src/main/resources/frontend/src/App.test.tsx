@@ -171,6 +171,58 @@ describe('catalog workspace', () => {
     });
   });
 
+  it('shows the alphabet only for name ordering and jumps to the first page of a letter', async () => {
+    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+      data: [],
+      page: 1,
+      pageSize: 12,
+      total: 30,
+      alphabet: [
+        { letter: '#', page: 1, count: 2 },
+        { letter: 'A', page: 1, count: 15 },
+        { letter: 'C', page: 3, count: 13 },
+      ],
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog?status=all&sort=name&searchMode=lexical']}>
+        <App />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    const alphabet = await screen.findByRole('navigation', {
+      name: 'Índice alfabético de aplicaciones',
+    });
+    expect(within(alphabet).getByRole('button', {
+      name: 'Ir a la letra A, 15 aplicaciones',
+    })).toBeEnabled();
+    expect(within(alphabet).getByRole('button', {
+      name: 'No hay aplicaciones que empiecen por B',
+    })).toBeDisabled();
+
+    fireEvent.click(within(alphabet).getByRole('button', {
+      name: 'Ir a la letra C, 13 aplicaciones',
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search')).toHaveTextContent('page=3');
+    });
+  });
+
+  it('hides the alphabet for non-alphabetical ordering', async () => {
+    render(
+      <MemoryRouter initialEntries={['/catalog?status=all&sort=updated&searchMode=lexical']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalled());
+    expect(screen.queryByRole('navigation', {
+      name: 'Índice alfabético de aplicaciones',
+    })).not.toBeInTheDocument();
+  });
+
   it('shows a brief notice when a semantic request degrades as a whole', async () => {
     vi.mocked(catalogApi.fetchApps).mockResolvedValue({
       data: [],

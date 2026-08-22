@@ -56,6 +56,7 @@ public class CatalogDtos {
      * @param page Valor de {@code page} incluido en el record.
      * @param pageSize Valor de {@code pageSize} incluido en el record.
      * @param total Valor de {@code total} incluido en el record.
+     * @param alphabet Posiciones disponibles del índice alfabético.
      * @param requestedMode Valor de {@code requestedMode} incluido en el record.
      * @param appliedMode Valor de {@code appliedMode} incluido en el record.
      * @param modelVersion Valor de {@code modelVersion} incluido en el record.
@@ -68,6 +69,7 @@ public class CatalogDtos {
             int page,
             int pageSize,
             long total,
+            List<CatalogAlphabetEntry> alphabet,
             String requestedMode,
             String appliedMode,
             String modelVersion,
@@ -82,9 +84,18 @@ public class CatalogDtos {
          * @param total Valor de {@code total} utilizado por la operación.
          */
         public AppSearchResponse(List<AppListItem> data, int page, int pageSize, long total) {
-            this(data, page, pageSize, total, "lexical", "lexical", null, null, null);
+            this(data, page, pageSize, total, List.of(), "lexical", "lexical", null, null, null);
         }
     }
+
+    /**
+     * Sitúa el primer resultado de una letra dentro de la paginación alfabética.
+     *
+     * @param letter Letra representada por la entrada.
+     * @param page Primera página que contiene una aplicación de esa letra.
+     * @param count Número de aplicaciones de esa letra bajo los filtros activos.
+     */
+    public record CatalogAlphabetEntry(String letter, int page, long count) {}
 
     /**
      * Representa los datos inmutables de {@code FacetItem}.

@@ -34,11 +34,18 @@ export interface CatalogResponse {
   page: number;
   pageSize: number;
   total: number;
+  alphabet?: CatalogAlphabetEntry[];
   requestedMode?: SearchMode;
   appliedMode?: SearchMode;
   modelVersion?: string | null;
   indexVersion?: string | null;
   degradedReason?: string | null;
+}
+
+export interface CatalogAlphabetEntry {
+  letter: string;
+  page: number;
+  count: number;
 }
 
 export interface FacetItem {
