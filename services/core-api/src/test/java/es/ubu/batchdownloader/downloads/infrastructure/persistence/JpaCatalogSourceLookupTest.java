@@ -50,4 +50,26 @@ class JpaCatalogSourceLookupTest {
                 .map(String.class::cast)
                 .toList()).containsExactly("windows", "linux");
     }
+
+    /** Comprueba que una fuente concreta se limite a su aplicación y siga validándose. */
+    @Test
+    void selectsAnExplicitSourceOnlyWhenItRemainsCatalogDownloadable() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
+
+        assertThat(lookup.findVerifiedSource(
+                UUID.randomUUID(), UUID.randomUUID(), List.of("windows"))).isEmpty();
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowCallbackHandler.class), parameters.capture());
+        assertThat(sql.getValue()).contains("ds.software_app_id = ?");
+        assertThat(sql.getValue()).contains("rs.id = ?");
+        assertThat(sql.getValue()).contains("ds.validation_status = 'valid'");
+        assertThat(sql.getValue()).contains("ds.catalog_available = 1");
+        assertThat(sql.getValue()).contains("rs.catalog_downloadable = 1");
+        assertThat(sql.getValue()).contains("LIMIT 1");
+        assertThat(parameters.getValue()).hasSize(3);
+        assertThat(parameters.getValue()[2]).isEqualTo("windows");
+    }
 }

@@ -50,9 +50,37 @@ describe('current identity', () => {
     expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/auth/csrf', expect.objectContaining({
       credentials: 'include',
     }));
-    expect(fetcher).toHaveBeenNthCalledWith(2, '/api/v1/download-jobs', expect.objectContaining({
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/download-jobs', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ bundleId: 'bundle-1', operatingSystems: ['linux'] }),
+    }));
+  });
+
+  it('envía la fuente concreta elegida para una descarga individual', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: 'csrf-token' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 'job-versioned',
+        status: 'QUEUED',
+        failureCode: null,
+        progress: 0,
+        requestedCount: 1,
+        acceptedCount: 1,
+        omittedCount: 0,
+        items: [],
+        createdAt: '2026-07-16T09:00:00Z',
+        expiresAt: '2026-07-17T09:00:00Z',
+      }), { status: 202 }));
+    vi.stubGlobal('fetch', fetcher);
+
+    await createDownloadJob({
+      appIds: ['app-1'],
+      sourceRef: 'resolved-source-1',
+    });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/download-jobs', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ appIds: ['app-1'], sourceRef: 'resolved-source-1' }),
     }));
   });
 

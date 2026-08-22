@@ -6,10 +6,11 @@ import { t } from '../services/i18n';
 interface Props {
   appId: string;
   appName?: string;
+  sourceRef?: string;
   disabled?: boolean;
 }
 
-export function DownloadButton({ appId, appName, disabled }: Props) {
+export function DownloadButton({ appId, appName, sourceRef, disabled }: Props) {
   const { job, starting, error, start } = useDownloadJob();
   const ready = Boolean(job && ['READY', 'PARTIAL', 'MANUAL_ONLY'].includes(job.status));
   const active = Boolean(job && ![
@@ -27,7 +28,7 @@ export function DownloadButton({ appId, appName, disabled }: Props) {
       return;
     }
     void start(
-      { appIds: [appId] },
+      { appIds: [appId], sourceRef },
       t('download.job.appLabel', { name: appName || appId }),
     ).catch(() => undefined);
   }

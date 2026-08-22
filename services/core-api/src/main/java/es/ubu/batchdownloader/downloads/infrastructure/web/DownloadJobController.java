@@ -132,6 +132,7 @@ public class DownloadJobController {
                 owner,
                 appIds,
                 normalizedOperatingSystems(request.operatingSystems()),
+                request.sourceRef(),
                 request.notifyWhenReady());
         ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.ACCEPTED);
         if (anonymous && (browserToken == null || browserToken.isBlank())) {
@@ -300,6 +301,12 @@ public class DownloadJobController {
         if (hasApps && request.appIds().isEmpty()) {
             throw new BadRequestException("invalid_job_size", "Selecciona al menos una aplicación.");
         }
+        if (request.sourceRef() != null
+                && (!hasApps || request.appIds().size() != 1)) {
+            throw new BadRequestException(
+                    "invalid_source_selection",
+                    "La fuente seleccionada requiere una única aplicación.");
+        }
     }
 
     /**
@@ -372,6 +379,7 @@ public class DownloadJobController {
      * @param appIds Valor de {@code appIds} incluido en el record.
      * @param bundleId Valor de {@code bundleId} incluido en el record.
      * @param operatingSystems Valor de {@code operatingSystems} incluido en el record.
+     * @param sourceRef Fuente resuelta concreta elegida para una descarga individual.
      * @param notifyWhenReady Valor de {@code notifyWhenReady} incluido en el record.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      */
@@ -379,5 +387,6 @@ public class DownloadJobController {
             @Size(max = 100) List<UUID> appIds,
             String bundleId,
             List<String> operatingSystems,
+            UUID sourceRef,
             boolean notifyWhenReady) {}
 }

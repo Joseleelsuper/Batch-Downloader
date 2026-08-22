@@ -15,8 +15,9 @@ import {
   createDownloadJob,
   downloadJobFileUrl,
 } from '../api/catalog';
+import type { CreateDownloadJobRequest } from '../api/catalog';
 import { t } from '../services/i18n';
-import type { DownloadJob, OperatingSystem } from '../types/catalog';
+import type { DownloadJob } from '../types/catalog';
 
 const STORAGE_KEY = 'batch-downloader.download-jobs.v1';
 
@@ -35,9 +36,7 @@ export const DOWNLOADABLE_DOWNLOAD_STATUSES = new Set([
   'MANUAL_ONLY',
 ]);
 
-export type DownloadJobRequest =
-  | { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean }
-  | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean };
+export type DownloadJobRequest = CreateDownloadJobRequest;
 
 export interface TrackedDownloadJob {
   id: string;

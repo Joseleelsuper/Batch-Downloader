@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -113,6 +114,61 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
                     row.getString("official_url")));
         }, parameters.toArray());
         return Map.copyOf(selected);
+    }
+
+    /**
+     * Recupera exactamente la fuente elegida, manteniendo las mismas condiciones de publicación
+     * y validación que la selección automática.
+     *
+     * @param appId Identificador de la aplicación propietaria.
+     * @param sourceRef Identificador de la fuente resuelta solicitada.
+     * @param operatingSystems Sistemas operativos admitidos por la solicitud.
+     * @return Fuente verificada, o vacío cuando no puede descargarse de forma segura.
+     */
+    @Override
+    public Optional<VerifiedSource> findVerifiedSource(
+            UUID appId, UUID sourceRef, List<String> operatingSystems) {
+        if (appId == null || sourceRef == null) {
+            return Optional.empty();
+        }
+        List<String> systems = normalizedSystems(operatingSystems);
+        StringBuilder sql = new StringBuilder("""
+                SELECT ds.software_app_id, rs.id AS source_ref,
+                       ds.operating_system, ds.architecture,
+                       app.name AS app_name, app.official_url
+                FROM software_apps app
+                JOIN download_sources ds ON ds.software_app_id = app.id
+                JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                WHERE ds.software_app_id = ?
+                  AND rs.id = ?
+                  AND app.app_status = 'active'
+                  AND app.catalog_status = 'available'
+                  AND ds.resolution_status IN ('direct', 'fallback')
+                  AND ds.validation_status = 'valid'
+                  AND ds.catalog_available = 1
+                  AND rs.catalog_downloadable = 1
+                  AND ds.operating_system IN (
+                """);
+        appendPlaceholders(sql, systems.size());
+        sql.append("""
+                )
+                LIMIT 1
+                """);
+        List<Object> parameters = new ArrayList<>(2 + systems.size());
+        parameters.add(UuidBytes.fromUuid(appId));
+        parameters.add(UuidBytes.fromUuid(sourceRef));
+        parameters.addAll(systems);
+        List<VerifiedSource> selected = new ArrayList<>(1);
+        jdbc.query(sql.toString(), (ResultSet row) -> {
+            selected.add(new VerifiedSource(
+                    UuidBytes.toUuid(row.getBytes("software_app_id")),
+                    UuidBytes.toUuid(row.getBytes("source_ref")),
+                    row.getString("operating_system"),
+                    row.getString("architecture"),
+                    row.getString("app_name"),
+                    row.getString("official_url")));
+        }, parameters.toArray());
+        return selected.stream().findFirst();
     }
 
     /**

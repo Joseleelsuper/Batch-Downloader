@@ -14,6 +14,8 @@ import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.common.RateLimitException;
 import es.ubu.batchdownloader.common.NotFoundException;
+import es.ubu.batchdownloader.common.BadRequestException;
+import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup;
 import es.ubu.batchdownloader.downloads.application.port.DownloadArtifactCleaner;
@@ -147,6 +149,69 @@ class DownloadJobServiceTest {
         verify(events).jobRequested(job.capture());
         assertThat(job.getValue().notifyWhenReady()).isFalse();
         assertThat(job.getValue().anonymousOwnerHash()).isEqualTo("browser-hash");
+    }
+
+    /** Comprueba que una descarga individual conserve la versión elegida. */
+    @Test
+    void createsJobWithTheExplicitlySelectedSource() {
+        UUID appId = UUID.randomUUID();
+        UUID sourceRef = UUID.randomUUID();
+        when(sources.findVerifiedSource(appId, sourceRef, List.of("windows")))
+                .thenReturn(Optional.of(new CatalogSourceLookup.VerifiedSource(
+                        appId,
+                        sourceRef,
+                        "windows",
+                        "x86_64",
+                        "Aplicación versionada",
+                        "https://example.com/app")));
+
+        DownloadJobView view = service.create(
+                new RequestOwner(null, "browser-hash", "ip-hash"),
+                List.of(appId),
+                List.of("windows"),
+                sourceRef,
+                false);
+
+        assertThat(view.acceptedCount()).isOne();
+        ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
+        verify(events).jobRequested(job.capture());
+        assertThat(job.getValue().items().getFirst().sourceRef()).isEqualTo(sourceRef);
+        verify(sources, never()).findVerifiedSources(any(), any());
+    }
+
+    /** Comprueba que no pueda reutilizarse una fuente ajena o invalidada. */
+    @Test
+    void rejectsAnUnavailableExplicitSource() {
+        UUID appId = UUID.randomUUID();
+        UUID sourceRef = UUID.randomUUID();
+        when(sources.findVerifiedSource(appId, sourceRef, List.of("windows")))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.create(
+                new RequestOwner(null, "browser-hash", "ip-hash"),
+                List.of(appId),
+                List.of("windows"),
+                sourceRef,
+                false))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("versión seleccionada");
+
+        verify(jobs, never()).save(any(DownloadJob.class));
+    }
+
+    /** Comprueba que una fuente concreta no pueda aplicarse a varias aplicaciones. */
+    @Test
+    void rejectsAnExplicitSourceForMultipleApplications() {
+        assertThatThrownBy(() -> service.create(
+                new RequestOwner(null, "browser-hash", "ip-hash"),
+                List.of(UUID.randomUUID(), UUID.randomUUID()),
+                List.of("windows"),
+                UUID.randomUUID(),
+                false))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("única aplicación");
+
+        verify(sources, never()).findVerifiedSources(any(), any());
     }
 
     /**

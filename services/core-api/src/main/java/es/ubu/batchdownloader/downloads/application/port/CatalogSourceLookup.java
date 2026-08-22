@@ -62,4 +62,18 @@ public interface CatalogSourceLookup {
     default Optional<VerifiedSource> findVerifiedSource(UUID appId, List<String> operatingSystems) {
         return Optional.ofNullable(findVerifiedSources(List.of(appId), operatingSystems).get(appId));
     }
+
+    /**
+     * Busca una fuente concreta y comprueba que siga siendo descargable para la aplicación.
+     *
+     * @param appId Identificador de la aplicación propietaria de la fuente.
+     * @param sourceRef Identificador de la fuente resuelta elegida por el usuario.
+     * @param operatingSystems Sistemas operativos admitidos por la solicitud.
+     * @return La fuente verificada, o vacío si no pertenece a la aplicación o ya no es válida.
+     */
+    default Optional<VerifiedSource> findVerifiedSource(
+            UUID appId, UUID sourceRef, List<String> operatingSystems) {
+        return findVerifiedSource(appId, operatingSystems)
+                .filter(source -> source.sourceRef().equals(sourceRef));
+    }
 }

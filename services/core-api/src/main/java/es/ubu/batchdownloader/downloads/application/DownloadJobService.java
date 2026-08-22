@@ -195,10 +195,35 @@ public class DownloadJobService {
             List<UUID> requestedAppIds,
             List<String> operatingSystems,
             boolean notifyWhenReady) {
+        return create(owner, requestedAppIds, operatingSystems, null, notifyWhenReady);
+    }
+
+    /**
+     * Crea una descarga y, cuando se indica, conserva la fuente concreta elegida por el usuario.
+     *
+     * @param owner Propietario de la solicitud.
+     * @param requestedAppIds Aplicaciones solicitadas.
+     * @param operatingSystems Sistemas operativos admitidos.
+     * @param sourceRef Fuente resuelta concreta para una descarga individual.
+     * @param notifyWhenReady Indica si debe notificarse la finalización.
+     * @return Trabajo de descarga creado.
+     */
+    @Transactional
+    public DownloadJobView create(
+            RequestOwner owner,
+            List<UUID> requestedAppIds,
+            List<String> operatingSystems,
+            UUID sourceRef,
+            boolean notifyWhenReady) {
         LinkedHashSet<UUID> appIds = new LinkedHashSet<>(requestedAppIds == null ? List.of() : requestedAppIds);
         appIds.remove(null);
         if (appIds.isEmpty() || appIds.size() > maxApps) {
             throw new BadRequestException("invalid_job_size", "Selecciona entre 1 y " + maxApps + " aplicaciones.");
+        }
+        if (sourceRef != null && appIds.size() != 1) {
+            throw new BadRequestException(
+                    "invalid_source_selection",
+                    "La fuente seleccionada requiere una única aplicación.");
         }
         jobs.lockAdmission();
         Instant now = clock.instant();
@@ -216,8 +241,18 @@ public class DownloadJobService {
         } else {
             enforceAnonymousLimits(owner, now);
         }
-        Map<UUID, CatalogSourceLookup.VerifiedSource> selected =
-                sources.findVerifiedSources(appIds, operatingSystems);
+        Map<UUID, CatalogSourceLookup.VerifiedSource> selected;
+        if (sourceRef == null) {
+            selected = sources.findVerifiedSources(appIds, operatingSystems);
+        } else {
+            UUID appId = appIds.getFirst();
+            CatalogSourceLookup.VerifiedSource exactSource = sources
+                    .findVerifiedSource(appId, sourceRef, operatingSystems)
+                    .orElseThrow(() -> new ConflictException(
+                            "selected_source_unavailable",
+                            "La versión seleccionada ya no está disponible para descargar."));
+            selected = Map.of(appId, exactSource);
+        }
         List<DownloadJobItem> items = appIds.stream()
                 .map(selected::get)
                 .filter(Objects::nonNull)

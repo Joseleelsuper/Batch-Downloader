@@ -144,10 +144,16 @@ export async function fetchAppDetails(appId: string, signal?: AbortSignal): Prom
   return requestJson<AppDetails>('/api/v1/apps/' + encodeURIComponent(appId), { signal });
 }
 
-export async function createDownloadJob(
-  request: { appIds: string[]; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean }
-    | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean },
-): Promise<DownloadJob> {
+export type CreateDownloadJobRequest =
+  | {
+    appIds: string[];
+    sourceRef?: string;
+    operatingSystems?: OperatingSystem[];
+    notifyWhenReady?: boolean;
+  }
+  | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean };
+
+export async function createDownloadJob(request: CreateDownloadJobRequest): Promise<DownloadJob> {
   const key = JSON.stringify(request);
   const pending = pendingDownloadCreations.get(key);
   if (pending) return pending;

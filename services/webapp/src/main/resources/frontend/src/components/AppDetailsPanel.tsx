@@ -74,8 +74,10 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
       <div className="app-detail-actions">
         {selectedOption ? (
           <DownloadButton
+            key={selectedOption.id}
             appId={app.id}
-            appName={app.name}
+            appName={selectedOption.version ? `${app.name} ${selectedOption.version}` : app.name}
+            sourceRef={selectedOption.id}
             disabled={!isCatalogAppSelectable(app)}
           />
         ) : null}

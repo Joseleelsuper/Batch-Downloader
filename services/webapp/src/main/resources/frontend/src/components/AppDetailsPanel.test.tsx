@@ -1,7 +1,9 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetails } from '../types/catalog';
 import { AppDetailsPanel } from './AppDetailsPanel';
+
+const downloadJob = vi.hoisted(() => ({ start: vi.fn() }));
 
 vi.mock('../hooks/useDownloadJob', () => ({
   useDownloadJob: () => ({
@@ -9,7 +11,7 @@ vi.mock('../hooks/useDownloadJob', () => ({
     starting: false,
     cancelling: false,
     error: false,
-    start: vi.fn(),
+    start: downloadJob.start,
     cancel: vi.fn(),
     clear: vi.fn(),
   }),
@@ -72,7 +74,10 @@ const app: AppDetails = {
 };
 
 describe('AppDetailsPanel', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    downloadJob.start.mockReset();
+  });
 
   it('shows only the useful catalog details and actions', () => {
     render(<AppDetailsPanel app={app} />);
@@ -106,6 +111,19 @@ describe('AppDetailsPanel', () => {
     render(<AppDetailsPanel app={{ ...app, longDescription: null }} />);
 
     expect(screen.getByText('Dynamic mathematics app.')).toBeInTheDocument();
+  });
+
+  it('sends the selected installer source when creating the download', () => {
+    downloadJob.start.mockResolvedValue({});
+    render(<AppDetailsPanel app={app} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /GeoGebraSuite\.exe/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar' }));
+
+    expect(downloadJob.start).toHaveBeenCalledWith(
+      { appIds: [app.id], sourceRef: 'secondary' },
+      expect.stringContaining('6.0.910'),
+    );
   });
 
   it('shows a pending message when both descriptions are missing', () => {
