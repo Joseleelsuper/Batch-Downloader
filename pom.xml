@@ -40,6 +40,7 @@
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <spotbugs-maven-plugin.version>4.10.4.0</spotbugs-maven-plugin.version>
         <batch-downloader.contracts.version>0.2.0-SNAPSHOT</batch-downloader.contracts.version>
+        <mockito.javaagent/>
     </properties>
 
     <dependencyManagement>
@@ -143,9 +144,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- Mockito 5 requiere instrumentación para los mocks inline. Se carga
-                         explícitamente para no depender del auto-attach que el JDK retirará. -->
-                    <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
+                    <!-- Los módulos que usan Mockito activan su agente mediante esta propiedad.
+                         El valor vacío evita que otros módulos dependan de un JAR no declarado. -->
+                    <argLine>@{argLine} ${mockito.javaagent}</argLine>
                 </configuration>
             </plugin>
             <plugin>

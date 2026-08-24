@@ -18,6 +18,7 @@
     <properties>
         <jacoco.minimum.instruction>0.71</jacoco.minimum.instruction>
         <jacoco.minimum.branch>0.50</jacoco.minimum.branch>
+        <mockito.javaagent>-javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</mockito.javaagent>
     </properties>
 
     <dependencies>
