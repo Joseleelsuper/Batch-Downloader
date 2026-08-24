@@ -144,10 +144,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <!-- Mockito 5 requiere instrumentación para los mocks inline. Se carga
-                         explícitamente para no depender del auto-attach que el JDK retirará.
-                         Spring Test sustituye beans en filtros ya construidos; el permiso queda
-                         limitado al proceso de pruebas y evita el aviso de mutación final de JDK 25+. -->
-                    <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar --enable-final-field-mutation=ALL-UNNAMED</argLine>
+                         explícitamente para no depender del auto-attach que el JDK retirará. -->
+                    <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
                 </configuration>
             </plugin>
             <plugin>

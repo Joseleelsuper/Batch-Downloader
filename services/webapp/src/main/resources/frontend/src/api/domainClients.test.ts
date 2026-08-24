@@ -404,7 +404,10 @@ describe('current identity', () => {
     await exportAdminAppsCsv();
 
     expect(click).toHaveBeenCalledOnce();
-    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    const exportedBlob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    expect(exportedBlob.size).toBe(3);
+    expect(exportedBlob.type).toBe('text/plain;charset=utf-8');
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:export');
   });
 
