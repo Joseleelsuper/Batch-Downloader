@@ -4,17 +4,20 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    manifest: true,
+  },
   resolve: {
     alias: {
-      '@batch-locales': resolve(__dirname, '../../../../../translation-service/locales'),
+      '@batch-locales': resolve(import.meta.dirname, '../../../../../translation-service/locales'),
     },
   },
   server: {
     port: 5173,
     fs: {
       allow: [
-        resolve(__dirname),
-        resolve(__dirname, '../../../../../translation-service/locales'),
+        resolve(import.meta.dirname),
+        resolve(import.meta.dirname, '../../../../../translation-service/locales'),
       ],
     },
     proxy: {
@@ -28,5 +31,13 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    coverage: {
+      provider: 'v8',
+      thresholds: {
+        statements: 65,
+        branches: 78,
+        functions: 55,
+      },
+    },
   },
 });

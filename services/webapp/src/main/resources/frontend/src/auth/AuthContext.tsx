@@ -7,7 +7,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { adminLogout, logout, me } from '../api/catalog';
+import { adminLogout, logout, me } from '../api/account';
 import type { AuthUser } from '../types/catalog';
 
 export type AuthStatus = 'checking' | 'anonymous' | 'authenticated';

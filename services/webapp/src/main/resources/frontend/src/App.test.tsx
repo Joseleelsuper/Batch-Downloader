@@ -1,8 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import App, { ScraperQueues } from './App';
-import * as catalogApi from './api/catalog';
+import App from './App';
+import { ScraperQueues } from './components/admin/ScraperQueues';
+import * as accountApi from './api/account';
+import * as adminAppsApi from './api/adminApps';
+import * as bundlesApi from './api/bundles';
+import * as catalogAppsApi from './api/catalogApps';
+import * as downloadsApi from './api/downloads';
 import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, ScraperQueueState } from './types/catalog';
 
 function memoryStorage(): Storage {
@@ -59,28 +64,27 @@ function LocationProbe() {
 beforeEach(() => {
   window.sessionStorage.clear();
 });
-
 describe('catalog workspace', () => {
   beforeEach(() => {
     const storage = memoryStorage();
     Object.defineProperty(window, 'localStorage', { configurable: true, value: storage });
     vi.stubGlobal('localStorage', storage);
-    vi.spyOn(catalogApi, 'me').mockResolvedValue(null);
-    vi.spyOn(catalogApi, 'connectCatalogEvents').mockReturnValue(() => undefined);
-    vi.spyOn(catalogApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
-    vi.spyOn(catalogApi, 'fetchApps').mockResolvedValue({
+    vi.spyOn(accountApi, 'me').mockResolvedValue(null);
+    vi.spyOn(catalogAppsApi, 'connectCatalogEvents').mockReturnValue(() => undefined);
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
+    vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({
       data: [],
       page: 1,
       pageSize: 12,
       total: 0,
     });
-    vi.spyOn(catalogApi, 'fetchCatalogStats').mockResolvedValue({
+    vi.spyOn(catalogAppsApi, 'fetchCatalogStats').mockResolvedValue({
       total: 0,
       filters: { all: 0, available: 0, review: 0, missing: 0 },
       lastScrape: null,
       generatedAt: '2026-07-13T12:00:00Z',
     });
-    vi.spyOn(catalogApi, 'fetchCatalogFacets').mockResolvedValue({
+    vi.spyOn(catalogAppsApi, 'fetchCatalogFacets').mockResolvedValue({
       tags: [],
       publishers: [],
     });
@@ -117,7 +121,7 @@ describe('catalog workspace', () => {
     expect(workspace).not.toHaveClass('filters-hidden');
     expect(workspace?.children[0]).not.toHaveAttribute('hidden');
     expect(window.localStorage.getItem('catalog.filters.open')).toBe('true');
-    await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalled());
+    await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalled());
   });
 
   it('keeps the public footer available after the catalog workspace', async () => {
@@ -127,7 +131,7 @@ describe('catalog workspace', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalled());
+    await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalled());
     const shell = container.querySelector('.site-shell-app');
     const workspace = shell?.querySelector('.workspace');
     const footer = shell?.querySelector('.site-footer');
@@ -139,8 +143,8 @@ describe('catalog workspace', () => {
   });
 
   it('renders catalog totals even when the app page request fails', async () => {
-    vi.mocked(catalogApi.fetchApps).mockRejectedValue(new Error('request_failed_500'));
-    vi.mocked(catalogApi.fetchCatalogStats).mockResolvedValue({
+    vi.mocked(catalogAppsApi.fetchApps).mockRejectedValue(new Error('request_failed_500'));
+    vi.mocked(catalogAppsApi.fetchCatalogStats).mockResolvedValue({
       total: 13_493,
       filters: { all: 13_493, available: 13_404, review: 88, missing: 1 },
       lastScrape: null,
@@ -174,8 +178,8 @@ describe('catalog workspace', () => {
     await waitFor(() => {
       expect(screen.getByTestId('location-search')).toHaveTextContent('searchMode=semantic');
     });
-    const latestFetchAppsCall = vi.mocked(catalogApi.fetchApps).mock.calls[
-      vi.mocked(catalogApi.fetchApps).mock.calls.length - 1
+    const latestFetchAppsCall = vi.mocked(catalogAppsApi.fetchApps).mock.calls[
+      vi.mocked(catalogAppsApi.fetchApps).mock.calls.length - 1
     ];
     expect(latestFetchAppsCall?.[0].filter).toBe('available');
 
@@ -191,7 +195,7 @@ describe('catalog workspace', () => {
   });
 
   it('shows the alphabet only for name ordering and jumps to the first page of a letter', async () => {
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
       data: [],
       page: 1,
       pageSize: 12,
@@ -236,14 +240,14 @@ describe('catalog workspace', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalled());
+    await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalled());
     expect(screen.queryByRole('navigation', {
       name: 'Índice alfabético de aplicaciones',
     })).not.toBeInTheDocument();
   });
 
   it('shows a brief notice when a semantic request degrades as a whole', async () => {
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
       data: [],
       page: 1,
       pageSize: 12,
@@ -279,7 +283,7 @@ describe('catalog workspace', () => {
       expect(screen.getByTestId('location-search')).toHaveTextContent('status=review');
     });
     expect(screen.getByRole('button', { name: /Revisión/ })).toHaveClass('filter-item-active');
-    expect(catalogApi.fetchApps).toHaveBeenLastCalledWith(
+    expect(catalogAppsApi.fetchApps).toHaveBeenLastCalledWith(
       expect.objectContaining({ filter: 'review' }),
       expect.any(AbortSignal),
     );
@@ -330,7 +334,7 @@ describe('catalog workspace', () => {
   });
 
   it('chains selected tags with AND while refreshing the compatible directory', async () => {
-    vi.mocked(catalogApi.fetchCatalogFacets).mockImplementation(async ({ tags }) => ({
+    vi.mocked(catalogAppsApi.fetchCatalogFacets).mockImplementation(async ({ tags }) => ({
       tags: tags?.includes('automation')
         ? [{ label: 'cli', value: 'cli', normalizedValue: 'cli', letter: 'C', count: 4 }]
         : [{ label: 'automation', value: 'automation', normalizedValue: 'automation', letter: 'A', count: 8 }],
@@ -345,7 +349,7 @@ describe('catalog workspace', () => {
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /automation/i }));
-    await waitFor(() => expect(catalogApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
+    await waitFor(() => expect(catalogAppsApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
       expect.objectContaining({ tags: ['automation'], publisher: undefined }),
     ));
     expect(await screen.findByRole('button', { name: /cli/i })).toBeInTheDocument();
@@ -353,7 +357,7 @@ describe('catalog workspace', () => {
   });
 
   it('replaces and then removes the singular editor selection', async () => {
-    vi.mocked(catalogApi.fetchCatalogFacets).mockResolvedValue({
+    vi.mocked(catalogAppsApi.fetchCatalogFacets).mockResolvedValue({
       tags: [],
       publishers: [
         { label: 'ACME', value: 'ACME', normalizedValue: 'acme', letter: 'A', count: 8 },
@@ -378,13 +382,13 @@ describe('catalog workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
     await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('publisher='));
-    expect(catalogApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
+    expect(catalogAppsApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
       expect.objectContaining({ publisher: undefined }),
     );
   });
 
   it('recovers empty facets by clearing only tags and editor', async () => {
-    vi.mocked(catalogApi.fetchCatalogFacets).mockResolvedValue({ tags: [], publishers: [] });
+    vi.mocked(catalogAppsApi.fetchCatalogFacets).mockResolvedValue({ tags: [], publishers: [] });
 
     render(
       <MemoryRouter initialEntries={[
@@ -413,7 +417,7 @@ describe('catalog workspace', () => {
   it('coalesces bursts of catalog events into a single refresh', async () => {
     vi.useFakeTimers();
     let notifyCatalogChanged: (() => void) | undefined;
-    vi.mocked(catalogApi.connectCatalogEvents).mockImplementation((onEvent) => {
+    vi.mocked(catalogAppsApi.connectCatalogEvents).mockImplementation((onEvent) => {
       notifyCatalogChanged = () => onEvent({
         type: 'catalog.changed',
         version: '1',
@@ -428,26 +432,26 @@ describe('catalog workspace', () => {
       </MemoryRouter>,
     );
     await act(async () => Promise.resolve());
-    expect(catalogApi.fetchApps).toHaveBeenCalledTimes(1);
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(1);
 
     act(() => {
       notifyCatalogChanged?.();
       notifyCatalogChanged?.();
       notifyCatalogChanged?.();
     });
-    expect(catalogApi.fetchApps).toHaveBeenCalledTimes(1);
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(catalogApi.fetchApps).toHaveBeenCalledTimes(2);
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
 
   it('removes a selected app deleted during a catalog refresh', async () => {
     vi.useFakeTimers();
     let notifyCatalogChanged: (() => void) | undefined;
-    vi.mocked(catalogApi.connectCatalogEvents).mockImplementation((onEvent) => {
+    vi.mocked(catalogAppsApi.connectCatalogEvents).mockImplementation((onEvent) => {
       notifyCatalogChanged = () => onEvent({
         type: 'catalog.changed',
         version: '2',
@@ -455,10 +459,10 @@ describe('catalog workspace', () => {
       });
       return () => undefined;
     });
-    vi.mocked(catalogApi.fetchApps)
+    vi.mocked(catalogAppsApi.fetchApps)
       .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 1 })
       .mockResolvedValueOnce({ data: [], page: 1, pageSize: 12, total: 0 });
-    vi.spyOn(catalogApi, 'fetchAppDetails').mockRejectedValue(new Error('request_failed_404'));
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockRejectedValue(new Error('request_failed_404'));
 
     render(
       <MemoryRouter initialEntries={['/catalog']}>
@@ -477,7 +481,7 @@ describe('catalog workspace', () => {
     vi.useRealTimers();
 
     await waitFor(() => expect(screen.getByText('0/100')).toBeInTheDocument());
-    expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1', expect.any(AbortSignal));
+    expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith('app-1', expect.any(AbortSignal));
   });
 
   it('preserves selections when navigating to another catalog page', async () => {
@@ -486,7 +490,7 @@ describe('catalog workspace', () => {
       id: 'app-2',
       name: 'Aplicación de la segunda página',
     };
-    vi.mocked(catalogApi.fetchApps)
+    vi.mocked(catalogAppsApi.fetchApps)
       .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 13 })
       .mockResolvedValueOnce({ data: [secondPageApp], page: 2, pageSize: 12, total: 13 });
 
@@ -509,20 +513,20 @@ describe('catalog workspace', () => {
   });
 
   it('revalidates selected apps before sending a download job', async () => {
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
       data: [catalogApp],
       page: 1,
       pageSize: 12,
       total: 1,
     });
-    vi.spyOn(catalogApi, 'fetchAppDetails').mockResolvedValue({
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockResolvedValue({
       ...catalogApp,
       resolutionStatus: 'requires_manual_review',
       validationStatus: 'unchecked',
       downloadable: false,
       notes: '',
     });
-    const createDownloadJob = vi.spyOn(catalogApi, 'createDownloadJob');
+    const createDownloadJob = vi.spyOn(downloadsApi, 'createDownloadJob');
 
     render(
       <MemoryRouter initialEntries={['/catalog']}>
@@ -534,7 +538,7 @@ describe('catalog workspace', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
     fireEvent.click(screen.getByRole('button', { name: 'Descargar ZIP' }));
 
-    await waitFor(() => expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
+    await waitFor(() => expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
     await waitFor(() => expect(screen.getByText('0/100')).toBeInTheDocument());
     expect(createDownloadJob).not.toHaveBeenCalled();
   });
@@ -545,20 +549,20 @@ describe('catalog workspace', () => {
       id: 'app-2',
       name: 'Aplicación obsoleta',
     };
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
       data: [catalogApp, staleApp],
       page: 1,
       pageSize: 12,
       total: 2,
     });
-    vi.spyOn(catalogApi, 'fetchAppDetails').mockImplementation(async (id) => ({
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockImplementation(async (id) => ({
       ...(id === catalogApp.id ? catalogApp : staleApp),
       resolutionStatus: id === catalogApp.id ? 'direct' : 'requires_manual_review',
       validationStatus: id === catalogApp.id ? 'valid' : 'unchecked',
       downloadable: id === catalogApp.id,
       notes: '',
     }));
-    const createDownloadJob = vi.spyOn(catalogApi, 'createDownloadJob').mockResolvedValue({
+    const createDownloadJob = vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue({
       id: 'job-1',
       status: 'QUEUED',
       failureCode: null,
@@ -599,7 +603,7 @@ describe('catalog workspace', () => {
 
     await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('?query=editor'));
     expect(screen.queryByText('Pendientes')).not.toBeInTheDocument();
-    expect(catalogApi.fetchApps).toHaveBeenLastCalledWith(
+    expect(catalogAppsApi.fetchApps).toHaveBeenLastCalledWith(
       expect.objectContaining({ filter: 'available', query: 'editor' }),
       expect.any(AbortSignal),
     );
@@ -607,7 +611,7 @@ describe('catalog workspace', () => {
 
   it('hides the previous page while a different filter is loading', async () => {
     let resolveReview!: (response: CatalogResponse) => void;
-    vi.mocked(catalogApi.fetchApps)
+    vi.mocked(catalogAppsApi.fetchApps)
       .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 1 })
       .mockImplementationOnce(() => new Promise((resolve) => {
         resolveReview = resolve;
@@ -622,7 +626,7 @@ describe('catalog workspace', () => {
     expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Revisión/ }));
 
-    await waitFor(() => expect(catalogApi.fetchApps).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(2));
     expect(screen.queryByText('Aplicación reciente')).not.toBeInTheDocument();
     expect(screen.getByText('Cargando...')).toBeInTheDocument();
 
@@ -635,13 +639,13 @@ describe('catalog workspace', () => {
   });
 
   it('loads an application into an expandable row and closes it from the same chevron', async () => {
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
       data: [catalogApp],
       page: 1,
       pageSize: 12,
       total: 1,
     });
-    vi.spyOn(catalogApi, 'fetchAppDetails').mockResolvedValue({
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockResolvedValue({
       ...catalogApp,
       longDescription: 'Detalle disponible debajo de la fila.',
       officialUrl: 'https://example.test',
@@ -661,7 +665,7 @@ describe('catalog workspace', () => {
     });
     fireEvent.click(open);
 
-    await waitFor(() => expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
+    await waitFor(() => expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
     expect(await screen.findByText('Detalle disponible debajo de la fila.')).toBeInTheDocument();
     const close = screen.getByRole('button', {
       name: 'Ocultar detalles de Aplicación reciente',
@@ -679,8 +683,8 @@ describe('catalog workspace', () => {
 
 describe('home loading', () => {
   beforeEach(() => {
-    vi.spyOn(catalogApi, 'me').mockResolvedValue(null);
-    vi.spyOn(catalogApi, 'fetchBundles').mockImplementation(async (params) => ({
+    vi.spyOn(accountApi, 'me').mockResolvedValue(null);
+    vi.spyOn(bundlesApi, 'fetchBundles').mockImplementation(async (params) => ({
       data: params.type === 'official' ? [officialBundle] : [],
       page: 1,
       pageSize: 3,
@@ -694,7 +698,7 @@ describe('home loading', () => {
   });
 
   it('keeps successful bundles visible when the recent-app request fails', async () => {
-    vi.spyOn(catalogApi, 'fetchApps').mockRejectedValue(new Error('request_failed_500'));
+    vi.spyOn(catalogAppsApi, 'fetchApps').mockRejectedValue(new Error('request_failed_500'));
 
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -714,7 +718,7 @@ describe('home loading', () => {
       id: `recent-${index + 1}`,
       name: `Reciente ${index + 1}`,
     }));
-    vi.spyOn(catalogApi, 'fetchApps').mockResolvedValue({
+    vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({
       data: recentApps,
       page: 1,
       pageSize: 6,
@@ -751,13 +755,13 @@ describe('home loading', () => {
       }],
       previewApps,
     } satisfies BundleSummary;
-    vi.mocked(catalogApi.fetchBundles).mockImplementation(async (params) => ({
+    vi.mocked(bundlesApi.fetchBundles).mockImplementation(async (params) => ({
       data: params.type === 'official' ? [bundleWithOverflow] : [],
       page: 1,
       pageSize: 3,
       total: params.type === 'official' ? 1 : 0,
     }));
-    vi.spyOn(catalogApi, 'fetchApps').mockResolvedValue({
+    vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({
       data: [],
       page: 1,
       pageSize: 6,
@@ -778,7 +782,7 @@ describe('home loading', () => {
   });
 
   it('muestra el selector de SO del bundle en su detalle', async () => {
-    vi.spyOn(catalogApi, 'fetchBundle').mockResolvedValue({
+    vi.spyOn(bundlesApi, 'fetchBundle').mockResolvedValue({
       ...officialBundle,
       apps: [catalogApp],
     } satisfies BundleDetails);
@@ -796,7 +800,7 @@ describe('home loading', () => {
 
 describe('public support pages', () => {
   beforeEach(() => {
-    vi.spyOn(catalogApi, 'me').mockResolvedValue(null);
+    vi.spyOn(accountApi, 'me').mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -851,7 +855,7 @@ describe('admin bundle editor', () => {
   };
 
   beforeEach(() => {
-    vi.spyOn(catalogApi, 'me').mockResolvedValue({
+    vi.spyOn(accountApi, 'me').mockResolvedValue({
       id: '00000000-0000-0000-0000-000000000001',
       username: 'admin',
       email: 'admin@example.test',
@@ -861,17 +865,17 @@ describe('admin bundle editor', () => {
       createdAt: '2026-08-08T00:00:00Z',
       authenticationMethods: ['LOCAL'],
     });
-    vi.spyOn(catalogApi, 'fetchBundles').mockResolvedValue({
+    vi.spyOn(bundlesApi, 'fetchBundles').mockResolvedValue({
       data: [officialBundle],
       page: 1,
       pageSize: 30,
       total: 1,
     });
-    vi.spyOn(catalogApi, 'fetchBundle').mockResolvedValue({
+    vi.spyOn(bundlesApi, 'fetchBundle').mockResolvedValue({
       ...officialBundle,
       apps: [catalogApp],
     });
-    vi.spyOn(catalogApi, 'fetchAdminApps').mockResolvedValue({
+    vi.spyOn(adminAppsApi, 'fetchAdminApps').mockResolvedValue({
       data: [catalogApp, candidateApp],
       page: 1,
       pageSize: 12,
@@ -941,10 +945,10 @@ describe('scraper pipeline', () => {
     expect(screen.queryByText('Iconos')).not.toBeInTheDocument();
   });
 
-  it('uses the legacy descriptor queue until the SO Filter migration is deployed', () => {
-    render(<ScraperQueues queues={[queue('scraper_descriptor', 'Trabajo compatible')]} />);
+  it('ignores the removed descriptor queue after its data migration', () => {
+    render(<ScraperQueues queues={[queue('scraper_descriptor', 'Trabajo antiguo')]} />);
 
-    expect(screen.getByText('Trabajo compatible')).toBeInTheDocument();
+    expect(screen.queryByText('Trabajo antiguo')).not.toBeInTheDocument();
     expect(screen.getByText('SO Filter -> Descriptor')).toBeInTheDocument();
   });
 });

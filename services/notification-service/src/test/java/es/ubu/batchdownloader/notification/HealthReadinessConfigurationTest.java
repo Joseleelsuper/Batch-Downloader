@@ -10,13 +10,13 @@ import org.junit.jupiter.api.Test;
 /** Verifica que SMTP y Resend no bloqueen la vida del consumidor. */
 class HealthReadinessConfigurationTest {
     @Test
-    void readinessRequiresInboxAndRabbitmq() throws IOException {
+    void readinessRequiresDatabaseRabbitmqAndFreshHeartbeat() throws IOException {
         Properties properties = applicationProperties();
 
         assertThat(properties.getProperty("management.endpoint.health.group.liveness.include"))
                 .isEqualTo("livenessState,ping");
         assertThat(properties.getProperty("management.endpoint.health.group.readiness.include"))
-                .isEqualTo("readinessState,db,rabbit");
+                .isEqualTo("readinessState,db,rabbit,workerHeartbeat");
     }
 
     private Properties applicationProperties() throws IOException {

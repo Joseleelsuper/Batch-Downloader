@@ -5,10 +5,11 @@ import es.ubu.batchdownloader.bundle.BundleDtos.BundleDetails;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSearchResponse;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSummary;
 import es.ubu.batchdownloader.bundle.BundleDtos.UpsertBundleRequest;
+import es.ubu.batchdownloader.common.UnauthorizedException;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import jakarta.validation.Valid;
-import java.security.Principal;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -58,7 +59,7 @@ public class BundleController {
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @return Resultado producido por {@code listBundles}.
      */
-    @GetMapping({"/api/v1/bundles", "/api/bundles"})
+    @GetMapping("/api/v1/bundles")
     public BundleSearchResponse listBundles(
             @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "1") int page,
@@ -77,12 +78,13 @@ public class BundleController {
      * @param authentication Valor de {@code authentication} utilizado por la operación.
      * @return Resultado producido por {@code getBundle}.
      */
-    @GetMapping({"/api/v1/bundles/{bundleId}", "/api/bundles/{bundleId}"})
+    @GetMapping("/api/v1/bundles/{bundleId}")
     public BundleDetails getBundle(@PathVariable String bundleId, Authentication authentication) {
-        if (authentication != null && authentication.getPrincipal() instanceof AccountPrincipal account) {
-            return bundles.detailsForViewer(bundleId, account.userId(), isAdmin(authentication));
-        }
-        return bundles.details(bundleId, actor(authentication), isAdmin(authentication));
+        UUID viewerId = authentication != null
+                        && authentication.getPrincipal() instanceof AccountPrincipal account
+                ? account.userId()
+                : null;
+        return bundles.details(bundleId, viewerId, isAdmin(authentication));
     }
 
     /**
@@ -94,7 +96,7 @@ public class BundleController {
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @return Resultado producido por {@code listAdminBundles}.
      */
-    @GetMapping("/api/admin/bundles")
+    @GetMapping("/api/v1/admin/bundles")
     public BundleSearchResponse listAdminBundles(
             @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "1") int page,
@@ -116,13 +118,14 @@ public class BundleController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code createBundle}.
      */
-    @PostMapping("/api/admin/bundles")
+    @PostMapping("/api/v1/admin/bundles")
     @ResponseStatus(HttpStatus.CREATED)
     public BundleDetails createBundle(
             @Valid @RequestBody UpsertBundleRequest request,
-        Principal principal) {
-        BundleDetails created = bundles.create(request, actor(principal));
-        audit.record(actor(principal), "bundle.create", "bundle", created.id(), null);
+            Authentication authentication) {
+        AccountPrincipal account = account(authentication);
+        BundleDetails created = bundles.create(request, account.userId());
+        audit.record(account.userId().toString(), "bundle.create", "bundle", created.id(), null);
         return created;
     }
 
@@ -134,13 +137,14 @@ public class BundleController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code updateBundle}.
      */
-    @PatchMapping("/api/admin/bundles/{bundleId}")
+    @PatchMapping("/api/v1/admin/bundles/{bundleId}")
     public BundleDetails updateBundle(
             @PathVariable String bundleId,
             @Valid @RequestBody UpsertBundleRequest request,
-            Principal principal) {
+            Authentication authentication) {
         BundleDetails updated = bundles.update(bundleId, request);
-        audit.record(actor(principal), "bundle.update", "bundle", updated.id(), null);
+        audit.record(account(authentication).userId().toString(),
+                "bundle.update", "bundle", updated.id(), null);
         return updated;
     }
 
@@ -150,25 +154,26 @@ public class BundleController {
      * @param bundleId Identificador de {@code bundle} utilizado por la operación.
      * @param principal Identidad autenticada que ejecuta la operación.
      */
-    @DeleteMapping("/api/admin/bundles/{bundleId}")
+    @DeleteMapping("/api/v1/admin/bundles/{bundleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteBundle(@PathVariable String bundleId, Principal principal) {
+    public void deleteBundle(@PathVariable String bundleId, Authentication authentication) {
         bundles.delete(bundleId);
-        audit.record(actor(principal), "bundle.delete", "bundle", bundleId, null);
+        audit.record(account(authentication).userId().toString(),
+                "bundle.delete", "bundle", bundleId, null);
     }
 
     /**
      * Ejecuta la operación {@code actor}.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code actor}.
+     * @param authentication Identidad autenticada que ejecuta la operación.
+     * @return Principal UUID requerido por el contrato actual.
      */
-    private String actor(Principal principal) {
-        if (principal instanceof Authentication authentication
+    private AccountPrincipal account(Authentication authentication) {
+        if (authentication != null
                 && authentication.getPrincipal() instanceof AccountPrincipal account) {
-            return account.displayUsername();
+            return account;
         }
-        return principal == null ? null : principal.getName();
+        throw new UnauthorizedException("unauthorized", "La sesión ya no es válida.");
     }
 
     /**

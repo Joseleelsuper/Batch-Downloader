@@ -21,11 +21,11 @@ import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
+import es.ubu.batchdownloader.catalog.SemanticCandidateSet;
 import es.ubu.batchdownloader.common.ConflictException;
+import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
-import java.security.Principal;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.ContentDisposition;
@@ -33,6 +33,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -95,56 +96,70 @@ public class AdminAppController {
      * @param status Estado utilizado para filtrar o actualizar el recurso.
      * @param operatingSystem Valor de {@code operatingSystem} utilizado por la operación.
      * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param tagMode Valor de {@code tagMode} utilizado por la operación.
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @param page Número de página solicitado.
      * @param pageSize Número máximo de elementos incluidos en una página.
      * @return Resultado producido por {@code listApps}.
      */
-    @GetMapping("/api/admin/apps")
+    @GetMapping("/api/v1/admin/apps")
     public AppSearchResponse listApps(
             @RequestParam(required = false) String query,
             @RequestParam(defaultValue = "unresolved") String status,
             @RequestParam(required = false, name = "os") String operatingSystem,
             @RequestParam(required = false) String architecture,
-            @RequestParam(required = false) String tags,
-            @RequestParam(defaultValue = "all") String tagMode,
             @RequestParam(defaultValue = "updated") String sort,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(pageSize, 100));
-        List<String> tagList = tags == null || tags.isBlank()
+        List<String> operatingSystems = operatingSystem == null || operatingSystem.isBlank()
                 ? List.of()
-                : Arrays.stream(tags.split(",")).map(String::trim).filter(value -> !value.isBlank()).toList();
+                : List.of(operatingSystem);
+        SemanticCandidateSet lexicalCandidates = SemanticCandidateSet.lexical();
         return new AppSearchResponse(
-                catalog.search(query, status, operatingSystem == null || operatingSystem.isBlank() ? List.of() : List.of(operatingSystem), architecture, tagList, List.of(), tagMode, sort, safePage, safePageSize),
+                catalog.search(
+                        query,
+                        status,
+                        operatingSystems,
+                        architecture,
+                        List.of(),
+                        List.of(),
+                        sort,
+                        safePage,
+                        safePageSize,
+                        lexicalCandidates),
                 safePage,
                 safePageSize,
-                catalog.count(query, status, operatingSystem == null || operatingSystem.isBlank() ? List.of() : List.of(operatingSystem), architecture, tagList, List.of(), tagMode));
+                catalog.count(
+                        query,
+                        status,
+                        operatingSystems,
+                        architecture,
+                        List.of(),
+                        List.of(),
+                        lexicalCandidates));
     }
 
     /** Devuelve el criterio de cierre de la campaña de ausencias. */
-    @GetMapping("/api/admin/apps/absence-verifications/summary")
+    @GetMapping("/api/v1/admin/apps/absence-verifications/summary")
     public InstallerAbsenceVerificationSummary absenceVerificationSummary() {
         return adminApps.absenceVerificationSummary();
     }
 
     /** Obtiene la evidencia activa de una aplicación, si existe. */
-    @GetMapping("/api/admin/apps/{appId}/absence-verification")
+    @GetMapping("/api/v1/admin/apps/{appId}/absence-verification")
     public InstallerAbsenceVerification activeAbsenceVerification(
             @PathVariable String appId) {
         return adminApps.activeAbsenceVerification(appId);
     }
 
     /** Registra una ausencia confirmada y audita al responsable sin guardar binarios. */
-    @PostMapping("/api/admin/apps/{appId}/absence-verification")
+    @PostMapping("/api/v1/admin/apps/{appId}/absence-verification")
     @ResponseStatus(HttpStatus.CREATED)
     public InstallerAbsenceVerification confirmInstallerAbsence(
             @PathVariable String appId,
             @Valid @RequestBody InstallerAbsenceVerificationRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         String actor = actor(principal);
         InstallerAbsenceVerification verification =
                 adminApps.confirmInstallerAbsence(appId, request, actor);
@@ -163,8 +178,9 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code exportCsv}.
      */
-    @GetMapping(value = "/api/admin/apps/export.csv", produces = "text/csv")
-    public ResponseEntity<String> exportCsv(Principal principal) {
+    @GetMapping(value = "/api/v1/admin/apps/export.csv", produces = "text/csv")
+    public ResponseEntity<String> exportCsv(
+            @AuthenticationPrincipal AccountPrincipal principal) {
         AppCsvExport export = adminApps.exportCsv();
         audit.record(
                 actor(principal),
@@ -188,9 +204,11 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code createApp}.
      */
-    @PostMapping("/api/admin/apps")
+    @PostMapping("/api/v1/admin/apps")
     @ResponseStatus(HttpStatus.CREATED)
-    public AppDetails createApp(@Valid @RequestBody UpsertAppRequest request, Principal principal) {
+    public AppDetails createApp(
+            @Valid @RequestBody UpsertAppRequest request,
+            @AuthenticationPrincipal AccountPrincipal principal) {
         AppDetails created = adminApps.create(request);
         audit.record(actor(principal), "app.create", "app", created.id(), null);
         return created;
@@ -204,11 +222,11 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code patchApp}.
      */
-    @PatchMapping("/api/admin/apps/{appId}")
+    @PatchMapping("/api/v1/admin/apps/{appId}")
     public AppDetails patchApp(
             @PathVariable String appId,
             @RequestBody PatchAppRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         AppDetails updated = adminApps.patch(appId, request);
         audit.record(actor(principal), "app.update", "app", updated.id(), null);
         return updated;
@@ -220,9 +238,11 @@ public class AdminAppController {
      * @param appId Identificador de {@code app} utilizado por la operación.
      * @param principal Identidad autenticada que ejecuta la operación.
      */
-    @DeleteMapping("/api/admin/apps/{appId}")
+    @DeleteMapping("/api/v1/admin/apps/{appId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteApp(@PathVariable String appId, Principal principal) {
+    public void deleteApp(
+            @PathVariable String appId,
+            @AuthenticationPrincipal AccountPrincipal principal) {
         adminApps.delete(appId);
         audit.record(actor(principal), "app.delete", "app", appId, null);
     }
@@ -236,10 +256,10 @@ public class AdminAppController {
      * @throws ConflictException Si no puede completarse la operación bajo las condiciones
      *     requeridas.
      */
-    @DeleteMapping("/api/admin/apps")
+    @DeleteMapping("/api/v1/admin/apps")
     public Map<String, Object> deleteAllApps(
             @RequestParam(required = false) String confirm,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         if (!"DELETE_ALL".equals(confirm)) {
             throw new ConflictException(
                     "delete_all_confirmation_required",
@@ -257,12 +277,12 @@ public class AdminAppController {
      * @param request Solicitud recibida por la operación.
      * @param principal Identidad autenticada que ejecuta la operación.
      */
-    @PutMapping("/api/admin/apps/{appId}/tags")
+    @PutMapping("/api/v1/admin/apps/{appId}/tags")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void replaceTags(
             @PathVariable String appId,
             @RequestBody ReplaceTagsRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         adminApps.replaceTags(appId, request.tags());
         audit.record(actor(principal), "app.tags.replace", "app", appId, null);
     }
@@ -275,13 +295,13 @@ public class AdminAppController {
      * @param request Solicitud recibida por la operación.
      * @param principal Identidad autenticada que ejecuta la operación.
      */
-    @PatchMapping("/api/admin/apps/{appId}/sources/{sourceId}")
+    @PatchMapping("/api/v1/admin/apps/{appId}/sources/{sourceId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void patchSource(
             @PathVariable String appId,
             @PathVariable String sourceId,
             @RequestBody PatchSourceRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         adminApps.patchSource(appId, sourceId, request);
         audit.record(actor(principal), "app.source.update", "source", sourceId, Map.of("appId", appId));
     }
@@ -293,10 +313,10 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code generateDescription}.
      */
-    @PostMapping("/api/admin/apps/{appId}/generate-description")
+    @PostMapping("/api/v1/admin/apps/{appId}/generate-description")
     public ResponseEntity<ScraperInternalClient.DescriptionGeneration> generateDescription(
             @PathVariable String appId,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         ScraperInternalClient.DescriptionGeneration payload = scraperClient.generateDescription(appId);
         audit.record(
                 actor(principal),
@@ -317,11 +337,11 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code createManualInstallerInspection}.
      */
-    @PostMapping("/api/admin/apps/{appId}/manual-installer-inspections")
+    @PostMapping("/api/v1/admin/apps/{appId}/manual-installer-inspections")
     public ResponseEntity<ManualInstallerInspection> createManualInstallerInspection(
             @PathVariable String appId,
             @Valid @RequestBody ManualInstallerInspectionRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         ManualInstallerInspection inspection =
                 scraperClient.createManualInstallerInspection(appId, request);
         audit.record(
@@ -341,7 +361,7 @@ public class AdminAppController {
      * @param appId Identificador de {@code app} utilizado por la operación.
      * @return Resultado producido por {@code currentManualInstallerInspection}.
      */
-    @GetMapping("/api/admin/apps/{appId}/manual-installer-inspections/current")
+    @GetMapping("/api/v1/admin/apps/{appId}/manual-installer-inspections/current")
     public ManualInstallerInspection currentManualInstallerInspection(
             @PathVariable String appId) {
         return scraperClient.currentManualInstallerInspection(appId);
@@ -354,7 +374,7 @@ public class AdminAppController {
      * @param inspectionId Identificador de {@code inspection} utilizado por la operación.
      * @return Resultado producido por {@code manualInstallerInspection}.
      */
-    @GetMapping("/api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}")
+    @GetMapping("/api/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}")
     public ManualInstallerInspection manualInstallerInspection(
             @PathVariable String appId,
             @PathVariable String inspectionId) {
@@ -371,12 +391,12 @@ public class AdminAppController {
      * @return Resultado producido por {@code applyManualInstallerInspection}.
      */
     @PostMapping(
-            "/api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply")
+            "/api/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply")
     public ManualInstallerApplyResponse applyManualInstallerInspection(
             @PathVariable String appId,
             @PathVariable String inspectionId,
             @Valid @RequestBody ManualInstallerApplyRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         ManualInstallerApplyResult result =
                 scraperClient.applyManualInstallerInspection(appId, inspectionId, request);
         AppDetails application = catalog.details(result.appId());
@@ -404,10 +424,10 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code createWebsiteAppDiscovery}.
      */
-    @PostMapping("/api/admin/app-discoveries")
+    @PostMapping("/api/v1/admin/app-discoveries")
     public ResponseEntity<WebsiteAppDiscovery> createWebsiteAppDiscovery(
             @Valid @RequestBody WebsiteAppDiscoveryRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         WebsiteAppDiscovery discovery =
                 scraperClient.createWebsiteAppDiscovery(request);
         audit.record(
@@ -425,7 +445,7 @@ public class AdminAppController {
      * @param discoveryId Identificador de {@code discovery} utilizado por la operación.
      * @return Resultado producido por {@code websiteAppDiscovery}.
      */
-    @GetMapping("/api/admin/app-discoveries/{discoveryId}")
+    @GetMapping("/api/v1/admin/app-discoveries/{discoveryId}")
     public WebsiteAppDiscovery websiteAppDiscovery(
             @PathVariable String discoveryId) {
         return scraperClient.websiteAppDiscovery(discoveryId);
@@ -439,11 +459,11 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code applyWebsiteAppDiscovery}.
      */
-    @PostMapping("/api/admin/app-discoveries/{discoveryId}/apply")
+    @PostMapping("/api/v1/admin/app-discoveries/{discoveryId}/apply")
     public WebsiteAppDiscoveryApplyResponse applyWebsiteAppDiscovery(
             @PathVariable String discoveryId,
             @Valid @RequestBody WebsiteAppDiscoveryApplyRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         WebsiteAppDiscoveryApplyResult result =
                 scraperClient.applyWebsiteAppDiscovery(discoveryId, request);
         AppDetails application = catalog.details(result.appId());
@@ -468,7 +488,7 @@ public class AdminAppController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code actor}.
      */
-    private String actor(Principal principal) {
-        return principal == null ? "admin" : principal.getName();
+    private String actor(AccountPrincipal principal) {
+        return AdminActor.require(principal);
     }
 }

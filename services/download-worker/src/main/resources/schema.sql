@@ -7,3 +7,6 @@ CREATE TABLE IF NOT EXISTS download_inbox (
 
 CREATE INDEX IF NOT EXISTS ix_download_inbox_status_started
     ON download_inbox (status, started_at);
+
+CREATE INDEX IF NOT EXISTS ix_download_inbox_status_completed
+    ON download_inbox (status, completed_at);

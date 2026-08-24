@@ -1,4 +1,4 @@
-import { requestJson } from './catalog';
+import { requestJson } from './http';
 import type { AuthUser } from '../types/catalog';
 import type {
   AccountDashboard,
@@ -7,6 +7,31 @@ import type {
   OwnBundleInput,
   OwnBundlePage,
 } from '../types/account';
+
+export function login(email: string, password: string): Promise<AuthUser> {
+  return requestJson<AuthUser>('/api/v1/auth/login', {
+    method: 'POST', body: JSON.stringify({ email, password }),
+  });
+}
+
+export function adminLogin(username: string, password: string): Promise<AuthUser> {
+  return requestJson<AuthUser>('/api/v1/admin/auth/login', {
+    method: 'POST', body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function logout(): Promise<void> {
+  await requestJson<void>('/api/v1/auth/logout', { method: 'POST' });
+}
+
+export async function adminLogout(): Promise<void> {
+  await requestJson<void>('/api/v1/admin/auth/logout', { method: 'POST' });
+}
+
+export async function me(): Promise<AuthUser | null> {
+  const identity = await requestJson<AuthUser | undefined>('/api/v1/auth/me');
+  return identity ?? null;
+}
 
 export function registerAccount(email: string, password: string): Promise<AuthUser> {
   return requestJson<AuthUser>('/api/v1/auth/register', {

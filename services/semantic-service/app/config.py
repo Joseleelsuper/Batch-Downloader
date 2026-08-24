@@ -2,13 +2,13 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
+from psycopg.conninfo import make_conninfo
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from psycopg.conninfo import make_conninfo
 
 
 class Settings(BaseSettings):
@@ -109,6 +109,14 @@ class Settings(BaseSettings):
     operation_lease_seconds: int = 300
     """Campo declarado `operation_lease_seconds` de `Settings`.
     """
+    retention_interval_seconds: float = Field(default=21_600.0, ge=60.0)
+    """Intervalo entre pasadas acotadas de retención del model worker."""
+    worker_heartbeat_interval_seconds: float = Field(default=10.0, ge=1.0)
+    """Cadencia de la señal persistente emitida por cada worker."""
+    worker_heartbeat_stale_seconds: float = Field(default=45.0, ge=5.0)
+    """Antigüedad a partir de la cual un worker se considera degradado."""
+    worker_failure_threshold: int = Field(default=3, ge=1)
+    """Fallos consecutivos necesarios para degradar un worker activo."""
     model_max_bytes: int = 16_106_127_360
     """Campo declarado `model_max_bytes` de `Settings`.
     """
@@ -163,7 +171,7 @@ class Settings(BaseSettings):
 
     def background_window_open(self, moment: datetime | None = None) -> bool:
         """Indica si puede iniciarse indexación o preparación de modelos."""
-        current = (moment or datetime.now(timezone.utc)).astimezone(
+        current = (moment or datetime.now(UTC)).astimezone(
             ZoneInfo(self.background_timezone)
         )
         start = self.background_start_hour

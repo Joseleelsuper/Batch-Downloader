@@ -193,19 +193,14 @@ class CatalogProjectionRepository:
             expected_missing=int(expected["missing_count"]),
         )
 
-    async def repair(self, lock_timeout_seconds: int = 30) -> CatalogProjectionReport:
-        # Conserva el argumento por compatibilidad con la CLI. El timeout de transacción
-        # de InnoDB gobierna este bloqueo de fila y, a diferencia de un bloqueo consultivo
-        # con nombre, no puede filtrarse al pool de conexiones.
+    async def repair(self) -> CatalogProjectionReport:
+        # El timeout de transacción de InnoDB gobierna este bloqueo de fila y, a
+        # diferencia de un bloqueo consultivo con nombre, no puede filtrarse al pool.
         """Ejecuta `repair` dentro de `CatalogProjectionRepository`.
-
-        Args:
-            lock_timeout_seconds (int): Valor de `lock_timeout_seconds` utilizado por la operación.
 
         Returns:
             CatalogProjectionReport: Resultado producido por la operación.
         """
-        del lock_timeout_seconds
         try:
             await self.session.execute(
                 text(

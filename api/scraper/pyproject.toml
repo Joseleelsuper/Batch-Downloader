@@ -11,7 +11,11 @@ line-length = 100
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "C90"]
+
+[tool.ruff.lint.mccabe]
+# Las rutas, la validación y la aplicación manual ya están separadas por caso de uso.
+max-complexity = 20
 
 [tool.ruff.lint.per-file-ignores]
 # Dependency factories in FastAPI signatures are the framework's intended API.

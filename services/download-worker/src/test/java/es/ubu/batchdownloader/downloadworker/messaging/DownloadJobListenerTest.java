@@ -14,6 +14,7 @@ import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPa
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRequestedEvent;
 import es.ubu.batchdownloader.downloadworker.domain.EventTypes;
+import es.ubu.batchdownloader.downloadworker.operations.DownloadWorkerHeartbeat;
 import es.ubu.batchdownloader.downloadworker.ports.InboxRepository;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -62,7 +63,8 @@ class DownloadJobListenerTest {
     private final DownloadJobHandler handler = new ValidatedDownloadJobHandler(
             validator,
             new InboxDownloadJobHandler(inbox, properties, processor::process));
-    private final DownloadJobListener listener = new DownloadJobListener(handler);
+    private final DownloadWorkerHeartbeat heartbeat = mock(DownloadWorkerHeartbeat.class);
+    private final DownloadJobListener listener = new DownloadJobListener(handler, heartbeat);
 
     /**
      * Comprueba el escenario {@code skipsAlreadyProcessedEvent}.
@@ -90,6 +92,7 @@ class DownloadJobListenerTest {
 
         verify(processor).process(event);
         verify(inbox).complete(event.eventId());
+        verify(heartbeat).success();
     }
 
     /**
@@ -118,6 +121,7 @@ class DownloadJobListenerTest {
 
         verify(inbox).release(event.eventId());
         verify(inbox, never()).complete(event.eventId());
+        verify(heartbeat).failure(org.mockito.ArgumentMatchers.any(IllegalStateException.class));
     }
 
     /**

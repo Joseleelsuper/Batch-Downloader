@@ -51,7 +51,7 @@ public class UserBundleController {
             @Valid @RequestBody CreateOwnBundleRequest request,
             Authentication authentication) {
         UserAccount account = currentAccount.require(authentication);
-        return bundles.create(account.id(), account.username(), request);
+        return bundles.create(account.id(), request);
     }
 
     @GetMapping("/{bundleId}")

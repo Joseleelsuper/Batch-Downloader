@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { t } from '../services/i18n';
+import { useTranslation } from '../services/i18n';
 
 interface Props {
   page: number;
@@ -13,6 +13,7 @@ interface Props {
 const pageSizes = [12, 24, 48];
 
 export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }: Props) {
+  const t = useTranslation();
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const [draftPage, setDraftPage] = useState(String(page));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -23,8 +24,8 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
   }, [page]);
 
   function commitPage() {
-    const parsed = Number(draftPage);
-    const next = Number.isFinite(parsed) ? Math.min(Math.max(Math.trunc(parsed), 1), pages) : page;
+    const parsed = draftPage === '' ? page : Number(draftPage);
+    const next = Math.min(Math.max(Math.trunc(parsed), 1), pages);
     setDraftPage(String(next));
     if (next !== page) onPageChange(next);
   }

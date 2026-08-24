@@ -1,7 +1,5 @@
 package es.ubu.batchdownloader.downloadworker.ports;
 
-import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ArchiveEntry;
-import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadedArtifact;
 import java.nio.file.Path;
 import java.io.IOException;
 import java.io.OutputStream;

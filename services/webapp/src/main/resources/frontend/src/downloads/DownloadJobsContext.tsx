@@ -9,14 +9,14 @@ import {
   useState,
 } from 'react';
 import {
-  ApiRequestError,
   cancelDownloadJob,
   connectDownloadJobEvents,
   createDownloadJob,
   downloadJobFileUrl,
-} from '../api/catalog';
-import type { CreateDownloadJobRequest } from '../api/catalog';
-import { t } from '../services/i18n';
+} from '../api/downloads';
+import type { CreateDownloadJobRequest } from '../api/downloads';
+import { ApiRequestError } from '../api/http';
+import { useTranslation, type Translator } from '../services/i18n';
 import type { DownloadJob } from '../types/catalog';
 
 const STORAGE_KEY = 'batch-downloader.download-jobs.v1';
@@ -108,7 +108,7 @@ function persistJobs(jobs: TrackedDownloadJob[]): void {
   }
 }
 
-function requestErrorMessage(cause: unknown): string {
+function requestErrorMessage(t: Translator, cause: unknown): string {
   if (!(cause instanceof ApiRequestError)) return t('download.job.createFailed');
   const knownKey = `download.job.apiError.${cause.code}`;
   const translated = t(knownKey);
@@ -116,6 +116,7 @@ function requestErrorMessage(cause: unknown): string {
 }
 
 export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const t = useTranslation();
   const [jobs, setJobs] = useState<TrackedDownloadJob[]>(readStoredJobs);
   const [startError, setStartError] = useState<string | null>(null);
   const jobsRef = useRef(jobs);
@@ -180,10 +181,10 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       });
       return created;
     } catch (cause) {
-      setStartError(requestErrorMessage(cause));
+      setStartError(requestErrorMessage(t, cause));
       throw cause;
     }
-  }, []);
+  }, [t]);
 
   const cancel = useCallback(async (jobId: string) => {
     const entry = jobs.find((candidate) => candidate.id === jobId);
@@ -195,7 +196,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       updateJob(jobId, await cancelDownloadJob(jobId));
     } catch (cause) {
       setJobs((current) => current.map((candidate) => candidate.id === jobId
-        ? { ...candidate, actionError: requestErrorMessage(cause) }
+        ? { ...candidate, actionError: requestErrorMessage(t, cause) }
         : candidate));
       throw cause;
     } finally {
@@ -203,7 +204,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
         ? { ...candidate, cancelling: false }
         : candidate));
     }
-  }, [jobs, updateJob]);
+  }, [jobs, t, updateJob]);
 
   const dismiss = useCallback((jobId: string) => {
     setJobs((current) => {
@@ -258,6 +259,7 @@ function DownloadJobTracker({
   claimAutoDownload: (jobId: string) => boolean;
 }>) {
   const terminal = entry.job ? TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status) : false;
+  const jobStatus = entry.job?.status;
 
   useEffect(() => {
     if (terminal) return undefined;
@@ -269,7 +271,7 @@ function DownloadJobTracker({
   }, [entry.id, onConnectionError, onJob, terminal]);
 
   useEffect(() => {
-    if (!entry.job || !DOWNLOADABLE_DOWNLOAD_STATUSES.has(entry.job.status)) return;
+    if (!jobStatus || !DOWNLOADABLE_DOWNLOAD_STATUSES.has(jobStatus)) return;
     if (!claimAutoDownload(entry.id)) return;
     const link = document.createElement('a');
     link.href = downloadJobFileUrl(entry.id);
@@ -278,7 +280,7 @@ function DownloadJobTracker({
     document.body.appendChild(link);
     link.click();
     link.remove();
-  }, [claimAutoDownload, entry.id, entry.job?.status]);
+  }, [claimAutoDownload, entry.id, jobStatus]);
 
   return null;
 }

@@ -9,19 +9,11 @@ import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationSummar
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
-import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UuidBytes;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -46,16 +38,38 @@ public class AdminAppRepository {
      * Estado {@code catalog} mantenido por {@code AdminAppRepository}.
      */
     private final CatalogRepository catalog;
+    /** Proyección aislada de las exportaciones administrativas. */
+    private final AdminAppExportRepository exports;
+    /** Persistencia aislada de las verificaciones de ausencia. */
+    private final InstallerAbsenceRepository absences;
+    /** Mutaciones aisladas de fuentes de descarga. */
+    private final AdminAppSourceRepository sources;
+    /** Reloj inyectado para escrituras reproducibles. */
+    private final Clock clock;
 
     /**
      * Inicializa una instancia de {@code AdminAppRepository}.
      *
      * @param jdbc Valor de {@code jdbc} utilizado por la operación.
      * @param catalog Acceso al catálogo utilizado por la operación.
+     * @param exports Proyección utilizada para construir exportaciones.
+     * @param absences Persistencia de verificaciones de ausencia.
+     * @param sources Persistencia de fuentes de descarga.
+     * @param clock Reloj de aplicación.
      */
-    public AdminAppRepository(JdbcTemplate jdbc, CatalogRepository catalog) {
+    public AdminAppRepository(
+            JdbcTemplate jdbc,
+            CatalogRepository catalog,
+            AdminAppExportRepository exports,
+            InstallerAbsenceRepository absences,
+            AdminAppSourceRepository sources,
+            Clock clock) {
         this.jdbc = jdbc;
         this.catalog = catalog;
+        this.exports = exports;
+        this.absences = absences;
+        this.sources = sources;
+        this.clock = clock;
     }
 
     /**
@@ -69,7 +83,7 @@ public class AdminAppRepository {
         UUID id = UUID.randomUUID();
         String slug = normalizeSlug(isBlank(request.slug()) ? request.name() : request.slug());
         String winstallId = isBlank(request.winstallId()) ? "manual." + slug : request.winstallId().trim();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         jdbc.update(
                 """
                 INSERT INTO software_apps
@@ -111,108 +125,17 @@ public class AdminAppRepository {
             String publicId,
             InstallerAbsenceVerificationRequest request,
             String actor) {
-        UUID appId = softwareAppId(publicId);
-        AbsenceAppState app = jdbc.query(
-                        """
-                        SELECT winstall_id, official_url, version, winstall_latest_version,
-                               winstall_summary_fingerprint, winstall_detail_fingerprint
-                        FROM software_apps
-                        WHERE id = ?
-                        FOR UPDATE
-                        """,
-                        rs -> rs.next()
-                                ? new AbsenceAppState(
-                                        rs.getString("winstall_id"),
-                                        rs.getString("official_url"),
-                                        rs.getLong("version"),
-                                        rs.getString("winstall_latest_version"),
-                                        rs.getString("winstall_summary_fingerprint"),
-                                        rs.getString("winstall_detail_fingerprint"))
-                                : null,
-                        UuidBytes.fromUuid(appId));
-        if (app == null) {
-            throw new NotFoundException("app_not_found", "Aplicación no encontrada.");
-        }
-        if (!isBlank(app.officialUrl()) && isBlank(request.officialPageUrl())) {
-            throw new ConflictException(
-                    "official_site_verification_required",
-                    "Debes comprobar también una página oficial accesible.");
-        }
-        Long candidates = jdbc.queryForObject(
-                """
-                SELECT COUNT(*)
-                FROM resolved_sources rs
-                JOIN download_sources ds ON ds.id = rs.download_source_id
-                WHERE ds.software_app_id = ? AND rs.catalog_downloadable = 1
-                """,
-                Long.class,
-                UuidBytes.fromUuid(appId));
-        if (candidates != null && candidates > 0) {
-            throw new ConflictException(
-                    "validated_installer_exists",
-                    "La aplicación ya tiene un instalador validado.");
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        jdbc.update(
-                """
-                UPDATE installer_absence_verifications
-                SET status = 'superseded', invalidated_at = ?,
-                    invalidation_reason = 'reverified', updated_at = ?
-                WHERE software_app_id = ? AND status = 'active'
-                """,
-                now,
-                now,
-                UuidBytes.fromUuid(appId));
-        UUID verificationId = UUID.randomUUID();
-        insertAbsenceVerification(verificationId, appId, app, request, actor, now);
-        jdbc.update(
-                """
-                UPDATE download_sources
-                SET resolution_status = 'missing', validation_status = 'unchecked',
-                    updated_at = ?, version = version + 1
-                WHERE software_app_id = ?
-                """,
-                now,
-                UuidBytes.fromUuid(appId));
-        return absenceVerification(verificationId);
+        return absences.confirm(publicId, request, actor);
     }
 
     /** Obtiene el acta activa más reciente de una aplicación. */
     public InstallerAbsenceVerification activeAbsenceVerification(String publicId) {
-        UUID appId = softwareAppId(publicId);
-        List<InstallerAbsenceVerification> rows = jdbc.query(
-                """
-                SELECT * FROM installer_absence_verifications
-                WHERE software_app_id = ? AND status = 'active'
-                ORDER BY verified_at DESC LIMIT 1
-                """,
-                this::mapAbsenceVerification,
-                UuidBytes.fromUuid(appId));
-        return rows.isEmpty() ? null : rows.get(0);
+        return absences.active(publicId);
     }
 
     /** Resume los ``missing`` sin evidencia usando la proyección autoritativa. */
     public InstallerAbsenceVerificationSummary absenceVerificationSummary() {
-        return jdbc.queryForObject(
-                """
-                SELECT
-                    (SELECT COUNT(*) FROM installer_absence_verifications
-                     WHERE status = 'active') active,
-                    SUM(a.catalog_status = 'missing') missing_count,
-                    SUM(a.catalog_status = 'review') review_count,
-                    SUM(a.catalog_status = 'missing' AND NOT EXISTS (
-                        SELECT 1 FROM installer_absence_verifications v
-                        WHERE v.software_app_id = a.id AND v.status = 'active'
-                    )) missing_without_evidence
-                FROM software_apps a
-                WHERE a.app_status = 'active'
-                """,
-                (rs, rowNum) -> new InstallerAbsenceVerificationSummary(
-                        rs.getLong("active"),
-                        rs.getLong("missing_count"),
-                        rs.getLong("missing_without_evidence"),
-                        rs.getLong("review_count")));
+        return absences.summary();
     }
 
     /**
@@ -244,11 +167,11 @@ public class AdminAppRepository {
                 coalesce(request.officialUrl(), before.officialUrl()),
                 coalesce(request.latestVersion(), before.latestVersion()),
                 isBlank(request.appStatus()) ? "active" : request.appStatus(),
-                LocalDateTime.now(),
+                LocalDateTime.now(clock),
                 UuidBytes.fromUuid(id));
         if (request.officialUrl() != null
                 && !request.officialUrl().equals(before.officialUrl())) {
-            invalidateAbsenceEvidence(id, "official_url_changed");
+            absences.invalidate(id, "official_url_changed");
         }
         return catalog.details(id.toString());
     }
@@ -294,7 +217,9 @@ public class AdminAppRepository {
         jdbc.update("DELETE FROM scraper_metric_snapshots");
         jdbc.update("DELETE FROM scraper_work_items");
         deleteApps("", List.of());
-        jdbc.update("UPDATE bundles SET app_count = 0, updated_at = ? WHERE app_count <> 0", LocalDateTime.now());
+        jdbc.update(
+                "UPDATE bundles SET app_count = 0, updated_at = ? WHERE app_count <> 0",
+                LocalDateTime.now(clock));
         return count == null ? 0 : count;
     }
 
@@ -304,54 +229,7 @@ public class AdminAppRepository {
      * @return Resultado producido por {@code exportCsv}.
      */
     public AppCsvExport exportCsv() {
-        List<ExportCandidate> candidates = jdbc.query(
-                """
-                SELECT HEX(a.id) AS app_key, a.name, a.winstall_id, a.official_url,
-                       ds.operating_system, rs.extension, BIN_TO_UUID(rs.id) AS source_ref
-                FROM software_apps a
-                LEFT JOIN download_sources ds ON ds.software_app_id = a.id
-                    AND ds.catalog_available = 1
-                LEFT JOIN resolved_sources rs ON rs.download_source_id = ds.id
-                    AND rs.catalog_downloadable = 1
-                WHERE a.app_status = 'active'
-                ORDER BY a.normalized_name ASC,
-                         a.id ASC,
-                         rs.is_latest DESC,
-                         COALESCE(rs.release_rank, 9999) ASC,
-                         (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
-                         rs.score DESC,
-                         rs.checked_at DESC
-                """,
-                this::mapExportCandidate);
-        Map<String, ExportRow> rows = new LinkedHashMap<>();
-        for (ExportCandidate candidate : candidates) {
-            ExportRow row = rows.computeIfAbsent(candidate.appKey(), key -> new ExportRow(
-                    candidate.name(),
-                    winstallUrl(candidate.winstallId()),
-                    blankToNone(candidate.officialUrl())));
-            String platform = platformKey(candidate.operatingSystem(), candidate.extension());
-            if (platform != null && candidate.sourceRef() != null && !candidate.sourceRef().isBlank()) {
-                row.putIfMissing(platform, candidate.sourceRef());
-            }
-        }
-
-        StringBuilder csv = new StringBuilder(
-                "Nombre,Winstall,URL,WindowsSourceRef,LinuxSourceRef,MacOSSourceRef\r\n");
-        for (ExportRow row : rows.values()) {
-            csv.append(csvCell(row.name()))
-                    .append(',')
-                    .append(csvCell(row.winstall()))
-                    .append(',')
-                    .append(csvCell(row.officialUrl()))
-                    .append(',')
-                    .append(csvCell(row.windows()))
-                    .append(',')
-                    .append(csvCell(row.linux()))
-                    .append(',')
-                    .append(csvCell(row.macos()))
-                    .append("\r\n");
-        }
-        return new AppCsvExport(csv.toString(), rows.size());
+        return exports.exportCsv();
     }
 
     /**
@@ -365,33 +243,7 @@ public class AdminAppRepository {
      */
     @Transactional
     public void patchSource(String appId, String sourceId, PatchSourceRequest request) {
-        UUID applicationId = softwareAppId(appId);
-        UUID id = parseUuid(sourceId);
-        int updated = jdbc.update(
-                """
-                UPDATE download_sources
-                SET operating_system = COALESCE(?, operating_system),
-                    architecture = COALESCE(?, architecture),
-                    initial_url = COALESCE(?, initial_url),
-                    resolver_type = COALESCE(?, resolver_type),
-                    resolution_status = COALESCE(?, resolution_status),
-                    validation_status = COALESCE(?, validation_status),
-                    updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND software_app_id = ?
-                """,
-                blankToNull(request.operatingSystem()),
-                blankToNull(request.architecture()),
-                blankToNull(request.initialUrl()),
-                blankToNull(request.resolverType()),
-                blankToNull(request.resolutionStatus()),
-                blankToNull(request.validationStatus()),
-                LocalDateTime.now(),
-                UuidBytes.fromUuid(id),
-                UuidBytes.fromUuid(applicationId));
-        if (updated == 0) {
-            throw new NotFoundException("source_not_found", "La fuente no existe.");
-        }
+        sources.patch(appId, sourceId, request);
     }
 
     /**
@@ -402,25 +254,6 @@ public class AdminAppRepository {
      */
     public UUID softwareAppId(String publicId) {
         return catalog.softwareAppId(publicId);
-    }
-
-    /**
-     * Transforma el valor recibido mediante {@code mapExportCandidate}.
-     *
-     * @param rs Valor de {@code rs} utilizado por la operación.
-     * @param rowNum Valor de {@code rowNum} utilizado por la operación.
-     * @return Resultado producido por {@code mapExportCandidate}.
-     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
-     */
-    private ExportCandidate mapExportCandidate(ResultSet rs, int rowNum) throws SQLException {
-        return new ExportCandidate(
-                rs.getString("app_key"),
-                rs.getString("name"),
-                rs.getString("winstall_id"),
-                rs.getString("official_url"),
-                rs.getString("operating_system"),
-                rs.getString("extension"),
-                rs.getString("source_ref"));
     }
 
     /**
@@ -568,7 +401,7 @@ public class AdminAppRepository {
             jdbc.update(
                     "UPDATE bundles SET app_count = ?, updated_at = ? WHERE id = ?",
                     count == null ? 0 : count,
-                    LocalDateTime.now(),
+                    LocalDateTime.now(clock),
                     UuidBytes.fromUuid(bundleId));
         }
     }
@@ -608,7 +441,7 @@ public class AdminAppRepository {
         if (tags == null) {
             return;
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         for (String tag : tags.stream().filter(value -> !isBlank(value)).distinct().toList()) {
             jdbc.update(
                     """
@@ -622,156 +455,6 @@ public class AdminAppRepository {
                     normalizeText(tag),
                     source,
                     now);
-        }
-    }
-
-    /** Inserta el acta con dos o tres páginas revisadas, nunca con URLs de binarios. */
-    private void insertAbsenceVerification(
-            UUID verificationId,
-            UUID appId,
-            AbsenceAppState app,
-            InstallerAbsenceVerificationRequest request,
-            String actor,
-            LocalDateTime now) {
-        String winstallUrl = "https://winstall.app/apps/" + app.winstallId();
-        boolean hasOfficialPage = !isBlank(request.officialPageUrl());
-        String checkedUrls = hasOfficialPage
-                ? "JSON_ARRAY(?, ?, ?)"
-                : "JSON_ARRAY(?, ?)";
-        String sql = """
-                INSERT INTO installer_absence_verifications
-                (id, software_app_id, status, reason_code, notes, checked_urls_json,
-                evidence_json, verified_by, verified_at, app_version,
-                 winstall_latest_version, winstall_summary_fingerprint,
-                 winstall_detail_fingerprint, official_url_fingerprint,
-                 invalidated_at, invalidation_reason, created_at, updated_at)
-                VALUES (?, ?, 'active', ?, ?, %s,
-                        JSON_OBJECT('winstall', TRUE, 'manifest', TRUE, 'official', ?,
-                                    'ambiguousAccess', FALSE),
-                        ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
-                """.formatted(checkedUrls);
-        List<Object> parameters = new java.util.ArrayList<>();
-        parameters.add(UuidBytes.fromUuid(verificationId));
-        parameters.add(UuidBytes.fromUuid(appId));
-        parameters.add(request.reasonCode());
-        parameters.add(request.notes());
-        parameters.add(winstallUrl);
-        parameters.add(request.manifestUrl());
-        if (hasOfficialPage) {
-            parameters.add(request.officialPageUrl());
-        }
-        parameters.add(hasOfficialPage && request.officialConfirmedAbsent());
-        parameters.add(actor);
-        parameters.add(now);
-        parameters.add(app.version());
-        parameters.add(app.winstallLatestVersion());
-        parameters.add(app.summaryFingerprint());
-        parameters.add(app.detailFingerprint());
-        parameters.add(fingerprint(app.officialUrl()));
-        parameters.add(now);
-        parameters.add(now);
-        jdbc.update(sql, parameters.toArray());
-    }
-
-    /** Carga una verificación por su clave estable. */
-    private InstallerAbsenceVerification absenceVerification(UUID verificationId) {
-        return jdbc.queryForObject(
-                "SELECT * FROM installer_absence_verifications WHERE id = ?",
-                this::mapAbsenceVerification,
-                UuidBytes.fromUuid(verificationId));
-    }
-
-    /** Convierte una fila de evidencia sin descifrar ni exponer instaladores. */
-    private InstallerAbsenceVerification mapAbsenceVerification(ResultSet rs, int rowNum)
-            throws SQLException {
-        return new InstallerAbsenceVerification(
-                UuidBytes.toUuid(rs.getBytes("id")).toString(),
-                UuidBytes.toUuid(rs.getBytes("software_app_id")).toString(),
-                rs.getString("status"),
-                rs.getString("reason_code"),
-                rs.getString("notes"),
-                rs.getString("checked_urls_json"),
-                rs.getString("verified_by"),
-                rs.getTimestamp("verified_at").toLocalDateTime(),
-                rs.getLong("app_version"),
-                rs.getString("winstall_latest_version"),
-                rs.getString("winstall_summary_fingerprint"),
-                rs.getString("winstall_detail_fingerprint"),
-                rs.getString("official_url_fingerprint"),
-                nullableDate(rs, "invalidated_at"),
-                rs.getString("invalidation_reason"));
-    }
-
-    /** Invalida la evidencia al cambiar la página oficial y devuelve el caso a revisión. */
-    private void invalidateAbsenceEvidence(UUID appId, String reason) {
-        LocalDateTime now = LocalDateTime.now();
-        int invalidated = jdbc.update(
-                """
-                UPDATE installer_absence_verifications
-                SET status = 'invalidated', invalidated_at = ?, invalidation_reason = ?,
-                    updated_at = ?
-                WHERE software_app_id = ? AND status = 'active'
-                """,
-                now,
-                reason,
-                now,
-                UuidBytes.fromUuid(appId));
-        if (invalidated == 0) {
-            return;
-        }
-        Long available = jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM download_sources
-                WHERE software_app_id = ? AND catalog_available = 1
-                """,
-                Long.class,
-                UuidBytes.fromUuid(appId));
-        if (available == null || available == 0) {
-            jdbc.update(
-                    """
-                    UPDATE download_sources
-                    SET resolution_status = 'requires_manual_review',
-                        validation_status = 'unchecked', updated_at = ?, version = version + 1
-                    WHERE software_app_id = ?
-                    """,
-                    now,
-                    UuidBytes.fromUuid(appId));
-        }
-    }
-
-    /** Calcula una huella de página sin almacenar cabeceras, credenciales ni instaladores. */
-    private String fingerprint(String value) {
-        if (isBlank(value)) {
-            return null;
-        }
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(value.trim().getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 no está disponible.", exception);
-        }
-    }
-
-    /** Lee una fecha SQL opcional. */
-    private LocalDateTime nullableDate(ResultSet rs, String column) throws SQLException {
-        var timestamp = rs.getTimestamp(column);
-        return timestamp == null ? null : timestamp.toLocalDateTime();
-    }
-
-    /**
-     * Analiza el contenido recibido mediante {@code parseUuid}.
-     *
-     * @param raw Valor de {@code raw} utilizado por la operación.
-     * @return Resultado producido por {@code parseUuid}.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    private UUID parseUuid(String raw) {
-        try {
-            return UUID.fromString(raw);
-        } catch (IllegalArgumentException exception) {
-            throw new NotFoundException("source_not_found", "La fuente no existe.");
         }
     }
 
@@ -810,16 +493,6 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code blankToNull}.
-     *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code blankToNull}.
-     */
-    private String blankToNull(String value) {
-        return isBlank(value) ? null : value;
-    }
-
-    /**
      * Indica si se cumple la condición mediante {@code isBlank}.
      *
      * @param value Valor que debe procesarse.
@@ -830,71 +503,6 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code winstallUrl}.
-     *
-     * @param winstallId Identificador de {@code winstall} utilizado por la operación.
-     * @return Resultado producido por {@code winstallUrl}.
-     */
-    private String winstallUrl(String winstallId) {
-        if (isBlank(winstallId) || winstallId.startsWith("manual.")) {
-            return "None";
-        }
-        return "https://winstall.app/apps/" + winstallId.trim();
-    }
-
-    /**
-     * Ejecuta la operación {@code blankToNone}.
-     *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code blankToNone}.
-     */
-    private String blankToNone(String value) {
-        return isBlank(value) ? "None" : value.trim();
-    }
-
-    /**
-     * Ejecuta la operación {@code platformKey}.
-     *
-     * @param operatingSystem Valor de {@code operatingSystem} utilizado por la operación.
-     * @param extension Valor de {@code extension} utilizado por la operación.
-     * @return Resultado producido por {@code platformKey}.
-     */
-    private String platformKey(String operatingSystem, String extension) {
-        String os = operatingSystem == null ? "" : operatingSystem.toLowerCase(Locale.ROOT).trim();
-        if (os.contains("windows") || os.equals("win")) {
-            return "windows";
-        }
-        if (os.contains("linux")) {
-            return "linux";
-        }
-        if (os.contains("mac") || os.contains("darwin") || os.contains("osx")) {
-            return "macos";
-        }
-
-        String ext = extension == null ? "" : extension.toLowerCase(Locale.ROOT).replace(".", "").trim();
-        return switch (ext) {
-            case "exe", "msi", "msix", "appx" -> "windows";
-            case "deb", "rpm", "appimage", "flatpak" -> "linux";
-            case "dmg", "pkg" -> "macos";
-            default -> null;
-        };
-    }
-
-    /**
-     * Ejecuta la operación {@code csvCell}.
-     *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code csvCell}.
-     */
-    private String csvCell(String value) {
-        String safe = isBlank(value) ? "None" : value;
-        if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")) {
-            return "\"" + safe.replace("\"", "\"\"") + "\"";
-        }
-        return safe;
-    }
-
-    /**
      * Representa los datos inmutables de {@code AppCsvExport}.
      *
      * @param content Valor de {@code content} incluido en el record.
@@ -902,149 +510,4 @@ public class AdminAppRepository {
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      */
     public record AppCsvExport(String content, int rowCount) {}
-
-    /** Campos locales que sellan una verificación negativa frente a cambios posteriores. */
-    private record AbsenceAppState(
-            String winstallId,
-            String officialUrl,
-            long version,
-            String winstallLatestVersion,
-            String summaryFingerprint,
-            String detailFingerprint) {}
-
-    /**
-     * Representa los datos inmutables de {@code ExportCandidate}.
-     *
-     * @param appKey Valor de {@code appKey} incluido en el record.
-     * @param name Valor de {@code name} incluido en el record.
-     * @param winstallId Valor de {@code winstallId} incluido en el record.
-     * @param officialUrl Valor de {@code officialUrl} incluido en el record.
-     * @param operatingSystem Valor de {@code operatingSystem} incluido en el record.
-     * @param extension Valor de {@code extension} incluido en el record.
-     * @param sourceRef Valor de {@code sourceRef} incluido en el record.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     */
-    private record ExportCandidate(
-            String appKey,
-            String name,
-            String winstallId,
-            String officialUrl,
-            String operatingSystem,
-            String extension,
-            String sourceRef) {}
-
-    /**
-     * Implementa el componente {@code ExportRow}.
-     *
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     */
-    private static final class ExportRow {
-        /**
-         * Estado {@code name} mantenido por {@code ExportRow}.
-         */
-        private final String name;
-        /**
-         * Estado {@code winstall} mantenido por {@code ExportRow}.
-         */
-        private final String winstall;
-        /**
-         * Estado {@code officialUrl} mantenido por {@code ExportRow}.
-         */
-        private final String officialUrl;
-        /**
-         * Estado {@code windows} mantenido por {@code ExportRow}.
-         */
-        private String windows = "None";
-        /**
-         * Estado {@code linux} mantenido por {@code ExportRow}.
-         */
-        private String linux = "None";
-        /**
-         * Estado {@code macos} mantenido por {@code ExportRow}.
-         */
-        private String macos = "None";
-
-        /**
-         * Inicializa una instancia de {@code ExportRow}.
-         *
-         * @param name Nombre del elemento sobre el que se actúa.
-         * @param winstall Valor de {@code winstall} utilizado por la operación.
-         * @param officialUrl Dirección de {@code official} que debe procesarse.
-         */
-        private ExportRow(String name, String winstall, String officialUrl) {
-            this.name = name;
-            this.winstall = winstall;
-            this.officialUrl = officialUrl;
-        }
-
-        /**
-         * Ejecuta la operación {@code putIfMissing}.
-         *
-         * @param platform Valor de {@code platform} utilizado por la operación.
-         * @param url URL del recurso que debe procesarse.
-         */
-        private void putIfMissing(String platform, String url) {
-            if ("windows".equals(platform) && "None".equals(windows)) {
-                windows = url;
-            } else if ("linux".equals(platform) && "None".equals(linux)) {
-                linux = url;
-            } else if ("macos".equals(platform) && "None".equals(macos)) {
-                macos = url;
-            }
-        }
-
-        /**
-         * Ejecuta la operación {@code name}.
-         *
-         * @return Resultado producido por {@code name}.
-         */
-        private String name() {
-            return name;
-        }
-
-        /**
-         * Ejecuta la operación {@code winstall}.
-         *
-         * @return Resultado producido por {@code winstall}.
-         */
-        private String winstall() {
-            return winstall;
-        }
-
-        /**
-         * Ejecuta la operación {@code officialUrl}.
-         *
-         * @return Resultado producido por {@code officialUrl}.
-         */
-        private String officialUrl() {
-            return officialUrl;
-        }
-
-        /**
-         * Ejecuta la operación {@code windows}.
-         *
-         * @return Resultado producido por {@code windows}.
-         */
-        private String windows() {
-            return windows;
-        }
-
-        /**
-         * Ejecuta la operación {@code linux}.
-         *
-         * @return Resultado producido por {@code linux}.
-         */
-        private String linux() {
-            return linux;
-        }
-
-        /**
-         * Ejecuta la operación {@code macos}.
-         *
-         * @return Resultado producido por {@code macos}.
-         */
-        private String macos() {
-            return macos;
-        }
-    }
 }

@@ -1,5 +1,6 @@
 package es.ubu.batchdownloader.identity.infrastructure.messaging;
 
+import es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.messaging.OutboxWriter;
@@ -26,16 +27,16 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
      * Estado {@code outbox} mantenido por {@code IdentityOutboxPublisher}.
      */
     private final OutboxWriter outbox;
-    private final NotificationTokenCipher tokenCipher;
+    private final NotificationTokenEnvelope tokenEnvelope;
 
     /**
      * Inicializa una instancia de {@code IdentityOutboxPublisher}.
      *
      * @param outbox Valor de {@code outbox} utilizado por la operación.
      */
-    IdentityOutboxPublisher(OutboxWriter outbox, NotificationTokenCipher tokenCipher) {
+    IdentityOutboxPublisher(OutboxWriter outbox, NotificationTokenEnvelope tokenEnvelope) {
         this.outbox = outbox;
-        this.tokenCipher = tokenCipher;
+        this.tokenEnvelope = tokenEnvelope;
     }
 
     /**
@@ -76,6 +77,6 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
                         "template", template,
                         "parameters", Map.of(
                                 "username", user.username(),
-                                "token", tokenCipher.encrypt(rawToken))));
+                                "token", tokenEnvelope.encrypt(rawToken))));
     }
 }

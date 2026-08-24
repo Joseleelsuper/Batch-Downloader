@@ -1,9 +1,8 @@
 export type SemanticArtifactState =
-  | 'downloading'
-  | 'validating'
   | 'ready'
   | 'incompatible'
-  | 'failed';
+  | 'failed'
+  | 'deleted';
 
 export type SemanticDeploymentState =
   | 'not_prepared'
@@ -14,7 +13,6 @@ export type SemanticDeploymentState =
   | 'failed';
 
 export type SemanticOperationKind =
-  | 'download'
   | 'benchmark'
   | 'prepare'
   | 'activate'
@@ -98,7 +96,7 @@ export interface SemanticModel {
   lastBenchmark?: {
     id: string;
     datasetHash: string;
-    scope: 'legacy' | 'smoke' | 'full';
+    scope: 'historical' | 'smoke' | 'full';
     hardwareFingerprint?: string | null;
     metric?: SemanticBenchmarkMetric | null;
     current: boolean;
@@ -128,7 +126,7 @@ export interface SemanticBenchmarkRun {
   metrics: SemanticBenchmarkMetric[];
   selectedModelVersion?: string | null;
   modelIds: string[];
-  scope: 'legacy' | 'smoke' | 'full';
+  scope: 'historical' | 'smoke' | 'full';
   hardwareFingerprint?: string | null;
   documentCount: number;
   queryCount: number;

@@ -13,3 +13,6 @@ CREATE TABLE IF NOT EXISTS notification_inbox (
 
 CREATE INDEX IF NOT EXISTS idx_notification_inbox_status_lease
     ON notification_inbox (status, lease_until_epoch_ms);
+
+CREATE INDEX IF NOT EXISTS idx_notification_inbox_status_processed
+    ON notification_inbox (status, processed_at_epoch_ms);

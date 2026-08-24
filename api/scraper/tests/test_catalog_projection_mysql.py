@@ -42,10 +42,10 @@ def mysql_url() -> Iterator[str]:
     Yields:
         Iterator[str]: Elemento producido por la operación.
     """
-    container = MySqlContainer("mysql:8.4").with_command(
-        "--log-bin-trust-function-creators=1"
-    )
     try:
+        container = MySqlContainer("mysql:8.4").with_command(
+            "--log-bin-trust-function-creators=1"
+        )
         container.start()
     except Exception as exc:  # pragma: no cover - depende del runtime Docker del host
         if os.environ.get("CI"):
@@ -74,7 +74,7 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
         monkeypatch (pytest.MonkeyPatch): Utilidad de pytest para sustituir dependencias durante la
             prueba.
     """
-    monkeypatch.setenv("SCRAPPER_DATABASE_URL_OVERRIDE", mysql_url)
+    monkeypatch.setenv("SCRAPER_DATABASE_URL_OVERRIDE", mysql_url)
     get_settings.cache_clear()
     config = Config(str(SCRAPER_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(SCRAPER_ROOT / "alembic"))

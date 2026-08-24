@@ -97,13 +97,6 @@ public class ScraperInternalClient {
     }
 
     /**
-     * Ejecuta la operación {@code triggerRunOnce}.
-     */
-    public void triggerRunOnce() {
-        post("/api/internal/scraper/run-once", "", Void.class, "scraper_run_once_failed");
-    }
-
-    /**
      * Ejecuta la operación {@code generateDescription}.
      *
      * @param appId Identificador de {@code app} utilizado por la operación.

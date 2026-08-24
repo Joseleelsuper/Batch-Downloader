@@ -918,6 +918,38 @@ class ScraperWorkItem(Base, TimestampMixin):
     """
 
 
+class ScraperWorkerHeartbeat(Base):
+    """Mantiene la salud agregada del proceso persistente de scheduler."""
+
+    __tablename__ = "scraper_worker_heartbeats"
+
+    role: Mapped[str] = mapped_column(String(64), primary_key=True)
+    """Rol estable del proceso observado."""
+    instance_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    """Identidad efímera que cambia tras cada reinicio."""
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    """Inicio de la instancia que publicó el último pulso."""
+    heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, nullable=False, index=True
+    )
+    """Último pulso independiente del resultado del trabajo."""
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime)
+    """Última iteración completada sin error."""
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime)
+    """Última iteración fallida."""
+    last_error_code: Mapped[str | None] = mapped_column(String(128))
+    """Clase segura del último error, sin su mensaje."""
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    """Fallos consecutivos desde el último éxito."""
+
+    __table_args__ = (
+        CheckConstraint(
+            "consecutive_failures >= 0",
+            name="ck_scraper_worker_heartbeat_failures_nonnegative",
+        ),
+    )
+
+
 class ScraperWorkerSnapshot(Base):
     """Representa el componente `ScraperWorkerSnapshot`.
     """

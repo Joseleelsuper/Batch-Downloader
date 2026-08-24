@@ -77,7 +77,7 @@ class NotificationRequestedMessageMapperTest {
     void supportsTheIdentityTemplatesPublishedByCoreApi() {
         NotificationRequestedMessage message = message(
                 "EMAIL_VERIFICATION",
-                Map.of("username", "Ada", "token", "secret-token"));
+                Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
 
         EmailNotification result = mapper.map(message, ROUTING_KEY);
 
@@ -110,7 +110,7 @@ class NotificationRequestedMessageMapperTest {
     void rejectsUnsupportedSchemaVersions() {
         NotificationRequestedMessage original = message(
                 "PASSWORD_RESET",
-                Map.of("username", "Ada", "token", "secret-token"));
+                Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
         NotificationRequestedMessage unsupported = new NotificationRequestedMessage(
                 original.eventId(),
                 original.type(),
@@ -132,7 +132,7 @@ class NotificationRequestedMessageMapperTest {
     void rejectsARoutingKeyThatDoesNotMatchTheContract() {
         NotificationRequestedMessage message = message(
                 "PASSWORD_RESET",
-                Map.of("username", "Ada", "token", "secret-token"));
+                Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
 
         assertThatThrownBy(() -> mapper.map(message, "batch.events.v1.download.job.ready"))
                 .isInstanceOf(InvalidDownloadEventException.class)
@@ -151,6 +151,17 @@ class NotificationRequestedMessageMapperTest {
         assertThatThrownBy(() -> mapper.map(message, ROUTING_KEY))
                 .isInstanceOf(InvalidDownloadEventException.class)
                 .hasMessageContaining("string, number o boolean");
+    }
+
+    @Test
+    void rejectsPlaintextIdentityTokens() {
+        NotificationRequestedMessage message = message(
+                "PASSWORD_RESET",
+                Map.of("username", "Ada", "token", "legacy-plaintext-token"));
+
+        assertThatThrownBy(() -> mapper.map(message, ROUTING_KEY))
+                .isInstanceOf(InvalidDownloadEventException.class)
+                .hasMessageContaining("enc:v1");
     }
 
     /**

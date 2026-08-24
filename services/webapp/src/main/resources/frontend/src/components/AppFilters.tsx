@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { CatalogApp, FilterKey, OperatingSystem } from '../types/catalog';
-import { t } from '../services/i18n';
+import { useTranslation, type TranslationKey } from '../services/i18n';
 import { OperatingSystemIcon, operatingSystemLabel } from './OperatingSystemIcons';
 
 const MAX_SELECTED_APPS = 100;
@@ -20,13 +20,13 @@ const VISIBLE_SELECTED_APPS = 17;
 
 const filters: Array<{
   key: FilterKey;
-  label: string;
+  labelKey: TranslationKey;
   icon: LucideIcon;
 }> = [
-  { key: 'all', label: t('catalog.filter.all'), icon: Grid2X2 },
-  { key: 'available', label: t('catalog.filter.available'), icon: CheckCircle2 },
-  { key: 'review', label: t('catalog.filter.review'), icon: AlertTriangle },
-  { key: 'missing', label: t('catalog.filter.missing'), icon: XCircle },
+  { key: 'all', labelKey: 'catalog.filter.all', icon: Grid2X2 },
+  { key: 'available', labelKey: 'catalog.filter.available', icon: CheckCircle2 },
+  { key: 'review', labelKey: 'catalog.filter.review', icon: AlertTriangle },
+  { key: 'missing', labelKey: 'catalog.filter.missing', icon: XCircle },
 ];
 
 interface Props {
@@ -64,6 +64,7 @@ export function AppFilters({
   operatingSystems = ['windows', 'linux', 'macos'],
   onToggleOperatingSystem,
 }: Props) {
+  const t = useTranslation();
   const facetSearch = catalogSearch ? `?${catalogSearch}` : '';
   const selectedCount = selectedApps.length;
   const visibleSelectedApps = selectedApps.slice(-VISIBLE_SELECTED_APPS).reverse();
@@ -86,7 +87,7 @@ export function AppFilters({
               type="button"
             >
               <Icon size={20} />
-              <span>{filter.label}</span>
+              <span>{t(filter.labelKey)}</span>
               <strong>{(counts[filter.key] ?? 0).toLocaleString('es-ES')}</strong>
             </button>
           );
@@ -141,8 +142,8 @@ export function AppFilters({
                 className={`platform-filter-button ${active ? 'platform-filter-button-active' : ''}`}
                 type="button"
                 aria-pressed={active}
-                title={operatingSystemLabel(operatingSystem)}
-                aria-label={operatingSystemLabel(operatingSystem)}
+                title={operatingSystemLabel(operatingSystem, t)}
+                aria-label={operatingSystemLabel(operatingSystem, t)}
                 onClick={() => onToggleOperatingSystem?.(operatingSystem)}
               >
                 <OperatingSystemIcon operatingSystem={operatingSystem} decorative />

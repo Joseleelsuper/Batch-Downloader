@@ -114,6 +114,28 @@ class ValidationResult:
     """
 
 
+@dataclass(frozen=True)
+class _HttpNavigation:
+    """Agrupa la respuesta final y el contexto seguro de redirección."""
+
+    response: httpx.Response
+    current_url: str
+    previous_url: str | None
+
+
+@dataclass
+class _ArtifactEvidence:
+    """Estado interno de la inspección de formato de un instalador."""
+
+    filename: str | None
+    extension: str | None
+    content_type: str
+    disposition: str
+    size_bytes: int | None
+    looks_binary: bool
+    signature_response: httpx.Response | None = None
+
+
 class DownloadValidator:
     """Representa el componente `DownloadValidator`.
     """
@@ -223,9 +245,33 @@ class DownloadValidator:
         Returns:
             ValidationResult: Resultado producido por la operación.
         """
+        navigation = await self._request_final_response(client, candidate)
+        if isinstance(navigation, ValidationResult):
+            return navigation
+
+        response = navigation.response
+        current_url = navigation.current_url
+        if response.status_code >= 400:
+            attested = self._winstall_edge_attested_result(candidate, current_url, response)
+            if attested:
+                return attested
+            return self._fail(current_url, f"http_{response.status_code}")
+
+        return await self._validate_artifact_response(
+            client,
+            candidate,
+            navigation,
+            require_signature=require_signature,
+        )
+
+    async def _request_final_response(
+        self,
+        client: httpx.AsyncClient,
+        candidate: InstallerCandidate,
+    ) -> _HttpNavigation | ValidationResult:
+        """Sigue un número acotado de redirecciones y valida cada destino."""
         current_url = candidate.url
         previous_url: str | None = None
-        response: httpx.Response | None = None
         for _ in range(self.settings.max_redirects + 1):
             request_referer = previous_url or same_site_referer(current_url, candidate.referer)
             response = await request_metadata(
@@ -234,49 +280,70 @@ class DownloadValidator:
                 referer=request_referer,
                 probe_html=candidate_has_download_intent(candidate),
             )
-            if response.is_redirect:
-                location = response.headers.get("location")
-                if not location:
-                    return self._fail(current_url, "redirect_without_location")
-                previous_url = current_url
-                try:
-                    current_url = urljoin(current_url, location)
-                except ValueError:
-                    return self._fail(current_url, "redirect_invalid_url")
-                try:
-                    parsed = urlparse(current_url)
-                    hostname = parsed.hostname
-                except ValueError:
-                    return self._fail(current_url, "redirect_invalid_url")
-                if not self._scheme_allowed(candidate, parsed.scheme):
-                    return self._fail(current_url, "redirect_unsupported_scheme")
-                if not hostname:
-                    return self._fail(current_url, "redirect_missing_domain")
-                if parsed.username is not None or parsed.password is not None:
-                    return self._fail(current_url, "redirect_url_credentials_forbidden")
-                if is_github_source_archive(current_url):
-                    return self._fail(current_url, "redirect_github_source_archive")
-                if (
-                    hostname.lower().endswith("github.com")
-                    and detect_extension(current_url) == ".zip"
-                    and not is_github_release_asset(current_url)
-                    and not is_verified_winstall_candidate(candidate)
-                ):
-                    return self._fail(current_url, "redirect_github_zip_not_release_asset")
-                if not await domain_has_public_dns(hostname):
-                    return self._fail(current_url, "redirect_dns_not_public")
-                continue
-            break
-        else:
-            return self._fail(current_url, "too_many_redirects")
+            if not response.is_redirect:
+                return _HttpNavigation(response, current_url, previous_url)
 
-        if response is None:
-            return self._fail(current_url, "no_response")
-        if response.status_code >= 400:
-            attested = self._winstall_edge_attested_result(candidate, current_url, response)
-            if attested:
-                return attested
-            return self._fail(current_url, f"http_{response.status_code}")
+            location = response.headers.get("location")
+            if not location:
+                return self._fail(current_url, "redirect_without_location")
+            redirected = await self._validated_redirect_url(candidate, current_url, location)
+            if isinstance(redirected, ValidationResult):
+                return redirected
+            previous_url, current_url = current_url, redirected
+        return self._fail(current_url, "too_many_redirects")
+
+    async def _validated_redirect_url(
+        self,
+        candidate: InstallerCandidate,
+        current_url: str,
+        location: str,
+    ) -> str | ValidationResult:
+        """Resuelve y valida un destino antes de efectuar la siguiente petición."""
+        try:
+            redirected_url = urljoin(current_url, location)
+            parsed = urlparse(redirected_url)
+            hostname = parsed.hostname
+        except ValueError:
+            return self._fail(current_url, "redirect_invalid_url")
+        if not self._scheme_allowed(candidate, parsed.scheme):
+            return self._fail(redirected_url, "redirect_unsupported_scheme")
+        if not hostname:
+            return self._fail(redirected_url, "redirect_missing_domain")
+        if parsed.username is not None or parsed.password is not None:
+            return self._fail(redirected_url, "redirect_url_credentials_forbidden")
+        if is_github_source_archive(redirected_url):
+            return self._fail(redirected_url, "redirect_github_source_archive")
+        if self._is_unverified_github_zip(candidate, redirected_url, hostname):
+            return self._fail(redirected_url, "redirect_github_zip_not_release_asset")
+        if not await domain_has_public_dns(hostname):
+            return self._fail(redirected_url, "redirect_dns_not_public")
+        return redirected_url
+
+    @staticmethod
+    def _is_unverified_github_zip(
+        candidate: InstallerCandidate,
+        url: str,
+        hostname: str,
+    ) -> bool:
+        """Detecta archivos ZIP de GitHub que no proceden de una release verificada."""
+        return (
+            hostname.lower().endswith("github.com")
+            and detect_extension(url) == ".zip"
+            and not is_github_release_asset(url)
+            and not is_verified_winstall_candidate(candidate)
+        )
+
+    async def _validate_artifact_response(
+        self,
+        client: httpx.AsyncClient,
+        candidate: InstallerCandidate,
+        navigation: _HttpNavigation,
+        *,
+        require_signature: bool,
+    ) -> ValidationResult:
+        """Comprueba metadatos, formato y firma de la respuesta final."""
+        response = navigation.response
+        current_url = navigation.current_url
 
         content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
         size_bytes = response_size_bytes(response)
@@ -299,85 +366,169 @@ class DownloadValidator:
         if unsupported_extension:
             return self._fail(current_url, f"unsupported_extension:{unsupported_extension}")
         disposition = response.headers.get("content-disposition", "").lower()
-        looks_binary = (
-            content_type in self.formats.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
-            or "attachment" in disposition
+        evidence = _ArtifactEvidence(
+            filename=filename,
+            extension=extension,
+            content_type=content_type,
+            disposition=disposition,
+            size_bytes=size_bytes,
+            looks_binary=(
+                content_type in self.formats.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
+                or "attachment" in disposition
+            ),
         )
         if content_type.startswith("text/html"):
             attested = self._winstall_edge_attested_result(candidate, current_url, response)
             if attested:
                 return attested
             return self._fail(current_url, "html_response")
-        signature_response: httpx.Response | None = None
-        if not extension:
-            signature_response = response
-            if not signature_response.content:
-                signature_response = await request_partial(
-                    client,
-                    current_url,
-                    referer=previous_url or same_site_referer(current_url, candidate.referer),
-                )
-            if signature_response.status_code >= 400:
-                return self._fail(current_url, f"http_{signature_response.status_code}")
-            extension = self.formats.infer_extension(signature_response.content)
-            if not extension or not candidate_has_download_intent(candidate):
-                return self._fail(current_url, "missing_installer_extension")
-            filename = filename or filename_for_inferred_extension(current_url, extension)
-            looks_binary = True
+
+        if not evidence.extension:
+            extension_error = await self._infer_missing_extension(
+                client, candidate, navigation, evidence
+            )
+            if extension_error:
+                return extension_error
         if require_signature:
-            artifact_format = self.formats.get(extension)
-            if artifact_format is None:
-                return self._fail(current_url, "unsupported_installer_format")
-            signature_response = signature_response or response
-            if artifact_format.signatures:
-                if not signature_response.content:
-                    signature_response = await request_partial(
-                        client,
-                        current_url,
-                        referer=previous_url
-                        or same_site_referer(current_url, candidate.referer),
-                    )
-                if signature_response.status_code >= 400:
-                    return self._fail(
-                        current_url,
-                        f"http_{signature_response.status_code}",
-                    )
-                if not self.formats.matches_signature(extension, signature_response.content):
-                    return self._fail(current_url, "installer_signature_mismatch")
-            elif (
-                content_type not in set(artifact_format.media_types)
-                and content_type not in GENERIC_BINARY_MEDIA_TYPES
-                and "attachment" not in disposition
-            ):
-                return self._fail(current_url, "installer_content_type_mismatch")
-        if not looks_binary:
-            signature_response = signature_response or response
-            if not signature_response.content:
-                signature_response = await request_partial(
-                    client,
-                    current_url,
-                    referer=previous_url or same_site_referer(current_url, candidate.referer),
-                )
-            if signature_response.status_code >= 400:
-                return self._fail(current_url, "not_an_installer")
-            if not self.formats.matches_signature(extension, signature_response.content):
-                actual_extension = self.formats.infer_extension(signature_response.content)
-                if not actual_extension or not is_verified_winstall_candidate(candidate):
-                    return self._fail(current_url, "not_an_installer")
-                extension = actual_extension
-                filename = filename_with_actual_extension(filename, current_url, extension)
+            signature_error = await self._verify_required_signature(
+                client, candidate, navigation, evidence
+            )
+            if signature_error:
+                return signature_error
+        if not evidence.looks_binary:
+            binary_error = await self._verify_binary_evidence(
+                client, candidate, navigation, evidence
+            )
+            if binary_error:
+                return binary_error
 
         return ValidationResult(
             ok=True,
             url=candidate.url,
             final_url=str(response.url),
             final_domain=download_host(str(response.url)),
-            filename=filename,
-            extension=extension,
+            filename=evidence.filename,
+            extension=evidence.extension,
             content_type=content_type or None,
             size_bytes=size_bytes,
             transport_security=transport_security_for(str(response.url), candidate),
             confidence=ValidationConfidence.VALIDATED,
+        )
+
+    async def _infer_missing_extension(
+        self,
+        client: httpx.AsyncClient,
+        candidate: InstallerCandidate,
+        navigation: _HttpNavigation,
+        evidence: _ArtifactEvidence,
+    ) -> ValidationResult | None:
+        """Infiere el formato cuando la URL y las cabeceras no lo declaran."""
+        evidence.signature_response = await self._response_with_content(
+            client, candidate, navigation, navigation.response
+        )
+        if evidence.signature_response.status_code >= 400:
+            return self._fail(
+                navigation.current_url,
+                f"http_{evidence.signature_response.status_code}",
+            )
+        evidence.extension = self.formats.infer_extension(evidence.signature_response.content)
+        if not evidence.extension or not candidate_has_download_intent(candidate):
+            return self._fail(navigation.current_url, "missing_installer_extension")
+        evidence.filename = evidence.filename or filename_for_inferred_extension(
+            navigation.current_url, evidence.extension
+        )
+        evidence.looks_binary = True
+        return None
+
+    async def _verify_required_signature(
+        self,
+        client: httpx.AsyncClient,
+        candidate: InstallerCandidate,
+        navigation: _HttpNavigation,
+        evidence: _ArtifactEvidence,
+    ) -> ValidationResult | None:
+        """Aplica la política estricta del formato solicitado."""
+        extension = evidence.extension
+        if extension is None:
+            return self._fail(navigation.current_url, "missing_installer_extension")
+        artifact_format = self.formats.get(extension)
+        if artifact_format is None:
+            return self._fail(navigation.current_url, "unsupported_installer_format")
+        if not artifact_format.signatures:
+            accepted_type = (
+                evidence.content_type in set(artifact_format.media_types)
+                or evidence.content_type in GENERIC_BINARY_MEDIA_TYPES
+                or "attachment" in evidence.disposition
+            )
+            return None if accepted_type else self._fail(
+                navigation.current_url, "installer_content_type_mismatch"
+            )
+
+        evidence.signature_response = await self._response_with_content(
+            client,
+            candidate,
+            navigation,
+            evidence.signature_response or navigation.response,
+        )
+        if evidence.signature_response.status_code >= 400:
+            return self._fail(
+                navigation.current_url,
+                f"http_{evidence.signature_response.status_code}",
+            )
+        if not self.formats.matches_signature(
+            extension, evidence.signature_response.content
+        ):
+            return self._fail(navigation.current_url, "installer_signature_mismatch")
+        return None
+
+    async def _verify_binary_evidence(
+        self,
+        client: httpx.AsyncClient,
+        candidate: InstallerCandidate,
+        navigation: _HttpNavigation,
+        evidence: _ArtifactEvidence,
+    ) -> ValidationResult | None:
+        """Descarta respuestas textuales que no contengan una firma de instalador."""
+        extension = evidence.extension
+        if extension is None:
+            return self._fail(navigation.current_url, "missing_installer_extension")
+        evidence.signature_response = await self._response_with_content(
+            client,
+            candidate,
+            navigation,
+            evidence.signature_response or navigation.response,
+        )
+        if evidence.signature_response.status_code >= 400:
+            return self._fail(navigation.current_url, "not_an_installer")
+        if self.formats.matches_signature(
+            extension, evidence.signature_response.content
+        ):
+            return None
+
+        actual_extension = self.formats.infer_extension(evidence.signature_response.content)
+        if not actual_extension or not is_verified_winstall_candidate(candidate):
+            return self._fail(navigation.current_url, "not_an_installer")
+        evidence.extension = actual_extension
+        evidence.filename = filename_with_actual_extension(
+            evidence.filename, navigation.current_url, actual_extension
+        )
+        return None
+
+    async def _response_with_content(
+        self,
+        client: httpx.AsyncClient,
+        candidate: InstallerCandidate,
+        navigation: _HttpNavigation,
+        response: httpx.Response,
+    ) -> httpx.Response:
+        """Reutiliza el cuerpo disponible o solicita una muestra binaria acotada."""
+        if response.content:
+            return response
+        return await request_partial(
+            client,
+            navigation.current_url,
+            referer=navigation.previous_url
+            or same_site_referer(navigation.current_url, candidate.referer),
         )
 
     def _fail(self, url: str, reason: str) -> ValidationResult:

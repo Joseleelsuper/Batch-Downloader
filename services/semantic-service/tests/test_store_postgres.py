@@ -5,14 +5,16 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.admin_store import SemanticAdminStore
 from app.config import Settings
 from app.database import Database
+from app.heartbeat import WorkerHeartbeatStore
 from app.model_registry import MODELS_BY_KEY
+from app.retention import SemanticRetentionStore
 from app.store import SemanticStore
 
 testcontainers_postgres = pytest.importorskip("testcontainers.postgres")
@@ -60,6 +62,241 @@ def postgres_dsn() -> Iterator[str]:
         container.stop()
 
 
+def test_schema_verification_rejects_checksum_drift(postgres_dsn: str) -> None:
+    """Rechaza un historial aplicado cuyo contenido ya no coincide con el archivo."""
+    database = Database(Settings(postgres_dsn_override=postgres_dsn))
+    database.open()
+    migrations = Database._migration_files()
+    latest_version = next(reversed(migrations))
+    expected_checksum = migrations[latest_version][0]
+    try:
+        database.migrate()
+        database.verify_schema()
+        database.run(
+            lambda connection: connection.execute(
+                """
+                UPDATE semantic_schema_migrations
+                SET checksum = %s
+                WHERE version = %s
+                """,
+                ("0" * 64, latest_version),
+            )
+        )
+        with pytest.raises(
+            RuntimeError,
+            match=f"semantic_migration_checksum_mismatch:{latest_version}",
+        ):
+            database.verify_schema()
+    finally:
+        database.run(
+            lambda connection: connection.execute(
+                """
+                UPDATE semantic_schema_migrations
+                SET checksum = %s
+                WHERE version = %s
+                """,
+                (expected_checksum, latest_version),
+            )
+        )
+        database.close()
+
+
+def test_worker_heartbeat_degrades_only_after_persistent_failures_or_staleness(
+    postgres_dsn: str,
+) -> None:
+    """Comprueba reinicio, umbral de fallos, recuperación y antigüedad."""
+    database = Database(Settings(postgres_dsn_override=postgres_dsn))
+    database.open()
+    store = WorkerHeartbeatStore(database)
+    instance_id = uuid.UUID("00000000-0000-0000-0000-000000000081")
+    replacement_id = uuid.UUID("00000000-0000-0000-0000-000000000082")
+    try:
+        database.migrate()
+        database.run(
+            lambda connection: connection.execute(
+                "DELETE FROM semantic_worker_heartbeats WHERE role = 'indexer'"
+            )
+        )
+        missing = store.status(
+            "indexer", max_age_seconds=45, failure_threshold=3
+        )
+        assert missing.present is False
+        assert missing.reason == "missing"
+
+        store.success("indexer", instance_id)
+        for _attempt in range(2):
+            store.failure("indexer", instance_id, "TransientDatabaseError")
+        transient = store.status(
+            "indexer", max_age_seconds=45, failure_threshold=3
+        )
+        assert transient.healthy is True
+        assert transient.consecutive_failures == 2
+
+        store.failure("indexer", instance_id, "PersistentDatabaseError")
+        persistent = store.status(
+            "indexer", max_age_seconds=45, failure_threshold=3
+        )
+        assert persistent.healthy is False
+        assert persistent.reason == "persistent_failures"
+        assert persistent.last_error_code == "PersistentDatabaseError"
+
+        store.success("indexer", instance_id)
+        recovered = store.status(
+            "indexer", max_age_seconds=45, failure_threshold=3
+        )
+        assert recovered.healthy is True
+        assert recovered.consecutive_failures == 0
+
+        database.run(
+            lambda connection: connection.execute(
+                """
+                UPDATE semantic_worker_heartbeats
+                SET heartbeat_at = now() - interval '46 seconds'
+                WHERE role = 'indexer'
+                """
+            )
+        )
+        stale = store.status("indexer", max_age_seconds=45, failure_threshold=3)
+        assert stale.healthy is False
+        assert stale.reason == "stale"
+
+        store.pulse("indexer", replacement_id)
+        restarted = store.status(
+            "indexer", max_age_seconds=45, failure_threshold=3
+        )
+        assert restarted.healthy is True
+        assert restarted.consecutive_failures == 0
+    finally:
+        database.run(
+            lambda connection: connection.execute(
+                "DELETE FROM semantic_worker_heartbeats WHERE role = 'indexer'"
+            )
+        )
+        database.close()
+
+
+def test_retention_prunes_only_old_terminal_rows_and_preserves_benchmarks(
+    postgres_dsn: str,
+) -> None:
+    """Comprueba límites, estados activos y conservación indefinida de benchmarks."""
+    database = Database(Settings(postgres_dsn_override=postgres_dsn))
+    database.open()
+    now = datetime(2026, 8, 23, tzinfo=UTC)
+    app_id = uuid.UUID("00000000-0000-0000-0000-000000000071")
+    old_operation_id = uuid.UUID("00000000-0000-0000-0000-000000000072")
+    queued_operation_id = uuid.UUID("00000000-0000-0000-0000-000000000073")
+    benchmark_id = uuid.UUID("00000000-0000-0000-0000-000000000074")
+    model_version = MODELS_BY_KEY["multilingual-e5-base"].zero_shot_version
+    try:
+        database.migrate()
+
+        def seed(connection) -> None:
+            connection.execute(
+                """
+                INSERT INTO semantic_documents(app_id, content_hash, content, metadata)
+                VALUES (%s, %s, 'retention fixture', '{}'::jsonb)
+                ON CONFLICT (app_id) DO NOTHING
+                """,
+                (app_id, "7" * 64),
+            )
+            connection.execute(
+                """
+                INSERT INTO embedding_jobs(
+                    app_id, model_version, content_hash, status, updated_at
+                ) VALUES
+                    (%s, %s, %s, 'completed', %s),
+                    (%s, %s, %s, 'queued', %s)
+                ON CONFLICT (app_id, model_version, content_hash) DO NOTHING
+                """,
+                (
+                    app_id,
+                    model_version,
+                    "8" * 64,
+                    now - timedelta(days=31),
+                    app_id,
+                    model_version,
+                    "9" * 64,
+                    now - timedelta(days=31),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO semantic_operations(
+                    id, operation_kind, status, phase, actor, created_at,
+                    updated_at, finished_at
+                ) VALUES
+                    (%s, 'benchmark', 'succeeded', 'completed', 'test', %s, %s, %s),
+                    (%s, 'benchmark', 'queued', 'queued', 'test', %s, %s, NULL)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (
+                    old_operation_id,
+                    now - timedelta(days=91),
+                    now - timedelta(days=91),
+                    now - timedelta(days=91),
+                    queued_operation_id,
+                    now - timedelta(days=91),
+                    now - timedelta(days=91),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO benchmark_runs(
+                    id, dataset_hash, seed, configuration, metrics, operation_id
+                ) VALUES (%s, %s, 1, '{}'::jsonb, '{}'::jsonb, %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (benchmark_id, "a" * 64, old_operation_id),
+            )
+
+        database.run(seed)
+        first = SemanticRetentionStore(database).prune(now=now, batch_size=1)
+        assert first == {"embeddingJobs": 1, "operations": 1}
+        remaining = database.run(
+            lambda connection: connection.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM embedding_jobs
+                     WHERE app_id = %s AND status = 'queued') AS queued_jobs,
+                    (SELECT count(*) FROM semantic_operations
+                     WHERE id = %s AND status = 'queued') AS queued_operations,
+                    (SELECT count(*) FROM benchmark_runs
+                     WHERE id = %s AND operation_id IS NULL) AS benchmarks
+                """,
+                (app_id, queued_operation_id, benchmark_id),
+            ).fetchone()
+        )
+        assert remaining == {
+            "queued_jobs": 1,
+            "queued_operations": 1,
+            "benchmarks": 1,
+        }
+        assert SemanticRetentionStore(database).prune(now=now, batch_size=1) == {
+            "embeddingJobs": 0,
+            "operations": 0,
+        }
+    finally:
+        database.run(
+            lambda connection: connection.execute(
+                "DELETE FROM benchmark_runs WHERE id = %s",
+                (benchmark_id,),
+            )
+        )
+        database.run(
+            lambda connection: connection.execute(
+                "DELETE FROM semantic_operations WHERE id IN (%s, %s)",
+                (old_operation_id, queued_operation_id),
+            )
+        )
+        database.run(
+            lambda connection: connection.execute(
+                "DELETE FROM semantic_documents WHERE app_id = %s",
+                (app_id,),
+            )
+        )
+        database.close()
+
+
 def test_migration_sync_dimension_contract_search_and_explicit_activation(
     postgres_dsn: str,
 ) -> None:
@@ -75,7 +312,7 @@ def test_migration_sync_dimension_contract_search_and_explicit_activation(
         database.migrate()
         store = SemanticStore(database)
         model_version = MODELS_BY_KEY["multilingual-e5-base"].zero_shot_version
-        seen_at = datetime.now(timezone.utc)
+        seen_at = datetime.now(UTC)
         document = {
             "appId": "00000000-0000-0000-0000-000000000001",
             "contentHash": "a" * 64,
@@ -440,7 +677,7 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
             "content": "Editor semántico multilingüe",
             "metadata": {"name": "Semantic fixture"},
         }
-        seen_at = datetime.now(timezone.utc)
+        seen_at = datetime.now(UTC)
         semantic.upsert_document_page(
             [document],
             model_version=active["modelVersion"],

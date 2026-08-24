@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `benchmark_snapshot`.
-"""
+"""Implementa las responsabilidades del módulo `benchmark_snapshot`."""
+
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from app.trainer import build_query_snapshot, write_snapshot
+from app.training_dataset import build_query_snapshot, write_snapshot
 
 
 def evaluation_snapshot(
@@ -55,9 +55,7 @@ def evaluation_snapshot(
         seed=seed,
     )
     _record_catalog_hash(snapshot_dir, catalog_hash)
-    queries = _ordered_evaluation_queries(
-        row for row in all_queries if row["split"] != "train"
-    )
+    queries = _ordered_evaluation_queries(row for row in all_queries if row["split"] != "train")
     if not queries:
         queries = _ordered_evaluation_queries(all_queries)
     return dataset_hash, snapshot_dir, queries, catalog_hash
@@ -93,10 +91,7 @@ def _cached_evaluation_snapshot(
         validation_path = snapshot_dir / "validation.jsonl"
         test_path = snapshot_dir / "test.jsonl"
         documents_path = snapshot_dir / "documents.jsonl"
-        if not all(
-            path.is_file()
-            for path in (validation_path, test_path, documents_path)
-        ):
+        if not all(path.is_file() for path in (validation_path, test_path, documents_path)):
             return None
         cached_catalog_hash = str(manifest.get("catalogSnapshotHash") or "")
         if not cached_catalog_hash:
@@ -111,7 +106,7 @@ def _cached_evaluation_snapshot(
             ]
         )
         return str(manifest["datasetHash"]), snapshot_dir, queries
-    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    except KeyError, OSError, TypeError, ValueError, json.JSONDecodeError:
         return None
 
 

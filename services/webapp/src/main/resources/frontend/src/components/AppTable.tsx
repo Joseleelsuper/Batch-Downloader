@@ -1,7 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { Fragment } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
-import { t } from '../services/i18n';
+import { useTranslation } from '../services/i18n';
 import type { AppDetails, CatalogApp } from '../types/catalog';
 import { AppDetailsPanel } from './AppDetailsPanel';
 import { OperatingSystemList } from './OperatingSystemIcons';
@@ -29,6 +29,7 @@ export function AppTable({
   onToggleDetails,
   onToggleSelection,
 }: Props) {
+  const t = useTranslation();
   return (
     <div className="table-card" aria-busy={loading}>
       <table className="app-table">

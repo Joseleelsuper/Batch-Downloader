@@ -7,12 +7,12 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { downloadJobFileUrl } from '../api/catalog';
+import { downloadJobFileUrl } from '../api/downloads';
 import {
   DOWNLOADABLE_DOWNLOAD_STATUSES,
   TERMINAL_DOWNLOAD_STATUSES,
 } from '../downloads/DownloadJobsContext';
-import { t } from '../services/i18n';
+import { useTranslation, type Translator } from '../services/i18n';
 import type { DownloadJob } from '../types/catalog';
 
 interface Props {
@@ -30,7 +30,7 @@ interface Props {
 
 const CANCELLABLE_STATUSES = new Set(['QUEUED', 'RESOLVING', 'DOWNLOADING', 'PACKAGING']);
 
-function publicFailureMessage(code?: string | null): string {
+function publicFailureMessage(t: Translator, code?: string | null): string {
   if (!code) return t('download.job.failure.generic');
   if (code.startsWith('source_')) return t('download.job.failure.source');
   if (/(remote|network|dns|redirect|http|io|unavailable)/i.test(code)) {
@@ -75,6 +75,7 @@ export function DownloadJobPanel({
   onClose,
   onToggleMinimized,
 }: Readonly<Props>) {
+  const t = useTranslation();
   const completed = job.items.filter((item) => item.status === 'COMPLETED').length;
   const failedItems = job.items.filter((item) => item.status === 'FAILED');
   const failed = failedItems.length;
@@ -136,7 +137,7 @@ export function DownloadJobPanel({
           {job.failureCode ? (
             <div className="download-job-global-failure">
               <strong>{t('download.job.globalFailure')}</strong>
-              <p>{publicFailureMessage(job.failureCode)}</p>
+              <p>{publicFailureMessage(t, job.failureCode)}</p>
               <details>
                 <summary>{t('download.job.technicalDetails')}</summary>
                 <code>{job.failureCode}</code>
@@ -151,7 +152,7 @@ export function DownloadJobPanel({
                   <article className="download-job-failure" key={item.id}>
                     <div>
                       <strong>{item.appName || item.appId}</strong>
-                      <p>{publicFailureMessage(item.errorCode)}</p>
+                      <p>{publicFailureMessage(t, item.errorCode)}</p>
                     </div>
                     {officialPageUrl ? (
                       <a href={officialPageUrl} target="_blank" rel="noopener noreferrer">

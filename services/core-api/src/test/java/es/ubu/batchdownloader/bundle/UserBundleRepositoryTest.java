@@ -45,7 +45,6 @@ class UserBundleRepositoryTest {
 
         var result = repository.create(
                 ownerId,
-                "person",
                 new CreateOwnBundleRequest(
                         "My tools", "Useful tools", "my-tools", List.of("Tools", "tools"),
                         List.of("public-app", "public-app")));
@@ -61,7 +60,8 @@ class UserBundleRepositoryTest {
         assertThat(sql.getAllValues().get(insert))
                 .contains("'user', 'private'")
                 .doesNotContain("owner_id = NULL");
-        assertThat(parameters.getAllValues().get(insert)).contains(ownerId.toString(), "person");
+        assertThat(parameters.getAllValues().get(insert)).contains(ownerId.toString());
+        assertThat(sql.getAllValues().get(insert)).doesNotContain("owner_username");
     }
 
     @Test

@@ -45,8 +45,6 @@
   "admin.message.queueMaintenance.recover_stuck": "",
   "admin.message.queueMaintenance.retry_failed": "",
   "admin.message.queueMaintenance.prune_terminal": "",
-  "admin.message.queueMaintenance.clear_pending": "",
-  "admin.message.queueMaintenance.clear_all": "",
   "admin.message.queueMaintenanceError": "",
   "admin.message.enrichmentQueued": "",
   "admin.message.enrichmentQueueError": "",

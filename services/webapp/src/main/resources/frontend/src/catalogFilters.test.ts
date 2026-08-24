@@ -11,12 +11,12 @@ import {
 } from './catalogFilters';
 
 describe('catalogFilters', () => {
-  it('parses repeated tags and keeps only the first legacy publisher', () => {
+  it('parses only repeated tag values and a singular publisher', () => {
     const filters = parseCatalogFilters(
-      'query=editor&status=available&tag=.NET&tag=runtime&tags=Windows,Desktop&publisher=ACME%2C%20Inc.&publisher=Second&tagMatchMin=2&tagMode=any&page=3&pageSize=24',
+      'query=editor&status=available&tag=.NET&tag=runtime&publisher=ACME%2C%20Inc.&page=3&pageSize=24',
     );
 
-    expect(filters.tags).toEqual(['.NET', 'runtime', 'Windows', 'Desktop']);
+    expect(filters.tags).toEqual(['.NET', 'runtime']);
     expect(filters.publisher).toBe('ACME, Inc.');
     expect(filters.filter).toBe('available');
     expect(filters.page).toBe(3);
@@ -38,7 +38,6 @@ describe('catalogFilters', () => {
 
     expect(params.getAll('tag')).toEqual(['.NET', 'runtime']);
     expect(params.get('publisher')).toBe('ACME, Inc.');
-    expect(params.has('tagMatchMin')).toBe(false);
     expect(params.getAll('os')).toEqual(['windows', 'linux']);
   });
 
@@ -71,10 +70,13 @@ describe('catalogFilters', () => {
     expect(parseCatalogFilters('status=unknown').filter).toBe('available');
   });
 
-  it('canonicalizes legacy public matching parameters and repeated publishers', () => {
-    expect(normalizeCatalogStatus(
-      'tag=automation&publisher=First&publisher=Second&tagMatchMin=1&tagMode=any&page=2',
-    )).toBe('tag=automation&page=2&publisher=First');
+  it('does not interpret removed matching parameters', () => {
+    const filters = parseCatalogFilters(
+      'tag=automation&tags=legacy&publisher=First&tagMatchMin=1&tagMode=any',
+    );
+
+    expect(filters.tags).toEqual(['automation']);
+    expect(filters.publisher).toBe('First');
   });
 
   it('parses repeated operating systems, omits all active systems and restores alternatives from one active system', () => {

@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.notification.infrastructure.mail;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope;
 import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
 import es.ubu.batchdownloader.notification.application.RetryableNotificationException;
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
@@ -26,7 +27,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 public class ResendNotificationSender {
     private final ResendProperties properties;
     private final MailTemplateProperties mail;
-    private final NotificationTokenCipher tokens;
+    private final NotificationTokenEnvelope tokens;
     private final ObjectMapper mapper;
     private final HttpClient client;
 
@@ -34,7 +35,7 @@ public class ResendNotificationSender {
     public ResendNotificationSender(
             ResendProperties properties,
             MailTemplateProperties mail,
-            NotificationTokenCipher tokens,
+            NotificationTokenEnvelope tokens,
             ObjectMapper mapper) {
         this(properties, mail, tokens, mapper, HttpClient.newBuilder()
                 .connectTimeout(properties.connectTimeout())
@@ -45,7 +46,7 @@ public class ResendNotificationSender {
     ResendNotificationSender(
             ResendProperties properties,
             MailTemplateProperties mail,
-            NotificationTokenCipher tokens,
+            NotificationTokenEnvelope tokens,
             ObjectMapper mapper,
             HttpClient client) {
         this.properties = properties;
@@ -106,7 +107,7 @@ public class ResendNotificationSender {
 
     private Rendered render(EmailNotification notification) {
         String username = notification.requiredParameter("username");
-        String token = tokens.decryptOrLegacy(notification.requiredParameter("token"));
+        String token = tokens.decrypt(notification.requiredParameter("token"));
         String path;
         String subject;
         String action;

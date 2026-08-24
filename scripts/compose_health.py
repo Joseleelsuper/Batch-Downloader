@@ -45,6 +45,7 @@ DAEMONS = frozenset(
 JOBS = frozenset(
     {
         "minio-init",
+        "semantic-migrator",
         "semantic-trainer",
         "scraper-python314t-benchmark",
         "scraper-python314-control",
@@ -71,16 +72,25 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
         "mysql": "service_healthy",
         "scraper-api": "service_healthy",
     },
-    "semantic-service": {"postgres": "service_healthy"},
+    "semantic-migrator": {"postgres": "service_healthy"},
+    "semantic-service": {
+        "postgres": "service_healthy",
+        "semantic-migrator": "service_completed_successfully",
+    },
     "semantic-indexer": {
+        "semantic-migrator": "service_completed_successfully",
         "semantic-service": "service_healthy",
         "scraper-api": "service_healthy",
     },
     "semantic-model-worker": {
+        "semantic-migrator": "service_completed_successfully",
         "semantic-service": "service_healthy",
         "scraper-api": "service_healthy",
     },
-    "semantic-trainer": {"semantic-service": "service_healthy"},
+    "semantic-trainer": {
+        "semantic-migrator": "service_completed_successfully",
+        "semantic-service": "service_healthy",
+    },
     "scraper-python314t-benchmark": {},
     "scraper-python314-control": {},
     "scraper-python314-benchmark-report": {
@@ -109,6 +119,7 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
     ),
     "semantic": (
         "postgres",
+        "semantic-migrator",
         "scraper-api",
         "semantic-service",
         "semantic-indexer",
@@ -118,6 +129,7 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
     "translations": ("translation-service",),
     "background": (
         "scraper-api",
+        "semantic-migrator",
         "semantic-service",
         "scraper-scheduler",
         "semantic-indexer",
@@ -131,6 +143,7 @@ SERVICE_PRIORITY = {
     "minio": 0,
     "mailpit": 0,
     "minio-init": 1,
+    "semantic-migrator": 1,
     "scraper-api": 1,
     "semantic-service": 1,
     "translation-service": 1,

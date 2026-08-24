@@ -81,7 +81,7 @@ public class UserBundleRepository {
 
     @Transactional
     public OwnBundleDetails create(
-            UUID ownerId, String ownerUsername, CreateOwnBundleRequest request) {
+            UUID ownerId, CreateOwnBundleRequest request) {
         List<UUID> appIds = resolveAppIds(request.appIds());
         List<String> tags = normalizedTags(request.tags());
         String baseSlug = normalizeSlug(textOr(request.slug(), request.name()));
@@ -92,12 +92,12 @@ public class UserBundleRepository {
             jdbc.update(
                     """
                     INSERT INTO bundles
-                    (id, slug, name, description, type, visibility, owner_username, owner_id,
+                    (id, slug, name, description, type, visibility, owner_id,
                      star_count, app_count, created_at, updated_at, version)
-                    VALUES (?, ?, ?, ?, 'user', 'private', ?, ?, 0, ?, ?, ?, 0)
+                    VALUES (?, ?, ?, ?, 'user', 'private', ?, 0, ?, ?, ?, 0)
                     """,
                     UuidBytes.fromUuid(id), slug, request.name().strip(), request.description(),
-                    ownerUsername, ownerId.toString(), appIds.size(), now, now);
+                    ownerId.toString(), appIds.size(), now, now);
         } catch (DataIntegrityViolationException exception) {
             throw new ConflictException("bundle_slug_exists", "Ya existe un bundle con ese slug.");
         }

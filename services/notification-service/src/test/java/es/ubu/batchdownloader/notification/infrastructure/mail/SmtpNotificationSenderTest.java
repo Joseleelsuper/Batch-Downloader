@@ -1,8 +1,11 @@
 package es.ubu.batchdownloader.notification.infrastructure.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
+import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import java.net.URI;
@@ -98,35 +101,15 @@ class SmtpNotificationSenderTest {
      * Comprueba el escenario {@code rendersTheSpanishEmailVerificationTemplate}.
      */
     @Test
-    void rendersTheSpanishEmailVerificationTemplate() {
+    void rejectsIdentityTemplatesThatBelongToResend() {
         EmailNotification notification = notification(
                 EmailNotification.Template.EMAIL_VERIFICATION,
-                Map.of("username", "Ada", "token", "a token+with/slashes"));
+                Map.of("username", "Ada", "token", "enc:v1:envelope"));
 
-        SimpleMailMessage email = sendAndCapture(notification);
-
-        assertThat(email.getSubject()).isEqualTo("Confirma tu correo de Batch Downloader");
-        assertThat(email.getText())
-                .contains("Hola, Ada")
-                .contains("https://batch.example.com/verify-email")
-                .contains("token=a%20token%2Bwith%2Fslashes");
-    }
-
-    /**
-     * Comprueba el escenario {@code rendersTheSpanishPasswordResetTemplate}.
-     */
-    @Test
-    void rendersTheSpanishPasswordResetTemplate() {
-        EmailNotification notification = notification(
-                EmailNotification.Template.PASSWORD_RESET,
-                Map.of("username", "Ada", "token", "reset-token"));
-
-        SimpleMailMessage email = sendAndCapture(notification);
-
-        assertThat(email.getSubject()).isEqualTo("Restablece tu contraseña de Batch Downloader");
-        assertThat(email.getText())
-                .contains("Hola, Ada")
-                .contains("https://batch.example.com/reset-password?token=reset-token");
+        assertThatThrownBy(() -> sender.send(notification))
+                .isInstanceOf(PermanentNotificationException.class)
+                .hasMessage("smtp_identity_template_not_supported");
+        verifyNoInteractions(mailSender);
     }
 
     /**

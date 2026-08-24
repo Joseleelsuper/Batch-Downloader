@@ -1,21 +1,22 @@
-"""Contiene las pruebas de `test_evaluation`.
-"""
+"""Contiene las pruebas de `test_evaluation`."""
+
 import pytest
 
 from app.evaluation import ndcg, reciprocal_rank_fusion
 from app.model_registry import MODEL_DEFINITIONS
-from app.trainer import (
-    build_query_snapshot,
+from app.runtime_evaluation import (
     evaluate_prepared_runtime,
     prepare_runtime_evaluation,
+)
+from app.training_dataset import (
+    build_query_snapshot,
     split_for_app,
     write_snapshot,
 )
 
 
 def test_rrf_fuses_both_rankings_deterministically() -> None:
-    """Comprueba el escenario `rrf_fuses_both_rankings_deterministically`.
-    """
+    """Comprueba el escenario `rrf_fuses_both_rankings_deterministically`."""
     ranked = reciprocal_rank_fusion(
         ["literal", "both"],
         ["semantic", "both"],
@@ -26,14 +27,12 @@ def test_rrf_fuses_both_rankings_deterministically() -> None:
 
 
 def test_ndcg_rewards_relevant_results_near_the_top() -> None:
-    """Comprueba el escenario `ndcg_rewards_relevant_results_near_the_top`.
-    """
+    """Comprueba el escenario `ndcg_rewards_relevant_results_near_the_top`."""
     assert ndcg(["a", "b"], {"a"}, 10) > ndcg(["b", "a"], {"a"}, 10)
 
 
 def test_snapshot_splits_by_application_and_keeps_multiple_tag_positives() -> None:
-    """Comprueba el escenario `snapshot_splits_by_application_and_keeps_multiple_tag_positives`.
-    """
+    """Comprueba el escenario `snapshot_splits_by_application_and_keeps_multiple_tag_positives`."""
     documents = [
         {
             "app_id": "00000000-0000-0000-0000-000000000001",
@@ -76,8 +75,7 @@ def test_snapshot_splits_by_application_and_keeps_multiple_tag_positives() -> No
 
 
 def test_hard_negatives_are_reproducible_and_never_cross_splits_or_positives() -> None:
-    """Comprueba el escenario `hard_negatives_are_reproducible_and_never_cross_splits_or_positives`.
-    """
+    """Comprueba negativos reproducibles, sin positivos ni cruces entre particiones."""
     documents = [
         {
             "app_id": f"00000000-0000-0000-0000-{index:012d}",
@@ -106,11 +104,11 @@ def test_hard_negatives_are_reproducible_and_never_cross_splits_or_positives() -
 
 
 def test_rrf_weights_reuse_one_embedding_evaluation() -> None:
-    """Comprueba el escenario `rrf_weights_reuse_one_embedding_evaluation`.
-    """
+    """Comprueba el escenario `rrf_weights_reuse_one_embedding_evaluation`."""
+
     class FakeRuntime:
-        """Agrupa los escenarios de prueba de `FakeRuntime`.
-        """
+        """Agrupa los escenarios de prueba de `FakeRuntime`."""
+
         document_calls = 0
         """Atributo de clase `document_calls` de `FakeRuntime`.
         """
@@ -200,9 +198,10 @@ def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
     Args:
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
+
     class FakeRuntime:
-        """Agrupa los escenarios de prueba de `FakeRuntime`.
-        """
+        """Agrupa los escenarios de prueba de `FakeRuntime`."""
+
         registered = type("Registered", (), {"dimensions": 2})()
         """Atributo de clase `registered` de `FakeRuntime`.
         """
@@ -241,7 +240,7 @@ def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
             return [self.encode_query(query) for query in queries]
 
     monkeypatch.setattr(
-        "app.trainer.lexical_rank",
+        "app.runtime_evaluation.lexical_rank",
         lambda *_args, **_kwargs: pytest.fail(
             "semantic-only benchmarks must not calculate literal rankings"
         ),
@@ -262,9 +261,7 @@ def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
             }
         ],
         include_lexical=False,
-        progress=lambda stage, current, total: progress.append(
-            (stage, current, total)
-        ),
+        progress=lambda stage, current, total: progress.append((stage, current, total)),
     )
 
     semantic = evaluate_prepared_runtime(
@@ -328,12 +325,9 @@ def test_snapshot_persists_catalog_and_is_immutable(tmp_path) -> None:
 
 
 def test_training_model_definitions_have_immutable_local_artifact_identifiers() -> None:
-    """Comprueba que los modelos locales mantienen identificadores reproducibles.
-    """
+    """Comprueba que los modelos locales mantienen identificadores reproducibles."""
     assert len(MODEL_DEFINITIONS) == 3
     for definition in MODEL_DEFINITIONS:
         assert "/" in definition.repository
         assert len(definition.revision) == 40
-        assert definition.zero_shot_version == (
-            f"{definition.key}@{definition.revision}:zero-shot"
-        )
+        assert definition.zero_shot_version == (f"{definition.key}@{definition.revision}:zero-shot")

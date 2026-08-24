@@ -7,13 +7,14 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
 from app.config import Settings, get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
+from app.heartbeat import WorkerHeartbeat
 from app.store import SemanticStore
 
 logger = logging.getLogger("semantic-indexer")
@@ -48,7 +49,7 @@ class SemanticIndexer:
         """
         if self._owns_database:
             self.database.open()
-            self.database.migrate()
+            self.database.verify_schema()
 
     def close(self) -> None:
         """Ejecuta `close` dentro de `SemanticIndexer`.
@@ -97,7 +98,7 @@ class SemanticIndexer:
             self.settings.initial_model_version
         )
         model = self.store.model(model_version)
-        sweep_started = datetime.now(timezone.utc)
+        sweep_started = datetime.now(UTC)
         next_after: str | None = None
         seen = 0
         changed = 0
@@ -114,7 +115,7 @@ class SemanticIndexer:
             while True:
                 if cancelled and cancelled():
                     raise InterruptedError("semantic_operation_cancelled")
-                params: dict[str, object] = {"limit": 500}
+                params: dict[str, str | int] = {"limit": 500}
                 if next_after:
                     params["afterAppId"] = next_after
                 response = client.get(
@@ -196,15 +197,24 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     indexer = SemanticIndexer()
     indexer.open()
+    heartbeat = WorkerHeartbeat(
+        indexer.database,
+        "indexer",
+        interval_seconds=indexer.settings.worker_heartbeat_interval_seconds,
+    )
+    heartbeat.start()
     try:
         while True:
             if arguments.loop and not indexer.settings.background_window_open():
+                heartbeat.success()
                 time.sleep(min(60.0, max(5.0, indexer.settings.index_interval_seconds)))
                 continue
             try:
                 report = indexer.run_once(arguments.model_version)
                 logger.info("semantic_index_completed %s", report)
+                heartbeat.success()
             except Exception as exception:
+                heartbeat.failure(exception)
                 logger.exception(
                     "semantic_index_failed error=%s",
                     exception.__class__.__name__,
@@ -215,6 +225,7 @@ def main() -> None:
                 break
             time.sleep(max(5.0, indexer.settings.index_interval_seconds))
     finally:
+        heartbeat.close()
         indexer.close()
 
 

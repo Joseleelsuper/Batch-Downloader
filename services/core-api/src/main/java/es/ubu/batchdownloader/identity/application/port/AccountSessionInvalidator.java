@@ -4,5 +4,5 @@ import java.util.UUID;
 
 /** Invalida todas las sesiones persistentes de una cuenta. */
 public interface AccountSessionInvalidator {
-    void invalidateAll(UUID userId, String legacyUsername);
+    void invalidateAll(UUID userId);
 }

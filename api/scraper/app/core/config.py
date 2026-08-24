@@ -1,5 +1,6 @@
 """Implementa las responsabilidades del módulo `config`.
 """
+import os
 from enum import StrEnum
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -43,18 +44,25 @@ class Settings(BaseSettings):
     """Agrupa las opciones de configuración de `Settings`.
     """
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="SCRAPPER_", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="SCRAPER_", extra="ignore")
     """Campo declarado `model_config` de `Settings`.
     """
+
+    def model_post_init(self, __context: object) -> None:
+        """Rechaza el prefijo retirado antes de usar valores por defecto."""
+        legacy_names = sorted(name for name in os.environ if name.startswith("SCRAPPER_"))
+        if legacy_names:
+            joined = ", ".join(legacy_names)
+            raise ValueError(
+                "Configuración obsoleta detectada: "
+                f"{joined}. Renombra todas las variables SCRAPPER_* a SCRAPER_*."
+            )
 
     app_name: str = Field(
         default="Batch Downloader Scraper",
         description="FastAPI title and health service name.",
     )
     """Campo declarado `app_name` de `Settings`.
-    """
-    environment: str = Field(default="development", description="Runtime environment name.")
-    """Campo declarado `environment` de `Settings`.
     """
     database_host: str = "localhost"
     """Campo declarado `database_host` de `Settings`.
@@ -149,6 +157,12 @@ class Settings(BaseSettings):
     run_on_startup: bool = False
     """Campo declarado `run_on_startup` de `Settings`.
     """
+    worker_heartbeat_interval_seconds: float = Field(default=10.0, ge=1.0)
+    """Cadencia de la señal persistente del scheduler."""
+    worker_heartbeat_stale_seconds: float = Field(default=45.0, ge=5.0)
+    """Antigüedad que degrada la capacidad del scheduler."""
+    worker_failure_threshold: int = Field(default=3, ge=1)
+    """Fallos consecutivos necesarios para declarar degradación."""
     url_protection_secret: str = "replace-with-a-long-random-secret"
     """Campo declarado `url_protection_secret` de `Settings`.
     """

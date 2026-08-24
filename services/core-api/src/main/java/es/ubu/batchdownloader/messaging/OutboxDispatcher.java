@@ -55,6 +55,7 @@ class OutboxDispatcher {
     /** Delimita las transacciones breves de reclamación y confirmación. */
     private final TransactionTemplate transactions;
     private final OutboxPayloadSanitizer payloadSanitizer;
+    private final NotificationOutboxCutover notificationCutover;
 
     /**
      * Inicializa una instancia de {@code OutboxDispatcher}.
@@ -75,7 +76,8 @@ class OutboxDispatcher {
             @Value("${app.messaging.outbox-claim-lease}") Duration claimLease,
             @Value("${app.messaging.outbox-confirm-timeout}") Duration confirmTimeout,
             TransactionTemplate transactions,
-            OutboxPayloadSanitizer payloadSanitizer) {
+            OutboxPayloadSanitizer payloadSanitizer,
+            NotificationOutboxCutover notificationCutover) {
         this.repository = repository;
         this.rabbitTemplate = rabbitTemplate;
         this.clock = clock;
@@ -84,6 +86,7 @@ class OutboxDispatcher {
         this.confirmTimeout = confirmTimeout;
         this.transactions = transactions;
         this.payloadSanitizer = payloadSanitizer;
+        this.notificationCutover = notificationCutover;
     }
 
     /**
@@ -91,6 +94,7 @@ class OutboxDispatcher {
      */
     @Scheduled(fixedDelayString = "${app.messaging.outbox-delay}")
     public void publishPending() {
+        if (!notificationCutover.completed()) return;
         for (ClaimedEvent event : claimPending()) {
             try {
                 Message message = MessageBuilder

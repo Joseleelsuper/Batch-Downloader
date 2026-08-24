@@ -13,7 +13,6 @@ import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
 import es.ubu.batchdownloader.identity.domain.OauthIdentity;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
-import es.ubu.batchdownloader.identity.infrastructure.security.PasswordPolicy;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -212,7 +211,7 @@ public class IdentityService {
             tokens.save(token);
             return users.save(user);
         });
-        if (changed != null) sessions.invalidateAll(changed.id(), changed.username());
+        if (changed != null) sessions.invalidateAll(changed.id());
     }
 
     @Transactional

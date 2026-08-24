@@ -20,8 +20,6 @@ import org.springframework.stereotype.Component;
 class PublicCatalogCache {
     /** Respuestas serializables del catálogo. */
     private final Cache<String, Object> responses;
-    /** Indica si la caché está habilitada. */
-    private final boolean enabled;
     /** Última versión consultada. */
     private volatile String cachedVersion;
     /** Momento monotónico en el que caduca la versión local. */
@@ -37,21 +35,10 @@ class PublicCatalogCache {
     PublicCatalogCache(
             @Value("${app.catalog.cache-maximum-size}") long maximumSize,
             @Value("${app.catalog.cache-ttl}") Duration ttl) {
-        this(maximumSize, ttl, true);
-    }
-
-    /** Constructor interno utilizado por las pruebas unitarias existentes. */
-    private PublicCatalogCache(long maximumSize, Duration ttl, boolean enabled) {
-        this.enabled = enabled;
         this.responses = Caffeine.newBuilder()
                 .maximumSize(Math.max(0, maximumSize))
                 .expireAfterWrite(ttl)
                 .build();
-    }
-
-    /** Crea una fachada sin caché para pruebas unitarias puras. */
-    static PublicCatalogCache disabled() {
-        return new PublicCatalogCache(0, Duration.ZERO, false);
     }
 
     /**
@@ -70,9 +57,6 @@ class PublicCatalogCache {
             Supplier<String> versionSupplier,
             List<?> arguments,
             Supplier<T> loader) {
-        if (!enabled) {
-            return loader.get();
-        }
         String key = namespace + '|' + version(versionSupplier) + '|'
                 + arguments.stream().map(PublicCatalogCache::normalize)
                         .reduce("", (left, right) -> left + '\u001f' + right);

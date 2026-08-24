@@ -4,7 +4,6 @@ import {
   Download,
   ExternalLink,
   FolderPlus,
-  History,
   LockKeyhole,
   Save,
   Trash2,
@@ -40,13 +39,15 @@ import {
   updateOwnBundle,
   updateProfile,
 } from '../../api/account';
-import { adminLogin, ApiRequestError, fetchApps, login } from '../../api/catalog';
+import { adminLogin, login } from '../../api/account';
+import { fetchApps } from '../../api/catalogApps';
+import { ApiRequestError } from '../../api/http';
 import { useAuth } from '../../auth/AuthContext';
-import { t } from '../../services/i18n';
+import { useTranslation, type Translator } from '../../services/i18n';
 import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSummary } from '../../types/account';
 import type { CatalogApp } from '../../types/catalog';
 
-function apiMessage(error: unknown, fallbackKey: string): string {
+function apiMessage(t: Translator, error: unknown, fallbackKey: string): string {
   if (error instanceof ApiRequestError) {
     const key = `account.error.${error.code}`;
     const translated = t(key);
@@ -70,6 +71,7 @@ function AuthCard({ children }: Readonly<{ children: React.ReactNode }>) {
 }
 
 export function UserLoginPage() {
+  const t = useTranslation();
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -90,7 +92,7 @@ export function UserLoginPage() {
       auth.setAuthenticated(account);
       navigate(destination, { replace: true });
     } catch (cause) {
-      setError(apiMessage(cause, 'account.login.invalid'));
+      setError(apiMessage(t, cause, 'account.login.invalid'));
     } finally {
       setSubmitting(false);
     }
@@ -128,6 +130,7 @@ export function UserLoginPage() {
 }
 
 export function AdminLoginPage() {
+  const t = useTranslation();
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -147,7 +150,7 @@ export function AdminLoginPage() {
       auth.setAuthenticated(account);
       navigate(destination, { replace: true });
     } catch (cause) {
-      setError(apiMessage(cause, 'login.invalid'));
+      setError(apiMessage(t, cause, 'login.invalid'));
     } finally {
       setSubmitting(false);
     }
@@ -172,6 +175,7 @@ export function AdminLoginPage() {
 }
 
 export function RegisterPage() {
+  const t = useTranslation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -197,7 +201,7 @@ export function RegisterPage() {
       navigate('/verify-email', { replace: true, state: { email } });
     } catch (cause) {
       setError(fieldMessage(cause, 'email') ?? fieldMessage(cause, 'password')
-        ?? apiMessage(cause, 'account.register.failed'));
+        ?? apiMessage(t, cause, 'account.register.failed'));
     } finally {
       setSubmitting(false);
     }
@@ -220,11 +224,13 @@ export function RegisterPage() {
 }
 
 export function VerifyEmailPage() {
+  const t = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const token = useRef(new URLSearchParams(location.search).get('token'));
+  const [token] = useState(() => new URLSearchParams(location.search).get('token'));
+  const processedToken = useRef<string | null>(null);
   const [email, setEmail] = useState((location.state as { email?: string } | null)?.email ?? '');
-  const [state, setState] = useState<'waiting' | 'checking' | 'success' | 'error'>(token.current ? 'checking' : 'waiting');
+  const [state, setState] = useState<'waiting' | 'checking' | 'success' | 'error'>(token ? 'checking' : 'waiting');
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -234,16 +240,15 @@ export function VerifyEmailPage() {
   }, [location.search, location.state, navigate]);
 
   useEffect(() => {
-    const value = token.current;
-    if (!value) return;
-    token.current = null;
-    void confirmEmail(value)
+    if (!token || processedToken.current === token) return;
+    processedToken.current = token;
+    void confirmEmail(token)
       .then(() => setState('success'))
       .catch((cause) => {
-        setMessage(apiMessage(cause, 'account.verify.failed'));
+        setMessage(apiMessage(t, cause, 'account.verify.failed'));
         setState('error');
       });
-  }, []);
+  }, [t, token]);
 
   async function resend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -254,7 +259,7 @@ export function VerifyEmailPage() {
       await resendVerification(email);
       setMessage(t('account.verify.resent'));
     } catch (cause) {
-      setMessage(apiMessage(cause, 'account.verify.resendFailed'));
+      setMessage(apiMessage(t, cause, 'account.verify.resendFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -279,6 +284,7 @@ export function VerifyEmailPage() {
 }
 
 export function ForgotPasswordPage() {
+  const t = useTranslation();
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -291,7 +297,7 @@ export function ForgotPasswordPage() {
       await requestPasswordReset(email);
       setMessage(t('account.forgot.sent'));
     } catch (cause) {
-      setMessage(apiMessage(cause, 'account.forgot.failed'));
+      setMessage(apiMessage(t, cause, 'account.forgot.failed'));
     } finally {
       setSubmitting(false);
     }
@@ -304,9 +310,10 @@ export function ForgotPasswordPage() {
 }
 
 export function ResetPasswordPage() {
+  const t = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const token = useRef(new URLSearchParams(location.search).get('token'));
+  const [token] = useState(() => new URLSearchParams(location.search).get('token'));
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -319,7 +326,7 @@ export function ResetPasswordPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting || !token.current) return;
+    if (submitting || !token) return;
     if (password !== confirmation) {
       setError(t('account.password.mismatch'));
       return;
@@ -331,20 +338,19 @@ export function ResetPasswordPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await resetPassword(token.current, password);
-      token.current = null;
+      await resetPassword(token, password);
       setComplete(true);
     } catch (cause) {
-      setError(apiMessage(cause, 'account.reset.failed'));
+      setError(apiMessage(t, cause, 'account.reset.failed'));
     } finally {
       setSubmitting(false);
     }
   }
 
   return <AuthCard><h2>{t('account.reset.title')}</h2>
-    {!token.current && !complete ? <p className="error-banner">{t('account.reset.missingToken')}</p> : null}
+    {!token && !complete ? <p className="error-banner">{t('account.reset.missingToken')}</p> : null}
     {complete ? <><p className="form-message">{t('account.reset.success')}</p><Link to="/login">{t('account.login.link')}</Link></> : null}
-    {token.current && !complete ? <form className="auth-form" onSubmit={submit}>
+    {token && !complete ? <form className="auth-form" onSubmit={submit}>
       <label>{t('login.password')}<input type="password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required /></label>
       <label>{t('account.password.confirm')}<input type="password" minLength={12} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></label>
       {error ? <p className="error-banner">{error}</p> : null}
@@ -354,6 +360,7 @@ export function ResetPasswordPage() {
 }
 
 export function AccountLayout() {
+  const t = useTranslation();
   const auth = useAuth();
   const navigate = useNavigate();
   async function signOut() {
@@ -375,11 +382,12 @@ export function AccountLayout() {
 }
 
 export function DashboardPage() {
+  const t = useTranslation();
   const [dashboard, setDashboard] = useState<AccountDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    fetchDashboard().then(setDashboard).catch((cause) => setError(apiMessage(cause, 'account.dashboard.failed')));
-  }, []);
+    fetchDashboard().then(setDashboard).catch((cause) => setError(apiMessage(t, cause, 'account.dashboard.failed')));
+  }, [t]);
   if (error) return <section><p className="error-banner">{error}</p></section>;
   if (!dashboard) return <p className="loading-label">{t('account.loading')}</p>;
   return <section className="account-page">
@@ -402,6 +410,7 @@ function Stat({ label, value, icon }: { label: string; value: number; icon: Reac
 }
 
 function HistoryList({ items }: { items: AccountDashboard['recentDownloads'] }) {
+  const t = useTranslation();
   if (!items.length) return <p className="empty-state">{t('account.downloads.empty')}</p>;
   return <ul className="account-list">{items.map((item) => <li key={`${item.jobId}-${item.appId}`}>
     {item.iconUrl ? <img src={item.iconUrl} alt="" /> : <Download size={20} />}
@@ -410,6 +419,7 @@ function HistoryList({ items }: { items: AccountDashboard['recentDownloads'] }) 
 }
 
 function BundleList({ items }: { items: OwnBundleSummary[] }) {
+  const t = useTranslation();
   if (!items.length) return <p className="empty-state">{t('account.bundles.empty')}</p>;
   return <ul className="account-list">{items.map((bundle) => <li key={bundle.id}>
     <Boxes size={20} /><span><Link to={`/dashboard/bundles/${bundle.id}/edit`}>{bundle.name}</Link><small>{bundle.appCount} · {bundle.visibility}</small></span>
@@ -417,11 +427,12 @@ function BundleList({ items }: { items: OwnBundleSummary[] }) {
 }
 
 export function AccountBundlesPage() {
+  const t = useTranslation();
   const [bundles, setBundles] = useState<OwnBundleSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    fetchOwnBundles().then((response) => setBundles(response.data)).catch((cause) => setError(apiMessage(cause, 'account.bundles.failed')));
-  }, []);
+    fetchOwnBundles().then((response) => setBundles(response.data)).catch((cause) => setError(apiMessage(t, cause, 'account.bundles.failed')));
+  }, [t]);
   return <section className="account-page"><header><div><h2>{t('account.bundles.title')}</h2><p>{t('account.bundles.subtitle')}</p></div>
     <Link className="primary-button" to="/dashboard/bundles/new"><FolderPlus size={18} />{t('account.bundles.new')}</Link></header>
     {error ? <p className="error-banner">{error}</p> : <BundleList items={bundles} />}
@@ -429,6 +440,7 @@ export function AccountBundlesPage() {
 }
 
 export function BundleEditorPage() {
+  const t = useTranslation();
   const { id } = useParams();
   const editing = Boolean(id);
   const navigate = useNavigate();
@@ -450,8 +462,8 @@ export function BundleEditorPage() {
       setBundle(value); setName(value.name); setDescription(value.description ?? '');
       setSlug(value.slug); setTags(value.tags.join(', ')); setVisibility(value.visibility);
       setSelected(value.apps.map((app) => app.id));
-    }).catch((cause) => setError(apiMessage(cause, 'account.bundles.failed')));
-  }, [id]);
+    }).catch((cause) => setError(apiMessage(t, cause, 'account.bundles.failed')));
+  }, [id, t]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -485,7 +497,7 @@ export function BundleEditorPage() {
       navigate(`/dashboard/bundles/${saved.id}/edit`, { replace: true });
       setBundle(saved);
     } catch (cause) {
-      setError(apiMessage(cause, 'account.bundles.saveFailed'));
+      setError(apiMessage(t, cause, 'account.bundles.saveFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -495,7 +507,7 @@ export function BundleEditorPage() {
     if (!id || !window.confirm(t('account.bundles.deleteConfirm'))) return;
     setSubmitting(true);
     try { await deleteOwnBundle(id); navigate('/dashboard/bundles', { replace: true }); }
-    catch (cause) { setError(apiMessage(cause, 'account.bundles.deleteFailed')); setSubmitting(false); }
+    catch (cause) { setError(apiMessage(t, cause, 'account.bundles.deleteFailed')); setSubmitting(false); }
   }
 
   return <section className="account-page"><header><div><h2>{editing ? t('account.bundles.edit') : t('account.bundles.create')}</h2><p>{t('account.bundles.privateDefault')}</p></div></header>
@@ -519,6 +531,7 @@ export function BundleEditorPage() {
 }
 
 export function ProfilePage() {
+  const t = useTranslation();
   const auth = useAuth();
   const [username, setUsername] = useState(auth.account?.username ?? '');
   const [message, setMessage] = useState<string | null>(null);
@@ -532,7 +545,7 @@ export function ProfilePage() {
       const changed = await updateProfile(username);
       auth.setAuthenticated(changed);
       setMessage(t('account.profile.saved'));
-    } catch (cause) { setError(apiMessage(cause, 'account.profile.failed')); }
+    } catch (cause) { setError(apiMessage(t, cause, 'account.profile.failed')); }
     finally { setSubmitting(false); }
   }
   return <section className="account-page"><header><div><h2>{t('account.profile.title')}</h2><p>{auth.account?.email}</p></div></header>

@@ -379,7 +379,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-  /api/admin/auth/login:
+  /admin/auth/login:
     servers:
       - url: /
     post:
@@ -401,7 +401,7 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /api/admin/auth/me:
+  /admin/auth/me:
     servers:
       - url: /
     get:
@@ -418,7 +418,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-  /api/admin/auth/logout:
+  /admin/auth/logout:
     servers:
       - url: /
     post:
@@ -776,7 +776,7 @@ paths:
                 $ref: '#/components/schemas/Bundle'
         '404':
           $ref: '#/components/responses/NotFound'
-  /api/admin/semantic/overview:
+  /admin/semantic/overview:
     servers:
       - url: /
     get:
@@ -792,7 +792,7 @@ paths:
                 $ref: '#/components/schemas/SemanticOverview'
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /api/admin/semantic/models:
+  /admin/semantic/models:
     servers:
       - url: /
     get:
@@ -810,7 +810,7 @@ paths:
                   $ref: '#/components/schemas/SemanticModel'
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /api/admin/semantic/models/{modelId}:
+  /admin/semantic/models/{modelId}:
     servers:
       - url: /
     parameters:
@@ -840,7 +840,7 @@ paths:
           $ref: '#/components/responses/SemanticOperationAccepted'
         '409':
           $ref: '#/components/responses/Conflict'
-  /api/admin/semantic/models/{modelId}/prepare:
+  /admin/semantic/models/{modelId}/prepare:
     servers:
       - url: /
     post:
@@ -856,7 +856,7 @@ paths:
           $ref: '#/components/responses/SemanticOperationAccepted'
         '409':
           $ref: '#/components/responses/Conflict'
-  /api/admin/semantic/models/{modelId}/activate:
+  /admin/semantic/models/{modelId}/activate:
     servers:
       - url: /
     post:
@@ -878,7 +878,7 @@ paths:
           $ref: '#/components/responses/SemanticOperationAccepted'
         '409':
           $ref: '#/components/responses/Conflict'
-  /api/admin/semantic/benchmarks:
+  /admin/semantic/benchmarks:
     servers:
       - url: /
     get:
@@ -924,7 +924,7 @@ paths:
           $ref: '#/components/responses/SemanticOperationAccepted'
         '400':
           $ref: '#/components/responses/BadRequest'
-  /api/admin/semantic/operations:
+  /admin/semantic/operations:
     servers:
       - url: /
     get:
@@ -942,7 +942,7 @@ paths:
                   $ref: '#/components/schemas/SemanticOperation'
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /api/admin/semantic/operations/{operationId}:
+  /admin/semantic/operations/{operationId}:
     servers:
       - url: /
     parameters:
@@ -975,7 +975,7 @@ paths:
                 $ref: '#/components/schemas/SemanticOperation'
         '409':
           $ref: '#/components/responses/Conflict'
-  /api/admin/semantic/operations/{operationId}/retry:
+  /admin/semantic/operations/{operationId}/retry:
     servers:
       - url: /
     post:
@@ -1022,7 +1022,7 @@ paths:
           description: El catálogo no ha cambiado.
         '400':
           $ref: '#/components/responses/BadRequest'
-  /api/admin/apps:
+  /admin/apps:
     servers:
       - url: /
     get:
@@ -1062,7 +1062,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-  /api/admin/app-discoveries:
+  /admin/app-discoveries:
     servers:
       - url: /
     post:
@@ -1092,7 +1092,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
-  /api/admin/app-discoveries/{discoveryId}:
+  /admin/app-discoveries/{discoveryId}:
     servers:
       - url: /
     parameters:
@@ -1114,7 +1114,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-  /api/admin/app-discoveries/{discoveryId}/apply:
+  /admin/app-discoveries/{discoveryId}/apply:
     servers:
       - url: /
     parameters:
@@ -1150,7 +1150,7 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/admin/apps/{appId}/manual-installer-inspections:
+  /admin/apps/{appId}/manual-installer-inspections:
     servers:
       - url: /
     parameters:
@@ -1182,7 +1182,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
-  /api/admin/apps/{appId}/manual-installer-inspections/current:
+  /admin/apps/{appId}/manual-installer-inspections/current:
     servers:
       - url: /
     parameters:
@@ -1204,7 +1204,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-  /api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}:
+  /admin/apps/{appId}/manual-installer-inspections/{inspectionId}:
     servers:
       - url: /
     parameters:
@@ -1227,7 +1227,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-  /api/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply:
+  /admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply:
     servers:
       - url: /
     parameters:
@@ -1264,7 +1264,7 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/admin/scraper/runs:
+  /admin/scraper/runs:
     servers:
       - url: /
     get:
@@ -1309,7 +1309,7 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
-  /api/admin/apps/absence-verifications/summary:
+  /admin/apps/absence-verifications/summary:
     servers:
       - url: /
     get:
@@ -1327,7 +1327,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-  /api/admin/apps/{appId}/absence-verification:
+  /admin/apps/{appId}/absence-verification:
     servers:
       - url: /
     parameters:
@@ -2785,13 +2785,13 @@ components:
             $ref: '#/components/schemas/OwnBundleSummary'
     SemanticArtifactState:
       type: string
-      enum: [downloading, validating, ready, incompatible, failed]
+      enum: [ready, incompatible, failed, deleted]
     SemanticDeploymentState:
       type: string
       enum: [not_prepared, preparing, ready, active, stale, failed]
     SemanticOperationKind:
       type: string
-      enum: [download, benchmark, prepare, activate, delete]
+      enum: [benchmark, prepare, activate, delete]
     SemanticOperationStatus:
       type: string
       enum: [queued, running, cancel_requested, cancelled, succeeded, failed]
@@ -2862,7 +2862,7 @@ components:
           type: string
         scope:
           type: string
-          enum: [legacy, smoke, full]
+          enum: [historical, smoke, full]
         eligible:
           type: boolean
         recommended:
@@ -2963,7 +2963,7 @@ components:
             format: uuid
         scope:
           type: string
-          enum: [legacy, smoke, full]
+          enum: [historical, smoke, full]
         hardwareFingerprint:
           type: [string, 'null']
         documentCount:
@@ -3061,7 +3061,7 @@ components:
                   type: string
                 scope:
                   type: string
-                  enum: [legacy, smoke, full]
+                  enum: [historical, smoke, full]
                 hardwareFingerprint:
                   type: [string, 'null']
                 metric:

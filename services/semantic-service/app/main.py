@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from psycopg_pool import PoolTimeout
 
 from app.admin_schemas import (
@@ -21,8 +21,9 @@ from app.config import get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
 from app.healthcheck import directory_writable
+from app.heartbeat import WorkerHeartbeatStatus, WorkerHeartbeatStore
 from app.http_policies import InternalServiceTokenGuard, SearchCapacityGuard
-from app.schemas import SemanticSearchRequest, SemanticSearchResponse
+from app.schemas import SemanticCandidate, SemanticSearchRequest, SemanticSearchResponse
 from app.store import SemanticStore
 
 settings = get_settings()
@@ -37,6 +38,8 @@ store = SemanticStore(database)
 admin_store = SemanticAdminStore(database)
 """Estado global asociado a `admin_store`.
 """
+heartbeat_store = WorkerHeartbeatStore(database)
+"""Estado persistente de salud de los procesos semánticos."""
 runtime_cache: OrderedDict[str, EmbeddingRuntime] = OrderedDict()
 """Estado global asociado a `runtime_cache`.
 """
@@ -64,7 +67,7 @@ async def lifespan(_app: FastAPI):
         Any: Elemento producido por la operación.
     """
     await asyncio.to_thread(database.open)
-    await asyncio.to_thread(database.migrate)
+    await asyncio.to_thread(database.verify_schema)
     try:
         yield
     finally:
@@ -110,7 +113,7 @@ def runtime_for(model):
     return runtime
 
 
-async def create_admin_operation(**kwargs: object) -> dict[str, object]:
+async def create_admin_operation(**kwargs: Any) -> dict[str, Any]:
     """Crea la operación `admin_operation`.
 
     Args:
@@ -146,13 +149,21 @@ async def health() -> dict[str, object]:
             await asyncio.to_thread(runtime_for(active[0]).warmup)
         except Exception:
             search_ready = False
+    workers: dict[str, WorkerHeartbeatStatus] = {}
+    if database_ready:
+        try:
+            workers = await asyncio.to_thread(worker_heartbeat_statuses)
+        except Exception:
+            workers = {}
+    workers_ready = bool(workers) and all(status.healthy for status in workers.values())
     return {
-        "status": "ok" if database_ready else "degraded",
+        "status": "ok" if database_ready and workers_ready else "degraded",
         "service": "semantic-service",
         "database": database_ready,
         "searchReady": search_ready,
         "modelVersion": active[0].model_version if search_ready and active else None,
         "indexVersion": active[1] if search_ready and active else None,
+        "workers": {role: status.as_dict() for role, status in workers.items()},
     }
 
 
@@ -192,10 +203,45 @@ async def internal_metrics() -> PlainTextResponse:
     for key, value in database.metrics().items():
         metric = "semantic_db_pool_" + key.replace("-", "_")
         lines.extend((f"# TYPE {metric} gauge", f"{metric} {value}"))
+    lines.extend(
+        (
+            "# TYPE semantic_worker_healthy gauge",
+            "# TYPE semantic_worker_consecutive_failures gauge",
+            "# TYPE semantic_worker_heartbeat_age_seconds gauge",
+        )
+    )
+    for role, status in worker_heartbeat_statuses().items():
+        labels = f'{{role="{role}"}}'
+        lines.extend(
+            (
+                f"semantic_worker_healthy{labels} {1 if status.healthy else 0}",
+                f"semantic_worker_consecutive_failures{labels} "
+                f"{status.consecutive_failures}",
+            )
+        )
+        if status.age_seconds is not None:
+            lines.extend(
+                (
+                    f"semantic_worker_heartbeat_age_seconds{labels} "
+                    f"{status.age_seconds}",
+                )
+            )
     return PlainTextResponse(
         "\n".join(lines) + "\n",
         media_type="text/plain; version=0.0.4",
     )
+
+
+def worker_heartbeat_statuses() -> dict[str, WorkerHeartbeatStatus]:
+    """Obtiene una instantánea coherente de los dos workers persistentes."""
+    return {
+        role: heartbeat_store.status(
+            role,
+            max_age_seconds=settings.worker_heartbeat_stale_seconds,
+            failure_threshold=settings.worker_failure_threshold,
+        )
+        for role in ("indexer", "model-worker")
+    }
 
 
 @app.post(
@@ -252,7 +298,10 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
         ) from exception
     truncated = len(rows) > functional_limit
     return SemanticSearchResponse(
-        candidates=rows[:functional_limit],
+        candidates=[
+            SemanticCandidate.model_validate(row)
+            for row in rows[:functional_limit]
+        ],
         modelVersion=model.model_version,
         indexVersion=index_version,
         truncated=truncated,

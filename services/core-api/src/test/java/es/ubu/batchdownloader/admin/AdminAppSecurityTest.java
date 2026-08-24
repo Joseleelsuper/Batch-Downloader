@@ -4,7 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,18 +13,23 @@ import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
 import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
+import es.ubu.batchdownloader.identity.domain.UserRole;
+import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthFailureHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * Agrupa los escenarios de prueba de {@code AdminAppSecurityTest}.
@@ -58,37 +63,37 @@ class AdminAppSecurityTest {
     /**
      * Dato compartido {@code catalog} para los escenarios de prueba.
      */
-    @MockBean
+    @MockitoBean
     private CatalogRepository catalog;
 
     /**
      * Dato compartido {@code adminApps} para los escenarios de prueba.
      */
-    @MockBean
+    @MockitoBean
     private AdminAppRepository adminApps;
 
     /**
      * Dato compartido {@code audit} para los escenarios de prueba.
      */
-    @MockBean
+    @MockitoBean
     private AdminAuditService audit;
 
     /**
      * Dato compartido {@code scraperClient} para los escenarios de prueba.
      */
-    @MockBean
+    @MockitoBean
     private ScraperInternalClient scraperClient;
 
     /**
      * Dato compartido {@code users} para los escenarios de prueba.
      */
-    @MockBean
+    @MockitoBean
     private UserAccountStore users;
 
-    @MockBean
+    @MockitoBean
     private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
 
-    @MockBean
+    @MockitoBean
     private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
@@ -99,7 +104,7 @@ class AdminAppSecurityTest {
     @Test
     void inspectionEndpointsRequireAnAdministratorSession() throws Exception {
         mvc.perform(get(
-                        "/api/admin/apps/{appId}/manual-installer-inspections/current",
+                        "/api/v1/admin/apps/{appId}/manual-installer-inspections/current",
                         APP_ID))
                 .andExpect(status().isUnauthorized());
     }
@@ -112,9 +117,9 @@ class AdminAppSecurityTest {
     @Test
     void inspectionCreationRejectsAnAdministratorWithoutCsrf() throws Exception {
         mvc.perform(post(
-                        "/api/admin/apps/{appId}/manual-installer-inspections",
+                        "/api/v1/admin/apps/{appId}/manual-installer-inspections",
                         APP_ID)
-                .with(user("admin").roles("ADMIN"))
+                .with(administrator())
                 .contentType("application/json")
                 .content(validRequest()))
                 .andExpect(status().isForbidden());
@@ -147,9 +152,9 @@ class AdminAppSecurityTest {
                         now.plusHours(24)));
 
         mvc.perform(post(
-                        "/api/admin/apps/{appId}/manual-installer-inspections",
+                        "/api/v1/admin/apps/{appId}/manual-installer-inspections",
                         APP_ID)
-                .with(user("admin").roles("ADMIN"))
+                .with(administrator())
                 .with(csrf())
                 .contentType("application/json")
                 .content(validRequest()))
@@ -163,8 +168,8 @@ class AdminAppSecurityTest {
      */
     @Test
     void websiteDiscoveryCreationRequiresCsrf() throws Exception {
-        mvc.perform(post("/api/admin/app-discoveries")
-                .with(user("admin").roles("ADMIN"))
+        mvc.perform(post("/api/v1/admin/app-discoveries")
+                .with(administrator())
                 .contentType("application/json")
                 .content(websiteDiscoveryRequest()))
                 .andExpect(status().isForbidden());
@@ -194,12 +199,21 @@ class AdminAppSecurityTest {
                         now,
                         now.plusHours(24)));
 
-        mvc.perform(post("/api/admin/app-discoveries")
-                .with(user("admin").roles("ADMIN"))
+        mvc.perform(post("/api/v1/admin/app-discoveries")
+                .with(administrator())
                 .with(csrf())
                 .contentType("application/json")
                 .content(websiteDiscoveryRequest()))
                 .andExpect(status().isAccepted());
+    }
+
+    private static RequestPostProcessor administrator() {
+        AccountPrincipal principal = new AccountPrincipal(
+                UUID.fromString("00000000-0000-0000-0000-000000000099"),
+                "admin",
+                UserRole.ADMIN);
+        return authentication(UsernamePasswordAuthenticationToken.authenticated(
+                principal, "", principal.getAuthorities()));
     }
 
     /**

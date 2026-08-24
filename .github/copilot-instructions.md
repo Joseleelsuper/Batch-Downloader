@@ -13,7 +13,7 @@
 
 ## Configuración
 - En Spring usa solo `${VAR}`: nunca `${VAR:default}`. Toda variable requerida debe existir en `.env` y `.env.example` y ser inyectada explícitamente por ambos Compose.
-- No guardes DSN completos como `SCRAPPER_DATABASE_URL` en `.env`: contienen caracteres reservados y Compose intenta expandir `$...`.
+- No guardes DSN completos como `SCRAPER_DATABASE_URL` en `.env`: contienen caracteres reservados y Compose intenta expandir `$...`.
 - Construye URLs en código. El scraper usa `SQLAlchemy URL.create` en `app/core/config.py`; Compose fija host/puerto internos y toma `MYSQL_USER`, `MYSQL_PASSWORD` y `MYSQL_DATABASE` de `.env`.
 - Reutiliza las credenciales canónicas `MYSQL_*`, `RABBITMQ_DEFAULT_*` y `MINIO_ROOT_*`; no crees copias por servicio que puedan divergir.
 - Cita con comillas simples cualquier valor `.env` que contenga `$`. Valida siempre con `docker compose --env-file .env config --quiet`.
@@ -21,9 +21,9 @@
 
 ## Convenciones de implementación
 - Mantén `/api/v1` coordinado entre controladores, `shared/contracts/openapi`, tipos TypeScript y traducciones `es.json`/`template.json` (deben tener exactamente las mismas claves).
-- En el scraper conserva `WinstallClient` (API, `__NEXT_DATA__`, HTML), `DownloadValidator` para DNS/IP/redirecciones/MIME/tamaño y URLs cifradas mediante `SCRAPPER_URL_PROTECTION_SECRET`.
+- En el scraper conserva `WinstallClient` (API, `__NEXT_DATA__`, HTML), `DownloadValidator` para DNS/IP/redirecciones/MIME/tamaño y URLs cifradas mediante `SCRAPER_URL_PROTECTION_SECRET`.
 - Nunca registres URLs firmadas o resueltas, cookies, tokens, prompts/respuestas LLM ni contenido de instaladores.
-- La resolución manual vive detrás de Core en `/api/admin/apps/**`; el scraper expone solo equivalentes autenticados bajo `/internal/v1/**`. Acepta una página de origen y URI opcionales por Windows/macOS/Linux, con al menos un instalador; cifra cada URL y transporta únicamente `inspection_id` en la cola. La previsualización no escribe catálogo y `apply` debe revalidar todos los binarios, comprobar `expectedAppVersion` y publicar sus fuentes en una transacción.
+- La resolución manual vive detrás de Core en `/api/v1/admin/apps/**`; el scraper expone solo equivalentes autenticados bajo `/internal/v1/**`. Acepta una página de origen y URI opcionales por Windows/macOS/Linux, con al menos un instalador; cifra cada URL y transporta únicamente `inspection_id` en la cola. La previsualización no escribe catálogo y `apply` debe revalidar todos los binarios, comprobar `expectedAppVersion` y publicar sus fuentes en una transacción.
 - El alta desde web oficial también vive detrás de Core. Cifra la URL y las URI opcionales de instalador por Windows/macOS/Linux durante el descubrimiento, transporta solo `discovery_id`, limita la IA a la descripción y nunca devuelve URL de ejecutables. Los huecos se buscan automáticamente y cada URI aportada debe coincidir con su SO. `apply` revalida candidatos y conserva el alta como `missing` cuando ninguno sigue siendo válido.
 - `unresolved` es un filtro administrativo calculado como `review OR missing`; nunca lo aceptes como estado de `/api/v1/apps` ni lo persistas en `catalog_status`.
 - El catálogo es server-side: filtros, facetas, paginación y ranking viven en Core; evita una consulta por fila y conserva la semántica OR de `operatingSystems`.
@@ -33,7 +33,7 @@
 
 ## Modelos semánticos y Python
 - El baseline inicial es E5-base zero-shot. MiniLM, E5-base y BGE-M3 se registran con revisión HF inmutable, dimensiones y prefijos; el entrenamiento solo se ejecuta mediante `semantic-trainer`, nunca en el arranque.
-- La administración vive bajo `/api/admin/semantic/**`: el navegador nunca llama directamente a `semantic-service`; Core exige rol `ADMIN`, CSRF, auditoría e inyecta `X-Internal-Service-Token`.
+- La administración vive bajo `/api/v1/admin/semantic/**`: el navegador nunca llama directamente a `semantic-service`; Core exige rol `ADMIN`, CSRF, auditoría e inyecta `X-Internal-Service-Token`.
 - `semantic-model-worker` es el único ejecutor de descargas, benchmarks, preparación, activación y eliminación. Conserva operaciones duraderas, claves de idempotencia, leases recuperables y cancelación cooperativa; la concurrencia pesada predeterminada es uno.
 - Descarga solo modelos públicos SentenceTransformers con revisión SHA, `safetensors`, sin pickle, `auto_map`, archivos Python ni `trust_remote_code`. No uses tokens HF, modelos gated/privados, LoRA o entrenamiento desde la interfaz administrativa.
 - Ningún indexador, benchmark o descarga promociona modelos. Activación y rollback son explícitos y atómicos y requieren benchmark `full` comparable y vigente, configuración idéntica, warm-up y cobertura completa del `contentHash`; un fallo conserva el activo anterior.

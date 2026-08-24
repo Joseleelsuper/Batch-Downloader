@@ -12,6 +12,9 @@ import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -34,18 +37,26 @@ public class AdminScraperRepository {
      * Constante que define {@code COMMANDS}.
      */
     private static final Set<String> COMMANDS = Set.of("pause", "resume", "stop", "force_stop", "run_once");
+    /** Ventana de conservación de los elementos terminales de cola. */
+    private static final Duration TERMINAL_RETENTION = Duration.ofDays(30);
+    /** Límite por ejecución para no monopolizar la base de datos compartida. */
+    private static final int RETENTION_BATCH_SIZE = 500;
     /**
      * Estado {@code jdbc} mantenido por {@code AdminScraperRepository}.
      */
     private final JdbcTemplate jdbc;
+    /** Reloj inyectado para hacer determinista el límite de retención. */
+    private final Clock clock;
 
     /**
      * Inicializa una instancia de {@code AdminScraperRepository}.
      *
      * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param clock Reloj UTC utilizado para calcular la antigüedad.
      */
-    public AdminScraperRepository(JdbcTemplate jdbc) {
+    public AdminScraperRepository(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
     }
 
     /**
@@ -310,29 +321,14 @@ public class AdminScraperRepository {
                 """
                 DELETE FROM scraper_work_items
                 WHERE status IN ('completed', 'discarded')
-                """);
-    }
-
-    /**
-     * Limpia los elementos afectados mediante {@code clearPendingQueueItems}.
-     *
-     * @return Número de elementos afectados por la operación.
-     */
-    public int clearPendingQueueItems() {
-        return jdbc.update(
-                """
-                DELETE FROM scraper_work_items
-                WHERE status IN ('queued', 'failed', 'completed', 'discarded')
-                """);
-    }
-
-    /**
-     * Limpia los elementos afectados mediante {@code clearAllQueueItems}.
-     *
-     * @return Número de elementos afectados por la operación.
-     */
-    public int clearAllQueueItems() {
-        return jdbc.update("DELETE FROM scraper_work_items");
+                  AND updated_at < ?
+                  AND lease_owner IS NULL
+                  AND lease_expires_at IS NULL
+                ORDER BY updated_at ASC, id ASC
+                LIMIT ?
+                """,
+                Timestamp.from(clock.instant().minus(TERMINAL_RETENTION)),
+                RETENTION_BATCH_SIZE);
     }
 
     /**

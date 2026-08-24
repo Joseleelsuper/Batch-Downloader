@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope;
 import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
 import es.ubu.batchdownloader.notification.application.RetryableNotificationException;
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
@@ -124,7 +125,7 @@ class ResendNotificationSenderTest {
                         Duration.ofSeconds(1), Duration.ofSeconds(1)),
                 new MailTemplateProperties(
                         "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com")),
-                new NotificationTokenCipher(KEY), mapper);
+                new NotificationTokenEnvelope(KEY), mapper);
 
         assertThatThrownBy(() -> disabled.send(notification("Ada", "token")))
                 .isInstanceOf(PermanentNotificationException.class)
@@ -143,7 +144,7 @@ class ResendNotificationSenderTest {
         new ApplicationContextRunner()
                 .withBean(ResendProperties.class, () -> properties)
                 .withBean(MailTemplateProperties.class, () -> mail)
-                .withBean(NotificationTokenCipher.class, () -> new NotificationTokenCipher(KEY))
+                .withBean(NotificationTokenEnvelope.class, () -> new NotificationTokenEnvelope(KEY))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(ResendNotificationSender.class)
                 .run(context -> assertThat(context).hasSingleBean(ResendNotificationSender.class));
@@ -156,15 +157,18 @@ class ResendNotificationSenderTest {
                         Duration.ofSeconds(1), requestTimeout),
                 new MailTemplateProperties(
                         "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com")),
-                new NotificationTokenCipher(KEY), mapper);
+                new NotificationTokenEnvelope(KEY), mapper);
     }
 
     private EmailNotification notification(String username, String token) {
+        String envelope = token.startsWith(NotificationTokenEnvelope.VERSION_PREFIX)
+                ? token
+                : new NotificationTokenEnvelope(KEY).encrypt(token);
         return new EmailNotification(
                 UUID.randomUUID(), Instant.parse("2026-08-08T10:00:00Z"),
                 UUID.randomUUID().toString(), null, "person@example.com",
                 EmailNotification.Template.EMAIL_VERIFICATION,
-                Map.of("username", username, "token", token));
+                Map.of("username", username, "token", envelope));
     }
 
     private void handle(HttpExchange exchange) throws IOException {

@@ -2,10 +2,11 @@ package es.ubu.batchdownloader.admin;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import java.security.Principal;
+import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,7 +57,7 @@ public class AdminSemanticController {
      *
      * @return Resultado producido por {@code overview}.
      */
-    @GetMapping("/api/admin/semantic/overview")
+    @GetMapping("/api/v1/admin/semantic/overview")
     public ResponseEntity<JsonNode> overview() {
         return response(semantic.get(INTERNAL_ROOT + "/overview"));
     }
@@ -66,7 +67,7 @@ public class AdminSemanticController {
      *
      * @return Resultado producido por {@code models}.
      */
-    @GetMapping("/api/admin/semantic/models")
+    @GetMapping("/api/v1/admin/semantic/models")
     public ResponseEntity<JsonNode> models() {
         return response(semantic.get(INTERNAL_ROOT + "/models"));
     }
@@ -77,7 +78,7 @@ public class AdminSemanticController {
      * @param modelId Identificador de {@code model} utilizado por la operación.
      * @return Resultado producido por {@code model}.
      */
-    @GetMapping("/api/admin/semantic/models/{modelId}")
+    @GetMapping("/api/v1/admin/semantic/models/{modelId}")
     public ResponseEntity<JsonNode> model(@PathVariable UUID modelId) {
         return response(semantic.get(INTERNAL_ROOT + "/models/" + modelId));
     }
@@ -88,7 +89,7 @@ public class AdminSemanticController {
      * @param limit Número máximo de elementos que se recuperarán.
      * @return Resultado producido por {@code benchmarks}.
      */
-    @GetMapping("/api/admin/semantic/benchmarks")
+    @GetMapping("/api/v1/admin/semantic/benchmarks")
     public ResponseEntity<JsonNode> benchmarks(
             @RequestParam(defaultValue = "50") int limit) {
         String path = UriComponentsBuilder.fromPath(INTERNAL_ROOT + "/benchmarks")
@@ -107,11 +108,11 @@ public class AdminSemanticController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code benchmark}.
      */
-    @PostMapping("/api/admin/semantic/benchmarks")
+    @PostMapping("/api/v1/admin/semantic/benchmarks")
     public ResponseEntity<JsonNode> benchmark(
             @RequestBody JsonNode body,
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         String actor = actor(principal);
         SemanticAdminClient.Result result = semantic.post(
                 INTERNAL_ROOT + "/benchmarks",
@@ -135,11 +136,11 @@ public class AdminSemanticController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code prepare}.
      */
-    @PostMapping("/api/admin/semantic/models/{modelId}/prepare")
+    @PostMapping("/api/v1/admin/semantic/models/{modelId}/prepare")
     public ResponseEntity<JsonNode> prepare(
             @PathVariable UUID modelId,
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         String actor = actor(principal);
         SemanticAdminClient.Result result = semantic.post(
                 INTERNAL_ROOT + "/models/" + modelId + "/prepare",
@@ -159,12 +160,12 @@ public class AdminSemanticController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code activate}.
      */
-    @PostMapping("/api/admin/semantic/models/{modelId}/activate")
+    @PostMapping("/api/v1/admin/semantic/models/{modelId}/activate")
     public ResponseEntity<JsonNode> activate(
             @PathVariable UUID modelId,
             @RequestBody JsonNode body,
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         String actor = actor(principal);
         SemanticAdminClient.Result result = semantic.post(
                 INTERNAL_ROOT + "/models/" + modelId + "/activate",
@@ -190,11 +191,11 @@ public class AdminSemanticController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code deleteModel}.
      */
-    @DeleteMapping("/api/admin/semantic/models/{modelId}")
+    @DeleteMapping("/api/v1/admin/semantic/models/{modelId}")
     public ResponseEntity<JsonNode> deleteModel(
             @PathVariable UUID modelId,
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         String actor = actor(principal);
         SemanticAdminClient.Result result = semantic.delete(
                 INTERNAL_ROOT + "/models/" + modelId,
@@ -211,7 +212,7 @@ public class AdminSemanticController {
      * @param active Valor de {@code active} utilizado por la operación.
      * @return Resultado producido por {@code operations}.
      */
-    @GetMapping("/api/admin/semantic/operations")
+    @GetMapping("/api/v1/admin/semantic/operations")
     public ResponseEntity<JsonNode> operations(
             @RequestParam(defaultValue = "100") int limit,
             @RequestParam(defaultValue = "false") boolean active) {
@@ -230,7 +231,7 @@ public class AdminSemanticController {
      * @param operationId Identificador de {@code operation} utilizado por la operación.
      * @return Resultado producido por {@code operation}.
      */
-    @GetMapping("/api/admin/semantic/operations/{operationId}")
+    @GetMapping("/api/v1/admin/semantic/operations/{operationId}")
     public ResponseEntity<JsonNode> operation(@PathVariable UUID operationId) {
         return response(semantic.get(INTERNAL_ROOT + "/operations/" + operationId));
     }
@@ -242,10 +243,10 @@ public class AdminSemanticController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code cancelOperation}.
      */
-    @DeleteMapping("/api/admin/semantic/operations/{operationId}")
+    @DeleteMapping("/api/v1/admin/semantic/operations/{operationId}")
     public ResponseEntity<JsonNode> cancelOperation(
             @PathVariable UUID operationId,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         String actor = actor(principal);
         SemanticAdminClient.Result result = semantic.delete(
                 INTERNAL_ROOT + "/operations/" + operationId,
@@ -268,11 +269,11 @@ public class AdminSemanticController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code retryOperation}.
      */
-    @PostMapping("/api/admin/semantic/operations/{operationId}/retry")
+    @PostMapping("/api/v1/admin/semantic/operations/{operationId}/retry")
     public ResponseEntity<JsonNode> retryOperation(
             @PathVariable UUID operationId,
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
-            Principal principal) {
+            @AuthenticationPrincipal AccountPrincipal principal) {
         String actor = actor(principal);
         SemanticAdminClient.Result result = semantic.post(
                 INTERNAL_ROOT + "/operations/" + operationId + "/retry",
@@ -331,7 +332,7 @@ public class AdminSemanticController {
      * @param principal Identidad autenticada que ejecuta la operación.
      * @return Resultado producido por {@code actor}.
      */
-    private String actor(Principal principal) {
-        return principal == null ? "admin" : principal.getName();
+    private String actor(AccountPrincipal principal) {
+        return AdminActor.require(principal);
     }
 }

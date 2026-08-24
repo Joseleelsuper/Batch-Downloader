@@ -231,19 +231,15 @@ public class DownloadJobController {
                 && authentication.getPrincipal() instanceof AccountPrincipal account) {
             return owners.resolve(account.userId(), browserToken, servletRequest.getRemoteAddr());
         }
-        return owners.resolve(
-                actor(authentication),
-                browserToken,
-                servletRequest.getRemoteAddr());
+        return owners.resolve(null, browserToken, servletRequest.getRemoteAddr());
     }
 
     private List<UUID> bundleAppIds(String bundleId, Authentication authentication) {
         if (isSignedIn(authentication)
                 && authentication.getPrincipal() instanceof AccountPrincipal account) {
-            return bundles.appIdsForDownloadForViewer(
-                    bundleId, account.userId(), isAdmin(authentication));
+            return bundles.appIdsForDownload(bundleId, account.userId(), isAdmin(authentication));
         }
-        return bundles.appIdsForDownload(bundleId, actor(authentication), isAdmin(authentication));
+        return bundles.appIdsForDownload(bundleId, null, isAdmin(authentication));
     }
 
     /**

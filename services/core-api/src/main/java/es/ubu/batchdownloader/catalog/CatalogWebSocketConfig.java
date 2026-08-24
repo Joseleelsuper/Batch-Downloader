@@ -49,7 +49,7 @@ public class CatalogWebSocketConfig implements WebSocketConfigurer {
      */
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(notifier, "/api/catalog/ws").setAllowedOrigins(publicBaseUrl);
-        registry.addHandler(scraperNotifier, "/api/admin/scraper/ws").setAllowedOrigins(publicBaseUrl);
+        registry.addHandler(notifier, "/api/v1/catalog/ws").setAllowedOrigins(publicBaseUrl);
+        registry.addHandler(scraperNotifier, "/api/v1/admin/scraper/ws").setAllowedOrigins(publicBaseUrl);
     }
 }

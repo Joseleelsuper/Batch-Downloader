@@ -2,8 +2,7 @@ package es.ubu.batchdownloader.notification.infrastructure.mail;
 
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
-import java.nio.charset.StandardCharsets;
-import java.net.URLEncoder;
+import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
@@ -74,14 +73,9 @@ public class SmtpNotificationSender {
      */
     private void applySpanishTemplate(SimpleMailMessage message, EmailNotification notification) {
         switch (notification.template()) {
-            case EMAIL_VERIFICATION -> {
-                message.setSubject("Confirma tu correo de Batch Downloader");
-                message.setText(emailVerificationBody(notification));
-            }
-            case PASSWORD_RESET -> {
-                message.setSubject("Restablece tu contraseña de Batch Downloader");
-                message.setText(passwordResetBody(notification));
-            }
+            case EMAIL_VERIFICATION, PASSWORD_RESET ->
+                    throw new PermanentNotificationException(
+                            "smtp_identity_template_not_supported");
             case DOWNLOAD_READY -> {
                 message.setSubject("Tu ZIP de Batch Downloader está listo");
                 message.setText(downloadReadyBody(notification));
@@ -91,44 +85,6 @@ public class SmtpNotificationSender {
                 message.setText(downloadFailedBody(notification));
             }
         }
-    }
-
-    /**
-     * Ejecuta la operación {@code emailVerificationBody}.
-     *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @return Resultado producido por {@code emailVerificationBody}.
-     */
-    private String emailVerificationBody(EmailNotification notification) {
-        return """
-                Hola, %s:
-
-                Confirma tu dirección de correo para activar tu cuenta de Batch Downloader:
-                %s
-
-                Si no has creado esta cuenta, puedes ignorar este mensaje.
-                """.formatted(
-                notification.requiredParameter("username"),
-                actionUrl("verify-email", notification.requiredParameter("token")));
-    }
-
-    /**
-     * Ejecuta la operación {@code passwordResetBody}.
-     *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @return Resultado producido por {@code passwordResetBody}.
-     */
-    private String passwordResetBody(EmailNotification notification) {
-        return """
-                Hola, %s:
-
-                Usa este enlace para elegir una nueva contraseña de Batch Downloader:
-                %s
-
-                Si no has solicitado el cambio, puedes ignorar este mensaje.
-                """.formatted(
-                notification.requiredParameter("username"),
-                actionUrl("reset-password", notification.requiredParameter("token")));
     }
 
     /**
@@ -191,22 +147,6 @@ public class SmtpNotificationSender {
         return failureCode == null || failureCode.toString().isBlank()
                 ? notification.requiredParameter("errorCode")
                 : failureCode.toString().strip();
-    }
-
-    /**
-     * Ejecuta la operación {@code actionUrl}.
-     *
-     * @param path Ruta del recurso que debe procesarse.
-     * @param token Token utilizado para autorizar o correlacionar la operación.
-     * @return Resultado producido por {@code actionUrl}.
-     */
-    private String actionUrl(String path, String token) {
-        String encodedToken = URLEncoder.encode(token, StandardCharsets.UTF_8).replace("+", "%20");
-        return UriComponentsBuilder.fromUri(properties.publicBaseUrl())
-                .pathSegment(path)
-                .queryParam("token", encodedToken)
-                .build(true)
-                .toUriString();
     }
 
     /**

@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { requestJson } from './catalog';
+import { requestJson } from './http';
 import {
   activateSemanticModel,
   cancelSemanticOperation,
   startSemanticBenchmark,
 } from './semanticAdmin';
 
-vi.mock('./catalog', () => ({
+vi.mock('./http', () => ({
   requestJson: vi.fn(),
 }));
 
@@ -19,7 +19,7 @@ describe('semantic administration client', () => {
     await startSemanticBenchmark(['model-a', 'model-b']);
 
     expect(requestJson).toHaveBeenCalledWith(
-      '/api/admin/semantic/benchmarks',
+      '/api/v1/admin/semantic/benchmarks',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ modelIds: ['model-a', 'model-b'] }),
@@ -40,7 +40,7 @@ describe('semantic administration client', () => {
     });
 
     expect(requestJson).toHaveBeenCalledWith(
-      '/api/admin/semantic/models/candidate%2Fmodel/activate',
+      '/api/v1/admin/semantic/models/candidate%2Fmodel/activate',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -57,7 +57,7 @@ describe('semantic administration client', () => {
     await cancelSemanticOperation('operation/1');
 
     expect(requestJson).toHaveBeenCalledWith(
-      '/api/admin/semantic/operations/operation%2F1',
+      '/api/v1/admin/semantic/operations/operation%2F1',
       { method: 'DELETE' },
     );
   });

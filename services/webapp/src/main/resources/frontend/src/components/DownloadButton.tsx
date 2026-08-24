@@ -1,7 +1,7 @@
 import { Download } from 'lucide-react';
-import { downloadJobFileUrl } from '../api/catalog';
+import { downloadJobFileUrl } from '../api/downloads';
 import { useDownloadJob } from '../hooks/useDownloadJob';
-import { t } from '../services/i18n';
+import { useTranslation } from '../services/i18n';
 
 interface Props {
   appId: string;
@@ -11,6 +11,7 @@ interface Props {
 }
 
 export function DownloadButton({ appId, appName, sourceRef, disabled }: Props) {
+  const t = useTranslation();
   const { job, starting, error, start } = useDownloadJob();
   const ready = Boolean(job && ['READY', 'PARTIAL', 'MANUAL_ONLY'].includes(job.status));
   const active = Boolean(job && ![

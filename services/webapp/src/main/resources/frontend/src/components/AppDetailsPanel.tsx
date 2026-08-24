@@ -2,7 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
-import { t } from '../services/i18n';
+import { useTranslation } from '../services/i18n';
 import type { AppDetails, DownloadOption } from '../types/catalog';
 import { DownloadButton } from './DownloadButton';
 
@@ -13,6 +13,7 @@ interface Props {
 
 /** Contenido esencial que se despliega bajo una aplicación del catálogo. */
 export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
+  const t = useTranslation();
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const selectedOption = useMemo(() => {
     const options = app?.downloadOptions ?? [];
@@ -106,6 +107,7 @@ function DownloadOptions({
   selectedOptionId?: string;
   onSelect: (id: string) => void;
 }>) {
+  const t = useTranslation();
   return (
     <div className="download-options">
       {options.map((option) => (
@@ -145,6 +147,7 @@ function DetailBlock({
 }
 
 function DetailsSkeleton() {
+  const t = useTranslation();
   return (
     <div className="details-skeleton" aria-label={t('common.loading')}>
       <span /><span /><span /><span />

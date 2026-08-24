@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as catalogApi from '../../api/catalog';
+import * as adminAppsApi from '../../api/adminApps';
+import * as catalogAppsApi from '../../api/catalogApps';
+import { ApiRequestError } from '../../api/http';
 import type {
   AppDetails,
   CatalogApp,
@@ -151,54 +153,54 @@ describe('AdminAppsPage', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
-    vi.spyOn(catalogApi, 'fetchAdminApps').mockResolvedValue({
+    vi.spyOn(adminAppsApi, 'fetchAdminApps').mockResolvedValue({
       data: [unresolvedApp, secondApp],
       page: 1,
       pageSize: 12,
       total: 2,
     });
-    vi.spyOn(catalogApi, 'fetchCatalogStats').mockResolvedValue({
+    vi.spyOn(catalogAppsApi, 'fetchCatalogStats').mockResolvedValue({
       total: 10,
       filters: { all: 10, available: 6, review: 3, missing: 1 },
       lastScrape: null,
       generatedAt: '2026-07-28T08:00:00Z',
     });
-    vi.spyOn(catalogApi, 'fetchAbsenceVerificationSummary').mockResolvedValue({
+    vi.spyOn(adminAppsApi, 'fetchAbsenceVerificationSummary').mockResolvedValue({
       active: 1,
       missing: 1,
       missingWithoutActiveEvidence: 0,
       review: 3,
     });
-    vi.spyOn(catalogApi, 'fetchAppDetails').mockImplementation(async (id) => (
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockImplementation(async (id) => (
       details(id === secondApp.id ? secondApp : unresolvedApp)
     ));
-    vi.spyOn(catalogApi, 'fetchCurrentManualInstallerInspection').mockRejectedValue(
-      new catalogApi.ApiRequestError(404, 'inspection_not_found'),
+    vi.spyOn(adminAppsApi, 'fetchCurrentManualInstallerInspection').mockRejectedValue(
+      new ApiRequestError(404, 'inspection_not_found'),
     );
-    vi.spyOn(catalogApi, 'fetchManualInstallerInspection').mockResolvedValue(
+    vi.spyOn(adminAppsApi, 'fetchManualInstallerInspection').mockResolvedValue(
       inspection('ready'),
     );
-    vi.spyOn(catalogApi, 'applyManualInstallerInspection').mockResolvedValue({
+    vi.spyOn(adminAppsApi, 'applyManualInstallerInspection').mockResolvedValue({
       application: { ...details(unresolvedApp), downloadable: true },
       sourceRef: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       sourceRefs: ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],
       warnings: [],
     });
-    vi.spyOn(catalogApi, 'createManualInstallerInspection').mockResolvedValue(
+    vi.spyOn(adminAppsApi, 'createManualInstallerInspection').mockResolvedValue(
       inspection('queued'),
     );
-    vi.spyOn(catalogApi, 'patchAdminApp').mockImplementation(async (_id, payload) => ({
+    vi.spyOn(adminAppsApi, 'patchAdminApp').mockImplementation(async (_id, payload) => ({
       ...details(unresolvedApp),
       ...payload,
     } as AppDetails));
-    vi.spyOn(catalogApi, 'createAdminApp').mockResolvedValue(details(unresolvedApp));
-    vi.spyOn(catalogApi, 'createWebsiteAppDiscovery').mockResolvedValue(
+    vi.spyOn(adminAppsApi, 'createAdminApp').mockResolvedValue(details(unresolvedApp));
+    vi.spyOn(adminAppsApi, 'createWebsiteAppDiscovery').mockResolvedValue(
       websiteDiscovery(),
     );
-    vi.spyOn(catalogApi, 'fetchWebsiteAppDiscovery').mockResolvedValue(
+    vi.spyOn(adminAppsApi, 'fetchWebsiteAppDiscovery').mockResolvedValue(
       websiteDiscovery(),
     );
-    vi.spyOn(catalogApi, 'applyWebsiteAppDiscovery').mockResolvedValue({
+    vi.spyOn(adminAppsApi, 'applyWebsiteAppDiscovery').mockResolvedValue({
       application: {
         ...details(unresolvedApp),
         id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
@@ -208,13 +210,13 @@ describe('AdminAppsPage', () => {
       installerCount: 1,
       warnings: [],
     });
-    vi.spyOn(catalogApi, 'generateAdminDescription').mockResolvedValue({
+    vi.spyOn(adminAppsApi, 'generateAdminDescription').mockResolvedValue({
       jobId: 'job',
       status: 'queued',
     });
-    vi.spyOn(catalogApi, 'deleteAdminApp').mockResolvedValue(undefined);
-    vi.spyOn(catalogApi, 'exportAdminAppsCsv').mockResolvedValue(undefined);
-    vi.spyOn(catalogApi, 'deleteAllAdminApps').mockResolvedValue({ deleted: 10 });
+    vi.spyOn(adminAppsApi, 'deleteAdminApp').mockResolvedValue(undefined);
+    vi.spyOn(adminAppsApi, 'exportAdminAppsCsv').mockResolvedValue(undefined);
+    vi.spyOn(adminAppsApi, 'deleteAllAdminApps').mockResolvedValue({ deleted: 10 });
   });
 
   afterEach(() => {
@@ -230,7 +232,7 @@ describe('AdminAppsPage', () => {
     expect(unresolvedFilter).toHaveAttribute('aria-pressed', 'true');
     expect(unresolvedFilter).toHaveTextContent('4');
     await waitFor(() => {
-      expect(catalogApi.fetchAdminApps).toHaveBeenLastCalledWith(
+      expect(adminAppsApi.fetchAdminApps).toHaveBeenLastCalledWith(
         expect.objectContaining({ filter: 'unresolved', query: '' }),
         expect.any(AbortSignal),
       );
@@ -242,7 +244,7 @@ describe('AdminAppsPage', () => {
     await new Promise((resolve) => window.setTimeout(resolve, 340));
 
     await waitFor(() => {
-      expect(catalogApi.fetchAdminApps).toHaveBeenLastCalledWith(
+      expect(adminAppsApi.fetchAdminApps).toHaveBeenLastCalledWith(
         expect.objectContaining({ filter: 'unresolved', query: 'editor' }),
         expect.any(AbortSignal),
       );
@@ -250,7 +252,7 @@ describe('AdminAppsPage', () => {
   });
 
   it('keeps normalized icon media separate from the text column', async () => {
-    vi.mocked(catalogApi.fetchAdminApps).mockResolvedValue({
+    vi.mocked(adminAppsApi.fetchAdminApps).mockResolvedValue({
       data: [{
         ...unresolvedApp,
         iconUrl: 'https://example.com/oversized-logo.png',
@@ -310,7 +312,7 @@ describe('AdminAppsPage', () => {
     }));
 
     expect(await screen.findByDisplayValue('Website Desktop')).toBeInTheDocument();
-    expect(catalogApi.createWebsiteAppDiscovery).toHaveBeenCalledWith({
+    expect(adminAppsApi.createWebsiteAppDiscovery).toHaveBeenCalledWith({
       officialUrl: 'https://website.example/product',
       installerUrls: {
         windows: 'https://downloads.website.example/WebsiteDesktop.exe',
@@ -328,7 +330,7 @@ describe('AdminAppsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Crear aplicación' }));
 
     await waitFor(() => {
-      expect(catalogApi.applyWebsiteAppDiscovery).toHaveBeenCalledWith(
+      expect(adminAppsApi.applyWebsiteAppDiscovery).toHaveBeenCalledWith(
         'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
         expect.objectContaining({
           name: 'Website Desktop revisada',
@@ -368,7 +370,7 @@ describe('AdminAppsPage', () => {
 
   it('ignores a website analysis response that finishes after Nueva resets the form', async () => {
     let resolveDiscovery: ((value: WebsiteAppDiscovery) => void) | undefined;
-    vi.mocked(catalogApi.createWebsiteAppDiscovery).mockImplementationOnce(
+    vi.mocked(adminAppsApi.createWebsiteAppDiscovery).mockImplementationOnce(
       () => new Promise((resolve) => {
         resolveDiscovery = resolve;
       }),
@@ -406,7 +408,7 @@ describe('AdminAppsPage', () => {
     render(<AdminAppsPage />);
 
     expect(await screen.findByDisplayValue('Website Desktop')).toBeInTheDocument();
-    expect(catalogApi.fetchWebsiteAppDiscovery).toHaveBeenCalledWith(
+    expect(adminAppsApi.fetchWebsiteAppDiscovery).toHaveBeenCalledWith(
       'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       expect.any(AbortSignal),
     );
@@ -428,7 +430,7 @@ describe('AdminAppsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Analizar instaladores' }));
 
     await waitFor(() => {
-      expect(catalogApi.createManualInstallerInspection).toHaveBeenCalledWith(
+      expect(adminAppsApi.createManualInstallerInspection).toHaveBeenCalledWith(
         unresolvedApp.id,
         {
           installerUrls: {
@@ -443,7 +445,7 @@ describe('AdminAppsPage', () => {
   });
 
   it('recovers a running inspection and hydrates the editable preview when ready', async () => {
-    vi.mocked(catalogApi.fetchCurrentManualInstallerInspection).mockResolvedValue(
+    vi.mocked(adminAppsApi.fetchCurrentManualInstallerInspection).mockResolvedValue(
       inspection('running'),
     );
     render(<AdminAppsPage />);
@@ -452,7 +454,7 @@ describe('AdminAppsPage', () => {
     expect(await screen.findByText('Analizando los instaladores')).toBeInTheDocument();
 
     await waitFor(
-      () => expect(catalogApi.fetchManualInstallerInspection).toHaveBeenCalled(),
+      () => expect(adminAppsApi.fetchManualInstallerInspection).toHaveBeenCalled(),
       { timeout: 2500 },
     );
     expect(await screen.findByDisplayValue('Descripción larga generada y revisable.'))
@@ -462,7 +464,7 @@ describe('AdminAppsPage', () => {
   });
 
   it('publishes an edited preview, removes the resolved row and selects the next app', async () => {
-    vi.mocked(catalogApi.fetchCurrentManualInstallerInspection).mockResolvedValue(
+    vi.mocked(adminAppsApi.fetchCurrentManualInstallerInspection).mockResolvedValue(
       inspection('ready'),
     );
     render(<AdminAppsPage />);
@@ -477,7 +479,7 @@ describe('AdminAppsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
 
     await waitFor(() => {
-      expect(catalogApi.applyManualInstallerInspection).toHaveBeenCalledWith(
+      expect(adminAppsApi.applyManualInstallerInspection).toHaveBeenCalledWith(
         unresolvedApp.id,
         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         expect.objectContaining({
@@ -487,14 +489,14 @@ describe('AdminAppsPage', () => {
         }),
       );
     });
-    await waitFor(() => expect(catalogApi.fetchAppDetails).toHaveBeenCalledWith(
+    await waitFor(() => expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith(
       secondApp.id,
       expect.any(AbortSignal),
     ));
   });
 
   it('requires an explicit platform for a neutral validated artifact', async () => {
-    vi.mocked(catalogApi.fetchCurrentManualInstallerInspection).mockResolvedValue(
+    vi.mocked(adminAppsApi.fetchCurrentManualInstallerInspection).mockResolvedValue(
       inspection('ready', {
         installer: {
           finalDomain: 'example.com',
@@ -516,13 +518,13 @@ describe('AdminAppsPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Selecciona la plataforma antes de publicar.',
     );
-    expect(catalogApi.applyManualInstallerInspection).not.toHaveBeenCalled();
+    expect(adminAppsApi.applyManualInstallerInspection).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText(/^Sistema operativo/), {
       target: { value: 'linux' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Guardar y publicar' }));
-    await waitFor(() => expect(catalogApi.applyManualInstallerInspection).toHaveBeenCalledWith(
+    await waitFor(() => expect(adminAppsApi.applyManualInstallerInspection).toHaveBeenCalledWith(
       unresolvedApp.id,
       expect.any(String),
       expect.objectContaining({ operatingSystem: 'linux' }),
@@ -530,8 +532,8 @@ describe('AdminAppsPage', () => {
   });
 
   it('permite volver y restaura el foco si falla el detalle en móvil', async () => {
-    vi.mocked(catalogApi.fetchAppDetails).mockRejectedValueOnce(
-      new catalogApi.ApiRequestError(503, 'details_unavailable'),
+    vi.mocked(catalogAppsApi.fetchAppDetails).mockRejectedValueOnce(
+      new ApiRequestError(503, 'details_unavailable'),
     );
     render(<AdminAppsPage />);
 
@@ -550,7 +552,7 @@ describe('AdminAppsPage', () => {
       pageSize: number;
       total: number;
     }) => void) | undefined;
-    vi.mocked(catalogApi.fetchAdminApps)
+    vi.mocked(adminAppsApi.fetchAdminApps)
       .mockImplementationOnce(() => new Promise((resolve) => {
         resolveSlow = resolve;
       }))

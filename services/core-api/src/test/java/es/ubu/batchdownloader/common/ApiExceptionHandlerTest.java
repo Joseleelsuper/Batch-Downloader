@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.security.authentication.InternalAuthenticationServiceException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
@@ -57,7 +58,8 @@ class ApiExceptionHandlerTest {
      */
     @Test
     void mapsUnreadableJsonToBadRequest() {
-        var response = handler.invalidJson(new HttpMessageNotReadableException("invalid"));
+        var response = handler.invalidJson(new HttpMessageNotReadableException(
+                "invalid", new MockHttpInputMessage(new byte[0])));
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
         assertThat(response.getBody().code()).isEqualTo("invalid_json");

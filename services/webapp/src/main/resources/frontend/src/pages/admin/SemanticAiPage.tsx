@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   Cpu,
   Database,
-  Download,
   Gauge,
   HardDrive,
   Library,
@@ -32,6 +31,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import {
@@ -41,7 +41,7 @@ import {
   useNavigate,
   useParams,
 } from 'react-router-dom';
-import { ApiRequestError } from '../../api/catalog';
+import { ApiRequestError } from '../../api/http';
 import {
   activateSemanticModel,
   cancelSemanticOperation,
@@ -54,7 +54,8 @@ import {
   retrySemanticOperation,
   startSemanticBenchmark,
 } from '../../api/semanticAdmin';
-import { t } from '../../services/i18n';
+import { usePollingTask } from '../../hooks/usePollingTask';
+import { useTranslation, type Translator } from '../../services/i18n';
 import type {
   SemanticBenchmarkMetric,
   SemanticBenchmarkRun,
@@ -73,6 +74,7 @@ const NON_CANCELLABLE_PHASES = new Set([
 const SECTIONS = new Set(['models', 'benchmarks']);
 
 export function SemanticAiPage() {
+  const t = useTranslation();
   const { semanticSection = 'models' } = useParams<{ semanticSection: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -99,11 +101,11 @@ export function SemanticAiPage() {
       setOperations(nextOperations);
       setError(null);
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(errorMessage(t, cause));
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refresh();
@@ -113,11 +115,12 @@ export function SemanticAiPage() {
     (operation) => !TERMINAL_OPERATIONS.has(operation.status),
   );
 
-  useEffect(() => {
-    if (!hasActiveOperations) return undefined;
-    const timer = window.setInterval(() => void refresh(true), 2_000);
-    return () => window.clearInterval(timer);
-  }, [hasActiveOperations, refresh]);
+  usePollingTask({
+    enabled: hasActiveOperations,
+    intervalMs: 2_000,
+    pollKey: 'semantic-operations',
+    task: () => refresh(true),
+  });
 
   const runAction = useCallback(async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -126,11 +129,11 @@ export function SemanticAiPage() {
       await refresh(true);
       setError(null);
     } catch (cause) {
-      setError(errorMessage(cause));
+      setError(errorMessage(t, cause));
     } finally {
       setBusy(false);
     }
-  }, [refresh]);
+  }, [refresh, t]);
 
   if (!SECTIONS.has(semanticSection)) {
     return <Navigate to="/admin/semantic/models" replace />;
@@ -222,6 +225,7 @@ function SemanticHeader({
   overview: SemanticOverview | null;
   loading: boolean;
 }) {
+  const t = useTranslation();
   const active = overview?.activeModel;
   const coverage = active?.index.expected
     ? active.index.indexed / active.index.expected
@@ -288,6 +292,7 @@ function ModelLibrary({
   onActivate: (model: SemanticModel, confirmRegression: boolean) => void;
   onDelete: (modelId: string) => void;
 }) {
+  const t = useTranslation();
   const [confirmation, setConfirmation] = useState<{
     modelId: string;
     kind: 'activate' | 'delete';
@@ -541,7 +546,11 @@ function BenchmarkComparison({
   initialCandidateId?: string;
   onStart: (modelIds: string[]) => void;
 }) {
-  const eligibleModels = models.filter((model) => model.artifactState === 'ready');
+  const t = useTranslation();
+  const eligibleModels = useMemo(
+    () => models.filter((model) => model.artifactState === 'ready'),
+    [models],
+  );
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [selectedRunId, setSelectedRunId] = useState('');
 
@@ -558,7 +567,7 @@ function BenchmarkComparison({
       }
       return defaults.length ? defaults : eligibleModels.slice(0, 1).map((model) => model.id);
     });
-  }, [activeModelId, eligibleModels.length, initialCandidateId]);
+  }, [activeModelId, eligibleModels, initialCandidateId]);
 
   useEffect(() => {
     if (!selectedRunId && runs.length) setSelectedRunId(runs[0].id);
@@ -656,6 +665,7 @@ function BenchmarkComparison({
 }
 
 function BenchmarkTable({ run }: { run: SemanticBenchmarkRun }) {
+  const t = useTranslation();
   return (
     <div className="semantic-comparison-table-shell">
       <table className="semantic-comparison-table">
@@ -725,6 +735,7 @@ function OperationTray({
   onCancel: (operationId: string) => void;
   onRetry: (operationId: string) => void;
 }) {
+  const t = useTranslation();
   const visible = [
     ...operations.filter((operation) => !TERMINAL_OPERATIONS.has(operation.status)),
     ...operations.filter(
@@ -767,9 +778,7 @@ function OperationTray({
                       ? 'danger'
                       : operation.status === 'cancelled'
                         ? 'neutral'
-                        : active
-                          ? 'info'
-                          : 'success'
+                        : 'info'
                   }
                   label={t(`semantic.operation.status.${operation.status}`)}
                 />
@@ -800,8 +809,7 @@ function OperationTray({
                 </>
               ) : null}
               {operation.errorCode ? <code>{operation.errorCode}</code> : null}
-              {(operation.status === 'failed' || operation.status === 'cancelled')
-                && operation.kind !== 'download' ? (
+              {operation.status === 'failed' || operation.status === 'cancelled' ? (
                 <button
                   className="secondary-button compact-button semantic-retry-operation"
                   type="button"
@@ -829,6 +837,7 @@ function StatusBadge({
 }
 
 function SemanticSkeleton() {
+  const t = useTranslation();
   return (
     <div className="semantic-skeleton" aria-label={t('common.loading')}>
       <span />
@@ -840,8 +849,6 @@ function SemanticSkeleton() {
 
 function operationIcon(operation: SemanticOperation) {
   if (operation.status === 'failed') return <XCircle size={16} />;
-  if (operation.status === 'succeeded') return <CheckCircle2 size={16} />;
-  if (operation.kind === 'download') return <Download size={16} />;
   if (operation.kind === 'benchmark') return <Gauge size={16} />;
   if (operation.kind === 'prepare') return <Database size={16} />;
   if (operation.kind === 'activate') return <Play size={16} />;
@@ -862,7 +869,7 @@ function deploymentTone(state: SemanticModel['deploymentState']) {
   return 'neutral' as const;
 }
 
-function errorMessage(cause: unknown): string {
+function errorMessage(t: Translator, cause: unknown): string {
   if (cause instanceof ApiRequestError) {
     const key = `semantic.error.${cause.code}`;
     const translated = t(key);
@@ -882,10 +889,6 @@ function formatBytes(value: number): string {
 
 function formatPercent(value: number): string {
   return value.toLocaleString('es-ES', { style: 'percent', maximumFractionDigits: 1 });
-}
-
-function compactNumber(value: number): string {
-  return new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 }
 
 function integer(value: number): string {

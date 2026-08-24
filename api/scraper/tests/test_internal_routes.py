@@ -442,6 +442,10 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
         "app.scraper.manual_installer.validate_public_https_url",
         public_url,
     )
+    monkeypatch.setattr(
+        "app.scraper.manual_installer_apply.validate_public_https_url",
+        public_url,
+    )
     headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
     create_response = await internal_api.client.post(
         f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections",

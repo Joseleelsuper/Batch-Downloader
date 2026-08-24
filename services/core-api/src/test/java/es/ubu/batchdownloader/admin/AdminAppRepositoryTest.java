@@ -16,6 +16,7 @@ import java.sql.ResultSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Clock;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,9 +35,7 @@ class AdminAppRepositoryTest {
     void deleteAllRejectsDeletionWhileScraperIsRunning() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(anyString())).thenReturn(List.of(Map.of("id", new byte[16])));
-        AdminAppRepository repository = new AdminAppRepository(
-                jdbc,
-                mock(CatalogRepository.class));
+        AdminAppRepository repository = repository(jdbc, mock(CatalogRepository.class));
 
         assertThatThrownBy(repository::deleteAll)
                 .isInstanceOf(ConflictException.class)
@@ -52,9 +51,7 @@ class AdminAppRepositoryTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(anyString())).thenReturn(List.of());
         when(jdbc.queryForObject("SELECT COUNT(*) FROM software_apps", Integer.class)).thenReturn(0);
-        AdminAppRepository repository = new AdminAppRepository(
-                jdbc,
-                mock(CatalogRepository.class));
+        AdminAppRepository repository = repository(jdbc, mock(CatalogRepository.class));
 
         assertThat(repository.deleteAll()).isZero();
 
@@ -91,9 +88,7 @@ class AdminAppRepositoryTest {
             }
             return List.of();
         });
-        AdminAppRepository repository = new AdminAppRepository(
-                jdbc,
-                mock(CatalogRepository.class));
+        AdminAppRepository repository = repository(jdbc, mock(CatalogRepository.class));
 
         assertThat(repository.deleteAll()).isEqualTo(1);
 
@@ -149,9 +144,7 @@ class AdminAppRepositoryTest {
                             "00000000-0000-0000-0000-000000000003"),
                             2));
         });
-        AdminAppRepository repository = new AdminAppRepository(
-                jdbc,
-                mock(CatalogRepository.class));
+        AdminAppRepository repository = repository(jdbc, mock(CatalogRepository.class));
 
         AdminAppRepository.AppCsvExport export = repository.exportCsv();
 
@@ -176,7 +169,7 @@ class AdminAppRepositoryTest {
         UUID sourceId = UUID.randomUUID();
         when(catalog.softwareAppId("app-public-id")).thenReturn(applicationId);
         when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
-        AdminAppRepository repository = new AdminAppRepository(jdbc, catalog);
+        AdminAppRepository repository = repository(jdbc, catalog);
 
         repository.patchSource(
                 "app-public-id",
@@ -229,5 +222,15 @@ class AdminAppRepositoryTest {
         when(rs.getString("extension")).thenReturn(extension);
         when(rs.getString("source_ref")).thenReturn(sourceRef);
         return rs;
+    }
+
+    private AdminAppRepository repository(JdbcTemplate jdbc, CatalogRepository catalog) {
+        return new AdminAppRepository(
+                jdbc,
+                catalog,
+                new AdminAppExportRepository(jdbc),
+                mock(InstallerAbsenceRepository.class),
+                new AdminAppSourceRepository(jdbc, catalog, Clock.systemUTC()),
+                Clock.systemUTC());
     }
 }

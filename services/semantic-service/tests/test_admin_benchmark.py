@@ -1,9 +1,9 @@
-"""Contiene las pruebas de `test_admin_benchmark`.
-"""
+"""Contiene las pruebas de `test_admin_benchmark`."""
+
 import json
 
 from app.benchmark_snapshot import evaluation_snapshot
-from app.trainer import write_snapshot
+from app.training_dataset import write_snapshot
 
 
 def test_evaluation_snapshot_reuses_matching_catalog(tmp_path, monkeypatch) -> None:
@@ -65,9 +65,7 @@ def test_evaluation_snapshot_reuses_matching_catalog(tmp_path, monkeypatch) -> N
     assert reused_hash == dataset_hash
     assert reused_dir == snapshot_dir
     assert [row["query"] for row in reused_queries] == ["editor", "terminal"]
-    manifest = json.loads(
-        (snapshot_dir / "manifest.json").read_text(encoding="utf-8")
-    )
+    manifest = json.loads((snapshot_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["catalogSnapshotHash"] == catalog_hash
 
 

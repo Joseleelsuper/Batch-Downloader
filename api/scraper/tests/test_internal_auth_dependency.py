@@ -30,14 +30,11 @@ async def test_accepts_the_shared_internal_token() -> None:
     await require_internal_service_token(settings, "shared-secret")
 
 
-def test_legacy_run_once_route_uses_the_shared_auth_wrapper() -> None:
-    route = next(
-        candidate
+def test_public_router_exposes_only_healthchecks() -> None:
+    paths = {
+        candidate.path
         for candidate in router.routes
         if isinstance(candidate, APIRoute)
-        and candidate.path == "/api/internal/scraper/run-once"
-    )
+    }
 
-    assert require_internal_service_token in [
-        dependency.call for dependency in route.dependant.dependencies
-    ]
+    assert paths == {"/api/health", "/api/health/live", "/api/health/ready"}

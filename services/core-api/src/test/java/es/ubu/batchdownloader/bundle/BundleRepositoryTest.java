@@ -75,7 +75,7 @@ class BundleRepositoryTest {
         when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
                 .thenReturn(1L);
         when(catalog.listItems(any())).thenReturn(Map.of());
-        BundleRepository repository = new BundleRepository(jdbc, catalog);
+        BundleRepository repository = repository(jdbc, catalog);
 
         assertThat(repository.list(null, "updated", 1, 12)).hasSize(1);
         assertThat(repository.count(null)).isEqualTo(1);
@@ -95,14 +95,12 @@ class BundleRepositoryTest {
     void writesAuthenticatedBundleOwnerAsTextUuid() {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
         UUID ownerId = UUID.randomUUID();
-        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of(ownerId));
         when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
         doThrow(new RuntimeException("stop after bundle insert"))
                 .when(jdbc)
                 .update(anyString(), any(Object[].class));
-        BundleRepository repository = new BundleRepository(
-                jdbc,
-                org.mockito.Mockito.mock(CatalogRepository.class));
+        BundleRepository repository = repository(
+                jdbc, org.mockito.Mockito.mock(CatalogRepository.class));
 
         assertThatThrownBy(() -> repository.create(
                         new UpsertBundleRequest(
@@ -113,12 +111,12 @@ class BundleRepositoryTest {
                                 "official",
                                 List.of("trabajo"),
                                 List.of()),
-                        "admin"))
+                        ownerId))
                 .hasMessage("stop after bundle insert");
 
         ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).update(anyString(), parameters.capture());
-        assertThat(parameters.getValue()[7]).isEqualTo(ownerId.toString());
+        assertThat(parameters.getValue()[6]).isEqualTo(ownerId.toString());
     }
 
     /**
@@ -139,9 +137,7 @@ class BundleRepositoryTest {
                 })
                 .when(jdbc)
                 .query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
-        BundleRepository repository = new BundleRepository(
-                jdbc,
-                mock(CatalogRepository.class));
+        BundleRepository repository = repository(jdbc, mock(CatalogRepository.class));
 
         assertThat(repository.availableOperatingSystems(UUID.randomUUID())).containsExactly("windows");
 
@@ -179,7 +175,7 @@ class BundleRepositoryTest {
                 })
                 .when(jdbc)
                 .query(anyString(), any(RowMapper.class), any(Object[].class));
-        BundleRepository repository = new BundleRepository(jdbc, mock(CatalogRepository.class));
+        BundleRepository repository = repository(jdbc, mock(CatalogRepository.class));
 
         assertThat(repository.appIdsForDownload("public-bundle", null, false)).isEmpty();
 
@@ -193,5 +189,11 @@ class BundleRepositoryTest {
                 .contains("SELECT item.software_app_id")
                 .contains("LIMIT 101")
                 .doesNotContain("SELECT *");
+    }
+
+    private static BundleRepository repository(JdbcTemplate jdbc, CatalogRepository catalog) {
+        BundleReadRepository reads = new BundleReadRepository(jdbc, catalog);
+        BundleWriteRepository writes = new BundleWriteRepository(jdbc, catalog, reads);
+        return new BundleRepository(reads, writes);
     }
 }

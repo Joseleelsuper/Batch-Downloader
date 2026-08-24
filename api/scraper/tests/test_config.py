@@ -1,5 +1,7 @@
 """Contiene las pruebas de `test_config`.
 """
+import pytest
+
 from app.core.config import Settings
 
 
@@ -41,3 +43,11 @@ def test_database_pool_is_bounded_without_overflow() -> None:
     assert settings.database_max_overflow == 0
     assert settings.database_pool_timeout_seconds == 2
     assert settings.run_on_startup is False
+
+
+def test_rejects_removed_scrapper_environment_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Una configuración antigua falla con una instrucción de migración explícita."""
+    monkeypatch.setenv("SCRAPPER_DATABASE_HOST", "legacy-host")
+
+    with pytest.raises(ValueError, match=r"SCRAPPER_\* a SCRAPER_\*"):
+        Settings(_env_file=None)

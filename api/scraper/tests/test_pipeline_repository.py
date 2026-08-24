@@ -101,8 +101,8 @@ async def test_recover_orphaned_run_items_releases_fresh_leases_after_restart(db
 
 
 @pytest.mark.asyncio
-async def test_retry_failed_and_prune_terminal_do_not_touch_queued(db_session) -> None:
-    """Comprueba el escenario `retry_failed_and_prune_terminal_do_not_touch_queued`.
+async def test_retry_failed_does_not_touch_terminal_or_queued(db_session) -> None:
+    """Comprueba el escenario `retry_failed_does_not_touch_terminal_or_queued`.
 
     Args:
         db_session (Any): Valor de `db_session` utilizado por la operación.
@@ -118,17 +118,15 @@ async def test_retry_failed_and_prune_terminal_do_not_touch_queued(db_session) -
     await db_session.commit()
 
     retried = await PipelineRepository(db_session).retry_failed()
-    pruned = await PipelineRepository(db_session).prune_terminal()
     await db_session.commit()
 
     rows = await db_session.scalars(select(ScraperWorkItem))
     by_package = {item.package_id: item for item in rows}
     assert retried == 1
-    assert pruned == 2
     assert by_package["Vendor.Failed"].status == STATUS_QUEUED
     assert by_package["Vendor.Queued"].status == STATUS_QUEUED
-    assert "Vendor.Completed" not in by_package
-    assert "Vendor.Discarded" not in by_package
+    assert by_package["Vendor.Completed"].status == STATUS_COMPLETED
+    assert by_package["Vendor.Discarded"].status == STATUS_DISCARDED
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,9 @@
 package es.ubu.batchdownloader.downloads.application;
 
 import es.ubu.batchdownloader.common.NotFoundException;
-import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.HexFormat;
-import java.util.Locale;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -25,10 +23,6 @@ public class DownloadRequestOwner {
     private static final String HMAC_ALGORITHM = "HmacSHA256";
 
     /**
-     * Estado {@code users} mantenido por {@code DownloadRequestOwner}.
-     */
-    private final UserAccountStore users;
-    /**
      * Estado {@code secret} mantenido por {@code DownloadRequestOwner}.
      */
     private final byte[] secret;
@@ -36,39 +30,18 @@ public class DownloadRequestOwner {
     /**
      * Inicializa una instancia de {@code DownloadRequestOwner}.
      *
-     * @param users Valor de {@code users} utilizado por la operación.
      * @param anonymousOwnerSecret Valor de {@code anonymousOwnerSecret} utilizado por la operación.
      * @throws IllegalStateException Si el estado actual impide completar la operación.
      */
     public DownloadRequestOwner(
-            UserAccountStore users,
             @Value("${app.download.anonymous-owner-secret}") String anonymousOwnerSecret) {
         if (anonymousOwnerSecret == null || anonymousOwnerSecret.isBlank()) {
             throw new IllegalStateException("app.download.anonymous-owner-secret must be configured");
         }
-        this.users = users;
         this.secret = anonymousOwnerSecret.getBytes(StandardCharsets.UTF_8);
     }
 
-    /**
-     * Resuelve el recurso solicitado mediante {@code resolve}.
-     *
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
-     * @param remoteAddress Valor de {@code remoteAddress} utilizado por la operación.
-     * @return Resultado producido por {@code resolve}.
-     */
-    public RequestOwner resolve(String username, String browserToken, String remoteAddress) {
-        UUID userId = username == null || username.isBlank() ? null : users
-                .findByNormalizedUsername(username.strip().toLowerCase(Locale.ROOT))
-                .map(account -> account.id())
-                .orElseThrow(() -> new NotFoundException("user_not_found", "No existe el usuario."));
-        String browserHash = browserToken == null || browserToken.isBlank() ? null : hash(browserToken);
-        String ipHash = remoteAddress == null || remoteAddress.isBlank() ? null : hash("ip:" + remoteAddress);
-        return new RequestOwner(userId, browserHash, ipHash);
-    }
-
-    /** Resuelve sesiones nuevas por el UUID estable, sin consulta ni dependencia del username. */
+    /** Resuelve una cuenta UUID o una petición anónima sin depender del username. */
     public RequestOwner resolve(UUID userId, String browserToken, String remoteAddress) {
         String browserHash = browserToken == null || browserToken.isBlank() ? null : hash(browserToken);
         String ipHash = remoteAddress == null || remoteAddress.isBlank() ? null : hash("ip:" + remoteAddress);

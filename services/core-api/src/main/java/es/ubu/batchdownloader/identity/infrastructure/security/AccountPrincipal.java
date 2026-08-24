@@ -15,7 +15,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 /** Principal de sesión que conserva el UUID estable de la cuenta. */
 public record AccountPrincipal(UUID userId, String displayUsername, UserRole role)
         implements Principal, UserDetails, Serializable {
-    @Serial private static final long serialVersionUID = 1L;
+    @Serial private static final long serialVersionUID = 2L;
 
     public AccountPrincipal {
         if (userId == null || displayUsername == null || displayUsername.isBlank() || role == null) {

@@ -44,7 +44,7 @@ public class SoftwareRequestController {
      * @param request Solicitud recibida por la operación.
      * @return Resultado producido por {@code create}.
      */
-    @PostMapping("/api/software-requests")
+    @PostMapping("/api/v1/software-requests")
     @ResponseStatus(HttpStatus.CREATED)
     public SoftwareRequestItem create(@Valid @RequestBody CreateSoftwareRequest request) {
         UUID id = UUID.randomUUID();
@@ -81,7 +81,7 @@ public class SoftwareRequestController {
      * @param limit Número máximo de elementos que se recuperarán.
      * @return Colección de elementos obtenidos por la operación.
      */
-    @GetMapping("/api/admin/requests")
+    @GetMapping("/api/v1/admin/requests")
     public List<SoftwareRequestItem> list(@RequestParam(defaultValue = "50") int limit) {
         return jdbc.query(
                 """

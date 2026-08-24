@@ -1,5 +1,6 @@
 package es.ubu.batchdownloader.notification.infrastructure.messaging;
 
+import es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope;
 import es.ubu.batchdownloader.notification.config.RabbitTopologyProperties;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import jakarta.mail.internet.AddressException;
@@ -102,7 +103,11 @@ public class NotificationRequestedMessageMapper {
         switch (template) {
             case EMAIL_VERIFICATION, PASSWORD_RESET -> {
                 requireParameter(parameters, "username");
-                requireParameter(parameters, "token");
+                String token = requireParameter(parameters, "token");
+                if (!NotificationTokenEnvelope.isVersion1(token)) {
+                    throw new InvalidDownloadEventException(
+                            "payload.parameters.token debe usar el sobre enc:v1");
+                }
             }
             case DOWNLOAD_READY -> {
                 validateJobId(requireParameter(parameters, "jobId"));

@@ -14,6 +14,17 @@ import org.springframework.data.repository.query.Param;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, UUID> {
+    /** Bloquea los eventos de identidad pendientes que deben superar el corte enc:v1. */
+    @Query(value = """
+            SELECT *
+            FROM core_outbox_events
+            WHERE published_at IS NULL
+              AND event_type = 'notification.email.requested'
+            ORDER BY occurred_at ASC
+            FOR UPDATE
+            """, nativeQuery = true)
+    List<OutboxEventEntity> findPendingNotificationRequestsForUpdate();
+
     /**
      * Bloquea y devuelve eventos disponibles sin esperar por filas reclamadas por otro proceso.
      *

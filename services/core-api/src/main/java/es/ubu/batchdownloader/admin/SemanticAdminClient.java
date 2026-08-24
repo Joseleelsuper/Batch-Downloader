@@ -64,25 +64,6 @@ public class SemanticAdminClient {
     }
 
     /**
-     * Constructor público compatible para consumidores sin registro de métricas.
-     *
-     * @param objectMapper serializador de los contratos internos.
-     * @param serviceUrl dirección base del servicio semántico.
-     * @param internalServiceToken credencial compartida entre servicios.
-     * @param requestTimeout límite temporal de cada petición.
-     */
-    public SemanticAdminClient(
-            ObjectMapper objectMapper,
-            String serviceUrl,
-            String internalServiceToken,
-            Duration requestTimeout) {
-        this(
-                objectMapper,
-                serviceUrl,
-                instrumentedExecutor(internalServiceToken, requestTimeout, null));
-    }
-
-    /**
      * Inicializa una instancia de {@code SemanticAdminClient}.
      *
      * @param httpClient Valor de {@code httpClient} utilizado por la operación.

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import es.ubu.batchdownloader.common.BadRequestException;
-import es.ubu.batchdownloader.identity.infrastructure.security.PasswordPolicy;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 

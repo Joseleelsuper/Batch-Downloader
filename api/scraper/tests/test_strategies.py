@@ -7,7 +7,7 @@ import pytest
 from app.core.config import Settings
 from app.db.enums import ResolutionStatus
 from app.scraper.candidates import InstallerCandidate
-from app.scraper.catalog_fetcher import PlatformScraperWorker
+from app.scraper.platform_worker import PlatformScraperWorker
 from app.scraper.ports import CatalogProvider
 from app.scraper.strategies import (
     CallbackResolverStrategy,

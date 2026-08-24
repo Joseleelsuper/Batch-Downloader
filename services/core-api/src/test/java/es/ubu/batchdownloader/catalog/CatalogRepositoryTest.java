@@ -14,7 +14,10 @@ import static org.mockito.Mockito.when;
 import es.ubu.batchdownloader.common.BadRequestException;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -93,16 +96,6 @@ class CatalogRepositoryTest {
     }
 
     /**
-     * Comprueba el escenario {@code requiredTagMatchesPreservesAdminAnyAndAllModes}.
-     */
-    @Test
-    void requiredTagMatchesPreservesAdminAnyAndAllModes() {
-        assertThat(CatalogRepository.requiredTagMatches(3, "all")).isEqualTo(3);
-        assertThat(CatalogRepository.requiredTagMatches(3, "any")).isEqualTo(1);
-        assertThat(CatalogRepository.requiredTagMatches(0, "all")).isZero();
-    }
-
-    /**
      * Comprueba el escenario {@code searchWithQueryAppliesSelectedSortBeforeLiteralRelevance}.
      */
     @Test
@@ -118,10 +111,10 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                "all",
                 "updated",
                 1,
-                12);
+                12,
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -162,7 +155,6 @@ class CatalogRepositoryTest {
                 "x86_64",
                 List.of("desarrollo"),
                 List.of("Vendor"),
-                "all",
                 "updated",
                 1,
                 12,
@@ -200,7 +192,7 @@ class CatalogRepositoryTest {
                 "x64",
                 List.of("automation", "cli"),
                 List.of("ACME"),
-                "all");
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -239,7 +231,6 @@ class CatalogRepositoryTest {
                 null,
                 List.of("automation"),
                 List.of("ACME"),
-                "all",
                 candidates);
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
@@ -267,10 +258,10 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                "all",
                 "updated",
                 1,
-                12);
+                12,
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
@@ -285,10 +276,10 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                "all",
                 "name",
                 1,
-                12);
+                12,
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sortedSql = ArgumentCaptor.forClass(String.class);
         verify(jdbc, org.mockito.Mockito.times(2)).query(sortedSql.capture(), any(RowMapper.class), any(Object[].class));
@@ -318,7 +309,7 @@ class CatalogRepositoryTest {
         CatalogRepository repository = repository(jdbc);
 
         assertThat(repository.alphabet(
-                        "", "all", null, null, List.of(), List.of(), "all", 12,
+                        "", "all", null, null, List.of(), List.of(), 12,
                         SemanticCandidateSet.lexical()))
                 .containsExactly(
                         new CatalogDtos.CatalogAlphabetEntry("#", 1, 2),
@@ -348,10 +339,10 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                "all",
                 "downloads",
                 1,
-                12);
+                12,
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
@@ -376,10 +367,10 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                "all",
                 "downloads",
                 1,
-                12);
+                12,
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
@@ -405,10 +396,10 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                "all",
                 "updated",
                 1,
-                12);
+                12,
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
@@ -433,10 +424,10 @@ class CatalogRepositoryTest {
                 null,
                 List.of(),
                 List.of(),
-                "all",
                 "updated",
                 1,
-                12);
+                12,
+                SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -458,7 +449,8 @@ class CatalogRepositoryTest {
         CatalogRepository repository = repository(jdbc);
 
         assertThatThrownBy(() -> repository.search(
-                "", "pending", null, null, List.of(), List.of(), "all", "updated", 1, 12))
+                "", "pending", null, null, List.of(), List.of(), "updated", 1, 12,
+                SemanticCandidateSet.lexical()))
                 .isInstanceOf(BadRequestException.class)
                 .extracting(exception -> ((BadRequestException) exception).code())
                 .isEqualTo("invalid_catalog_status");
@@ -475,7 +467,7 @@ class CatalogRepositoryTest {
 
         repository.search(
                 "", "available", List.of("windows"), null, List.of(), List.of(),
-                "all", "updated", 1, 12);
+                "updated", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -508,11 +500,13 @@ class CatalogRepositoryTest {
         when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        assertThat(repository.stats().filters()).containsExactly(
+        var stats = repository.stats();
+        assertThat(stats.filters()).containsExactly(
                 org.assertj.core.data.MapEntry.entry("all", 10L),
                 org.assertj.core.data.MapEntry.entry("available", 4L),
                 org.assertj.core.data.MapEntry.entry("review", 2L),
                 org.assertj.core.data.MapEntry.entry("missing", 4L));
+        assertThat(stats.generatedAt()).isEqualTo(LocalDateTime.of(2026, 8, 23, 1, 0));
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).queryForObject(sql.capture(), any(RowMapper.class));
@@ -564,6 +558,11 @@ class CatalogRepositoryTest {
      * @return Resultado producido por {@code repository}.
      */
     private static CatalogRepository repository(JdbcTemplate jdbc) {
-        return new CatalogRepository(jdbc);
+        Clock clock = Clock.fixed(Instant.parse("2026-08-23T01:00:00Z"), ZoneOffset.UTC);
+        return new CatalogRepository(
+                jdbc,
+                new CatalogStatisticsRepository(jdbc, clock),
+                new CatalogProjectionRepository(jdbc),
+                new CatalogFacetRepository(jdbc));
     }
 }

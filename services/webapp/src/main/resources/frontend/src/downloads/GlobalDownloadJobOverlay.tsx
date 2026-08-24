@@ -1,9 +1,10 @@
 import { AlertTriangle, Download, X } from 'lucide-react';
 import { DownloadJobPanel } from '../components/DownloadJobPanel';
-import { t } from '../services/i18n';
+import { useTranslation } from '../services/i18n';
 import { useDownloadJobs } from './DownloadJobsContext';
 
 export function GlobalDownloadJobOverlay() {
+  const t = useTranslation();
   const {
     jobs,
     startError,

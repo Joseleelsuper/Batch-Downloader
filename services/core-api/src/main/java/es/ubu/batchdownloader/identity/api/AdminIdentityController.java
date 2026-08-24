@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** Login administrativo separado del acceso de cuentas públicas. */
 @RestController
-@RequestMapping("/api/admin/auth")
+@RequestMapping("/api/v1/admin/auth")
 public class AdminIdentityController {
     private final IdentityService identities;
     private final AccountAuthenticator authenticator;

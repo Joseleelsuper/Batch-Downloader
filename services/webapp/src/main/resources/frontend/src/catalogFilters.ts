@@ -32,8 +32,8 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilterState = {
 
 export function parseCatalogFilters(search: URLSearchParams | string): CatalogFilterState {
   const params = typeof search === 'string' ? new URLSearchParams(search) : search;
-  const tags = uniqueValues([...params.getAll('tag'), ...csvValues(params.get('tags'))]);
-  const publisher = uniqueValues(params.getAll('publisher'))[0];
+  const tags = uniqueValues(params.getAll('tag'));
+  const publisher = optionalParam(params.get('publisher'));
   return {
     query: params.get('query')?.trim() ?? '',
     filter: enumParam(params.get('status'), filterKeys, DEFAULT_CATALOG_FILTERS.filter),
@@ -68,11 +68,6 @@ export function normalizeCatalogStatus(
   if (!params.has('status') && preferredFilter && preferredFilter !== DEFAULT_CATALOG_FILTERS.filter) {
     params.set('status', preferredFilter);
   }
-  params.delete('tagMatchMin');
-  params.delete('tagMode');
-  const publisher = uniqueValues(params.getAll('publisher'))[0];
-  params.delete('publisher');
-  if (publisher) params.set('publisher', publisher);
   return params.toString();
 }
 
@@ -145,10 +140,6 @@ export function nextFilters(
 
 export function toggleValue(values: string[], value: string): string[] {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
-}
-
-function csvValues(value: string | null): string[] {
-  return value ? value.split(',') : [];
 }
 
 function uniqueValues(values: string[]): string[] {

@@ -25,7 +25,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
@@ -42,15 +42,15 @@ public class SecurityConfig {
             GoogleOAuthFailureHandler oauthFailureHandler,
             ObjectProvider<ClientRegistrationRepository> clientRegistrations,
             @Value("${app.security.require-https}") boolean requireHttps) throws Exception {
-        RequestMatcher internalDownloadMetadata = new AntPathRequestMatcher(
-                "/internal/v1/download-jobs/*/item-metadata", HttpMethod.POST.name());
+        RequestMatcher internalDownloadMetadata = PathPatternRequestMatcher.withDefaults().matcher(
+                HttpMethod.POST, "/internal/v1/download-jobs/{jobId}/item-metadata");
         http.csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokens)
                         .ignoringRequestMatchers(internalDownloadMetadata))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
-                        .requestMatchers("/api/admin/auth/**").hasRole("ADMIN")
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/auth/login").permitAll()
+                        .requestMatchers("/api/v1/admin/auth/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers(internalDownloadMetadata).permitAll()
                         .requestMatchers("/api/v1/download-jobs/**").permitAll()
                         .requestMatchers("/api/v1/users/**").hasRole("USER")
@@ -58,8 +58,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me", "/api/v1/auth/csrf").permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET,
-                                "/api/v1/apps/**", "/api/apps/**",
-                                "/api/v1/bundles/**", "/api/bundles/**").permitAll()
+                                "/api/v1/apps/**", "/api/v1/bundles/**").permitAll()
                         .requestMatchers(
                                 "/api/health", "/actuator/**", "/v3/api-docs/**",
                                 "/swagger-ui/**", "/swagger-ui.html").permitAll()
@@ -91,9 +90,8 @@ public class SecurityConfig {
                     .failureHandler(oauthFailureHandler));
         }
         if (requireHttps) {
-            http.requiresChannel(channel -> channel
-                    .requestMatchers(new NegatedRequestMatcher(internalDownloadMetadata))
-                    .requiresSecure());
+            http.redirectToHttps(redirect -> redirect
+                    .requestMatchers(new NegatedRequestMatcher(internalDownloadMetadata)));
         }
         return http.build();
     }

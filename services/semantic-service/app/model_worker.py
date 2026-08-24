@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `model_worker`.
-"""
+"""Implementa las responsabilidades del módulo `model_worker`."""
+
 from __future__ import annotations
 
 import argparse
@@ -17,10 +17,14 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from app.admin_store import SemanticAdminStore, directory_bytes
+
+from app.admin_rows import directory_bytes
+from app.admin_store import SemanticAdminStore
 from app.config import get_settings
 from app.database import Database
+from app.heartbeat import WorkerHeartbeat
 from app.indexer import SemanticIndexer
+from app.retention import SemanticRetentionStore
 
 logger = logging.getLogger("semantic-model-worker")
 """Estado global asociado a `logger`.
@@ -28,8 +32,8 @@ logger = logging.getLogger("semantic-model-worker")
 
 
 class LeaseHeartbeat:
-    """Representa el componente `LeaseHeartbeat`.
-    """
+    """Representa el componente `LeaseHeartbeat`."""
+
     def __init__(
         self,
         store: SemanticAdminStore,
@@ -83,8 +87,7 @@ class LeaseHeartbeat:
         self.thread.join(timeout=2)
 
     def _run(self) -> None:
-        """Ejecuta el paso interno `_run`.
-        """
+        """Ejecuta el paso interno `_run`."""
         interval = max(5.0, self.lease_seconds / 3)
         while not self.stopped.wait(interval):
             try:
@@ -98,11 +101,10 @@ class LeaseHeartbeat:
 
 
 class SemanticModelWorker:
-    """Ejecuta el procesamiento en segundo plano de `SemanticModel`.
-    """
+    """Ejecuta el procesamiento en segundo plano de `SemanticModel`."""
+
     def __init__(self) -> None:
-        """Inicializa una instancia de `SemanticModelWorker`.
-        """
+        """Inicializa una instancia de `SemanticModelWorker`."""
         self.settings = get_settings()
         """Estado de instancia asociado a `settings`.
         """
@@ -120,20 +122,30 @@ class SemanticModelWorker:
         """
         self.manual_root = Path(self.settings.model_cache_dir) / "manual"
         """Directorio que contiene exclusivamente modelos aprovisionados a mano."""
+        self.retention = SemanticRetentionStore(self.database)
+        """Poda acotada de trabajo operativo; los benchmarks quedan fuera."""
+        self.next_retention_at = 0.0
+        """Instante monotónico de la siguiente pasada de retención."""
+        self.heartbeat = WorkerHeartbeat(
+            self.database,
+            "model-worker",
+            interval_seconds=self.settings.worker_heartbeat_interval_seconds,
+        )
+        """Señal persistente de salud del supervisor del model worker."""
 
     def open(self) -> None:
-        """Ejecuta `open` dentro de `SemanticModelWorker`.
-        """
+        """Ejecuta `open` dentro de `SemanticModelWorker`."""
         self.database.open()
-        self.database.migrate()
+        self.database.verify_schema()
+        self.heartbeat.start()
         self.artifacts_root.mkdir(parents=True, exist_ok=True)
         (self.artifacts_root / ".staging").mkdir(parents=True, exist_ok=True)
         self.manual_root.mkdir(parents=True, exist_ok=True)
         self.reconcile_registered_models()
 
     def close(self) -> None:
-        """Ejecuta `close` dentro de `SemanticModelWorker`.
-        """
+        """Ejecuta `close` dentro de `SemanticModelWorker`."""
+        self.heartbeat.close()
         self.database.close()
 
     def run_once(self) -> bool:
@@ -183,19 +195,50 @@ class SemanticModelWorker:
         return True
 
     def run_loop(self) -> None:
-        """Ejecuta la operación `loop`.
-        """
+        """Ejecuta la operación `loop`."""
         while True:
-            if not self.settings.background_window_open():
-                time.sleep(min(60.0, max(0.5, self.settings.operation_poll_seconds)))
+            try:
+                self._prune_if_due()
+                if not self.settings.background_window_open():
+                    self.heartbeat.success()
+                    time.sleep(min(60.0, max(0.5, self.settings.operation_poll_seconds)))
+                    continue
+                worked = self.run_once()
+                self.heartbeat.success()
+            except Exception as exception:  # supervisor de proceso persistente
+                self.heartbeat.failure(exception)
+                logger.exception(
+                    "semantic_model_worker_iteration_failed error=%s",
+                    exception.__class__.__name__,
+                )
+                time.sleep(max(0.5, self.settings.operation_poll_seconds))
                 continue
-            worked = self.run_once()
             if not worked:
                 time.sleep(max(0.5, self.settings.operation_poll_seconds))
 
+    def _prune_if_due(self) -> None:
+        """Ejecuta retención sin reiniciar el worker ante un fallo transitorio."""
+        current = time.monotonic()
+        if current < self.next_retention_at:
+            return
+        self.next_retention_at = current + self.settings.retention_interval_seconds
+        try:
+            result = self.retention.prune()
+        except Exception as exception:
+            logger.warning(
+                "semantic_retention_failed error=%s",
+                exception.__class__.__name__,
+            )
+            return
+        if sum(result.values()):
+            logger.info(
+                "semantic_retention_pruned embedding_jobs=%s operations=%s",
+                result["embeddingJobs"],
+                result["operations"],
+            )
+
     def reconcile_registered_models(self) -> None:
-        """Ejecuta `reconcile_registered_models` dentro de `SemanticModelWorker`.
-        """
+        """Ejecuta `reconcile_registered_models` dentro de `SemanticModelWorker`."""
         for model in self.store.models():
             artifact = self.store.artifact(model["id"])
             local_path = artifact.get("local_path")
@@ -231,8 +274,6 @@ class SemanticModelWorker:
             RuntimeError: Si el estado de ejecución impide completar la operación.
         """
         kind = operation["operation_kind"]
-        if kind == "download":
-            raise RuntimeError("semantic_remote_model_download_disabled")
         if kind == "benchmark":
             return self._benchmark(operation)
         if kind == "prepare":
@@ -496,9 +537,7 @@ class SemanticModelWorker:
                 try:
                     failure = json.loads(lines[-1])
                     error_code = (
-                        str(failure.get("errorCode") or "")
-                        if isinstance(failure, dict)
-                        else ""
+                        str(failure.get("errorCode") or "") if isinstance(failure, dict) else ""
                     )
                     if error_code.startswith("semantic_"):
                         raise RuntimeError(error_code)
@@ -537,31 +576,24 @@ class SemanticModelWorker:
         files = sorted(
             path
             for path in root.rglob("*")
-            if path.is_file()
-            and ".cache" not in path.relative_to(root).parts
+            if path.is_file() and ".cache" not in path.relative_to(root).parts
         )
         if not files or not any(path.suffix == ".safetensors" for path in files):
             raise RuntimeError("semantic_model_incompatible_safetensors_required")
-        actual_by_name = {
-            path.relative_to(root).as_posix(): path
-            for path in files
-        }
+        actual_by_name = {path.relative_to(root).as_posix(): path for path in files}
         expected_by_name = {
             str(row.get("path") or ""): int(row.get("size") or 0)
             for row in expected_files
             if row.get("path")
-            and not str(row["path"]).lower().endswith(
-                (".bin", ".pkl", ".pickle", ".pt", ".pth", ".py")
-            )
+            and not str(row["path"])
+            .lower()
+            .endswith((".bin", ".pkl", ".pickle", ".pt", ".pth", ".py"))
         }
         missing = sorted(set(expected_by_name) - set(actual_by_name))
         if missing:
             raise RuntimeError("semantic_model_incompatible_manifest_incomplete")
         for name, expected_size in expected_by_name.items():
-            if (
-                expected_size > 0
-                and actual_by_name[name].stat().st_size != expected_size
-            ):
+            if expected_size > 0 and actual_by_name[name].stat().st_size != expected_size:
                 raise RuntimeError("semantic_model_incompatible_manifest_size")
         for path in files:
             resolved = path.resolve()
@@ -679,19 +711,26 @@ def _safe_message(code: str) -> str:
     """
     messages = {
         "semantic_model_too_large": "El modelo supera el tamaño permitido.",
-        "semantic_model_insufficient_disk": "No hay espacio libre suficiente para descargar el modelo.",
-        "semantic_model_coverage_incomplete": "El índice no alcanzó la cobertura completa del catálogo.",
-        "semantic_activation_conflict": "El modelo activo cambió durante la operación. Actualiza la página.",
+        "semantic_model_insufficient_disk": (
+            "No hay espacio libre suficiente para descargar el modelo."
+        ),
+        "semantic_model_coverage_incomplete": (
+            "El índice no alcanzó la cobertura completa del catálogo."
+        ),
+        "semantic_activation_conflict": (
+            "El modelo activo cambió durante la operación. Actualiza la página."
+        ),
         "semantic_benchmark_required": "Hace falta un benchmark completo y vigente.",
-        "benchmark_regression_confirmation_required": "El candidato rinde peor que el modelo activo y necesita confirmación.",
+        "benchmark_regression_confirmation_required": (
+            "El candidato rinde peor que el modelo activo y necesita confirmación."
+        ),
         "semantic_model_warmup_failed": "El modelo no pudo cargarse antes de la activación.",
     }
     return messages.get(code, "La operación semántica no pudo completarse.")
 
 
 def main() -> None:
-    """Ejecuta el punto de entrada del módulo.
-    """
+    """Ejecuta el punto de entrada del módulo."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
     arguments = parser.parse_args()

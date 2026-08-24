@@ -3,7 +3,9 @@ package es.ubu.batchdownloader.downloads.infrastructure.web;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -18,9 +20,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -64,19 +66,19 @@ class InternalDownloadJobMetadataControllerTest {
     /**
      * Dato compartido {@code jobs} para los escenarios de prueba.
      */
-    @MockBean
+    @MockitoBean
     private DownloadJobService jobs;
 
     /**
      * Dato compartido {@code users} para los escenarios de prueba.
      */
-    @MockBean
+    @MockitoBean
     private UserAccountStore users;
 
-    @MockBean
+    @MockitoBean
     private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
 
-    @MockBean
+    @MockitoBean
     private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
@@ -104,6 +106,19 @@ class InternalDownloadJobMetadataControllerTest {
                 .andExpect(jsonPath("$[0].appId").value(APP_ID.toString()))
                 .andExpect(jsonPath("$[0].appName").value("Aplicación fallida"))
                 .andExpect(jsonPath("$[0].officialPageUrl").value("https://example.com/app"));
+    }
+
+    /**
+     * Confirma que la excepción del canal interno no desactiva el redireccionamiento HTTPS
+     * del resto de la API.
+     *
+     * @throws Exception Si no puede completarse la petición simulada.
+     */
+    @Test
+    void redirectsPublicHttpRequestsToHttps() throws Exception {
+        mvc.perform(get("/api/health"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "https://localhost/api/health"));
     }
 
     /**

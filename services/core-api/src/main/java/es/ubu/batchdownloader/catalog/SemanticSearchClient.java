@@ -46,11 +46,6 @@ public class SemanticSearchClient {
      */
     private final String serviceUrl;
     /**
-     * Estado {@code enabled} mantenido por {@code SemanticSearchClient}.
-     */
-    private final boolean enabled;
-
-    /**
      * Inicializa una instancia de {@code SemanticSearchClient}.
      *
      * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
@@ -69,28 +64,7 @@ public class SemanticSearchClient {
         this(
                 objectMapper,
                 serviceUrl,
-                instrumentedExecutor(internalServiceToken, requestTimeout, registry),
-                true);
-    }
-
-    /**
-     * Constructor público compatible para consumidores sin registro de métricas.
-     *
-     * @param objectMapper serializador de los contratos internos.
-     * @param serviceUrl dirección base del servicio semántico.
-     * @param internalServiceToken credencial compartida entre servicios.
-     * @param requestTimeout límite temporal de la búsqueda.
-     */
-    public SemanticSearchClient(
-            ObjectMapper objectMapper,
-            String serviceUrl,
-            String internalServiceToken,
-            Duration requestTimeout) {
-        this(
-                objectMapper,
-                serviceUrl,
-                instrumentedExecutor(internalServiceToken, requestTimeout, null),
-                true);
+                instrumentedExecutor(internalServiceToken, requestTimeout, registry));
     }
 
     /**
@@ -101,46 +75,26 @@ public class SemanticSearchClient {
      * @param serviceUrl Dirección de {@code service} que debe procesarse.
      * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
      * @param requestTimeout Valor de {@code requestTimeout} utilizado por la operación.
-     * @param enabled Valor de {@code enabled} utilizado por la operación.
      */
     SemanticSearchClient(
             HttpClient httpClient,
             ObjectMapper objectMapper,
             String serviceUrl,
             String internalServiceToken,
-            Duration requestTimeout,
-            boolean enabled) {
+            Duration requestTimeout) {
         this(
                 objectMapper,
                 serviceUrl,
-                executor(httpClient, internalServiceToken, requestTimeout),
-                enabled);
+                executor(httpClient, internalServiceToken, requestTimeout));
     }
 
     private SemanticSearchClient(
             ObjectMapper objectMapper,
             String serviceUrl,
-            InternalHttpExecutor executor,
-            boolean enabled) {
+            InternalHttpExecutor executor) {
         this.executor = executor;
         this.objectMapper = objectMapper;
         this.serviceUrl = serviceUrl == null ? "" : serviceUrl.replaceAll("/+$", "");
-        this.enabled = enabled;
-    }
-
-    /**
-     * Ejecuta la operación {@code disabled}.
-     *
-     * @return Resultado producido por {@code disabled}.
-     */
-    static SemanticSearchClient disabled() {
-        return new SemanticSearchClient(
-                HttpClient.newHttpClient(),
-                new ObjectMapper(),
-                "",
-                "",
-                Duration.ofSeconds(1),
-                false);
     }
 
     /**
@@ -156,11 +110,6 @@ public class SemanticSearchClient {
         }
         if (query == null || query.isBlank()) {
             return SemanticCandidateSet.lexical(CatalogSearchMode.SEMANTIC, null);
-        }
-        if (!enabled) {
-            return SemanticCandidateSet.lexical(
-                    CatalogSearchMode.SEMANTIC,
-                    "semantic_service_unavailable");
         }
         try {
             InternalHttpResponse response = executor.execute(request(query));

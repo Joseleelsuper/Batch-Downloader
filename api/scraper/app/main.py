@@ -1,7 +1,6 @@
 """Configura el punto de entrada del scraper.
 """
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import TimeoutError as SqlAlchemyTimeoutError
 
@@ -32,12 +31,5 @@ async def database_capacity_exhausted(
         content={"code": "service_busy", "message": "Capacidad temporal agotada."},
         headers={"Retry-After": "1"},
     )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
-)
 app.include_router(router)
 app.include_router(internal_router)

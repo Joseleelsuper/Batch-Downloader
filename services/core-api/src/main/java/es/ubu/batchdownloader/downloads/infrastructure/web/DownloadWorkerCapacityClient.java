@@ -37,16 +37,6 @@ final class DownloadWorkerCapacityClient {
                 instrumentedExecutor(serviceToken, timeout, registry));
     }
 
-    /** Constructor compatible para contextos sin observabilidad. */
-    DownloadWorkerCapacityClient(
-            String workerUrl,
-            Duration timeout,
-            String serviceToken) {
-        this(
-                URI.create(workerUrl.replaceAll("/+$", "") + "/internal/v1/capacity/check"),
-                instrumentedExecutor(serviceToken, timeout, null));
-    }
-
     /** Constructor verificable sin red real. */
     DownloadWorkerCapacityClient(
             HttpClient httpClient,

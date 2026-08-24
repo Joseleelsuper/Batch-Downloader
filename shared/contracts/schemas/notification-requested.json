@@ -21,7 +21,7 @@
         "template": { "enum": ["EMAIL_VERIFICATION", "PASSWORD_RESET", "DOWNLOAD_READY", "DOWNLOAD_FAILED"] },
         "parameters": {
           "type": "object",
-          "description": "Parámetros de plantilla. En EMAIL_VERIFICATION y PASSWORD_RESET, token es un sobre AES-GCM enc:v1:; se tolera temporalmente texto claro legacy solo durante la migración de colas.",
+          "description": "Parámetros de plantilla. En EMAIL_VERIFICATION y PASSWORD_RESET, token debe ser un sobre AES-GCM enc:v1:; el texto claro se rechaza.",
           "additionalProperties": { "type": ["string", "number", "boolean"] }
         }
       }

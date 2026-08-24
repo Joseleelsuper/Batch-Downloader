@@ -119,7 +119,7 @@ class IdentityServiceTokenTest {
 
         assertThat(user.passwordHash()).isEqualTo("new-hash");
         assertThat(token.consumedAt()).isEqualTo(NOW);
-        verify(sessions).invalidateAll(user.id(), "person");
+        verify(sessions).invalidateAll(user.id());
     }
 
     @Test

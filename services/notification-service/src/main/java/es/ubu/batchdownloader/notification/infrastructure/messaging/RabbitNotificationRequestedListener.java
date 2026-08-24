@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import es.ubu.batchdownloader.notification.application.NotificationHandler;
 import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
-import es.ubu.batchdownloader.notification.application.ProcessEmailNotification;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
+import es.ubu.batchdownloader.notification.operations.NotificationWorkerHeartbeat;
 import java.io.IOException;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -36,6 +36,8 @@ public class RabbitNotificationRequestedListener {
      * Estado {@code processor} mantenido por {@code RabbitNotificationRequestedListener}.
      */
     private final NotificationHandler handler;
+    /** Señales operativas del consumidor. */
+    private final NotificationWorkerHeartbeat heartbeat;
 
     /**
      * Inicializa una instancia de {@code RabbitNotificationRequestedListener}.
@@ -48,21 +50,15 @@ public class RabbitNotificationRequestedListener {
     public RabbitNotificationRequestedListener(
             ObjectMapper objectMapper,
             NotificationRequestedMessageMapper messageMapper,
-            NotificationHandler handler) {
+            NotificationHandler handler,
+            NotificationWorkerHeartbeat heartbeat) {
         ObjectMapper strictMapper = objectMapper.copy()
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION.mappedFeature());
         this.eventReader = strictMapper.readerFor(NotificationRequestedMessage.class);
         this.messageMapper = messageMapper;
         this.handler = handler;
-    }
-
-    /** Constructor compatible con el tipo concreto usado antes de formalizar el puerto. */
-    public RabbitNotificationRequestedListener(
-            ObjectMapper objectMapper,
-            NotificationRequestedMessageMapper messageMapper,
-            ProcessEmailNotification processor) {
-        this(objectMapper, messageMapper, (NotificationHandler) processor);
+        this.heartbeat = heartbeat;
     }
 
     /**
@@ -75,12 +71,17 @@ public class RabbitNotificationRequestedListener {
     public void receive(
             byte[] payload,
             @Header(AmqpHeaders.RECEIVED_ROUTING_KEY) String routingKey) {
-        NotificationRequestedMessage message = deserialize(payload);
-        EmailNotification notification = messageMapper.map(message, routingKey);
         try {
+            NotificationRequestedMessage message = deserialize(payload);
+            EmailNotification notification = messageMapper.map(message, routingKey);
             handler.handle(notification);
+            heartbeat.success();
         } catch (PermanentNotificationException exception) {
+            heartbeat.failure(exception);
             throw new AmqpRejectAndDontRequeueException("notification_permanently_rejected", exception);
+        } catch (RuntimeException exception) {
+            heartbeat.failure(exception);
+            throw exception;
         }
     }
 

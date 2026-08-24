@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Download, FileDown } from 'lucide-react';
-import { downloadJobFileUrl } from '../api/catalog';
+import { downloadJobFileUrl } from '../api/downloads';
 import { useDownloadJob } from '../hooks/useDownloadJob';
-import { t } from '../services/i18n';
+import { useTranslation } from '../services/i18n';
 import type {
   BundlePlatformAvailability,
   OperatingSystem,
@@ -33,6 +33,7 @@ export function BundleDownloadButton({
   onOperatingSystemChange,
   compact = false,
 }: Readonly<Props>) {
+  const t = useTranslation();
   const { job, starting, error, start } = useDownloadJob();
   const [internalOperatingSystem, setInternalOperatingSystem] = useState<OperatingSystem | null>(null);
   const availability = platformAvailability.length
@@ -79,7 +80,7 @@ export function BundleDownloadButton({
             {availability.map((item) => {
               const selected = item.operatingSystem === selectedPlatform;
               const label = t('bundle.platformAvailability', {
-                platform: operatingSystemLabel(item.operatingSystem),
+                platform: operatingSystemLabel(item.operatingSystem, t),
                 count: item.downloadableAppCount,
               });
               return (

@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `admin_benchmark`.
-"""
+"""Implementa las responsabilidades del módulo `admin_benchmark`."""
+
 from __future__ import annotations
 
 import csv
@@ -9,6 +9,7 @@ import json
 import platform
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from app.benchmark_snapshot import evaluation_snapshot
 from app.config import get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
-from app.trainer import (
+from app.runtime_evaluation import (
     evaluate_prepared_runtime,
     prepare_runtime_evaluation,
 )
@@ -46,7 +47,7 @@ def run_admin_benchmark(
     settings = get_settings()
     database = Database(settings)
     database.open()
-    database.migrate()
+    database.verify_schema()
     admin = SemanticAdminStore(database)
     from app.store import SemanticStore
 
@@ -60,12 +61,10 @@ def run_admin_benchmark(
             phase="benchmarking",
             message="Preparando el dataset reproducible",
         )
-        dataset_hash, snapshot_dir, queries, catalog_snapshot_hash = (
-            evaluation_snapshot(
-                documents,
-                root=Path(settings.model_cache_dir),
-                seed=settings.trainer_seed,
-            )
+        dataset_hash, snapshot_dir, queries, catalog_snapshot_hash = evaluation_snapshot(
+            documents,
+            root=Path(settings.model_cache_dir),
+            seed=settings.trainer_seed,
         )
         if not queries:
             raise RuntimeError("semantic_benchmark_queries_required")
@@ -105,18 +104,15 @@ def run_admin_benchmark(
                 runtime,
                 documents,
                 queries,
-                benchmark_store=semantic,
+                benchmark_store=semantic.benchmarks,
                 include_lexical=False,
-                progress=lambda stage, current, stage_total: admin.update_operation(
-                    operation_id,
-                    phase="benchmarking",
-                    current=completed_before_model + current,
-                    total=total_query_work,
-                    unit="queries",
-                    message=(
-                        f"Evaluando el modelo {index} de {total}: "
-                        f"{_progress_message(stage, current, stage_total)}"
-                    ),
+                progress=_benchmark_progress_callback(
+                    admin=admin,
+                    operation_id=operation_id,
+                    completed_before_model=completed_before_model,
+                    total_query_work=total_query_work,
+                    model_index=index,
+                    model_total=total,
                 ),
             )
             metric = evaluate_prepared_runtime(
@@ -201,6 +197,33 @@ def run_admin_benchmark(
         database.close()
 
 
+def _benchmark_progress_callback(
+    *,
+    admin: SemanticAdminStore,
+    operation_id: str,
+    completed_before_model: int,
+    total_query_work: int,
+    model_index: int,
+    model_total: int,
+) -> Callable[[str, int, int], None]:
+    """Crea un callback estable para informar del avance de un modelo."""
+
+    def update(stage: str, current: int, stage_total: int) -> None:
+        admin.update_operation(
+            operation_id,
+            phase="benchmarking",
+            current=completed_before_model + current,
+            total=total_query_work,
+            unit="queries",
+            message=(
+                f"Evaluando el modelo {model_index} de {model_total}: "
+                f"{_progress_message(stage, current, stage_total)}"
+            ),
+        )
+
+    return update
+
+
 def _progress_message(stage: str, current: int, total: int) -> str:
     """Ejecuta el paso interno `_progress_message`.
 
@@ -229,10 +252,7 @@ def _score(metrics: list[dict[str, Any]]) -> None:
         ([metric["ndcgAt10"] for metric in metrics], "qualityNormalized", False),
         ([metric["p95Ms"] for metric in metrics], "latencyNormalized", True),
         (
-            [
-                metric["rssBytes"] + metric["vramBytes"] + metric["indexBytes"]
-                for metric in metrics
-            ],
+            [metric["rssBytes"] + metric["vramBytes"] + metric["indexBytes"] for metric in metrics],
             "memoryNormalized",
             True,
         ),

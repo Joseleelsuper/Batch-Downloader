@@ -272,46 +272,6 @@ class PipelineRepository:
         await self.session.flush()
         return len(items)
 
-    async def prune_terminal(self) -> int:
-        """Ejecuta `prune_terminal` dentro de `PipelineRepository`.
-
-        Returns:
-            int: Resultado producido por la operación.
-        """
-        result = await self.session.execute(
-            delete(ScraperWorkItem).where(
-                ScraperWorkItem.status.in_([STATUS_COMPLETED, STATUS_DISCARDED])
-            )
-        )
-        await self.session.flush()
-        return statement_rowcount(result)
-
-    async def clear_pending(self) -> int:
-        """Limpia la operación `pending`.
-
-        Returns:
-            int: Número de elementos afectados por la operación.
-        """
-        result = await self.session.execute(
-            delete(ScraperWorkItem).where(
-                ScraperWorkItem.status.in_(
-                    [STATUS_QUEUED, STATUS_FAILED, STATUS_COMPLETED, STATUS_DISCARDED]
-                )
-            )
-        )
-        await self.session.flush()
-        return statement_rowcount(result)
-
-    async def clear_all(self) -> int:
-        """Limpia la operación `all`.
-
-        Returns:
-            int: Número de elementos afectados por la operación.
-        """
-        result = await self.session.execute(delete(ScraperWorkItem))
-        await self.session.flush()
-        return statement_rowcount(result)
-
     async def enqueue(
         self,
         queue: str,

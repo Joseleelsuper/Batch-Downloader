@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from hashlib import sha256
 from pathlib import Path
 from threading import RLock
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from psycopg import Connection
 from psycopg.rows import dict_row
@@ -34,7 +35,7 @@ class Database:
         minimum, maximum = settings.database_pool_limits
         if minimum > maximum:
             raise ValueError("semantic_database_pool_min_exceeds_max")
-        self.pool = ConnectionPool(
+        self.pool: ConnectionPool[Connection[dict[str, Any]]] = ConnectionPool(
             conninfo=settings.postgres_dsn,
             min_size=minimum,
             max_size=maximum,
@@ -45,7 +46,7 @@ class Database:
         )
         """Estado de instancia asociado a `pool`.
         """
-        self._pinned_connection: Connection | None = None
+        self._pinned_connection: Connection[dict[str, Any]] | None = None
         """Conexión reutilizada durante una operación de fondo exclusiva."""
         self._pinned_lock = RLock()
         """Serializa el uso de la conexión compartida, incluido el heartbeat."""
@@ -61,35 +62,119 @@ class Database:
         self.pool.close()
 
     def migrate(self) -> None:
-        """Ejecuta `migrate` dentro de `Database`.
-        """
-        migration_dir = Path(__file__).resolve().parents[1] / "migrations"
+        """Aplica migraciones con lock global y fija el checksum de cada versión."""
+        migrations = self._migration_files()
         with self.pool.connection() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS semantic_schema_migrations (
-                    version TEXT PRIMARY KEY,
-                    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            connection.execute("SELECT pg_advisory_lock(%s)", (4_242_018,))
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS semantic_schema_migrations (
+                        version TEXT PRIMARY KEY,
+                        checksum CHAR(64),
+                        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
                 )
-                """
-            )
-            applied = {
-                row["version"]
+                connection.execute(
+                    """
+                    ALTER TABLE semantic_schema_migrations
+                    ADD COLUMN IF NOT EXISTS checksum CHAR(64)
+                    """
+                )
+                connection.commit()
+                applied_rows = connection.execute(
+                    "SELECT version, checksum FROM semantic_schema_migrations"
+                ).fetchall()
+                applied = {row["version"]: row["checksum"] for row in applied_rows}
+                missing_files = sorted(set(applied) - set(migrations))
+                if missing_files:
+                    raise RuntimeError(
+                        "semantic_migration_file_missing:" + ",".join(missing_files)
+                    )
+                for version, stored_checksum in applied.items():
+                    expected_checksum, _sql = migrations[version]
+                    if stored_checksum is None:
+                        connection.execute(
+                            """
+                            UPDATE semantic_schema_migrations
+                            SET checksum = %s
+                            WHERE version = %s AND checksum IS NULL
+                            """,
+                            (expected_checksum, version),
+                        )
+                    elif stored_checksum != expected_checksum:
+                        raise RuntimeError(
+                            f"semantic_migration_checksum_mismatch:{version}"
+                        )
+                connection.commit()
+                for version, (checksum, sql) in migrations.items():
+                    if version in applied:
+                        continue
+                    connection.execute(sql)
+                    connection.execute(
+                        """
+                        INSERT INTO semantic_schema_migrations(version, checksum)
+                        VALUES (%s, %s)
+                        """,
+                        (version, checksum),
+                    )
+                    connection.commit()
+            finally:
+                connection.rollback()
+                connection.execute("SELECT pg_advisory_unlock(%s)", (4_242_018,))
+                connection.commit()
+
+    def verify_schema(self) -> None:
+        """Comprueba versión y checksums sin modificar el esquema."""
+        migrations = self._migration_files()
+
+        def verify(connection: Connection[dict[str, Any]]) -> None:
+            table = connection.execute(
+                "SELECT to_regclass('public.semantic_schema_migrations') AS name"
+            ).fetchone()
+            if table is None or table["name"] is None:
+                raise RuntimeError("semantic_schema_not_migrated")
+            columns = {
+                row["column_name"]
                 for row in connection.execute(
-                    "SELECT version FROM semantic_schema_migrations"
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'semantic_schema_migrations'
+                    """
                 ).fetchall()
             }
-            for migration in sorted(migration_dir.glob("*.sql")):
-                if migration.stem in applied:
-                    continue
-                connection.execute(migration.read_text(encoding="utf-8"))
-                connection.execute(
-                    "INSERT INTO semantic_schema_migrations(version) VALUES (%s)",
-                    (migration.stem,),
-                )
-            connection.commit()
+            if "checksum" not in columns:
+                raise RuntimeError("semantic_schema_checksum_missing")
+            rows = connection.execute(
+                "SELECT version, checksum FROM semantic_schema_migrations"
+            ).fetchall()
+            applied = {row["version"]: row["checksum"] for row in rows}
+            if set(applied) != set(migrations):
+                raise RuntimeError("semantic_schema_version_mismatch")
+            for version, (expected_checksum, _sql) in migrations.items():
+                if applied[version] != expected_checksum:
+                    raise RuntimeError(
+                        f"semantic_migration_checksum_mismatch:{version}"
+                    )
 
-    def run(self, callback: Callable[[Connection], T]) -> T:
+        self.run(verify)
+
+    @staticmethod
+    def _migration_files() -> dict[str, tuple[str, str]]:
+        migration_dir = Path(__file__).resolve().parents[1] / "migrations"
+        migrations: dict[str, tuple[str, str]] = {}
+        for migration in sorted(migration_dir.glob("*.sql")):
+            raw = migration.read_bytes()
+            migrations[migration.stem] = (
+                sha256(raw).hexdigest(),
+                raw.decode("utf-8"),
+            )
+        return migrations
+
+    def run(self, callback: Callable[[Connection[dict[str, Any]]], T]) -> T:
         """Ejecuta `run` dentro de `Database`.
 
         Args:

@@ -6,6 +6,7 @@ import type {
   SemanticBenchmarkMetric,
   SemanticBenchmarkRun,
   SemanticModel,
+  SemanticOperation,
   SemanticOverview,
 } from '../../types/semanticAdmin';
 import { SemanticAiPage } from './SemanticAiPage';
@@ -107,6 +108,30 @@ function benchmarkMetric(
     vramBytes: 0,
     totalScore,
     minimumSimilarity: model.minimumSimilarity,
+  };
+}
+
+function operation(
+  kind: SemanticOperation['kind'],
+  status: SemanticOperation['status'],
+  overrides: Partial<SemanticOperation> = {},
+): SemanticOperation {
+  return {
+    id: `${kind}-${status}`,
+    kind,
+    status,
+    phase: `${kind}_phase`,
+    modelId: activeModel.id,
+    repository: null,
+    progress: { current: 1, total: 4, unit: 'items' },
+    message: null,
+    errorCode: null,
+    result: {},
+    actor: 'admin',
+    attempts: 1,
+    createdAt: '2026-08-24T10:00:00Z',
+    updatedAt: '2026-08-24T10:01:00Z',
+    ...overrides,
   };
 }
 
@@ -352,5 +377,200 @@ describe('semantic administration page', () => {
         }),
       );
     });
+  });
+
+  it('compara ejecuciones completas y diagnósticas y opera la cola persistida', async () => {
+    const candidate: SemanticModel = {
+      ...activeModel,
+      id: '00000000-0000-0000-0000-000000000010',
+      displayName: 'candidate-rich',
+      repository: 'owner/candidate-rich',
+      active: false,
+      deploymentState: 'ready',
+      activatedAt: null,
+      lastBenchmark: null,
+    };
+    const extraModels = Array.from({ length: 4 }, (_, index): SemanticModel => ({
+      ...candidate,
+      id: `00000000-0000-4000-8000-00000000002${index}`,
+      displayName: `extra-${index}`,
+      repository: `owner/extra-${index}`,
+    }));
+    const activeMetric = {
+      ...benchmarkMetric(activeModel, 0.9),
+      loadMs: 0,
+      warmupMs: 12,
+      dimensions: 768,
+      artifactBytes: 1_100_000_000,
+    };
+    const candidateMetric = {
+      ...benchmarkMetric(candidate, 0.8),
+      loadMs: 25,
+      warmupMs: 0,
+      dimensions: 0,
+      artifactBytes: 0,
+      vramBytes: 0,
+    };
+    const diagnosticRun: SemanticBenchmarkRun = {
+      id: 'diagnostic-run',
+      datasetHash: 'd'.repeat(64),
+      seed: 7,
+      configuration: {},
+      metrics: [activeMetric, candidateMetric],
+      modelIds: [activeModel.id, candidate.id],
+      scope: 'smoke',
+      hardwareFingerprint: null,
+      documentCount: 12,
+      queryCount: 4,
+      metricsSchemaVersion: 2,
+      createdAt: '2026-08-24T10:00:00Z',
+    };
+    const fullRun: SemanticBenchmarkRun = {
+      ...diagnosticRun,
+      id: 'full-run',
+      datasetHash: 'f'.repeat(64),
+      scope: 'full',
+      createdAt: '2026-08-24T11:00:00Z',
+    };
+    const operations: SemanticOperation[] = [
+      operation('benchmark', 'queued', {
+        id: 'operation-benchmark', repository: 'owner/model',
+        progress: { current: 512, total: 1024, unit: 'bytes' },
+        message: 'Midiendo recuperación',
+      }),
+      operation('prepare', 'running', {
+        id: 'operation-prepare', modelId: null,
+        progress: { current: 0, total: 0, unit: 'items' },
+      }),
+      operation('activate', 'cancel_requested', {
+        id: 'operation-activate', phase: 'activating',
+      }),
+      operation('delete', 'running', {
+        id: 'operation-delete', phase: 'deleting', modelIds: [candidate.id],
+      }),
+      operation('benchmark', 'failed', {
+        id: 'operation-failed', errorCode: 'benchmark_failed',
+      }),
+      operation('prepare', 'cancelled', { id: 'operation-cancelled' }),
+      operation('prepare', 'succeeded', { id: 'operation-hidden-success' }),
+    ];
+    vi.mocked(semanticApi.fetchSemanticModels).mockResolvedValue([
+      activeModel, candidate, ...extraModels,
+    ]);
+    vi.mocked(semanticApi.fetchSemanticBenchmarks).mockResolvedValue([
+      diagnosticRun, fullRun,
+    ]);
+    vi.mocked(semanticApi.fetchSemanticOperations).mockResolvedValue(operations);
+    vi.mocked(semanticApi.startSemanticBenchmark).mockResolvedValue({
+      operationId: 'new-benchmark', status: 'queued',
+    });
+    vi.mocked(semanticApi.cancelSemanticOperation).mockResolvedValue(
+      operation('benchmark', 'cancel_requested', { id: 'operation-benchmark' }),
+    );
+    vi.mocked(semanticApi.retrySemanticOperation).mockResolvedValue({
+      operationId: 'retry-operation', status: 'queued',
+    });
+
+    render(
+      <MemoryRouter initialEntries={[{
+        pathname: '/admin/semantic/benchmarks',
+        state: { candidateModelId: candidate.id },
+      }]}>
+        <Routes>
+          <Route path="/admin/semantic/:semanticSection" element={<SemanticAiPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Ejecución de diagnóstico')).toBeInTheDocument();
+    expect(screen.getByText('Midiendo recuperación')).toBeInTheDocument();
+    expect(screen.queryByText('operation-hidden-success')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'full-run' } });
+    expect(screen.getByText('Evidencia comparable')).toBeInTheDocument();
+    expect(screen.getAllByText('Recomendado')).toHaveLength(2);
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[1]);
+    expect(screen.getByRole('button', { name: 'Ejecutar benchmark' })).toBeDisabled();
+    fireEvent.click(checkboxes[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Ejecutar benchmark' }));
+    await waitFor(() => expect(semanticApi.startSemanticBenchmark).toHaveBeenCalledWith([
+      activeModel.id, candidate.id,
+    ]));
+
+    const cancellable = screen.getAllByRole('button', { name: 'Cancelar' })
+      .find((button) => !button.hasAttribute('disabled'));
+    expect(cancellable).toBeDefined();
+    fireEvent.click(cancellable!);
+    await waitFor(() => expect(semanticApi.cancelSemanticOperation).toHaveBeenCalled());
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reintentar' })[0]);
+    await waitFor(() => expect(semanticApi.retrySemanticOperation).toHaveBeenCalled());
+  });
+
+  it('redirige secciones inexistentes y representa una biblioteca vacía', async () => {
+    vi.mocked(semanticApi.fetchSemanticModels).mockResolvedValue([]);
+    const invalid = render(
+      <MemoryRouter initialEntries={['/admin/semantic/unknown']}>
+        <Routes>
+          <Route path="/admin/semantic/:semanticSection" element={<SemanticAiPage />} />
+          <Route path="/admin/semantic/models" element={<p>Ruta corregida</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Ruta corregida')).toBeInTheDocument();
+    invalid.unmount();
+
+    render(
+      <MemoryRouter initialEntries={['/admin/semantic/models']}>
+        <Routes>
+          <Route path="/admin/semantic/:semanticSection" element={<SemanticAiPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('No hay modelos administrables')).toBeInTheDocument();
+  });
+
+  it('permite cancelar o confirmar el borrado y hace visible un fallo conocido', async () => {
+    const candidate: SemanticModel = {
+      ...activeModel,
+      id: '00000000-0000-0000-0000-000000000030',
+      displayName: 'delete-candidate',
+      repository: 'owner/delete-candidate',
+      active: false,
+      deploymentState: 'failed',
+      artifactState: 'incompatible',
+      activatedAt: '2026-08-20T10:00:00Z',
+      dimensions: null,
+      index: { expected: 0, indexed: 0, complete: false },
+      lastBenchmark: {
+        id: 'diagnostic', datasetHash: 'd'.repeat(64), scope: 'historical',
+        current: false, metric: benchmarkMetric(activeModel, 0.5),
+        createdAt: '2026-08-20T10:00:00Z',
+      },
+    };
+    vi.mocked(semanticApi.fetchSemanticModels).mockResolvedValue([activeModel, candidate]);
+    vi.mocked(semanticApi.deleteSemanticModel).mockRejectedValueOnce(
+      new (await import('../../api/http')).ApiRequestError(409, 'model_busy'),
+    ).mockResolvedValueOnce({ operationId: 'delete', status: 'queued' });
+    render(
+      <MemoryRouter initialEntries={['/admin/semantic/models']}>
+        <Routes>
+          <Route path="/admin/semantic/:semanticSection" element={<SemanticAiPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const remove = await screen.findByRole('button', {
+      name: 'Eliminar delete-candidate',
+    });
+    fireEvent.click(remove);
+    expect(screen.getByText('Eliminar descarga e índice')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByText('Eliminar descarga e índice')).not.toBeInTheDocument();
+    fireEvent.click(remove);
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('model_busy');
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

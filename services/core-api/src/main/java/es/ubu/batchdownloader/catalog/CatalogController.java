@@ -5,7 +5,6 @@ import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
 import es.ubu.batchdownloader.common.BadRequestException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -61,15 +60,6 @@ public class CatalogController {
     }
 
     /**
-     * Inicializa una instancia de {@code CatalogController}.
-     *
-     * @param catalog Acceso al catálogo utilizado por la operación.
-     */
-    CatalogController(CatalogRepository catalog) {
-        this(catalog, SemanticSearchClient.disabled(), PublicCatalogCache.disabled());
-    }
-
-    /**
      * Ejecuta la operación {@code apps}.
      *
      * @param query Valor de {@code query} utilizado por la operación.
@@ -77,7 +67,6 @@ public class CatalogController {
      * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tag Valor de {@code tag} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publisher Valor de {@code publisher} utilizado por la operación.
      * @param sort Valor de {@code sort} utilizado por la operación.
      * @param page Número de página solicitado.
@@ -92,7 +81,6 @@ public class CatalogController {
             @RequestParam(required = false, name = "os") List<String> operatingSystems,
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false, name = "tag") List<String> tag,
-            @RequestParam(required = false) String tags,
             @RequestParam(required = false) String publisher,
             @RequestParam(defaultValue = "name") String sort,
             @RequestParam(defaultValue = "1") int page,
@@ -102,7 +90,7 @@ public class CatalogController {
         int safePage = Math.max(1, page);
         int safePageSize = Math.clamp(pageSize, 1, 100);
         List<String> systems = normalizedOperatingSystems(operatingSystems);
-        List<String> tagList = parseRepeatedAndCsv(tag, tags);
+        List<String> tagList = parseRepeated(tag);
         List<String> publisherList = optionalPublisher(publisher);
         String normalizedStatus = status;
         return cache.get(
@@ -117,16 +105,16 @@ public class CatalogController {
                     return new AppSearchResponse(
                             catalog.search(
                                     query, normalizedStatus, systems, architecture, tagList,
-                                    publisherList, "all", sort, safePage, safePageSize, candidates),
+                                    publisherList, sort, safePage, safePageSize, candidates),
                             safePage,
                             safePageSize,
                             catalog.count(
                                     query, normalizedStatus, systems, architecture, tagList,
-                                    publisherList, "all", candidates),
+                                    publisherList, candidates),
                             "name".equals(sort)
                                     ? catalog.alphabet(
                                             query, normalizedStatus, systems, architecture, tagList,
-                                            publisherList, "all", safePageSize, candidates)
+                                            publisherList, safePageSize, candidates)
                                     : List.of(),
                             candidates.requestedMode().wireValue(),
                             candidates.appliedMode().wireValue(),
@@ -134,62 +122,6 @@ public class CatalogController {
                             candidates.indexVersion(),
                             candidates.degradedReason());
                 });
-    }
-
-    /**
-     * Ejecuta la operación {@code apps}.
-     *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tag Valor de {@code tag} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @param page Número de página solicitado.
-     * @param pageSize Número máximo de elementos incluidos en una página.
-     * @return Resultado producido por {@code apps}.
-     */
-    AppSearchResponse apps(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tag,
-            String tags,
-            String publisher,
-            String sort,
-            int page,
-            int pageSize) {
-        status = publicCatalogStatus(status);
-        int safePage = Math.max(1, page);
-        int safePageSize = Math.clamp(pageSize, 1, 100);
-        List<String> systems = normalizedOperatingSystems(operatingSystems);
-        List<String> tagList = parseRepeatedAndCsv(tag, tags);
-        List<String> publisherList = optionalPublisher(publisher);
-        return new AppSearchResponse(
-                catalog.search(
-                        query,
-                        status,
-                        systems,
-                        architecture,
-                        tagList,
-                        publisherList,
-                        "all",
-                        sort,
-                        safePage,
-                        safePageSize),
-                safePage,
-                safePageSize,
-                catalog.count(
-                        query,
-                        status,
-                        systems,
-                        architecture,
-                        tagList,
-                        publisherList,
-                        "all"));
     }
 
     /**
@@ -210,7 +142,6 @@ public class CatalogController {
      * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
      * @param architecture Valor de {@code architecture} utilizado por la operación.
      * @param tag Valor de {@code tag} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
      * @param publisher Valor de {@code publisher} utilizado por la operación.
      * @param searchMode Valor de {@code searchMode} utilizado por la operación.
      * @return Resultado producido por {@code facets}.
@@ -222,12 +153,11 @@ public class CatalogController {
             @RequestParam(required = false, name = "os") List<String> operatingSystems,
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false, name = "tag") List<String> tag,
-            @RequestParam(required = false) String tags,
             @RequestParam(required = false) String publisher,
             @RequestParam(defaultValue = "lexical") String searchMode) {
         status = publicCatalogStatus(status);
         List<String> systems = normalizedOperatingSystems(operatingSystems);
-        List<String> tagList = parseRepeatedAndCsv(tag, tags);
+        List<String> tagList = parseRepeated(tag);
         List<String> publisherList = optionalPublisher(publisher);
         String normalizedStatus = status;
         return cache.get(
@@ -241,7 +171,7 @@ public class CatalogController {
                             CatalogSearchMode.parse(searchMode), query);
                     CatalogFacetsResponse facets = catalog.facets(
                             query, normalizedStatus, systems, architecture, tagList,
-                            publisherList, "all", candidates);
+                            publisherList, candidates);
                     return new CatalogFacetsResponse(
                             facets.tags(),
                             facets.publishers(),
@@ -251,37 +181,6 @@ public class CatalogController {
                             candidates.indexVersion(),
                             candidates.degradedReason());
                 });
-    }
-
-    /**
-     * Ejecuta la operación {@code facets}.
-     *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tag Valor de {@code tag} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @return Resultado producido por {@code facets}.
-     */
-    CatalogFacetsResponse facets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tag,
-            String tags,
-            String publisher) {
-        status = publicCatalogStatus(status);
-        return catalog.facets(
-                query,
-                status,
-                normalizedOperatingSystems(operatingSystems),
-                architecture,
-                parseRepeatedAndCsv(tag, tags),
-                optionalPublisher(publisher),
-                "all");
     }
 
     /**
@@ -338,25 +237,6 @@ public class CatalogController {
         // Seleccionar todas las plataformas equivale a omitir el filtro y conserva
         // el significado de los estados heredados "Todas" y "Sin instalador".
         return values.size() == OPERATING_SYSTEMS.size() ? List.of() : values;
-    }
-
-    /**
-     * Analiza el contenido recibido mediante {@code parseRepeatedAndCsv}.
-     *
-     * @param repeated Valor de {@code repeated} utilizado por la operación.
-     * @param csv Valor de {@code csv} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     */
-    private List<String> parseRepeatedAndCsv(List<String> repeated, String csv) {
-        List<String> values = new ArrayList<>(parseRepeated(repeated));
-        if (csv != null && !csv.isBlank()) {
-            for (String value : csv.split(",")) {
-                if (value != null && !value.isBlank()) {
-                    values.add(value.trim());
-                }
-            }
-        }
-        return values.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
     }
 
     /**

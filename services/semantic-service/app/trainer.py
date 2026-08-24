@@ -1,459 +1,36 @@
-"""Implementa las responsabilidades del módulo `trainer`.
-"""
+"""Implementa las responsabilidades del módulo `trainer`."""
+
 from __future__ import annotations
 
 import argparse
-import csv
 import gc
 import hashlib
-import heapq
 import json
 import os
 import random
 import shutil
-import statistics
-import time
 import uuid
-from collections import defaultdict
-from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
-import psutil
 
+from app.benchmark_store import SemanticBenchmarkStore
 from app.config import get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
-from app.evaluation import (
-    average_precision,
-    lexical_rank,
-    mean,
-    ndcg,
-    normalized_tokens,
-    recall,
-    reciprocal_rank,
-    reciprocal_rank_fusion,
-)
 from app.model_registry import MODELS_BY_KEY, ModelDefinition
+from app.runtime_evaluation import (
+    evaluate_lexical,
+    evaluate_prepared_runtime,
+    evaluate_runtime,
+    inherit_index_metrics,
+    prepare_runtime_evaluation,
+    score_variants,
+)
 from app.store import SemanticStore
-
-DESCRIPTION_STOPWORDS = {
-    "aplicacion",
-    "aplicaciones",
-    "como",
-    "con",
-    "desde",
-    "esta",
-    "este",
-    "para",
-    "permite",
-    "software",
-    "the",
-    "una",
-    "utiliza",
-}
-"""Constante que define `DESCRIPTION_STOPWORDS`.
-"""
-EVALUATION_CANDIDATE_LIMIT = 2000
-"""Constante que define `EVALUATION_CANDIDATE_LIMIT`.
-"""
-
-
-@dataclass
-class PreparedRuntimeEvaluation:
-    """Representa el componente `PreparedRuntimeEvaluation`.
-    """
-    queries: list[dict[str, Any]]
-    """Atributo de clase `queries` de `PreparedRuntimeEvaluation`.
-    """
-    semantic_rankings: list[list[str]]
-    """Atributo de clase `semantic_rankings` de `PreparedRuntimeEvaluation`.
-    """
-    lexical_rankings: list[list[str]]
-    """Atributo de clase `lexical_rankings` de `PreparedRuntimeEvaluation`.
-    """
-    semantic_latencies_ms: list[float]
-    """Atributo de clase `semantic_latencies_ms` de `PreparedRuntimeEvaluation`.
-    """
-    lexical_latencies_ms: list[float]
-    """Atributo de clase `lexical_latencies_ms` de `PreparedRuntimeEvaluation`.
-    """
-    embedding_build_ms: float
-    """Atributo de clase `embedding_build_ms` de `PreparedRuntimeEvaluation`.
-    """
-    document_vector_bytes: int
-    """Atributo de clase `document_vector_bytes` de `PreparedRuntimeEvaluation`.
-    """
-    index_metrics: dict[str, float | int]
-    """Atributo de clase `index_metrics` de `PreparedRuntimeEvaluation`.
-    """
-    latency_sample_size: int
-    """Atributo de clase `latency_sample_size` de `PreparedRuntimeEvaluation`.
-    """
-    includes_lexical: bool = True
-    """Atributo de clase `includes_lexical` de `PreparedRuntimeEvaluation`.
-    """
-
-
-@dataclass
-class NegativeMiningIndex:
-    """Representa el componente `NegativeMiningIndex`.
-    """
-    documents_by_id: dict[str, dict[str, Any]]
-    """Atributo de clase `documents_by_id` de `NegativeMiningIndex`.
-    """
-    tokens_by_id: dict[str, set[str]]
-    """Atributo de clase `tokens_by_id` de `NegativeMiningIndex`.
-    """
-    aliases_by_id: dict[str, set[str]]
-    """Atributo de clase `aliases_by_id` de `NegativeMiningIndex`.
-    """
-    postings: dict[tuple[str, str], set[str]]
-    """Atributo de clase `postings` de `NegativeMiningIndex`.
-    """
-    fallback_by_split: dict[str, list[str]]
-    """Atributo de clase `fallback_by_split` de `NegativeMiningIndex`.
-    """
-
-
-def split_for_app(app_id: str, seed: int) -> str:
-    """Ejecuta la operación `split_for_app`.
-
-    Args:
-        app_id (str): Identificador de `app` utilizado por la operación.
-        seed (int): Valor de `seed` utilizado por la operación.
-
-    Returns:
-        str: Resultado producido por la operación.
-    """
-    bucket = int(hashlib.sha256(f"{seed}:{app_id}".encode()).hexdigest()[:8], 16) % 100
-    if bucket < 80:
-        return "train"
-    if bucket < 90:
-        return "validation"
-    return "test"
-
-
-def build_query_snapshot(documents: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
-    """Construye la operación `query_snapshot`.
-
-    Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        seed (int): Valor de `seed` utilizado por la operación.
-
-    Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
-    """
-    split_by_app = {
-        document["app_id"]: split_for_app(document["app_id"], seed)
-        for document in documents
-    }
-    by_tag: dict[tuple[str, str], set[str]] = defaultdict(set)
-    by_platform_tag: dict[tuple[str, str, str], set[str]] = defaultdict(set)
-    mining_index = build_negative_mining_index(documents, seed)
-    rows: list[dict[str, Any]] = []
-    for document in documents:
-        metadata = document.get("metadata") or {}
-        split = split_by_app[document["app_id"]]
-        systems = {
-            str(value).strip().lower()
-            for value in metadata.get("operatingSystems") or []
-            if str(value).strip()
-        }
-        for tag in metadata.get("tags") or []:
-            normalized_tag = str(tag).strip().lower()
-            by_tag[(split, normalized_tag)].add(document["app_id"])
-            for system in systems:
-                by_platform_tag[(split, system, normalized_tag)].add(
-                    document["app_id"]
-                )
-    for document in documents:
-        metadata = document.get("metadata") or {}
-        app_id = document["app_id"]
-        split = split_by_app[app_id]
-        name = str(metadata.get("name") or "").strip()
-        package_id = str(metadata.get("packageId") or "").strip()
-        publisher = str(metadata.get("publisher") or "").strip()
-        systems = [str(value) for value in metadata.get("operatingSystems") or []]
-        tags = [str(value) for value in metadata.get("tags") or []]
-        description = " ".join(
-            str(metadata.get(field) or "")
-            for field in ("shortDescription", "longDescription")
-        )
-        description_terms = [
-            token
-            for token in normalized_tokens(description)
-            if len(token) >= 4 and token not in DESCRIPTION_STOPWORDS
-        ]
-        candidates: list[tuple[str, set[str], str]] = []
-        if name:
-            candidates.append((name, {app_id}, "navigation-name"))
-        if package_id:
-            candidates.append((package_id, {app_id}, "navigation-package"))
-        if publisher and name:
-            candidates.append((f"{publisher} {name}", {app_id}, "publisher"))
-        if tags:
-            intent = " ".join(tags[:3])
-            positives = set().union(
-                *(by_tag[(split, tag.strip().lower())] for tag in tags[:2])
-            )
-            candidates.append((f"aplicación de {intent}", positives or {app_id}, "intent"))
-        if description_terms:
-            candidates.append(
-                (
-                    " ".join(dict.fromkeys(description_terms))[:160],
-                    {app_id},
-                    "description-intent",
-                )
-            )
-        if systems and tags:
-            positives = by_platform_tag[
-                (split, systems[0].strip().lower(), tags[0].strip().lower())
-            ]
-            candidates.append(
-                (
-                    f"{tags[0]} para {systems[0]}",
-                    positives or {app_id},
-                    "platform-intent",
-                )
-            )
-        for query, positives, kind in candidates:
-            rows.append(
-                {
-                    "query": query,
-                    "positiveAppId": app_id,
-                    "relevantAppIds": sorted(positives),
-                    "positive": document["content"],
-                    "positiveAliases": sorted(
-                        {
-                            alias
-                            for value in (name, package_id)
-                            if (alias := " ".join(normalized_tokens(value)))
-                        }
-                    ),
-                    "split": split,
-                    "kind": kind,
-                }
-            )
-    documents_by_id = {document["app_id"]: document for document in documents}
-    for row in rows:
-        negatives = mine_hard_negatives(
-            row,
-            documents,
-            seed=seed,
-            mining_index=mining_index,
-        )
-        row["hardNegativeAppIds"] = [item["app_id"] for item in negatives]
-        row["hardNegatives"] = [item["content"] for item in negatives]
-        positive = documents_by_id[row["positiveAppId"]]
-        row["positiveContentHash"] = positive.get("content_hash")
-    return rows
-
-
-def build_negative_mining_index(
-    documents: list[dict[str, Any]],
-    seed: int,
-) -> NegativeMiningIndex:
-    """Construye la operación `negative_mining_index`.
-
-    Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        seed (int): Valor de `seed` utilizado por la operación.
-
-    Returns:
-        NegativeMiningIndex: Resultado de `build_negative_mining_index`.
-    """
-    documents_by_id = {document["app_id"]: document for document in documents}
-    tokens_by_id: dict[str, set[str]] = {}
-    aliases_by_id: dict[str, set[str]] = {}
-    postings: dict[tuple[str, str], set[str]] = defaultdict(set)
-    fallback_by_split: dict[str, list[str]] = defaultdict(list)
-    for document in documents:
-        app_id = document["app_id"]
-        split = split_for_app(app_id, seed)
-        metadata = document.get("metadata") or {}
-        tokens = set(
-            normalized_tokens(
-                " ".join(
-                    [
-                        str(document.get("content") or ""),
-                        str(metadata.get("publisher") or ""),
-                        " ".join(str(tag) for tag in metadata.get("tags") or []),
-                    ]
-                )
-            )
-        )
-        aliases = {
-            alias
-            for field in ("name", "packageId")
-            if (
-                alias := " ".join(
-                    normalized_tokens(str(metadata.get(field) or ""))
-                )
-            )
-        }
-        tokens_by_id[app_id] = tokens
-        aliases_by_id[app_id] = aliases
-        fallback_by_split[split].append(app_id)
-        for token in tokens:
-            postings[(split, token)].add(app_id)
-    for split, app_ids in fallback_by_split.items():
-        app_ids.sort(
-            key=lambda app_id: hashlib.sha256(
-                f"{seed}:{split}:{app_id}".encode()
-            ).hexdigest()
-        )
-    return NegativeMiningIndex(
-        documents_by_id=documents_by_id,
-        tokens_by_id=tokens_by_id,
-        aliases_by_id=aliases_by_id,
-        postings=postings,
-        fallback_by_split=dict(fallback_by_split),
-    )
-
-
-def mine_hard_negatives(
-    query_row: dict[str, Any],
-    documents: list[dict[str, Any]],
-    *,
-    seed: int,
-    limit: int = 3,
-    mining_index: NegativeMiningIndex | None = None,
-) -> list[dict[str, Any]]:
-    """Ejecuta la operación `mine_hard_negatives`.
-
-    Args:
-        query_row (dict[str, Any]): Valor de `query_row` utilizado por la operación.
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        seed (int): Valor de `seed` utilizado por la operación.
-        limit (int): Número máximo de elementos que se recuperarán.
-        mining_index (NegativeMiningIndex | None): Valor de `mining_index` utilizado por la
-            operación.
-
-    Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
-    """
-    query = str(query_row["query"])
-    query_tokens = set(normalized_tokens(query))
-    relevant = set(query_row["relevantAppIds"])
-    positive_aliases = set(query_row.get("positiveAliases") or [])
-    split = query_row["split"]
-    normalized_query = " ".join(normalized_tokens(query))
-    index = mining_index or build_negative_mining_index(documents, seed)
-    overlap_by_id: dict[str, int] = defaultdict(int)
-    for token in query_tokens:
-        for app_id in index.postings.get((split, token), set()):
-            overlap_by_id[app_id] += 1
-    candidate_ids = set(overlap_by_id)
-    fallback_target = max(32, limit * 8)
-    if len(candidate_ids) < fallback_target:
-        for app_id in index.fallback_by_split.get(split, []):
-            candidate_ids.add(app_id)
-            if len(candidate_ids) >= fallback_target:
-                break
-    candidates: list[tuple[float, str, dict[str, Any]]] = []
-    for app_id in candidate_ids:
-        if app_id in relevant:
-            continue
-        aliases = index.aliases_by_id[app_id]
-        if (
-            normalized_query
-            and normalized_query in aliases
-            or aliases & positive_aliases
-        ):
-            continue
-        candidate_tokens = index.tokens_by_id[app_id]
-        overlap = overlap_by_id.get(app_id, 0)
-        union = len(query_tokens | candidate_tokens)
-        lexical_score = overlap * 100.0 + (overlap / union if union else 0.0)
-        deterministic_tie = hashlib.sha256(
-            f"{seed}:{query}:{app_id}".encode()
-        ).hexdigest()
-        candidates.append(
-            (
-                lexical_score,
-                deterministic_tie,
-                index.documents_by_id[app_id],
-            )
-        )
-    hardest = heapq.nsmallest(
-        limit,
-        candidates,
-        key=lambda item: (-item[0], item[1]),
-    )
-    return [document for _, _, document in hardest]
-
-
-def write_snapshot(
-    documents: list[dict[str, Any]],
-    queries: list[dict[str, Any]],
-    *,
-    root: Path,
-    seed: int,
-) -> tuple[str, Path]:
-    """Ejecuta la operación `write_snapshot`.
-
-    Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
-        root (Path): Valor de `root` utilizado por la operación.
-        seed (int): Valor de `seed` utilizado por la operación.
-
-    Returns:
-        tuple[str, Path]: Resultado producido por la operación.
-    """
-    digest = hashlib.sha256()
-    digest.update(f"seed:{seed}\n".encode())
-    for record_type, records in (("document", documents), ("query", queries)):
-        for record in records:
-            digest.update(record_type.encode())
-            digest.update(b":")
-            digest.update(
-                json.dumps(
-                    record,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    default=str,
-                ).encode()
-            )
-            digest.update(b"\n")
-    dataset_hash = digest.hexdigest()
-    snapshot_dir = root / "datasets" / dataset_hash
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = snapshot_dir / "manifest.json"
-    if manifest_path.exists():
-        return dataset_hash, snapshot_dir
-    with (snapshot_dir / "documents.jsonl").open(
-        "w",
-        encoding="utf-8",
-    ) as output:
-        for document in documents:
-            output.write(
-                json.dumps(document, ensure_ascii=False, default=str) + "\n"
-            )
-    for split in ("train", "validation", "test"):
-        with (snapshot_dir / f"{split}.jsonl").open("w", encoding="utf-8") as output:
-            for row in queries:
-                if row["split"] == split:
-                    output.write(json.dumps(row, ensure_ascii=False) + "\n")
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "datasetHash": dataset_hash,
-                "seed": seed,
-                "applications": len(documents),
-                "queries": len(queries),
-                "createdAt": datetime.now(timezone.utc).isoformat(),
-            },
-            indent=2,
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    return dataset_hash, snapshot_dir
+from app.training_dataset import build_query_snapshot, write_snapshot
+from app.training_reports import write_reports
 
 
 def discover_lora_targets(auto_model: Any) -> list[str]:
@@ -473,8 +50,7 @@ def discover_lora_targets(auto_model: Any) -> list[str]:
         {
             name.rsplit(".", 1)[-1]
             for name, module in auto_model.named_modules()
-            if name.rsplit(".", 1)[-1] in endings
-            and module.__class__.__name__.lower() == "linear"
+            if name.rsplit(".", 1)[-1] in endings and module.__class__.__name__.lower() == "linear"
         }
     )
     if not targets:
@@ -657,493 +233,6 @@ def train_model(
     )
 
 
-def evaluate_runtime(
-    runtime: EmbeddingRuntime,
-    documents: list[dict[str, Any]],
-    queries: list[dict[str, Any]],
-    *,
-    variant: str,
-    semantic_weight: float | None,
-    benchmark_store: SemanticStore | None = None,
-) -> dict[str, Any]:
-    """Ejecuta la operación `evaluate_runtime`.
-
-    Args:
-        runtime (EmbeddingRuntime): Valor de `runtime` utilizado por la operación.
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
-        variant (str): Valor de `variant` utilizado por la operación.
-        semantic_weight (float | None): Valor de `semantic_weight` utilizado por la operación.
-        benchmark_store (SemanticStore | None): Valor de `benchmark_store` utilizado por la
-            operación.
-
-    Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
-    """
-    prepared = prepare_runtime_evaluation(
-        runtime,
-        documents,
-        queries,
-        benchmark_store=benchmark_store,
-    )
-    return evaluate_prepared_runtime(
-        prepared,
-        variant=variant,
-        semantic_weight=semantic_weight,
-    )
-
-
-def prepare_runtime_evaluation(
-    runtime: EmbeddingRuntime,
-    documents: list[dict[str, Any]],
-    queries: list[dict[str, Any]],
-    *,
-    benchmark_store: SemanticStore | None = None,
-    include_lexical: bool = True,
-    progress: Callable[[str, int, int], None] | None = None,
-) -> PreparedRuntimeEvaluation:
-    """Ejecuta la operación `prepare_runtime_evaluation`.
-
-    Args:
-        runtime (EmbeddingRuntime): Valor de `runtime` utilizado por la operación.
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
-        benchmark_store (SemanticStore | None): Valor de `benchmark_store` utilizado por la
-            operación.
-        include_lexical (bool): Valor de `include_lexical` utilizado por la operación.
-        progress (Callable[[str, int, int], None] | None): Valor de `progress` utilizado por la
-            operación.
-
-    Returns:
-        PreparedRuntimeEvaluation: Resultado producido por la operación.
-    """
-    if progress is not None:
-        progress("embedding-documents", 0, len(queries))
-    index_started = time.perf_counter()
-    document_vectors = np.asarray(
-        runtime.encode_documents([document["content"] for document in documents]),
-        dtype=np.float32,
-    )
-    embedding_build_ms = (time.perf_counter() - index_started) * 1000
-    app_ids = [document["app_id"] for document in documents]
-    semantic_rankings: list[list[str]] = []
-    lexical_rankings: list[list[str]] = []
-    semantic_latencies_ms: list[float] = []
-    lexical_latencies_ms: list[float] = []
-    if progress is not None:
-        progress("embedding-queries", 0, len(queries))
-    query_vectors = np.asarray(
-        runtime.encode_queries([query["query"] for query in queries]),
-        dtype=np.float32,
-    )
-    latency_sample_size = min(100, len(queries))
-    query_encoding_latencies_ms: list[float] = []
-    for query in queries[:latency_sample_size]:
-        before = time.perf_counter()
-        runtime.encode_query(query["query"])
-        query_encoding_latencies_ms.append((time.perf_counter() - before) * 1000)
-    fallback_encoding_latency = (
-        statistics.median(query_encoding_latencies_ms)
-        if query_encoding_latencies_ms
-        else 0.0
-    )
-    progress_interval = max(1, len(queries) // 100)
-    for query_index, query in enumerate(queries):
-        before = time.perf_counter()
-        query_vector = query_vectors[query_index]
-        scores = document_vectors @ query_vector
-        semantic = [
-            app_ids[index]
-            for index in np.argsort(-scores, kind="stable")[
-                :EVALUATION_CANDIDATE_LIMIT
-            ].tolist()
-        ]
-        ranking_latency = (time.perf_counter() - before) * 1000
-        semantic_latencies_ms.append(
-            (
-                query_encoding_latencies_ms[query_index]
-                if query_index < latency_sample_size
-                else fallback_encoding_latency
-            )
-            + ranking_latency
-        )
-        semantic_rankings.append(semantic)
-        if include_lexical:
-            before = time.perf_counter()
-            lexical = lexical_rank(query["query"], documents)[
-                :EVALUATION_CANDIDATE_LIMIT
-            ]
-            lexical_latencies_ms.append((time.perf_counter() - before) * 1000)
-            lexical_rankings.append(lexical)
-        else:
-            lexical_latencies_ms.append(0.0)
-            lexical_rankings.append([])
-        completed = query_index + 1
-        if progress is not None and (
-            completed == len(queries) or completed % progress_interval == 0
-        ):
-            progress("ranking", completed, len(queries))
-    index_metrics: dict[str, float | int] = {
-        "hnswRecallAt20": 0.0,
-        "hnswBuildMs": 0.0,
-        "hnswIndexBytes": 0,
-    }
-    if benchmark_store is not None:
-        index_metrics = benchmark_store.benchmark_hnsw(
-            dimensions=runtime.registered.dimensions,
-            app_ids=app_ids,
-            document_vectors=document_vectors.tolist(),
-            query_vectors=query_vectors.tolist(),
-        )
-    return PreparedRuntimeEvaluation(
-        queries=queries,
-        semantic_rankings=semantic_rankings,
-        lexical_rankings=lexical_rankings,
-        semantic_latencies_ms=semantic_latencies_ms,
-        lexical_latencies_ms=lexical_latencies_ms,
-        embedding_build_ms=embedding_build_ms,
-        document_vector_bytes=int(document_vectors.nbytes),
-        index_metrics=index_metrics,
-        latency_sample_size=latency_sample_size,
-        includes_lexical=include_lexical,
-    )
-
-
-def evaluate_prepared_runtime(
-    prepared: PreparedRuntimeEvaluation,
-    *,
-    variant: str,
-    semantic_weight: float | None,
-) -> dict[str, Any]:
-    """Ejecuta la operación `evaluate_prepared_runtime`.
-
-    Args:
-        prepared (PreparedRuntimeEvaluation): Valor de `prepared` utilizado por la operación.
-        variant (str): Valor de `variant` utilizado por la operación.
-        semantic_weight (float | None): Valor de `semantic_weight` utilizado por la operación.
-
-    Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
-
-    Throws:
-        RuntimeError: Si el estado de ejecución impide completar la operación.
-    """
-    rankings: list[tuple[dict[str, Any], list[str]]] = []
-    latencies: list[float] = []
-    for index, query in enumerate(prepared.queries):
-        semantic = prepared.semantic_rankings[index]
-        if semantic_weight is None:
-            ranked = semantic
-            latency = prepared.semantic_latencies_ms[index]
-        else:
-            if not prepared.includes_lexical:
-                raise RuntimeError("lexical_rankings_not_prepared")
-            before = time.perf_counter()
-            ranked = reciprocal_rank_fusion(
-                prepared.lexical_rankings[index],
-                semantic,
-                semantic_weight=semantic_weight,
-            )
-            fusion_ms = (time.perf_counter() - before) * 1000
-            latency = (
-                prepared.semantic_latencies_ms[index]
-                + prepared.lexical_latencies_ms[index]
-                + fusion_ms
-            )
-        rankings.append((query, ranked))
-        latencies.append(latency)
-    elapsed = sum(latencies) / 1000
-    relevant = [(row, set(row["relevantAppIds"]), ranked) for row, ranked in rankings]
-    navigational = [
-        (row, ranked)
-        for row, ranked in rankings
-        if row["kind"] in {"navigation-name", "navigation-package"}
-    ]
-    index_metrics = prepared.index_metrics
-    hnsw_bytes = int(index_metrics["hnswIndexBytes"])
-    return {
-        "variant": variant,
-        "ndcgAt10": mean(ndcg(ranked, truth, 10) for _, truth, ranked in relevant),
-        "mrrAt10": mean(reciprocal_rank(ranked, truth, 10) for _, truth, ranked in relevant),
-        "mapAt10": mean(average_precision(ranked, truth, 10) for _, truth, ranked in relevant),
-        "recallAt10": mean(recall(ranked, truth, 10) for _, truth, ranked in relevant),
-        "recallAt20": mean(recall(ranked, truth, 20) for _, truth, ranked in relevant),
-        "exactMrrAt1": mean(
-            reciprocal_rank(ranked, {row["positiveAppId"]}, 1)
-            for row, ranked in navigational
-        ),
-        "p50Ms": statistics.median(latencies) if latencies else 0.0,
-        "p95Ms": percentile(latencies, 0.95),
-        "p99Ms": percentile(latencies, 0.99),
-        "throughputQps": len(prepared.queries) / elapsed if elapsed else 0.0,
-        "embeddingBuildMs": prepared.embedding_build_ms,
-        "hnswBuildMs": index_metrics["hnswBuildMs"],
-        "indexBuildMs": (
-            prepared.embedding_build_ms + float(index_metrics["hnswBuildMs"])
-        ),
-        "hnswRecallAt20": index_metrics["hnswRecallAt20"],
-        "vectorBytes": prepared.document_vector_bytes,
-        "hnswIndexBytes": hnsw_bytes,
-        "indexBytes": prepared.document_vector_bytes + hnsw_bytes,
-        "rssBytes": psutil.Process(os.getpid()).memory_info().rss,
-        "vramBytes": accelerator_memory_bytes(),
-        "semanticWeight": semantic_weight,
-        "latencySampleSize": prepared.latency_sample_size,
-    }
-
-
-def evaluate_lexical(
-    documents: list[dict[str, Any]],
-    queries: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Ejecuta la operación `evaluate_lexical`.
-
-    Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
-
-    Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
-    """
-    latencies = []
-    rankings = []
-    started = time.perf_counter()
-    for query in queries:
-        before = time.perf_counter()
-        ranked = lexical_rank(query["query"], documents)
-        latencies.append((time.perf_counter() - before) * 1000)
-        rankings.append((query, ranked))
-    elapsed = time.perf_counter() - started
-    truth_rows = [
-        (row, set(row["relevantAppIds"]), ranked)
-        for row, ranked in rankings
-    ]
-    navigational = [
-        (row, ranked)
-        for row, ranked in rankings
-        if row["kind"] in {"navigation-name", "navigation-package"}
-    ]
-    return {
-        "variant": "lexical",
-        "ndcgAt10": mean(ndcg(ranked, truth, 10) for _, truth, ranked in truth_rows),
-        "mrrAt10": mean(
-            reciprocal_rank(ranked, truth, 10) for _, truth, ranked in truth_rows
-        ),
-        "mapAt10": mean(
-            average_precision(ranked, truth, 10) for _, truth, ranked in truth_rows
-        ),
-        "recallAt10": mean(recall(ranked, truth, 10) for _, truth, ranked in truth_rows),
-        "recallAt20": mean(recall(ranked, truth, 20) for _, truth, ranked in truth_rows),
-        "exactMrrAt1": mean(
-            reciprocal_rank(ranked, {row["positiveAppId"]}, 1)
-            for row, ranked in navigational
-        ),
-        "p50Ms": statistics.median(latencies) if latencies else 0.0,
-        "p95Ms": percentile(latencies, 0.95),
-        "p99Ms": percentile(latencies, 0.99),
-        "throughputQps": len(queries) / elapsed if elapsed else 0.0,
-        "embeddingBuildMs": 0.0,
-        "hnswBuildMs": 0.0,
-        "indexBuildMs": 0.0,
-        "hnswRecallAt20": 0.0,
-        "vectorBytes": 0,
-        "hnswIndexBytes": 0,
-        "indexBytes": 0,
-        "rssBytes": psutil.Process(os.getpid()).memory_info().rss,
-        "vramBytes": accelerator_memory_bytes(),
-        "semanticWeight": None,
-    }
-
-
-def accelerator_memory_bytes() -> int:
-    """Ejecuta la operación `accelerator_memory_bytes`.
-
-    Returns:
-        int: Resultado producido por la operación.
-    """
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            return int(torch.cuda.memory_allocated())
-    except Exception:
-        return 0
-    return 0
-
-
-def inherit_index_metrics(
-    target: dict[str, Any],
-    source: dict[str, Any],
-) -> None:
-    """Ejecuta la operación `inherit_index_metrics`.
-
-    Args:
-        target (dict[str, Any]): Valor de `target` utilizado por la operación.
-        source (dict[str, Any]): Fuente de descarga sobre la que se actúa.
-    """
-    for key in (
-        "embeddingBuildMs",
-        "hnswBuildMs",
-        "indexBuildMs",
-        "hnswRecallAt20",
-        "vectorBytes",
-        "hnswIndexBytes",
-        "indexBytes",
-    ):
-        target[key] = source[key]
-
-
-def percentile(values: list[float], quantile: float) -> float:
-    """Ejecuta la operación `percentile`.
-
-    Args:
-        values (list[float]): Valor de `values` utilizado por la operación.
-        quantile (float): Valor de `quantile` utilizado por la operación.
-
-    Returns:
-        float: Resultado producido por la operación.
-    """
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * quantile)))
-    return ordered[index]
-
-
-def score_variants(
-    metrics: list[dict[str, Any]],
-    *,
-    lexical_exact: float,
-) -> list[dict[str, Any]]:
-    """Ejecuta la operación `score_variants`.
-
-    Args:
-        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
-        lexical_exact (float): Valor de `lexical_exact` utilizado por la operación.
-
-    Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
-    """
-    quality_values = [row["ndcgAt10"] for row in metrics]
-    inverse_latency = [1.0 / max(row["p95Ms"], 0.001) for row in metrics]
-    inverse_memory = [
-        1.0
-        / max(
-            row["rssBytes"] + row["vramBytes"] + row["indexBytes"],
-            1,
-        )
-        for row in metrics
-    ]
-    for rows, key in (
-        (quality_values, "qualityNormalized"),
-        (inverse_latency, "latencyNormalized"),
-        (inverse_memory, "memoryNormalized"),
-    ):
-        low, high = min(rows), max(rows)
-        for metric, value in zip(metrics, rows, strict=True):
-            metric[key] = 1.0 if high == low else (value - low) / (high - low)
-    zero_shot_quality = {
-        (row["modelKey"], row.get("semanticWeight")): row["ndcgAt10"]
-        for row in metrics
-        if row.get("stage") == "zero-shot"
-    }
-    for metric in metrics:
-        metric["totalScore"] = (
-            0.70 * metric["qualityNormalized"]
-            + 0.20 * metric["latencyNormalized"]
-            + 0.10 * metric["memoryNormalized"]
-        )
-        metric["eligible"] = (
-            metric.get("stage") == "fine-tuned"
-            and metric["exactMrrAt1"] >= lexical_exact
-            and metric["ndcgAt10"]
-            > zero_shot_quality.get(
-                (metric.get("modelKey"), metric.get("semanticWeight")),
-                1.0,
-            )
-        )
-    return metrics
-
-
-def write_reports(
-    metrics: list[dict[str, Any]],
-    *,
-    selected: str | None,
-    report_dir: Path,
-    run_id: str,
-    dataset_hash: str,
-    smoke: bool = False,
-) -> dict[str, str]:
-    """Ejecuta la operación `write_reports`.
-
-    Args:
-        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
-        selected (str | None): Valor de `selected` utilizado por la operación.
-        report_dir (Path): Valor de `report_dir` utilizado por la operación.
-        run_id (str): Identificador de `run` utilizado por la operación.
-        dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
-        smoke (bool): Valor de `smoke` utilizado por la operación.
-
-    Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
-    """
-    report_dir.mkdir(parents=True, exist_ok=True)
-    json_path = report_dir / f"{run_id}.json"
-    csv_path = report_dir / f"{run_id}.csv"
-    markdown_path = report_dir / f"{run_id}.md"
-    payload = {
-        "runId": run_id,
-        "datasetHash": dataset_hash,
-        "selectedModelVersion": selected,
-        "smoke": smoke,
-        "metrics": metrics,
-    }
-    json_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    fieldnames = sorted({key for row in metrics for key in row})
-    with csv_path.open("w", encoding="utf-8", newline="") as output:
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(metrics)
-    markdown = [
-        "# Benchmark de búsqueda semántica",
-        "",
-        f"- Dataset: `{dataset_hash}`",
-        f"- Modelo seleccionado: `{selected or 'ninguno; se conserva E5 zero-shot'}`",
-        (
-            "- Alcance: `smoke`; un paso y subconjunto determinista, "
-            "sin selección ni activación."
-            if smoke
-            else "- Alcance: entrenamiento y evaluación completos."
-        ),
-        "",
-        "| Variante | nDCG@10 | MRR@10 | Recall@20 | HNSW@20 | p95 ms | Score | Elegible |",
-        "|---|---:|---:|---:|---:|---:|---:|:---:|",
-    ]
-    for row in sorted(metrics, key=lambda value: value.get("totalScore", 0), reverse=True):
-        markdown.append(
-            "| {variant} | {ndcg:.4f} | {mrr:.4f} | {recall:.4f} | "
-            "{hnsw:.4f} | {p95:.2f} | {score:.4f} | {eligible} |".format(
-                variant=row["variant"],
-                ndcg=row["ndcgAt10"],
-                mrr=row["mrrAt10"],
-                recall=row["recallAt20"],
-                hnsw=row["hnswRecallAt20"],
-                p95=row["p95Ms"],
-                score=row.get("totalScore", 0),
-                eligible="sí" if row.get("eligible") else "no",
-            )
-        )
-    markdown_path.write_text("\n".join(markdown) + "\n", encoding="utf-8")
-    return {
-        "json": str(json_path),
-        "csv": str(csv_path),
-        "markdown": str(markdown_path),
-    }
-
-
 def run_training(*, smoke: bool = False) -> dict[str, Any]:
     """Ejecuta la operación `training`.
 
@@ -1159,8 +248,9 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
     settings = get_settings()
     database = Database(settings)
     database.open()
-    database.migrate()
+    database.verify_schema()
     store = SemanticStore(database)
+    benchmark_store = SemanticBenchmarkStore(database)
     try:
         documents = store.active_documents()
         if len(documents) < 2:
@@ -1210,9 +300,7 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
                 for document in deterministic_documents
                 if document["app_id"] in required_ids
             ]
-            evaluation_ids = {
-                document["app_id"] for document in evaluation_documents
-            }
+            evaluation_ids = {document["app_id"] for document in evaluation_documents}
             evaluation_documents.extend(
                 document
                 for document in deterministic_documents
@@ -1222,9 +310,7 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
         else:
             evaluation_documents = documents
 
-        metrics: list[dict[str, Any]] = [
-            evaluate_lexical(evaluation_documents, validation_rows)
-        ]
+        metrics: list[dict[str, Any]] = [evaluate_lexical(evaluation_documents, validation_rows)]
         effective_max_steps = 1 if smoke else settings.trainer_max_steps
         for key in settings.trainer_models:
             definition = MODELS_BY_KEY[key]
@@ -1239,14 +325,20 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
                 zero_runtime,
                 evaluation_documents,
                 validation_rows,
-                benchmark_store=store,
+                benchmark_store=benchmark_store,
             )
             zero = evaluate_prepared_runtime(
                 zero_prepared,
                 variant=f"{key}:zero-shot",
                 semantic_weight=None,
             )
-            zero.update({"modelKey": key, "stage": "zero-shot", "modelVersion": definition.zero_shot_version})
+            zero.update(
+                {
+                    "modelKey": key,
+                    "stage": "zero-shot",
+                    "modelVersion": definition.zero_shot_version,
+                }
+            )
             metrics.append(zero)
             for weight in (0.5, 1.0, 1.5):
                 hybrid = evaluate_prepared_runtime(
@@ -1254,22 +346,24 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
                     variant=f"{key}:zero-shot:hybrid:{weight}",
                     semantic_weight=weight,
                 )
-                hybrid.update({"modelKey": key, "stage": "zero-shot", "modelVersion": definition.zero_shot_version})
+                hybrid.update(
+                    {
+                        "modelKey": key,
+                        "stage": "zero-shot",
+                        "modelVersion": definition.zero_shot_version,
+                    }
+                )
                 metrics.append(hybrid)
             del zero_prepared, zero_runtime
             gc.collect()
 
             training_kind = "lora-smoke" if smoke else "lora"
-            trained_version = (
-                f"{key}@{definition.revision}:{training_kind}:{dataset_hash[:12]}"
-            )
+            trained_version = f"{key}@{definition.revision}:{training_kind}:{dataset_hash[:12]}"
             artifact = Path(settings.model_cache_dir) / "trained" / trained_version
             if not (artifact / "training-complete.json").exists():
                 if artifact.exists():
                     shutil.rmtree(artifact)
-                temporary_artifact = artifact.with_name(
-                    f".{artifact.name}.{uuid.uuid4().hex}.tmp"
-                )
+                temporary_artifact = artifact.with_name(f".{artifact.name}.{uuid.uuid4().hex}.tmp")
                 temporary_artifact.mkdir(parents=True, exist_ok=False)
                 try:
                     train_model(
@@ -1311,7 +405,7 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
                 trained_runtime,
                 evaluation_documents,
                 validation_rows,
-                benchmark_store=store,
+                benchmark_store=benchmark_store,
             )
             tuned = evaluate_prepared_runtime(
                 tuned_prepared,
@@ -1326,7 +420,13 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
                     variant=f"{key}:fine-tuned:hybrid:{weight}",
                     semantic_weight=weight,
                 )
-                hybrid.update({"modelKey": key, "stage": "fine-tuned", "modelVersion": trained_version})
+                hybrid.update(
+                    {
+                        "modelKey": key,
+                        "stage": "fine-tuned",
+                        "modelVersion": trained_version,
+                    }
+                )
                 metrics.append(hybrid)
             del tuned_prepared, trained_runtime
             gc.collect()
@@ -1339,7 +439,7 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
         eligible = [row for row in scored if row.get("eligible")]
         winner = max(eligible, key=lambda row: row["totalScore"]) if eligible else None
         selected = winner.get("modelVersion") if winner else None
-        if selected:
+        if selected and winner is not None:
             # La partición de prueba se abre una sola vez para la variante seleccionada.
             selected_runtime = EmbeddingRuntime(
                 store.model(selected),
@@ -1378,7 +478,7 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
             dataset_hash=dataset_hash,
             smoke=smoke,
         )
-        store.save_benchmark_run(
+        benchmark_store.save_benchmark_run(
             run_id=run_id,
             dataset_hash=dataset_hash,
             seed=settings.trainer_seed,
@@ -1404,8 +504,7 @@ def run_training(*, smoke: bool = False) -> dict[str, Any]:
 
 
 def main() -> None:
-    """Ejecuta el punto de entrada del módulo.
-    """
+    """Ejecuta el punto de entrada del módulo."""
     parser = argparse.ArgumentParser(description="Entrena y compara modelos semánticos")
     parser.add_argument("--smoke", action="store_true")
     arguments = parser.parse_args()

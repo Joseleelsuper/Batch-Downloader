@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `internal_routes`.
-"""
+"""Implementa las responsabilidades del módulo `internal_routes`."""
+
 from __future__ import annotations
 
 import secrets as secrets
@@ -49,24 +49,26 @@ from app.schemas.internal import (
     WebsiteAppDiscoveryView,
 )
 from app.scraper.candidates import InstallerCandidate, infer_operating_system
-from app.scraper.catalog_fetcher import (
+from app.scraper.content_workers import (
     DescriptorWorker,
     enqueue_descriptor_for_app,
-    infer_validated_operating_system,
-    known_official_candidates_for_package,
 )
 from app.scraper.description_enricher import (
     build_embedding_metadata,
     build_embedding_text,
     embedding_content_hash,
 )
+from app.scraper.installer_policy import (
+    infer_validated_operating_system,
+    known_official_candidates_for_package,
+)
 from app.scraper.manual_installer import (
     ManualInstallerError,
     ManualInstallerInspectionRepository,
     ManualInstallerTransientError,
-    apply_manual_installer,
     inspection_view,
 )
+from app.scraper.manual_installer_apply import apply_manual_installer
 from app.scraper.safe_http import SafeHttpError
 from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 from app.scraper.website_discovery import (
@@ -89,10 +91,10 @@ async def internal_metrics(
     """Expone el estado del pool en formato Prometheus sin otro contenedor."""
     pool = cast(AsyncAdaptedQueuePool, engine.pool)
     values = {
-        "scrapper_db_pool_size": pool.size(),
-        "scrapper_db_pool_checked_out": pool.checkedout(),
-        "scrapper_db_pool_checked_in": pool.checkedin(),
-        "scrapper_db_pool_overflow": pool.overflow(),
+        "scraper_db_pool_size": pool.size(),
+        "scraper_db_pool_checked_out": pool.checkedout(),
+        "scraper_db_pool_checked_in": pool.checkedin(),
+        "scraper_db_pool_overflow": pool.overflow(),
     }
     body = "".join(f"# TYPE {name} gauge\n{name} {value}\n" for name, value in values.items())
     return PlainTextResponse(body, media_type="text/plain; version=0.0.4")
@@ -252,8 +254,7 @@ def _can_revalidate_expired(resolved: ResolvedSource, metadata: dict) -> bool:
     return (
         _parent_source_is_available(resolved)
         and resolved.validation_status == ValidationStatus.VALID.value
-        and resolved.status
-        in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
+        and resolved.status in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
         and resolved.expires_at <= utc_now()
         and confidence in {"", "validated", "verified"}
         and metadata.get("transport_security")
@@ -868,9 +869,7 @@ async def create_website_app_discovery(
     except (WebsiteDiscoveryError, SafeHttpError) as exc:
         raise_website_discovery_http_error(exc)
     await session.commit()
-    return WebsiteAppDiscoveryView.model_validate(
-        website_discovery_view(discovery)
-    )
+    return WebsiteAppDiscoveryView.model_validate(website_discovery_view(discovery))
 
 
 @internal_router.get(
@@ -911,9 +910,7 @@ async def get_website_app_discovery(
             detail={"code": "website_discovery_not_found"},
         )
     await session.commit()
-    return WebsiteAppDiscoveryView.model_validate(
-        website_discovery_view(discovery)
-    )
+    return WebsiteAppDiscoveryView.model_validate(website_discovery_view(discovery))
 
 
 @internal_router.post(
@@ -1017,6 +1014,5 @@ def raise_website_discovery_http_error(
 
 
 async def _run_descriptor_once_background() -> None:
-    """Ejecuta el paso interno `_run_descriptor_once_background`.
-    """
+    """Ejecuta el paso interno `_run_descriptor_once_background`."""
     await DescriptorWorker(get_settings()).process_one()

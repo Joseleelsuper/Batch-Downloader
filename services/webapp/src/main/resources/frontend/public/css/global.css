@@ -57,6 +57,11 @@ button:disabled {
   opacity: 0.72;
 }
 
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 2px;
+}
+
 .empty-state,
 .loading-label,
 .error-banner {

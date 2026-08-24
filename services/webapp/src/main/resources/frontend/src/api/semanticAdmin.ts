@@ -1,4 +1,4 @@
-import { requestJson } from './catalog';
+import { requestJson } from './http';
 import type {
   SemanticBenchmarkRun,
   SemanticModel,
@@ -28,21 +28,21 @@ function command<T>(
 }
 
 export function fetchSemanticOverview(): Promise<SemanticOverview> {
-  return requestJson<SemanticOverview>('/api/admin/semantic/overview');
+  return requestJson<SemanticOverview>('/api/v1/admin/semantic/overview');
 }
 
 export function fetchSemanticModels(): Promise<SemanticModel[]> {
-  return requestJson<SemanticModel[]>('/api/admin/semantic/models');
+  return requestJson<SemanticModel[]>('/api/v1/admin/semantic/models');
 }
 
 export function fetchSemanticBenchmarks(): Promise<SemanticBenchmarkRun[]> {
-  return requestJson<SemanticBenchmarkRun[]>('/api/admin/semantic/benchmarks');
+  return requestJson<SemanticBenchmarkRun[]>('/api/v1/admin/semantic/benchmarks');
 }
 
 export function startSemanticBenchmark(
   modelIds: string[],
 ): Promise<SemanticOperationAccepted> {
-  return command('/api/admin/semantic/benchmarks', 'benchmark', {
+  return command('/api/v1/admin/semantic/benchmarks', 'benchmark', {
     method: 'POST',
     body: JSON.stringify({ modelIds }),
   });
@@ -52,7 +52,7 @@ export function prepareSemanticModel(
   modelId: string,
 ): Promise<SemanticOperationAccepted> {
   return command(
-    `/api/admin/semantic/models/${encodeURIComponent(modelId)}/prepare`,
+    `/api/v1/admin/semantic/models/${encodeURIComponent(modelId)}/prepare`,
     'prepare',
     { method: 'POST' },
   );
@@ -68,7 +68,7 @@ export function activateSemanticModel(
   },
 ): Promise<SemanticOperationAccepted> {
   return command(
-    `/api/admin/semantic/models/${encodeURIComponent(modelId)}/activate`,
+    `/api/v1/admin/semantic/models/${encodeURIComponent(modelId)}/activate`,
     'activate',
     { method: 'POST', body: JSON.stringify(payload) },
   );
@@ -78,7 +78,7 @@ export function deleteSemanticModel(
   modelId: string,
 ): Promise<SemanticOperationAccepted> {
   return command(
-    `/api/admin/semantic/models/${encodeURIComponent(modelId)}`,
+    `/api/v1/admin/semantic/models/${encodeURIComponent(modelId)}`,
     'delete',
     { method: 'DELETE' },
   );
@@ -88,7 +88,7 @@ export function fetchSemanticOperations(
   active = false,
 ): Promise<SemanticOperation[]> {
   return requestJson<SemanticOperation[]>(
-    `/api/admin/semantic/operations?active=${String(active)}`,
+    `/api/v1/admin/semantic/operations?active=${String(active)}`,
   );
 }
 
@@ -96,7 +96,7 @@ export function cancelSemanticOperation(
   operationId: string,
 ): Promise<SemanticOperation> {
   return requestJson<SemanticOperation>(
-    `/api/admin/semantic/operations/${encodeURIComponent(operationId)}`,
+    `/api/v1/admin/semantic/operations/${encodeURIComponent(operationId)}`,
     { method: 'DELETE' },
   );
 }
@@ -105,7 +105,7 @@ export function retrySemanticOperation(
   operationId: string,
 ): Promise<SemanticOperationAccepted> {
   return command(
-    `/api/admin/semantic/operations/${encodeURIComponent(operationId)}/retry`,
+    `/api/v1/admin/semantic/operations/${encodeURIComponent(operationId)}/retry`,
     'retry',
     { method: 'POST' },
   );

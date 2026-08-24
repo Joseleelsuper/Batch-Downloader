@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
-import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from psycopg import sql
 
+from app.benchmark_store import SemanticBenchmarkStore
 from app.database import Database
 from app.embeddings import RegisteredModel, vector_literal
 from app.model_registry import model_index_name
@@ -59,6 +58,8 @@ class SemanticStore:
         self.database = database
         """Estado de instancia asociado a `database`.
         """
+        self.benchmarks = SemanticBenchmarkStore(database)
+        """Transacciones aisladas de medición y persistencia de benchmarks."""
 
     def active_model(self) -> tuple[RegisteredModel, str] | None:
         """Ejecuta `active_model` dentro de `SemanticStore`.
@@ -474,7 +475,7 @@ class SemanticStore:
             jobs (list[dict[str, Any]]): Valor de `jobs` utilizado por la operación.
             error (str): Error que debe registrarse o propagarse.
         """
-        retry_at = datetime.now(timezone.utc) + timedelta(seconds=30)
+        retry_at = datetime.now(UTC) + timedelta(seconds=30)
         self.database.run(
             lambda connection: [
                 connection.execute(
@@ -623,99 +624,13 @@ class SemanticStore:
         Returns:
             dict[str, float | int]: Mapa con los datos producidos por la operación.
         """
-        if not app_ids or not query_vectors:
-            return {
-                "hnswRecallAt20": 0.0,
-                "hnswBuildMs": 0.0,
-                "hnswIndexBytes": 0,
-            }
-        table_name = f"semantic_benchmark_{uuid.uuid4().hex}"
-        index_name = f"{table_name}_hnsw"
-
-        def mutate(connection):
-            """Aplica la mutación definida para el escenario.
-
-            Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
-            """
-            table = sql.Identifier(table_name)
-            index = sql.Identifier(index_name)
-            dimension = sql.SQL(str(dimensions))
-            connection.execute(
-                sql.SQL(
-                    "CREATE TEMP TABLE {} ("
-                    "app_id UUID PRIMARY KEY, embedding vector({}) NOT NULL"
-                    ") ON COMMIT DROP"
-                ).format(table, dimension)
-            )
-            with connection.cursor() as cursor:
-                cursor.executemany(
-                    sql.SQL(
-                        "INSERT INTO {} (app_id, embedding) VALUES (%s, %s::vector)"
-                    ).format(table),
-                    [
-                        (app_id, vector_literal(vector))
-                        for app_id, vector in zip(
-                            app_ids,
-                            document_vectors,
-                            strict=True,
-                        )
-                    ],
-                )
-            started = time.perf_counter()
-            connection.execute(
-                sql.SQL(
-                    "CREATE INDEX {} ON {} "
-                    "USING hnsw (embedding vector_cosine_ops)"
-                ).format(index, table)
-            )
-            build_ms = (time.perf_counter() - started) * 1000
-            connection.execute(sql.SQL("ANALYZE {}").format(table))
-            index_bytes = int(
-                connection.execute(
-                    "SELECT pg_relation_size(%s::regclass)",
-                    (index_name,),
-                ).fetchone()["pg_relation_size"]
-            )
-            recalls: list[float] = []
-            result_limit = min(cutoff, len(app_ids))
-            ranking_query = sql.SQL(
-                "SELECT app_id::text AS app_id FROM {} "
-                "ORDER BY embedding <=> %s::vector LIMIT %s"
-            ).format(table)
-            for query_vector in query_vectors[:100]:
-                literal = vector_literal(query_vector)
-                connection.execute("SET LOCAL enable_indexscan = off")
-                connection.execute("SET LOCAL enable_bitmapscan = off")
-                connection.execute("SET LOCAL enable_seqscan = on")
-                exact = {
-                    row["app_id"]
-                    for row in connection.execute(
-                        ranking_query,
-                        (literal, result_limit),
-                    ).fetchall()
-                }
-                connection.execute("SET LOCAL enable_indexscan = on")
-                connection.execute("SET LOCAL enable_bitmapscan = on")
-                connection.execute("SET LOCAL enable_seqscan = off")
-                connection.execute("SET LOCAL hnsw.ef_search = 40")
-                approximate = {
-                    row["app_id"]
-                    for row in connection.execute(
-                        ranking_query,
-                        (literal, result_limit),
-                    ).fetchall()
-                }
-                recalls.append(
-                    len(exact & approximate) / len(exact) if exact else 1.0
-                )
-            return {
-                "hnswRecallAt20": sum(recalls) / len(recalls),
-                "hnswBuildMs": build_ms,
-                "hnswIndexBytes": index_bytes,
-            }
-
-        return self.database.run(mutate)
+        return self.benchmarks.benchmark_hnsw(
+            dimensions=dimensions,
+            app_ids=app_ids,
+            document_vectors=document_vectors,
+            query_vectors=query_vectors,
+            cutoff=cutoff,
+        )
 
     def active_documents(self) -> list[dict[str, Any]]:
         """Ejecuta `active_documents` dentro de `SemanticStore`.
@@ -966,25 +881,12 @@ class SemanticStore:
                 operación.
             paths (dict[str, str]): Valor de `paths` utilizado por la operación.
         """
-        self.database.run(
-            lambda connection: connection.execute(
-                """
-                INSERT INTO benchmark_runs (
-                    id, dataset_hash, seed, configuration, metrics,
-                    selected_model_version, report_json_path, report_csv_path,
-                    report_markdown_path
-                ) VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)
-                """,
-                (
-                    str(uuid.UUID(run_id)),
-                    dataset_hash,
-                    seed,
-                    json.dumps(configuration, sort_keys=True),
-                    json.dumps(metrics, sort_keys=True),
-                    selected_model_version,
-                    paths["json"],
-                    paths["csv"],
-                    paths["markdown"],
-                ),
-            )
+        self.benchmarks.save_benchmark_run(
+            run_id=run_id,
+            dataset_hash=dataset_hash,
+            seed=seed,
+            configuration=configuration,
+            metrics=metrics,
+            selected_model_version=selected_model_version,
+            paths=paths,
         )

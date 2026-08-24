@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `worker`.
-"""
+"""Implementa las responsabilidades del módulo `worker`."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,6 +10,7 @@ from functools import partial
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import get_settings
@@ -21,6 +22,7 @@ from app.db.models import ScrapeRun
 from app.db.session import AsyncSessionLocal
 from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
 from app.repositories.catalog_projection import CatalogProjectionRepository
+from app.repositories.heartbeat import WorkerHeartbeatRepository
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
     QUEUE_FILTER_SCRAPER,
@@ -30,14 +32,17 @@ from app.repositories.pipeline import (
     STATUS_DISCARDED,
     PipelineRepository,
 )
+from app.repositories.retention import RetentionRepository
 from app.repositories.runs import ScrapeRunRepository
 from app.scraper.candidates import extract_version, infer_architecture, registered_domain
-from app.scraper.catalog_fetcher import (
-    CatalogFetcher,
+from app.scraper.catalog_fetcher import CatalogFetcher
+from app.scraper.content_workers import (
     DescriptorWorker,
     SOFilterWorker,
-    ValidInstaller,
     enqueue_so_filter_for_app,
+)
+from app.scraper.installer_policy import (
+    ValidInstaller,
     infer_validated_operating_system,
     known_official_candidates,
     resolved_metadata,
@@ -53,19 +58,16 @@ logger = get_logger(__name__)
 
 
 class ContentEnrichmentSupervisor:
-    """Representa el componente `ContentEnrichmentSupervisor`.
-    """
+    """Representa el componente `ContentEnrichmentSupervisor`."""
 
     def __init__(self) -> None:
-        """Inicializa una instancia de `ContentEnrichmentSupervisor`.
-        """
+        """Inicializa una instancia de `ContentEnrichmentSupervisor`."""
         self.settings = get_settings()
         """Estado de instancia asociado a `settings`.
         """
 
     async def run(self) -> None:
-        """Ejecuta `run` dentro de `ContentEnrichmentSupervisor`.
-        """
+        """Ejecuta `run` dentro de `ContentEnrichmentSupervisor`."""
         async with AsyncSessionLocal() as session:
             pipeline = PipelineRepository(session)
             recovered = await pipeline.reset_expired_leases()
@@ -148,8 +150,7 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_descriptions(self) -> None:
-        """Ejecuta el paso interno `_consume_descriptions`.
-        """
+        """Ejecuta el paso interno `_consume_descriptions`."""
         worker = DescriptorWorker(self.settings)
         while True:
             if await self._scrape_run_active():
@@ -166,8 +167,7 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_manual_installers(self) -> None:
-        """Ejecuta el paso interno `_consume_manual_installers`.
-        """
+        """Ejecuta el paso interno `_consume_manual_installers`."""
         worker = ManualInstallerWorker(self.settings)
         while True:
             processed = await worker.process_one()
@@ -175,8 +175,7 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_website_discoveries(self) -> None:
-        """Ejecuta el paso interno `_consume_website_discoveries`.
-        """
+        """Ejecuta el paso interno `_consume_website_discoveries`."""
         worker = WebsiteAppDiscoveryWorker(self.settings)
         while True:
             processed = await worker.process_one()
@@ -211,8 +210,7 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _enqueue_pending_so_filters(self) -> None:
-        """Ejecuta el paso interno `_enqueue_pending_so_filters`.
-        """
+        """Ejecuta el paso interno `_enqueue_pending_so_filters`."""
         async with AsyncSessionLocal() as session:
             catalog = CatalogRepository(
                 session,
@@ -268,9 +266,7 @@ class ContentEnrichmentSupervisor:
         """
         async with AsyncSessionLocal() as session:
             run_id = await session.scalar(
-                select(ScrapeRun.id)
-                .where(ScrapeRun.active_lock == 1)
-                .limit(1)
+                select(ScrapeRun.id).where(ScrapeRun.active_lock == 1).limit(1)
             )
             return run_id is not None
 
@@ -321,7 +317,7 @@ async def enqueue_scrape_request(
         return request.id
 
 
-async def run_request_dispatcher() -> None:
+async def run_request_dispatcher(instance_id: uuid.UUID) -> None:
     """Reclama solicitudes durables de una en una y conserva las pendientes."""
     settings = get_settings()
     while True:
@@ -336,14 +332,12 @@ async def run_request_dispatcher() -> None:
                     request_id = request.id
                     try:
                         scope = ScrapeScope(request.scope or ScrapeScope.INCREMENTAL.value)
-                        selected_ids = [
-                            uuid.UUID(value) for value in (request.app_ids_json or [])
-                        ]
+                        selected_ids = [uuid.UUID(value) for value in (request.app_ids_json or [])]
                         if (scope == ScrapeScope.SELECTED) != bool(selected_ids):
                             raise ValueError("invalid_scope_selection")
                         if len(selected_ids) > 500:
                             raise ValueError("selected_scope_limit_exceeded")
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         await repository.consume_command(
                             request,
                             status="failed",
@@ -362,12 +356,57 @@ async def run_request_dispatcher() -> None:
                 request_id=str(request_id) if request_id else None,
                 error=exc.__class__.__name__,
             )
+            await persist_scheduler_heartbeat(
+                instance_id,
+                action="failure",
+                error_code=exc.__class__.__name__,
+            )
+        else:
+            await persist_scheduler_heartbeat(instance_id, action="success")
         await asyncio.sleep(2)
 
 
+async def persist_scheduler_heartbeat(
+    instance_id: uuid.UUID,
+    *,
+    action: str,
+    error_code: str | None = None,
+) -> None:
+    """Actualiza la señal sin convertir un fallo de observabilidad en reinicio."""
+    try:
+        async with AsyncSessionLocal() as session:
+            repository = WorkerHeartbeatRepository(session)
+            if action == "success":
+                await repository.success("scheduler", instance_id)
+            elif action == "failure":
+                await repository.failure(
+                    "scheduler",
+                    instance_id,
+                    error_code or "unknown_error",
+                )
+            elif action == "pulse":
+                await repository.pulse("scheduler", instance_id)
+            else:
+                raise ValueError("invalid_scheduler_heartbeat_action")
+            await session.commit()
+    except SQLAlchemyError as exception:
+        logger.warning(
+            "scheduler_heartbeat_persist_failed",
+            action=action,
+            error=exception.__class__.__name__,
+        )
+
+
+async def emit_scheduler_heartbeat(instance_id: uuid.UUID) -> None:
+    """Mantiene visible un scheduler ocioso sin alterar el contador de fallos."""
+    settings = get_settings()
+    while True:
+        await persist_scheduler_heartbeat(instance_id, action="pulse")
+        await asyncio.sleep(settings.worker_heartbeat_interval_seconds)
+
+
 async def repair_platforms() -> None:
-    """Ejecuta la operación `repair_platforms`.
-    """
+    """Ejecuta la operación `repair_platforms`."""
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
@@ -377,8 +416,7 @@ async def repair_platforms() -> None:
 
 
 async def repair_source_statuses() -> None:
-    """Ejecuta la operación `repair_source_statuses`.
-    """
+    """Ejecuta la operación `repair_source_statuses`."""
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
@@ -409,8 +447,7 @@ async def maintain_catalog_projection(*, repair: bool) -> None:
 
 
 async def repair_known_apps() -> None:
-    """Ejecuta la operación `repair_known_apps`.
-    """
+    """Ejecuta la operación `repair_known_apps`."""
     settings = get_settings()
     repaired = 0
     async with WinstallClient(settings) as winstall:
@@ -493,8 +530,7 @@ async def repair_known_apps() -> None:
 
 
 async def run_startup_scrape() -> None:
-    """Ejecuta la operación `startup_scrape`.
-    """
+    """Ejecuta la operación `startup_scrape`."""
     try:
         await repair_known_apps()
     except Exception as exc:
@@ -522,10 +558,37 @@ async def recover_scheduler_runs() -> int:
     return recovered
 
 
+async def prune_retained_records() -> None:
+    """Ejecuta una pasada no bloqueante de las políticas de retención."""
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await RetentionRepository(session).prune()
+            await session.commit()
+    except SQLAlchemyError as exception:
+        logger.warning(
+            "scraper_retention_failed",
+            error=exception.__class__.__name__,
+        )
+        return
+    if result.total:
+        logger.info(
+            "scraper_retention_pruned",
+            total=result.total,
+            work_items=result.work_items,
+            metric_snapshots=result.metric_snapshots,
+            worker_snapshots=result.worker_snapshots,
+            resolver_logs=result.resolver_logs,
+            commands=result.commands,
+            runs=result.runs,
+        )
+
+
 async def run_scheduler() -> None:
-    """Ejecuta la operación `scheduler`.
-    """
+    """Ejecuta la operación `scheduler`."""
     settings = get_settings()
+    instance_id = uuid.uuid4()
+    await persist_scheduler_heartbeat(instance_id, action="success")
+    await prune_retained_records()
     scheduler = AsyncIOScheduler(timezone=settings.scheduler_zoneinfo)
     scheduler.add_job(
         enqueue_scrape_request,
@@ -538,6 +601,15 @@ async def run_scheduler() -> None:
             "created_by": "scheduler:incremental",
         },
         id="incremental-winstall-scrape",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        prune_retained_records,
+        trigger="interval",
+        hours=6,
+        id="scraper-retention",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
@@ -563,8 +635,12 @@ async def run_scheduler() -> None:
         name="content-enrichment-supervisor",
     )
     dispatcher_task = asyncio.create_task(
-        run_request_dispatcher(),
+        run_request_dispatcher(instance_id),
         name="scrape-request-dispatcher",
+    )
+    heartbeat_task = asyncio.create_task(
+        emit_scheduler_heartbeat(instance_id),
+        name="scheduler-heartbeat",
     )
     logger.info(
         "scheduler_started",
@@ -586,18 +662,22 @@ async def run_scheduler() -> None:
         # El supervisor es el trabajo persistente real del contenedor. Si termina por
         # una excepción no controlada, se propaga el fallo para que Docker pueda
         # reiniciar el proceso en lugar de dejar un scheduler aparentemente sano.
-        await asyncio.gather(enrichment_task, dispatcher_task)
+        await asyncio.gather(enrichment_task, dispatcher_task, heartbeat_task)
     finally:
-        for task in (enrichment_task, dispatcher_task):
+        for task in (enrichment_task, dispatcher_task, heartbeat_task):
             if not task.done():
                 task.cancel()
-        await asyncio.gather(enrichment_task, dispatcher_task, return_exceptions=True)
+        await asyncio.gather(
+            enrichment_task,
+            dispatcher_task,
+            heartbeat_task,
+            return_exceptions=True,
+        )
         scheduler.shutdown(wait=False)
 
 
 def main() -> None:
-    """Ejecuta el punto de entrada del módulo.
-    """
+    """Ejecuta el punto de entrada del módulo."""
     configure_logging()
     assert_free_threaded_runtime()
     parser = argparse.ArgumentParser(description="Batch Downloader scraper worker")

@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `website_discovery`.
-"""
+"""Implementa las responsabilidades del módulo `website_discovery`."""
+
 from __future__ import annotations
 
 import asyncio
@@ -42,7 +42,9 @@ from app.scraper.candidates import (
     infer_architecture,
     registered_domain,
 )
-from app.scraper.catalog_fetcher import (
+from app.scraper.description_enricher import AppDescriptionLLMClient
+from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.installer_policy import (
     ValidInstaller,
     dedupe_candidates,
     dedupe_valid_installers,
@@ -53,8 +55,6 @@ from app.scraper.catalog_fetcher import (
     resolved_metadata,
     validated_installer_version,
 )
-from app.scraper.description_enricher import AppDescriptionLLMClient
-from app.scraper.github import GitHubReleaseResolver, parse_github_repo
 from app.scraper.llm import LLMGenerationError
 from app.scraper.manual_installer import (
     append_warning,
@@ -120,8 +120,8 @@ QUERY_FALLBACK_ERROR_CODES = {"http_401", "http_403"}
 
 
 class WebsiteDiscoveryError(Exception):
-    """Representa un error relacionado con `WebsiteDiscovery`.
-    """
+    """Representa un error relacionado con `WebsiteDiscovery`."""
+
     def __init__(self, code: str, status_code: int = 422) -> None:
         """Inicializa una instancia de `WebsiteDiscoveryError`.
 
@@ -139,8 +139,8 @@ class WebsiteDiscoveryError(Exception):
 
 
 class WebsiteDiscoveryTransientError(Exception):
-    """Representa un error relacionado con `WebsiteDiscoveryTransient`.
-    """
+    """Representa un error relacionado con `WebsiteDiscoveryTransient`."""
+
     def __init__(self, code: str) -> None:
         """Inicializa una instancia de `WebsiteDiscoveryTransientError`.
 
@@ -166,6 +166,7 @@ async def fetch_official_page(
     Returns:
         tuple[SafeHttpResponse, str | None]: Resultado de `fetch_official_page`.
     """
+
     async def fetch(url: str) -> SafeHttpResponse:
         """Ejecuta la operación `fetch`.
 
@@ -257,8 +258,8 @@ def expected_operating_system(candidate: InstallerCandidate) -> str | None:
 
 @dataclass(frozen=True)
 class DiscoveredInstaller:
-    """Representa el componente `DiscoveredInstaller`.
-    """
+    """Representa el componente `DiscoveredInstaller`."""
+
     url: str
     """Atributo de clase `url` de `DiscoveredInstaller`.
     """
@@ -292,8 +293,8 @@ class DiscoveredInstaller:
 
 
 class WebsiteAppDiscoveryRepository:
-    """Gestiona la persistencia y consulta de `WebsiteAppDiscovery`.
-    """
+    """Gestiona la persistencia y consulta de `WebsiteAppDiscovery`."""
+
     def __init__(
         self,
         session: AsyncSession,
@@ -452,8 +453,8 @@ class WebsiteAppDiscoveryRepository:
 
 
 class WebsiteAppDiscoverer:
-    """Representa el componente `WebsiteAppDiscoverer`.
-    """
+    """Representa el componente `WebsiteAppDiscoverer`."""
+
     def __init__(self, settings: Settings) -> None:
         """Inicializa una instancia de `WebsiteAppDiscoverer`.
 
@@ -580,11 +581,7 @@ class WebsiteAppDiscoverer:
                         "latest_version": latest_version,
                         "installer_count": len(installers),
                         "installer_formats": sorted(
-                            {
-                                installer.extension
-                                for installer in installers
-                                if installer.extension
-                            }
+                            {installer.extension for installer in installers if installer.extension}
                         ),
                         "operating_systems": sorted(
                             {installer.operating_system for installer in installers}
@@ -684,9 +681,7 @@ class WebsiteAppDiscoverer:
             github_urls.insert(0, official_url)
         for github_url in list(dict.fromkeys(github_urls))[:2]:
             try:
-                candidates.extend(
-                    await self.github.collect(github_url, latest_version)
-                )
+                candidates.extend(await self.github.collect(github_url, latest_version))
             except Exception:
                 continue
         return dedupe_candidates(candidates)
@@ -809,9 +804,7 @@ class WebsiteAppDiscoverer:
                 candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
             """
             try:
-                async with asyncio.timeout(
-                    min(10.0, self.settings.request_timeout_seconds + 2.0)
-                ):
+                async with asyncio.timeout(min(10.0, self.settings.request_timeout_seconds + 2.0)):
                     result = await self.validator.validate(
                         candidate,
                         require_signature=True,
@@ -846,9 +839,7 @@ class WebsiteAppDiscoverer:
                 ):
                     partial_failure = True
                     continue
-                operating_system = (
-                    inferred_operating_system or supplied_operating_system
-                )
+                operating_system = inferred_operating_system or supplied_operating_system
                 if not operating_system:
                     partial_failure = True
                     continue
@@ -859,8 +850,7 @@ class WebsiteAppDiscoverer:
                         status=ResolutionStatus.DIRECT,
                         operating_system=operating_system,
                         architecture=infer_architecture(candidate),
-                        version=validated_installer_version(candidate, result)
-                        or latest_version,
+                        version=validated_installer_version(candidate, result) or latest_version,
                     )
                 )
             if len(valid) >= MAX_VALID_INSTALLERS:
@@ -888,8 +878,8 @@ class WebsiteAppDiscoverer:
 
 
 class WebsiteAppDiscoveryWorker:
-    """Ejecuta el procesamiento en segundo plano de `WebsiteAppDiscovery`.
-    """
+    """Ejecuta el procesamiento en segundo plano de `WebsiteAppDiscovery`."""
+
     def __init__(
         self,
         settings: Settings,
@@ -930,10 +920,8 @@ class WebsiteAppDiscoveryWorker:
             await session.commit()
 
             try:
-                discovery_id = uuid.UUID(
-                    str((item.payload_json or {}).get("discovery_id"))
-                )
-            except (ValueError, TypeError, AttributeError):
+                discovery_id = uuid.UUID(str((item.payload_json or {}).get("discovery_id")))
+            except ValueError, TypeError, AttributeError:
                 await pipeline.fail(item, "invalid_website_discovery_id")
                 await session.commit()
                 return True
@@ -996,9 +984,7 @@ class WebsiteAppDiscoveryWorker:
                 await session.commit()
 
             try:
-                result, installers, warnings = await WebsiteAppDiscoverer(
-                    self.settings
-                ).inspect(
+                result, installers, warnings = await WebsiteAppDiscoverer(self.settings).inspect(
                     official_url,
                     installer_urls,
                     set_phase=set_phase,
@@ -1132,14 +1118,10 @@ async def apply_website_app_discovery(
             "official_url_query_credentials_forbidden",
         )
     expected_official_url = clean_optional(
-        (discovery.result_json.get("suggestions") or {})
-        .get("officialUrl", {})
-        .get("value")
+        (discovery.result_json.get("suggestions") or {}).get("officialUrl", {}).get("value")
     )
-    if (
-        not expected_official_url
-        or registered_domain(official_url)
-        != registered_domain(expected_official_url)
+    if not expected_official_url or registered_domain(official_url) != registered_domain(
+        expected_official_url
     ):
         raise WebsiteDiscoveryError(
             "official_url_changed_rediscovery_required",
@@ -1266,9 +1248,7 @@ async def apply_website_app_discovery(
                 source_id=source.id,
                 url=installer.result.final_url or installer.candidate.url,
                 final_domain=installer.result.final_domain
-                or registered_domain(
-                    installer.result.final_url or installer.candidate.url
-                )
+                or registered_domain(installer.result.final_url or installer.candidate.url)
                 or "unknown",
                 filename=installer.result.filename,
                 extension=installer.result.extension,
@@ -1343,28 +1323,20 @@ async def revalidate_discovered_installers(
             score=row.score,
         )
         try:
-            async with asyncio.timeout(
-                min(10.0, settings.request_timeout_seconds + 2.0)
-            ):
+            async with asyncio.timeout(min(10.0, settings.request_timeout_seconds + 2.0)):
                 result = await validator.validate(
                     candidate,
                     require_signature=True,
                 )
         except Exception:
             return None
-        if (
-            not result.ok
-            or result.confidence != ValidationConfidence.VALIDATED
-        ):
+        if not result.ok or result.confidence != ValidationConfidence.VALIDATED:
             return None
         inferred_operating_system = infer_validated_operating_system(
             candidate,
             result,
         )
-        if (
-            inferred_operating_system
-            and inferred_operating_system != row.operating_system
-        ):
+        if inferred_operating_system and inferred_operating_system != row.operating_system:
             return None
         operating_system = inferred_operating_system or row.operating_system
         return ValidInstaller(
@@ -1377,14 +1349,8 @@ async def revalidate_discovered_installers(
         )
 
     results = await asyncio.gather(*(validate(row) for row in rows))
-    valid = dedupe_valid_installers(
-        [result for result in results if result is not None]
-    )
-    warnings = (
-        ["installers:changed_since_preview"]
-        if len(valid) != len(rows)
-        else []
-    )
+    valid = dedupe_valid_installers([result for result in results if result is not None])
+    warnings = ["installers:changed_since_preview"] if len(valid) != len(rows) else []
     if rows and not valid:
         warnings.append("installers:none_valid_on_apply")
     return valid, warnings
@@ -1427,11 +1393,7 @@ def website_discovery_view(discovery: WebsiteAppDiscovery) -> dict:
         ],
         "ai": result.get("ai"),
         "errorCode": discovery.error_code,
-        "appliedAppId": (
-            str(discovery.applied_app_id)
-            if discovery.applied_app_id
-            else None
-        ),
+        "appliedAppId": (str(discovery.applied_app_id) if discovery.applied_app_id else None),
         "createdAt": discovery.created_at,
         "updatedAt": discovery.updated_at,
         "expiresAt": discovery.expires_at,
