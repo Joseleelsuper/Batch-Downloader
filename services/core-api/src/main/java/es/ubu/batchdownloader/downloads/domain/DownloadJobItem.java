@@ -90,7 +90,7 @@ public final class DownloadJobItem {
             long version) {
         this.id = Objects.requireNonNull(id);
         this.appId = Objects.requireNonNull(appId);
-        this.sourceRef = Objects.requireNonNull(sourceRef);
+        this.sourceRef = sourceRef;
         this.appName = normalizedName(appName, appId);
         this.officialPageUrl = normalizedOptionalText(officialPageUrl);
         this.status = Objects.requireNonNull(status);
@@ -127,7 +127,26 @@ public final class DownloadJobItem {
     public static DownloadJobItem queued(
             UUID appId, UUID sourceRef, String appName, String officialPageUrl, Instant now) {
         return new DownloadJobItem(
-                UUID.randomUUID(), appId, sourceRef, appName, officialPageUrl,
+                UUID.randomUUID(), appId, Objects.requireNonNull(sourceRef), appName, officialPageUrl,
+                DownloadItemStatus.QUEUED, 0, null, null, now, now, 0);
+    }
+
+    /**
+     * Crea un item que se resolverá mediante un acceso a la página oficial.
+     *
+     * @param appId Identificador de la aplicación.
+     * @param appName Nombre público de la aplicación.
+     * @param officialPageUrl Página oficial que se incluirá en el acceso.
+     * @param now Instante de creación.
+     * @return Item manual listo para encolarse.
+     */
+    public static DownloadJobItem manual(
+            UUID appId, String appName, String officialPageUrl, Instant now) {
+        if (officialPageUrl == null || officialPageUrl.isBlank()) {
+            throw new IllegalArgumentException("manual_download_requires_official_page");
+        }
+        return new DownloadJobItem(
+                UUID.randomUUID(), appId, null, appName, officialPageUrl,
                 DownloadItemStatus.QUEUED, 0, null, null, now, now, 0);
     }
 

@@ -253,20 +253,33 @@ public class DownloadJobService {
                             "La versión seleccionada ya no está disponible para descargar."));
             selected = Map.of(appId, exactSource);
         }
+        Map<UUID, CatalogSourceLookup.ManualSource> manualSources = sourceRef == null
+                ? sources.findManualSources(appIds)
+                : Map.of();
         List<DownloadJobItem> items = appIds.stream()
-                .map(selected::get)
+                .map(appId -> {
+                    CatalogSourceLookup.VerifiedSource source = selected.get(appId);
+                    if (source != null) {
+                        return DownloadJobItem.queued(
+                                source.appId(),
+                                source.sourceRef(),
+                                source.appName(),
+                                source.officialPageUrl(),
+                                now);
+                    }
+                    CatalogSourceLookup.ManualSource manual = manualSources.get(appId);
+                    return manual == null
+                            ? null
+                            : DownloadJobItem.manual(
+                                    manual.appId(), manual.appName(), manual.officialPageUrl(), now);
+                })
                 .filter(Objects::nonNull)
-                .map(source -> DownloadJobItem.queued(
-                        source.appId(),
-                        source.sourceRef(),
-                        source.appName(),
-                        source.officialPageUrl(),
-                        now))
                 .toList();
         int omittedCount = appIds.size() - items.size();
         if (items.isEmpty()) {
             throw new ConflictException(
-                    "no_downloadable_apps", "Ninguna de las aplicaciones seleccionadas tiene una fuente verificable.");
+                    "no_downloadable_apps",
+                    "Ninguna de las aplicaciones seleccionadas tiene un instalador o una página oficial segura.");
         }
         DownloadJob job = jobs.save(DownloadJob.queue(
                 owner.authenticated() ? owner.userId() : null,

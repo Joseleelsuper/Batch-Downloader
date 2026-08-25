@@ -29,6 +29,8 @@ interface Props {
 }
 
 const CANCELLABLE_STATUSES = new Set(['QUEUED', 'RESOLVING', 'DOWNLOADING', 'PACKAGING']);
+const TERMINAL_ITEM_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
+const MANUAL_DOWNLOAD_ERROR = 'manual_download_required';
 
 function publicFailureMessage(t: Translator, code?: string | null): string {
   if (!code) return t('download.job.failure.generic');
@@ -77,8 +79,21 @@ export function DownloadJobPanel({
 }: Readonly<Props>) {
   const t = useTranslation();
   const completed = job.items.filter((item) => item.status === 'COMPLETED').length;
-  const failedItems = job.items.filter((item) => item.status === 'FAILED');
+  const manualItems = job.items.filter(
+    (item) => item.status === 'FAILED' && item.errorCode === MANUAL_DOWNLOAD_ERROR,
+  );
+  const failedItems = job.items.filter(
+    (item) => item.status === 'FAILED' && item.errorCode !== MANUAL_DOWNLOAD_ERROR,
+  );
   const failed = failedItems.length;
+  const pending = job.items.filter((item) => !TERMINAL_ITEM_STATUSES.has(item.status)).length;
+  const metrics = [
+    { key: 'downloaded', value: completed, tone: 'success' },
+    { key: 'manual', value: manualItems.length, tone: 'manual' },
+    { key: 'failed', value: failed, tone: 'danger' },
+    { key: 'pending', value: pending, tone: 'neutral' },
+    { key: 'omitted', value: job.omittedCount, tone: 'neutral' },
+  ].filter((metric) => metric.key === 'downloaded' || metric.value > 0);
   const statusKey = `download.job.status.${job.status.toLowerCase()}`;
   const terminal = TERMINAL_DOWNLOAD_STATUSES.has(job.status);
   const downloadable = DOWNLOADABLE_DOWNLOAD_STATUSES.has(job.status);
@@ -115,18 +130,14 @@ export function DownloadJobPanel({
       <progress max={100} value={job.progress}>{job.progress}%</progress>
       {minimized ? null : (
         <>
-          <p className="download-job-summary">
-            {t('download.job.summary', {
-              completed,
-              total: job.acceptedCount || job.items.length,
-              failed,
-            })}
-            {job.omittedCount > 0 ? ` · ${t('download.job.omitted', {
-              accepted: job.acceptedCount,
-              requested: job.requestedCount,
-              omitted: job.omittedCount,
-            })}` : null}
-          </p>
+          <dl className="download-job-metrics" aria-label={t('download.job.metrics')}>
+            {metrics.map((metric) => (
+              <div data-tone={metric.tone} key={metric.key}>
+                <dd>{metric.value}</dd>
+                <dt>{t(`download.job.metric.${metric.key}`)}</dt>
+              </div>
+            ))}
+          </dl>
           {connectionError ? (
             <p className="download-job-connection-warning">
               <WifiOff size={15} />
@@ -144,6 +155,30 @@ export function DownloadJobPanel({
               </details>
             </div>
           ) : null}
+          {manualItems.length ? (
+            <section className="download-job-manual" aria-label={t('download.job.manualApps')}>
+              <div>
+                <strong>{t('download.job.manual.title')}</strong>
+                <p>{t('download.job.manual.body')}</p>
+              </div>
+              <ul>
+                {manualItems.map((item) => {
+                  const officialPageUrl = safeOfficialPageUrl(item.officialPageUrl);
+                  return (
+                    <li key={item.id}>
+                      <span>{item.appName || item.appId}</span>
+                      {officialPageUrl ? (
+                        <a href={officialPageUrl} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink size={14} aria-hidden="true" />
+                          {t('download.job.openOfficialPage')}
+                        </a>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
           {failedItems.length ? (
             <div className="download-job-failures" aria-label={t('download.job.failedApps')}>
               {failedItems.map((item) => {
@@ -156,7 +191,7 @@ export function DownloadJobPanel({
                     </div>
                     {officialPageUrl ? (
                       <a href={officialPageUrl} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink size={14} />
+                        <ExternalLink size={14} aria-hidden="true" />
                         {t('download.job.openOfficialPage')}
                       </a>
                     ) : (

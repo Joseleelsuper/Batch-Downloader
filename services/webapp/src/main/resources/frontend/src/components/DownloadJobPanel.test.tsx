@@ -69,6 +69,8 @@ describe('DownloadJobPanel', () => {
     render(<DownloadJobPanel job={partial} onCancel={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('Completado parcialmente')).toBeInTheDocument();
+    expect(screen.getByText('Instaladores listos')).toBeInTheDocument();
+    expect(screen.getByText('Con problemas')).toBeInTheDocument();
     expect(screen.getByText('Aplicación fallida')).toBeInTheDocument();
     expect(screen.getByText('No se pudo obtener un instalador válido desde la fuente configurada.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Abrir página oficial' })).toHaveAttribute(
@@ -98,13 +100,17 @@ describe('DownloadJobPanel', () => {
       ...manual.items[0],
       status: 'FAILED',
       bytesDownloaded: 0,
-      errorCode: 'remote_unavailable',
+      errorCode: 'manual_download_required',
       officialPageUrl: 'https://example.com',
     }];
 
     render(<DownloadJobPanel job={manual} onCancel={vi.fn()} onClose={vi.fn()} />);
 
-    expect(screen.getByText('Descarga manual necesaria')).toBeInTheDocument();
+    expect(screen.getByText('Accesos manuales preparados')).toBeInTheDocument();
+    expect(screen.getByText('Accesos manuales')).toBeInTheDocument();
+    expect(screen.getByText('Descarga desde la web oficial')).toBeInTheDocument();
+    expect(screen.getByText('Aplicación de ejemplo')).toBeInTheDocument();
+    expect(screen.getByText(/incluirá accesos \.url/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Obtener ZIP/i })).toBeInTheDocument();
   });
 

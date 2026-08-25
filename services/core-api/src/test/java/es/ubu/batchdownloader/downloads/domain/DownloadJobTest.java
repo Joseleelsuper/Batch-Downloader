@@ -19,6 +19,19 @@ class DownloadJobTest {
      */
     private static final Instant NOW = Instant.parse("2026-07-13T12:00:00Z");
 
+    /** Comprueba que un item manual no invente un identificador de fuente. */
+    @Test
+    void manualItemPreservesOfficialPageWithoutSourceReference() {
+        UUID appId = UUID.randomUUID();
+
+        DownloadJobItem item = DownloadJobItem.manual(
+                appId, "Aplicación manual", "https://example.com/manual", NOW);
+
+        assertThat(item.appId()).isEqualTo(appId);
+        assertThat(item.sourceRef()).isNull();
+        assertThat(item.officialPageUrl()).isEqualTo("https://example.com/manual");
+    }
+
     /**
      * Comprueba el escenario {@code preservesRequestedAcceptedAndOmittedCountsForPartialJobs}.
      */

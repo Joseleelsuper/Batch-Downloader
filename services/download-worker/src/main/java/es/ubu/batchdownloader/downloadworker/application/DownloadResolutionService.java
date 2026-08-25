@@ -123,6 +123,11 @@ final class DownloadResolutionService {
     }
 
     private ResolutionAttempt resolveOne(DownloadItemRequest item) {
+        if (item.sourceRef() == null) {
+            return ResolutionAttempt.failure(new FailedDownload(
+                    item.itemId(), item.appId(), null,
+                    "manual-" + item.itemId() + ".url", "manual_download_required"));
+        }
         try {
             return ResolutionAttempt.success(resolver.resolve(item));
         } catch (DownloadRejectedException exception) {

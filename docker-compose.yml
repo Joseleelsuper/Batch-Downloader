@@ -240,25 +240,6 @@ services:
       retries: 12
       start_period: 120s
 
-  semantic-migrator:
-    build:
-      context: ./services/semantic-service
-    command: ["python", "-m", "app.migrator"]
-    restart: "no"
-    env_file:
-      - path: ./services/semantic-service/.env.example
-      - path: ./services/semantic-service/.env
-        required: false
-    environment:
-      SEMANTIC_DATABASE_HOST: postgres
-      SEMANTIC_DATABASE_PORT: 5432
-      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
-      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
-      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   semantic-service:
     build:
       context: ./services/semantic-service
@@ -283,8 +264,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      semantic-migrator:
-        condition: service_completed_successfully
     volumes:
       - semantic_models:/models
       - semantic_reports:/reports
@@ -321,8 +300,6 @@ services:
       SEMANTIC_REPORTS_DIR: /reports
     cpu_shares: 128
     depends_on:
-      semantic-migrator:
-        condition: service_completed_successfully
       semantic-service:
         condition: service_healthy
       scraper-api:
@@ -359,8 +336,6 @@ services:
       SEMANTIC_REPORTS_DIR: /reports
     cpu_shares: 128
     depends_on:
-      semantic-migrator:
-        condition: service_completed_successfully
       semantic-service:
         condition: service_healthy
       scraper-api:
@@ -397,8 +372,6 @@ services:
       SEMANTIC_REPORTS_DIR: /reports
     cpu_shares: 128
     depends_on:
-      semantic-migrator:
-        condition: service_completed_successfully
       semantic-service:
         condition: service_healthy
     volumes:

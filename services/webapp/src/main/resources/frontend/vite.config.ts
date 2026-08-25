@@ -6,9 +6,10 @@ import { resolve } from 'node:path';
 
 const repositoryRoot = resolve(import.meta.dirname, '../../../../../..');
 const legalMessagesPath = 'services/translation-service/locales/es/legal.json';
+const localesRoot = resolve(import.meta.dirname, '../../../../../translation-service/locales');
 
 function legalLastUpdated(): string {
-  const absolutePath = resolve(repositoryRoot, legalMessagesPath);
+  const absolutePath = resolve(localesRoot, 'es/legal.json');
   try {
     const pendingChanges = execFileSync(
       'git',
@@ -39,7 +40,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@batch-locales': resolve(import.meta.dirname, '../../../../../translation-service/locales'),
+      '@batch-locales': localesRoot,
     },
   },
   server: {

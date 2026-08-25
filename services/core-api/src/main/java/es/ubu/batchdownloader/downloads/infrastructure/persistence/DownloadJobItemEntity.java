@@ -48,7 +48,7 @@ class DownloadJobItemEntity {
      * Estado {@code sourceRef} mantenido por {@code DownloadJobItemEntity}.
      */
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "source_ref", length = 36, nullable = false)
+    @Column(name = "source_ref", length = 36)
     private UUID sourceRef;
     /**
      * Estado {@code appName} mantenido por {@code DownloadJobItemEntity}.

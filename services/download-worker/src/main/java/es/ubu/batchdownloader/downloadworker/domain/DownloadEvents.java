@@ -67,7 +67,7 @@ public final class DownloadEvents {
     public record DownloadItemRequest(
             @NotNull UUID itemId,
             @NotNull UUID appId,
-            @NotNull UUID sourceRef) {
+            UUID sourceRef) {
     }
 
     /**

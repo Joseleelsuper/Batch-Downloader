@@ -117,6 +117,43 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
     }
 
     /**
+     * Recupera nombre y página oficial de las aplicaciones solicitadas que siguen activas.
+     */
+    @Override
+    public Map<UUID, ManualSource> findManualSources(Collection<UUID> appIds) {
+        if (appIds == null || appIds.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = appIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        StringBuilder sql = new StringBuilder("""
+                SELECT id, name, official_url
+                FROM software_apps
+                WHERE id IN (
+                """);
+        appendPlaceholders(sql, ids.size());
+        sql.append("""
+                )
+                  AND app_status = 'active'
+                  AND official_url IS NOT NULL
+                  AND TRIM(official_url) <> ''
+                ORDER BY id
+                LIMIT 101
+                """);
+        Map<UUID, ManualSource> selected = new LinkedHashMap<>();
+        jdbc.query(sql.toString(), (ResultSet row) -> {
+            UUID appId = UuidBytes.toUuid(row.getBytes("id"));
+            selected.putIfAbsent(appId, new ManualSource(
+                    appId,
+                    row.getString("name"),
+                    row.getString("official_url")));
+        }, ids.stream().map(UuidBytes::fromUuid).toArray());
+        return Map.copyOf(selected);
+    }
+
+    /**
      * Recupera exactamente la fuente elegida, manteniendo las mismas condiciones de publicación
      * y validación que la selección automática.
      *

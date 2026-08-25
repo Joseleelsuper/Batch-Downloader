@@ -221,6 +221,34 @@ class DownloadJobProcessorTest {
     }
 
     /**
+     * Comprueba que una aplicación sin fuente llegue directamente al ZIP como acceso manual.
+     *
+     * @throws Exception Si no puede leerse el ZIP generado.
+     */
+    @Test
+    void createsShortcutForManualItemWithoutResolvingOrDownloading() throws Exception {
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        RecordingPublisher publisher = new RecordingPublisher();
+        RemoteDownloader unused = (item, filename, target, budget, maxFileBytes) -> {
+            throw new AssertionError("manual item must not be downloaded");
+        };
+        DownloadJobProcessor processor = processor(unused, store, publisher, 10);
+        DownloadItemRequest manual = new DownloadItemRequest(
+                BAD_ITEM_ID,
+                id("app-manual"),
+                null);
+        DownloadJobRequestedEvent event = event(List.of(manual));
+
+        processor.process(event);
+
+        byte[] archive = store.objects.get("jobs/" + event.payload().jobId() + "/bundle.zip");
+        assertThat(zipEntry(archive, "Descargas manuales/Bad app.url"))
+                .isEqualTo("[InternetShortcut]\r\nURL=https://vendor.example/apps/bad\r\n");
+        DownloadJobReadyEvent ready = (DownloadJobReadyEvent) publisher.events.getLast();
+        assertThat(ready.payload().status()).isEqualTo("MANUAL_ONLY");
+    }
+
+    /**
      * Comprueba el escenario {@code
      * rejectsSensitiveOfficialPageQueriesInsteadOfWritingThemToAShortcut}.
      */

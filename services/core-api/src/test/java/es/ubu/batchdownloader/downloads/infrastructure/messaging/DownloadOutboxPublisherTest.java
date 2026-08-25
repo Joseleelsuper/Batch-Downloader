@@ -49,4 +49,27 @@ class DownloadOutboxPublisherTest {
                 .containsEntry("appId", item.appId())
                 .containsEntry("sourceRef", item.sourceRef());
     }
+
+    /** Publica una fuente nula de forma explícita para los accesos manuales. */
+    @Test
+    void publishesManualItemsWithoutInventingSourceIdentifiers() {
+        OutboxWriter outbox = Mockito.mock(OutboxWriter.class);
+        DownloadJobItem item = DownloadJobItem.manual(
+                UUID.randomUUID(), "Aplicación manual", "https://example.com", Instant.now());
+        DownloadJob job = DownloadJob.queue(
+                UUID.randomUUID(), null, null, List.of(item), 1, 0, false,
+                Instant.now(), Instant.now().plusSeconds(3600));
+
+        new DownloadOutboxPublisher(outbox).jobRequested(job);
+
+        ArgumentCaptor<Object> payloadCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(outbox).append(
+                eq("download-job"), eq(job.id()), eq("download.job.requested"),
+                eq("download.job.requested"), eq(job.id()), any(), payloadCaptor.capture());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) payloadCaptor.getValue();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) payload.get("items");
+        assertThat(items.getFirst()).containsEntry("sourceRef", null);
+    }
 }

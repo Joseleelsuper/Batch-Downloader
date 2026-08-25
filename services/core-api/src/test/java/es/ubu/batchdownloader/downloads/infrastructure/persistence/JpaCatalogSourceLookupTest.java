@@ -19,6 +19,22 @@ import org.springframework.jdbc.core.RowCallbackHandler;
  */
 class JpaCatalogSourceLookupTest {
 
+    /** Comprueba que revisión y ausencia puedan usar la página oficial como alternativa. */
+    @Test
+    void selectsOfficialPagesWithoutRequiringCatalogAvailability() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
+
+        assertThat(lookup.findManualSources(List.of(UUID.randomUUID()))).isEmpty();
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowCallbackHandler.class), any(Object[].class));
+        assertThat(sql.getValue()).contains("app_status = 'active'");
+        assertThat(sql.getValue()).contains("official_url IS NOT NULL");
+        assertThat(sql.getValue()).doesNotContain("catalog_status = 'available'");
+        assertThat(sql.getValue()).contains("LIMIT 101");
+    }
+
     /**
      * Comprueba el escenario {@code selectsStaleValidSourcesAndOrdersPlatformsCanonically}.
      */

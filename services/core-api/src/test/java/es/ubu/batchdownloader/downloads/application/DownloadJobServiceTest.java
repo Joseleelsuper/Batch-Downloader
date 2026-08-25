@@ -96,6 +96,7 @@ class DownloadJobServiceTest {
     void setUp() {
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        lenient().when(sources.findManualSources(any())).thenReturn(Map.of());
         service = new DownloadJobService(
                 jobs,
                 sources,
@@ -149,6 +150,46 @@ class DownloadJobServiceTest {
         verify(events).jobRequested(job.capture());
         assertThat(job.getValue().notifyWhenReady()).isFalse();
         assertThat(job.getValue().anonymousOwnerHash()).isEqualTo("browser-hash");
+    }
+
+    /** Conserva en el trabajo las aplicaciones que requieren acudir a su página oficial. */
+    @Test
+    void createsManualItemsForAppsWithoutVerifiedInstaller() {
+        UUID downloadableApp = UUID.randomUUID();
+        UUID manualApp = UUID.randomUUID();
+        UUID sourceRef = UUID.randomUUID();
+        when(sources.findVerifiedSources(any(), eq(List.of("windows"))))
+                .thenReturn(Map.of(downloadableApp, new CatalogSourceLookup.VerifiedSource(
+                        downloadableApp,
+                        sourceRef,
+                        "windows",
+                        "x86_64",
+                        "Aplicación descargable",
+                        "https://example.com/downloadable")));
+        when(sources.findManualSources(any())).thenReturn(Map.of(
+                manualApp,
+                new CatalogSourceLookup.ManualSource(
+                        manualApp, "Aplicación manual", "https://example.com/manual")));
+
+        DownloadJobView view = service.create(
+                new RequestOwner(null, "browser-hash", "ip-hash"),
+                List.of(downloadableApp, manualApp),
+                List.of("windows"),
+                false);
+
+        assertThat(view.requestedCount()).isEqualTo(2);
+        assertThat(view.acceptedCount()).isEqualTo(2);
+        assertThat(view.omittedCount()).isZero();
+        ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
+        verify(events).jobRequested(job.capture());
+        assertThat(job.getValue().items())
+                .filteredOn(item -> item.appId().equals(manualApp))
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.sourceRef()).isNull();
+                    assertThat(item.appName()).isEqualTo("Aplicación manual");
+                    assertThat(item.officialPageUrl()).isEqualTo("https://example.com/manual");
+                });
     }
 
     /** Comprueba que una descarga individual conserve la versión elegida. */

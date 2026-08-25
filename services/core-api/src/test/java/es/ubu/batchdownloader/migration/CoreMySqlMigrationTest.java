@@ -28,7 +28,7 @@ class CoreMySqlMigrationTest {
             .withPassword("batch-test")
             .withCommand("--log-bin-trust-function-creators=1");
 
-    /** Prepara un snapshot V11, prueba el preflight y completa el corte V12. */
+    /** Prepara un snapshot V11, prueba el preflight y completa las migraciones vigentes. */
     @BeforeAll
     static void migrateCoreSchema() throws SQLException {
         try (Connection connection = connection(); Statement statement = connection.createStatement()) {
@@ -102,6 +102,7 @@ class CoreMySqlMigrationTest {
             insertBundleGraph(connection, bundleId, appId, userId);
             assertThat(count(connection, "SPRING_SESSION")).isZero();
             assertThat(columnCount(connection, "bundles", "owner_username")).isZero();
+            assertThat(columnNullable(connection, "download_job_items", "source_ref")).isTrue();
             execute(connection, """
                     INSERT INTO admin_audit_logs (
                         id, actor, action, target_type, target_id, safe_metadata, created_at
@@ -136,7 +137,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("12");
+            assertThat(flywayVersion(connection)).isEqualTo("13");
         }
     }
 
@@ -244,6 +245,22 @@ class CoreMySqlMigrationTest {
             try (ResultSet result = statement.executeQuery()) {
                 assertThat(result.next()).isTrue();
                 return result.getLong(1);
+            }
+        }
+    }
+
+    private static boolean columnNullable(Connection connection, String table, String column)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT IS_NULLABLE
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+                """)) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (ResultSet result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                return "YES".equals(result.getString(1));
             }
         }
     }

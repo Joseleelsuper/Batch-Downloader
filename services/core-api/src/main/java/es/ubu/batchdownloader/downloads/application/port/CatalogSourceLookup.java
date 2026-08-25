@@ -13,6 +13,15 @@ import java.util.UUID;
  */
 public interface CatalogSourceLookup {
     /**
+     * Metadatos públicos suficientes para ofrecer una descarga manual segura.
+     *
+     * @param appId Identificador de la aplicación.
+     * @param appName Nombre público de la aplicación.
+     * @param officialPageUrl Página oficial publicada.
+     */
+    record ManualSource(UUID appId, String appName, String officialPageUrl) {}
+
+    /**
      * Representa los datos inmutables de {@code VerifiedSource}.
      *
      * @param appId Valor de {@code appId} incluido en el record.
@@ -51,6 +60,14 @@ public interface CatalogSourceLookup {
      * @return Mapa con los datos producidos por la operación.
      */
     Map<UUID, VerifiedSource> findVerifiedSources(Collection<UUID> appIds, List<String> operatingSystems);
+
+    /**
+     * Recupera las aplicaciones activas que pueden representarse mediante su página oficial.
+     *
+     * @param appIds Identificadores solicitados.
+     * @return Metadatos públicos indexados por aplicación.
+     */
+    Map<UUID, ManualSource> findManualSources(Collection<UUID> appIds);
 
     /**
      * Busca el resultado solicitado mediante {@code findVerifiedSource}.
