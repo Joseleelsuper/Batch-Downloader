@@ -284,6 +284,10 @@ function PublicErrorPage() {
 
 function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   const t = useTranslation();
+  const lastUpdated = new Date(__LEGAL_LAST_UPDATED__);
+  const formattedLastUpdated = new Intl.DateTimeFormat('es-ES', {
+    dateStyle: 'long',
+  }).format(lastUpdated);
   const sections = kind === 'terms'
     ? ['use', 'sources', 'availability']
     : ['data', 'purpose', 'rights'];
@@ -293,6 +297,10 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
         <span>{t('legal.eyebrow')}</span>
         <h2>{t(`legal.${kind}.title`)}</h2>
         <p>{t(`legal.${kind}.intro`)}</p>
+        <p className="legal-last-updated">
+          <span>{t('legal.lastUpdated')}</span>
+          <time dateTime={lastUpdated.toISOString()}>{formattedLastUpdated}</time>
+        </p>
       </header>
       <div className="legal-sections">
         {sections.map((section) => (

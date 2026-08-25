@@ -1,9 +1,39 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { execFileSync } from 'node:child_process';
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+const repositoryRoot = resolve(import.meta.dirname, '../../../../../..');
+const legalMessagesPath = 'services/translation-service/locales/es/legal.json';
+
+function legalLastUpdated(): string {
+  const absolutePath = resolve(repositoryRoot, legalMessagesPath);
+  try {
+    const pendingChanges = execFileSync(
+      'git',
+      ['-C', repositoryRoot, 'status', '--porcelain', '--', legalMessagesPath],
+      { encoding: 'utf8' },
+    ).trim();
+    if (pendingChanges) return statSync(absolutePath).mtime.toISOString();
+
+    const committedAt = execFileSync(
+      'git',
+      ['-C', repositoryRoot, 'log', '-1', '--format=%cI', '--', legalMessagesPath],
+      { encoding: 'utf8' },
+    ).trim();
+    if (committedAt) return committedAt;
+  } catch {
+    // Los artefactos de producción pueden compilarse sin el directorio .git.
+  }
+  return statSync(absolutePath).mtime.toISOString();
+}
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __LEGAL_LAST_UPDATED__: JSON.stringify(legalLastUpdated()),
+  },
   build: {
     manifest: true,
   },

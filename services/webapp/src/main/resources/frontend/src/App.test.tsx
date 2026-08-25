@@ -828,6 +828,8 @@ describe('public support pages', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Términos y condiciones', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText('Última actualización')).toBeInTheDocument();
+    expect(screen.getByText(/de \w+ de \d{4}/)).toHaveAttribute('datetime');
     expect(screen.getByRole('heading', { name: 'Páginas' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Legales' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Proyecto' })).toBeInTheDocument();
