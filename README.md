@@ -1,8 +1,10 @@
 # Batch-Downloader
 
+⠀⠀⠀
 <div align="center">
     <img src="./assets/BatchDownloaderI.png" alt="Batch Downloader" width="400px"/>
 </div>
+⠀⠀⠀
 
 Descarga y empaqueta varios instaladores en un solo trabajo. La interfaz queda disponible en `http://localhost:3000`.
 
