@@ -1,6 +1,8 @@
 package es.ubu.batchdownloader.downloadworker.infrastructure.http;
 
 import es.ubu.batchdownloader.downloadworker.application.InfrastructureException;
+import es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException;
+import es.ubu.batchdownloader.downloadworker.application.ArtifactCapacity;
 import es.ubu.batchdownloader.downloadworker.application.TemporaryDiskCapacity;
 import es.ubu.batchdownloader.downloadworker.config.CoreApiProperties;
 import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /** Expone a Core una comprobación interna y rápida de la reserva del SSD. */
 @RestController
@@ -22,23 +25,36 @@ import org.springframework.web.bind.annotation.RestController;
 final class WorkerCapacityController {
     /** Reserva global del espacio temporal en vuelo. */
     private final TemporaryDiskCapacity capacity;
+    /** Cuota y reservas del bucket de salida. */
+    private final ArtifactCapacity artifacts;
     /** Directorio real utilizado por las descargas. */
     private final Path temporaryDirectory;
     /** Credencial compartida de servicios internos. */
     private final String serviceToken;
 
     /** Inicializa la comprobación de capacidad. */
+    @Autowired
     WorkerCapacityController(
             TemporaryDiskCapacity capacity,
             DownloadProperties downloadProperties,
-            CoreApiProperties coreApiProperties) {
+            CoreApiProperties coreApiProperties,
+            ArtifactCapacity artifacts) {
         this.capacity = capacity;
+        this.artifacts = artifacts;
         this.temporaryDirectory = Path.of(downloadProperties.tempDirectory());
         this.serviceToken = coreApiProperties.serviceToken();
     }
 
+    /** Conserva el constructor anterior para pruebas focalizadas del disco. */
+    WorkerCapacityController(
+            TemporaryDiskCapacity capacity,
+            DownloadProperties downloadProperties,
+            CoreApiProperties coreApiProperties) {
+        this(capacity, downloadProperties, coreApiProperties, null);
+    }
+
     /**
-     * Rechaza una nueva admisión si el margen de 10 GB o las reservas activas no caben.
+     * Rechaza una nueva admisión si el margen configurado de 30 GB o las reservas activas no caben.
      *
      * @param providedToken Credencial enviada por Core.
      * @return Respuesta interna sin cuerpo o error temporal estable.
@@ -53,17 +69,24 @@ final class WorkerCapacityController {
         }
         try {
             capacity.requireAvailable(temporaryDirectory);
+            if (artifacts != null) artifacts.requireAvailable();
             return ResponseEntity.noContent().build();
+        } catch (CapacityDeferredException exception) {
+            return busy();
         } catch (InfrastructureException exception) {
             if (!"storage_busy".equals(exception.getMessage())) {
                 throw exception;
             }
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .header(HttpHeaders.RETRY_AFTER, "1")
-                    .body(Map.of(
-                            "code", "storage_busy",
-                            "message", "No hay capacidad temporal suficiente para iniciar otro ZIP."));
+            return busy();
         }
+    }
+
+    private ResponseEntity<Map<String, String>> busy() {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "30")
+                .body(Map.of(
+                        "code", "storage_busy",
+                        "message", "No existe una reserva segura de almacenamiento para otro ZIP."));
     }
 
     /** Compara la credencial sin filtraciones temporales triviales. */

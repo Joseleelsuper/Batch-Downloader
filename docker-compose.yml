@@ -4,7 +4,7 @@ services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
-    command: ["--log-bin-trust-function-creators=1", "--max-connections=20", "--long-query-time=0.5"]
+    command: ["--log-bin-trust-function-creators=1", "--max-connections=32", "--long-query-time=0.5"]
     cpu_shares: 1024
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -71,9 +71,11 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_PROMETHEUS_AUTH_TYPE: public
+      MINIO_API_STALE_UPLOADS_EXPIRY: ${MINIO_STALE_UPLOADS_EXPIRY}
+      MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: ${MINIO_STALE_UPLOADS_CLEANUP_INTERVAL}
     ports:
-      - "${MINIO_API_HOST_PORT}:9000"
-      - "${MINIO_CONSOLE_HOST_PORT}:9001"
+      - "127.0.0.1:${MINIO_API_HOST_PORT}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT}:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -89,24 +91,21 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      set -eu;
-      attempts=0;
-      until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do
-        attempts=$$((attempts + 1));
-        if [ $$attempts -ge 30 ]; then echo 'MinIO no está disponible para inicialización.' >&2; exit 1; fi;
-        sleep 2;
-      done;
-      mc mb --ignore-existing "local/$${MINIO_ZIP_BUCKET}";
-      mc ilm import "local/$${MINIO_ZIP_BUCKET}" < /config/lifecycle-zips.json;
-      "
+    entrypoint: ["/bin/sh", "/config/init.sh"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
+      MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
+      MINIO_CORE_ACCESS_KEY: ${MINIO_CORE_ACCESS_KEY}
+      MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
+      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
+      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
     volumes:
+      - ./docker/minio/init.sh:/config/init.sh:ro
       - ./docker/minio/lifecycle-zips.json:/config/lifecycle-zips.json:ro
+      - ./docker/minio/core-policy.json:/config/core-policy.json:ro
+      - ./docker/minio/worker-policy.json:/config/worker-policy.json:ro
 
   scraper-api:
     build:
@@ -180,8 +179,11 @@ services:
     restart: unless-stopped
     ports:
       - "${WEBAPP_HOST_PORT}:80"
+      - "${MINIO_DOWNLOAD_HOST_PORT}:8080"
     depends_on:
       core-api:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
@@ -220,8 +222,8 @@ services:
       RABBITMQ_EVENT_EXCHANGE: ${RABBITMQ_EVENT_EXCHANGE}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_CORE_ACCESS_KEY: ${MINIO_CORE_ACCESS_KEY}
+      MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
       MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
       MINIO_REGION: ${MINIO_REGION}
     cpu_shares: 1024
@@ -233,6 +235,8 @@ services:
         condition: service_healthy
       scraper-api:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
       interval: 10s
@@ -502,9 +506,10 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
+      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
       MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
+      MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
       SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
     cpu_shares: 768
     restart: unless-stopped
@@ -521,6 +526,7 @@ services:
         condition: service_healthy
     volumes:
       - download_worker_data:/app/data
+      - download_worker_temp:/tmp/batch-downloader
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
       interval: 10s
@@ -554,5 +560,6 @@ volumes:
   minio_data:
   notification_service_data:
   download_worker_data:
+  download_worker_temp:
   semantic_models:
   semantic_reports:

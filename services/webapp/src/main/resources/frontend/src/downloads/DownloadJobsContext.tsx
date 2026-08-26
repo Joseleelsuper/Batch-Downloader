@@ -12,7 +12,7 @@ import {
   cancelDownloadJob,
   connectDownloadJobEvents,
   createDownloadJob,
-  downloadJobFileUrl,
+  fetchDownloadJobFileLink,
 } from '../api/downloads';
 import type { CreateDownloadJobRequest } from '../api/downloads';
 import { ApiRequestError } from '../api/http';
@@ -115,6 +115,15 @@ function requestErrorMessage(t: Translator, cause: unknown): string {
   return translated === knownKey ? t('download.job.createFailed') : translated;
 }
 
+function downloadLinkErrorMessage(t: Translator, cause: unknown): string {
+  if (cause instanceof ApiRequestError) {
+    const knownKey = `download.job.apiError.${cause.code}`;
+    const translated = t(knownKey);
+    if (translated !== knownKey) return translated;
+  }
+  return t('download.job.linkFailed');
+}
+
 export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNode }>) {
   const t = useTranslation();
   const [jobs, setJobs] = useState<TrackedDownloadJob[]>(readStoredJobs);
@@ -149,6 +158,12 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       ? { ...entry, connectionError: true }
       : entry));
   }, [removeJob]);
+
+  const reportAutoDownloadError = useCallback((jobId: string, cause?: unknown) => {
+    setJobs((current) => current.map((entry) => entry.id === jobId
+      ? { ...entry, actionError: downloadLinkErrorMessage(t, cause) }
+      : entry));
+  }, [t]);
 
   const claimAutoDownload = useCallback((jobId: string): boolean => {
     if (attemptedDownloads.current.has(jobId)) return false;
@@ -240,6 +255,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
           key={entry.id}
           onJob={updateJob}
           onConnectionError={reportConnectionError}
+          onAutoDownloadError={reportAutoDownloadError}
           claimAutoDownload={claimAutoDownload}
         />
       ))}
@@ -251,11 +267,13 @@ function DownloadJobTracker({
   entry,
   onJob,
   onConnectionError,
+  onAutoDownloadError,
   claimAutoDownload,
 }: Readonly<{
   entry: TrackedDownloadJob;
   onJob: (jobId: string, job: DownloadJob) => void;
   onConnectionError: (jobId: string, cause?: unknown) => void;
+  onAutoDownloadError: (jobId: string, cause?: unknown) => void;
   claimAutoDownload: (jobId: string) => boolean;
 }>) {
   const terminal = entry.job ? TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status) : false;
@@ -273,14 +291,16 @@ function DownloadJobTracker({
   useEffect(() => {
     if (!jobStatus || !DOWNLOADABLE_DOWNLOAD_STATUSES.has(jobStatus)) return;
     if (!claimAutoDownload(entry.id)) return;
-    const link = document.createElement('a');
-    link.href = downloadJobFileUrl(entry.id);
-    link.hidden = true;
-    link.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  }, [claimAutoDownload, entry.id, jobStatus]);
+    void fetchDownloadJobFileLink(entry.id).then(({ url }) => {
+      const link = document.createElement('a');
+      link.href = url;
+      link.hidden = true;
+      link.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }).catch((cause: unknown) => onAutoDownloadError(entry.id, cause));
+  }, [claimAutoDownload, entry.id, jobStatus, onAutoDownloadError]);
 
   return null;
 }

@@ -53,7 +53,7 @@ public class DownloadCancellationListener {
      */
     @RabbitListener(
             queues = "${download-worker.messaging.cancellation-queue}",
-            containerFactory = "downloadRabbitListenerContainerFactory")
+            containerFactory = "downloadCancellationRabbitListenerContainerFactory")
     public void receive(CancellationRequestedEvent event) {
         validate(event);
         if (!inbox.tryStart(event.eventId(), properties.inboxLease())) {

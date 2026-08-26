@@ -17,6 +17,7 @@ import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.retry.interceptor.RetryOperationsInterceptor;
 
 /**
@@ -96,6 +97,16 @@ public class RabbitTopologyConfiguration {
     @Bean
     Queue downloadJobDeadLetterQueue(MessagingProperties properties) {
         return QueueBuilder.durable(properties.deadLetterQueue()).build();
+    }
+
+    /** Cola sin consumidor: RabbitMQ devuelve el mensaje al comando original tras 30 segundos. */
+    @Bean
+    Queue downloadCapacityWaitQueue(MessagingProperties properties) {
+        return QueueBuilder.durable(properties.capacityWaitQueue())
+                .ttl(Math.toIntExact(properties.capacityWaitDelay().toMillis()))
+                .deadLetterExchange(properties.commandExchange())
+                .deadLetterRoutingKey(properties.inputRoutingKey())
+                .build();
     }
 
     /**
@@ -217,6 +228,24 @@ public class RabbitTopologyConfiguration {
         factory.setPrefetchCount(1);
         factory.setConcurrentConsumers(downloadProperties.jobConcurrency());
         factory.setMaxConcurrentConsumers(downloadProperties.jobConcurrency());
+        return factory;
+    }
+
+    /** Mantiene dos consumidores de cancelación independientes de los ocho jobs. */
+    @Bean(name = "downloadCancellationRabbitListenerContainerFactory")
+    SimpleRabbitListenerContainerFactory downloadCancellationRabbitListenerContainerFactory(
+            ConnectionFactory connectionFactory,
+            MessageConverter rabbitMessageConverter,
+            RetryOperationsInterceptor downloadRetryInterceptor,
+            @Value("${download-worker.messaging.cancellation-concurrency:2}") int concurrency) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(rabbitMessageConverter);
+        factory.setAdviceChain(downloadRetryInterceptor);
+        factory.setDefaultRequeueRejected(false);
+        factory.setPrefetchCount(1);
+        factory.setConcurrentConsumers(concurrency);
+        factory.setMaxConcurrentConsumers(concurrency);
         return factory;
     }
 }

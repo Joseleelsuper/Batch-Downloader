@@ -39,6 +39,14 @@ public final class DownloadJob {
      * Estado {@code objectKey} mantenido por {@code DownloadJob}.
      */
     private String objectKey;
+    /** Tamaño persistido del ZIP publicado, en bytes. */
+    private Long artifactSizeBytes;
+    /** SHA-256 hexadecimal del ZIP publicado. */
+    private String artifactSha256;
+    /** Motivo temporal por el que el trabajo continúa en cola. */
+    private String waitReason;
+    /** Instante a partir del cual el worker puede volver a intentar el trabajo. */
+    private Instant retryAt;
     /**
      * Estado {@code failureCode} mantenido por {@code DownloadJob}.
      */
@@ -117,6 +125,10 @@ public final class DownloadJob {
             DownloadJobStatus status,
             int progress,
             String objectKey,
+            Long artifactSizeBytes,
+            String artifactSha256,
+            String waitReason,
+            Instant retryAt,
             String failureCode,
             boolean cancellationRequested,
             boolean notifyWhenReady,
@@ -135,6 +147,10 @@ public final class DownloadJob {
         this.status = Objects.requireNonNull(status);
         this.progress = clampProgress(progress);
         this.objectKey = objectKey;
+        this.artifactSizeBytes = artifactSizeBytes;
+        this.artifactSha256 = artifactSha256;
+        this.waitReason = waitReason;
+        this.retryAt = retryAt;
         this.failureCode = failureCode;
         this.cancellationRequested = cancellationRequested;
         this.notifyWhenReady = notifyWhenReady;
@@ -182,7 +198,7 @@ public final class DownloadJob {
             Instant expiresAt) {
         return new DownloadJob(
                 UUID.randomUUID(), ownerId, anonymousOwnerHash, anonymousIpHash,
-                DownloadJobStatus.QUEUED, 0, null, null, false,
+                DownloadJobStatus.QUEUED, 0, null, null, null, null, null, null, false,
                 notifyWhenReady, requestedCount, items.size(), omittedCount,
                 now, now, expiresAt, items, 0);
     }
@@ -218,7 +234,24 @@ public final class DownloadJob {
             int requestedCount, int acceptedCount, int omittedCount,
             Instant createdAt, Instant updatedAt, Instant expiresAt, List<DownloadJobItem> items, long version) {
         return new DownloadJob(
-                id, ownerId, anonymousOwnerHash, anonymousIpHash, status, progress, objectKey, failureCode,
+                id, ownerId, anonymousOwnerHash, anonymousIpHash, status, progress, objectKey,
+                null, null, null, null, failureCode,
+                cancellationRequested, notifyWhenReady, requestedCount, acceptedCount, omittedCount,
+                createdAt, updatedAt, expiresAt, items, version);
+    }
+
+    /** Rehidrata también los metadatos aditivos del artefacto y de espera. */
+    public static DownloadJob rehydrate(
+            UUID id, UUID ownerId, String anonymousOwnerHash, String anonymousIpHash,
+            DownloadJobStatus status, int progress, String objectKey,
+            Long artifactSizeBytes, String artifactSha256, String waitReason, Instant retryAt,
+            String failureCode, boolean cancellationRequested, boolean notifyWhenReady,
+            int requestedCount, int acceptedCount, int omittedCount,
+            Instant createdAt, Instant updatedAt, Instant expiresAt,
+            List<DownloadJobItem> items, long version) {
+        return new DownloadJob(
+                id, ownerId, anonymousOwnerHash, anonymousIpHash, status, progress, objectKey,
+                artifactSizeBytes, artifactSha256, waitReason, retryAt, failureCode,
                 cancellationRequested, notifyWhenReady, requestedCount, acceptedCount, omittedCount,
                 createdAt, updatedAt, expiresAt, items, version);
     }
@@ -237,6 +270,8 @@ public final class DownloadJob {
             UUID itemId, DownloadItemStatus itemStatus, long bytesDownloaded, String sha256,
             String errorCode, Instant now) {
         if (status.terminal()) return;
+        waitReason = null;
+        retryAt = null;
         DownloadJobItem item = items.stream().filter(candidate -> candidate.id().equals(itemId)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("unknown_download_item"));
         item.progress(itemStatus, bytesDownloaded, sha256, errorCode, now);
@@ -262,12 +297,42 @@ public final class DownloadJob {
      *     requeridas.
      */
     public void markReady(DownloadJobStatus result, String key, Instant workerExpiry, Instant now) {
+        markReady(result, key, null, null, workerExpiry, now);
+    }
+
+    /** Marca el trabajo como descargable y conserva la integridad publicada por el worker. */
+    public void markReady(
+            DownloadJobStatus result,
+            String key,
+            Long sizeBytes,
+            String sha256,
+            Instant workerExpiry,
+            Instant now) {
         if (status == DownloadJobStatus.CANCELLED || status == DownloadJobStatus.EXPIRED) return;
         if (!result.downloadable()) throw new IllegalArgumentException("invalid_download_result_status");
+        if (sizeBytes != null && sizeBytes < 0) throw new IllegalArgumentException("invalid_artifact_size");
+        if (sha256 != null && !sha256.matches("[0-9a-fA-F]{64}")) {
+            throw new IllegalArgumentException("invalid_artifact_sha256");
+        }
         objectKey = requireText(key, "objectKey");
+        artifactSizeBytes = sizeBytes;
+        artifactSha256 = sha256 == null ? null : sha256.toLowerCase(java.util.Locale.ROOT);
+        waitReason = null;
+        retryAt = null;
         status = result;
         progress = 100;
-        expiresAt = workerExpiry.isBefore(expiresAt) ? workerExpiry : expiresAt;
+        expiresAt = Objects.requireNonNull(workerExpiry);
+        updatedAt = now;
+    }
+
+    /** Mantiene el trabajo en cola cuando la capacidad es temporalmente insuficiente. */
+    public void defer(String reason, Instant nextAttempt, Instant now) {
+        if (status.terminal()) return;
+        waitReason = requireText(reason, "waitReason");
+        retryAt = Objects.requireNonNull(nextAttempt);
+        status = DownloadJobStatus.QUEUED;
+        progress = 0;
+        items.forEach(item -> item.requeue(now));
         updatedAt = now;
     }
 
@@ -408,6 +473,14 @@ public final class DownloadJob {
      * @return Resultado producido por {@code objectKey}.
      */
     public String objectKey() { return objectKey; }
+    /** @return Tamaño del ZIP publicado, o {@code null} si todavía no existe. */
+    public Long artifactSizeBytes() { return artifactSizeBytes; }
+    /** @return SHA-256 del ZIP publicado, o {@code null} si todavía no existe. */
+    public String artifactSha256() { return artifactSha256; }
+    /** @return Motivo temporal de espera, o {@code null}. */
+    public String waitReason() { return waitReason; }
+    /** @return Próximo instante de reintento por capacidad, o {@code null}. */
+    public Instant retryAt() { return retryAt; }
     /**
      * Ejecuta la operación {@code failureCode}.
      *

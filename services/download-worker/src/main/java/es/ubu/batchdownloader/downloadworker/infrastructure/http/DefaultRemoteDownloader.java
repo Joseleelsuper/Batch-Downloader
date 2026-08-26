@@ -18,6 +18,10 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Set;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,8 +96,28 @@ public final class DefaultRemoteDownloader implements RemoteDownloader {
 
     private void requireSuccessful(RemoteExchange.Response response) {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new DownloadRejectedException("remote_http_" + response.statusCode());
+            throw new DownloadRejectedException(
+                    "remote_http_" + response.statusCode(), retryAfter(response));
         }
+    }
+
+    /** Interpreta tanto segundos como fecha HTTP; el wrapper aplicará el límite de 30 segundos. */
+    private Duration retryAfter(RemoteExchange.Response response) {
+        return response.headers().firstValue("retry-after").map(value -> {
+            try {
+                return Duration.ofSeconds(Math.max(0, Long.parseLong(value.strip())));
+            } catch (NumberFormatException ignored) {
+                try {
+                    Instant requested = ZonedDateTime.parse(
+                            value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+                    return Duration.between(Instant.now(), requested).isNegative()
+                            ? Duration.ZERO
+                            : Duration.between(Instant.now(), requested);
+                } catch (RuntimeException invalid) {
+                    return null;
+                }
+            }
+        }).orElse(null);
     }
 
     private void verifyDeclaredSize(RemoteExchange.Response response, long maxFileBytes) {

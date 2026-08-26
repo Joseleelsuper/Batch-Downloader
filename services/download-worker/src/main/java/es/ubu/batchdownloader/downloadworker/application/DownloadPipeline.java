@@ -30,7 +30,6 @@ final class DownloadPipeline {
     private final DownloadProperties properties;
     private final DownloadCancellationRegistry cancellations;
     private final DownloadWorkerMetrics metrics;
-    private final TemporaryDiskCapacity diskCapacity;
     private final DownloadEventEmitter events;
     private final Clock clock;
     private final DownloadJobFiles files;
@@ -52,7 +51,6 @@ final class DownloadPipeline {
             DownloadProperties properties,
             DownloadCancellationRegistry cancellations,
             DownloadWorkerMetrics metrics,
-            TemporaryDiskCapacity diskCapacity,
             DownloadEventEmitter events,
             Clock clock,
             DownloadJobFiles files) {
@@ -65,7 +63,6 @@ final class DownloadPipeline {
         this.properties = properties;
         this.cancellations = cancellations;
         this.metrics = metrics;
-        this.diskCapacity = diskCapacity;
         this.events = events;
         this.clock = clock;
         this.files = files;
@@ -110,22 +107,18 @@ final class DownloadPipeline {
         }
         Path target = jobDirectory.resolve("files").resolve(filename);
         try {
-            try (TemporaryDiskCapacity.Lease disk =
-                    diskCapacity.reserve(jobDirectory, resolved.expectedSizeBytes())) {
-                metrics.downloadStarted();
-                try {
-                    DownloadedArtifact artifact = remoteDownloader.download(
-                            resolved,
-                            filename,
-                            target,
-                            budget,
-                            properties.maxFileSize().toBytes());
-                    disk.completed();
-                    metrics.temporaryAdded(artifact.sizeBytes());
-                    return Attempt.success(artifact);
-                } finally {
-                    metrics.downloadFinished();
-                }
+            metrics.downloadStarted();
+            try {
+                DownloadedArtifact artifact = remoteDownloader.download(
+                        resolved,
+                        filename,
+                        target,
+                        budget,
+                        properties.maxFileSize().toBytes());
+                metrics.temporaryAdded(artifact.sizeBytes());
+                return Attempt.success(artifact);
+            } finally {
+                metrics.downloadFinished();
             }
         } catch (DownloadRejectedException exception) {
             return Attempt.failure(new FailedDownload(

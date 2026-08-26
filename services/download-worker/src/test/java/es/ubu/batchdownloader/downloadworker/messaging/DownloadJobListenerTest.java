@@ -8,7 +8,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor;
+import es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException;
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler;
+import es.ubu.batchdownloader.downloadworker.config.MessagingProperties;
 import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -122,6 +125,29 @@ class DownloadJobListenerTest {
         verify(inbox).release(event.eventId());
         verify(inbox, never()).complete(event.eventId());
         verify(heartbeat).failure(org.mockito.ArgumentMatchers.any(IllegalStateException.class));
+    }
+
+    @Test
+    void routesCapacityWaitWithoutThrowingIntoTheFailureRetryInterceptor() {
+        DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
+        DownloadJobHandler deferred = ignored -> {
+            throw new CapacityDeferredException(
+                    "temporary_storage_busy", new IllegalStateException("full"));
+        };
+        RabbitTemplate rabbit = mock(RabbitTemplate.class);
+        MessagingProperties messaging = new MessagingProperties(
+                "commands", "events", "download.job.requested", "jobs",
+                "download.job.cancel-requested", "cancellations", "dlx", "dlq",
+                "capacity-wait", Duration.ofSeconds(30), 3, Duration.ofSeconds(1),
+                2.0, Duration.ofSeconds(10));
+        DownloadJobListener capacityListener = new DownloadJobListener(
+                deferred, heartbeat, rabbit, messaging);
+
+        capacityListener.receive(event);
+
+        verify(rabbit).convertAndSend("", "capacity-wait", event);
+        verify(heartbeat).success();
+        verify(heartbeat, never()).failure(org.mockito.ArgumentMatchers.any());
     }
 
     /**

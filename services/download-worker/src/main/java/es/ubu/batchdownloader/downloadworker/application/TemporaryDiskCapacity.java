@@ -24,7 +24,7 @@ public final class TemporaryDiskCapacity {
     public TemporaryDiskCapacity(DownloadProperties properties) {
         this(
                 properties.minFreeSpace().toBytes(),
-                properties.maxFileSize().toBytes(),
+                properties.maxTotalSize().toBytes(),
                 Path.of(properties.tempDirectory()));
     }
 
@@ -70,7 +70,7 @@ public final class TemporaryDiskCapacity {
     public synchronized void requireAvailable(Path directory) {
         try {
             Files.createDirectories(directory);
-            requireAvailable(directory, 0L);
+            requireAvailable(directory, unknownDownloadBytes);
         } catch (ArithmeticException | IOException exception) {
             throw busy(exception);
         }
@@ -91,8 +91,8 @@ public final class TemporaryDiskCapacity {
     }
 
     /** Construye el fallo reintentable que mantiene el mensaje en RabbitMQ. */
-    private static InfrastructureException busy(Exception cause) {
-        return new InfrastructureException("storage_busy", cause);
+    private static CapacityDeferredException busy(Exception cause) {
+        return new CapacityDeferredException("temporary_storage_busy", cause);
     }
 
     /** Verifica una reserva adicional manteniendo el cerrojo del contador. */

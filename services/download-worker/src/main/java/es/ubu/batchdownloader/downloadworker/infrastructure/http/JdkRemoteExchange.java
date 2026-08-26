@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 
 /** Transporte JDK que ejecuta exactamente un GET y nunca sigue redirecciones. */
 public final class JdkRemoteExchange implements RemoteExchange {
@@ -39,6 +40,8 @@ public final class JdkRemoteExchange implements RemoteExchange {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new DownloadRejectedException("download_interrupted", exception);
+        } catch (HttpTimeoutException exception) {
+            throw new DownloadRejectedException("remote_timeout", exception);
         } catch (IOException exception) {
             throw new DownloadRejectedException("remote_io_error", exception);
         }

@@ -66,11 +66,23 @@ class DownloadJobEntity {
      */
     @Column(name = "object_key", length = 512)
     private String objectKey;
+    /** Tamaño del ZIP publicado. */
+    @Column(name = "artifact_size_bytes")
+    private Long artifactSizeBytes;
+    /** Huella SHA-256 del ZIP publicado. */
+    @Column(name = "artifact_sha256", length = 64)
+    private String artifactSha256;
     /**
      * Estado {@code failureCode} mantenido por {@code DownloadJobEntity}.
      */
     @Column(name = "failure_code", length = 80)
     private String failureCode;
+    /** Motivo temporal de espera por capacidad. */
+    @Column(name = "wait_reason", length = 80)
+    private String waitReason;
+    /** Próximo instante de reintento por capacidad. */
+    @Column(name = "retry_at")
+    private Instant retryAt;
     /**
      * Estado {@code cancellationRequested} mantenido por {@code DownloadJobEntity}.
      */
@@ -153,7 +165,11 @@ class DownloadJobEntity {
         status = job.status();
         progress = job.progress();
         objectKey = job.objectKey();
+        artifactSizeBytes = job.artifactSizeBytes();
+        artifactSha256 = job.artifactSha256();
         failureCode = job.failureCode();
+        waitReason = job.waitReason();
+        retryAt = job.retryAt();
         cancellationRequested = job.cancellationRequested();
         notifyWhenReady = job.notifyWhenReady();
         requestedCount = job.requestedCount();
@@ -193,7 +209,8 @@ class DownloadJobEntity {
     DownloadJob toDomain() {
         return DownloadJob.rehydrate(
                 id, ownerId, anonymousOwnerHash, anonymousIpHash,
-                status, progress, objectKey, failureCode, cancellationRequested, notifyWhenReady,
+                status, progress, objectKey, artifactSizeBytes, artifactSha256, waitReason, retryAt,
+                failureCode, cancellationRequested, notifyWhenReady,
                 requestedCount, acceptedCount, omittedCount, createdAt, updatedAt, expiresAt,
                 items.stream().map(DownloadJobItemEntity::toDomain).toList(), version);
     }

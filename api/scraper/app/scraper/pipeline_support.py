@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.exc import OperationalError, StatementError
+from sqlalchemy.exc import StatementError
 
 from app.core.config import Settings
 from app.core.json_safe import json_safe
@@ -16,7 +16,10 @@ from app.db.enums import ScrapeOutcome
 from app.db.models import ScraperWorkItem
 from app.repositories.pipeline import PipelineRepository
 from app.repositories.runs import ScrapeRunRepository
-from app.scraper.pipeline_runtime import async_session_local, retry_database_pool_operation
+from app.scraper.pipeline_runtime import (
+    async_session_local,
+    retry_database_pool_operation,
+)
 from app.scraper.winstall import WinstallApp, parse_winstall_app
 
 logger = get_logger(__name__)
@@ -278,19 +281,6 @@ def exception_detail(exc: Exception) -> str:
     if isinstance(exc, StatementError) and exc.orig is not None:
         return truncate_text(f"{exc.orig.__class__.__name__}: {exc.orig}", 1200) or ""
     return truncate_text(str(exc), 1200) or ""
-
-
-def is_transient_mysql_lock_error(exc: OperationalError) -> bool:
-    """Indica si se cumple la operación `transient_mysql_lock_error`.
-
-    Args:
-        exc (OperationalError): Valor de `exc` utilizado por la operación.
-
-    Returns:
-        bool: Indica si se cumple la condición evaluada.
-    """
-    args: tuple[object, ...] = getattr(exc.orig, "args", ())
-    return bool(args) and args[0] in {1205, 1213}
 
 
 def truncate_text(value: object, max_length: int) -> str | None:

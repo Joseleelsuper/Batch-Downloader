@@ -18,6 +18,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.lang.Nullable;
 
 /**
  * Implementa el componente {@code SseDownloadJobNotifier}.
@@ -53,7 +55,20 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
      * @param heartbeat Intervalo entre señales de vida.
      */
     @Autowired
-    public SseDownloadJobNotifier(@Value("${app.download.sse-heartbeat}") Duration heartbeat) {
+    public SseDownloadJobNotifier(
+            @Value("${app.download.sse-heartbeat}") Duration heartbeat,
+            @Nullable MeterRegistry registry) {
+        this(heartbeat, () -> new SseEmitter(SSE_TIMEOUT_MILLIS));
+        if (registry != null) {
+            registry.gauge(
+                    "core_download_sse_connections_active",
+                    this,
+                    SseDownloadJobNotifier::activeConnections);
+        }
+    }
+
+    /** Conserva el constructor público anterior para usos embebidos. */
+    public SseDownloadJobNotifier(Duration heartbeat) {
         this(heartbeat, () -> new SseEmitter(SSE_TIMEOUT_MILLIS));
     }
 
@@ -164,6 +179,11 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
         if (jobEmitters == null) return;
         jobEmitters.remove(emitter);
         if (jobEmitters.isEmpty()) emitters.remove(jobId, jobEmitters);
+    }
+
+    /** @return Número de conexiones SSE vivas, sin ocupar hilos HTTP inactivos. */
+    private double activeConnections() {
+        return emitters.values().stream().mapToInt(CopyOnWriteArrayList::size).sum();
     }
 
     /** Detiene el programador al cerrar la aplicación. */

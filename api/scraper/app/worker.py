@@ -10,7 +10,7 @@ from functools import partial
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import get_settings
@@ -48,6 +48,7 @@ from app.scraper.installer_policy import (
     resolved_metadata,
 )
 from app.scraper.manual_installer import ManualInstallerWorker
+from app.scraper.pipeline_runtime import is_transient_mysql_lock_error
 from app.scraper.validator import DownloadValidator
 from app.scraper.website_discovery import WebsiteAppDiscoveryWorker
 from app.scraper.winstall import WinstallClient
@@ -125,11 +126,11 @@ class ContentEnrichmentSupervisor:
         component: str,
         consumer: Callable[[], Awaitable[None]],
     ) -> None:
-        """Reintenta un consumidor cuando la contención agota temporalmente el pool.
+        """Reinicia un consumidor ante contención transitoria de base de datos.
 
         Los demás errores siguen propagándose para que Docker reinicie un scheduler
-        realmente averiado. Un timeout de adquisición, en cambio, es esperable bajo
-        la concurrencia interna y no debe derribar todos los consumidores.
+        realmente averiado. Los timeouts de adquisición y locks MySQL reintentables
+        son esperables bajo concurrencia y no deben derribar los demás consumidores.
 
         Args:
             component (str): Nombre estable del consumidor afectado.
@@ -146,6 +147,15 @@ class ContentEnrichmentSupervisor:
                     component=component,
                     pool_size=self.settings.database_pool_max,
                     timeout_seconds=self.settings.database_pool_timeout_seconds,
+                )
+                await asyncio.sleep(1)
+            except OperationalError as exc:
+                if not is_transient_mysql_lock_error(exc):
+                    raise
+                logger.warning(
+                    "content_enrichment_database_lock_retry",
+                    component=component,
+                    error_code=getattr(exc.orig, "args", (None,))[0],
                 )
                 await asyncio.sleep(1)
 

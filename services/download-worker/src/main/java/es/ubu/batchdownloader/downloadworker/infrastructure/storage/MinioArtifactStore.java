@@ -5,10 +5,13 @@ import es.ubu.batchdownloader.downloadworker.config.StorageProperties;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
+import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.UploadObjectArgs;
+import io.minio.Result;
+import io.minio.messages.Item;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -179,6 +182,26 @@ public class MinioArtifactStore implements ArtifactStore {
                     .build());
         } catch (Exception exception) {
             throw new InfrastructureException("minio_delete_failed", exception);
+        }
+    }
+
+    /** Cuenta por separado los objetos persistidos; las reservas en vuelo viven en ArtifactCapacity. */
+    @Override
+    public long usageBytes() {
+        ensureBucket();
+        long total = 0;
+        try {
+            Iterable<Result<Item>> objects = client.listObjects(ListObjectsArgs.builder()
+                    .bucket(properties.bucket())
+                    .prefix("jobs/")
+                    .recursive(true)
+                    .build());
+            for (Result<Item> result : objects) {
+                total = Math.addExact(total, result.get().size());
+            }
+            return total;
+        } catch (Exception exception) {
+            throw new InfrastructureException("minio_usage_failed", exception);
         }
     }
 

@@ -108,6 +108,26 @@ final class DownloadResolutionService {
         return 1;
     }
 
+    /**
+     * Calcula la reserva completa previa. Un tamaño desconocido promete el máximo del trabajo;
+     * los declarados nunca reservan menos que su suma ni más que el límite que el pipeline acepta.
+     */
+    long estimatedBytes(List<ResolvedDownloadItem> items) {
+        long maximum = properties.maxTotalSize().toBytes();
+        long total = 0;
+        for (ResolvedDownloadItem item : items) {
+            Long expected = item.expectedSizeBytes();
+            if (expected == null || expected < 0) return maximum;
+            try {
+                total = Math.addExact(total, expected);
+            } catch (ArithmeticException exception) {
+                return maximum;
+            }
+            if (total >= maximum) return maximum;
+        }
+        return total;
+    }
+
     private void submit(
             DownloadJobRequestedEvent event,
             DownloadItemRequest item,

@@ -46,7 +46,7 @@ class WorkerCapacityControllerTest {
         var response = controller.check("token");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("1");
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("30");
         assertThat(response.getBody()).isInstanceOfSatisfying(
                 Map.class,
                 body -> assertThat(body.get("code")).isEqualTo("storage_busy"));

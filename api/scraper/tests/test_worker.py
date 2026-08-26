@@ -138,3 +138,28 @@ async def test_enrichment_consumer_retries_pool_timeout() -> None:
         await supervisor._restart_on_pool_timeout("so-filter-0", consumer)
 
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_enrichment_consumer_restarts_after_mysql_deadlock() -> None:
+    """Un deadlock agotado afecta solo al consumidor que lo recibió."""
+    supervisor = worker.ContentEnrichmentSupervisor.__new__(
+        worker.ContentEnrichmentSupervisor
+    )
+    supervisor.settings = SimpleNamespace(
+        database_pool_max=2,
+        database_pool_timeout_seconds=5,
+    )
+    calls = 0
+
+    async def consumer() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise worker.OperationalError("UPDATE", {}, Exception(1213, "Deadlock"))
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await supervisor._restart_on_pool_timeout("so-filter-0", consumer)
+
+    assert calls == 2

@@ -17,4 +17,12 @@ public interface ZipUriSigner {
      * @return Resultado producido por {@code signGet}.
      */
     URI signGet(String objectKey, Duration validity);
+
+    /**
+     * Firma una descarga con un nombre de fichero explícito. La implementación por defecto
+     * conserva compatibilidad con firmantes existentes.
+     */
+    default URI signGet(String objectKey, String filename, Duration validity) {
+        return signGet(objectKey, validity);
+    }
 }

@@ -2,6 +2,8 @@ package es.ubu.batchdownloader.downloadworker.application;
 
 import es.ubu.batchdownloader.downloadworker.config.StorageProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadFailedPayload;
+import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadDeferredPayload;
+import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobDeferredEvent;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobFailedEvent;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobProgressedEvent;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobReadyEvent;
@@ -92,6 +94,24 @@ final class DownloadEventEmitter {
                 EventTypes.JOB_FAILED,
                 EventTypes.CURRENT_VERSION,
                 clock.instant(),
+                event.correlationId(),
+                event.eventId().toString(),
+                payload));
+    }
+
+    /** Publica una espera temporal que mantiene el estado QUEUED en Core. */
+    void deferred(DownloadJobRequestedEvent event, String reason, Instant retryAt) {
+        Instant occurredAt = clock.instant();
+        DownloadDeferredPayload payload = new DownloadDeferredPayload(
+                event.payload().jobId(), reason, retryAt);
+        publisher.publish(EventTypes.JOB_DEFERRED_ROUTING_KEY, new DownloadJobDeferredEvent(
+                eventId(
+                        event.payload().jobId(),
+                        EventTypes.JOB_DEFERRED,
+                        Long.toString(retryAt.getEpochSecond())),
+                EventTypes.JOB_DEFERRED,
+                EventTypes.CURRENT_VERSION,
+                occurredAt,
                 event.correlationId(),
                 event.eventId().toString(),
                 payload));

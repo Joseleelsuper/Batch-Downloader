@@ -21,7 +21,10 @@ class MinioZipUriSignerTest {
         MinioZipUriSigner signer = new MinioZipUriSigner(
                 "http://localhost:19000", "access-key", "secret-key", "zips", "us-east-1");
 
-        URI signed = signer.signGet("jobs/job-id/batch.zip", Duration.ofMinutes(5));
+        URI signed = signer.signGet(
+                "jobs/job-id/batch.zip",
+                "batch-downloader-job-id.zip",
+                Duration.ofMinutes(5));
 
         assertThat(signed.getScheme()).isEqualTo("http");
         assertThat(signed.getHost()).isEqualTo("localhost");
@@ -29,5 +32,7 @@ class MinioZipUriSignerTest {
         assertThat(signed.getPath()).isEqualTo("/zips/jobs/job-id/batch.zip");
         assertThat(signed.getQuery()).contains("X-Amz-Signature=");
         assertThat(signed.getQuery()).contains("response-content-disposition=");
+        assertThat(signed.getQuery()).contains("response-content-type=");
+        assertThat(signed.getQuery()).contains("batch-downloader-job-id.zip");
     }
 }

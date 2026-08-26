@@ -14,6 +14,7 @@
   "download.job.failure.validation": "El archivo recibido no superó las comprobaciones de seguridad.",
   "download.job.getZip": "Obtener ZIP",
   "download.job.globalFailure": "Problema del servicio de descarga",
+  "download.job.linkFailed": "No se pudo preparar la descarga automática. Reinténtalo con el botón Obtener ZIP.",
   "download.job.manual.body": "El ZIP incluirá accesos .url a las páginas oficiales de estas aplicaciones.",
   "download.job.manual.title": "Descarga desde la web oficial",
   "download.job.manualApps": "Aplicaciones con descarga manual",
@@ -51,6 +52,9 @@
   "download.job.apiError.anonymous_ip_rate_limit": "Se han iniciado demasiadas descargas desde esta red.",
   "download.job.apiError.invalid_job_size": "La selección debe contener entre 1 y 100 aplicaciones.",
   "download.job.apiError.no_downloadable_apps": "Ninguna aplicación seleccionada tiene un instalador disponible para ese sistema.",
+  "download.job.apiError.download_signing_unavailable": "No se pudo preparar el enlace de descarga. Reinténtalo con el botón Obtener ZIP.",
+  "download.job.apiError.service_busy": "La cola de descargas está llena. Inténtalo de nuevo dentro de 30 segundos.",
+  "download.job.apiError.storage_busy": "El almacenamiento está ocupado. Inténtalo de nuevo dentro de 30 segundos.",
   "download.overlay.jobs": "Trabajos de descarga",
   "download.overlay.title": "Descargas"
 }

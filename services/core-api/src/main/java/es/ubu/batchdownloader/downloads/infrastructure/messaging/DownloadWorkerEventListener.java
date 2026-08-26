@@ -110,6 +110,7 @@ public class DownloadWorkerEventListener {
         switch (event.type()) {
             case "download.job.progressed" -> applyProgress(payload);
             case "download.job.ready" -> applyReady(payload);
+            case "download.job.deferred" -> applyDeferred(payload);
             case "download.job.failed" -> jobs.applyFailed(
                     uuid(payload, "jobId"), text(payload, "errorCode"));
             default -> throw invalid("unsupported_download_event");
@@ -153,8 +154,29 @@ public class DownloadWorkerEventListener {
             throw invalid("invalid_download_job_status");
         }
         UUID jobId = uuid(payload, "jobId");
-        jobs.applyReady(jobId, status, text(payload, "objectKey"), expiresAt);
+        String objectKey = text(payload, "objectKey");
+        Long sizeBytes = nullableLong(payload, "sizeBytes");
+        String sha256 = optionalText(payload, "sha256");
+        if ((sizeBytes == null) != (sha256 == null)) {
+            throw invalid("invalid_download_artifact_metadata");
+        }
+        if (sizeBytes == null && sha256 == null) {
+            jobs.applyReady(jobId, status, objectKey, expiresAt);
+        } else {
+            jobs.applyReady(jobId, status, objectKey, sizeBytes, sha256, expiresAt);
+        }
         recordAuthenticatedHistory(jobId);
+    }
+
+    /** Aplica una espera temporal por capacidad sin convertirla en fallo terminal. */
+    private void applyDeferred(JsonNode payload) {
+        Instant retryAt;
+        try {
+            retryAt = Instant.parse(text(payload, "retryAt"));
+        } catch (IllegalArgumentException exception) {
+            throw invalid("invalid_download_retry_at");
+        }
+        jobs.applyDeferred(uuid(payload, "jobId"), text(payload, "waitReason"), retryAt);
     }
 
     /** El READY y su historial se confirman en la misma transacción del inbox. */
@@ -196,7 +218,16 @@ public class DownloadWorkerEventListener {
     private boolean isWorkerEvent(String type) {
         return "download.job.progressed".equals(type)
                 || "download.job.ready".equals(type)
+                || "download.job.deferred".equals(type)
                 || "download.job.failed".equals(type);
+    }
+
+    /** Lee un entero largo opcional sin transformar silenciosamente texto inválido en cero. */
+    private Long nullableLong(JsonNode object, String field) {
+        JsonNode value = object.path(field);
+        if (value.isMissingNode() || value.isNull()) return null;
+        if (!value.canConvertToLong()) throw invalid("invalid_download_event_" + field);
+        return value.longValue();
     }
 
     /**

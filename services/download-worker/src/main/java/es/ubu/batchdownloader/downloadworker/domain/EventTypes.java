@@ -26,6 +26,8 @@ public final class EventTypes {
      * Constante que define {@code JOB_READY}.
      */
     public static final String JOB_READY = "download.job.ready";
+    /** Constante que define una espera no terminal por capacidad. */
+    public static final String JOB_DEFERRED = "download.job.deferred";
     /**
      * Constante que define {@code JOB_FAILED}.
      */
@@ -39,6 +41,8 @@ public final class EventTypes {
      * Constante que define {@code JOB_READY_ROUTING_KEY}.
      */
     public static final String JOB_READY_ROUTING_KEY = "download.job.ready";
+    /** Clave de enrutado para una espera no terminal por capacidad. */
+    public static final String JOB_DEFERRED_ROUTING_KEY = "download.job.deferred";
     /**
      * Constante que define {@code JOB_FAILED_ROUTING_KEY}.
      */

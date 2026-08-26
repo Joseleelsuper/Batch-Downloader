@@ -133,4 +133,35 @@ class DownloadJobTest {
         assertThat(job.progress()).isEqualTo(100);
         assertThat(job.status()).isEqualTo(DownloadJobStatus.MANUAL_ONLY);
     }
+
+    @Test
+    void persistsArtifactMetadataAndResetsItemsWhenCapacityDefersTheJob() {
+        DownloadJobItem item = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW);
+        DownloadJob job = DownloadJob.queue(
+                UUID.randomUUID(), null, null, List.of(item), 1, 0, false,
+                NOW, NOW.plusSeconds(3600));
+        job.updateItem(
+                item.id(), DownloadItemStatus.COMPLETED, 128,
+                "a".repeat(64), null, NOW.plusSeconds(1));
+
+        job.defer("temporary_storage_busy", NOW.plusSeconds(32), NOW.plusSeconds(2));
+
+        assertThat(job.status()).isEqualTo(DownloadJobStatus.QUEUED);
+        assertThat(job.progress()).isZero();
+        assertThat(job.waitReason()).isEqualTo("temporary_storage_busy");
+        assertThat(job.retryAt()).isEqualTo(NOW.plusSeconds(32));
+        assertThat(item.status()).isEqualTo(DownloadItemStatus.QUEUED);
+
+        job.markReady(
+                DownloadJobStatus.READY,
+                "jobs/example/bundle.zip",
+                1234L,
+                "B".repeat(64),
+                NOW.plusSeconds(7200),
+                NOW.plusSeconds(3));
+        assertThat(job.artifactSizeBytes()).isEqualTo(1234L);
+        assertThat(job.artifactSha256()).isEqualTo("b".repeat(64));
+        assertThat(job.waitReason()).isNull();
+        assertThat(job.retryAt()).isNull();
+    }
 }

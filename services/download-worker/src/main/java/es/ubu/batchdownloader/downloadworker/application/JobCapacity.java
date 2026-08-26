@@ -1,8 +1,12 @@
 package es.ubu.batchdownloader.downloadworker.application;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 /**
  * Reparte de forma justa dos plazas entre trabajos normales y exclusivos.
@@ -14,6 +18,8 @@ public final class JobCapacity {
     private final Semaphore permits;
     /** Número de trabajos realmente activos. */
     private final AtomicInteger activeJobs = new AtomicInteger();
+    /** Tiempo de espera por una plaza normal o por las ocho de un job exclusivo. */
+    private final Timer capacityWait;
 
     /**
      * Inicializa la capacidad global.
@@ -24,6 +30,7 @@ public final class JobCapacity {
     public JobCapacity(int capacity, MeterRegistry registry) {
         this.permits = new Semaphore(capacity, true);
         registry.gauge("download_worker_active_jobs", activeJobs);
+        this.capacityWait = registry.timer("download_worker_job_capacity_wait");
     }
 
     /**
@@ -33,13 +40,25 @@ public final class JobCapacity {
      * @return Reserva liberable mediante try-with-resources.
      */
     public Lease acquire(int weight) {
+        return acquire(weight, () -> false);
+    }
+
+    /** Reserva plazas permitiendo cancelar mientras el trabajo espera en el semáforo justo. */
+    public Lease acquire(int weight, BooleanSupplier cancelled) {
+        long startedAt = System.nanoTime();
         try {
-            permits.acquire(weight);
+            while (!permits.tryAcquire(weight, 250, TimeUnit.MILLISECONDS)) {
+                if (cancelled.getAsBoolean()) {
+                    throw new CancellationException("download_job_cancelled");
+                }
+            }
             activeJobs.incrementAndGet();
             return new Lease(weight);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new InfrastructureException("download_job_interrupted", exception);
+        } finally {
+            capacityWait.record(System.nanoTime() - startedAt, TimeUnit.NANOSECONDS);
         }
     }
 

@@ -37,6 +37,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -318,6 +320,39 @@ class DownloadJobProcessorTest {
                 .containsExactly(FAST_ITEM_ID, SLOW_ITEM_ID);
     }
 
+    @Test
+    void finishesDownloadsBeforeWaitingForAPackagingPermit() throws Exception {
+        CountDownLatch completed = new CountDownLatch(1);
+        RecordingPublisher publisher = new RecordingPublisher(completed);
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        RemoteDownloader downloader = (item, filename, target, budget, maximum) -> {
+            try {
+                byte[] content = "complete-before-packaging".getBytes();
+                budget.consume(content.length);
+                Files.createDirectories(target.getParent());
+                Files.write(target, content);
+                return new DownloadedArtifact(
+                        item.itemId(), item.appId(), item.sourceRef(), filename, target,
+                        content.length, Hashing.sha256(target), null);
+            } catch (Exception exception) {
+                throw new InfrastructureException("test_write_failed", exception);
+            }
+        };
+        Semaphore packaging = new Semaphore(0, true);
+        DownloadJobProcessor processor = processor(
+                downloader, store, publisher, 10, metadataLookup(true), packaging);
+
+        CompletableFuture<Void> processing = CompletableFuture.runAsync(
+                () -> processor.process(event(List.of(item("fast", "Fast.exe")))));
+
+        assertThat(completed.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(processing).isNotDone();
+        assertThat(store.objects).isEmpty();
+        packaging.release();
+        processing.get(2, TimeUnit.SECONDS);
+        assertThat(store.objects.keySet()).anyMatch(key -> key.endsWith("/bundle.zip"));
+    }
+
     /**
      * Procesa los datos recibidos mediante {@code processor}.
      *
@@ -351,6 +386,18 @@ class DownloadJobProcessorTest {
             EventPublisher publisher,
             int maxItems,
             JobItemMetadataLookup metadataLookup) {
+        return processor(
+                downloader, store, publisher, maxItems, metadataLookup,
+                new java.util.concurrent.Semaphore(1, true));
+    }
+
+    private DownloadJobProcessor processor(
+            RemoteDownloader downloader,
+            ArtifactStore store,
+            EventPublisher publisher,
+            int maxItems,
+            JobItemMetadataLookup metadataLookup,
+            Semaphore packagingSemaphore) {
         DownloadProperties downloadProperties = new DownloadProperties(
                 maxItems,
                 DataSize.ofMegabytes(10),
@@ -392,7 +439,7 @@ class DownloadJobProcessorTest {
                 Clock.fixed(Instant.parse("2026-07-11T12:00:00Z"), ZoneOffset.UTC),
                 new DownloadCancellationRegistry(),
                 new JobCapacity(downloadProperties.jobConcurrency(), registry),
-                new java.util.concurrent.Semaphore(downloadProperties.packagingConcurrency(), true),
+                packagingSemaphore,
                 new DownloadWorkerMetrics(registry),
                 new TemporaryDiskCapacity(downloadProperties));
     }

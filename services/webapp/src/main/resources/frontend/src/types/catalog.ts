@@ -139,6 +139,10 @@ export interface DownloadJob {
   items: DownloadJobItem[];
   createdAt: string;
   expiresAt: string;
+  artifactSizeBytes?: number | null;
+  artifactSha256?: string | null;
+  waitReason?: string | null;
+  retryAt?: string | null;
 }
 
 export interface AppDetails extends CatalogApp {

@@ -203,6 +203,15 @@ public final class DownloadJobItem {
         if (!status.terminal()) progress(DownloadItemStatus.CANCELLED, bytesDownloaded, sha256, null, now);
     }
 
+    /** Reinicia el item cuando el trabajo completo vuelve a la cola por capacidad. */
+    void requeue(Instant now) {
+        status = DownloadItemStatus.QUEUED;
+        bytesDownloaded = 0;
+        sha256 = null;
+        errorCode = null;
+        updatedAt = Objects.requireNonNull(now);
+    }
+
     /**
      * Ejecuta la operación {@code id}.
      *

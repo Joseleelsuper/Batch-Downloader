@@ -7,6 +7,9 @@ import es.ubu.batchdownloader.downloadworker.infrastructure.archive.ZipArchiveBu
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.DnsHostResolver;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.HostResolver;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.JdkHttpsRemoteDownloader;
+import es.ubu.batchdownloader.downloadworker.infrastructure.http.HostLimitedRemoteDownloader;
+import es.ubu.batchdownloader.downloadworker.infrastructure.http.RetryingRemoteDownloader;
+import es.ubu.batchdownloader.downloadworker.infrastructure.http.PartialFileCleanupRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.MeteredRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy;
 import es.ubu.batchdownloader.downloadworker.infrastructure.messaging.RabbitEventPublisher;
@@ -132,6 +135,9 @@ public class WorkerConfiguration {
                 downloadHttpClient,
                 publicHttpsUriPolicy,
                 properties);
+        downloader = new HostLimitedRemoteDownloader(downloader, meterRegistry, 2);
+        downloader = new RetryingRemoteDownloader(downloader, meterRegistry);
+        downloader = new PartialFileCleanupRemoteDownloader(downloader);
         return new MeteredRemoteDownloader(downloader, meterRegistry);
     }
 

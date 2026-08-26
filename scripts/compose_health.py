@@ -66,10 +66,14 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
     "minio-init": {"minio": "service_healthy"},
     "scraper-api": {"mysql": "service_healthy"},
     "scraper-scheduler": {"scraper-api": "service_healthy"},
-    "webapp": {"core-api": "service_healthy"},
+    "webapp": {
+        "core-api": "service_healthy",
+        "minio": "service_healthy",
+    },
     "core-api": {
         "mysql": "service_healthy",
         "scraper-api": "service_healthy",
+        "minio-init": "service_completed_successfully",
     },
     "semantic-service": {
         "postgres": "service_healthy",

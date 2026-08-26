@@ -19,6 +19,8 @@ import org.springframework.validation.annotation.Validated;
  * @param cancellationQueue Valor de {@code cancellationQueue} incluido en el record.
  * @param deadLetterExchange Valor de {@code deadLetterExchange} incluido en el record.
  * @param deadLetterQueue Valor de {@code deadLetterQueue} incluido en el record.
+ * @param capacityWaitQueue Cola con TTL para esperas que no son fallos.
+ * @param capacityWaitDelay Tiempo antes de devolver un trabajo aplazado a la cola principal.
  * @param retryAttempts Valor de {@code retryAttempts} incluido en el record.
  * @param retryInitialInterval Valor de {@code retryInitialInterval} incluido en el record.
  * @param retryMultiplier Valor de {@code retryMultiplier} incluido en el record.
@@ -36,6 +38,8 @@ public record MessagingProperties(
         @DefaultValue("download-worker.download.job.cancel-requested.v1") @NotBlank String cancellationQueue,
         @DefaultValue("batch.dead-letter.v1") @NotBlank String deadLetterExchange,
         @DefaultValue("download-worker.download.job.requested.v1.dlq") @NotBlank String deadLetterQueue,
+        @DefaultValue("download-worker.download.job.capacity-wait.v1") @NotBlank String capacityWaitQueue,
+        @DefaultValue("30s") Duration capacityWaitDelay,
         @DefaultValue("3") @Min(1) int retryAttempts,
         @DefaultValue("1s") Duration retryInitialInterval,
         @DefaultValue("2.0") @DecimalMin("1.0") double retryMultiplier,

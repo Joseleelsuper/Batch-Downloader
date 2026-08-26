@@ -378,7 +378,16 @@ public class DownloadJobService {
         if (!job.status().downloadable() || job.objectKey() == null || !job.expiresAt().isAfter(clock.instant())) {
             throw new ConflictException("download_not_ready", "El ZIP no está disponible.");
         }
-        return zipUris.signGet(job.objectKey(), signedUrlTtl);
+        try {
+            return zipUris.signGet(
+                    job.objectKey(), "batch-downloader-" + job.id() + ".zip", signedUrlTtl);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Could not sign download artifact for job {}", job.id(), exception);
+            throw new ServiceUnavailableException(
+                    "download_signing_unavailable",
+                    "No se pudo preparar el enlace. Inténtalo de nuevo en unos segundos.",
+                    5);
+        }
     }
 
     /**
@@ -422,11 +431,35 @@ public class DownloadJobService {
      */
     @Transactional
     public void applyReady(UUID jobId, DownloadJobStatus status, String objectKey, Instant expiresAt) {
+        applyReady(jobId, status, objectKey, null, null, expiresAt);
+    }
+
+    /** Aplica el resultado final junto con los metadatos de integridad emitidos por el worker. */
+    @Transactional
+    public void applyReady(
+            UUID jobId,
+            DownloadJobStatus status,
+            String objectKey,
+            Long artifactSizeBytes,
+            String artifactSha256,
+            Instant expiresAt) {
         DownloadJob job = requireJob(jobId);
-        job.markReady(status, objectKey, expiresAt, clock.instant());
+        Instant now = clock.instant();
+        Instant maximumExpiry = now.plus(retention);
+        Instant effectiveExpiry = expiresAt.isBefore(maximumExpiry) ? expiresAt : maximumExpiry;
+        job.markReady(
+                status, objectKey, artifactSizeBytes, artifactSha256, effectiveExpiry, now);
         DownloadJob saved = jobs.save(job);
         notifyAfterSave(saved);
         requestTerminalNotification(saved);
+    }
+
+    /** Mantiene el trabajo en QUEUED cuando el worker no puede reservar capacidad con seguridad. */
+    @Transactional
+    public void applyDeferred(UUID jobId, String waitReason, Instant retryAt) {
+        DownloadJob job = requireJob(jobId);
+        job.defer(waitReason, retryAt, clock.instant());
+        notifyAfterSave(jobs.save(job));
     }
 
     /**

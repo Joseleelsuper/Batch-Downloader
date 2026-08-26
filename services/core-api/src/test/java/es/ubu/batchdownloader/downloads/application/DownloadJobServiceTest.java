@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.common.RateLimitException;
+import es.ubu.batchdownloader.common.ServiceUnavailableException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
@@ -113,7 +114,7 @@ class DownloadJobServiceTest {
                 10,
                 30,
                 3,
-                100,
+                50,
                 new TransactionTemplate(transactionManager));
         lenient().when(jobs.save(any(DownloadJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -270,6 +271,24 @@ class DownloadJobServiceTest {
                 .isInstanceOf(RateLimitException.class)
                 .hasMessageContaining("m\u00e1ximo");
 
+        verify(sources, never()).findVerifiedSources(any(), any());
+    }
+
+    @Test
+    void rejectsTheFiftyFirstPendingJobAfterEightActiveAndFortyTwoQueued() {
+        when(jobs.countNonTerminal()).thenReturn(50L);
+
+        assertThatThrownBy(() -> service.create(
+                        new RequestOwner(null, "browser-hash", "ip-hash"),
+                        List.of(UUID.randomUUID()),
+                        List.of("windows"),
+                        false))
+                .isInstanceOfSatisfying(ServiceUnavailableException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("service_busy");
+                    assertThat(exception.retryAfterSeconds()).isEqualTo(30);
+                });
+
+        verify(jobs).lockAdmission();
         verify(sources, never()).findVerifiedSources(any(), any());
     }
 

@@ -136,6 +136,24 @@ public final class DownloadEvents {
             DownloadReadyPayload payload) {
     }
 
+    /** Evento no terminal emitido al devolver un trabajo a la cola de capacidad. */
+    public record DownloadJobDeferredEvent(
+            UUID eventId,
+            String type,
+            int schemaVersion,
+            Instant occurredAt,
+            String correlationId,
+            String causationId,
+            DownloadDeferredPayload payload) {
+    }
+
+    /** Datos públicos de la espera temporal de capacidad. */
+    public record DownloadDeferredPayload(
+            UUID jobId,
+            String waitReason,
+            Instant retryAt) {
+    }
+
     /**
      * Representa los datos inmutables de {@code DownloadReadyPayload}.
      *

@@ -218,6 +218,25 @@ public class DownloadJobController {
     }
 
     /**
+     * Prepara el mismo enlace firmado sin navegar fuera de la interfaz. El autointento puede así
+     * mostrar un 503 reintentable y conservar visible el enlace manual {@code /file}.
+     */
+    @GetMapping("/{jobId}/file-link")
+    ResponseEntity<DownloadFileLink> fileLink(
+            @PathVariable UUID jobId,
+            Authentication authentication,
+            @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
+            HttpServletRequest servletRequest) {
+        URI location = jobs.file(requestOwner(authentication, browserToken, servletRequest), jobId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(new DownloadFileLink(location.toASCIIString()));
+    }
+
+    /** URL efímera preparada exclusivamente para el intento automático del navegador. */
+    public record DownloadFileLink(String url) {}
+
+    /**
      * Ejecuta la operación {@code requestOwner}.
      *
      * @param authentication Valor de {@code authentication} utilizado por la operación.

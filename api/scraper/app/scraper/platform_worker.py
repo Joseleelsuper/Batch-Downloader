@@ -67,12 +67,12 @@ from app.scraper.installer_policy import (
 from app.scraper.pipeline_runtime import (
     PipelineRuntime,
     async_session_local,
+    is_transient_mysql_lock_error,
 )
 from app.scraper.pipeline_support import (
     claim_item,
     exception_detail,
     finish_item,
-    is_transient_mysql_lock_error,
     parse_payload_app,
     payload_package_id,
     queue_has_active_work,

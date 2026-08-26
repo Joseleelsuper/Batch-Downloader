@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import Settings
@@ -24,29 +25,53 @@ async def retry_database_pool_operation[DatabaseResult](
     component: str,
     operation: Callable[[], Awaitable[DatabaseResult]],
 ) -> DatabaseResult:
-    """Reintenta exclusivamente la contención local del pool de conexiones.
+    """Reintenta contención transitoria del pool y de bloqueos MySQL.
 
     Un ``SQLAlchemyTimeoutError`` en este servicio significa que todas las conexiones
     acotadas del proceso están ocupadas. No equivale a un fallo del proveedor ni debe
-    degradar una aplicación. Los errores de red o SQL reales siguen propagándose.
+    degradar una aplicación. Los deadlocks y timeouts de lock de MySQL también son
+    recuperables, pero cada intento vuelve a ejecutar ``operation`` y abre una
+    transacción limpia. Los demás errores de red o SQL siguen propagándose.
     """
     for attempt in range(1, DATABASE_POOL_RETRY_ATTEMPTS + 1):
         try:
             return await operation()
-        except SQLAlchemyTimeoutError:
+        except (SQLAlchemyTimeoutError, OperationalError) as exc:
+            lock_error = isinstance(exc, OperationalError)
+            if lock_error and not is_transient_mysql_lock_error(exc):
+                raise
+            event = (
+                "scraper_claim_retry"
+                if lock_error and component.startswith("claim:")
+                else "scraper_database_lock_retry"
+                if lock_error
+                else "scraper_database_pool_retry"
+            )
             logger.warning(
-                "scraper_database_pool_retry",
+                event,
                 component=component,
                 attempt=attempt,
                 max_attempts=DATABASE_POOL_RETRY_ATTEMPTS,
                 pool_size=settings.database_pool_max,
                 timeout_seconds=settings.database_pool_timeout_seconds,
+                mysql_error_code=mysql_error_code(exc) if lock_error else None,
             )
             if attempt >= DATABASE_POOL_RETRY_ATTEMPTS:
                 raise
             await asyncio.sleep(min(2.0, 0.25 * (2 ** min(attempt - 1, 3))))
 
     raise RuntimeError("database_pool_retry_exhausted")
+
+
+def mysql_error_code(exc: OperationalError) -> int | None:
+    """Extrae el código numérico del error original de MySQL, si existe."""
+    args: tuple[object, ...] = getattr(exc.orig, "args", ())
+    return args[0] if args and isinstance(args[0], int) else None
+
+
+def is_transient_mysql_lock_error(exc: OperationalError) -> bool:
+    """Identifica deadlocks y expiraciones de espera de locks reintentables."""
+    return mysql_error_code(exc) in {1205, 1213}
 
 
 def async_session_local():

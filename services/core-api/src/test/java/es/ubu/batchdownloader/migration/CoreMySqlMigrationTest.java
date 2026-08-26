@@ -103,6 +103,10 @@ class CoreMySqlMigrationTest {
             assertThat(count(connection, "SPRING_SESSION")).isZero();
             assertThat(columnCount(connection, "bundles", "owner_username")).isZero();
             assertThat(columnNullable(connection, "download_job_items", "source_ref")).isTrue();
+            assertThat(columnNullable(connection, "download_jobs", "artifact_size_bytes")).isTrue();
+            assertThat(columnNullable(connection, "download_jobs", "artifact_sha256")).isTrue();
+            assertThat(columnNullable(connection, "download_jobs", "wait_reason")).isTrue();
+            assertThat(columnNullable(connection, "download_jobs", "retry_at")).isTrue();
             execute(connection, """
                     INSERT INTO admin_audit_logs (
                         id, actor, action, target_type, target_id, safe_metadata, created_at
@@ -137,7 +141,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("13");
+            assertThat(flywayVersion(connection)).isEqualTo("14");
         }
     }
 

@@ -101,6 +101,56 @@ class DownloadWorkerEventListenerTest {
         verify(jdbc, never()).update(startsWith("INSERT IGNORE INTO user_download_history"), any(Object[].class));
     }
 
+    @Test
+    void persistsReadyArtifactMetadataWhenTheWorkerProvidesIt() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
+                .thenReturn(1);
+        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        UUID jobId = UUID.randomUUID();
+
+        listener(jdbc, jobs).receive(message(readyWithMetadata(jobId)));
+
+        verify(jobs).applyReady(
+                org.mockito.ArgumentMatchers.eq(jobId),
+                org.mockito.ArgumentMatchers.eq(es.ubu.batchdownloader.downloads.domain.DownloadJobStatus.READY),
+                org.mockito.ArgumentMatchers.eq("zips/final.zip"),
+                org.mockito.ArgumentMatchers.eq(2048L),
+                org.mockito.ArgumentMatchers.eq("a".repeat(64)),
+                org.mockito.ArgumentMatchers.eq(Instant.parse("2026-08-09T12:00:00Z")));
+    }
+
+    @Test
+    void rejectsIncompleteReadyArtifactMetadata() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
+                .thenReturn(1);
+        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+
+        assertThatThrownBy(() -> listener(jdbc, jobs).receive(message(readyWithOnlySize(UUID.randomUUID()))))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasMessageContaining("invalid_download_artifact_metadata");
+
+        verifyNoInteractions(jobs);
+        verify(jdbc, never()).update(startsWith("UPDATE core_inbox_messages"), any(Object[].class));
+    }
+
+    @Test
+    void keepsADeferredJobQueuedWithItsRetryInstant() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
+                .thenReturn(1);
+        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        UUID jobId = UUID.randomUUID();
+
+        listener(jdbc, jobs).receive(message(deferred(jobId)));
+
+        verify(jobs).applyDeferred(
+                jobId,
+                "temporary_storage_busy",
+                Instant.parse("2026-08-09T12:00:30Z"));
+    }
+
     /**
      * Enumera los elementos solicitados mediante {@code listener}.
      *
@@ -142,6 +192,30 @@ class DownloadWorkerEventListenerTest {
                 {"eventId":"%s","type":"download.job.ready","schemaVersion":1,
                  "payload":{"jobId":"%s","status":"READY","objectKey":"zips/final.zip",
                  "expiresAt":"2026-08-09T12:00:00Z"}}
+                """.formatted(UUID.randomUUID(), jobId);
+    }
+
+    private String readyWithMetadata(UUID jobId) {
+        return """
+                {"eventId":"%s","type":"download.job.ready","schemaVersion":1,
+                 "payload":{"jobId":"%s","status":"READY","objectKey":"zips/final.zip",
+                 "sizeBytes":2048,"sha256":"%s","expiresAt":"2026-08-09T12:00:00Z"}}
+                """.formatted(UUID.randomUUID(), jobId, "a".repeat(64));
+    }
+
+    private String readyWithOnlySize(UUID jobId) {
+        return """
+                {"eventId":"%s","type":"download.job.ready","schemaVersion":1,
+                 "payload":{"jobId":"%s","status":"READY","objectKey":"zips/final.zip",
+                 "sizeBytes":2048,"expiresAt":"2026-08-09T12:00:00Z"}}
+                """.formatted(UUID.randomUUID(), jobId);
+    }
+
+    private String deferred(UUID jobId) {
+        return """
+                {"eventId":"%s","type":"download.job.deferred","schemaVersion":1,
+                 "payload":{"jobId":"%s","waitReason":"temporary_storage_busy",
+                 "retryAt":"2026-08-09T12:00:30Z"}}
                 """.formatted(UUID.randomUUID(), jobId);
     }
 }

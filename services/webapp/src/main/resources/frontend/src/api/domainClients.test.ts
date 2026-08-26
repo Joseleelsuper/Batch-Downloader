@@ -38,6 +38,7 @@ import {
   connectDownloadJobEvents,
   createDownloadJob,
   downloadJobFileUrl,
+  fetchDownloadJobFileLink,
   fetchDownloadJob,
 } from './downloads';
 import {
@@ -414,6 +415,21 @@ describe('current identity', () => {
   it('rechaza una exportación CSV HTTP fallida', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('no', { status: 503 })));
     await expect(exportAdminAppsCsv()).rejects.toThrow('request_failed_503');
+  });
+
+  it('prepara el enlace firmado del autointento mediante la ruta aditiva', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ url: 'https://downloads.example.test/job.zip?signature=example' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetcher);
+
+    await expect(fetchDownloadJobFileLink('job/id')).resolves.toEqual({
+      url: 'https://downloads.example.test/job.zip?signature=example',
+    });
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(
+      '/api/v1/download-jobs/job%2Fid/file-link',
+    );
   });
 
   it('mantiene canónicos los endpoints de lectura y administración', async () => {

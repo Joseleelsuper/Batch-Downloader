@@ -630,6 +630,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /download-jobs/{jobId}:
     get:
       operationId: getDownloadJob
@@ -695,6 +697,26 @@ paths:
                 format: uri
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /download-jobs/{jobId}/file-link:
+    get:
+      operationId: prepareDownloadJobFile
+      summary: Preparar el enlace del intento automático sin abandonar la interfaz
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: URL firmada válida durante cinco minutos y no almacenable en caché.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadFileLink'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /internal/v1/download-jobs/{jobId}/item-metadata:
     post:
       operationId: getInternalDownloadJobItemMetadata
@@ -2376,6 +2398,14 @@ components:
     DownloadJobStatus:
       type: string
       enum: [QUEUED, RESOLVING, DOWNLOADING, PACKAGING, READY, PARTIAL, MANUAL_ONLY, FAILED, CANCELLED, EXPIRED]
+    DownloadFileLink:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
     DownloadItem:
       type: object
       required: [id, appId, appName, status, bytesDownloaded]
@@ -2430,6 +2460,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DownloadItem'
+        artifactSizeBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+        artifactSha256:
+          type: [string, 'null']
+          pattern: '^[a-f0-9]{64}$'
+        waitReason:
+          type: [string, 'null']
+        retryAt:
+          type: [string, 'null']
+          format: date-time
         createdAt:
           type: string
           format: date-time

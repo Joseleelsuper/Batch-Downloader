@@ -38,11 +38,14 @@ from app.scraper.installer_policy import (
     validated_installers_cover_latest_version,
     winstall_parent_index_url,
 )
-from app.scraper.pipeline_runtime import PipelineRuntime, retry_database_pool_operation
+from app.scraper.pipeline_runtime import (
+    PipelineRuntime,
+    is_transient_mysql_lock_error,
+    retry_database_pool_operation,
+)
 from app.scraper.pipeline_support import (
     first_task_failure,
     is_stale_control_command,
-    is_transient_mysql_lock_error,
     provider_snapshot_absence_outcome,
 )
 from app.scraper.platform_worker import PlatformScraperWorker
@@ -78,6 +81,54 @@ async def test_database_pool_contention_is_retried_without_becoming_app_failure(
 
     assert result == "completed"
     assert attempts == 3
+
+
+@pytest.mark.asyncio
+async def test_mysql_deadlock_is_retried_in_a_fresh_operation(monkeypatch) -> None:
+    """Un deadlock de claim reabre la operación sin terminar el consumidor."""
+    attempts = 0
+
+    async def operation() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise OperationalError("UPDATE", {}, Exception(1213, "Deadlock"))
+        return "claimed"
+
+    async def no_wait(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(pipeline_runtime.asyncio, "sleep", no_wait)
+    settings = SimpleNamespace(
+        database_pool_max=2,
+        database_pool_timeout_seconds=5,
+    )
+
+    result = await retry_database_pool_operation(settings, "claim:test", operation)
+
+    assert result == "claimed"
+    assert attempts == 3
+
+
+@pytest.mark.asyncio
+async def test_non_transient_mysql_error_is_not_retried() -> None:
+    """Los errores de conexión reales conservan su propagación inmediata."""
+    attempts = 0
+
+    async def operation() -> None:
+        nonlocal attempts
+        attempts += 1
+        raise OperationalError("UPDATE", {}, Exception(2003, "Connection failed"))
+
+    settings = SimpleNamespace(
+        database_pool_max=2,
+        database_pool_timeout_seconds=5,
+    )
+
+    with pytest.raises(OperationalError):
+        await retry_database_pool_operation(settings, "claim:test", operation)
+
+    assert attempts == 1
 
 
 def test_stable_provider_absence_is_not_a_transient_failure() -> None:

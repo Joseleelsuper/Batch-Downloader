@@ -46,6 +46,7 @@ function Harness() {
       </button>
       <output data-testid="jobs">{downloads.jobs.length}</output>
       <output data-testid="status">{downloads.jobs[0]?.job?.status ?? 'restoring'}</output>
+      <output data-testid="action-error">{downloads.jobs[0]?.actionError ?? ''}</output>
     </div>
   );
 }
@@ -100,6 +101,9 @@ describe('DownloadJobsProvider', () => {
     let pushJob: ((value: DownloadJob) => void) | undefined;
     const disconnect = vi.fn();
     vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
+    vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockResolvedValue({
+      url: 'https://downloads.example.test/zips/job.zip?signature=example',
+    });
     const connect = vi.spyOn(downloadsApi, 'connectDownloadJobEvents')
       .mockImplementation((_jobId, onJob) => {
         pushJob = onJob;
@@ -137,6 +141,31 @@ describe('DownloadJobsProvider', () => {
     act(() => pushJob?.(job('READY', 100)));
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('READY'));
     expect(click).toHaveBeenCalledOnce();
+  });
+
+  it('shows a retryable signing error without removing the permanent manual action', async () => {
+    let pushJob: ((value: DownloadJob) => void) | undefined;
+    vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents')
+      .mockImplementation((_jobId, onJob) => {
+        pushJob = onJob;
+        return vi.fn();
+      });
+    vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockRejectedValue(
+      new ApiRequestError(503, 'download_signing_unavailable'),
+    );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(<DownloadJobsProvider><Harness /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await waitFor(() => expect(pushJob).toBeDefined());
+    act(() => pushJob?.(job('READY', 100)));
+
+    await waitFor(() => expect(screen.getByTestId('action-error')).toHaveTextContent(
+      'No se pudo preparar el enlace de descarga',
+    ));
+    expect(screen.getByTestId('status')).toHaveTextContent('READY');
+    expect(click).not.toHaveBeenCalled();
   });
 
   it('restaura únicamente entradas válidas y tolera almacenamiento corrupto', () => {

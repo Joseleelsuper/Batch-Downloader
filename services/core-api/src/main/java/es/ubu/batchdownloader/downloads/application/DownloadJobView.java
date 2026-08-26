@@ -20,6 +20,10 @@ import java.util.UUID;
  * @param items Valor de {@code items} incluido en el record.
  * @param createdAt Valor de {@code createdAt} incluido en el record.
  * @param expiresAt Valor de {@code expiresAt} incluido en el record.
+ * @param artifactSizeBytes Tamaño del ZIP publicado, en bytes.
+ * @param artifactSha256 SHA-256 del ZIP publicado.
+ * @param waitReason Motivo temporal por el que el trabajo continúa en cola.
+ * @param retryAt Instante del siguiente intento por capacidad.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 public record DownloadJobView(
@@ -32,7 +36,27 @@ public record DownloadJobView(
         String failureCode,
         List<Item> items,
         Instant createdAt,
-        Instant expiresAt) {
+        Instant expiresAt,
+        Long artifactSizeBytes,
+        String artifactSha256,
+        String waitReason,
+        Instant retryAt) {
+
+    /** Conserva el constructor anterior para consumidores Java ya compilados contra el contrato. */
+    public DownloadJobView(
+            UUID id,
+            DownloadJobStatus status,
+            int progress,
+            int requestedCount,
+            int acceptedCount,
+            int omittedCount,
+            String failureCode,
+            List<Item> items,
+            Instant createdAt,
+            Instant expiresAt) {
+        this(id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode,
+                items, createdAt, expiresAt, null, null, null, null);
+    }
 
     /**
      * Representa los datos inmutables de {@code Item}.
@@ -77,6 +101,10 @@ public record DownloadJobView(
                         item.status(), item.bytesDownloaded(), item.sha256(), item.errorCode()))
                         .toList(),
                 job.createdAt(),
-                job.expiresAt());
+                job.expiresAt(),
+                job.artifactSizeBytes(),
+                job.artifactSha256(),
+                job.waitReason(),
+                job.retryAt());
     }
 }

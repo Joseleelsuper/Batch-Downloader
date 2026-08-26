@@ -45,6 +45,12 @@ export function downloadJobFileUrl(jobId: string): string {
   return `${API_BASE}/api/v1/download-jobs/${encodeURIComponent(jobId)}/file`;
 }
 
+export function fetchDownloadJobFileLink(jobId: string): Promise<{ url: string }> {
+  return requestJson<{ url: string }>(
+    `/api/v1/download-jobs/${encodeURIComponent(jobId)}/file-link`,
+  );
+}
+
 export function connectDownloadJobEvents(
   jobId: string,
   onJob: (job: DownloadJob) => void,

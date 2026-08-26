@@ -95,6 +95,11 @@ public interface ArtifactStore {
         // Una operación vacía mantiene los dobles ligeros centrados en los objetos expuestos.
     }
 
+    /** @return Bytes actualmente almacenados bajo el prefijo de trabajos. */
+    default long usageBytes() {
+        return 0L;
+    }
+
     /** Cuenta los bytes que atraviesan un flujo. */
     final class CountingOutputStream extends FilterOutputStream {
         /** Bytes escritos. */
