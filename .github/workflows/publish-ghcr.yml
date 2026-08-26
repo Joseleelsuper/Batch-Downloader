@@ -33,10 +33,10 @@ jobs:
             dockerfile: services/core-api/Dockerfile
           - image: scraper
             context: api/scraper
-            dockerfile: Dockerfile
+            dockerfile: api/scraper/Dockerfile
           - image: semantic-service
             context: services/semantic-service
-            dockerfile: Dockerfile
+            dockerfile: services/semantic-service/Dockerfile
           - image: notification-service
             context: .
             dockerfile: services/notification-service/Dockerfile
