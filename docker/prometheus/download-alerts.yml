@@ -1,0 +1,34 @@
+groups:
+  - name: batch-downloader-downloads
+    rules:
+      - alert: DownloadQueueNearCapacity
+        expr: download_worker_queue_depth > 40
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: La cola de descargas supera 40 trabajos
+
+      - alert: DownloadArtifactQuotaHigh
+        expr: (download_worker_artifact_stored_bytes + download_worker_artifact_reserved_bytes) / download_worker_artifact_quota_bytes >= 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: La cuota MinIO de ZIP ha alcanzado el 90 por ciento
+
+      - alert: DownloadTemporaryDiskReserveLow
+        expr: download_worker_disk_usable_bytes < download_worker_disk_minimum_free_bytes
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: El SSD ha bajado de la reserva mínima de 30 GB
+
+      - alert: DownloadCapacityDeferralsIncreasing
+        expr: sum(increase(download_worker_capacity_deferred_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Aumentan los aplazamientos de jobs por capacidad

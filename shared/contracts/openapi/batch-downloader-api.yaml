@@ -1,0 +1,3265 @@
+openapi: 3.1.0
+info:
+  title: Batch Downloader API
+  version: 1.0.0
+  description: API pública versionada para identidad, catálogo y trabajos de descarga.
+  license:
+    name: GPL-3.0-only
+    identifier: GPL-3.0-only
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+paths:
+  /auth/register:
+    post:
+      operationId: registerUser
+      summary: Registrar una cuenta
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '202':
+          description: Cuenta creada; la verificación de correo queda encolada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/login:
+    post:
+      operationId: login
+      summary: Iniciar una sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Sesión iniciada.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: La contraseña es correcta, pero el correo todavía no está verificado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Cerrar la sesión actual
+      responses:
+        '204':
+          description: Sesión invalidada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/me:
+    get:
+      operationId: currentUser
+      summary: Consultar la sesión actual
+      responses:
+        '200':
+          description: Usuario autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '204':
+          description: No existe una sesión autenticada.
+  /auth/email-verification/confirm:
+    post:
+      operationId: confirmEmailVerification
+      summary: Confirmar una dirección de correo
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '204':
+          description: Correo verificado.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '410':
+          description: Token caducado o utilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/email-verification/resend:
+    post:
+      operationId: resendEmailVerification
+      summary: Reenviar la verificación con respuesta uniforme
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '202':
+          description: Solicitud aceptada sin revelar si existe la cuenta.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/oauth2/google:
+    get:
+      operationId: startGoogleLogin
+      summary: Iniciar Google OIDC
+      security: []
+      parameters:
+        - name: returnTo
+          in: query
+          schema:
+            type: string
+          description: Ruta relativa interna; los destinos externos se descartan.
+      responses:
+        '302':
+          description: Redirección al endpoint de autorización de Spring Security.
+  /auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      summary: Solicitar recuperación de contraseña
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '202':
+          description: Solicitud aceptada aunque el correo no exista.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Confirmar una recuperación de contraseña
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 12
+                  maxLength: 128
+      responses:
+        '204':
+          description: Contraseña actualizada.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '410':
+          description: Token caducado o utilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /users/me:
+    get:
+      operationId: getOwnProfile
+      summary: Consultar el perfil de la cuenta USER
+      responses:
+        '200':
+          description: Perfil actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      operationId: updateOwnProfile
+      summary: Cambiar el username de presentación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsernameUpdateRequest'
+      responses:
+        '200':
+          description: Perfil actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /users/me/dashboard:
+    get:
+      operationId: getOwnDashboard
+      summary: Consultar el resumen privado de la cuenta
+      responses:
+        '200':
+          description: Conteos y actividad reciente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDashboard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /users/me/downloads:
+    get:
+      operationId: listOwnDownloadHistory
+      summary: Listar el historial registrado al alcanzar READY
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Historial paginado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadHistoryPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /users/me/bundles:
+    get:
+      operationId: listOwnBundles
+      summary: Listar bundles propios
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bundles propios paginados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundlePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createOwnBundle
+      summary: Crear un bundle USER privado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOwnBundleRequest'
+      responses:
+        '201':
+          description: Bundle privado creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /users/me/bundles/{bundleId}:
+    parameters:
+      - name: bundleId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getOwnBundle
+      summary: Consultar un bundle editable propio
+      responses:
+        '200':
+          description: Bundle propio.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateOwnBundle
+      summary: Actualizar un bundle con control optimista
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOwnBundleRequest'
+      responses:
+        '200':
+          description: Bundle actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteOwnBundle
+      summary: Eliminar un bundle propio
+      responses:
+        '204':
+          description: Bundle eliminado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/auth/login:
+    servers:
+      - url: /
+    post:
+      operationId: adminLogin
+      summary: Iniciar sesión administrativa por username
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+      responses:
+        '200':
+          description: Sesión ADMIN iniciada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/auth/me:
+    servers:
+      - url: /
+    get:
+      operationId: currentAdmin
+      summary: Consultar la sesión ADMIN
+      responses:
+        '200':
+          description: Administrador autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/auth/logout:
+    servers:
+      - url: /
+    post:
+      operationId: adminLogout
+      summary: Cerrar la sesión administrativa
+      responses:
+        '204':
+          description: Sesión invalidada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /apps:
+    get:
+      operationId: searchApps
+      summary: Buscar aplicaciones del catálogo
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: query
+          in: query
+          schema:
+            type: string
+            maxLength: 180
+        - name: searchMode
+          in: query
+          description: El valor omitido conserva la búsqueda literal para clientes existentes.
+          schema:
+            $ref: '#/components/schemas/SearchMode'
+            default: lexical
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, available, review, missing]
+            default: all
+        - name: os
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items:
+              type: string
+              enum: [windows, linux, macos]
+        - name: architecture
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          description: Puede repetirse; la aplicación debe contener todas las tags indicadas.
+          style: form
+          explode: true
+          schema:
+            type: array
+            uniqueItems: true
+            items:
+              type: string
+        - name: publisher
+          in: query
+          description: Editor único que debe coincidir con la aplicación.
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: Orden principal de presentación, también cuando query y búsqueda semántica están activos.
+          schema:
+            type: string
+            enum: [name, updated, downloads]
+            default: name
+      responses:
+        '200':
+          description: Página de aplicaciones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /apps/facets:
+    get:
+      operationId: getCatalogFacets
+      summary: Consultar facetas del catálogo filtrado
+      security: []
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+            maxLength: 180
+        - name: searchMode
+          in: query
+          description: Aplica la misma enumeración híbrida que la página de aplicaciones.
+          schema:
+            $ref: '#/components/schemas/SearchMode'
+            default: lexical
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, available, review, missing]
+            default: all
+        - name: os
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            uniqueItems: true
+            items:
+              type: string
+              enum: [windows, linux, macos]
+        - name: architecture
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          description: Puede repetirse; las facetas se calculan sobre aplicaciones que contienen todas las tags indicadas.
+          style: form
+          explode: true
+          schema:
+            type: array
+            uniqueItems: true
+            items:
+              type: string
+        - name: publisher
+          in: query
+          description: Editor único aplicado también al cálculo de tags y editores disponibles.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tags y editores de las aplicaciones que cumplen conjuntamente búsqueda, estado, SO, arquitectura, tags y editor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogFacets'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /apps/stats:
+    get:
+      operationId: getCatalogStats
+      summary: Consultar estadísticas y último rastreo
+      security: []
+      responses:
+        '200':
+          description: Estadísticas del catálogo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogStats'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /apps/{appId}:
+    get:
+      operationId: getApp
+      summary: Consultar una aplicación
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AppId'
+      responses:
+        '200':
+          description: Detalle de la aplicación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppDetails'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /download-jobs:
+    post:
+      operationId: createDownloadJob
+      summary: Crear un trabajo de descarga
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDownloadJobRequest'
+      responses:
+        '202':
+          description: Trabajo persistido y encolado.
+          headers:
+            Set-Cookie:
+              description: Se emite para el primer trabajo anónimo y solo contiene un token aleatorio del navegador.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Ninguna aplicación solicitada tiene una fuente verificable o el bundle excede el límite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: Cuota superada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /download-jobs/{jobId}:
+    get:
+      operationId: getDownloadJob
+      summary: Consultar un trabajo de descarga
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Estado global e items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadJob'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: cancelDownloadJob
+      summary: Cancelar un trabajo de descarga
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '202':
+          description: Cancelación aceptada de forma idempotente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadJob'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /download-jobs/{jobId}/events:
+    get:
+      operationId: streamDownloadJobEvents
+      summary: Seguir el progreso de un trabajo
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Flujo SSE hasta alcanzar un estado terminal.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /download-jobs/{jobId}/file:
+    get:
+      operationId: getDownloadJobFile
+      summary: Obtener el ZIP de un trabajo terminado
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '303':
+          description: Redirección a una URL firmada válida durante cinco minutos.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+                format: uri
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /download-jobs/{jobId}/file-link:
+    get:
+      operationId: prepareDownloadJobFile
+      summary: Preparar el enlace del intento automático sin abandonar la interfaz
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: URL firmada válida durante cinco minutos y no almacenable en caché.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadFileLink'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /internal/v1/download-jobs/{jobId}/item-metadata:
+    post:
+      operationId: getInternalDownloadJobItemMetadata
+      summary: Obtener el nombre y la página oficial de items fallidos
+      description: >-
+        Endpoint interno para el worker. Devuelve todos los items solicitados o
+        un 404 genérico, sin respuestas parciales ni URLs de instalador.
+      security:
+        - internalServiceToken: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalDownloadItemMetadataRequest'
+      responses:
+        '200':
+          description: Metadatos exactos de todos los items solicitados.
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 1
+                maxItems: 100
+                items:
+                  $ref: '#/components/schemas/InternalDownloadItemMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /bundles:
+    get:
+      operationId: listBundles
+      summary: Listar bundles públicos u oficiales
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [official, community, user]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [updated, stars]
+      responses:
+        '200':
+          description: Página de bundles visibles públicamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundlePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /bundles/{bundleId}:
+    get:
+      operationId: getBundle
+      summary: Consultar un bundle público, oficial o privado propio
+      security: []
+      parameters:
+        - name: bundleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detalle completo del bundle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/semantic/overview:
+    servers:
+      - url: /
+    get:
+      operationId: getSemanticAdminOverview
+      summary: Consultar salud, modelo activo, cobertura, disco y operaciones semanticas
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Resumen operativo del servicio semantico.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticOverview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/semantic/models:
+    servers:
+      - url: /
+    get:
+      operationId: listSemanticModels
+      summary: Listar el inventario de modelos semanticos
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Modelos descargados y reconciliados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SemanticModel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/semantic/models/{modelId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/SemanticModelId'
+    get:
+      operationId: getSemanticModel
+      summary: Consultar un modelo semantico
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Modelo solicitado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticModel'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteSemanticModel
+      summary: Encolar la eliminacion de pesos e indice de un modelo inactivo
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/semantic/models/{modelId}/prepare:
+    servers:
+      - url: /
+    post:
+      operationId: prepareSemanticModel
+      summary: Preparar embeddings e indice sin cambiar el modelo activo
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/SemanticModelId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/semantic/models/{modelId}/activate:
+    servers:
+      - url: /
+    post:
+      operationId: activateSemanticModel
+      summary: Calentar y activar atomicamente el modelo, indice y umbral
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/SemanticModelId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivateSemanticModelRequest'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/semantic/benchmarks:
+    servers:
+      - url: /
+    get:
+      operationId: listSemanticBenchmarks
+      summary: Listar benchmarks y su elegibilidad
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Ejecuciones conservadas, incluidas las diagnosticas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SemanticBenchmarkRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: benchmarkSemanticModels
+      summary: Encolar un benchmark comparable de dos a cuatro modelos
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modelIds]
+              properties:
+                modelIds:
+                  type: array
+                  minItems: 2
+                  maxItems: 4
+                  uniqueItems: true
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /admin/semantic/operations:
+    servers:
+      - url: /
+    get:
+      operationId: listSemanticOperations
+      summary: Listar operaciones duraderas
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Operaciones recientes y recuperables.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SemanticOperation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/semantic/operations/{operationId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/SemanticOperationId'
+    get:
+      operationId: getSemanticOperation
+      summary: Consultar una operacion duradera
+      tags: [Semantic admin]
+      responses:
+        '200':
+          description: Estado y progreso de la operacion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticOperation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: cancelSemanticOperation
+      summary: Solicitar cancelacion cooperativa
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Cancelacion solicitada o estado terminal actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SemanticOperation'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/semantic/operations/{operationId}/retry:
+    servers:
+      - url: /
+    post:
+      operationId: retrySemanticOperation
+      summary: Reintentar una operacion fallida o cancelada
+      tags: [Semantic admin]
+      parameters:
+        - $ref: '#/components/parameters/SemanticOperationId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          $ref: '#/components/responses/SemanticOperationAccepted'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /locales/es:
+    get:
+      operationId: getSpanishLocale
+      summary: Obtener el catálogo de traducciones español
+      security: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Catálogo español versionado.
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+        '304':
+          description: El catálogo no ha cambiado.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /admin/apps:
+    servers:
+      - url: /
+    get:
+      operationId: listAdminApps
+      summary: Listar aplicaciones para la mesa de administración
+      tags: [Apps admin]
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: unresolved se resuelve internamente como review OR missing.
+          schema:
+            type: string
+            enum: [all, unresolved, available, review, missing]
+            default: unresolved
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, updated, downloads]
+            default: updated
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Página administrativa de aplicaciones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/app-discoveries:
+    servers:
+      - url: /
+    post:
+      operationId: createWebsiteAppDiscovery
+      summary: Analizar una web oficial y buscar instaladores verificables
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebsiteAppDiscoveryRequest'
+      responses:
+        '202':
+          description: Descubrimiento encolado o envío idéntico reutilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteAppDiscovery'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /admin/app-discoveries/{discoveryId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/WebsiteDiscoveryId'
+    get:
+      operationId: getWebsiteAppDiscovery
+      summary: Consultar el progreso y la previsualización de un alta automática
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Evidencia segura; nunca contiene las URL de los ejecutables.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteAppDiscovery'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/app-discoveries/{discoveryId}/apply:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/WebsiteDiscoveryId'
+    post:
+      operationId: applyWebsiteAppDiscovery
+      summary: Revalidar instaladores y crear la aplicación desde la previsualización
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebsiteAppDiscoveryApplyRequest'
+      responses:
+        '200':
+          description: Aplicación creada; queda disponible solo con instaladores válidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteAppDiscoveryApplyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/apps/{appId}/manual-installer-inspections:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    post:
+      operationId: createManualInstallerInspection
+      summary: Encolar una inspección manual de instaladores
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualInstallerInspectionRequest'
+      responses:
+        '202':
+          description: Inspección encolada o envío idéntico reutilizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerInspection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /admin/apps/{appId}/manual-installer-inspections/current:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      operationId: getCurrentManualInstallerInspection
+      summary: Recuperar la inspección manual abierta más reciente
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Inspección abierta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerInspection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/apps/{appId}/manual-installer-inspections/{inspectionId}:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+      - $ref: '#/components/parameters/InspectionId'
+    get:
+      operationId: getManualInstallerInspection
+      summary: Consultar progreso y previsualización de una inspección manual
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Estado seguro de la inspección; nunca contiene las URL finales.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerInspection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+      - $ref: '#/components/parameters/InspectionId'
+    post:
+      operationId: applyManualInstallerInspection
+      summary: Revalidar, guardar y publicar los instaladores de una inspección manual
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualInstallerApplyRequest'
+      responses:
+        '200':
+          description: Aplicación publicada atómicamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualInstallerApplyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/scraper/runs:
+    servers:
+      - url: /
+    get:
+      operationId: listScraperRuns
+      summary: Listar las ejecuciones recientes y sus manifests
+      tags: [Scraper admin]
+      responses:
+        '200':
+          description: Ejecuciones recientes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScraperRunSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createScraperRun
+      summary: Crear una solicitud durable sin solaparla con la ejecución activa
+      tags: [Scraper admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScraperRunRequest'
+      responses:
+        '202':
+          description: Solicitud persistida para que el scheduler la reclame.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperRunRequestResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /admin/apps/absence-verifications/summary:
+    servers:
+      - url: /
+    get:
+      operationId: getInstallerAbsenceVerificationSummary
+      summary: Contar ausencias activas y missing sin evidencia
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Criterio de cierre autoritativo de la campaña.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallerAbsenceVerificationSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/apps/{appId}/absence-verification:
+    servers:
+      - url: /
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      operationId: getActiveInstallerAbsenceVerification
+      summary: Obtener la evidencia negativa activa de una aplicación
+      tags: [Apps admin]
+      responses:
+        '200':
+          description: Acta activa o null.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InstallerAbsenceVerification'
+                  - type: 'null'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: confirmInstallerAbsence
+      summary: Confirmar que no existe un binario instalable tras revisar todas las fuentes
+      tags: [Apps admin]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstallerAbsenceVerificationRequest'
+      responses:
+        '201':
+          description: Evidencia persistente creada y aplicación clasificada como missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstallerAbsenceVerification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: BATCH_SESSION
+    internalServiceToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Service-Token
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    AppId:
+      name: appId
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SemanticModelId:
+      name: modelId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SemanticOperationId:
+      name: operationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InspectionId:
+      name: inspectionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WebsiteDiscoveryId:
+      name: discoveryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CsrfToken:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 200
+  responses:
+    BadRequest:
+      description: Entrada no válida.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Sesión ausente o inválida.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: La sesión o el estado de la cuenta no permiten la operación.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Recurso no encontrado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: El estado actual impide la operación.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnprocessableEntity:
+      description: La URL o el instalador no superan la validación segura.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Un fallo transitorio impide completar la operación.
+      headers:
+        Retry-After:
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: Límite temporal alcanzado.
+      headers:
+        Retry-After:
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    SemanticOperationAccepted:
+      description: Trabajo asincrono aceptado o deduplicado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SemanticOperationAccepted'
+  schemas:
+    ScraperRunRequest:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      properties:
+        scope:
+          type: string
+          enum: [incremental, unresolved, selected, full]
+        appIds:
+          type: array
+          maxItems: 500
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: Obligatorio solo para selected; rechazado en los demás scopes.
+    ScraperRunRequestResponse:
+      type: object
+      additionalProperties: false
+      required: [requestId, scope, status]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          enum: [incremental, unresolved, selected, full]
+        status:
+          type: string
+          enum: [pending]
+    ScraperRunSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - scope
+        - targetCount
+        - startedAt
+        - heartbeatAt
+        - appsDiscovered
+        - appsResolved
+        - appsFailed
+        - appsSkipped
+        - appsConfirmedMissing
+        - appsNeedsReview
+        - appsTransientFailed
+        - appsSkippedUnchanged
+        - stopRequested
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [running, completed, partial, failed]}
+        scope: {type: string, enum: [incremental, unresolved, selected, full]}
+        requestId: {type: [string, 'null'], format: uuid}
+        targetCount: {type: integer, minimum: 0}
+        startedAt: {type: string, format: date-time}
+        heartbeatAt: {type: string, format: date-time}
+        finishedAt: {type: [string, 'null'], format: date-time}
+        appsDiscovered: {type: integer, minimum: 0}
+        appsResolved: {type: integer, minimum: 0}
+        appsFailed: {type: integer, minimum: 0}
+        appsSkipped: {type: integer, minimum: 0}
+        appsConfirmedMissing: {type: integer, minimum: 0}
+        appsNeedsReview: {type: integer, minimum: 0}
+        appsTransientFailed: {type: integer, minimum: 0}
+        appsSkippedUnchanged: {type: integer, minimum: 0}
+        currentPackageId: {type: [string, 'null']}
+        currentAppName: {type: [string, 'null']}
+        currentPhase: {type: [string, 'null']}
+        stopRequested: {type: boolean}
+        pausedAt: {type: [string, 'null'], format: date-time}
+        errorSummary: {type: [string, 'null']}
+    InstallerAbsenceVerificationRequest:
+      type: object
+      additionalProperties: false
+      oneOf:
+        - required: [officialPageUrl]
+          properties:
+            officialPageUrl: {type: string, format: uri, pattern: '^https://'}
+            officialConfirmedAbsent: {type: boolean, const: true}
+        - properties:
+            officialPageUrl: {type: 'null'}
+            officialConfirmedAbsent: {type: boolean, const: false}
+      required:
+        - reasonCode
+        - manifestUrl
+        - winstallConfirmedAbsent
+        - manifestConfirmedAbsent
+        - officialConfirmedAbsent
+        - ambiguousAccess
+      properties:
+        reasonCode:
+          type: string
+          enum: [no_supported_binary, store_only, command_only, wrapper_only, vendor_discontinued]
+        manifestUrl: {type: string, format: uri, pattern: '^https://'}
+        officialPageUrl: {type: [string, 'null'], format: uri, pattern: '^https://'}
+        winstallConfirmedAbsent: {type: boolean, const: true}
+        manifestConfirmedAbsent: {type: boolean, const: true}
+        officialConfirmedAbsent: {type: boolean}
+        ambiguousAccess: {type: boolean, const: false}
+        notes: {type: [string, 'null'], maxLength: 2000}
+    InstallerAbsenceVerification:
+      type: object
+      additionalProperties: false
+      required: [id, appId, status, reasonCode, checkedUrls, verifiedBy, verifiedAt, appVersion]
+      properties:
+        id: {type: string, format: uuid}
+        appId: {type: string, format: uuid}
+        status: {type: string, enum: [active, invalidated, superseded]}
+        reasonCode: {type: string}
+        notes: {type: [string, 'null']}
+        checkedUrls:
+          type: string
+          description: JSON con páginas públicas revisadas; nunca contiene URLs de binarios.
+        verifiedBy: {type: string}
+        verifiedAt: {type: string, format: date-time}
+        appVersion: {type: integer, format: int64, minimum: 0}
+        winstallLatestVersion: {type: [string, 'null']}
+        winstallSummaryFingerprint: {type: [string, 'null']}
+        winstallDetailFingerprint: {type: [string, 'null']}
+        officialUrlFingerprint: {type: [string, 'null']}
+        invalidatedAt: {type: [string, 'null'], format: date-time}
+        invalidationReason: {type: [string, 'null']}
+    InstallerAbsenceVerificationSummary:
+      type: object
+      additionalProperties: false
+      required: [active, missing, missingWithoutActiveEvidence, review]
+      properties:
+        active: {type: integer, format: int64, minimum: 0}
+        missing: {type: integer, format: int64, minimum: 0}
+        missingWithoutActiveEvidence: {type: integer, format: int64, minimum: 0}
+        review: {type: integer, format: int64, minimum: 0}
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    AdminLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    EmailRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    UsernameUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [username]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 40
+    TokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    User:
+      type: object
+      required: [id, username, email, emailVerified, role, notifyOnJobCompletion, createdAt, authenticationMethods]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        emailVerified:
+          type: boolean
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        notifyOnJobCompletion:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        authenticationMethods:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [LOCAL, GOOGLE]
+    App:
+      type: object
+      required: [id, slug, packageId, name, tags, operatingSystems, downloadable, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        packageId:
+          type: string
+        name:
+          type: string
+        publisher:
+          type: [string, 'null']
+        description:
+          type: [string, 'null']
+        longDescription:
+          type: [string, 'null']
+        tags:
+          type: array
+          items:
+            type: string
+        operatingSystems:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [windows, linux, macos]
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+        latestVersion:
+          type: [string, 'null']
+        sourceLabel:
+          type: string
+        resolutionStatus:
+          type: string
+        validationStatus:
+          type: string
+        downloadable:
+          description: Indica que la aplicación puede incorporarse a un trabajo; la URL se revalida justo antes de descargar.
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    AppDetails:
+      allOf:
+        - $ref: '#/components/schemas/App'
+        - type: object
+          required: [originUrl, downloadOptions, notes]
+          properties:
+            officialUrl:
+              type: [string, 'null']
+              format: uri
+            originUrl:
+              type: string
+              format: uri
+            installerFilename:
+              type: [string, 'null']
+            installerType:
+              type: [string, 'null']
+            contentType:
+              type: [string, 'null']
+            sizeBytes:
+              type: [integer, 'null']
+              format: int64
+            finalDomain:
+              type: [string, 'null']
+            score:
+              type: [integer, 'null']
+            checkedAt:
+              type: [string, 'null']
+              format: date-time
+            expiresAt:
+              type: [string, 'null']
+              format: date-time
+            downloadOptions:
+              type: array
+              items:
+                $ref: '#/components/schemas/DownloadOption'
+            notes:
+              type: string
+    ManualInstallerInspectionRequest:
+      type: object
+      additionalProperties: false
+      required: [sourcePageUrl]
+      anyOf:
+        - required: [installerUrl]
+        - required: [installerUrls]
+      properties:
+        installerUrl:
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: Compatibilidad con clientes anteriores; se cifra y nunca se devuelve.
+        installerUrls:
+          $ref: '#/components/schemas/ManualInstallerUrls'
+        sourcePageUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: Página superior común de la que proceden los instaladores.
+    ManualInstallerUrls:
+      allOf:
+        - $ref: '#/components/schemas/WebsiteAppInstallerUrls'
+        - type: object
+          description: Debe incluir al menos una URI HTTPS no nula; los huecos son opcionales.
+          anyOf:
+            - required: [windows]
+              properties:
+                windows:
+                  type: string
+            - required: [macos]
+              properties:
+                macos:
+                  type: string
+            - required: [linux]
+              properties:
+                linux:
+                  type: string
+    ManualFieldSuggestion:
+      type: object
+      additionalProperties: false
+      required: [value, source]
+      properties:
+        value:
+          type: [string, 'null']
+        source:
+          type: string
+          enum:
+            - current
+            - json_ld
+            - open_graph
+            - twitter
+            - canonical
+            - filename
+            - generated_ai
+            - manual
+            - source_page
+            - unavailable
+    ManualInstallerSuggestions:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - publisher
+        - officialUrl
+        - latestVersion
+        - description
+        - longDescription
+        - iconUrl
+      properties:
+        name:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        publisher:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        officialUrl:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        latestVersion:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        description:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        longDescription:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        iconUrl:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+    ManualInstallerTechnicalData:
+      type: object
+      additionalProperties: false
+      required:
+        - finalDomain
+        - filename
+        - extension
+        - contentType
+        - sizeBytes
+        - version
+        - operatingSystem
+        - architecture
+        - platformRequired
+      properties:
+        finalDomain:
+          type: [string, 'null']
+        filename:
+          type: [string, 'null']
+        extension:
+          type: [string, 'null']
+        contentType:
+          type: [string, 'null']
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+        version:
+          type: [string, 'null']
+        operatingSystem:
+          type: [string, 'null']
+          enum: [windows, macos, linux, null]
+        architecture:
+          type: string
+          enum: [x86_64, x86, aarch64, unknown]
+        platformRequired:
+          type: boolean
+    ManualInstallerAiState:
+      type: object
+      additionalProperties: false
+      required: [status, provider, model]
+      properties:
+        status:
+          type: string
+          enum: [ready, unavailable, failed]
+        provider:
+          type: [string, 'null']
+        model:
+          type: [string, 'null']
+    ManualInstallerInspection:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - appId
+        - status
+        - phase
+        - expectedAppVersion
+        - warnings
+        - suggestions
+        - installer
+        - installers
+        - ai
+        - errorCode
+        - sourceRef
+        - createdAt
+        - updatedAt
+        - expiresAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        appId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, ready, failed, applied, expired]
+        phase:
+          type: string
+        expectedAppVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        warnings:
+          type: array
+          items:
+            type: string
+        suggestions:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerSuggestions'
+            - type: 'null'
+        installer:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerTechnicalData'
+            - type: 'null'
+        installers:
+          type: array
+          minItems: 0
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/ManualInstallerTechnicalData'
+        ai:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerAiState'
+            - type: 'null'
+        errorCode:
+          type: [string, 'null']
+        sourceRef:
+          type: [string, 'null']
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    ManualInstallerApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedAppVersion, name]
+      properties:
+        expectedAppVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        publisher:
+          type: [string, 'null']
+          maxLength: 180
+        officialUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        latestVersion:
+          type: [string, 'null']
+          maxLength: 100
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        longDescription:
+          type: [string, 'null']
+          maxLength: 12000
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        operatingSystem:
+          type: [string, 'null']
+          enum: [windows, macos, linux, null]
+    ManualInstallerApplyResponse:
+      type: object
+      additionalProperties: false
+      required: [application, sourceRef, sourceRefs, warnings]
+      properties:
+        application:
+          $ref: '#/components/schemas/AppDetails'
+        sourceRef:
+          type: string
+          format: uuid
+        sourceRefs:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        warnings:
+          type: array
+          items:
+            type: string
+    WebsiteAppInstallerUrls:
+      type: object
+      additionalProperties: false
+      properties:
+        windows:
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+        macos:
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+        linux:
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+      description: URI directas opcionales, cifradas y vinculadas al sistema operativo indicado.
+    WebsiteAppDiscoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [officialUrl]
+      properties:
+        officialUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: Web pública del producto; se cifra durante el trabajo.
+        installerUrls:
+          $ref: '#/components/schemas/WebsiteAppInstallerUrls'
+    WebsiteAppDiscoveryInstaller:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - finalDomain
+        - filename
+        - extension
+        - contentType
+        - sizeBytes
+        - version
+        - operatingSystem
+        - architecture
+      properties:
+        id:
+          type: string
+          format: uuid
+        finalDomain:
+          type: [string, 'null']
+        filename:
+          type: [string, 'null']
+        extension:
+          type: [string, 'null']
+        contentType:
+          type: [string, 'null']
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+        version:
+          type: [string, 'null']
+        operatingSystem:
+          type: string
+          enum: [windows, macos, linux]
+        architecture:
+          type: string
+          enum: [x86_64, x86, aarch64, unknown]
+    WebsiteAppDiscovery:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - phase
+        - warnings
+        - providedInstallerPlatforms
+        - suggestions
+        - installers
+        - ai
+        - errorCode
+        - appliedAppId
+        - createdAt
+        - updatedAt
+        - expiresAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, ready, failed, applied, expired]
+        phase:
+          type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        providedInstallerPlatforms:
+          type: array
+          items:
+            type: string
+            enum: [windows, macos, linux]
+          description: Sistemas con una URI opcional aportada; nunca expone esas URI.
+        suggestions:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerSuggestions'
+            - type: 'null'
+        installers:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebsiteAppDiscoveryInstaller'
+        ai:
+          oneOf:
+            - $ref: '#/components/schemas/ManualInstallerAiState'
+            - type: 'null'
+        errorCode:
+          type: [string, 'null']
+        appliedAppId:
+          type: [string, 'null']
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    WebsiteAppDiscoveryApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [name, officialUrl]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 180
+        publisher:
+          type: [string, 'null']
+          maxLength: 180
+        officialUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+        latestVersion:
+          type: [string, 'null']
+          maxLength: 100
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        longDescription:
+          type: [string, 'null']
+          maxLength: 12000
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+    WebsiteAppDiscoveryApplyResponse:
+      type: object
+      additionalProperties: false
+      required: [application, installerCount, warnings]
+      properties:
+        application:
+          $ref: '#/components/schemas/AppDetails'
+        installerCount:
+          type: integer
+          minimum: 0
+        warnings:
+          type: array
+          items:
+            type: string
+    DownloadOption:
+      type: object
+      required: [id, operatingSystem, architecture, isLatest, sourceLabel, score, isPrimary]
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: [string, 'null']
+        extension:
+          type: [string, 'null']
+        operatingSystem:
+          type: string
+        architecture:
+          type: string
+        version:
+          type: [string, 'null']
+        isLatest:
+          type: boolean
+        versionStatus:
+          type: [string, 'null']
+        sourceLabel:
+          type: string
+        score:
+          type: integer
+        finalDomain:
+          type: [string, 'null']
+        isPrimary:
+          type: boolean
+    AppPage:
+      type: object
+      required: [data, page, pageSize, total, requestedMode, appliedMode]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/App'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+        requestedMode:
+          $ref: '#/components/schemas/SearchMode'
+        appliedMode:
+          $ref: '#/components/schemas/SearchMode'
+        modelVersion:
+          type: [string, 'null']
+        indexVersion:
+          type: [string, 'null']
+        degradedReason:
+          type: [string, 'null']
+    SearchMode:
+      type: string
+      enum: [lexical, semantic]
+    CatalogStats:
+      type: object
+      required: [total, filters, lastScrape, generatedAt]
+      properties:
+        total:
+          type: integer
+          format: int64
+        filters:
+          type: object
+          required: [all, available, review, missing]
+          properties:
+            all:
+              type: integer
+              format: int64
+            available:
+              type: integer
+              format: int64
+            review:
+              type: integer
+              format: int64
+            missing:
+              type: integer
+              format: int64
+        lastScrape:
+          type: [object, 'null']
+        generatedAt:
+          type: string
+          format: date-time
+    CreateDownloadJobRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        appIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        bundleId:
+          type: string
+          minLength: 1
+        operatingSystems:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [windows, linux, macos]
+        notifyWhenReady:
+          type: boolean
+          default: false
+      oneOf:
+        - required: [appIds]
+        - required: [bundleId]
+    DownloadJobStatus:
+      type: string
+      enum: [QUEUED, RESOLVING, DOWNLOADING, PACKAGING, READY, PARTIAL, MANUAL_ONLY, FAILED, CANCELLED, EXPIRED]
+    DownloadFileLink:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+    DownloadItem:
+      type: object
+      required: [id, appId, appName, status, bytesDownloaded]
+      properties:
+        id:
+          type: string
+          format: uuid
+        appId:
+          type: string
+          format: uuid
+        appName:
+          type: string
+          minLength: 1
+        officialPageUrl:
+          type: [string, 'null']
+          format: uri
+        status:
+          type: string
+          enum: [QUEUED, RESOLVING, DOWNLOADING, COMPLETED, FAILED, CANCELLED]
+        bytesDownloaded:
+          type: integer
+          format: int64
+        sha256:
+          type: [string, 'null']
+        errorCode:
+          type: [string, 'null']
+    DownloadJob:
+      type: object
+      required: [id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode, items, createdAt, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/DownloadJobStatus'
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        requestedCount:
+          type: integer
+          minimum: 1
+        acceptedCount:
+          type: integer
+          minimum: 1
+        omittedCount:
+          type: integer
+          minimum: 0
+        failureCode:
+          type: [string, 'null']
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadItem'
+        artifactSizeBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+        artifactSha256:
+          type: [string, 'null']
+          pattern: '^[a-f0-9]{64}$'
+        waitReason:
+          type: [string, 'null']
+        retryAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    InternalDownloadItemMetadataRequest:
+      type: object
+      additionalProperties: false
+      required: [itemIds]
+      properties:
+        itemIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    InternalDownloadItemMetadata:
+      type: object
+      additionalProperties: false
+      required: [itemId, appId, appName, officialPageUrl]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        appId:
+          type: string
+          format: uuid
+        appName:
+          type: string
+          minLength: 1
+        officialPageUrl:
+          type: [string, 'null']
+          format: uri
+    FacetItem:
+      type: object
+      required: [label, value, normalizedValue, letter, count]
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+        normalizedValue:
+          type: string
+        letter:
+          type: string
+        count:
+          type: integer
+          format: int64
+    CatalogFacets:
+      type: object
+      required: [tags, publishers, requestedMode, appliedMode]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetItem'
+        publishers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FacetItem'
+        requestedMode:
+          $ref: '#/components/schemas/SearchMode'
+        appliedMode:
+          $ref: '#/components/schemas/SearchMode'
+        modelVersion:
+          type: [string, 'null']
+        indexVersion:
+          type: [string, 'null']
+        degradedReason:
+          type: [string, 'null']
+    BundleSummary:
+      type: object
+      required: [id, slug, name, type, visibility, starCount, appCount, operatingSystems, platformAvailability, tags, previewApps, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        type:
+          type: string
+          enum: [official, community, user]
+        visibility:
+          type: string
+          enum: [official, public, private]
+        starCount:
+          type: integer
+        appCount:
+          type: integer
+        operatingSystems:
+          description: Sistemas con un instalador seleccionable para al menos una aplicación activa del bundle. Al crear un trabajo para un sistema, se omiten las aplicaciones sin fuente compatible.
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [windows, linux, macos]
+        platformAvailability:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/BundlePlatformAvailability'
+        tags:
+          type: array
+          items:
+            type: string
+        previewApps:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/App'
+        updatedAt:
+          type: string
+          format: date-time
+    BundlePlatformAvailability:
+      type: object
+      additionalProperties: false
+      required: [operatingSystem, downloadableAppCount, previewApps]
+      properties:
+        operatingSystem:
+          type: string
+          enum: [windows, linux, macos]
+        downloadableAppCount:
+          type: integer
+          minimum: 1
+        previewApps:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/App'
+    Bundle:
+      allOf:
+        - $ref: '#/components/schemas/BundleSummary'
+        - type: object
+          required: [apps]
+          properties:
+            apps:
+              type: array
+              maxItems: 100
+              items:
+                $ref: '#/components/schemas/App'
+    BundlePage:
+      type: object
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+    OwnBundleSummary:
+      type: object
+      additionalProperties: false
+      required: [id, slug, name, visibility, appCount, tags, updatedAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        visibility:
+          type: string
+          enum: [private, public]
+        appCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        tags:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    OwnBundle:
+      allOf:
+        - $ref: '#/components/schemas/OwnBundleSummary'
+        - type: object
+          additionalProperties: false
+          required: [apps]
+          properties:
+            apps:
+              type: array
+              maxItems: 100
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/App'
+    OwnBundlePage:
+      type: object
+      additionalProperties: false
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnBundleSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+    CreateOwnBundleRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        slug:
+          type: [string, 'null']
+          maxLength: 180
+        tags:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 80
+        appIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+    UpdateOwnBundleRequest:
+      type: object
+      additionalProperties: false
+      required: [name, visibility, expectedVersion]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        slug:
+          type: [string, 'null']
+          maxLength: 180
+        visibility:
+          type: string
+          enum: [private, public]
+        tags:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 80
+        appIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+        expectedVersion:
+          type: integer
+          format: int64
+          minimum: 0
+    DownloadHistoryItem:
+      type: object
+      additionalProperties: false
+      required: [appId, appName, jobId, downloadedAt]
+      properties:
+        appId:
+          type: string
+          format: uuid
+        appName:
+          type: string
+        slug:
+          type: [string, 'null']
+        iconUrl:
+          type: [string, 'null']
+          format: uri
+        jobId:
+          type: string
+          format: uuid
+        downloadedAt:
+          type: string
+          format: date-time
+    DownloadHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadHistoryItem'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+    AccountDashboard:
+      type: object
+      additionalProperties: false
+      required: [account, counts, recentDownloads, recentBundles]
+      properties:
+        account:
+          $ref: '#/components/schemas/User'
+        counts:
+          type: object
+          additionalProperties: false
+          required: [bundles, publicBundles, privateBundles, downloads]
+          properties:
+            bundles: { type: integer, format: int64 }
+            publicBundles: { type: integer, format: int64 }
+            privateBundles: { type: integer, format: int64 }
+            downloads: { type: integer, format: int64 }
+        recentDownloads:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/DownloadHistoryItem'
+        recentBundles:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/OwnBundleSummary'
+    SemanticArtifactState:
+      type: string
+      enum: [ready, incompatible, failed, deleted]
+    SemanticDeploymentState:
+      type: string
+      enum: [not_prepared, preparing, ready, active, stale, failed]
+    SemanticOperationKind:
+      type: string
+      enum: [benchmark, prepare, activate, delete]
+    SemanticOperationStatus:
+      type: string
+      enum: [queued, running, cancel_requested, cancelled, succeeded, failed]
+    SemanticIndexState:
+      type: object
+      required: [expected, indexed, complete]
+      properties:
+        indexVersion:
+          type: [string, 'null']
+        snapshotHash:
+          type: [string, 'null']
+        expected:
+          type: integer
+          minimum: 0
+        indexed:
+          type: integer
+          minimum: 0
+        complete:
+          type: boolean
+        builtAt:
+          type: [string, 'null']
+          format: date-time
+    SemanticBenchmarkMetric:
+      type: object
+      required:
+        - modelId
+        - modelKey
+        - modelVersion
+        - repository
+        - variant
+        - stage
+        - scope
+        - eligible
+        - ndcgAt10
+        - mrrAt10
+        - mapAt10
+        - recallAt10
+        - recallAt20
+        - exactMrrAt1
+        - p50Ms
+        - p95Ms
+        - p99Ms
+        - throughputQps
+        - embeddingBuildMs
+        - hnswBuildMs
+        - indexBuildMs
+        - hnswRecallAt20
+        - vectorBytes
+        - hnswIndexBytes
+        - indexBytes
+        - rssBytes
+        - vramBytes
+        - totalScore
+        - minimumSimilarity
+      properties:
+        modelId:
+          type: string
+          format: uuid
+        modelKey:
+          type: string
+        modelVersion:
+          type: string
+        repository:
+          type: string
+        variant:
+          type: string
+        stage:
+          type: string
+        scope:
+          type: string
+          enum: [historical, smoke, full]
+        eligible:
+          type: boolean
+        recommended:
+          type: boolean
+        ndcgAt10:
+          type: number
+        mrrAt10:
+          type: number
+        mapAt10:
+          type: number
+        recallAt10:
+          type: number
+        recallAt20:
+          type: number
+        exactMrrAt1:
+          type: number
+        p50Ms:
+          type: number
+        p95Ms:
+          type: number
+        p99Ms:
+          type: number
+        throughputQps:
+          type: number
+        embeddingBuildMs:
+          type: number
+        hnswBuildMs:
+          type: number
+        indexBuildMs:
+          type: number
+        hnswRecallAt20:
+          type: number
+        vectorBytes:
+          type: integer
+          format: int64
+        hnswIndexBytes:
+          type: integer
+          format: int64
+        indexBytes:
+          type: integer
+          format: int64
+        rssBytes:
+          type: integer
+          format: int64
+        vramBytes:
+          type: integer
+          format: int64
+        totalScore:
+          type: number
+        minimumSimilarity:
+          type: number
+        loadMs:
+          type: number
+        warmupMs:
+          type: number
+        dimensions:
+          type: integer
+          minimum: 1
+          maximum: 2000
+        artifactBytes:
+          type: integer
+          format: int64
+    SemanticBenchmarkRun:
+      type: object
+      required:
+        - id
+        - datasetHash
+        - seed
+        - configuration
+        - metrics
+        - modelIds
+        - scope
+        - documentCount
+        - queryCount
+        - metricsSchemaVersion
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        datasetHash:
+          type: string
+        seed:
+          type: integer
+        configuration:
+          type: object
+          additionalProperties: true
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/SemanticBenchmarkMetric'
+        selectedModelVersion:
+          type: [string, 'null']
+        modelIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        scope:
+          type: string
+          enum: [historical, smoke, full]
+        hardwareFingerprint:
+          type: [string, 'null']
+        documentCount:
+          type: integer
+          minimum: 0
+        queryCount:
+          type: integer
+          minimum: 0
+        metricsSchemaVersion:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+    SemanticModel:
+      type: object
+      required:
+        - id
+        - displayName
+        - repository
+        - revision
+        - artifactState
+        - deploymentState
+        - artifactBytes
+        - queryPrefix
+        - passagePrefix
+        - minimumSimilarity
+        - metadata
+        - active
+        - createdAt
+        - index
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        repository:
+          type: string
+        revision:
+          type: string
+        artifactState:
+          $ref: '#/components/schemas/SemanticArtifactState'
+        deploymentState:
+          $ref: '#/components/schemas/SemanticDeploymentState'
+        artifactBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        dimensions:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 2000
+        queryPrefix:
+          type: string
+        passagePrefix:
+          type: string
+        minimumSimilarity:
+          type: number
+          minimum: -1
+          maximum: 1
+        metadata:
+          type: object
+          additionalProperties: true
+        validationMessage:
+          type: [string, 'null']
+        modelVersion:
+          type: [string, 'null']
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        downloadedAt:
+          type: [string, 'null']
+          format: date-time
+        validatedAt:
+          type: [string, 'null']
+          format: date-time
+        activatedAt:
+          type: [string, 'null']
+          format: date-time
+        index:
+          $ref: '#/components/schemas/SemanticIndexState'
+        lastBenchmark:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, datasetHash, scope, current, createdAt]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                datasetHash:
+                  type: string
+                scope:
+                  type: string
+                  enum: [historical, smoke, full]
+                hardwareFingerprint:
+                  type: [string, 'null']
+                metric:
+                  oneOf:
+                    - type: 'null'
+                    - $ref: '#/components/schemas/SemanticBenchmarkMetric'
+                current:
+                  type: boolean
+                createdAt:
+                  type: string
+                  format: date-time
+    SemanticOverview:
+      type: object
+      required: [service, searchReady, disk, activeOperations]
+      properties:
+        service:
+          type: string
+        searchReady:
+          type: boolean
+        activeModel:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/SemanticModel'
+        disk:
+          type: object
+          required:
+            [modelBytes, freeBytes, totalBytes, reservedBytes, maximumModelBytes]
+          properties:
+            modelBytes:
+              type: integer
+              format: int64
+            freeBytes:
+              type: integer
+              format: int64
+            totalBytes:
+              type: integer
+              format: int64
+            reservedBytes:
+              type: integer
+              format: int64
+            maximumModelBytes:
+              type: integer
+              format: int64
+        activeOperations:
+          type: integer
+          minimum: 0
+    SemanticOperation:
+      type: object
+      required:
+        - id
+        - kind
+        - status
+        - phase
+        - progress
+        - result
+        - actor
+        - attempts
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/SemanticOperationKind'
+        status:
+          $ref: '#/components/schemas/SemanticOperationStatus'
+        phase:
+          type: string
+        modelId:
+          type: [string, 'null']
+          format: uuid
+        modelIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        modelVersion:
+          type: [string, 'null']
+        repository:
+          type: [string, 'null']
+        revision:
+          type: [string, 'null']
+        progress:
+          type: object
+          required: [current, total, unit]
+          properties:
+            current:
+              type: number
+            total:
+              type: number
+            unit:
+              type: string
+        message:
+          type: [string, 'null']
+        errorCode:
+          type: [string, 'null']
+        result:
+          type: object
+          additionalProperties: true
+        actor:
+          type: string
+        attempts:
+          type: integer
+          minimum: 0
+        leaseOwner:
+          type: [string, 'null']
+        leaseUntil:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: [string, 'null']
+          format: date-time
+    SemanticOperationAccepted:
+      type: object
+      required: [operationId, status]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/SemanticOperationStatus'
+        modelId:
+          type: string
+          format: uuid
+    ActivateSemanticModelRequest:
+      type: object
+      required: [benchmarkRunId]
+      properties:
+        benchmarkRunId:
+          type: string
+          format: uuid
+        expectedCurrentModelId:
+          type: [string, 'null']
+          format: uuid
+        confirmRegression:
+          type: boolean
+          default: false
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true

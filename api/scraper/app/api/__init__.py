@@ -1,1 +1,2 @@
-"""FastAPI route modules."""
+"""Inicializa el paquete `api`.
+"""

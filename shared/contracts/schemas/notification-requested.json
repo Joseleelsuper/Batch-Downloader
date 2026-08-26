@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://batch-downloader.local/schemas/notification-requested.json",
+  "title": "notification.email.requested.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "type", "schemaVersion", "occurredAt", "correlationId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "type": { "const": "notification.email.requested" },
+    "schemaVersion": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string" },
+    "causationId": { "type": ["string", "null"] },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recipient", "template", "parameters"],
+      "properties": {
+        "recipient": { "type": "string", "format": "email" },
+        "template": { "enum": ["EMAIL_VERIFICATION", "PASSWORD_RESET", "DOWNLOAD_READY", "DOWNLOAD_FAILED"] },
+        "parameters": {
+          "type": "object",
+          "description": "Parámetros de plantilla. En EMAIL_VERIFICATION y PASSWORD_RESET, token debe ser un sobre AES-GCM enc:v1:; el texto claro se rechaza.",
+          "additionalProperties": { "type": ["string", "number", "boolean"] }
+        }
+      }
+    }
+  }
+}

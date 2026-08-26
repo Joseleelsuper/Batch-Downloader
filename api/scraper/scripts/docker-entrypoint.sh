@@ -3,15 +3,14 @@ set -eu
 
 python - <<'PY'
 import asyncio
-import os
+from app.core.free_threading import assert_free_threaded_runtime
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
+from app.core.config import get_settings
 
 async def main():
-    url = os.environ.get("SCRAPPER_DATABASE_URL")
-    if not url:
-        return
-    engine = create_async_engine(url, pool_pre_ping=True)
+    assert_free_threaded_runtime()
+    engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
     last_error = None
     for _ in range(60):
         try:

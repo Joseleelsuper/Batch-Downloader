@@ -4,6 +4,15 @@
   margin: 24px 12px 0 16px;
 }
 
+.facet-link-row {
+  position: relative;
+  min-width: 0;
+}
+
+.facet-link-row-clearable .facet-link-button {
+  padding-inline-end: 48px;
+}
+
 .facet-link-button {
   display: grid;
   grid-template-columns: 24px 1fr auto;
@@ -30,6 +39,27 @@
   border-radius: 999px;
   text-align: center;
   font-size: 13px;
+}
+
+.facet-clear-button {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: 7px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #526174;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  place-items: center;
+  transform: translateY(-50%);
+}
+
+.facet-clear-button:hover {
+  color: var(--teal-dark);
+  background: var(--teal-soft);
 }
 
 .facet-page {
@@ -71,46 +101,6 @@
 .facet-back-link {
   min-width: 154px;
   text-decoration: none;
-}
-
-.facet-match-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  max-width: 460px;
-  min-height: 70px;
-  margin-bottom: 20px;
-  padding: 12px 16px;
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.facet-match-panel div {
-  display: grid;
-  gap: 4px;
-}
-
-.facet-match-panel span {
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.facet-match-panel strong {
-  color: #111827;
-}
-
-.facet-match-panel input {
-  width: 92px;
-  height: 42px;
-  padding: 0 10px;
-  color: #111827;
-  background: #f8fbfc;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-weight: 750;
 }
 
 .facet-letter-nav {
@@ -183,5 +173,18 @@
 
 .facet-chip-active strong {
   background: var(--teal);
+}
+
+.facet-empty-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.facet-empty-state p {
+  margin: 0;
+  color: var(--muted);
 }
 

@@ -29,27 +29,27 @@ jobs:
             context: .
             dockerfile: services/webapp/Dockerfile
           - image: core-api
-            context: services/core-api
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: services/core-api/Dockerfile
           - image: scraper
             context: api/scraper
-            dockerfile: Dockerfile
+            dockerfile: api/scraper/Dockerfile
           - image: semantic-service
             context: services/semantic-service
-            dockerfile: Dockerfile
+            dockerfile: services/semantic-service/Dockerfile
           - image: notification-service
-            context: services/notification-service
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: services/notification-service/Dockerfile
           - image: download-worker
-            context: services/download-worker
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: services/download-worker/Dockerfile
           - image: translation-service
-            context: services/translation-service
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: services/translation-service/Dockerfile
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -66,7 +66,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
-          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.GHCR_OWNER }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:main

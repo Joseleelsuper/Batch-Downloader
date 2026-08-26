@@ -1,0 +1,500 @@
+name: batch-downloader
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: ["--log-bin-trust-function-creators=1", "--max-connections=32", "--long-query-time=0.5"]
+    cpu_shares: 1024
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_HOST_PORT}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$${MYSQL_PASSWORD} mysql --protocol=TCP -h 127.0.0.1 -u$${MYSQL_USER} -D $${MYSQL_DATABASE} --silent --skip-column-names -e 'SELECT 1' | grep -qx 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    command: ["postgres", "-c", "max_connections=20"]
+    cpu_shares: 512
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_HOST_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc 'SELECT 1' | grep -qx 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    cpu_shares: 1024
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "${RABBITMQ_HOST_PORT}:5672"
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    cpu_shares: 1024
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+      MINIO_API_STALE_UPLOADS_EXPIRY: ${MINIO_STALE_UPLOADS_EXPIRY}
+      MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: ${MINIO_STALE_UPLOADS_CLEANUP_INTERVAL}
+    ports:
+      - "127.0.0.1:${MINIO_API_HOST_PORT}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/cluster >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/config/init.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
+      MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
+      MINIO_CORE_ACCESS_KEY: ${MINIO_CORE_ACCESS_KEY}
+      MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
+      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
+      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
+    volumes:
+      - ./docker/minio/init.sh:/config/init.sh:ro
+      - ./docker/minio/lifecycle-zips.json:/config/lifecycle-zips.json:ro
+      - ./docker/minio/core-policy.json:/config/core-policy.json:ro
+      - ./docker/minio/worker-policy.json:/config/worker-policy.json:ro
+
+  scraper-api:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-scraper:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    env_file:
+      - path: ./api/scraper/.env.example
+      - path: ./api/scraper/.env
+        required: false
+    environment:
+      SCRAPER_DATABASE_HOST: mysql
+      SCRAPER_DATABASE_PORT: 3306
+      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
+      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
+      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
+      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
+      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
+      SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+    cpu_shares: 512
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  scraper-scheduler:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-scraper:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    command: ["scheduler"]
+    env_file:
+      - path: ./api/scraper/.env.scheduler.example
+      - path: ./api/scraper/.env.scheduler
+        required: false
+    environment:
+      SCRAPER_DATABASE_HOST: mysql
+      SCRAPER_DATABASE_PORT: 3306
+      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
+      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
+      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
+      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
+      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
+    cpu_shares: 256
+    restart: unless-stopped
+    depends_on:
+      scraper-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "scheduler"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  webapp:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-webapp:${GHCR_IMAGE_TAG}
+    cpu_shares: 1024
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "${WEBAPP_HOST_PORT}:80"
+      - "${MINIO_DOWNLOAD_HOST_PORT}:8080"
+    depends_on:
+      core-api:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  core-api:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-core-api:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    env_file:
+      - path: ./services/core-api/.env.example
+      - path: ./services/core-api/.env
+        required: false
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      CORE_API_ADMIN_USERNAME: ${CORE_API_ADMIN_USERNAME}
+      CORE_API_ADMIN_EMAIL: ${CORE_API_ADMIN_EMAIL}
+      CORE_API_ADMIN_PASSWORD: ${CORE_API_ADMIN_PASSWORD}
+      APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      NOTIFICATION_TOKEN_ENCRYPTION_KEY: ${NOTIFICATION_TOKEN_ENCRYPTION_KEY}
+      SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
+      CORE_API_DOWNLOAD_OWNER_SECRET: ${CORE_API_DOWNLOAD_OWNER_SECRET}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_COMMAND_EXCHANGE: ${RABBITMQ_COMMAND_EXCHANGE}
+      RABBITMQ_EVENT_EXCHANGE: ${RABBITMQ_EVENT_EXCHANGE}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
+      MINIO_CORE_ACCESS_KEY: ${MINIO_CORE_ACCESS_KEY}
+      MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
+      MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
+      MINIO_REGION: ${MINIO_REGION}
+    cpu_shares: 1024
+    restart: unless-stopped
+    ports:
+      - "${CORE_API_HOST_PORT}:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      scraper-api:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  semantic-service:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    env_file:
+      - path: ./services/semantic-service/.env.example
+      - path: ./services/semantic-service/.env
+        required: false
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
+      SEMANTIC_MODEL_CACHE_DIR: /models
+      SEMANTIC_REPORTS_DIR: /reports
+    cpu_shares: 512
+    restart: unless-stopped
+    ports:
+      - "${SEMANTIC_SERVICE_HOST_PORT}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - semantic_models:/models
+      - semantic_reports:/reports
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/semantic/health/ready', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 180s
+
+  semantic-indexer:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    command: ["python", "-m", "app.indexer", "--loop"]
+    env_file:
+      - path: ./services/semantic-service/.env.indexer.example
+      - path: ./services/semantic-service/.env.indexer
+        required: false
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
+      SEMANTIC_MODEL_CACHE_DIR: /models
+      SEMANTIC_REPORTS_DIR: /reports
+    cpu_shares: 128
+    depends_on:
+      semantic-service:
+        condition: service_healthy
+      scraper-api:
+        condition: service_healthy
+    volumes:
+      - semantic_models:/models
+      - semantic_reports:/reports
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "indexer", "--writable", "/models", "--writable", "/reports"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  semantic-model-worker:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    command: ["python", "-m", "app.model_worker"]
+    env_file:
+      - path: ./services/semantic-service/.env.model-worker.example
+      - path: ./services/semantic-service/.env.model-worker
+        required: false
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
+      SEMANTIC_SERVICE_URL: http://semantic-service:8000
+      SEMANTIC_MODEL_CACHE_DIR: /models
+      SEMANTIC_REPORTS_DIR: /reports
+    cpu_shares: 128
+    depends_on:
+      semantic-service:
+        condition: service_healthy
+      scraper-api:
+        condition: service_healthy
+    volumes:
+      - semantic_models:/models
+      - semantic_reports:/reports
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "model-worker", "--writable", "/models", "--writable", "/reports"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  semantic-trainer:
+    profiles: ["training"]
+    restart: "no"
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    command: ["python", "-m", "app.trainer"]
+    env_file:
+      - path: ./services/semantic-service/.env.trainer.example
+      - path: ./services/semantic-service/.env.trainer
+        required: false
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      SEMANTIC_MODEL_CACHE_DIR: /models
+      SEMANTIC_REPORTS_DIR: /reports
+    cpu_shares: 128
+    depends_on:
+      semantic-service:
+        condition: service_healthy
+    volumes:
+      - semantic_models:/models
+      - semantic_reports:/reports
+
+  mailpit:
+    image: axllent/mailpit:v1.30.0
+    cpu_shares: 128
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_SMTP_HOST_PORT}:1025"
+      - "${MAILPIT_UI_HOST_PORT}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  notification-service:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-notification-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    env_file:
+      - path: ./services/notification-service/.env.example
+      - path: ./services/notification-service/.env
+        required: false
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_COMMAND_EXCHANGE: ${RABBITMQ_COMMAND_EXCHANGE}
+      NOTIFICATION_SERVICE_SMTP_USERNAME: ${NOTIFICATION_SERVICE_SMTP_USERNAME}
+      NOTIFICATION_SERVICE_SMTP_PASSWORD: ${NOTIFICATION_SERVICE_SMTP_PASSWORD}
+      APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL}
+      NOTIFICATION_TOKEN_ENCRYPTION_KEY: ${NOTIFICATION_TOKEN_ENCRYPTION_KEY}
+    cpu_shares: 256
+    restart: unless-stopped
+    ports:
+      - "${NOTIFICATION_SERVICE_HOST_PORT}:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - notification_service_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  download-worker:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-download-worker:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    env_file:
+      - path: ./services/download-worker/.env.example
+      - path: ./services/download-worker/.env
+        required: false
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
+      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
+      MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
+      MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
+      SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+    cpu_shares: 768
+    restart: unless-stopped
+    ports:
+      - "${DOWNLOAD_WORKER_HOST_PORT}:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      core-api:
+        condition: service_healthy
+      scraper-api:
+        condition: service_healthy
+    volumes:
+      - download_worker_data:/app/data
+      - download_worker_temp:/tmp/batch-downloader
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  translation-service:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-translation-service:${GHCR_IMAGE_TAG}
+    pull_policy: always
+    env_file:
+      - path: ./services/translation-service/.env.example
+      - path: ./services/translation-service/.env
+        required: false
+    cpu_shares: 128
+    restart: unless-stopped
+    ports:
+      - "${TRANSLATION_SERVICE_HOST_PORT}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+volumes:
+  mysql_data:
+  postgres_data:
+  rabbitmq_data:
+  minio_data:
+  notification_service_data:
+  download_worker_data:
+  download_worker_temp:
+  semantic_models:
+  semantic_reports:

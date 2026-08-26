@@ -1,20 +1,27 @@
-"""add scraper pipeline queues and installer metadata
-
-Revision ID: 20260707_0004
-Revises: 20260630_0003
-Create Date: 2026-07-07
+"""Define la migración de esquema `20260707_0004_scraper_pipeline`.
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
+
 revision = "20260707_0004"
+"""Estado global asociado a `revision`.
+"""
 down_revision = "20260630_0003"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
+    """Ejecuta la operación `upgrade`.
+    """
     op.add_column("resolved_sources", sa.Column("release_rank", sa.Integer(), nullable=True))
     op.add_column(
         "resolved_sources",
@@ -79,8 +86,18 @@ def upgrade() -> None:
         sa.Column("available", sa.Integer(), server_default=sa.text("0"), nullable=False),
         sa.Column("review", sa.Integer(), server_default=sa.text("0"), nullable=False),
         sa.Column("unavailable", sa.Integer(), server_default=sa.text("0"), nullable=False),
-        sa.Column("queued_searcher_filter", sa.Integer(), server_default=sa.text("0"), nullable=False),
-        sa.Column("queued_filter_scraper", sa.Integer(), server_default=sa.text("0"), nullable=False),
+        sa.Column(
+            "queued_searcher_filter",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column(
+            "queued_filter_scraper",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
         sa.Column("captured_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["run_id"], ["scrape_runs.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -93,6 +110,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.drop_index("ix_scraper_metric_snapshots_captured", table_name="scraper_metric_snapshots")
     op.drop_table("scraper_metric_snapshots")
     op.drop_index("ix_scraper_snapshots_expires", table_name="scraper_worker_snapshots")

@@ -1,166 +1,186 @@
-﻿import {
-  ArrowDown,
-  ArrowUp,
-  Building2,
+import {
+  BrainCircuit,
   Boxes,
   ClipboardList,
   Globe2,
+  Github,
   Home,
   ListFilter,
   LogOut,
   PackagePlus,
   Play,
-  Plus,
-  RefreshCw,
-  RotateCcw,
-  Save,
   Shield,
-  Square,
-  Tags,
-  Trash2,
   UserCircle,
-  Wand2,
-  X,
 } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Suspense } from 'react';
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
+import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
+import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import { useTranslation } from './services/i18n';
+import { lazyNamed } from './routing/lazyNamed';
 import {
-  connectCatalogEvents,
-  connectScraperEvents,
-  createAdminApp,
-  createAdminBundle,
-  deleteAdminApp,
-  deleteAllAdminApps,
-  downloadSelectedApps,
-  fetchAdminApps,
-  fetchAdminAudit,
-  fetchAdminCurrentRun,
-  fetchAdminLogs,
-  fetchAdminMetrics,
-  fetchAdminQueues,
-  fetchAdminRequests,
-  fetchAdminRuns,
-  fetchAdminSnapshots,
-  fetchAppDetails,
-  fetchApps,
-  fetchBundle,
-  fetchBundles,
-  fetchCatalogFacets,
-  fetchCatalogStats,
-  generateAdminDescription,
-  login,
-  logout,
-  me,
-  patchAdminApp,
-  pruneTerminalScraperQueueItems,
-  recoverStuckScraperQueueItems,
-  retryFailedScraperQueueItems,
-  sendScraperCommand,
-  updateAdminBundle,
-} from './api/catalog';
-import {
-  catalogFiltersToSearchParams,
-  DEFAULT_CATALOG_FILTERS,
-  effectiveTagMatchMin,
-  nextFilters,
-  parseCatalogFilters,
-  toggleValue,
-  type CatalogFilterState,
-} from './catalogFilters';
-import { AppDetailsDrawer } from './components/AppDetailsDrawer';
-import { AppFilters } from './components/AppFilters';
-import { AppSearchBar } from './components/AppSearchBar';
-import { AppStatusBadge } from './components/AppStatusBadge';
-import { AppTable } from './components/AppTable';
-import { DownloadButton } from './components/DownloadButton';
-import { Pagination } from './components/Pagination';
-import { t } from './services/i18n';
-import type {
-  AppDetails,
-  AuditItem,
-  AuthUser,
-  BundleDetails,
-  BundleSummary,
-  CatalogFacets,
-  CatalogApp,
-  CatalogStats,
-  FacetItem,
-  FilterKey,
-  ResolverLogItem,
-  ScraperMetricItem,
-  ScraperQueueState,
-  ScraperRunSummary,
-  ScraperSnapshotItem,
-  SoftwareRequestItem,
-  SortKey,
-} from './types/catalog';
+  AdminAuditPage,
+  AdminBundlesPage,
+  AdminDashboard,
+  AdminRequestsPage,
+} from './pages/admin/AdminOverviewPages';
+import { CatalogPage, FacetDirectoryPage } from './pages/catalog/CatalogPages';
+import { BundleDetailPage } from './pages/public/BundleDetailPage';
+import { HomePage } from './pages/public/HomePage';
+import type { AuthUser } from './types/catalog';
 
-const DEFAULT_COUNTS: Record<FilterKey, number> = {
-  all: 0,
-  available: 0,
-  review: 0,
-  missing: 0,
-};
-
-const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
+const AdminAppsWorkbenchPage = lazyNamed(
+  () => import('./pages/admin/AdminAppsPage'),
+  'AdminAppsPage',
+);
+const SemanticAiPage = lazyNamed(
+  () => import('./pages/admin/SemanticAiPage'),
+  'SemanticAiPage',
+);
+const AdminScraperPage = lazyNamed(
+  () => import('./pages/admin/AdminScraperPage'),
+  'AdminScraperPage',
+);
+const AccountLayout = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'AccountLayout',
+);
+const AccountBundlesPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'AccountBundlesPage',
+);
+const AdminLoginPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'AdminLoginPage',
+);
+const BundleEditorPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'BundleEditorPage',
+);
+const DashboardPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'DashboardPage',
+);
+const ForgotPasswordPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'ForgotPasswordPage',
+);
+const ProfilePage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'ProfilePage',
+);
+const RegisterPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'RegisterPage',
+);
+const ResetPasswordPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'ResetPasswordPage',
+);
+const UserLoginPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'UserLoginPage',
+);
+const VerifyEmailPage = lazyNamed(
+  () => import('./pages/account/AccountPages'),
+  'VerifyEmailPage',
+);
 
 export default function App() {
-  const [auth, setAuth] = useState<AuthUser | null>(null);
-  const [checkingAuth, setCheckingAuth] = useState(true);
+  return <AuthProvider><AppRoutes /></AuthProvider>;
+}
 
-  useEffect(() => {
-    me()
-      .then(setAuth)
-      .catch(() => setAuth(null))
-      .finally(() => setCheckingAuth(false));
-  }, []);
+function AppRoutes() {
+  const { account: auth, status, signOut } = useAuth();
+  const checkingAuth = status === 'checking';
+  const onLogout = () => { void signOut(); };
 
   return (
-    <Routes>
-      <Route element={<PublicLayout auth={auth} onLogout={() => handleLogout(setAuth)} />}>
-        <Route index element={<HomePage />} />
-        <Route path="catalog" element={<CatalogPage />} />
-        <Route path="catalog/app/:appId" element={<CatalogPage />} />
-        <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
-        <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
-        <Route path="bundles/:slug" element={<BundleDetailPage />} />
-        <Route path="login" element={<LoginPage onLogin={setAuth} />} />
-      </Route>
-      <Route
-        path="admin"
-        element={
-          <RequireAdmin auth={auth} checking={checkingAuth}>
-            <AdminLayout onLogout={() => handleLogout(setAuth)} />
-          </RequireAdmin>
-        }
-      >
-        <Route index element={<AdminDashboard />} />
-        <Route path="apps" element={<AdminAppsPage />} />
-        <Route path="bundles" element={<AdminBundlesPage />} />
-        <Route path="scraper" element={<AdminScraperPage />} />
-        <Route path="requests" element={<AdminRequestsPage />} />
-        <Route path="audit" element={<AdminAuditPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <DownloadJobsProvider>
+      <Suspense fallback={<RouteLoading />}>
+        <Routes>
+        <Route element={<PublicLayout auth={auth} onLogout={onLogout} />}>
+          <Route index element={<HomePage />} />
+          <Route path="catalog" element={<CatalogPage />} />
+          <Route path="catalog/app/:appId" element={<CatalogPage />} />
+          <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
+          <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
+          <Route path="bundles/:slug" element={<BundleDetailPage />} />
+          <Route path="login" element={<UserLoginPage />} />
+          <Route path="register" element={<RegisterPage />} />
+          <Route path="verify-email" element={<VerifyEmailPage />} />
+          <Route path="forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="reset-password" element={<ResetPasswordPage />} />
+          <Route path="error" element={<PublicErrorPage />} />
+          <Route path="terms" element={<LegalPage kind="terms" />} />
+          <Route path="privacy" element={<LegalPage kind="privacy" />} />
+          <Route path="admin/login" element={<AdminLoginPage />} />
+        </Route>
+        <Route
+          element={
+            <RequireAccount auth={auth} checking={checkingAuth}>
+              <AccountLayout />
+            </RequireAccount>
+          }
+        >
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="dashboard/bundles" element={<AccountBundlesPage />} />
+          <Route path="dashboard/bundles/new" element={<BundleEditorPage />} />
+          <Route path="dashboard/bundles/:id/edit" element={<BundleEditorPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+        </Route>
+        <Route
+          path="admin"
+          element={
+            <RequireAdmin auth={auth} checking={checkingAuth}>
+              <AdminLayout onLogout={onLogout} />
+            </RequireAdmin>
+          }
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="apps" element={<AdminAppsWorkbenchPage />} />
+          <Route path="bundles" element={<AdminBundlesPage />} />
+          <Route path="scraper" element={<AdminScraperPage />} />
+          <Route path="semantic" element={<Navigate to="/admin/semantic/models" replace />} />
+          <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
+          <Route path="requests" element={<AdminRequestsPage />} />
+          <Route path="audit" element={<AdminAuditPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+      <GlobalDownloadJobOverlay />
+    </DownloadJobsProvider>
+  );
+}
+
+function RouteLoading() {
+  const t = useTranslation();
+  return (
+    <main className="public-page">
+      <p className="loading-label" role="status" aria-live="polite">
+        {t('common.loading')}
+      </p>
+    </main>
   );
 }
 
 function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
   const location = useLocation();
-  const catalogSurface = location.pathname.startsWith('/catalog');
   const lockedCatalogSurface = location.pathname === '/catalog' || location.pathname.startsWith('/catalog/app/');
 
   return (
     <div className={`site-shell ${lockedCatalogSurface ? 'site-shell-app' : ''}`}>
       <Topbar auth={auth} onLogout={onLogout} />
       <Outlet />
-      {catalogSurface ? null : <Footer />}
+      <Footer />
     </div>
   );
 }
 
 function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
+  const t = useTranslation();
   return (
     <header className="topbar">
       <Link className="brand" to="/">
@@ -176,7 +196,7 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
           <Globe2 size={20} />
           {t('language.current')}
         </button>
-        {auth ? (
+        {auth?.role === 'ADMIN' ? (
           <>
             <NavLink className="admin-link" to="/admin">
               <Shield size={18} />
@@ -186,6 +206,14 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
               <LogOut size={18} />
               {t('nav.logout')}
             </button>
+          </>
+        ) : auth?.role === 'USER' ? (
+          <>
+            <NavLink className="admin-link" to="/dashboard">
+              <UserCircle size={22} />
+              {auth.username}
+            </NavLink>
+            <button type="button" onClick={onLogout}><LogOut size={18} />{t('nav.logout')}</button>
           </>
         ) : (
           <NavLink className="admin-link" to="/login">
@@ -198,595 +226,91 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
   );
 }
 
-function HomePage() {
-  const [officialBundles, setOfficialBundles] = useState<BundleSummary[]>([]);
-  const [officialTotal, setOfficialTotal] = useState(0);
-  const [communityBundles, setCommunityBundles] = useState<BundleSummary[]>([]);
-  const [communityTotal, setCommunityTotal] = useState(0);
-  const [apps, setApps] = useState<CatalogApp[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      fetchBundles({ type: 'official', pageSize: 3 }),
-      fetchBundles({ type: 'community', pageSize: 3 }),
-      fetchApps({ query: '', filter: 'available', sort: 'updated', page: 1, pageSize: 6 }),
-    ])
-      .then(([official, community, catalog]) => {
-        if (cancelled) return;
-        setOfficialBundles(official.data);
-        setOfficialTotal(official.total);
-        setCommunityBundles(community.data);
-        setCommunityTotal(community.total);
-        setApps(catalog.data);
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('home.loadError'));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return (
-    <main className="home-page">
-      <section className="home-hero">
-        <div>
-          <h2>{t('home.hero.title')}</h2>
-          <p>{t('home.hero.body')}</p>
-        </div>
-        <Link className="primary-link" to="/catalog">
-          {t('home.hero.cta')}
-        </Link>
-      </section>
-      {error ? <p className="error-banner">{error}</p> : null}
-      <BundleSection
-        title={t('home.bundleOfficial')}
-        bundles={officialBundles}
-        total={officialTotal}
-        type="official"
-      />
-      <BundleSection
-        title={t('home.bundleCommunity')}
-        bundles={communityBundles}
-        total={communityTotal}
-        type="community"
-      />
-      <section className="home-section">
-        <div className="section-heading">
-          <h2>{t('home.appsRecent')}</h2>
-          {apps.length > 5 ? <Link to="/catalog">{t('common.viewAll')}</Link> : null}
-        </div>
-        <div className="app-compact-grid">
-          {apps.map((app) => (
-            <AppCompactCard app={app} key={app.id} />
-          ))}
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function BundleSection({
-  title,
-  bundles,
-  total,
-  type,
-}: {
-  title: string;
-  bundles: BundleSummary[];
-  total: number;
-  type: 'official' | 'community';
-}) {
-  return (
-    <section className="home-section">
-      <div className="section-heading">
-        <h2>{title}</h2>
-        {total > bundles.length ? <Link to={`/catalog?bundleType=${type}`}>{t('common.viewAll')}</Link> : null}
-      </div>
-      <div className="bundle-grid">
-        {bundles.length ? (
-          bundles.map((bundle) => <BundleCard bundle={bundle} key={bundle.id} />)
-        ) : (
-          <p className="empty-state">{t('home.emptyBundles')}</p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function BundleCard({ bundle }: { bundle: BundleSummary }) {
-  return (
-    <Link className="bundle-card" to={`/bundles/${bundle.id}`}>
-      <div className="bundle-card-header">
-        <span className="bundle-icon">
-          <Boxes size={22} />
-        </span>
-        <div>
-          <h3>{bundle.name}</h3>
-          <small>{t('bundle.appCount', { count: bundle.appCount })}</small>
-        </div>
-      </div>
-      <p>{bundle.description || t('bundle.fallbackDescription')}</p>
-      <div className="mini-apps">
-        {bundle.previewApps.slice(0, 5).map((app) => (
-          <AppMiniIcon app={app} key={app.id} />
-        ))}
-        {bundle.appCount > 5 ? <span className="mini-more">+{bundle.appCount - 5}</span> : null}
-      </div>
-    </Link>
-  );
-}
-
-function AppCompactCard({ app }: { app: CatalogApp }) {
-  return (
-    <Link className="app-compact-card" to={`/catalog/app/${app.id}`}>
-      <AppMiniIcon app={app} />
-      <div>
-        <strong>{app.name}</strong>
-        <span>{app.tags.slice(0, 3).join(' · ') || app.publisher || '-'}</span>
-      </div>
-    </Link>
-  );
-}
-
-function AppMiniIcon({ app }: { app: CatalogApp }) {
-  if (app.iconUrl) return <img className="mini-icon" src={app.iconUrl} alt="" loading="lazy" />;
-  return <span className="mini-icon mini-icon-fallback">{app.name.slice(0, 1).toUpperCase()}</span>;
-}
-
-function CatalogPage() {
-  const { appId } = useParams();
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const searchKey = searchParams.toString();
-  const filters = useMemo(() => parseCatalogFilters(searchKey), [searchKey]);
-  const [query, setQuery] = useState(filters.query);
-  const [apps, setApps] = useState<CatalogApp[]>([]);
-  const [total, setTotal] = useState(0);
-  const [stats, setStats] = useState<CatalogStats | null>(null);
-  const [selected, setSelected] = useState<AppDetails | null>(null);
-  const [selectedId, setSelectedId] = useState<string | undefined>();
-  const [loadingDetails, setLoadingDetails] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState(0);
-  const [filtersVisible, setFiltersVisible] = useState(true);
-  const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
-  const [downloadingSelected, setDownloadingSelected] = useState(false);
-
-  useEffect(() => {
-    setQuery(filters.query);
-  }, [filters.query]);
-
-  function updateFilters(patch: Partial<CatalogFilterState>, resetPage = true, replace = false) {
-    const params = catalogFiltersToSearchParams(nextFilters(filters, patch, resetPage));
-    setSearchParams(params, { replace });
-  }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (query !== filters.query) {
-        updateFilters({ query }, true, true);
-      }
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [query, filters]);
-
-  useEffect(() => {
-    return connectCatalogEvents(() => setRefreshToken((value) => value + 1));
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    fetchApps({
-      query: filters.query,
-      filter: filters.filter,
-      sort: filters.sort,
-      page: filters.page,
-      pageSize: filters.pageSize,
-      tags: filters.tags,
-      publishers: filters.publishers,
-      tagMatchMin: filters.tagMatchMin,
-      os: filters.os,
-      architecture: filters.architecture,
-    })
-      .then((response) => {
-        if (cancelled) return;
-        setApps(response.data);
-        setTotal(response.total);
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('catalog.error.load'));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [filters, refreshToken]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchCatalogStats()
-      .then((response) => {
-        if (!cancelled) setStats(response);
-      })
-      .catch(() => {
-        if (!cancelled) setStats(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshToken]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!appId) {
-      setSelected(null);
-      setSelectedId(undefined);
-      return () => {
-        cancelled = true;
-      };
-    }
-    setSelectedId(appId);
-    setLoadingDetails(true);
-    fetchAppDetails(appId)
-      .then((details) => {
-        if (cancelled) return;
-        setSelected(details);
-        setSelectedId(details.id);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSelected(null);
-        setError(t('catalog.error.detail'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingDetails(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [appId, refreshToken]);
-
-  function selectApp(app: CatalogApp) {
-    setSelectedId(app.id);
-    navigate({ pathname: `/catalog/app/${app.id}`, search: searchKey });
-  }
-
-  function toggleDownloadSelection(app: CatalogApp) {
-    if (!app.downloadable) return;
-    setSelectedDownloadIds((current) => {
-      const next = new Set(current);
-      if (next.has(app.id)) {
-        next.delete(app.id);
-        return next;
-      }
-      if (next.size >= 100) return next;
-      next.add(app.id);
-      return next;
-    });
-  }
-
-  async function downloadSelection() {
-    if (selectedDownloadIds.size < 1) return;
-    setDownloadingSelected(true);
-    setError(null);
-    try {
-      await downloadSelectedApps(Array.from(selectedDownloadIds));
-    } catch {
-      setError(t('catalog.error.zip'));
-    } finally {
-      setDownloadingSelected(false);
-    }
-  }
-
-  return (
-    <main className={`workspace ${filtersVisible ? '' : 'filters-hidden'}`}>
-      <AppFilters
-        active={filters.filter}
-        counts={stats?.filters ?? DEFAULT_COUNTS}
-        selectedTags={filters.tags}
-        selectedPublishers={filters.publishers}
-        tagMatchMin={effectiveTagMatchMin(filters)}
-        catalogSearch={searchKey}
-        selectedCount={selectedDownloadIds.size}
-        downloading={downloadingSelected}
-        onChange={(nextFilter) => {
-          updateFilters({ filter: nextFilter });
-        }}
-        onRemoveTag={(tag) => updateFilters({ tags: filters.tags.filter((item) => item !== tag) })}
-        onRemovePublisher={(publisher) => updateFilters({
-          publishers: filters.publishers.filter((item) => item !== publisher),
-        })}
-        onClearFacets={() => updateFilters({ tags: [], publishers: [], tagMatchMin: undefined })}
-        onDownloadSelected={() => void downloadSelection()}
-        onClearSelection={() => setSelectedDownloadIds(new Set())}
-      />
-      <section className="catalog-panel">
-        <div className="catalog-header-row">
-          <span>{formatLastScrape(stats)}</span>
-        </div>
-        <AppSearchBar
-          value={query}
-          sort={filters.sort}
-          onChange={setQuery}
-          onSortChange={(nextSort) => {
-            updateFilters({ sort: nextSort });
-          }}
-          onToggleFilters={() => setFiltersVisible((value) => !value)}
-        />
-        {error ? <p className="error-banner">{error}</p> : null}
-        <AppTable
-          apps={apps}
-          selectedId={selectedId}
-          selectedIds={selectedDownloadIds}
-          selectedCount={selectedDownloadIds.size}
-          onSelect={selectApp}
-          onToggleSelection={toggleDownloadSelection}
-        />
-        <Pagination
-          page={filters.page}
-          pageSize={filters.pageSize}
-          total={total}
-          onPageChange={(nextPage) => updateFilters({ page: nextPage }, false)}
-          onPageSizeChange={(nextPageSize) => {
-            updateFilters({ pageSize: nextPageSize });
-          }}
-        />
-      </section>
-      <AppDetailsDrawer
-        app={selected}
-        loading={loadingDetails}
-        onClose={() => {
-          setSelected(null);
-          setSelectedId(undefined);
-          navigate({ pathname: '/catalog', search: searchKey });
-        }}
-      />
-    </main>
-  );
-}
-
-function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const searchKey = searchParams.toString();
-  const filters = useMemo(() => parseCatalogFilters(searchKey), [searchKey]);
-  const [facets, setFacets] = useState<CatalogFacets>({ tags: [], publishers: [] });
-  const [activeLetter, setActiveLetter] = useState('A');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const items = kind === 'tags' ? facets.tags : facets.publishers;
-  const selectedValues = kind === 'tags' ? filters.tags : filters.publishers;
-  const selectedSet = new Set(selectedValues);
-  const lettersWithItems = useMemo(() => new Set(items.map((item) => item.letter)), [items]);
-  const visibleItems = items.filter((item) => item.letter === activeLetter);
-  const title = kind === 'tags' ? t('facet.tags.title') : t('facet.publishers.title');
-  const subtitle = kind === 'tags' ? t('facet.tags.subtitle') : t('facet.publishers.subtitle');
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetchCatalogFacets({
-      query: filters.query,
-      filter: filters.filter,
-      tags: filters.tags,
-      publishers: filters.publishers,
-      tagMatchMin: filters.tagMatchMin,
-      os: filters.os,
-      architecture: filters.architecture,
-    })
-      .then((response) => {
-        if (!cancelled) setFacets(response);
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('facet.loadError'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [filters]);
-
-  useEffect(() => {
-    if (!items.length || lettersWithItems.has(activeLetter)) return;
-    const firstLetter = FACET_ALPHABET.find((letter) => lettersWithItems.has(letter)) ?? 'A';
-    setActiveLetter(firstLetter);
-  }, [activeLetter, items.length, lettersWithItems]);
-
-  function updateFilters(patch: Partial<CatalogFilterState>) {
-    setSearchParams(catalogFiltersToSearchParams(nextFilters(filters, patch)));
-  }
-
-  function toggleFacet(item: FacetItem) {
-    if (kind === 'tags') {
-      const nextTags = toggleValue(filters.tags, item.value);
-      const nextMin = filters.tagMatchMin && filters.tagMatchMin > nextTags.length
-        ? nextTags.length
-        : filters.tagMatchMin;
-      updateFilters({ tags: nextTags, tagMatchMin: nextTags.length ? nextMin : undefined });
-      return;
-    }
-    updateFilters({ publishers: toggleValue(filters.publishers, item.value) });
-  }
-
-  function updateTagMatchMin(value: number) {
-    if (!filters.tags.length) return;
-    const clamped = Math.max(1, Math.min(value, filters.tags.length));
-    updateFilters({ tagMatchMin: clamped === filters.tags.length ? undefined : clamped });
-  }
-
-  return (
-    <main className="facet-page">
-      <section className="facet-header">
-        <div>
-          <span>{t('facet.header')}</span>
-          <h2>{title}</h2>
-          <p>{subtitle}</p>
-        </div>
-        <Link className="secondary-button facet-back-link" to={{ pathname: '/catalog', search: searchKey }}>
-          {t('facet.backToCatalog')}
-        </Link>
-      </section>
-
-      {kind === 'tags' && filters.tags.length ? (
-        <section className="facet-match-panel">
-          <div>
-            <span>{t('facet.matchMin')}</span>
-            <strong>
-              {t('facet.matchMinValue', {
-                min: effectiveTagMatchMin(filters),
-                total: filters.tags.length,
-              })}
-            </strong>
-          </div>
-          <input
-            aria-label={t('facet.matchMinAria')}
-            type="number"
-            min={1}
-            max={filters.tags.length}
-            value={effectiveTagMatchMin(filters)}
-            onChange={(event) => updateTagMatchMin(Number(event.target.value))}
-          />
-        </section>
-      ) : null}
-
-      <nav className="facet-letter-nav" aria-label={t('facet.lettersAria', { title })}>
-        {FACET_ALPHABET.map((letter) => (
-          <button
-            key={letter}
-            className={activeLetter === letter ? 'facet-letter-active' : ''}
-            type="button"
-            disabled={!lettersWithItems.has(letter)}
-            onClick={() => setActiveLetter(letter)}
-          >
-            {letter}
-          </button>
-        ))}
-      </nav>
-
-      {error ? <p className="error-banner">{error}</p> : null}
-      {loading ? <p className="loading-label">{t('facet.loading')}</p> : null}
-      <section className="facet-chip-grid" aria-label={t('facet.availableAria', { title })}>
-        {visibleItems.map((item) => (
-          <button
-            key={`${kind}-${item.normalizedValue}`}
-            className={`facet-chip ${selectedSet.has(item.value) ? 'facet-chip-active' : ''}`}
-            type="button"
-            onClick={() => toggleFacet(item)}
-          >
-            <span>{item.label}</span>
-            <strong>{item.count.toLocaleString('es-ES')}</strong>
-          </button>
-        ))}
-        {!loading && !visibleItems.length ? (
-          <p className="empty-state">{t('facet.emptyLetter')}</p>
-        ) : null}
-      </section>
-    </main>
-  );
-}
-
-function BundleDetailPage() {
-  const { slug } = useParams();
-  const [bundle, setBundle] = useState<BundleDetails | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!slug) return;
-    fetchBundle(slug)
-      .then(setBundle)
-      .catch(() => setError(t('bundle.loadError')));
-  }, [slug]);
-
-  if (error) return <main className="content-page"><p className="error-banner">{error}</p></main>;
-  if (!bundle) return <main className="content-page"><p className="loading-label">{t('bundle.loading')}</p></main>;
-
-  return (
-    <main className="content-page">
-      <section className="bundle-detail-header">
-        <div>
-          <h2>{bundle.name}</h2>
-          <p>{bundle.description || t('bundle.fallbackDescription')}</p>
-          <div className="tag-list">
-            {bundle.tags.map((tag) => (
-              <span className="tag-chip" key={tag}>
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-        <span>{t('bundle.appsCount', { count: bundle.appCount })}</span>
-      </section>
-      <div className="bundle-app-list">
-        {bundle.apps.map((app) => (
-          <div className="bundle-app-row" key={app.id}>
-            <AppMiniIcon app={app} />
-            <div>
-              <strong>{app.name}</strong>
-              <small>{app.publisher || '-'}</small>
-            </div>
-            <AppStatusBadge status={app.resolutionStatus} />
-            <DownloadButton appId={app.id} disabled={!app.downloadable} />
-          </div>
-        ))}
-      </div>
-    </main>
-  );
-}
-
-function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
-  const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    try {
-      const user = await login(username, password);
-      onLogin(user);
-      navigate('/admin');
-    } catch {
-      setError(t('login.invalid'));
-    }
-  }
-
-  return (
-    <main className="login-page">
-      <form className="login-card" onSubmit={submit}>
-        <h2>{t('login.title')}</h2>
-        <label>
-          {t('login.username')}
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-        </label>
-        <label>
-          {t('login.password')}
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-          />
-        </label>
-        {error ? <p className="error-banner">{error}</p> : null}
-        <button className="primary-button" type="submit">{t('login.submit')}</button>
-      </form>
-    </main>
-  );
-}
-
 function Footer() {
+  const t = useTranslation();
   return (
     <footer className="site-footer">
-      <Link to="/catalog">{t('footer.catalog')}</Link>
-      <Link to="/login">{t('footer.admin')}</Link>
-      <span>Batch Downloader MVP</span>
+      <div className="site-footer-grid">
+        <nav className="site-footer-column" aria-labelledby="footer-pages-title">
+          <h2 id="footer-pages-title">{t('footer.pages')}</h2>
+          <Link to="/">{t('nav.home')}</Link>
+          <Link to="/catalog">{t('nav.catalog')}</Link>
+          <Link to="/login">{t('footer.login')}</Link>
+          <Link to="/register">{t('footer.register')}</Link>
+        </nav>
+        <nav className="site-footer-column" aria-labelledby="footer-legal-title">
+          <h2 id="footer-legal-title">{t('footer.legal')}</h2>
+          <Link to="/terms">{t('footer.terms')}</Link>
+          <Link to="/privacy">{t('footer.privacy')}</Link>
+        </nav>
+        <section className="site-footer-column" aria-labelledby="footer-project-title">
+          <h2 id="footer-project-title">{t('footer.project')}</h2>
+          <a href="https://joseleelportfolio.vercel.app/" target="_blank" rel="noreferrer">
+            <img className="site-footer-icon" src="/assets/google-material-language.svg" alt="" aria-hidden="true" />
+            <span>{t('footer.portfolio')}</span>
+          </a>
+          <a href="https://github.com/Joseleelsuper/Batch-Downloader" target="_blank" rel="noreferrer">
+            <Github aria-hidden="true" />
+            <span>{t('footer.github')}</span>
+          </a>
+        </section>
+      </div>
+      <p className="site-footer-meta">Batch Downloader MVP</p>
     </footer>
+  );
+}
+
+function PublicErrorPage() {
+  const t = useTranslation();
+  const [search] = useSearchParams();
+  const code = search.get('code');
+  const knownError = code === 'google_oauth_not_configured' || code === 'oauth_failed' ? code : 'unexpected_error';
+  const status = knownError === 'google_oauth_not_configured' ? '503' : knownError === 'oauth_failed' ? '401' : null;
+
+  return (
+    <main className="content-page public-message-page">
+      <section className="public-message-card" role="alert">
+        {status ? <span className="public-message-status">{t('error.status', { status })}</span> : null}
+        <h2>{t(`error.${knownError}.title`)}</h2>
+        <p>{t(`error.${knownError}.body`)}</p>
+        <div className="public-message-actions">
+          <Link className="primary-button" to="/login">{t('error.backToLogin')}</Link>
+          <Link className="secondary-button" to="/">{t('error.backToHome')}</Link>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
+  const t = useTranslation();
+  const lastUpdated = new Date(__LEGAL_LAST_UPDATED__);
+  const formattedLastUpdated = new Intl.DateTimeFormat('es-ES', {
+    dateStyle: 'long',
+  }).format(lastUpdated);
+  const sections = kind === 'terms'
+    ? ['use', 'sources', 'availability']
+    : ['data', 'purpose', 'rights'];
+  return (
+    <main className="content-page legal-page">
+      <header className="legal-page-header">
+        <span>{t('legal.eyebrow')}</span>
+        <h2>{t(`legal.${kind}.title`)}</h2>
+        <p>{t(`legal.${kind}.intro`)}</p>
+        <p className="legal-last-updated">
+          <span>{t('legal.lastUpdated')}</span>
+          <time dateTime={lastUpdated.toISOString()}>{formattedLastUpdated}</time>
+        </p>
+      </header>
+      <div className="legal-sections">
+        {sections.map((section) => (
+          <section key={section}>
+            <h3>{t(`legal.${kind}.${section}.title`)}</h3>
+            <p>{t(`legal.${kind}.${section}.body`)}</p>
+          </section>
+        ))}
+      </div>
+    </main>
   );
 }
 
@@ -799,12 +323,31 @@ function RequireAdmin({
   checking: boolean;
   children: JSX.Element;
 }) {
+  const t = useTranslation();
+  const location = useLocation();
   if (checking) return <main className="content-page"><p className="loading-label">{t('login.checkingSession')}</p></main>;
-  if (!auth) return <Navigate to="/login" replace />;
+  if (!auth || auth.role !== 'ADMIN') return <Navigate to="/admin/login" replace state={{ from: location }} />;
+  return children;
+}
+
+function RequireAccount({
+  auth,
+  checking,
+  children,
+}: {
+  auth: AuthUser | null;
+  checking: boolean;
+  children: JSX.Element;
+}) {
+  const t = useTranslation();
+  const location = useLocation();
+  if (checking) return <main className="content-page"><p className="loading-label">{t('login.checkingSession')}</p></main>;
+  if (!auth || auth.role !== 'USER') return <Navigate to="/login" replace state={{ from: location }} />;
   return children;
 }
 
 function AdminLayout({ onLogout }: { onLogout: () => void }) {
+  const t = useTranslation();
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
@@ -817,6 +360,7 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
           <NavLink to="/admin/apps"><PackagePlus size={18} />{t('admin.layout.apps')}</NavLink>
           <NavLink to="/admin/bundles"><Boxes size={18} />{t('admin.layout.bundles')}</NavLink>
           <NavLink to="/admin/scraper"><Play size={18} />{t('admin.layout.scraper')}</NavLink>
+          <NavLink to="/admin/semantic"><BrainCircuit size={18} />{t('admin.layout.semantic')}</NavLink>
           <NavLink to="/admin/requests"><ClipboardList size={18} />{t('admin.layout.requests')}</NavLink>
           <NavLink to="/admin/audit"><ListFilter size={18} />{t('admin.layout.audit')}</NavLink>
         </nav>
@@ -828,864 +372,3 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
     </div>
   );
 }
-
-function AdminDashboard() {
-  const [stats, setStats] = useState<CatalogStats | null>(null);
-  const [current, setCurrent] = useState<ScraperRunSummary | null>(null);
-
-  useEffect(() => {
-    fetchCatalogStats().then(setStats).catch(() => setStats(null));
-    fetchAdminCurrentRun().then(setCurrent).catch(() => setCurrent(null));
-  }, []);
-
-  return (
-    <section className="admin-panel">
-      <h2>{t('admin.dashboard.title')}</h2>
-      <div className="metric-grid">
-        <Metric label={t('admin.layout.apps')} value={stats?.total ?? 0} />
-        <Metric label={t('catalog.filter.available')} value={stats?.filters.available ?? 0} />
-        <Metric label={t('catalog.filter.review')} value={stats?.filters.review ?? 0} />
-        <Metric label={t('catalog.filter.missing')} value={stats?.filters.missing ?? 0} />
-      </div>
-      <div className="admin-card">
-        <h3>{t('admin.dashboard.currentScraper')}</h3>
-        <p>{current?.currentAppName || current?.status || t('admin.dashboard.noCurrentRun')}</p>
-        <small>{current?.currentPhase || '-'}</small>
-      </div>
-    </section>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="metric-card">
-      <span>{label}</span>
-      <strong>{value.toLocaleString('es-ES')}</strong>
-    </div>
-  );
-}
-
-function AdminAppsPage() {
-  const [query, setQuery] = useState('');
-  const [apps, setApps] = useState<CatalogApp[]>([]);
-  const [selected, setSelected] = useState<AppDetails | null>(null);
-  const [form, setForm] = useState({
-    name: '',
-    publisher: '',
-    officialUrl: '',
-    description: '',
-    longDescription: '',
-    latestVersion: '',
-  });
-  const [message, setMessage] = useState<string | null>(null);
-  const [dangerConfirm, setDangerConfirm] = useState('');
-
-  useEffect(() => {
-    void loadApps();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
-
-  async function loadApps() {
-    try {
-      const response = await fetchAdminApps({ query, filter: 'all', sort: 'updated', page: 1, pageSize: 30 });
-      setApps(response.data);
-    } catch {
-      setMessage(t('admin.message.loadAppsError'));
-    }
-  }
-
-  function fillForm(app?: AppDetails | null) {
-    setForm({
-      name: app?.name ?? '',
-      publisher: app?.publisher ?? '',
-      officialUrl: app?.officialUrl ?? '',
-      description: app?.description ?? '',
-      longDescription: app?.longDescription ?? '',
-      latestVersion: app?.latestVersion ?? '',
-    });
-  }
-
-  async function select(app: CatalogApp) {
-    const details = await fetchAppDetails(app.id);
-    setSelected(details);
-    fillForm(details);
-    setMessage(null);
-  }
-
-  function startNewApp() {
-    setSelected(null);
-    fillForm(null);
-    setMessage(null);
-  }
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage(null);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        publisher: form.publisher.trim() || null,
-        officialUrl: form.officialUrl.trim() || null,
-        description: form.description.trim() || null,
-        longDescription: form.longDescription.trim() || null,
-        latestVersion: form.latestVersion.trim() || null,
-      };
-      if (!payload.name) {
-        setMessage(t('admin.app.validation.nameRequired'));
-        return;
-      }
-      let saved: AppDetails;
-      if (selected) {
-        saved = await patchAdminApp(selected.id, payload);
-      } else {
-        saved = await createAdminApp(payload);
-      }
-      setSelected(saved);
-      fillForm(saved);
-      await loadApps();
-      setMessage(t('admin.message.appSaved'));
-    } catch {
-      setMessage(t('admin.message.saveAppError'));
-    }
-  }
-
-  async function generateDescription() {
-    if (!selected) return;
-    setMessage(t('admin.message.descriptionGenerating'));
-    try {
-      const result = await generateAdminDescription(selected.id);
-      const next = { ...selected, longDescription: result.longDescription };
-      setSelected(next);
-      setForm((current) => ({ ...current, longDescription: result.longDescription }));
-      setMessage(t('admin.message.descriptionGenerated'));
-    } catch {
-      setMessage(t('admin.message.generateDescriptionError'));
-    }
-  }
-
-  async function removeSelectedApp() {
-    if (!selected) return;
-    if (!window.confirm(t('admin.app.confirm.deleteOne', { name: selected.name }))) return;
-    setMessage(null);
-    try {
-      await deleteAdminApp(selected.id);
-      setSelected(null);
-      fillForm(null);
-      await loadApps();
-      setMessage(t('admin.message.appDeleted'));
-    } catch {
-      setMessage(t('admin.message.deleteAppError'));
-    }
-  }
-
-  async function removeAllApps() {
-    if (dangerConfirm !== 'DELETE_ALL') {
-      setMessage(t('admin.message.confirmDeleteAll'));
-      return;
-    }
-    if (!window.confirm(t('admin.app.confirm.deleteAll'))) return;
-    setMessage(null);
-    try {
-      const result = await deleteAllAdminApps();
-      setSelected(null);
-      fillForm(null);
-      setApps([]);
-      setDangerConfirm('');
-      setMessage(t('admin.message.allAppsDeleted', { count: result.deleted }));
-    } catch {
-      setMessage(t('admin.message.deleteAllAppsError'));
-    }
-  }
-
-  return (
-    <section className="admin-panel two-column-admin">
-      <div>
-        <div className="admin-section-heading">
-          <h2>{t('admin.app.title')}</h2>
-          <button className="secondary-button compact-button" type="button" onClick={startNewApp}>
-            <Plus size={17} />
-            {t('admin.app.new')}
-          </button>
-        </div>
-        <input
-          className="admin-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={t('common.searchApps')}
-        />
-        <div className="admin-list">
-          {apps.map((app) => (
-            <button
-              type="button"
-              key={app.id}
-              className={selected?.id === app.id ? 'admin-list-active' : ''}
-              onClick={() => void select(app)}
-            >
-              <AppMiniIcon app={app} />
-              <span>{app.name}</span>
-              <AppStatusBadge status={app.resolutionStatus} />
-            </button>
-          ))}
-        </div>
-      </div>
-      <form className="admin-card editor-form" onSubmit={save}>
-        <div className="editor-header">
-          <div>
-            <span>{selected ? t('admin.app.editing') : t('admin.app.newApp')}</span>
-            <h3>{selected ? selected.name : t('admin.app.titleCreate')}</h3>
-          </div>
-          {selected ? <small>{selected.id}</small> : null}
-        </div>
-        <fieldset className="editor-section">
-          <legend>{t('admin.app.primaryData')}</legend>
-          <label>{t('admin.field.name')}<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label>{t('admin.field.publisher')}<input value={form.publisher} onChange={(e) => setForm({ ...form, publisher: e.target.value })} /></label>
-          <label>{t('admin.field.officialUrl')}<input value={form.officialUrl} onChange={(e) => setForm({ ...form, officialUrl: e.target.value })} /></label>
-          <label>{t('admin.field.latestVersion')}<input value={form.latestVersion} onChange={(e) => setForm({ ...form, latestVersion: e.target.value })} /></label>
-        </fieldset>
-        <fieldset className="editor-section">
-          <legend>{t('admin.app.form.description')}</legend>
-          <label>{t('admin.app.shortDescription')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-          <label>{t('admin.app.longDescription')}<textarea className="long-editor" value={form.longDescription} onChange={(e) => setForm({ ...form, longDescription: e.target.value })} /></label>
-        </fieldset>
-        {message ? <span className="form-message">{message}</span> : null}
-        <div className="button-row">
-          <button className="primary-button" type="submit">
-            <Save size={17} />
-            {selected ? t('common.saveChanges') : t('admin.app.titleCreate')}
-          </button>
-          <button type="button" className="secondary-button" onClick={generateDescription} disabled={!selected}>
-            <Wand2 size={17} />
-            {t('admin.app.generateDescription')}
-          </button>
-          <button type="button" className="danger-button" onClick={removeSelectedApp} disabled={!selected}>
-            <Trash2 size={17} />
-            {t('admin.app.deleteOne')}
-          </button>
-        </div>
-        <div className="danger-zone">
-          <h4>{t('admin.app.danger.title')}</h4>
-          <p>{t('admin.app.danger.description')}</p>
-          <input
-            value={dangerConfirm}
-            onChange={(event) => setDangerConfirm(event.target.value)}
-            placeholder={t('common.deleteAllConfirmation')}
-          />
-          <button type="button" className="danger-button" onClick={removeAllApps}>
-            <Trash2 size={17} />
-            {t('admin.app.deleteAll')}
-          </button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-function AdminBundlesPage() {
-  const [official, setOfficial] = useState<BundleSummary[]>([]);
-  const [selected, setSelected] = useState<BundleDetails | null>(null);
-  const [form, setForm] = useState({ name: '', description: '', tags: '' });
-  const [bundleApps, setBundleApps] = useState<CatalogApp[]>([]);
-  const [appQuery, setAppQuery] = useState('');
-  const [appResults, setAppResults] = useState<CatalogApp[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    void loadBundles();
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchAdminApps({ query: appQuery, filter: 'all', sort: 'updated', page: 1, pageSize: 12 })
-      .then((response) => {
-        if (!cancelled) setAppResults(response.data);
-      })
-      .catch(() => {
-        if (!cancelled) setAppResults([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [appQuery]);
-
-  async function loadBundles() {
-    try {
-      const response = await fetchBundles({ type: 'official', pageSize: 30 });
-      setOfficial(response.data);
-    } catch {
-      setOfficial([]);
-    }
-  }
-
-  function resetBundleEditor() {
-    setSelected(null);
-    setForm({ name: '', description: '', tags: '' });
-    setBundleApps([]);
-    setMessage(null);
-  }
-
-  async function selectBundle(bundle: BundleSummary) {
-    const details = await fetchBundle(bundle.id);
-    setSelected(details);
-    setForm({
-      name: details.name,
-      description: details.description ?? '',
-      tags: details.tags.join(', '),
-    });
-    setBundleApps(details.apps);
-    setMessage(null);
-  }
-
-  function addBundleApp(app: CatalogApp) {
-    setBundleApps((current) => (current.some((item) => item.id === app.id) ? current : [...current, app]));
-  }
-
-  function removeBundleApp(appId: string) {
-    setBundleApps((current) => current.filter((app) => app.id !== appId));
-  }
-
-  function moveBundleApp(appId: string, direction: -1 | 1) {
-    setBundleApps((current) => {
-      const index = current.findIndex((app) => app.id === appId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-      return next;
-    });
-  }
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage(null);
-    try {
-      const payload = {
-        name: form.name,
-        description: form.description,
-        type: 'official',
-        visibility: 'official',
-        tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-        appIds: bundleApps.map((app) => app.id),
-      };
-      const saved = selected
-        ? await updateAdminBundle(selected.id, payload)
-        : await createAdminBundle(payload);
-      setSelected(saved);
-      setBundleApps(saved.apps);
-      setForm({
-        name: saved.name,
-        description: saved.description ?? '',
-        tags: saved.tags.join(', '),
-      });
-      await loadBundles();
-      setMessage(t('admin.message.bundleSaved'));
-    } catch {
-      setMessage(t('admin.message.saveBundleError'));
-    }
-  }
-
-  return (
-    <section className="admin-panel two-column-admin">
-      <div>
-        <div className="admin-section-heading">
-          <h2>{t('admin.bundle.official')}</h2>
-          <button className="secondary-button compact-button" type="button" onClick={resetBundleEditor}>
-            <Plus size={17} />
-            {t('admin.bundle.new')}
-          </button>
-        </div>
-        <div className="bundle-grid admin-bundles">
-          {official.map((bundle) => (
-            <button
-              className={`bundle-card admin-bundle-button ${selected?.id === bundle.id ? 'admin-list-active' : ''}`}
-              type="button"
-              key={bundle.id}
-              onClick={() => void selectBundle(bundle)}
-            >
-              <div className="bundle-card-header">
-                <span className="bundle-icon"><Boxes size={22} /></span>
-                <div>
-                  <h3>{bundle.name}</h3>
-                  <small>{t('bundle.appCount', { count: bundle.appCount })}</small>
-                </div>
-              </div>
-              <p>{bundle.description || t('bundle.fallbackDescription')}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-      <form className="admin-card editor-form" onSubmit={save}>
-        <div className="editor-header">
-          <div>
-            <span>{selected ? t('admin.bundle.editing') : t('admin.bundle.newBundle')}</span>
-            <h3>{selected ? selected.name : t('admin.bundle.editor')}</h3>
-          </div>
-          {selected ? <small>{selected.id}</small> : null}
-        </div>
-        <label>{t('admin.field.name')}<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-        <label>{t('admin.field.description')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-        <label>{t('admin.field.tags')}<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder={t('admin.bundle.placeholder.tags')} /></label>
-        <div className="bundle-app-editor">
-          <h4>{t('admin.bundle.apps')}</h4>
-          <div className="bundle-app-selected">
-            {bundleApps.length ? bundleApps.map((app, index) => (
-              <div className="bundle-app-edit-row" key={app.id}>
-                <AppMiniIcon app={app} />
-                <span>{app.name}</span>
-                <button type="button" onClick={() => moveBundleApp(app.id, -1)} disabled={index === 0} title={t('admin.bundle.moveUp')}>
-                  <ArrowUp size={16} />
-                </button>
-                <button type="button" onClick={() => moveBundleApp(app.id, 1)} disabled={index === bundleApps.length - 1} title={t('admin.bundle.moveDown')}>
-                  <ArrowDown size={16} />
-                </button>
-                <button type="button" onClick={() => removeBundleApp(app.id)} title={t('admin.bundle.removeApp')}>
-                  <X size={16} />
-                </button>
-              </div>
-            )) : <p className="empty-state">{t('admin.bundle.addAppsEmpty')}</p>}
-          </div>
-          <input
-            value={appQuery}
-            onChange={(event) => setAppQuery(event.target.value)}
-            placeholder={t('admin.bundle.searchApps')}
-          />
-          <div className="app-picker-results">
-            {appResults.map((app) => (
-              <button type="button" key={app.id} onClick={() => addBundleApp(app)}>
-                <AppMiniIcon app={app} />
-                <span>{app.name}</span>
-                <Plus size={16} />
-              </button>
-            ))}
-          </div>
-        </div>
-        {message ? <span className="form-message">{message}</span> : null}
-        <button className="primary-button" type="submit">
-          <Save size={17} />
-          {selected ? t('common.saveChanges') : t('admin.bundle.create')}
-        </button>
-      </form>
-    </section>
-  );
-}
-
-function AdminScraperPage() {
-  const [current, setCurrent] = useState<ScraperRunSummary | null>(null);
-  const [runs, setRuns] = useState<ScraperRunSummary[]>([]);
-  const [logs, setLogs] = useState<ResolverLogItem[]>([]);
-  const [queues, setQueues] = useState<ScraperQueueState[]>([]);
-  const [metrics, setMetrics] = useState<ScraperMetricItem[]>([]);
-  const [snapshots, setSnapshots] = useState<ScraperSnapshotItem[]>([]);
-  const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
-  const [message, setMessage] = useState<string | null>(null);
-
-  async function load() {
-    const [nextCurrent, nextRuns, nextLogs, nextQueues, nextMetrics, nextSnapshots] = await Promise.all([
-      fetchAdminCurrentRun(),
-      fetchAdminRuns(),
-      fetchAdminLogs(),
-      fetchAdminQueues(),
-      fetchAdminMetrics(),
-      fetchAdminSnapshots(),
-    ]);
-    setCurrent(nextCurrent);
-    setRuns(nextRuns);
-    setLogs(nextLogs);
-    setQueues(nextQueues);
-    setMetrics(nextMetrics);
-    setSnapshots(nextSnapshots);
-  }
-
-  useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => void load(), 10000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => connectScraperEvents((event) => {
-    setQueues(event.queues);
-    setMetrics(event.metrics);
-    setSnapshots(event.snapshots);
-  }, setSocketState), []);
-
-  async function command(value: 'pause' | 'resume' | 'stop' | 'run_once') {
-    setMessage(null);
-    try {
-      await sendScraperCommand(value);
-      setMessage(t('admin.message.acceptedCommand'));
-      await load();
-    } catch {
-      setMessage(t('admin.message.sendCommandError'));
-    }
-  }
-
-  async function maintainQueue(action: 'recover_stuck' | 'retry_failed' | 'prune_terminal') {
-    setMessage(null);
-    try {
-      const result = action === 'recover_stuck'
-        ? await recoverStuckScraperQueueItems()
-        : action === 'retry_failed'
-          ? await retryFailedScraperQueueItems()
-          : await pruneTerminalScraperQueueItems();
-      setMessage(t(`admin.message.queueMaintenance.${action}`, { count: result.affected }));
-      await load();
-    } catch {
-      setMessage(t('admin.message.queueMaintenanceError'));
-    }
-  }
-
-  const controlState = scraperControlState(current);
-
-  return (
-    <section className="admin-panel">
-      <h2>{t('admin.layout.scraper')}</h2>
-      <div className="scraper-status admin-card">
-        <div>
-          <span>{t('admin.scraper.status')}</span>
-          <strong>{current?.status ?? '-'}</strong>
-        </div>
-        <div>
-          <span>{t('admin.scraper.app')}</span>
-          <strong>{current?.currentAppName ?? '-'}</strong>
-        </div>
-        <div>
-          <span>{t('admin.scraper.currentPhase')}</span>
-          <strong>{current?.currentPhase ?? '-'}</strong>
-        </div>
-        <div>
-          <span>{t('admin.scraper.progress')}</span>
-          <strong>{current ? formatScrapeProgress(current) : '-'}</strong>
-        </div>
-      </div>
-      <div className="button-row">
-        <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>{t('admin.scraper.pause')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
-        <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => command('run_once')}>{t('admin.scraper.runNow')}</button>
-      </div>
-      <div className="button-row queue-maintenance-row">
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('retry_failed')}><RefreshCw size={16} />{t('admin.scraper.retryFailed')}</button>
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('prune_terminal')}><Trash2 size={16} />{t('admin.scraper.pruneTerminal')}</button>
-      </div>
-      {message ? <p className="form-message">{message}</p> : null}
-      <div className="scraper-live-line">
-        <span>{t('admin.scraper.liveState')}</span>
-        <strong>{socketState}</strong>
-      </div>
-      <ScraperQueues queues={queues} />
-      <ScraperMetricsChart metrics={metrics} />
-      <ScraperSnapshots snapshots={snapshots} />
-      <div className="admin-grid-two">
-        <AdminTable
-          title={t('admin.scraper.runs')}
-          rows={runs.map((run) => [
-            run.status,
-            formatScrapeProgress(run),
-            run.currentAppName || run.currentPackageId || t('admin.scraper.noApp'),
-            run.currentPhase || run.errorSummary || t('admin.scraper.noPhase'),
-            formatDate(run.startedAt),
-          ])}
-        />
-        <AdminTable
-          title={t('admin.scraper.logs')}
-          rows={logs.map((log) => [
-            log.phase,
-            log.status,
-            formatLogDetails(log),
-            formatDate(log.createdAt),
-          ])}
-        />
-      </div>
-    </section>
-  );
-}
-
-function ScraperQueues({ queues }: Readonly<{ queues: ScraperQueueState[] }>) {
-  const searcherFilter = queues.find((queue) => queue.queue === 'searcher_filter');
-  const filterScraper = queues.find((queue) => queue.queue === 'filter_scraper');
-  return (
-    <div className="scraper-pipeline admin-card">
-      <PipelineStage title="Searcher" count={searcherFilter?.queued ?? 0} />
-      <QueueColumn title="Searcher -> Filter" queue={searcherFilter} />
-      <PipelineStage title="Filter" count={filterScraper?.queued ?? 0} />
-      <QueueColumn title="Filter -> Scraper" queue={filterScraper} />
-      <PipelineStage title="Scraper" count={filterScraper?.inProgress ?? 0} />
-    </div>
-  );
-}
-
-function PipelineStage({ title, count }: Readonly<{ title: string; count: number }>) {
-  return (
-    <div className="pipeline-stage">
-      <strong>{title}</strong>
-      <span>{count}</span>
-    </div>
-  );
-}
-
-function QueueColumn({ title, queue }: Readonly<{ title: string; queue?: ScraperQueueState }>) {
-  const items = queue?.items ?? [];
-  return (
-    <div className="pipeline-queue">
-      <div className="pipeline-queue-heading">
-        <strong>{title}</strong>
-        <span>{queue ? `${queue.queued}/${queue.inProgress}` : '0/0'}</span>
-      </div>
-      <div className="pipeline-queue-list">
-        {items.length ? items.slice(0, 5).map((item) => (
-          <span className={`pipeline-token pipeline-token-${item.status}`} key={item.id}>
-            {item.appName || item.packageId}
-          </span>
-        )) : <span className="pipeline-token">{t('admin.table.empty')}</span>}
-      </div>
-    </div>
-  );
-}
-
-function ScraperMetricsChart({ metrics }: Readonly<{ metrics: ScraperMetricItem[] }>) {
-  const width = 720;
-  const height = 190;
-  const maxValue = Math.max(1, ...metrics.flatMap((item) => [item.available, item.review, item.unavailable]));
-  return (
-    <div className="admin-card scraper-chart-card">
-      <div className="scraper-section-heading">
-        <h3>{t('admin.scraper.metrics')}</h3>
-      </div>
-      {metrics.length ? (
-        <svg className="scraper-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('admin.scraper.metrics')}>
-          <polyline points={metricPoints(metrics, 'available', width, height, maxValue)} className="metric-line metric-line-available" />
-          <polyline points={metricPoints(metrics, 'review', width, height, maxValue)} className="metric-line metric-line-review" />
-          <polyline points={metricPoints(metrics, 'unavailable', width, height, maxValue)} className="metric-line metric-line-unavailable" />
-        </svg>
-      ) : <p className="empty-state">{t('admin.table.empty')}</p>}
-      <div className="metric-legend">
-        <span className="legend-available">{t('catalog.filter.available')}</span>
-        <span className="legend-review">{t('catalog.filter.review')}</span>
-        <span className="legend-unavailable">{t('catalog.filter.missing')}</span>
-      </div>
-    </div>
-  );
-}
-
-function ScraperSnapshots({ snapshots }: Readonly<{ snapshots: ScraperSnapshotItem[] }>) {
-  const [selectedStage, setSelectedStage] = useState<string | null>(null);
-  const selected = snapshots.find((snapshot) => snapshot.stage === selectedStage) ?? snapshots[0];
-  useEffect(() => {
-    if (!selectedStage && snapshots[0]) setSelectedStage(snapshots[0].stage);
-  }, [selectedStage, snapshots]);
-  return (
-    <div className="admin-card scraper-snapshot-card">
-      <div className="scraper-section-heading">
-        <h3>{t('admin.scraper.snapshot')}</h3>
-        <div className="snapshot-tabs">
-          {snapshots.map((snapshot) => (
-            <button
-              className={snapshot.stage === selected?.stage ? 'snapshot-tab-active' : ''}
-              key={snapshot.stage}
-              onClick={() => setSelectedStage(snapshot.stage)}
-              type="button"
-            >
-              {snapshot.stage}
-            </button>
-          ))}
-        </div>
-      </div>
-      {selected ? (
-        <>
-          <div className="snapshot-meta">
-            <span>{selected.appName || selected.packageId || '-'}</span>
-            <span>{selected.url || '-'}</span>
-          </div>
-          <iframe
-            className="snapshot-frame"
-            sandbox=""
-            srcDoc={selected.html || `<p>${t('admin.scraper.snapshotEmpty')}</p>`}
-            title={t('admin.scraper.snapshot')}
-          />
-        </>
-      ) : <p className="empty-state">{t('admin.table.empty')}</p>}
-    </div>
-  );
-}
-
-function AdminRequestsPage() {
-  const [requests, setRequests] = useState<SoftwareRequestItem[]>([]);
-  useEffect(() => {
-    fetchAdminRequests().then(setRequests).catch(() => setRequests([]));
-  }, []);
-  return (
-    <section className="admin-panel">
-      <h2>{t('admin.request.title')}</h2>
-      <AdminTable title={t('admin.request.pending')} rows={requests.map((request) => [request.requestedName, request.officialUrl, request.status])} />
-    </section>
-  );
-}
-
-function AdminAuditPage() {
-  const [items, setItems] = useState<AuditItem[]>([]);
-  useEffect(() => {
-    fetchAdminAudit().then(setItems).catch(() => setItems([]));
-  }, []);
-  return (
-    <section className="admin-panel">
-      <h2>{t('admin.audit.title')}</h2>
-      <AdminTable title={t('admin.audit.recentActions')} rows={items.map((item) => [item.actor, item.action, item.targetId || '-', formatDate(item.createdAt)])} />
-    </section>
-  );
-}
-
-function AdminTable({ title, rows }: { title: string; rows: string[][] }) {
-  return (
-    <div className="admin-card admin-table-card">
-      <h3>{title}</h3>
-      <div className="admin-table">
-        {rows.length ? rows.map((row, index) => (
-          <div
-            className="admin-table-row"
-            key={`${title}-${index}`}
-            style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}
-          >
-            {row.map((cell, cellIndex) => <span key={`${title}-${index}-${cellIndex}`}>{cell}</span>)}
-          </div>
-        )) : <p className="empty-state">{t('admin.table.empty')}</p>}
-      </div>
-    </div>
-  );
-}
-
-function formatScrapeProgress(run: ScraperRunSummary): string {
-  return [
-    t('admin.scraper.progress.resolved', { count: run.appsResolved }),
-    t('admin.scraper.progress.discovered', { count: run.appsDiscovered }),
-    t('admin.scraper.progress.failed', { count: run.appsFailed }),
-    t('admin.scraper.progress.skipped', { count: run.appsSkipped }),
-  ].join(' · ');
-}
-
-function metricPoints(
-  metrics: ScraperMetricItem[],
-  key: 'available' | 'review' | 'unavailable',
-  width: number,
-  height: number,
-  maxValue: number,
-): string {
-  if (!metrics.length) return '';
-  const xStep = metrics.length === 1 ? 0 : width / (metrics.length - 1);
-  return metrics.map((item, index) => {
-    const x = Math.round(index * xStep);
-    const y = Math.round(height - (item[key] / maxValue) * (height - 24) - 12);
-    return `${x},${y}`;
-  }).join(' ');
-}
-
-function scraperControlState(current: ScraperRunSummary | null) {
-  const running = current?.status === 'running';
-  const paused = running && Boolean(current?.pausedAt || current?.currentPhase === 'paused');
-  const stopping = Boolean(current?.stopRequested || current?.currentPhase === 'stopping');
-  return {
-    pause: {
-      enabled: running && !paused && !stopping,
-      reason: running && !paused && !stopping ? t('admin.scraper.reason.pause') : t('admin.scraper.reason.pauseUnavailable'),
-    },
-    resume: {
-      enabled: paused && !stopping,
-      reason: paused && !stopping ? t('admin.scraper.reason.resume') : t('admin.scraper.reason.resumeUnavailable'),
-    },
-    stop: {
-      enabled: running && !stopping,
-      reason: running && !stopping ? t('admin.scraper.reason.stop') : t('admin.scraper.reason.stopUnavailable'),
-    },
-    runOnce: {
-      enabled: !running,
-      reason: !running ? t('admin.scraper.reason.runOnce') : t('admin.scraper.reason.runOnceUnavailable'),
-    },
-  };
-}
-
-function formatLogDetails(log: ResolverLogItem): string {
-  const metadata = parseSafeMetadata(log.safeMetadata);
-  const domain = metadataString(metadata, 'domain');
-  const reason = metadataString(metadata, 'reason');
-  const extension = metadataString(metadata, 'extension');
-  const assetKind = metadataString(metadata, 'asset_kind');
-  const source = metadataString(metadata, 'source');
-  const error = metadataString(metadata, 'error');
-  const detail = metadataString(metadata, 'detail');
-  const statement = metadataString(metadata, 'statement');
-  const winstallId = metadataString(metadata, 'winstall_id');
-  const appName = metadataString(metadata, 'app_name');
-  const currentPhase = metadataString(metadata, 'current_phase');
-  const lastKnownStep = metadataString(metadata, 'last_known_step');
-  const officialDomain = metadataString(metadata, 'official_domain');
-  const score = metadataNumber(metadata, 'score');
-  const elapsedSeconds = metadataNumber(metadata, 'elapsed_seconds');
-  const timeoutSeconds = metadataNumber(metadata, 'timeout_seconds');
-  const isPrimary = metadataBoolean(metadata, 'is_primary');
-  const details = [
-    error ? t('admin.log.error', { value: error }) : null,
-    detail ? t('admin.log.detail', { value: detail }) : null,
-    appName ? t('admin.log.app', { value: appName }) : null,
-    winstallId ? t('admin.log.winstallId', { value: winstallId }) : null,
-    currentPhase ? t('admin.log.phase', { value: currentPhase }) : null,
-    lastKnownStep && lastKnownStep !== currentPhase ? t('admin.log.lastStep', { value: lastKnownStep }) : null,
-    domain ? t('admin.log.domain', { value: domain }) : null,
-    officialDomain ? t('admin.log.officialDomain', { value: officialDomain }) : null,
-    reason ? t('admin.log.reason', { value: reason }) : null,
-    elapsedSeconds !== undefined ? t('admin.log.elapsedSeconds', { value: elapsedSeconds }) : null,
-    timeoutSeconds !== undefined ? t('admin.log.timeoutSeconds', { value: timeoutSeconds }) : null,
-    score !== undefined ? t('admin.log.score', { value: score }) : null,
-    extension ? t('admin.log.extension', { value: extension }) : null,
-    assetKind ? t('admin.log.type', { value: assetKind }) : null,
-    source ? t('admin.log.source', { value: source }) : null,
-    statement ? t('admin.log.sqlStatement') : null,
-    isPrimary !== undefined ? (isPrimary ? t('admin.log.primary') : t('admin.log.alternate')) : null,
-  ].filter(Boolean);
-  if (log.message && details.length) return `${log.message} - ${details.join('; ')}`;
-  if (details.length) return details.join('; ');
-  return log.message || t('admin.log.noDetails');
-}
-
-function parseSafeMetadata(value?: string | null): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-function metadataString(metadata: Record<string, unknown>, key: string): string | undefined {
-  const value = metadata[key];
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function metadataNumber(metadata: Record<string, unknown>, key: string): number | undefined {
-  const value = metadata[key];
-  return typeof value === 'number' ? value : undefined;
-}
-
-function metadataBoolean(metadata: Record<string, unknown>, key: string): boolean | undefined {
-  const value = metadata[key];
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-async function handleLogout(setAuth: (value: AuthUser | null) => void) {
-  await logout().catch(() => undefined);
-  setAuth(null);
-}
-
-function formatLastScrape(stats: CatalogStats | null): string {
-  if (!stats?.lastScrape) return t('app.lastScrape.empty');
-  const date = stats.lastScrape.finishedAt ?? stats.lastScrape.heartbeatAt ?? stats.lastScrape.startedAt;
-  return `${t('app.lastScrape')}: ${formatDate(date)}`;
-}
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('es-ES', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(new Date(value));
-}
-

@@ -10,7 +10,7 @@
 
 @import url("./components/forms.css");
 
-@import url("./components/catalog.css");
+@import url("./components/catalog.css?v=20260726-2");
 
 @import url("./components/details.css");
 
@@ -20,9 +20,13 @@
 
 @import url("./pages/auth.css");
 
+@import url("./pages/account.css");
+
 @import url("./pages/admin.css");
 
-@import url("./responsive.css");
+@import url("./pages/semantic-admin.css");
+
+@import url("./responsive.css?v=20260726-2");
 
 
 
@@ -53,10 +57,14 @@ button:disabled {
   opacity: 0.72;
 }
 
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 2px;
+}
+
 .empty-state,
 .loading-label,
-.error-banner,
-.drawer-empty {
+.error-banner {
   margin: 18px 0;
   color: var(--muted);
   font-size: 15px;

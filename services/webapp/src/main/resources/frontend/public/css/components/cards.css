@@ -21,7 +21,113 @@
   min-height: 178px;
   padding: 16px;
   color: #1f2937;
+}
+
+.bundle-card-home {
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 16px;
+  min-height: 286px;
+  padding: 18px;
+}
+
+.bundle-card-link {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  color: inherit;
   text-decoration: none;
+}
+
+.bundle-card-home .bundle-card-link {
+  grid-template-rows: auto minmax(50px, auto) auto;
+  align-content: start;
+  gap: 14px;
+}
+
+.bundle-card-link:focus-visible {
+  outline: 3px solid #0284c7;
+  outline-offset: 3px;
+  border-radius: 5px;
+}
+
+.bundle-download-action {
+  display: grid;
+  gap: 10px;
+}
+
+.bundle-platform-picker {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bundle-platform-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bundle-platform-option {
+  display: inline-grid;
+  grid-template-rows: 18px auto;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 38px;
+  min-height: 42px;
+  padding: 4px 3px 3px;
+  color: var(--teal-dark);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.bundle-platform-option small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.bundle-platform-option:hover:not(:disabled),
+.bundle-platform-option-active {
+  color: #ffffff;
+  background: var(--teal);
+  border-color: var(--teal);
+}
+
+.bundle-platform-option:hover:not(:disabled) small,
+.bundle-platform-option-active small {
+  color: inherit;
+}
+
+.bundle-platform-option:focus-visible {
+  outline: 3px solid #0284c7;
+  outline-offset: 2px;
+}
+
+.bundle-platform-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.bundle-card-home > .bundle-download-action-compact {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  justify-items: stretch;
+}
+
+.bundle-card-home > .bundle-download-action-compact .bundle-platform-picker {
+  align-items: center;
+}
+
+.bundle-download-action-compact .primary-button {
+  width: 100%;
 }
 
 .bundle-icon {
@@ -39,6 +145,16 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: 32px;
+}
+
+.bundle-card-preview {
+  justify-content: center;
+  min-height: 60px;
+  padding: 13px 12px;
+  overflow: hidden;
+  background: #f8fafc;
+  border-radius: 6px;
 }
 
 .mini-icon,
@@ -97,6 +213,38 @@
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.bundle-card-header-home {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.bundle-card-header-home h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bundle-card-count {
+  justify-self: end;
+  padding: 4px 7px;
+  color: var(--teal-dark);
+  background: var(--teal-soft);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.bundle-card-description {
+  display: -webkit-box;
+  min-height: 48px;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .bundle-card h3,

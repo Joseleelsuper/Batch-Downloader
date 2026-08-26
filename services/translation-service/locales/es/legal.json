@@ -1,0 +1,20 @@
+{
+  "legal.eyebrow": "Información legal",
+  "legal.lastUpdated": "Última actualización",
+  "legal.privacy.data.body": "Al crear una cuenta se tratan los datos necesarios para identificarte y mantener tu sesión. Los registros técnicos pueden conservar información imprescindible para proteger y diagnosticar el servicio.",
+  "legal.privacy.data.title": "Datos tratados",
+  "legal.privacy.intro": "Esta política resume cómo Batch Downloader utiliza la información necesaria para prestar y proteger el servicio.",
+  "legal.privacy.purpose.body": "Los datos se utilizan para autenticar cuentas, ofrecer las funciones solicitadas, prevenir abusos y resolver incidencias técnicas. No se emplean para fines ajenos al funcionamiento de la aplicación.",
+  "legal.privacy.purpose.title": "Finalidad",
+  "legal.privacy.rights.body": "Puedes revisar y actualizar los datos disponibles desde tu perfil. Para solicitudes adicionales, utiliza los canales públicos del proyecto enlazados en el footer.",
+  "legal.privacy.rights.title": "Control de tus datos",
+  "legal.privacy.title": "Política de privacidad",
+  "legal.terms.availability.body": "El catálogo y las descargas pueden cambiar o interrumpirse temporalmente. El proyecto no garantiza la disponibilidad permanente de aplicaciones o fuentes externas.",
+  "legal.terms.availability.title": "Disponibilidad",
+  "legal.terms.intro": "Estas condiciones establecen las reglas básicas para utilizar el catálogo y sus herramientas de descarga.",
+  "legal.terms.sources.body": "Los instaladores proceden de sus fuentes publicadas. Antes de instalarlos, revisa la licencia, la procedencia y los requisitos establecidos por cada proveedor.",
+  "legal.terms.sources.title": "Fuentes e instaladores",
+  "legal.terms.title": "Términos y condiciones",
+  "legal.terms.use.body": "Utiliza Batch Downloader de forma lícita y responsable. No intentes degradar el servicio, eludir controles de acceso ni automatizar solicitudes abusivas.",
+  "legal.terms.use.title": "Uso responsable"
+}

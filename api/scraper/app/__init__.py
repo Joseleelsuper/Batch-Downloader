@@ -1,1 +1,2 @@
-"""Batch Downloader scraper service."""
+"""Inicializa el paquete `app`.
+"""

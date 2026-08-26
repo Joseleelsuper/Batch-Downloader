@@ -1,0 +1,10 @@
+{
+  "admin.layout.apps": "Aplicaciones",
+  "admin.layout.audit": "Auditoría",
+  "admin.layout.bundles": "Bundles",
+  "admin.layout.dashboard": "Panel",
+  "admin.layout.logout": "Salir",
+  "admin.layout.requests": "Solicitudes",
+  "admin.layout.scraper": "Scraper",
+  "admin.layout.semantic": "IA semántica"
+}

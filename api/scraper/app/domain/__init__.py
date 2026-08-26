@@ -1,0 +1,2 @@
+"""Inicializa el paquete `domain`.
+"""

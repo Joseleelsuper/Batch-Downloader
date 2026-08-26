@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://batch-downloader.local/schemas/download-job-deferred.json",
+  "title": "download.job.deferred.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "type", "schemaVersion", "occurredAt", "correlationId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "type": { "const": "download.job.deferred" },
+    "schemaVersion": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string" },
+    "causationId": { "type": ["string", "null"] },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobId", "waitReason", "retryAt"],
+      "properties": {
+        "jobId": { "type": "string", "format": "uuid" },
+        "waitReason": {
+          "enum": ["temporary_storage_busy", "artifact_quota_busy", "artifact_capacity_unknown"]
+        },
+        "retryAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

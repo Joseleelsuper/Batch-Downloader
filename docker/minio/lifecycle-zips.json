@@ -1,0 +1,14 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-download-jobs-after-24h",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "jobs/"
+      },
+      "Expiration": {
+        "Days": 1
+      }
+    }
+  ]
+}

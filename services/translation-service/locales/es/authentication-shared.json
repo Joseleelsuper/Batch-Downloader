@@ -1,0 +1,23 @@
+{
+  "account.email": "Correo electrónico",
+  "account.error.auth_busy": "La autenticación está ocupada. Inténtalo de nuevo en unos segundos.",
+  "account.error.bundle_conflict": "Otra edición modificó este bundle. Recarga antes de guardar.",
+  "account.error.bundle_slug_exists": "Ya existe un bundle con ese slug.",
+  "account.error.email_already_exists": "Ese correo ya está registrado.",
+  "account.error.email_not_verified": "Confirma tu correo antes de iniciar sesión.",
+  "account.error.invalid_credentials": "El correo o la contraseña no son correctos.",
+  "account.error.rate_limited": "Has realizado demasiados intentos. Espera antes de continuar.",
+  "account.error.reset_token_expired": "El enlace de recuperación ha caducado.",
+  "account.error.reset_token_invalid": "El enlace de recuperación no es válido.",
+  "account.error.reset_token_used": "Este enlace de recuperación ya se utilizó.",
+  "account.error.service_busy": "El servicio está ocupado. Inténtalo de nuevo.",
+  "account.error.username_taken": "Ese username ya está ocupado.",
+  "account.error.verification_token_expired": "El enlace de verificación ha caducado.",
+  "account.error.verification_token_invalid": "El enlace de verificación no es válido.",
+  "account.error.verification_token_used": "Este enlace de verificación ya se utilizó.",
+  "account.password.confirm": "Confirmar contraseña",
+  "account.password.help": "Mínimo 12 caracteres y un máximo seguro de 72 bytes UTF-8.",
+  "account.password.mismatch": "Las contraseñas no coinciden.",
+  "account.password.tooLong": "La contraseña supera los 72 bytes admitidos por BCrypt.",
+  "account.sending": "Enviando..."
+}

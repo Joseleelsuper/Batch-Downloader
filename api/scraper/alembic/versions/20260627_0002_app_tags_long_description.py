@@ -1,20 +1,27 @@
-"""add app tags and long descriptions
-
-Revision ID: 20260627_0002
-Revises: 20260626_0001
-Create Date: 2026-06-27
+"""Define la migración de esquema `20260627_0002_app_tags_long_description`.
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
+
 revision = "20260627_0002"
+"""Estado global asociado a `revision`.
+"""
 down_revision = "20260626_0001"
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
+    """Ejecuta la operación `upgrade`.
+    """
     op.add_column("software_apps", sa.Column("long_description", sa.Text(), nullable=True))
     op.add_column(
         "software_apps", sa.Column("long_description_language", sa.String(16), nullable=True)
@@ -98,6 +105,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.drop_index("ix_software_app_tags_normalized_tag", table_name="software_app_tags")
     op.drop_index("ix_software_app_tags_app", table_name="software_app_tags")
     op.drop_table("software_app_tags")

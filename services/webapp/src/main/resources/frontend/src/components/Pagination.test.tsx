@@ -43,4 +43,45 @@ describe('Pagination', () => {
     expect(onPageChange).toHaveBeenNthCalledWith(1, 1);
     expect(onPageChange).toHaveBeenNthCalledWith(2, 3);
   });
+
+  it('normaliza valores no numéricos y no repite la página actual', () => {
+    const onPageChange = vi.fn();
+    render(
+      <Pagination
+        page={2}
+        pageSize={12}
+        total={30}
+        onPageChange={onPageChange}
+        onPageSizeChange={vi.fn()}
+      />,
+    );
+    const input = screen.getByRole('textbox', { name: 'Página' });
+    fireEvent.change(input, { target: { value: 'abc' } });
+    expect(input).toHaveValue('');
+    fireEvent.blur(input);
+    expect(input).toHaveValue('2');
+    expect(onPageChange).not.toHaveBeenCalled();
+  });
+
+  it('representa un catálogo vacío y permite cambiar el tamaño', () => {
+    const onPageSizeChange = vi.fn();
+    render(
+      <Pagination
+        page={1}
+        pageSize={12}
+        total={0}
+        onPageChange={vi.fn()}
+        onPageSizeChange={onPageSizeChange}
+      />,
+    );
+
+    expect(screen.getByText(/Mostrando 0 a 0 de 0/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ disabled: true })]),
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Aplicaciones por página' }), {
+      target: { value: '24' },
+    });
+    expect(onPageSizeChange).toHaveBeenCalledWith(24);
+  });
 });

@@ -12,6 +12,9 @@ import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -19,18 +22,49 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+/**
+ * Gestiona la persistencia y consulta de {@code AdminScraperRepository}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @Repository
 public class AdminScraperRepository {
-    private static final Set<String> COMMANDS = Set.of("pause", "resume", "stop", "run_once");
+    /**
+     * Constante que define {@code COMMANDS}.
+     */
+    private static final Set<String> COMMANDS = Set.of("pause", "resume", "stop", "force_stop", "run_once");
+    /** Ventana de conservación de los elementos terminales de cola. */
+    private static final Duration TERMINAL_RETENTION = Duration.ofDays(30);
+    /** Límite por ejecución para no monopolizar la base de datos compartida. */
+    private static final int RETENTION_BATCH_SIZE = 500;
+    /**
+     * Estado {@code jdbc} mantenido por {@code AdminScraperRepository}.
+     */
     private final JdbcTemplate jdbc;
+    /** Reloj inyectado para hacer determinista el límite de retención. */
+    private final Clock clock;
 
-    public AdminScraperRepository(JdbcTemplate jdbc) {
+    /**
+     * Inicializa una instancia de {@code AdminScraperRepository}.
+     *
+     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param clock Reloj UTC utilizado para calcular la antigüedad.
+     */
+    public AdminScraperRepository(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
     }
 
+    /**
+     * Ejecuta la operación {@code runs}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<ScraperRunSummary> runs(int limit) {
         return jdbc.query(
                 """
@@ -42,6 +76,11 @@ public class AdminScraperRepository {
                 Math.max(1, Math.min(limit, 100)));
     }
 
+    /**
+     * Ejecuta la operación {@code current}.
+     *
+     * @return Resultado producido por {@code current}.
+     */
     public ScraperRunSummary current() {
         List<ScraperRunSummary> runs = jdbc.query(
                 """
@@ -53,6 +92,12 @@ public class AdminScraperRepository {
         return runs.isEmpty() ? null : runs.get(0);
     }
 
+    /**
+     * Ejecuta la operación {@code logs}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<ResolverLogItem> logs(int limit) {
         return jdbc.query(
                 """
@@ -71,9 +116,15 @@ public class AdminScraperRepository {
                 Math.max(1, Math.min(limit, 500)));
     }
 
+    /**
+     * Ejecuta la operación {@code queues}.
+     *
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<ScraperQueueState> queues() {
         List<ScraperQueueState> states = new ArrayList<>();
-        for (String queue : List.of("searcher_filter", "filter_scraper")) {
+        for (String queue : List.of(
+                "searcher_filter", "filter_scraper", "scraper_so_filter", "so_filter_descriptor")) {
             Map<String, Long> counts = new LinkedHashMap<>();
             jdbc.queryForList(
                     """
@@ -114,10 +165,18 @@ public class AdminScraperRepository {
         return states;
     }
 
+    /**
+     * Ejecuta la operación {@code metrics}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<ScraperMetricItem> metrics(int limit) {
         return jdbc.query(
                 """
-                SELECT available, review, unavailable, queued_searcher_filter, queued_filter_scraper, captured_at
+                SELECT available, review, unavailable, queued_searcher_filter,
+                       queued_filter_scraper, queued_scraper_so_filter,
+                       queued_so_filter_descriptor, captured_at
                 FROM scraper_metric_snapshots
                 ORDER BY captured_at DESC
                 LIMIT ?
@@ -128,10 +187,17 @@ public class AdminScraperRepository {
                         rs.getInt("unavailable"),
                         rs.getInt("queued_searcher_filter"),
                         rs.getInt("queued_filter_scraper"),
+                        rs.getInt("queued_scraper_so_filter"),
+                        rs.getInt("queued_so_filter_descriptor"),
                         rs.getTimestamp("captured_at").toLocalDateTime()),
                 Math.max(1, Math.min(limit, 200))).reversed();
     }
 
+    /**
+     * Ejecuta la operación {@code snapshots}.
+     *
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<ScraperSnapshotItem> snapshots() {
         Map<String, ScraperSnapshotItem> byStage = new LinkedHashMap<>();
         List<ScraperSnapshotItem> snapshots = jdbc.query(
@@ -153,6 +219,11 @@ public class AdminScraperRepository {
         return List.copyOf(byStage.values());
     }
 
+    /**
+     * Ejecuta la operación {@code event}.
+     *
+     * @return Resultado producido por {@code event}.
+     */
     public ScraperEvent event() {
         return new ScraperEvent(
                 "scraper.changed",
@@ -163,6 +234,11 @@ public class AdminScraperRepository {
                 LocalDateTime.now());
     }
 
+    /**
+     * Ejecuta la operación {@code scraperVersion}.
+     *
+     * @return Resultado producido por {@code scraperVersion}.
+     */
     public String scraperVersion() {
         String token = jdbc.queryForObject(
                 """
@@ -177,6 +253,11 @@ public class AdminScraperRepository {
         return Integer.toHexString((token == null ? "" : token).hashCode());
     }
 
+    /**
+     * Recupera los elementos afectados mediante {@code recoverStuckQueueItems}.
+     *
+     * @return Número de elementos afectados por la operación.
+     */
     public int recoverStuckQueueItems() {
         return jdbc.update(
                 """
@@ -192,6 +273,30 @@ public class AdminScraperRepository {
                 """);
     }
 
+    /**
+     * Libera el recurso solicitado mediante {@code releaseInProgressQueueItems}.
+     *
+     * @return Resultado producido por {@code releaseInProgressQueueItems}.
+     */
+    public int releaseInProgressQueueItems() {
+        return jdbc.update(
+                """
+                UPDATE scraper_work_items
+                SET status = 'queued',
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    available_at = NOW(),
+                    last_error = NULL,
+                    updated_at = NOW()
+                WHERE status = 'in_progress'
+                """);
+    }
+
+    /**
+     * Reintenta los elementos afectados mediante {@code retryFailedQueueItems}.
+     *
+     * @return Resultado producido por {@code retryFailedQueueItems}.
+     */
     public int retryFailedQueueItems() {
         return jdbc.update(
                 """
@@ -206,19 +311,62 @@ public class AdminScraperRepository {
                 """);
     }
 
+    /**
+     * Ejecuta la operación {@code pruneTerminalQueueItems}.
+     *
+     * @return Resultado producido por {@code pruneTerminalQueueItems}.
+     */
     public int pruneTerminalQueueItems() {
         return jdbc.update(
                 """
                 DELETE FROM scraper_work_items
                 WHERE status IN ('completed', 'discarded')
+                  AND updated_at < ?
+                  AND lease_owner IS NULL
+                  AND lease_expires_at IS NULL
+                ORDER BY updated_at ASC, id ASC
+                LIMIT ?
+                """,
+                Timestamp.from(clock.instant().minus(TERMINAL_RETENTION)),
+                RETENTION_BATCH_SIZE);
+    }
+
+    /**
+     * Ejecuta la operación {@code forceStopRunningRuns}.
+     *
+     * @return Resultado producido por {@code forceStopRunningRuns}.
+     */
+    public int forceStopRunningRuns() {
+        return jdbc.update(
+                """
+                UPDATE scrape_runs
+                SET status = 'partial',
+                    finished_at = NOW(),
+                    heartbeat_at = NOW(),
+                    current_phase = 'force_stopped',
+                    stop_requested = TRUE,
+                    paused_at = NULL,
+                    error_summary = 'Force stopped by admin.'
+                WHERE status = 'running'
                 """);
     }
 
+    /**
+     * Encola la operación solicitada mediante {@code enqueueCommand}.
+     *
+     * @param command Comando que debe procesarse.
+     * @param actor Identidad del actor que solicita la operación.
+     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
     public void enqueueCommand(String command, String actor) {
         if (!COMMANDS.contains(command)) {
             throw new ConflictException("unsupported_scraper_command", "Comando de scraper no soportado.");
         }
-        String status = "run_once".equals(command) ? "completed" : "pending";
+        if ("run_once".equals(command)) {
+            enqueueRun("incremental", List.of(), actor);
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
         jdbc.update(
                 """
@@ -228,13 +376,49 @@ public class AdminScraperRepository {
                 """,
                 UuidBytes.fromUuid(UUID.randomUUID()),
                 command,
-                status,
-                "run_once".equals(command) ? "Triggered through scraper internal API." : null,
+                "pending",
+                null,
                 actor,
                 now,
-                "run_once".equals(command) ? now : null);
+                null);
     }
 
+    /**
+     * Persiste una solicitud de scraping hasta que el scheduler la reclame.
+     *
+     * @param scope Alcance validado por el controlador.
+     * @param appIds UUID concretos para {@code selected}.
+     * @param actor Identidad autenticada.
+     * @return Identificador durable de la solicitud.
+     */
+    public UUID enqueueRun(String scope, List<UUID> appIds, String actor) {
+        UUID requestId = UUID.randomUUID();
+        String appIdsJson = appIds == null || appIds.isEmpty()
+                ? null
+                : appIds.stream()
+                        .map(id -> "\"" + id + "\"")
+                        .collect(Collectors.joining(",", "[", "]"));
+        jdbc.update(
+                """
+                INSERT INTO scraper_commands
+                (id, command, scope, app_ids_json, status, message, created_by,
+                 created_at, consumed_at, started_at, run_id)
+                VALUES (?, 'run_once', ?, ?, 'pending', NULL, ?, ?, NULL, NULL, NULL)
+                """,
+                UuidBytes.fromUuid(requestId),
+                scope,
+                appIdsJson,
+                actor,
+                LocalDateTime.now());
+        return requestId;
+    }
+
+    /**
+     * Ejecuta la operación {@code audit}.
+     *
+     * @param limit Número máximo de elementos que se recuperarán.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     public List<AdminAuditItem> audit(int limit) {
         return jdbc.query(
                 """
@@ -253,10 +437,20 @@ public class AdminScraperRepository {
                 Math.max(1, Math.min(limit, 200)));
     }
 
+    /**
+     * Ejecuta la operación {@code run}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @return Resultado producido por {@code run}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private ScraperRunSummary run(ResultSet rs) throws SQLException {
         return new ScraperRunSummary(
                 UuidBytes.toUuid(rs.getBytes("id")).toString(),
                 rs.getString("status"),
+                rs.getString("scope"),
+                nullableUuid(rs, "request_id"),
+                rs.getInt("target_count"),
                 rs.getTimestamp("started_at").toLocalDateTime(),
                 rs.getTimestamp("heartbeat_at").toLocalDateTime(),
                 nullableDate(rs, "finished_at"),
@@ -264,6 +458,10 @@ public class AdminScraperRepository {
                 rs.getInt("apps_resolved"),
                 rs.getInt("apps_failed"),
                 rs.getInt("apps_skipped"),
+                rs.getInt("apps_confirmed_missing"),
+                rs.getInt("apps_needs_review"),
+                rs.getInt("apps_transient_failed"),
+                rs.getInt("apps_skipped_unchanged"),
                 rs.getString("current_package_id"),
                 rs.getString("current_app_name"),
                 rs.getString("current_phase"),
@@ -272,6 +470,20 @@ public class AdminScraperRepository {
                 rs.getString("error_summary"));
     }
 
+    /** Devuelve un UUID binario opcional como texto. */
+    private String nullableUuid(ResultSet rs, String column) throws SQLException {
+        byte[] value = rs.getBytes(column);
+        return value == null ? null : UuidBytes.toUuid(value).toString();
+    }
+
+    /**
+     * Ejecuta la operación {@code nullableDate}.
+     *
+     * @param rs Valor de {@code rs} utilizado por la operación.
+     * @param column Valor de {@code column} utilizado por la operación.
+     * @return Resultado producido por {@code nullableDate}.
+     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     */
     private LocalDateTime nullableDate(ResultSet rs, String column) throws SQLException {
         var timestamp = rs.getTimestamp(column);
         return timestamp == null ? null : timestamp.toLocalDateTime();

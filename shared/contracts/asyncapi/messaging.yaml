@@ -1,1 +1,150 @@
 
+asyncapi: 3.1.0
+info:
+  title: Batch Downloader Messaging API
+  version: 1.1.0
+  description: >-
+    Contratos RabbitMQ entre Core, scraper, workers y notificaciones. Los
+    comandos de descarga solo contienen identificadores; el worker obtiene la
+    URL temporal y la plataforma del endpoint interno autenticado del scraper
+    y consulta Core únicamente para los metadatos públicos de items fallidos.
+defaultContentType: application/json
+servers:
+  local:
+    host: rabbitmq:5672
+    protocol: amqp
+    description: RabbitMQ interno de Docker Compose.
+channels:
+  downloadJobRequested:
+    address: batch.commands.v1.download.job.requested
+    messages:
+      downloadJobRequested:
+        $ref: '#/components/messages/downloadJobRequested'
+  downloadJobCancelRequested:
+    address: batch.commands.v1.download.job.cancel-requested
+    messages:
+      downloadJobCancelRequested:
+        $ref: '#/components/messages/downloadJobCancelRequested'
+  downloadJobProgressed:
+    address: batch.events.v1.download.job.progressed
+    messages:
+      downloadJobProgressed:
+        $ref: '#/components/messages/downloadJobProgressed'
+  downloadJobReady:
+    address: batch.events.v1.download.job.ready
+    messages:
+      downloadJobReady:
+        $ref: '#/components/messages/downloadJobReady'
+  downloadJobFailed:
+    address: batch.events.v1.download.job.failed
+    messages:
+      downloadJobFailed:
+        $ref: '#/components/messages/downloadJobFailed'
+  catalogAppPublished:
+    address: batch.events.v1.catalog.app.published
+    messages:
+      catalogAppPublished:
+        $ref: '#/components/messages/catalogAppPublished'
+  notificationRequested:
+    address: batch.commands.v1.notification.email.requested
+    messages:
+      notificationRequested:
+        $ref: '#/components/messages/notificationRequested'
+operations:
+  requestDownloadJob:
+    action: send
+    channel:
+      $ref: '#/channels/downloadJobRequested'
+    messages:
+      - $ref: '#/channels/downloadJobRequested/messages/downloadJobRequested'
+  cancelDownloadJob:
+    action: send
+    channel:
+      $ref: '#/channels/downloadJobCancelRequested'
+    messages:
+      - $ref: '#/channels/downloadJobCancelRequested/messages/downloadJobCancelRequested'
+  consumeDownloadCancellation:
+    action: receive
+    channel:
+      $ref: '#/channels/downloadJobCancelRequested'
+    messages:
+      - $ref: '#/channels/downloadJobCancelRequested/messages/downloadJobCancelRequested'
+  consumeDownloadJob:
+    action: receive
+    channel:
+      $ref: '#/channels/downloadJobRequested'
+    messages:
+      - $ref: '#/channels/downloadJobRequested/messages/downloadJobRequested'
+  publishDownloadProgress:
+    action: send
+    channel:
+      $ref: '#/channels/downloadJobProgressed'
+    messages:
+      - $ref: '#/channels/downloadJobProgressed/messages/downloadJobProgressed'
+  publishDownloadReady:
+    action: send
+    channel:
+      $ref: '#/channels/downloadJobReady'
+    messages:
+      - $ref: '#/channels/downloadJobReady/messages/downloadJobReady'
+  publishDownloadFailed:
+    action: send
+    channel:
+      $ref: '#/channels/downloadJobFailed'
+    messages:
+      - $ref: '#/channels/downloadJobFailed/messages/downloadJobFailed'
+  publishCatalogApp:
+    action: send
+    channel:
+      $ref: '#/channels/catalogAppPublished'
+    messages:
+      - $ref: '#/channels/catalogAppPublished/messages/catalogAppPublished'
+  requestNotification:
+    action: send
+    channel:
+      $ref: '#/channels/notificationRequested'
+    messages:
+      - $ref: '#/channels/notificationRequested/messages/notificationRequested'
+components:
+  messages:
+    downloadJobRequested:
+      name: download.job.requested.v1
+      title: Trabajo de descarga solicitado
+      payload:
+        $ref: '../schemas/download-job-created.json'
+    downloadJobCancelRequested:
+      name: download.job.cancel-requested.v1
+      title: Cancelación de descarga solicitada
+      payload:
+        $ref: '../schemas/download-job-cancel-requested.json'
+    downloadJobProgressed:
+      name: download.job.progressed.v1
+      title: Progreso de un trabajo
+      payload:
+        $ref: '../schemas/file-downloaded.json'
+    downloadJobReady:
+      name: download.job.ready.v1
+      title: ZIP disponible
+      payload:
+        $ref: '../schemas/zip-generated.json'
+    downloadJobFailed:
+      name: download.job.failed.v1
+      title: Trabajo sin resultados descargables
+      payload:
+        $ref: '../schemas/download-job-failed.json'
+    catalogAppPublished:
+      name: catalog.app.published.v1
+      title: Proyección de catálogo actualizada
+      payload:
+        $ref: '../schemas/catalog-app-published.json'
+    notificationRequested:
+      name: notification.email.requested.v1
+      title: Correo transaccional solicitado
+      description: >-
+        Mantiene el envelope y schemaVersion 1. Para EMAIL_VERIFICATION y
+        PASSWORD_RESET, parameters.token se publica como un sobre AES-GCM
+        versionado con prefijo enc:v1:. El consumidor rechaza texto claro y
+        versiones desconocidas. Los eventos DOWNLOAD_READY y DOWNLOAD_FAILED
+        continúan sin token de entrega.
+      payload:
+        $ref: '../schemas/notification-requested.json'

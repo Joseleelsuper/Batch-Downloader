@@ -1,0 +1,11 @@
+{
+  "account.delete": "Eliminar",
+  "account.downloads.empty": "Tu historial está vacío.",
+  "account.loading": "Cargando tu cuenta...",
+  "account.nav.bundles": "Mis bundles",
+  "account.nav.dashboard": "Dashboard",
+  "account.nav.profile": "Perfil",
+  "account.private": "Privado",
+  "account.public": "Público",
+  "account.save": "Guardar"
+}

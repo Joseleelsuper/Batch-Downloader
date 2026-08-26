@@ -1,1 +1,2 @@
-"""Database models and sessions."""
+"""Inicializa el paquete `db`.
+"""

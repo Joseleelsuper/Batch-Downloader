@@ -1,0 +1,21 @@
+{
+  "account.bundles.apps": "Aplicaciones disponibles",
+  "account.bundles.create": "Crear bundle",
+  "account.bundles.deleteConfirm": "¿Quieres eliminar este bundle?",
+  "account.bundles.deleteFailed": "No se pudo eliminar el bundle.",
+  "account.bundles.description": "Descripción",
+  "account.bundles.edit": "Editar bundle",
+  "account.bundles.empty": "Todavía no tienes bundles personales.",
+  "account.bundles.failed": "No se pudieron cargar tus bundles.",
+  "account.bundles.name": "Nombre",
+  "account.bundles.new": "Nuevo bundle",
+  "account.bundles.privateDefault": "Los bundles nuevos son privados hasta que decidas publicarlos.",
+  "account.bundles.saveFailed": "No se pudo guardar el bundle.",
+  "account.bundles.searchApps": "Buscar en el catálogo disponible",
+  "account.bundles.selected": "{count} aplicaciones seleccionadas",
+  "account.bundles.slug": "Slug",
+  "account.bundles.subtitle": "Organiza tus aplicaciones y decide qué colecciones compartir.",
+  "account.bundles.tags": "Etiquetas separadas por comas",
+  "account.bundles.title": "Mis bundles",
+  "account.bundles.visibility": "Visibilidad"
+}

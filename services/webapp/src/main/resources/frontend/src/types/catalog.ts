@@ -7,6 +7,9 @@ export type ResolutionStatus =
 
 export type ValidationStatus = 'unchecked' | 'valid' | 'invalid' | 'expired';
 
+export type OperatingSystem = 'windows' | 'linux' | 'macos';
+export type SearchMode = 'lexical' | 'semantic';
+
 export interface CatalogApp {
   id: string;
   slug: string;
@@ -16,6 +19,7 @@ export interface CatalogApp {
   description?: string | null;
   longDescription?: string | null;
   tags: string[];
+  operatingSystems: OperatingSystem[];
   iconUrl?: string | null;
   latestVersion?: string | null;
   sourceLabel: string;
@@ -30,6 +34,18 @@ export interface CatalogResponse {
   page: number;
   pageSize: number;
   total: number;
+  alphabet?: CatalogAlphabetEntry[];
+  requestedMode?: SearchMode;
+  appliedMode?: SearchMode;
+  modelVersion?: string | null;
+  indexVersion?: string | null;
+  degradedReason?: string | null;
+}
+
+export interface CatalogAlphabetEntry {
+  letter: string;
+  page: number;
+  count: number;
 }
 
 export interface FacetItem {
@@ -43,6 +59,11 @@ export interface FacetItem {
 export interface CatalogFacets {
   tags: FacetItem[];
   publishers: FacetItem[];
+  requestedMode?: SearchMode;
+  appliedMode?: SearchMode;
+  modelVersion?: string | null;
+  indexVersion?: string | null;
+  degradedReason?: string | null;
 }
 
 export interface CatalogStats {
@@ -76,6 +97,54 @@ export interface DownloadOption {
   isPrimary: boolean;
 }
 
+export type DownloadJobStatus =
+  | 'QUEUED'
+  | 'RESOLVING'
+  | 'DOWNLOADING'
+  | 'PACKAGING'
+  | 'READY'
+  | 'PARTIAL'
+  | 'MANUAL_ONLY'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'EXPIRED';
+
+export type DownloadItemStatus =
+  | 'QUEUED'
+  | 'RESOLVING'
+  | 'DOWNLOADING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export interface DownloadJobItem {
+  id: string;
+  appId: string;
+  appName: string;
+  officialPageUrl?: string | null;
+  status: DownloadItemStatus;
+  bytesDownloaded: number;
+  sha256?: string | null;
+  errorCode?: string | null;
+}
+
+export interface DownloadJob {
+  id: string;
+  status: DownloadJobStatus;
+  failureCode: string | null;
+  progress: number;
+  requestedCount: number;
+  acceptedCount: number;
+  omittedCount: number;
+  items: DownloadJobItem[];
+  createdAt: string;
+  expiresAt: string;
+  artifactSizeBytes?: number | null;
+  artifactSha256?: string | null;
+  waitReason?: string | null;
+  retryAt?: string | null;
+}
+
 export interface AppDetails extends CatalogApp {
   officialUrl?: string | null;
   originUrl?: string | null;
@@ -92,8 +161,143 @@ export interface AppDetails extends CatalogApp {
 }
 
 export type FilterKey = 'all' | 'available' | 'review' | 'missing';
+export type AdminAppFilter = FilterKey | 'unresolved';
 
-export type SortKey = 'name' | 'updated';
+export type SortKey = 'name' | 'updated' | 'downloads';
+
+export type ManualSuggestionSource =
+  | 'current'
+  | 'json_ld'
+  | 'open_graph'
+  | 'twitter'
+  | 'canonical'
+  | 'filename'
+  | 'generated_ai'
+  | 'manual'
+  | 'source_page'
+  | 'unavailable';
+
+export interface ManualFieldSuggestion {
+  value?: string | null;
+  source: ManualSuggestionSource;
+}
+
+export interface ManualInstallerSuggestions {
+  name: ManualFieldSuggestion;
+  publisher: ManualFieldSuggestion;
+  officialUrl: ManualFieldSuggestion;
+  latestVersion: ManualFieldSuggestion;
+  description: ManualFieldSuggestion;
+  longDescription: ManualFieldSuggestion;
+  iconUrl: ManualFieldSuggestion;
+}
+
+export interface ManualInstallerTechnicalData {
+  finalDomain?: string | null;
+  filename?: string | null;
+  extension?: string | null;
+  contentType?: string | null;
+  sizeBytes?: number | null;
+  version?: string | null;
+  operatingSystem?: OperatingSystem | null;
+  architecture: string;
+  platformRequired: boolean;
+}
+
+export interface ManualInstallerInspection {
+  id: string;
+  appId: string;
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'applied' | 'expired';
+  phase: string;
+  expectedAppVersion: number;
+  warnings: string[];
+  suggestions?: ManualInstallerSuggestions | null;
+  installer?: ManualInstallerTechnicalData | null;
+  installers: ManualInstallerTechnicalData[];
+  ai?: {
+    status: 'ready' | 'unavailable' | 'failed';
+    provider?: string | null;
+    model?: string | null;
+  } | null;
+  errorCode?: string | null;
+  sourceRef?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface ManualInstallerInspectionRequest {
+  installerUrls: Record<OperatingSystem, string | null>;
+  sourcePageUrl: string;
+}
+
+export interface ManualInstallerApplyRequest {
+  expectedAppVersion: number;
+  name: string;
+  publisher: string | null;
+  officialUrl: string | null;
+  latestVersion: string | null;
+  description: string | null;
+  longDescription: string | null;
+  iconUrl: string | null;
+  operatingSystem?: OperatingSystem | null;
+}
+
+export interface ManualInstallerApplyResponse {
+  application: AppDetails;
+  sourceRef: string;
+  sourceRefs: string[];
+  warnings: string[];
+}
+
+export interface WebsiteAppDiscoveryInstaller {
+  id: string;
+  finalDomain?: string | null;
+  filename?: string | null;
+  extension?: string | null;
+  contentType?: string | null;
+  sizeBytes?: number | null;
+  version?: string | null;
+  operatingSystem: OperatingSystem;
+  architecture: string;
+}
+
+export interface WebsiteAppDiscovery {
+  id: string;
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'applied' | 'expired';
+  phase: string;
+  warnings: string[];
+  providedInstallerPlatforms: OperatingSystem[];
+  suggestions?: ManualInstallerSuggestions | null;
+  installers: WebsiteAppDiscoveryInstaller[];
+  ai?: ManualInstallerInspection['ai'];
+  errorCode?: string | null;
+  appliedAppId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface WebsiteAppDiscoveryRequest {
+  officialUrl: string;
+  installerUrls: Record<OperatingSystem, string | null>;
+}
+
+export interface WebsiteAppDiscoveryApplyRequest {
+  name: string;
+  publisher: string | null;
+  officialUrl: string;
+  latestVersion: string | null;
+  description: string | null;
+  longDescription: string | null;
+  iconUrl: string | null;
+}
+
+export interface WebsiteAppDiscoveryApplyResponse {
+  application: AppDetails;
+  installerCount: number;
+  warnings: string[];
+}
 
 export interface BundleSummary {
   id: string;
@@ -105,8 +309,17 @@ export interface BundleSummary {
   starCount: number;
   appCount: number;
   tags: string[];
+  /** Platforms with a selectable installer for at least one active app. */
+  operatingSystems: OperatingSystem[];
+  platformAvailability: BundlePlatformAvailability[];
   previewApps: CatalogApp[];
   updatedAt: string;
+}
+
+export interface BundlePlatformAvailability {
+  operatingSystem: OperatingSystem;
+  downloadableAppCount: number;
+  previewApps: CatalogApp[];
 }
 
 export interface BundleDetails extends BundleSummary {
@@ -121,13 +334,22 @@ export interface BundleResponse {
 }
 
 export interface AuthUser {
+  id: string;
   username: string;
-  role: string;
+  email: string;
+  emailVerified: boolean;
+  role: 'USER' | 'ADMIN';
+  notifyOnJobCompletion: boolean;
+  createdAt: string;
+  authenticationMethods: Array<'LOCAL' | 'GOOGLE'>;
 }
 
 export interface ScraperRunSummary {
   id: string;
   status: string;
+  scope: ScrapeScope;
+  requestId?: string | null;
+  targetCount: number;
   startedAt: string;
   heartbeatAt: string;
   finishedAt?: string | null;
@@ -135,12 +357,60 @@ export interface ScraperRunSummary {
   appsResolved: number;
   appsFailed: number;
   appsSkipped: number;
+  appsConfirmedMissing: number;
+  appsNeedsReview: number;
+  appsTransientFailed: number;
+  appsSkippedUnchanged: number;
   currentPackageId?: string | null;
   currentAppName?: string | null;
   currentPhase?: string | null;
   stopRequested: boolean;
   pausedAt?: string | null;
   errorSummary?: string | null;
+}
+
+export type ScrapeScope = 'incremental' | 'unresolved' | 'selected' | 'full';
+
+export interface ScraperRunRequestResponse {
+  requestId: string;
+  scope: ScrapeScope;
+  status: string;
+}
+
+export interface InstallerAbsenceVerificationRequest {
+  reasonCode: 'no_supported_binary' | 'store_only' | 'command_only' | 'wrapper_only' | 'vendor_discontinued';
+  manifestUrl: string;
+  officialPageUrl?: string | null;
+  winstallConfirmedAbsent: true;
+  manifestConfirmedAbsent: true;
+  officialConfirmedAbsent: boolean;
+  ambiguousAccess: false;
+  notes?: string | null;
+}
+
+export interface InstallerAbsenceVerification {
+  id: string;
+  appId: string;
+  status: string;
+  reasonCode: string;
+  notes?: string | null;
+  checkedUrls: string;
+  verifiedBy: string;
+  verifiedAt: string;
+  appVersion: number;
+  winstallLatestVersion?: string | null;
+  winstallSummaryFingerprint?: string | null;
+  winstallDetailFingerprint?: string | null;
+  officialUrlFingerprint?: string | null;
+  invalidatedAt?: string | null;
+  invalidationReason?: string | null;
+}
+
+export interface InstallerAbsenceVerificationSummary {
+  active: number;
+  missing: number;
+  missingWithoutActiveEvidence: number;
+  review: number;
 }
 
 export interface ResolverLogItem {
@@ -177,7 +447,16 @@ export interface ScraperMetricItem {
   unavailable: number;
   queuedSearcherFilter: number;
   queuedFilterScraper: number;
+  queuedScraperSoFilter?: number;
+  queuedSoFilterDescriptor?: number;
+  queuedScraperDescriptor?: number;
   capturedAt: string;
+}
+
+export interface ContentEnqueueResult {
+  matched: number;
+  enqueued: number;
+  alreadyActive: number;
 }
 
 export interface ScraperSnapshotItem {

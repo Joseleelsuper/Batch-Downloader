@@ -1,20 +1,27 @@
-"""initial scraper schema
-
-Revision ID: 20260626_0001
-Revises:
-Create Date: 2026-06-26
+"""Define la migración de esquema `20260626_0001_initial_scraper_schema`.
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
+
 revision = "20260626_0001"
+"""Estado global asociado a `revision`.
+"""
 down_revision = None
+"""Estado global asociado a `down_revision`.
+"""
 branch_labels = None
+"""Estado global asociado a `branch_labels`.
+"""
 depends_on = None
+"""Estado global asociado a `depends_on`.
+"""
 
 
 def upgrade() -> None:
+    """Ejecuta la operación `upgrade`.
+    """
     op.create_table(
         "software_apps",
         sa.Column("id", sa.BINARY(16), nullable=False),
@@ -64,8 +71,16 @@ def upgrade() -> None:
         "download_sources",
         ["software_app_id", "operating_system", "architecture", "resolution_status"],
     )
-    op.create_index("ix_download_sources_resolution_status", "download_sources", ["resolution_status"])
-    op.create_index("ix_download_sources_validation_status", "download_sources", ["validation_status"])
+    op.create_index(
+        "ix_download_sources_resolution_status",
+        "download_sources",
+        ["resolution_status"],
+    )
+    op.create_index(
+        "ix_download_sources_validation_status",
+        "download_sources",
+        ["validation_status"],
+    )
 
     op.create_table(
         "source_allowed_domains",
@@ -143,6 +158,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Ejecuta la operación `downgrade`.
+    """
     op.drop_index("ix_scrape_runs_status", table_name="scrape_runs")
     op.drop_table("scrape_runs")
     op.drop_table("resolver_logs")

@@ -1,3 +1,5 @@
+"""Implementa las responsabilidades del módulo `json_safe`.
+"""
 from __future__ import annotations
 
 import uuid
@@ -8,6 +10,14 @@ from typing import Any
 
 
 def json_safe(value: Any) -> Any:
+    """Ejecuta la operación `json_safe`.
+
+    Args:
+        value (Any): Valor que debe procesarse.
+
+    Returns:
+        Any: Resultado producido por la operación.
+    """
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, bytes):
@@ -23,4 +33,3 @@ def json_safe(value: Any) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [json_safe(item) for item in value]
     return str(value)
-

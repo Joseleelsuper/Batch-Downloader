@@ -1,1 +1,2 @@
-"""Semantic service placeholder API."""
+"""Inicializa el paquete `app`.
+"""

@@ -1,324 +1,263 @@
 package es.ubu.batchdownloader.catalog;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
-import es.ubu.batchdownloader.catalog.CatalogDtos.DownloadZipRequest;
-import es.ubu.batchdownloader.common.ApiError;
-import es.ubu.batchdownloader.common.ConflictException;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.InputStream;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
+import es.ubu.batchdownloader.common.BadRequestException;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.ContentDisposition;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+/**
+ * Expone las operaciones HTTP gestionadas por {@code CatalogController}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ */
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/v1")
 public class CatalogController {
+    /**
+     * Constante que define {@code OPERATING_SYSTEMS}.
+     */
+    private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
+    /**
+     * Constante que define {@code PUBLIC_CATALOG_STATUSES}.
+     */
+    private static final Set<String> PUBLIC_CATALOG_STATUSES = Set.of("all", "available", "review", "missing");
+    /**
+     * Estado {@code catalog} mantenido por {@code CatalogController}.
+     */
     private final CatalogRepository catalog;
-    private final String scraperApiUrl;
-    private final HttpClient httpClient;
-    private final HttpClient downloadClient;
-    private final ObjectMapper objectMapper;
+    /**
+     * Estado {@code semanticSearch} mantenido por {@code CatalogController}.
+     */
+    private final SemanticSearchClient semanticSearch;
+    /** Caché breve de respuestas públicas. */
+    private final PublicCatalogCache cache;
 
+    /**
+     * Inicializa una instancia de {@code CatalogController}.
+     *
+     * @param catalog Acceso al catálogo utilizado por la operación.
+     * @param semanticSearch Valor de {@code semanticSearch} utilizado por la operación.
+     */
+    @Autowired
     public CatalogController(
             CatalogRepository catalog,
-            @Value("${app.scraper-api-url}") String scraperApiUrl,
-            ObjectMapper objectMapper) {
+            SemanticSearchClient semanticSearch,
+            PublicCatalogCache cache) {
         this.catalog = catalog;
-        this.scraperApiUrl = scraperApiUrl.replaceAll("/+$", "");
-        this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-        this.downloadClient = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+        this.semanticSearch = semanticSearch;
+        this.cache = cache;
     }
 
+    /**
+     * Ejecuta la operación {@code apps}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tag Valor de {@code tag} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param sort Valor de {@code sort} utilizado por la operación.
+     * @param page Número de página solicitado.
+     * @param pageSize Número máximo de elementos incluidos en una página.
+     * @param searchMode Valor de {@code searchMode} utilizado por la operación.
+     * @return Resultado producido por {@code apps}.
+     */
     @GetMapping("/apps")
     public AppSearchResponse apps(
             @RequestParam(required = false) String query,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false, name = "os") String operatingSystem,
+            @RequestParam(required = false, name = "os") List<String> operatingSystems,
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false, name = "tag") List<String> tag,
-            @RequestParam(required = false) String tags,
-            @RequestParam(required = false) List<String> publisher,
-            @RequestParam(required = false) Integer tagMatchMin,
-            @RequestParam(defaultValue = "all") String tagMode,
+            @RequestParam(required = false) String publisher,
             @RequestParam(defaultValue = "name") String sort,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(defaultValue = "lexical") String searchMode) {
+        status = publicCatalogStatus(status);
         int safePage = Math.max(1, page);
-        int safePageSize = Math.max(1, Math.min(pageSize, 100));
-        List<String> tagList = parseRepeatedAndCsv(tag, tags);
-        List<String> publisherList = parseRepeated(publisher);
-        return new AppSearchResponse(
-                catalog.search(query, status, operatingSystem, architecture, tagList, publisherList, tagMatchMin, tagMode, sort, safePage, safePageSize),
-                safePage,
-                safePageSize,
-                catalog.count(query, status, operatingSystem, architecture, tagList, publisherList, tagMatchMin, tagMode));
+        int safePageSize = Math.clamp(pageSize, 1, 100);
+        List<String> systems = normalizedOperatingSystems(operatingSystems);
+        List<String> tagList = parseRepeated(tag);
+        List<String> publisherList = optionalPublisher(publisher);
+        String normalizedStatus = status;
+        return cache.get(
+                "apps",
+                catalog::cacheVersion,
+                List.of(
+                        String.valueOf(query), normalizedStatus, systems, String.valueOf(architecture),
+                        tagList, publisherList, sort, safePage, safePageSize, searchMode),
+                () -> {
+                    SemanticCandidateSet candidates = semanticSearch.resolve(
+                            CatalogSearchMode.parse(searchMode), query);
+                    return new AppSearchResponse(
+                            catalog.search(
+                                    query, normalizedStatus, systems, architecture, tagList,
+                                    publisherList, sort, safePage, safePageSize, candidates),
+                            safePage,
+                            safePageSize,
+                            catalog.count(
+                                    query, normalizedStatus, systems, architecture, tagList,
+                                    publisherList, candidates),
+                            "name".equals(sort)
+                                    ? catalog.alphabet(
+                                            query, normalizedStatus, systems, architecture, tagList,
+                                            publisherList, safePageSize, candidates)
+                                    : List.of(),
+                            candidates.requestedMode().wireValue(),
+                            candidates.appliedMode().wireValue(),
+                            candidates.modelVersion(),
+                            candidates.indexVersion(),
+                            candidates.degradedReason());
+                });
     }
 
+    /**
+     * Ejecuta la operación {@code stats}.
+     *
+     * @return Resultado producido por {@code stats}.
+     */
     @GetMapping("/apps/stats")
     public CatalogStatsResponse stats() {
-        return catalog.stats();
+        return cache.get("stats", catalog::cacheVersion, List.of(), catalog::stats);
     }
 
+    /**
+     * Ejecuta la operación {@code facets}.
+     *
+     * @param query Valor de {@code query} utilizado por la operación.
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @param architecture Valor de {@code architecture} utilizado por la operación.
+     * @param tag Valor de {@code tag} utilizado por la operación.
+     * @param publisher Valor de {@code publisher} utilizado por la operación.
+     * @param searchMode Valor de {@code searchMode} utilizado por la operación.
+     * @return Resultado producido por {@code facets}.
+     */
     @GetMapping("/apps/facets")
     public CatalogFacetsResponse facets(
             @RequestParam(required = false) String query,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false, name = "os") String operatingSystem,
+            @RequestParam(required = false, name = "os") List<String> operatingSystems,
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false, name = "tag") List<String> tag,
-            @RequestParam(required = false) String tags,
-            @RequestParam(required = false) List<String> publisher,
-            @RequestParam(required = false) Integer tagMatchMin,
-            @RequestParam(defaultValue = "all") String tagMode) {
-        return catalog.facets(
-                query,
-                status,
-                operatingSystem,
-                architecture,
-                parseRepeatedAndCsv(tag, tags),
-                parseRepeated(publisher),
-                tagMatchMin,
-                tagMode);
+            @RequestParam(required = false) String publisher,
+            @RequestParam(defaultValue = "lexical") String searchMode) {
+        status = publicCatalogStatus(status);
+        List<String> systems = normalizedOperatingSystems(operatingSystems);
+        List<String> tagList = parseRepeated(tag);
+        List<String> publisherList = optionalPublisher(publisher);
+        String normalizedStatus = status;
+        return cache.get(
+                "facets",
+                catalog::cacheVersion,
+                List.of(
+                        String.valueOf(query), normalizedStatus, systems, String.valueOf(architecture),
+                        tagList, publisherList, searchMode),
+                () -> {
+                    SemanticCandidateSet candidates = semanticSearch.resolve(
+                            CatalogSearchMode.parse(searchMode), query);
+                    CatalogFacetsResponse facets = catalog.facets(
+                            query, normalizedStatus, systems, architecture, tagList,
+                            publisherList, candidates);
+                    return new CatalogFacetsResponse(
+                            facets.tags(),
+                            facets.publishers(),
+                            candidates.requestedMode().wireValue(),
+                            candidates.appliedMode().wireValue(),
+                            candidates.modelVersion(),
+                            candidates.indexVersion(),
+                            candidates.degradedReason());
+                });
     }
 
+    /**
+     * Ejecuta la operación {@code details}.
+     *
+     * @param appId Identificador de {@code app} utilizado por la operación.
+     * @return Resultado producido por {@code details}.
+     */
     @GetMapping("/apps/{appId}")
     public AppDetails details(@PathVariable String appId) {
-        return catalog.details(appId);
+        return cache.get("details", catalog::cacheVersion, List.of(appId), () -> catalog.details(appId));
     }
 
-    @GetMapping("/apps/{appId}/download")
-    public ResponseEntity<?> download(
-            @PathVariable String appId,
-            @RequestParam(required = false) String optionId,
-            HttpServletResponse servletResponse) throws Exception {
-        AppDetails app = catalog.details(appId);
-        return redirectToInstaller(app.slug(), optionId);
+    /**
+     * Ejecuta la operación {@code publicCatalogStatus}.
+     *
+     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @return Resultado producido por {@code publicCatalogStatus}.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
+    private static String publicCatalogStatus(String status) {
+        String normalized = status == null || status.isBlank()
+                ? "all"
+                : status.trim().toLowerCase(Locale.ROOT);
+        if (!PUBLIC_CATALOG_STATUSES.contains(normalized)) {
+            throw new BadRequestException(
+                    "invalid_catalog_status",
+                    "El estado de catálogo indicado no es válido.");
+        }
+        return normalized;
     }
 
-    @PostMapping("/apps/downloads/zip")
-    public ResponseEntity<StreamingResponseBody> downloadZip(@RequestBody DownloadZipRequest request) {
-        List<String> ids = request == null || request.appIds() == null
-                ? List.of()
-                : request.appIds().stream()
-                        .filter(value -> value != null && !value.isBlank())
-                        .map(String::trim)
-                        .distinct()
-                        .toList();
-        if (ids.isEmpty()) {
-            throw new ConflictException("no_apps_selected", "Selecciona al menos una aplicacion.");
+    /**
+     * Normaliza el valor recibido mediante {@code normalizedOperatingSystems}.
+     *
+     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
+     *     requeridas.
+     */
+    private List<String> normalizedOperatingSystems(List<String> operatingSystems) {
+        if (operatingSystems == null || operatingSystems.isEmpty()) {
+            return List.of();
         }
-        if (ids.size() > 100) {
-            throw new ConflictException("too_many_apps_selected", "Solo se pueden descargar hasta 100 aplicaciones.");
+        List<String> values = operatingSystems.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .distinct()
+                .toList();
+        if (values.isEmpty() || !OPERATING_SYSTEMS.containsAll(values)) {
+            throw new BadRequestException("invalid_operating_system", "El sistema operativo indicado no es válido.");
         }
-
-        List<ZipCandidate> candidates = new ArrayList<>();
-        List<Map<String, Object>> manifest = new ArrayList<>();
-        for (String id : ids) {
-            AppDetails app = catalog.details(id);
-            try {
-                String location = installerLocation(app.slug());
-                candidates.add(new ZipCandidate(app, location));
-            } catch (Exception exception) {
-                manifest.add(manifestItem(app, null, "skipped", exception.getMessage()));
-            }
-        }
-        if (candidates.isEmpty()) {
-            throw new ConflictException("installer_unavailable", "No hay instaladores disponibles para descargar.");
-        }
-
-        StreamingResponseBody body = outputStream -> {
-            Set<String> usedNames = new LinkedHashSet<>();
-            try (ZipOutputStream zip = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
-                for (ZipCandidate candidate : candidates) {
-                    String filename = uniqueFilename(filenameFor(candidate.app()), usedNames);
-                    try {
-                        HttpRequest requestDownload = HttpRequest.newBuilder()
-                                .uri(URI.create(candidate.location()))
-                                .GET()
-                                .build();
-                        HttpResponse<InputStream> response = downloadClient.send(
-                                requestDownload,
-                                HttpResponse.BodyHandlers.ofInputStream());
-                        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                            manifest.add(manifestItem(
-                                    candidate.app(),
-                                    filename,
-                                    "failed",
-                                    "HTTP " + response.statusCode()));
-                            continue;
-                        }
-                        zip.putNextEntry(new ZipEntry(filename));
-                        try (InputStream input = response.body()) {
-                            input.transferTo(zip);
-                        }
-                        zip.closeEntry();
-                        manifest.add(manifestItem(candidate.app(), filename, "downloaded", null));
-                    } catch (Exception exception) {
-                        manifest.add(manifestItem(candidate.app(), filename, "failed", exception.getMessage()));
-                    }
-                }
-                zip.putNextEntry(new ZipEntry("manifest.json"));
-                byte[] manifestBytes = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(Map.of(
-                        "generatedAt", LocalDateTime.now().toString(),
-                        "items", manifest));
-                zip.write(manifestBytes);
-                zip.closeEntry();
-            }
-        };
-
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/zip"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename("batch-downloader-apps.zip")
-                        .build()
-                        .toString())
-                .body(body);
+        // Seleccionar todas las plataformas equivale a omitir el filtro y conserva
+        // el significado de los estados heredados "Todas" y "Sin instalador".
+        return values.size() == OPERATING_SYSTEMS.size() ? List.of() : values;
     }
 
-    private ResponseEntity<?> redirectToInstaller(String appId, String optionId) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(scraperApiUrl + "/api/apps/" + encode(appId) + "/download" + optionQuery(optionId)))
-                .GET()
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() == 307) {
-            String location = response.headers().firstValue("location").orElse(null);
-            if (location != null) {
-                return ResponseEntity.status(307).header(HttpHeaders.LOCATION, location).build();
-            }
+    /**
+     * Convierte el editor público opcional en la colección esperada por el repositorio.
+     *
+     * @param publisher Editor recibido en la consulta pública.
+     * @return Una colección vacía o con el único editor seleccionado.
+     */
+    private List<String> optionalPublisher(String publisher) {
+        if (publisher == null || publisher.isBlank()) {
+            return List.of();
         }
-        if (response.statusCode() == 404) {
-            return ResponseEntity.status(404).body(ApiError.of("app_not_found", "La aplicacion no existe."));
-        }
-        if (response.statusCode() == 409) {
-            return ResponseEntity.status(409).body(ApiError.of("installer_unavailable", "No hay instalador disponible."));
-        }
-        return ResponseEntity.status(502).body(new ApiError(
-                "scraper_download_failed",
-                "No se pudo obtener la URL de descarga.",
-                Map.of("status", response.statusCode())));
+        return List.of(publisher.trim());
     }
 
-    private String installerLocation(String appId) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(scraperApiUrl + "/api/apps/" + encode(appId) + "/download"))
-                .GET()
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() == 307) {
-            return response.headers()
-                    .firstValue("location")
-                    .orElseThrow(() -> new ConflictException(
-                            "installer_unavailable",
-                            "No hay instalador disponible."));
-        }
-        if (response.statusCode() == 404) {
-            throw new ConflictException("app_not_found", "La aplicacion no existe.");
-        }
-        if (response.statusCode() == 409) {
-            throw new ConflictException("installer_unavailable", "No hay instalador disponible.");
-        }
-        throw new ConflictException("scraper_download_failed", "No se pudo obtener la URL de descarga.");
-    }
-
-    private Map<String, Object> manifestItem(AppDetails app, String filename, String status, String error) {
-        Map<String, Object> item = new LinkedHashMap<>();
-        item.put("id", app.id());
-        item.put("slug", app.slug());
-        item.put("packageId", app.packageId());
-        item.put("name", app.name());
-        item.put("filename", filename);
-        item.put("status", status);
-        if (error != null && !error.isBlank()) {
-            item.put("error", error);
-        }
-        return item;
-    }
-
-    private String filenameFor(AppDetails app) {
-        if (app.installerFilename() != null && !app.installerFilename().isBlank()) {
-            return sanitizeFilename(app.installerFilename());
-        }
-        String extension = app.installerType() == null || app.installerType().isBlank()
-                ? "exe"
-                : app.installerType().replace(".", "").toLowerCase();
-        return sanitizeFilename(app.name()) + "." + extension;
-    }
-
-    private String uniqueFilename(String filename, Set<String> usedNames) {
-        String candidate = filename;
-        int dot = filename.lastIndexOf('.');
-        String base = dot > 0 ? filename.substring(0, dot) : filename;
-        String extension = dot > 0 ? filename.substring(dot) : "";
-        int suffix = 2;
-        while (!usedNames.add(candidate)) {
-            candidate = base + "-" + suffix++ + extension;
-        }
-        return candidate;
-    }
-
-    private String sanitizeFilename(String value) {
-        String sanitized = value == null ? "installer" : value.trim().replaceAll("[\\\\/:*?\"<>|]+", "-");
-        sanitized = sanitized.replaceAll("\\s+", " ").replaceAll("(^\\.|\\.$)", "");
-        return sanitized.isBlank() ? "installer" : sanitized;
-    }
-
-    private String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
-    }
-
-    private String optionQuery(String optionId) {
-        return optionId == null || optionId.isBlank()
-                ? ""
-                : "?optionId=" + encode(optionId);
-    }
-
-    private List<String> parseRepeatedAndCsv(List<String> repeated, String csv) {
-        List<String> values = new ArrayList<>(parseRepeated(repeated));
-        if (csv != null && !csv.isBlank()) {
-            for (String value : csv.split(",")) {
-                if (value != null && !value.isBlank()) {
-                    values.add(value.trim());
-                }
-            }
-        }
-        return values.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
-    }
-
+    /**
+     * Analiza el contenido recibido mediante {@code parseRepeated}.
+     *
+     * @param repeated Valor de {@code repeated} utilizado por la operación.
+     * @return Colección de elementos obtenidos por la operación.
+     */
     private List<String> parseRepeated(List<String> repeated) {
         if (repeated == null || repeated.isEmpty()) {
             return List.of();
@@ -329,6 +268,4 @@ public class CatalogController {
                 .distinct()
                 .toList();
     }
-
-    private record ZipCandidate(AppDetails app, String location) {}
 }

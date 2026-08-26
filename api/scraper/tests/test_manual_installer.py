@@ -1,0 +1,280 @@
+"""Contiene las pruebas de `test_manual_installer`.
+"""
+from __future__ import annotations
+
+import pytest
+
+from app.core.config import Settings
+from app.scraper.manual_installer import (
+    ManualInstallerError,
+    ManualInstallerInspector,
+    description_provenance,
+    parse_page_evidence,
+    reviewed_field_sources,
+    suggested_version,
+)
+from app.scraper.safe_http import (
+    SafeHttpError,
+    has_sensitive_query,
+    validate_public_https_syntax,
+)
+from app.scraper.validator import ValidationConfidence, ValidationResult
+
+
+def test_page_evidence_prefers_allowlisted_software_application_json_ld() -> None:
+    """Comprueba el escenario `page_evidence_prefers_allowlisted_software_application_json_ld`.
+    """
+    html = b"""
+    <html>
+      <head>
+        <link rel="canonical" href="/download">
+        <meta property="og:title" content="Fallback name">
+        <meta property="og:description" content="Fallback description">
+        <meta property="og:image" content="/fallback.png">
+        <script type="application/ld+json">
+          {
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            "name": "Trusted Product",
+            "publisher": {"@type": "Organization", "name": "Trusted Vendor"},
+            "softwareVersion": "3.2.1",
+            "description": "Product description",
+            "image": "/product.png",
+            "ignored": "do not expose"
+          }
+        </script>
+      </head>
+    </html>
+    """
+
+    evidence = parse_page_evidence(html, "https://downloads.example.com/apps/product")
+
+    assert evidence == {
+        "name": "Trusted Product",
+        "name_source": "json_ld",
+        "publisher": "Trusted Vendor",
+        "publisher_source": "json_ld",
+        "version": "3.2.1",
+        "description": "Product description",
+        "description_source": "json_ld",
+        "icon": "https://downloads.example.com/product.png",
+        "icon_source": "json_ld",
+        "canonical": "https://downloads.example.com/download",
+    }
+
+
+def test_page_evidence_rejects_cross_site_or_secret_canonical_urls() -> None:
+    """Comprueba el escenario `page_evidence_rejects_cross_site_or_secret_canonical_urls`.
+    """
+    cross_site = parse_page_evidence(
+        b'<link rel="canonical" href="https://private.example.net/app">',
+        "https://example.com/download",
+    )
+    secret_query = parse_page_evidence(
+        b'<link rel="canonical" href="/app?token=secret">',
+        "https://example.com/download",
+    )
+
+    assert "canonical" not in cross_site
+    assert "canonical" not in secret_query
+
+
+def test_page_evidence_records_open_graph_name_provenance() -> None:
+    """Comprueba el escenario `page_evidence_records_open_graph_name_provenance`.
+    """
+    evidence = parse_page_evidence(
+        b'<meta property="og:title" content="Metadata Product">',
+        "https://example.com/download",
+    )
+
+    assert evidence["name"] == "Metadata Product"
+    assert evidence["name_source"] == "open_graph"
+
+
+def test_page_evidence_uses_title_site_name_and_linked_icon_as_safe_fallbacks() -> None:
+    """Comprueba los valores alternativos seguros para el título, el sitio y el icono."""
+    evidence = parse_page_evidence(
+        b"""
+        <html>
+          <head>
+            <title>Example Desktop</title>
+            <meta property="og:site_name" content="Example Vendor">
+            <link rel="icon" href="/assets/favicon.png">
+          </head>
+        </html>
+        """,
+        "https://example.com/downloads",
+    )
+
+    assert evidence["name"] == "Example Desktop"
+    assert evidence["name_source"] == "source_page"
+    assert evidence["publisher"] == "Example Vendor"
+    assert evidence["publisher_source"] == "open_graph"
+    assert evidence["icon"] == "https://example.com/assets/favicon.png"
+    assert evidence["icon_source"] == "source_page"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/app?token=secret",
+        "https://example.com/app?X-Amz-Signature=secret",
+        "https://example.com/app?X-Goog-Credential=secret",
+        "https://example.com/app?api-key=secret",
+    ],
+)
+def test_sensitive_query_detects_provider_specific_secret_keys(url: str) -> None:
+    """Comprueba el escenario `sensitive_query_detects_provider_specific_secret_keys`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+    """
+    assert has_sensitive_query(url)
+
+
+def test_suggested_version_only_advances_a_deterministic_version() -> None:
+    """Comprueba el escenario `suggested_version_only_advances_a_deterministic_version`.
+    """
+    assert suggested_version("2.4.0", "2.3.9", "2.5.0") == ("2.5.0", "filename")
+    assert suggested_version("2.4.0", "release-next", "2.3.0") == ("2.4.0", "current")
+    assert suggested_version(None, "v1.8.2", None) == ("v1.8.2", "json_ld")
+
+
+def test_description_provenance_distinguishes_generated_and_manual_content() -> None:
+    """Comprueba el escenario `description_provenance_distinguishes_generated_and_manual_content`.
+    """
+    ai_state = {"provider": "groq", "model": "model-test"}
+
+    assert description_provenance(
+        "Descripción generada",
+        "Descripción  generada",
+        ai_state,
+    ) == ("completed", "groq", "model-test")
+    assert description_provenance(
+        "Descripción revisada por el administrador",
+        "Descripción generada",
+        ai_state,
+    ) == ("completed", "admin_manual", None)
+
+
+def test_reviewed_field_sources_marks_only_changed_values_as_manual() -> None:
+    """Comprueba el escenario `reviewed_field_sources_marks_only_changed_values_as_manual`.
+    """
+    assert reviewed_field_sources(
+        {
+            "name": {"value": "Example", "source": "json_ld"},
+            "longDescription": {
+                "value": "Descripción generada",
+                "source": "generated_ai",
+            },
+        },
+        {
+            "name": "Example",
+            "longDescription": "Descripción revisada",
+        },
+    ) == {
+        "name": "json_ld",
+        "longDescription": "manual",
+    }
+
+
+@pytest.mark.asyncio
+async def test_manual_installer_rejects_a_deterministic_platform_mismatch(
+    monkeypatch,
+) -> None:
+    """Comprueba el escenario `manual_installer_rejects_a_deterministic_platform_mismatch`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
+    inspector = ManualInstallerInspector(Settings(_env_file=None))
+
+    async def validate(*_args, **_kwargs):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            *_args (Any): Valor de `_args` utilizado por la operación.
+            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+        """
+        return ValidationResult(
+            ok=True,
+            url="https://example.com/App.exe",
+            final_url="https://example.com/App.exe",
+            filename="App.exe",
+            extension=".exe",
+            content_type="application/x-msdownload",
+            size_bytes=4096,
+            confidence=ValidationConfidence.VALIDATED,
+        )
+
+    monkeypatch.setattr(inspector.validator, "validate", validate)
+
+    with pytest.raises(ManualInstallerError) as error:
+        await inspector.validate_installer(
+            "https://example.com/App.exe",
+            "https://example.com/download",
+            "macos",
+        )
+
+    assert error.value.code == "installer_operating_system_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_manual_installer_assigns_an_explicit_slot_to_a_neutral_archive(
+    monkeypatch,
+) -> None:
+    """Comprueba el escenario `manual_installer_assigns_an_explicit_slot_to_a_neutral_archive`.
+
+    Args:
+        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+    """
+    inspector = ManualInstallerInspector(Settings(_env_file=None))
+
+    async def validate(*_args, **_kwargs):
+        """Ejecuta la operación `validate`.
+
+        Args:
+            *_args (Any): Valor de `_args` utilizado por la operación.
+            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+        """
+        return ValidationResult(
+            ok=True,
+            url="https://example.com/App.zip",
+            final_url="https://example.com/App.zip",
+            filename="App.zip",
+            extension=".zip",
+            content_type="application/zip",
+            size_bytes=4096,
+            confidence=ValidationConfidence.VALIDATED,
+        )
+
+    monkeypatch.setattr(inspector.validator, "validate", validate)
+
+    validated = await inspector.validate_installer(
+        "https://example.com/App.zip",
+        "https://example.com/download",
+        "linux",
+    )
+
+    assert validated.operating_system == "linux"
+
+
+@pytest.mark.parametrize(
+    ("url", "code"),
+    [
+        ("http://example.com/App.exe", "https_required"),
+        ("https://user:password@example.com/App.exe", "url_credentials_forbidden"),
+        ("https://example.com/\nApp.exe", "invalid_url"),
+    ],
+)
+def test_public_url_syntax_rejects_unsafe_inputs(url: str, code: str) -> None:
+    """Comprueba el escenario `public_url_syntax_rejects_unsafe_inputs`.
+
+    Args:
+        url (str): URL del recurso que debe procesarse.
+        code (str): Valor de `code` utilizado por la operación.
+    """
+    with pytest.raises(SafeHttpError) as error:
+        validate_public_https_syntax(url)
+
+    assert error.value.code == code

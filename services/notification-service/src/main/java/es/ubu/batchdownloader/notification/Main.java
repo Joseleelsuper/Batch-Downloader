@@ -1,21 +1,24 @@
 package es.ubu.batchdownloader.notification;
 
-import java.util.Map;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
+/**
+ * Implementa el componente {@code Main}.
+ *
+ * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ */
 @SpringBootApplication
-@RestController
+@ConfigurationPropertiesScan
 public class Main {
 
+    /**
+     * Ejecuta el punto de entrada del servicio.
+     *
+     * @param args Valor de {@code args} utilizado por la operación.
+     */
     public static void main(String[] args) {
         SpringApplication.run(Main.class, args);
-    }
-
-    @GetMapping("/notifications/health")
-    public Map<String, String> health() {
-        return Map.of("status", "ok", "service", "notification-service");
     }
 }
