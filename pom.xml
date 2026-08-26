@@ -146,7 +146,7 @@
                 <configuration>
                     <!-- Los módulos que usan Mockito activan su agente mediante esta propiedad.
                          El valor vacío evita que otros módulos dependan de un JAR no declarado. -->
-                    <argLine>@{argLine} ${mockito.javaagent}</argLine>
+                    <argLine>@{argLine} --enable-native-access=ALL-UNNAMED ${mockito.javaagent}</argLine>
                 </configuration>
             </plugin>
             <plugin>

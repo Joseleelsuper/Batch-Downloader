@@ -22,6 +22,7 @@ from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import CatalogCounter, DownloadSource, ResolvedSource, SoftwareApp
 from app.repositories.catalog import CatalogRepository
 from app.repositories.catalog_projection import CatalogProjectionRepository
+from app.scraper.pipeline_runtime import retry_database_pool_operation
 
 testcontainers_mysql = pytest.importorskip("testcontainers.mysql")
 """Estado global asociado a `testcontainers_mysql`.
@@ -287,20 +288,27 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
                     Args:
                         source_id (UUID): Identificador de `source` utilizado por la operación.
                     """
-                    async with AsyncSession(engine, expire_on_commit=False) as writer:
-                        writer.add(
-                            DownloadSource(
-                                id=source_id,
-                                software_app_id=concurrent_app_id,
-                                operating_system="windows",
-                                architecture="x86_64",
-                                resolution_status=(
-                                    ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
-                                ),
-                                validation_status=ValidationStatus.UNCHECKED.value,
+                    async def insert() -> None:
+                        async with AsyncSession(engine, expire_on_commit=False) as writer:
+                            writer.add(
+                                DownloadSource(
+                                    id=source_id,
+                                    software_app_id=concurrent_app_id,
+                                    operating_system="windows",
+                                    architecture="x86_64",
+                                    resolution_status=(
+                                        ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+                                    ),
+                                    validation_status=ValidationStatus.UNCHECKED.value,
+                                )
                             )
-                        )
-                        await writer.commit()
+                            await writer.commit()
+
+                    await retry_database_pool_operation(
+                        get_settings(),
+                        "test:projection-insert",
+                        insert,
+                    )
 
                 await asyncio.gather(
                     *(insert_review_source(source_id) for source_id in source_ids)
@@ -320,13 +328,20 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
                     Args:
                         source_id (UUID): Identificador de `source` utilizado por la operación.
                     """
-                    async with AsyncSession(engine, expire_on_commit=False) as writer:
-                        concurrent_source = await writer.get(DownloadSource, source_id)
-                        assert concurrent_source is not None
-                        concurrent_source.resolution_status = ResolutionStatus.DIRECT.value
-                        concurrent_source.validation_status = ValidationStatus.VALID.value
-                        writer.add(stale_candidate(concurrent_source))
-                        await writer.commit()
+                    async def make_available() -> None:
+                        async with AsyncSession(engine, expire_on_commit=False) as writer:
+                            concurrent_source = await writer.get(DownloadSource, source_id)
+                            assert concurrent_source is not None
+                            concurrent_source.resolution_status = ResolutionStatus.DIRECT.value
+                            concurrent_source.validation_status = ValidationStatus.VALID.value
+                            writer.add(stale_candidate(concurrent_source))
+                            await writer.commit()
+
+                    await retry_database_pool_operation(
+                        get_settings(),
+                        "test:projection-available",
+                        make_available,
+                    )
 
                 await asyncio.gather(
                     *(make_source_available(source_id) for source_id in source_ids)

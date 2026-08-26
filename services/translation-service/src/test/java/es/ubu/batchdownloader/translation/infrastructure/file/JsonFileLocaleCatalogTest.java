@@ -60,12 +60,15 @@ class JsonFileLocaleCatalogTest {
 
         LocaleDocument spanish = catalog.findByLocale("es").orElseThrow();
         JsonNode messages = new ObjectMapper().readTree(spanish.content());
-        assertThat(messages.size()).isEqualTo(788);
+        assertThat(messages.size()).isEqualTo(802);
         assertThat(messages.has("catalog.title")).isTrue();
         assertThat(messages.has("admin.apps.subtitle")).isTrue();
         assertThat(messages.has("account.login.title")).isTrue();
         assertThat(messages.has("error.google_oauth_not_configured.title")).isTrue();
         assertThat(messages.has("legal.privacy.title")).isTrue();
+        assertThat(messages.has("legal.lastUpdated")).isTrue();
+        assertThat(messages.has("download.job.manual.title")).isTrue();
+        assertThat(messages.has("download.job.apiError.service_busy")).isTrue();
         assertThat(messages.has("admin.scraper.clearAll")).isFalse();
         assertThat(messages.has("admin.scraper.clearPending")).isFalse();
         assertThat(messages.has("semantic.artifact.downloading")).isFalse();

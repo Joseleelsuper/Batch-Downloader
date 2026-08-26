@@ -37,16 +37,18 @@ async def retry_database_pool_operation[DatabaseResult](
         try:
             return await operation()
         except (SQLAlchemyTimeoutError, OperationalError) as exc:
-            lock_error = isinstance(exc, OperationalError)
-            if lock_error and not is_transient_mysql_lock_error(exc):
-                raise
-            event = (
-                "scraper_claim_retry"
-                if lock_error and component.startswith("claim:")
-                else "scraper_database_lock_retry"
-                if lock_error
-                else "scraper_database_pool_retry"
-            )
+            if isinstance(exc, OperationalError):
+                if not is_transient_mysql_lock_error(exc):
+                    raise
+                event = (
+                    "scraper_claim_retry"
+                    if component.startswith("claim:")
+                    else "scraper_database_lock_retry"
+                )
+                error_code = mysql_error_code(exc)
+            else:
+                event = "scraper_database_pool_retry"
+                error_code = None
             logger.warning(
                 event,
                 component=component,
@@ -54,7 +56,7 @@ async def retry_database_pool_operation[DatabaseResult](
                 max_attempts=DATABASE_POOL_RETRY_ATTEMPTS,
                 pool_size=settings.database_pool_max,
                 timeout_seconds=settings.database_pool_timeout_seconds,
-                mysql_error_code=mysql_error_code(exc) if lock_error else None,
+                mysql_error_code=error_code,
             )
             if attempt >= DATABASE_POOL_RETRY_ATTEMPTS:
                 raise
