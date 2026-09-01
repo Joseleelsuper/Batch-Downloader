@@ -6,7 +6,6 @@ import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -18,7 +17,7 @@ class AccountProfileServiceTest {
         UUID userId = UUID.randomUUID();
         IdentityView changed = new IdentityView(
                 userId, "new-name", "person@example.com", true, UserRole.USER, true,
-                Instant.EPOCH, List.of("LOCAL"));
+                Instant.EPOCH);
         when(identities.updateUsername(userId, "new-name")).thenReturn(changed);
         AccountProfileService profiles = new AccountProfileService(identities);
 

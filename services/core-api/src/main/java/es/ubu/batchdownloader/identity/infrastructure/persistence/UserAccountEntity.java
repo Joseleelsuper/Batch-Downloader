@@ -52,7 +52,7 @@ class UserAccountEntity {
     /**
      * Estado {@code passwordHash} mantenido por {@code UserAccountEntity}.
      */
-    @Column(name = "password_hash", length = 100)
+    @Column(name = "password_hash", nullable = false, length = 100)
     private String passwordHash;
     /**
      * Estado {@code emailVerified} mantenido por {@code UserAccountEntity}.

@@ -13,7 +13,7 @@ import {
   UserCircle,
 } from 'lucide-react';
 import { Suspense } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
 import { AuthProvider, useAuth } from './auth/AuthContext';
@@ -246,7 +246,7 @@ function Footer() {
         <section className="site-footer-column" aria-labelledby="footer-project-title">
           <h2 id="footer-project-title">{t('footer.project')}</h2>
           <a href="https://joseleelportfolio.vercel.app/" target="_blank" rel="noreferrer">
-            <img className="site-footer-icon" src="/assets/google-material-language.svg" alt="" aria-hidden="true" />
+            <Globe2 aria-hidden="true" />
             <span>{t('footer.portfolio')}</span>
           </a>
           <a href="https://github.com/Joseleelsuper/Batch-Downloader" target="_blank" rel="noreferrer">
@@ -262,15 +262,11 @@ function Footer() {
 
 function PublicErrorPage() {
   const t = useTranslation();
-  const [search] = useSearchParams();
-  const code = search.get('code');
-  const knownError = code === 'google_oauth_not_configured' || code === 'oauth_failed' ? code : 'unexpected_error';
-  const status = knownError === 'google_oauth_not_configured' ? '503' : knownError === 'oauth_failed' ? '401' : null;
+  const knownError = 'unexpected_error';
 
   return (
     <main className="content-page public-message-page">
       <section className="public-message-card" role="alert">
-        {status ? <span className="public-message-status">{t('error.status', { status })}</span> : null}
         <h2>{t(`error.${knownError}.title`)}</h2>
         <p>{t(`error.${knownError}.body`)}</p>
         <div className="public-message-actions">

@@ -137,20 +137,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /auth/oauth2/google:
-    get:
-      operationId: startGoogleLogin
-      summary: Iniciar Google OIDC
-      security: []
-      parameters:
-        - name: returnTo
-          in: query
-          schema:
-            type: string
-          description: Ruta relativa interna; los destinos externos se descartan.
-      responses:
-        '302':
-          description: Redirección al endpoint de autorización de Spring Security.
   /auth/password-reset/request:
     post:
       operationId: requestPasswordReset
@@ -167,6 +153,7 @@ paths:
                 email:
                   type: string
                   format: email
+                  maxLength: 254
       responses:
         '202':
           description: Solicitud aceptada aunque el correo no exista.
@@ -193,8 +180,8 @@ paths:
                   type: string
                 password:
                   type: string
-                  minLength: 12
-                  maxLength: 128
+                  minLength: 14
+                  description: Al menos 14 caracteres y un máximo de 72 bytes UTF-8. No se admiten contraseñas comunes.
       responses:
         '204':
           description: Contraseña actualizada.
@@ -1689,10 +1676,11 @@ components:
         email:
           type: string
           format: email
+          maxLength: 254
         password:
           type: string
-          minLength: 12
-          maxLength: 128
+          minLength: 14
+          description: Al menos 14 caracteres y un máximo de 72 bytes UTF-8. No se admiten contraseñas comunes.
     LoginRequest:
       type: object
       additionalProperties: false
@@ -1701,8 +1689,10 @@ components:
         email:
           type: string
           format: email
+          maxLength: 254
         password:
           type: string
+          description: Máximo de 72 bytes UTF-8. Las cuentas antiguas pueden conservar una contraseña más corta hasta que la cambien.
     AdminLoginRequest:
       type: object
       additionalProperties: false
@@ -1712,6 +1702,7 @@ components:
           type: string
         password:
           type: string
+          description: Máximo de 72 bytes UTF-8.
     EmailRequest:
       type: object
       additionalProperties: false
@@ -1720,6 +1711,7 @@ components:
         email:
           type: string
           format: email
+          maxLength: 254
     UsernameUpdateRequest:
       type: object
       additionalProperties: false
@@ -1737,7 +1729,7 @@ components:
           type: string
     User:
       type: object
-      required: [id, username, email, emailVerified, role, notifyOnJobCompletion, createdAt, authenticationMethods]
+      required: [id, username, email, emailVerified, role, notifyOnJobCompletion, createdAt]
       properties:
         id:
           type: string
@@ -1757,12 +1749,6 @@ components:
         createdAt:
           type: string
           format: date-time
-        authenticationMethods:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-            enum: [LOCAL, GOOGLE]
     App:
       type: object
       required: [id, slug, packageId, name, tags, operatingSystems, downloadable, updatedAt]

@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.identity.infrastructure.security;
 
 import es.ubu.batchdownloader.common.ForbiddenException;
 import es.ubu.batchdownloader.common.UnauthorizedException;
+import es.ubu.batchdownloader.identity.application.PasswordPolicy;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.domain.UserRole;
@@ -27,12 +28,12 @@ public class AccountAuthenticator {
     }
 
     public Authentication authenticateUser(String email, String rawPassword) {
+        PasswordPolicy.requireSupportedForLogin(rawPassword);
         String normalizedEmail = email.strip().toLowerCase(Locale.ROOT);
         UserAccount account = users.findByNormalizedEmail(normalizedEmail).orElse(null);
-        String encoded = account != null && account.hasPassword() ? account.passwordHash() : dummyHash;
+        String encoded = account != null ? account.passwordHash() : dummyHash;
         boolean matches = passwords.matches(rawPassword, encoded);
-        if (!matches || account == null || !account.enabled() || !account.hasPassword()
-                || account.role() != UserRole.USER) {
+        if (!matches || account == null || !account.enabled() || account.role() != UserRole.USER) {
             throw invalidCredentials();
         }
         if (!account.emailVerified()) {
@@ -43,12 +44,12 @@ public class AccountAuthenticator {
     }
 
     public Authentication authenticateAdmin(String username, String rawPassword) {
+        PasswordPolicy.requireSupportedForLogin(rawPassword);
         String normalized = username.strip().toLowerCase(Locale.ROOT);
         UserAccount account = users.findByNormalizedUsername(normalized).orElse(null);
-        String encoded = account != null && account.hasPassword() ? account.passwordHash() : dummyHash;
+        String encoded = account != null ? account.passwordHash() : dummyHash;
         boolean matches = passwords.matches(rawPassword, encoded);
-        if (!matches || account == null || !account.enabled() || !account.hasPassword()
-                || account.role() != UserRole.ADMIN) {
+        if (!matches || account == null || !account.enabled() || account.role() != UserRole.ADMIN) {
             throw invalidCredentials();
         }
         return authenticated(account);

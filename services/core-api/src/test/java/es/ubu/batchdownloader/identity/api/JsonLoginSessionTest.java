@@ -12,7 +12,6 @@ import es.ubu.batchdownloader.identity.domain.UserRole;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountAuthenticator;
 import es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -37,7 +36,7 @@ class JsonLoginSessionTest {
         UUID userId = UUID.randomUUID();
         IdentityView view = new IdentityView(
                 userId, "person", "person@example.com", true, UserRole.USER, true,
-                Instant.EPOCH, List.of("LOCAL"));
+                Instant.EPOCH);
         when(authenticator.authenticateUser("person@example.com", "correct-password"))
                 .thenReturn(authentication);
         when(currentAccount.require(authentication)).thenReturn(user);

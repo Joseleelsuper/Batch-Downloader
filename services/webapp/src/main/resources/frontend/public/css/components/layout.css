@@ -162,15 +162,10 @@
   text-underline-offset: 4px;
 }
 
-.site-footer-column a svg,
-.site-footer-icon {
+.site-footer-column a svg {
   width: 20px;
   height: 20px;
   flex: 0 0 auto;
-}
-
-.site-footer-icon {
-  opacity: 0.82;
 }
 
 .site-footer-meta {

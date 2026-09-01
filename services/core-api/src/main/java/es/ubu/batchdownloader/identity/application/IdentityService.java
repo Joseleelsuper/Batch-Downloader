@@ -7,11 +7,9 @@ import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.identity.application.port.AccountSessionInvalidator;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
 import es.ubu.batchdownloader.identity.application.port.IdentityTokenStore;
-import es.ubu.batchdownloader.identity.application.port.OauthIdentityStore;
 import es.ubu.batchdownloader.identity.application.port.PasswordHasher;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
-import es.ubu.batchdownloader.identity.domain.OauthIdentity;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -38,7 +36,6 @@ public class IdentityService {
 
     private final UserAccountStore users;
     private final IdentityTokenStore tokens;
-    private final OauthIdentityStore oauthIdentities;
     private final PasswordHasher passwords;
     private final IdentityEventPublisher events;
     private final AccountSessionInvalidator sessions;
@@ -50,7 +47,6 @@ public class IdentityService {
     public IdentityService(
             UserAccountStore users,
             IdentityTokenStore tokens,
-            OauthIdentityStore oauthIdentities,
             PasswordHasher passwords,
             IdentityEventPublisher events,
             AccountSessionInvalidator sessions,
@@ -60,7 +56,6 @@ public class IdentityService {
             TransactionTemplate transactions) {
         this.users = users;
         this.tokens = tokens;
-        this.oauthIdentities = oauthIdentities;
         this.passwords = passwords;
         this.events = events;
         this.sessions = sessions;
@@ -111,39 +106,6 @@ public class IdentityService {
                 "username_generation_failed", "No se pudo reservar un username para la cuenta.");
     }
 
-    /** Crea una cuenta verificada sin contraseña para el primer acceso OIDC. */
-    public UserAccount createOauthAccount(String email) {
-        String cleanEmail = cleanEmail(email);
-        String normalizedEmail = normalize(cleanEmail);
-        String baseUsername = UsernamePolicy.fromEmail(cleanEmail);
-        for (int attempt = 0; attempt < 12; attempt++) {
-            String username = attempt == 0
-                    ? baseUsername
-                    : UsernamePolicy.collisionCandidate(baseUsername, randomUsernameSuffix());
-            try {
-                UserAccount created = transactions.execute(status -> {
-                    if (users.existsByNormalizedEmail(normalizedEmail)) {
-                        return users.findByNormalizedEmail(normalizedEmail).orElseThrow();
-                    }
-                    if (users.existsByNormalizedUsername(UsernamePolicy.normalize(username))) {
-                        throw new UsernameCollisionException();
-                    }
-                    Instant now = clock.instant();
-                    return users.save(UserAccount.registerOauth(
-                            username, UsernamePolicy.normalize(username), cleanEmail, normalizedEmail, now));
-                });
-                if (created != null) return created;
-            } catch (UsernameCollisionException exception) {
-                // Reintento con otro sufijo.
-            } catch (DataIntegrityViolationException exception) {
-                UserAccount existing = users.findByNormalizedEmail(normalizedEmail).orElse(null);
-                if (existing != null) return existing;
-            }
-        }
-        throw new ConflictException(
-                "username_generation_failed", "No se pudo reservar un username para la cuenta.");
-    }
-
     @Transactional(readOnly = true)
     public IdentityView findById(UUID id) {
         return view(requireById(id));
@@ -183,16 +145,15 @@ public class IdentityService {
     public void resendEmailVerification(String email) {
         users.findByNormalizedEmail(normalize(email))
                 .filter(UserAccount::enabled)
-                .filter(user -> !user.emailVerified() && user.hasPassword())
+                .filter(user -> !user.emailVerified())
                 .ifPresent(user -> issueToken(user, IdentityToken.Type.EMAIL_VERIFICATION, verificationTtl));
     }
 
-    /** Respuesta deliberadamente uniforme para cuentas inexistentes y OAuth-only. */
+    /** Respuesta deliberadamente uniforme para cuentas inexistentes. */
     @Transactional
     public void requestPasswordReset(String email) {
         users.findByNormalizedEmail(normalize(email))
                 .filter(UserAccount::enabled)
-                .filter(UserAccount::hasPassword)
                 .ifPresent(user -> issueToken(user, IdentityToken.Type.PASSWORD_RESET, resetTtl));
     }
 
@@ -248,8 +209,7 @@ public class IdentityService {
     }
 
     public IdentityView view(UserAccount user) {
-        boolean google = oauthIdentities.existsByUserIdAndProvider(user.id(), OauthIdentity.Provider.GOOGLE);
-        return IdentityView.from(user, google);
+        return IdentityView.from(user);
     }
 
     private void issueToken(UserAccount user, IdentityToken.Type type, Duration ttl) {

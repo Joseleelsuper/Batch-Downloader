@@ -6,7 +6,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -15,7 +14,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
 import org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy;
@@ -38,9 +36,6 @@ public class SecurityConfig {
             HttpSecurity http,
             ObjectMapper objectMapper,
             CsrfTokenRepository csrfTokens,
-            GoogleOAuthSuccessHandler oauthSuccessHandler,
-            GoogleOAuthFailureHandler oauthFailureHandler,
-            ObjectProvider<ClientRegistrationRepository> clientRegistrations,
             @Value("${app.security.require-https}") boolean requireHttps) throws Exception {
         RequestMatcher internalDownloadMetadata = PathPatternRequestMatcher.withDefaults().matcher(
                 HttpMethod.POST, "/internal/v1/download-jobs/{jobId}/item-metadata");
@@ -80,15 +75,6 @@ public class SecurityConfig {
                             objectMapper.writeValue(response.getOutputStream(),
                                     new ApiError("forbidden", "No tienes permisos para esta operación.", Map.of()));
                         }));
-        if (clientRegistrations.getIfAvailable() != null) {
-            http.oauth2Login(oauth -> oauth
-                    .authorizationEndpoint(endpoint -> endpoint
-                            .baseUri("/api/v1/auth/oauth2/authorization"))
-                    .redirectionEndpoint(endpoint -> endpoint
-                            .baseUri("/api/v1/auth/oauth2/callback/*"))
-                    .successHandler(oauthSuccessHandler)
-                    .failureHandler(oauthFailureHandler));
-        }
         if (requireHttps) {
             http.redirectToHttps(redirect -> redirect
                     .requestMatchers(new NegatedRequestMatcher(internalDownloadMetadata)));

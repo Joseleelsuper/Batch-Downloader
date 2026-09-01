@@ -341,7 +341,6 @@ export interface AuthUser {
   role: 'USER' | 'ADMIN';
   notifyOnJobCompletion: boolean;
   createdAt: string;
-  authenticationMethods: Array<'LOCAL' | 'GOOGLE'>;
 }
 
 export interface ScraperRunSummary {

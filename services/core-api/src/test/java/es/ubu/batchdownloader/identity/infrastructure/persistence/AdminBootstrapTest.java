@@ -19,6 +19,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 class AdminBootstrapTest {
+    private static final String ADMIN_PASSWORD = "bootstrap-admin-2026";
     private static final Instant NOW = Instant.parse("2026-08-08T12:00:00Z");
     private final UserAccountStore users = mock(UserAccountStore.class);
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -28,7 +29,7 @@ class AdminBootstrapTest {
     @Test
     void createsTheConfiguredAdministratorWhenItDoesNotExist() {
         when(users.findByNormalizedUsername("admin")).thenReturn(Optional.empty());
-        when(passwords.encode("admin")).thenReturn("configured-hash");
+        when(passwords.encode(ADMIN_PASSWORD)).thenReturn("configured-hash");
         AdminBootstrap bootstrap = bootstrap();
 
         bootstrap.run(arguments);
@@ -45,8 +46,8 @@ class AdminBootstrapTest {
         UserAccount existing = UserAccount.bootstrapAdmin(
                 "admin", "admin", "admin@example.com", "admin@example.com", "old-hash", NOW.minusSeconds(60));
         when(users.findByNormalizedUsername("admin")).thenReturn(Optional.of(existing));
-        when(passwords.matches("admin", "old-hash")).thenReturn(false);
-        when(passwords.encode("admin")).thenReturn("configured-hash");
+        when(passwords.matches(ADMIN_PASSWORD, "old-hash")).thenReturn(false);
+        when(passwords.encode(ADMIN_PASSWORD)).thenReturn("configured-hash");
         AdminBootstrap bootstrap = bootstrap();
 
         bootstrap.run(arguments);
@@ -62,12 +63,12 @@ class AdminBootstrapTest {
                 "admin", "admin", "admin@example.com", "admin@example.com",
                 "configured-hash", NOW.minusSeconds(60));
         when(users.findByNormalizedUsername("admin")).thenReturn(Optional.of(existing));
-        when(passwords.matches("admin", "configured-hash")).thenReturn(true);
+        when(passwords.matches(ADMIN_PASSWORD, "configured-hash")).thenReturn(true);
 
         bootstrap().run(arguments);
 
         verify(users, never()).save(existing);
-        verify(passwords, never()).encode("admin");
+        verify(passwords, never()).encode(ADMIN_PASSWORD);
     }
 
     @Test
@@ -80,11 +81,21 @@ class AdminBootstrapTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("bootstrap_admin_username_conflict");
         verify(users, never()).save(user);
-        verify(passwords, never()).encode("admin");
+        verify(passwords, never()).encode(ADMIN_PASSWORD);
+    }
+
+    @Test
+    void rejectsAnInsecureConfiguredAdministratorPassword() {
+        AdminBootstrap bootstrap = new AdminBootstrap(
+                users, clock, "admin", "admin@batch-downloader.local", "admin", passwords);
+
+        assertThatThrownBy(() -> bootstrap.run(arguments))
+                .isInstanceOfSatisfying(es.ubu.batchdownloader.common.BadRequestException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("password_too_short"));
     }
 
     private AdminBootstrap bootstrap() {
         return new AdminBootstrap(
-                users, clock, " admin ", "admin@batch-downloader.local", "admin", passwords);
+                users, clock, " admin ", "admin@batch-downloader.local", ADMIN_PASSWORD, passwords);
     }
 }

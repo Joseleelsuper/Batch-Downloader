@@ -15,8 +15,6 @@ import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthFailureHandler;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -89,12 +87,6 @@ class AdminAppSecurityTest {
      */
     @MockitoBean
     private UserAccountStore users;
-
-    @MockitoBean
-    private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
-
-    @MockitoBean
-    private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
      * Comprueba el escenario {@code inspectionEndpointsRequireAnAdministratorSession}.

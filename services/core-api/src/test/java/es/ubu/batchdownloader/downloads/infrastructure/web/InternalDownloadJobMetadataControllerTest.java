@@ -12,8 +12,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import es.ubu.batchdownloader.downloads.application.DownloadJobService;
 import es.ubu.batchdownloader.downloads.application.DownloadJobService.DownloadItemMetadata;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthFailureHandler;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.util.List;
 import java.util.UUID;
@@ -74,12 +72,6 @@ class InternalDownloadJobMetadataControllerTest {
      */
     @MockitoBean
     private UserAccountStore users;
-
-    @MockitoBean
-    private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
-
-    @MockitoBean
-    private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
      * Comprueba el escenario {@code acceptsContainerHttpWithoutCsrfWhenTheInternalTokenMatches}.

@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.identity.infrastructure.persistence;
 
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
+import es.ubu.batchdownloader.identity.application.PasswordPolicy;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import java.time.Clock;
@@ -73,13 +74,14 @@ class AdminBootstrap implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments arguments) {
         if (username.isBlank() || password.isBlank()) return;
+        PasswordPolicy.requireValid(password);
         String normalizedUsername = username.strip().toLowerCase(Locale.ROOT);
         UserAccount existing = users.findByNormalizedUsername(normalizedUsername).orElse(null);
         if (existing != null) {
             if (existing.role() != UserRole.ADMIN) {
                 throw new IllegalStateException("bootstrap_admin_username_conflict");
             }
-            if (existing.hasPassword() && passwords.matches(password, existing.passwordHash())) return;
+            if (passwords.matches(password, existing.passwordHash())) return;
             String encodedPassword = passwords.encode(password);
             existing.changePassword(encodedPassword, clock.instant());
             users.save(existing);

@@ -145,16 +145,16 @@ public class IdentityController {
     }
 
     record RegisterRequest(
-            @NotBlank @Email @Size(max = 320) String email,
-            @NotBlank @Size(min = 12, max = 128) String password) {}
+            @NotBlank @Email @Size(max = 254) String email,
+            @NotBlank String password) {}
     record LoginRequest(
-            @NotBlank @Email @Size(max = 320) String email,
-            @NotBlank @Size(max = 128) String password) {}
+            @NotBlank @Email @Size(max = 254) String email,
+            @NotBlank String password) {}
     record TokenRequest(@NotBlank @Size(max = 256) String token) {}
-    record EmailRequest(@NotBlank @Email @Size(max = 320) String email) {}
+    record EmailRequest(@NotBlank @Email @Size(max = 254) String email) {}
     record PasswordResetConfirmRequest(
             @NotBlank @Size(max = 256) String token,
-            @NotBlank @Size(min = 12, max = 128) String password) {}
+            @NotBlank String password) {}
     record PreferencesRequest(boolean notifyOnJobCompletion) {}
     record CsrfResponse(String headerName, String parameterName, String token) {}
 }

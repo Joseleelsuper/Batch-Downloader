@@ -98,7 +98,6 @@ Permisos: **Público** no requiere sesión; **Propietario** exige la sesión `US
 | `GET` | `/api/v1/auth/me` | Público | Devuelve la sesión actual o `204`. |
 | `POST` | `/api/v1/auth/email-verification/confirm`, `/api/v1/auth/email-verification/resend` | Público | Confirma o reenvía la verificación de correo. |
 | `POST` | `/api/v1/auth/password-reset/request`, `/api/v1/auth/password-reset/confirm` | Público | Solicita o confirma un cambio de contraseña. |
-| `GET` | `/api/v1/auth/oauth2/google`, `/api/v1/auth/oauth2/authorization/google`, `/api/v1/auth/oauth2/callback/google` | Público | Inicia Google OIDC y procesa su callback. |
 | `PATCH` | `/api/v1/auth/preferences` | `USER` | Actualiza la preferencia de notificaciones. |
 | `GET`, `PATCH` | `/api/v1/users/me` | `USER` | Consulta o actualiza el perfil propio. |
 | `GET` | `/api/v1/users/me/dashboard`, `/api/v1/users/me/downloads` | `USER` | Consulta el resumen y el historial propios. |
@@ -215,8 +214,8 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
 | `MINIO_API_HOST_PORT`, `MINIO_CONSOLE_HOST_PORT`, `MINIO_DOWNLOAD_HOST_PORT`, `MINIO_ENDPOINT`, `MINIO_PUBLIC_ENDPOINT`, `MINIO_ZIP_BUCKET`, `MINIO_ZIP_QUOTA`, `MINIO_REGION`, `MINIO_STALE_UPLOADS_EXPIRY`, `MINIO_STALE_UPLOADS_CLEANUP_INTERVAL` | Red, bucket, cuota y limpieza de artefactos. |
-| `APP_PUBLIC_BASE_URL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `NOTIFICATION_TOKEN_ENCRYPTION_KEY`, `SCRAPER_INTERNAL_SERVICE_TOKEN`, `SCRAPER_URL_PROTECTION_SECRET`, `SCRAPER_LLM_GROQ_API_KEY`, `SCRAPER_LLM_DEEPSEEK_API_KEY` | URL pública, integraciones y secretos compartidos. |
-| `CORE_API_ADMIN_USERNAME`, `CORE_API_ADMIN_EMAIL`, `CORE_API_ADMIN_PASSWORD`, `CORE_API_DOWNLOAD_OWNER_SECRET` | Bootstrap de administrador y firma de propietarios anónimos. |
+| `APP_PUBLIC_BASE_URL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `NOTIFICATION_TOKEN_ENCRYPTION_KEY`, `SCRAPER_INTERNAL_SERVICE_TOKEN`, `SCRAPER_URL_PROTECTION_SECRET`, `SCRAPER_LLM_GROQ_API_KEY`, `SCRAPER_LLM_DEEPSEEK_API_KEY` | URL pública, integraciones y secretos compartidos. |
+| `CORE_API_ADMIN_USERNAME`, `CORE_API_ADMIN_EMAIL`, `CORE_API_ADMIN_PASSWORD`, `CORE_API_DOWNLOAD_OWNER_SECRET` | Bootstrap de administrador y firma de propietarios anónimos. Define `CORE_API_ADMIN_PASSWORD` antes de arrancar: debe tener al menos 14 caracteres, no superar 72 bytes UTF-8 y no ser común. |
 | `NOTIFICATION_SERVICE_SMTP_USERNAME`, `NOTIFICATION_SERVICE_SMTP_PASSWORD` | Credenciales SMTP opcionales. |
 | `WEBAPP_HOST_PORT`, `CORE_API_HOST_PORT`, `SEMANTIC_SERVICE_HOST_PORT`, `NOTIFICATION_SERVICE_HOST_PORT`, `MAILPIT_SMTP_HOST_PORT`, `MAILPIT_UI_HOST_PORT`, `DOWNLOAD_WORKER_HOST_PORT`, `TRANSLATION_SERVICE_HOST_PORT` | Puertos publicados en el host. |
 

@@ -12,7 +12,6 @@ import es.ubu.batchdownloader.identity.domain.UserRole;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountAuthenticator;
 import es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.Authentication;
@@ -59,7 +58,7 @@ class IdentityControllerTest {
         UUID accountId = UUID.randomUUID();
         IdentityView identity = new IdentityView(
                 accountId, "admin", "admin@example.test", true, UserRole.ADMIN, true,
-                Instant.EPOCH, List.of("LOCAL"));
+                Instant.EPOCH);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(currentAccount.require(authentication)).thenReturn(account);
         when(account.id()).thenReturn(accountId);

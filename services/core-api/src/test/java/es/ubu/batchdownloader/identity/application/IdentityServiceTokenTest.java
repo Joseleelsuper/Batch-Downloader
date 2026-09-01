@@ -3,7 +3,6 @@ package es.ubu.batchdownloader.identity.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -12,7 +11,6 @@ import es.ubu.batchdownloader.common.GoneException;
 import es.ubu.batchdownloader.identity.application.port.AccountSessionInvalidator;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
 import es.ubu.batchdownloader.identity.application.port.IdentityTokenStore;
-import es.ubu.batchdownloader.identity.application.port.OauthIdentityStore;
 import es.ubu.batchdownloader.identity.application.port.PasswordHasher;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
@@ -52,7 +50,7 @@ class IdentityServiceTokenTest {
         when(tokens.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(users.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         service = new IdentityService(
-                users, tokens, Mockito.mock(OauthIdentityStore.class), passwords, events, sessions,
+                users, tokens, passwords, events, sessions,
                 Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofHours(24), Duration.ofHours(1),
                 new TransactionTemplate(new NoopTransactionManager()));
     }
@@ -123,7 +121,7 @@ class IdentityServiceTokenTest {
     }
 
     @Test
-    void reissuesVerificationOnlyForEligibleLocalAccounts() {
+    void reissuesVerificationForEligibleAccounts() {
         UserAccount eligible = user(false, "hash");
         when(users.findByNormalizedEmail("person@example.com")).thenReturn(Optional.of(eligible));
 
@@ -136,12 +134,6 @@ class IdentityServiceTokenTest {
                 org.mockito.ArgumentMatchers.eq(eligible), deliveryToken.capture());
         assertThat(deliveryToken.getValue()).matches("[A-Za-z0-9_-]{43}");
 
-        Mockito.reset(events, tokens);
-        UserAccount oauthOnly = user(true, null);
-        when(users.findByNormalizedEmail("oauth@example.com")).thenReturn(Optional.of(oauthOnly));
-        service.resendEmailVerification("oauth@example.com");
-        verify(events, never()).emailVerificationRequested(any(), any());
-        verify(tokens, never()).save(any());
     }
 
     private static IdentityToken token(

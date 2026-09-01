@@ -259,7 +259,11 @@ class DescriptorWorker:
                     catalog,
                     logs,
                     llm=self.llm,
-                ).enrich_app(software_app_id, force=bool(payload.get("force")))
+                ).enrich_app(
+                    software_app_id,
+                    force=bool(payload.get("force")),
+                    release_database_connection=session.commit,
+                )
                 await session.commit()
             if result.status in {"completed", "skipped"}:
                 await finish_item(self.settings, item, "complete", result.status)

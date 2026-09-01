@@ -163,3 +163,43 @@ async def test_enrichment_consumer_restarts_after_mysql_deadlock() -> None:
         await supervisor._restart_on_pool_timeout("so-filter-0", consumer)
 
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_description_consumer_runs_while_scrape_is_active(monkeypatch) -> None:
+    """La cola de descripciones se consume sin esperar a que termine el scrape."""
+    processed = asyncio.Event()
+
+    class LLMStub:
+        def has_provider(self) -> bool:
+            return True
+
+    class DescriptorWorkerStub:
+        def __init__(self, _settings) -> None:
+            self.llm = LLMStub()
+
+        async def process_one(self) -> bool:
+            processed.set()
+            raise asyncio.CancelledError
+
+    supervisor = worker.ContentEnrichmentSupervisor.__new__(
+        worker.ContentEnrichmentSupervisor
+    )
+    supervisor.settings = SimpleNamespace()
+
+    async def not_paused_or_stopping() -> bool:
+        return False
+
+    async def active_scrape() -> bool:
+        return True
+
+    supervisor._paused_or_stopping = not_paused_or_stopping
+    # Simula el estado que anteriormente bloqueaba este consumidor. La asignación
+    # también hace que la prueba falle si se reintroduce esa consulta en el bucle.
+    supervisor._scrape_run_active = active_scrape
+    monkeypatch.setattr(worker, "DescriptorWorker", DescriptorWorkerStub)
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(supervisor._consume_descriptions(), timeout=0.2)
+
+    assert processed.is_set()

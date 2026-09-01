@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -238,6 +239,8 @@ class AppDescriptionLLMClient:
             "max_tokens": 520,
             "response_format": {"type": "json_object"},
         }
+        if provider.name == LLMProviderName.DEEPSEEK:
+            payload["thinking"] = {"type": "disabled"}
         headers = {
             "Authorization": f"Bearer {provider.api_key}",
             "Content-Type": "application/json",
@@ -298,7 +301,7 @@ class AppDescriptionLLMClient:
                 )
             elif retryable:
                 cooldown_seconds = self.settings.llm_transient_cooldown_seconds
-            elif response.status_code == 400:
+            elif response.status_code in {400, 404}:
                 retryable = True
                 cooldown_seconds = self.settings.llm_model_error_cooldown_seconds
             raise LLMGenerationError(
@@ -459,12 +462,15 @@ class AppDescriptionEnricher:
         software_app_id: Any,
         *,
         force: bool = False,
+        release_database_connection: Callable[[], Awaitable[None]] | None = None,
     ) -> DescriptionJobResult:
         """Ejecuta `enrich_app` dentro de `AppDescriptionEnricher`.
 
         Args:
             software_app_id (Any): Identificador de `software_app` utilizado por la operación.
             force (bool): Valor de `force` utilizado por la operación.
+            release_database_connection (Callable[[], Awaitable[None]] | None): Operación
+                opcional que cierra la transacción de lectura antes de iniciar E/S externa.
 
         Returns:
             DescriptionJobResult: Resultado producido por la operación.
@@ -492,6 +498,9 @@ class AppDescriptionEnricher:
                 input_hash=input_hash,
                 error="llm_provider_not_configured",
             )
+
+        if release_database_connection is not None:
+            await release_database_connection()
 
         metadata = await fetch_safe_page_metadata(
             app.official_url,
@@ -806,7 +815,16 @@ def parse_description_payload(content: str) -> tuple[str, str]:
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise LLMGenerationError("invalid_json") from exc
+        object_start = cleaned.find("{")
+        if object_start < 0:
+            raise LLMGenerationError("invalid_json") from exc
+        try:
+            payload, _remainder_index = json.JSONDecoder().raw_decode(cleaned[object_start:])
+        except json.JSONDecodeError as embedded_exc:
+            raise LLMGenerationError("invalid_json") from embedded_exc
+
+    if not isinstance(payload, dict):
+        raise LLMGenerationError("invalid_json")
 
     description = payload.get("long_description") or payload.get("description")
     language = payload.get("language") or "es"

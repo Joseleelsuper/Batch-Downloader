@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.common.ForbiddenException;
+import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.UnauthorizedException;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
@@ -62,7 +63,7 @@ class AccountAuthenticatorTest {
     }
 
     @Test
-    void usesTheDummyHashForMissingAndOauthOnlyAccounts() {
+    void usesTheDummyHashForMissingAccounts() {
         when(users.findByNormalizedEmail("missing@example.com")).thenReturn(Optional.empty());
         when(passwords.matches("password", "dummy-hash")).thenReturn(false);
 
@@ -71,11 +72,6 @@ class AccountAuthenticatorTest {
                 .isInstanceOf(UnauthorizedException.class);
         verify(passwords).matches("password", "dummy-hash");
 
-        UserAccount oauthOnly = account(UserRole.USER, null, true, true);
-        when(users.findByNormalizedEmail("oauth@example.com")).thenReturn(Optional.of(oauthOnly));
-        when(passwords.matches("anything", "dummy-hash")).thenReturn(true);
-        assertThatThrownBy(() -> authenticator.authenticateUser("oauth@example.com", "anything"))
-                .isInstanceOf(UnauthorizedException.class);
     }
 
     @Test
@@ -91,6 +87,13 @@ class AccountAuthenticatorTest {
                 .isInstanceOf(UnauthorizedException.class);
         assertThatThrownBy(() -> authenticator.authenticateUser("admin@example.com", "password"))
                 .isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void rejectsPasswordsThatExceedBcryptsByteLimitBeforeCheckingTheHash() {
+        assertThatThrownBy(() -> authenticator.authenticateUser("person@example.com", "á".repeat(37)))
+                .isInstanceOfSatisfying(BadRequestException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("password_too_long"));
     }
 
     private static UserAccount account(

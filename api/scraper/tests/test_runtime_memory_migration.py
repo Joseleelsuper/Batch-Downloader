@@ -11,7 +11,7 @@ def test_active_run_checks_use_the_singleton_lock_without_sorting() -> None:
     """La consulta caliente no debe ordenar ni materializar el run completo."""
     worker = (ROOT / "app" / "worker.py").read_text(encoding="utf-8")
     method = worker.split("async def _paused_or_stopping", maxsplit=1)[1].split(
-        "async def _scrape_run_active", maxsplit=1
+        "async def scrape_once", maxsplit=1
     )[0]
 
     assert "ScrapeRun.active_lock == 1" in method

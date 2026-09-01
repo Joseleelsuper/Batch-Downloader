@@ -43,8 +43,17 @@ class IdentityPoliciesTest {
         assertThatThrownBy(() -> PasswordPolicy.requireValid("á".repeat(37)))
                 .isInstanceOfSatisfying(BadRequestException.class,
                         exception -> assertThat(exception.code()).isEqualTo("password_too_long"));
-        assertThatThrownBy(() -> PasswordPolicy.requireValid("short"))
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("thirteenchars"))
                 .isInstanceOfSatisfying(BadRequestException.class,
                         exception -> assertThat(exception.code()).isEqualTo("password_too_short"));
+    }
+
+    @Test
+    void rejectsCommonPasswordsButAllowsLegacyLengthDuringLogin() {
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("password123456"))
+                .isInstanceOfSatisfying(BadRequestException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("password_too_common"));
+
+        PasswordPolicy.requireSupportedForLogin("legacy-short");
     }
 }

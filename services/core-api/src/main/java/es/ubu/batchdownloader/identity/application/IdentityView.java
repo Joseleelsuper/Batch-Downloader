@@ -3,8 +3,6 @@ package es.ubu.batchdownloader.identity.application;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -16,6 +14,7 @@ import java.util.UUID;
  * @param emailVerified Valor de {@code emailVerified} incluido en el record.
  * @param role Valor de {@code role} incluido en el record.
  * @param notifyOnJobCompletion Valor de {@code notifyOnJobCompletion} incluido en el record.
+ * @param createdAt Valor de {@code createdAt} incluido en el record.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 public record IdentityView(
@@ -25,12 +24,7 @@ public record IdentityView(
         boolean emailVerified,
         UserRole role,
         boolean notifyOnJobCompletion,
-        Instant createdAt,
-        List<String> authenticationMethods) {
-
-    public IdentityView {
-        authenticationMethods = List.copyOf(authenticationMethods);
-    }
+        Instant createdAt) {
 
     /**
      * Ejecuta la operación {@code from}.
@@ -39,16 +33,8 @@ public record IdentityView(
      * @return Resultado producido por {@code from}.
      */
     public static IdentityView from(UserAccount user) {
-        return from(user, false);
-    }
-
-    /** Crea la vista incluyendo las identidades externas enlazadas. */
-    public static IdentityView from(UserAccount user, boolean googleLinked) {
-        List<String> methods = new ArrayList<>(2);
-        if (user.hasPassword()) methods.add("LOCAL");
-        if (googleLinked) methods.add("GOOGLE");
         return new IdentityView(
                 user.id(), user.username(), user.email(), user.emailVerified(), user.role(),
-                user.notifyOnJobCompletion(), user.createdAt(), methods);
+                user.notifyOnJobCompletion(), user.createdAt());
     }
 }

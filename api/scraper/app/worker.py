@@ -163,9 +163,6 @@ class ContentEnrichmentSupervisor:
         """Ejecuta el paso interno `_consume_descriptions`."""
         worker = DescriptorWorker(self.settings)
         while True:
-            if await self._scrape_run_active():
-                await asyncio.sleep(1)
-                continue
             if await self._paused_or_stopping():
                 await asyncio.sleep(1)
                 continue
@@ -266,20 +263,6 @@ class ContentEnrichmentSupervisor:
                 )
             ).one_or_none()
             return bool(control and (control.paused_at is not None or control.stop_requested))
-
-    async def _scrape_run_active(self) -> bool:
-        """Reserva el pool acotado para el pipeline mientras exista un run activo.
-
-        Las descripciones se conservan en su cola durable y se enriquecen al terminar
-        el scrape. Así una llamada LLM no ocupa una de las dos conexiones durante el
-        procesamiento de instaladores.
-        """
-        async with AsyncSessionLocal() as session:
-            run_id = await session.scalar(
-                select(ScrapeRun.id).where(ScrapeRun.active_lock == 1).limit(1)
-            )
-            return run_id is not None
-
 
 async def scrape_once(
     recover_running: bool = False,

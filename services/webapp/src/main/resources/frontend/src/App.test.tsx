@@ -830,15 +830,14 @@ describe('public support pages', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows a recoverable branded error for missing Google configuration', async () => {
+  it('shows the generic public error for an unknown code', async () => {
     render(
-      <MemoryRouter initialEntries={['/error?code=google_oauth_not_configured&status=503']}>
+      <MemoryRouter initialEntries={['/error?code=legacy']}>
         <App />
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Google no está disponible');
-    expect(screen.getByText('Error 503')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ha ocurrido un error');
     expect(screen.getByRole('link', { name: 'Volver al login' })).toHaveAttribute('href', '/login');
   });
 
@@ -864,8 +863,7 @@ describe('public support pages', () => {
       'href',
       'https://github.com/Joseleelsuper/Batch-Downloader',
     );
-    expect(screen.getByRole('link', { name: 'Portfolio' }).querySelector('img'))
-      .toHaveAttribute('src', '/assets/google-material-language.svg');
+    expect(screen.getByRole('link', { name: 'Portfolio' }).querySelector('svg')).not.toBeNull();
   });
 });
 
@@ -887,7 +885,6 @@ describe('admin bundle editor', () => {
       role: 'ADMIN',
       notifyOnJobCompletion: false,
       createdAt: '2026-08-08T00:00:00Z',
-      authenticationMethods: ['LOCAL'],
     });
     vi.spyOn(bundlesApi, 'fetchBundles').mockResolvedValue({
       data: [officialBundle],

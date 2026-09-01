@@ -100,7 +100,7 @@ public final class UserAccount {
         this.normalizedUsername = requireText(normalizedUsername, "normalizedUsername");
         this.email = requireText(email, "email");
         this.normalizedEmail = requireText(normalizedEmail, "normalizedEmail");
-        this.passwordHash = passwordHash == null ? null : requireText(passwordHash, "passwordHash");
+        this.passwordHash = requireText(passwordHash, "passwordHash");
         this.emailVerified = emailVerified;
         this.role = Objects.requireNonNull(role);
         this.notifyOnJobCompletion = notifyOnJobCompletion;
@@ -131,18 +131,6 @@ public final class UserAccount {
         return new UserAccount(
                 UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, passwordHash,
                 false, UserRole.USER, true, true, now, now, 0);
-    }
-
-    /** Crea una cuenta que utiliza exclusivamente una identidad OAuth. */
-    public static UserAccount registerOauth(
-            String username,
-            String normalizedUsername,
-            String email,
-            String normalizedEmail,
-            Instant now) {
-        return new UserAccount(
-                UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, null,
-                true, UserRole.USER, true, true, now, now, 0);
     }
 
     /**
@@ -294,8 +282,6 @@ public final class UserAccount {
      * @return Resultado producido por {@code passwordHash}.
      */
     public String passwordHash() { return passwordHash; }
-    /** Indica si la cuenta admite autenticación mediante contraseña. */
-    public boolean hasPassword() { return passwordHash != null && !passwordHash.isBlank(); }
     /**
      * Ejecuta la operación {@code emailVerified}.
      *

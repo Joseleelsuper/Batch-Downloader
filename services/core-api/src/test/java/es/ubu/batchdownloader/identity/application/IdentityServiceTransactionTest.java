@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 import es.ubu.batchdownloader.identity.application.port.AccountSessionInvalidator;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
 import es.ubu.batchdownloader.identity.application.port.IdentityTokenStore;
-import es.ubu.batchdownloader.identity.application.port.OauthIdentityStore;
 import es.ubu.batchdownloader.identity.application.port.PasswordHasher;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import java.time.Clock;
@@ -46,7 +45,6 @@ class IdentityServiceTransactionTest {
         IdentityService service = new IdentityService(
                 users,
                 tokens,
-                mock(OauthIdentityStore.class),
                 passwords,
                 mock(IdentityEventPublisher.class),
                 mock(AccountSessionInvalidator.class),
@@ -76,7 +74,6 @@ class IdentityServiceTransactionTest {
         IdentityService service = new IdentityService(
                 users,
                 tokens,
-                mock(OauthIdentityStore.class),
                 passwords,
                 mock(IdentityEventPublisher.class),
                 mock(AccountSessionInvalidator.class),

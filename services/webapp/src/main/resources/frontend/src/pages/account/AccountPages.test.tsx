@@ -29,7 +29,6 @@ const user: AuthUser = {
   role: 'USER',
   notifyOnJobCompletion: true,
   createdAt: '2026-08-08T00:00:00Z',
-  authenticationMethods: ['LOCAL'],
 };
 
 const app: CatalogApp = {
@@ -85,9 +84,6 @@ describe('account flows', () => {
         </AuthProvider>
       </MemoryRouter>,
     );
-
-    expect(container.querySelector('img.google-auth-icon'))
-      .toHaveAttribute('src', '/assets/google-g.png');
 
     fireEvent.change(container.querySelector('input[type="email"]')!, {
       target: { value: 'Person@Example.com' },
@@ -231,14 +227,13 @@ describe('account flows', () => {
     expect(await screen.findByText(t('account.profile.saved'))).toBeInTheDocument();
   });
 
-  it('muestra OAuth fallido, traduce credenciales inválidas y usa un destino seguro', async () => {
+  it('traduce credenciales inválidas y usa un destino seguro', async () => {
     const login = vi.spyOn(accountApi, 'login')
       .mockRejectedValueOnce(new ApiRequestError(401, 'invalid_credentials'))
       .mockResolvedValueOnce(user);
     const { container } = render(
       <MemoryRouter initialEntries={[{
         pathname: '/login',
-        search: '?oauthError=provider',
         state: { from: { pathname: '//evil.example', search: '?token=leak' } },
       }]}>
         <AuthProvider>
@@ -249,7 +244,6 @@ describe('account flows', () => {
         </AuthProvider>
       </MemoryRouter>,
     );
-    expect(screen.getByText(t('account.login.oauthError'))).toBeInTheDocument();
     fireEvent.change(container.querySelector('input[type="email"]')!, {
       target: { value: 'person@example.com' },
     });
@@ -290,7 +284,7 @@ describe('account flows', () => {
     expect(login).toHaveBeenCalledTimes(2);
   });
 
-  it('valida longitud y muestra errores de campo antes de registrar', async () => {
+  it('valida correo y política de contraseña antes de registrar', async () => {
     const register = vi.spyOn(accountApi, 'registerAccount')
       .mockRejectedValueOnce(new ApiRequestError(422, 'validation_failed', null, {
         fieldErrors: { email: ['El correo ya está en uso.'] },
@@ -313,6 +307,26 @@ describe('account flows', () => {
     expect(screen.getByText(t('account.password.tooLong'))).toBeInTheDocument();
     expect(register).not.toHaveBeenCalled();
 
+    fireEvent.change(passwords[0], { target: { value: 'x'.repeat(13) } });
+    fireEvent.change(passwords[1], { target: { value: 'x'.repeat(13) } });
+    fireEvent.submit(container.querySelector('form')!);
+    expect(screen.getByText(t('account.password.tooShort'))).toBeInTheDocument();
+    expect(register).not.toHaveBeenCalled();
+
+    fireEvent.change(passwords[0], { target: { value: 'password123456' } });
+    fireEvent.change(passwords[1], { target: { value: 'password123456' } });
+    fireEvent.submit(container.querySelector('form')!);
+    expect(screen.getByText(t('account.password.tooCommon'))).toBeInTheDocument();
+    expect(register).not.toHaveBeenCalled();
+
+    fireEvent.change(email, { target: { value: `${'a'.repeat(245)}@example.com` } });
+    fireEvent.change(passwords[0], { target: { value: 'secure-password' } });
+    fireEvent.change(passwords[1], { target: { value: 'secure-password' } });
+    fireEvent.submit(container.querySelector('form')!);
+    expect(screen.getByText(t('account.email.tooLong'))).toBeInTheDocument();
+    expect(register).not.toHaveBeenCalled();
+
+    fireEvent.change(email, { target: { value: 'person@example.com' } });
     fireEvent.change(passwords[0], { target: { value: 'secure-password' } });
     fireEvent.change(passwords[1], { target: { value: 'secure-password' } });
     fireEvent.submit(container.querySelector('form')!);
