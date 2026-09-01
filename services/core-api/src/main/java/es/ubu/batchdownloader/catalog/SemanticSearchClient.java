@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.catalog;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.common.http.InternalHttpExecutor;
 import es.ubu.batchdownloader.common.http.InternalHttpRequest;
@@ -120,7 +121,7 @@ public class SemanticSearchClient {
                 return fallback("semantic_index_unavailable");
             }
             if (response.statusCode() >= 400) {
-                return fallback("semantic_request_rejected");
+                return fallback(rejectionReason(response.body()));
             }
             SemanticResponse semantic = objectMapper.readValue(
                     response.body(),
@@ -194,6 +195,50 @@ public class SemanticSearchClient {
      */
     private SemanticCandidateSet fallback(String reason) {
         return SemanticCandidateSet.lexical(CatalogSearchMode.SEMANTIC, reason);
+    }
+
+    /**
+     * Clasifica un rechazo HTTP del servicio semántico sin depender del texto localizado del error.
+     *
+     * @param body Cuerpo JSON devuelto por el servicio interno.
+     * @return Motivo público de degradación compatible con el catálogo.
+     */
+    private String rejectionReason(String body) {
+        if (body == null || body.isBlank()) {
+            return "semantic_request_rejected";
+        }
+        try {
+            JsonNode detail = objectMapper.readTree(body).path("detail");
+            if (detail.isObject()
+                    && "semantic_query_too_short".equals(detail.path("code").asText())) {
+                return "semantic_query_too_short";
+            }
+            if (detail.isArray()) {
+                for (JsonNode error : detail) {
+                    if (isShortQueryValidation(error)) {
+                        return "semantic_query_too_short";
+                    }
+                }
+            }
+        } catch (JsonProcessingException exception) {
+            // Un cuerpo no JSON sigue siendo un rechazo genérico, sin revelar su contenido.
+        }
+        return "semantic_request_rejected";
+    }
+
+    /**
+     * Reconoce el formato de validación de FastAPI/Pydantic para el campo {@code body.query}.
+     *
+     * @param error Error individual dentro de {@code detail}.
+     * @return {@code true} cuando el error identifica una consulta semántica demasiado corta.
+     */
+    private static boolean isShortQueryValidation(JsonNode error) {
+        JsonNode location = error.path("loc");
+        return "string_too_short".equals(error.path("type").asText())
+                && location.isArray()
+                && location.size() == 2
+                && "body".equals(location.get(0).asText())
+                && "query".equals(location.get(1).asText());
     }
 
     /**

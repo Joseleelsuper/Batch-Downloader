@@ -269,6 +269,28 @@ describe('catalog workspace', () => {
     expect(window.localStorage.getItem('catalog.search.mode')).toBeNull();
   });
 
+  it('explains when semantic search falls back because the query is too short', async () => {
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
+      data: [],
+      page: 1,
+      pageSize: 12,
+      total: 0,
+      requestedMode: 'semantic',
+      appliedMode: 'lexical',
+      degradedReason: 'semantic_query_too_short',
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog?searchMode=semantic&query=Steam']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(
+      'La búsqueda semántica necesita una consulta más descriptiva; se muestran resultados literales.',
+    )).toBeInTheDocument();
+  });
+
   it('restores the saved catalog status when the URL does not choose one', async () => {
     window.localStorage.setItem('catalog.filter.status', 'review');
 

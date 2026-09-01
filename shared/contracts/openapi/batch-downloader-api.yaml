@@ -2336,6 +2336,9 @@ components:
         indexVersion:
           type: [string, 'null']
         degradedReason:
+          description: >-
+            Motivo estable de degradación de la búsqueda semántica; por ejemplo,
+            `semantic_query_too_short` cuando el servicio rechaza una consulta demasiado corta.
           type: [string, 'null']
     SearchMode:
       type: string

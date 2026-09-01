@@ -52,6 +52,7 @@
   "catalog.search.mode.lexical": "",
   "catalog.search.mode.semantic": "",
   "catalog.search.degraded": "",
+  "catalog.search.degraded.shortQuery": "",
   "catalog.select": "",
   "catalog.selectApp": "",
   "catalog.selection.clear": "",
