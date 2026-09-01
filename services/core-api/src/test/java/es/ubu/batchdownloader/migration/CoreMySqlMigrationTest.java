@@ -37,6 +37,10 @@ class CoreMySqlMigrationTest {
                         id BINARY(16) NOT NULL,
                         app_status VARCHAR(32) NOT NULL,
                         catalog_status VARCHAR(16) NULL,
+                        catalog_review_priority TINYINT(1)
+                            GENERATED ALWAYS AS (
+                                CASE WHEN catalog_status = 'review' THEN 1 ELSE 0 END
+                            ) STORED,
                         catalog_review_source_count INT UNSIGNED NOT NULL DEFAULT 0,
                         normalized_name VARCHAR(180) NOT NULL,
                         PRIMARY KEY (id)
@@ -143,7 +147,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("14");
+            assertThat(flywayVersion(connection)).isEqualTo("15");
         }
     }
 

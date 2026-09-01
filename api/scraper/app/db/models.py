@@ -172,6 +172,15 @@ class SoftwareApp(Base, TimestampMixin):
     )
     """Campo declarado `catalog_status` de `SoftwareApp`.
     """
+    catalog_review_priority: Mapped[bool] = mapped_column(
+        Boolean,
+        Computed(
+            "CASE WHEN catalog_status = 'review' THEN 1 ELSE 0 END",
+            persisted=True,
+        ),
+    )
+    """Prioridad persistente que permite relegar revisión sin un `filesort` global.
+    """
 
     sources: Mapped[list[DownloadSource]] = relationship(
         back_populates="software_app", cascade="all, delete-orphan"

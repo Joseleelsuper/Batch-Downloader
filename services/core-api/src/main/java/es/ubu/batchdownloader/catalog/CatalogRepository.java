@@ -6,8 +6,8 @@ import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogAlphabetEntry;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
-import es.ubu.batchdownloader.catalog.CatalogProjectionRepository.AppBasics;
 import es.ubu.batchdownloader.common.BadRequestException;
+import es.ubu.batchdownloader.common.UuidBytes;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -31,7 +31,7 @@ public class CatalogRepository {
      * Constante que define {@code REVIEW_LAST_ORDER}.
      */
     private static final String REVIEW_LAST_ORDER =
-            "CASE WHEN a.catalog_status = 'review' THEN 1 ELSE 0 END ASC";
+            "a.catalog_review_priority ASC";
     /**
      * Constante que define {@code CATALOG_STATUSES}.
      */
@@ -107,32 +107,28 @@ public class CatalogRepository {
         }
         status = normalizeCatalogStatus(status);
         SearchRanking ranking = SearchRanking.from(query);
-        String innerOrderBy = orderBy(sort, ranking.innerPrefix());
-        String outerOrderBy = orderBy(sort, ranking.outerPrefix());
-        StringBuilder sql = new StringBuilder("""
-                SELECT a.*
-                FROM software_apps a
-                JOIN (
-                    SELECT a.id
-                """);
+        StringBuilder sql = new StringBuilder("SELECT a.id");
         List<Object> params = new ArrayList<>();
         if (ranking.active()) {
-            sql.append(", ").append(ranking.scoreSql()).append(" AS search_score\n");
+            sql.append(", ").append(ranking.scoreSql()).append(" AS search_score");
             params.addAll(ranking.params());
         }
         sql.append("""
-                    FROM software_apps a
-                    WHERE a.app_status = 'active'
+
+                FROM software_apps a
+                WHERE a.app_status = 'active'
                 """);
         CatalogFilterSql.appendAll(
                 sql, params, query, status, operatingSystems, architecture, tags, publishers);
-        sql.append(" ORDER BY ").append(innerOrderBy);
-        sql.append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ").append(outerOrderBy);
+        sql.append(" ORDER BY ").append(orderBy(sort, ranking.innerPrefix()));
+        sql.append(" LIMIT ? OFFSET ?");
         params.add(pageSize);
         params.add((page - 1) * pageSize);
-        List<AppBasics> apps = jdbc.query(
-                sql.toString(), (rs, rowNum) -> projections.readBasics(rs), params.toArray());
-        return projections.enrich(apps);
+        List<UUID> appIds = jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                params.toArray());
+        return loadPage(appIds);
     }
 
     /**
@@ -232,13 +228,10 @@ public class CatalogRepository {
         List<Object> params = new ArrayList<>();
         StringBuilder sql = new StringBuilder(SemanticCandidateSql.cte(query, candidates, params));
         sql.append("""
-                SELECT a.*
+                SELECT a.id, ranked.semantic_rank
                 FROM software_apps a
-                JOIN (
-                    SELECT a.id, ranked.semantic_rank
-                    FROM software_apps a
-                    JOIN semantic_candidates ranked ON ranked.id = a.id
-                    WHERE a.app_status = 'active'
+                JOIN semantic_candidates ranked ON ranked.id = a.id
+                WHERE a.app_status = 'active'
                 """);
         CatalogFilterSql.appendStructured(
                 sql,
@@ -250,15 +243,23 @@ public class CatalogRepository {
                 publishers);
         sql.append(" ORDER BY ")
                 .append(orderBy(sort, "ranked.semantic_rank ASC, "))
-                .append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ")
-                .append(orderBy(sort, "page.semantic_rank ASC, "));
+                .append(" LIMIT ? OFFSET ?");
         params.add(pageSize);
         params.add((page - 1) * pageSize);
-        List<AppBasics> apps = jdbc.query(
+        List<UUID> appIds = jdbc.query(
                 sql.toString(),
-                (rs, rowNum) -> projections.readBasics(rs),
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
                 params.toArray());
-        return projections.enrich(apps);
+        return loadPage(appIds);
+    }
+
+    /** Carga las fichas fuera de la consulta ordenada y restaura el orden de sus IDs. */
+    private List<AppListItem> loadPage(List<UUID> orderedIds) {
+        Map<UUID, AppListItem> itemsById = projections.listItems(orderedIds);
+        return orderedIds.stream()
+                .map(itemsById::get)
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     /**
@@ -522,14 +523,6 @@ public class CatalogRepository {
             return active ? "search_score DESC, " : "";
         }
 
-        /**
-         * Ejecuta la operación {@code outerPrefix}.
-         *
-         * @return Resultado producido por {@code outerPrefix}.
-         */
-        String outerPrefix() {
-            return active ? "page.search_score DESC, " : "";
-        }
     }
 
     /**

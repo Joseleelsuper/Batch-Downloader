@@ -120,12 +120,11 @@ class CatalogRepositoryTest {
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
         assertThat(sql.getValue()).contains("AS search_score");
-        assertThat(sql.getValue()).contains("CASE WHEN a.catalog_status = 'review'");
-        assertThat(sql.getValue()).contains("ORDER BY CASE WHEN a.catalog_status");
         assertThat(sql.getValue()).contains(
-                "END ASC, a.updated_at DESC, search_score DESC, a.normalized_name ASC");
-        assertThat(sql.getValue()).contains(
-                "END ASC, a.updated_at DESC, page.search_score DESC, a.normalized_name ASC");
+                "ORDER BY a.catalog_review_priority ASC, a.updated_at DESC, "
+                        + "search_score DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).doesNotContain(
+                "CASE WHEN a.catalog_status", "SELECT a.*", "JOIN (", "page.search_score");
         assertThat(params.getValue()[0]).isEqualTo("epic games");
         assertThat(params.getValue()).contains("epic games%");
     }
@@ -168,9 +167,9 @@ class CatalogRepositoryTest {
                 .doesNotContain("lexical_ranked", "search_score", "rrf")
                 .contains("a.catalog_status = ?", "JSON_CONTAINS")
                 .contains(
-                        "END ASC, a.updated_at DESC, ranked.semantic_rank ASC, a.normalized_name ASC")
-                .contains(
-                        "END ASC, a.updated_at DESC, page.semantic_rank ASC, a.normalized_name ASC");
+                        "a.catalog_review_priority ASC, a.updated_at DESC, "
+                                + "ranked.semantic_rank ASC, a.normalized_name ASC")
+                .doesNotContain("SELECT a.*", "JOIN (", "page.semantic_rank");
         assertThat(params.getValue()[0]).isEqualTo(candidates.candidatesJson());
         assertThat(params.getValue()).contains("available", "windows", "x86_64");
     }
@@ -266,8 +265,11 @@ class CatalogRepositoryTest {
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sql.getValue()).doesNotContain("search_score");
-        assertThat(sql.getValue()).contains("ORDER BY CASE WHEN a.catalog_status");
-        assertThat(sql.getValue()).contains("END ASC, a.updated_at DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).contains(
+                "ORDER BY a.catalog_review_priority ASC, a.updated_at DESC, "
+                        + "a.normalized_name ASC");
+        assertThat(sql.getValue()).doesNotContain(
+                "CASE WHEN a.catalog_status", "SELECT a.*", "JOIN (");
 
         repository.search(
                 "",
@@ -285,7 +287,7 @@ class CatalogRepositoryTest {
         verify(jdbc, org.mockito.Mockito.times(2)).query(sortedSql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sortedSql.getAllValues().get(1))
                 .contains("ORDER BY a.normalized_name ASC, a.id ASC")
-                .doesNotContain("CASE WHEN a.catalog_status");
+                .doesNotContain("catalog_review_priority", "CASE WHEN a.catalog_status");
     }
 
     /** Comprueba que el índice alfabético calcula páginas sin ordenar filas. */
@@ -375,9 +377,9 @@ class CatalogRepositoryTest {
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sql.getValue()).contains(
-                "END ASC, a.download_count DESC, search_score DESC, a.normalized_name ASC");
-        assertThat(sql.getValue()).contains(
-                "END ASC, a.download_count DESC, page.search_score DESC, a.normalized_name ASC");
+                "a.catalog_review_priority ASC, a.download_count DESC, "
+                        + "search_score DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).doesNotContain("SELECT a.*", "JOIN (", "page.search_score");
     }
 
     /**

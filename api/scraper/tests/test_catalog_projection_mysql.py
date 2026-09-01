@@ -643,10 +643,15 @@ async def assert_app_status(
         app_id (UUID): Identificador de `app` utilizado por la operación.
         expected (str): Valor de `expected` utilizado por la operación.
     """
-    status = await session.scalar(
-        select(SoftwareApp.catalog_status).where(SoftwareApp.id == app_id)
-    )
-    assert status == expected
+    status = (
+        await session.execute(
+            select(
+                SoftwareApp.catalog_status,
+                SoftwareApp.catalog_review_priority,
+            ).where(SoftwareApp.id == app_id)
+        )
+    ).one()
+    assert status == (expected, expected == "review")
 
 
 async def assert_app_projection_counts(
