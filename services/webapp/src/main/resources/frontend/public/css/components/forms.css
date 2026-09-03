@@ -124,20 +124,68 @@
   font-weight: 700;
 }
 
-.password-guidance,
-.password-warning {
-  margin: -4px 0 0;
+.password-requirements {
+  display: grid;
+  gap: 7px;
+  margin-top: -3px;
+}
+
+.password-requirements-title {
+  margin: 0;
+  color: #344052;
   font-size: 13px;
+  font-weight: 700;
   line-height: 1.4;
 }
 
-.password-guidance {
-  color: var(--muted);
+.password-rules {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.password-warning {
-  color: #9a6700;
-  font-weight: 700;
+.password-rules li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  transition: color 160ms ease-out;
+}
+
+.password-rules li svg {
+  flex: 0 0 auto;
+}
+
+.password-composition-icons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.password-composition-symbol {
+  font-size: 20px;
+  font-variation-settings: 'opsz' 20, 'wght' 500, 'FILL' 0, 'GRAD' 0;
+  line-height: 1;
+}
+
+.password-rules .is-passed {
+  color: #167247;
+}
+
+.password-rules .is-pending {
+  color: #9f1239;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .password-rules li {
+    transition: none;
+  }
 }
 
 

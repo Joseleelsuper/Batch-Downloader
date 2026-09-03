@@ -74,19 +74,21 @@ class AdminBootstrap implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments arguments) {
         if (username.isBlank() || password.isBlank()) return;
-        PasswordPolicy.requireValid(password);
         String normalizedUsername = username.strip().toLowerCase(Locale.ROOT);
         UserAccount existing = users.findByNormalizedUsername(normalizedUsername).orElse(null);
         if (existing != null) {
             if (existing.role() != UserRole.ADMIN) {
                 throw new IllegalStateException("bootstrap_admin_username_conflict");
             }
+            PasswordPolicy.requireSupportedForLogin(password);
             if (passwords.matches(password, existing.passwordHash())) return;
+            PasswordPolicy.requireValid(password);
             String encodedPassword = passwords.encode(password);
             existing.changePassword(encodedPassword, clock.instant());
             users.save(existing);
             return;
         }
+        PasswordPolicy.requireValid(password);
         String encodedPassword = passwords.encode(password);
         String cleanEmail = email.strip();
         users.save(UserAccount.bootstrapAdmin(

@@ -2,18 +2,11 @@ package es.ubu.batchdownloader.identity.application;
 
 import es.ubu.batchdownloader.common.BadRequestException;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
-import java.util.Set;
 
 /** Valida la contraseña en los casos de uso de registro y restablecimiento. */
 public final class PasswordPolicy {
-    public static final int MINIMUM_CHARACTERS = 14;
+    public static final int MINIMUM_CHARACTERS = 8;
     public static final int MAXIMUM_UTF8_BYTES = 72;
-    private static final Set<String> COMMON_PASSWORDS = Set.of(
-            "12345678", "123456789", "1234567890", "abc123", "admin", "administrator",
-            "baseball", "dragon", "football", "iloveyou", "letmein", "login", "master",
-            "monkey", "password", "password1", "password123", "password1234", "password123456",
-            "passw0rd", "princess", "qwerty", "qwerty123", "qwertyuiop", "sunshine", "welcome");
 
     private PasswordPolicy() {}
 
@@ -25,13 +18,29 @@ public final class PasswordPolicy {
     public static void requireValid(String password) {
         if (password == null || password.codePointCount(0, password.length()) < MINIMUM_CHARACTERS) {
             throw new BadRequestException(
-                    "password_too_short", "La contraseña debe contener al menos 14 caracteres.");
+                    "password_too_short", "La contraseña debe contener al menos 8 caracteres.");
         }
         requireSupportedForLogin(password);
-        if (COMMON_PASSWORDS.contains(password.toLowerCase(Locale.ROOT))) {
+        if (password.codePoints().noneMatch(Character::isUpperCase)) {
             throw new BadRequestException(
-                    "password_too_common", "Elige una contraseña distinta: esta es demasiado común o predecible.");
+                    "password_missing_uppercase", "La contraseña debe incluir al menos una letra mayúscula.");
         }
+        if (password.codePoints().noneMatch(Character::isLowerCase)) {
+            throw new BadRequestException(
+                    "password_missing_lowercase", "La contraseña debe incluir al menos una letra minúscula.");
+        }
+        if (password.codePoints().noneMatch(Character::isDigit)) {
+            throw new BadRequestException(
+                    "password_missing_number", "La contraseña debe incluir al menos un número.");
+        }
+        if (password.codePoints().noneMatch(PasswordPolicy::isSpecialCharacter)) {
+            throw new BadRequestException(
+                    "password_missing_special", "La contraseña debe incluir al menos un carácter especial.");
+        }
+    }
+
+    private static boolean isSpecialCharacter(int codePoint) {
+        return !Character.isLetterOrDigit(codePoint) && !Character.isWhitespace(codePoint);
     }
 
     /**

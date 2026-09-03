@@ -36,23 +36,34 @@ class IdentityPoliciesTest {
 
     @Test
     void enforcesBcryptUtf8ByteLimit() {
-        String exactly72Bytes = "á".repeat(36);
+        String exactly72Bytes = "Á".repeat(34) + "aa1!";
         assertThat(exactly72Bytes.getBytes(StandardCharsets.UTF_8)).hasSize(72);
         PasswordPolicy.requireValid(exactly72Bytes);
 
-        assertThatThrownBy(() -> PasswordPolicy.requireValid("á".repeat(37)))
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("Á".repeat(35) + "aa1!"))
                 .isInstanceOfSatisfying(BadRequestException.class,
                         exception -> assertThat(exception.code()).isEqualTo("password_too_long"));
-        assertThatThrownBy(() -> PasswordPolicy.requireValid("thirteenchars"))
+        PasswordPolicy.requireValid("Twelve-char1!");
+
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("Aa1!abc"))
                 .isInstanceOfSatisfying(BadRequestException.class,
                         exception -> assertThat(exception.code()).isEqualTo("password_too_short"));
     }
 
     @Test
-    void rejectsCommonPasswordsButAllowsLegacyLengthDuringLogin() {
-        assertThatThrownBy(() -> PasswordPolicy.requireValid("password123456"))
+    void enforcesCharacterClassesButAllowsLegacyPasswordsDuringLogin() {
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("abcdefghij1!"))
                 .isInstanceOfSatisfying(BadRequestException.class,
-                        exception -> assertThat(exception.code()).isEqualTo("password_too_common"));
+                        exception -> assertThat(exception.code()).isEqualTo("password_missing_uppercase"));
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("ABCDEFGHIJ1!"))
+                .isInstanceOfSatisfying(BadRequestException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("password_missing_lowercase"));
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("Abcdefghij!?"))
+                .isInstanceOfSatisfying(BadRequestException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("password_missing_number"));
+        assertThatThrownBy(() -> PasswordPolicy.requireValid("Abcdefghij12"))
+                .isInstanceOfSatisfying(BadRequestException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("password_missing_special"));
 
         PasswordPolicy.requireSupportedForLogin("legacy-short");
     }

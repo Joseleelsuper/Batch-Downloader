@@ -180,8 +180,8 @@ paths:
                   type: string
                 password:
                   type: string
-                  minLength: 14
-                  description: Al menos 14 caracteres y un máximo de 72 bytes UTF-8. No se admiten contraseñas comunes.
+                  minLength: 8
+                  description: Entre 8 caracteres y 72 bytes UTF-8, con mayúscula, minúscula, número y carácter especial.
       responses:
         '204':
           description: Contraseña actualizada.
@@ -1679,8 +1679,8 @@ components:
           maxLength: 254
         password:
           type: string
-          minLength: 14
-          description: Al menos 14 caracteres y un máximo de 72 bytes UTF-8. No se admiten contraseñas comunes.
+          minLength: 8
+          description: Entre 8 caracteres y 72 bytes UTF-8, con mayúscula, minúscula, número y carácter especial.
     LoginRequest:
       type: object
       additionalProperties: false

@@ -1,5 +1,6 @@
 import {
   Boxes,
+  Check,
   Clock3,
   Download,
   ExternalLink,
@@ -8,6 +9,7 @@ import {
   Save,
   Trash2,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
   type FormEvent,
@@ -47,14 +49,8 @@ import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSumma
 import type { CatalogApp } from '../../types/catalog';
 
 const MAXIMUM_EMAIL_LENGTH = 254;
-const MINIMUM_PASSWORD_CHARACTERS = 14;
+const MINIMUM_PASSWORD_CHARACTERS = 8;
 const MAXIMUM_PASSWORD_UTF8_BYTES = 72;
-const COMMON_PASSWORDS = new Set([
-  '12345678', '123456789', '1234567890', 'abc123', 'admin', 'administrator',
-  'baseball', 'dragon', 'football', 'iloveyou', 'letmein', 'login', 'master',
-  'monkey', 'password', 'password1', 'password123', 'password1234', 'password123456',
-  'passw0rd', 'princess', 'qwerty', 'qwerty123', 'qwertyuiop', 'sunshine', 'welcome',
-]);
 
 function apiMessage(t: Translator, error: unknown, fallbackKey: string): string {
   if (error instanceof ApiRequestError) {
@@ -88,7 +84,10 @@ function passwordBytes(password: string): number {
 function newPasswordIssue(t: Translator, password: string): string | null {
   if (Array.from(password).length < MINIMUM_PASSWORD_CHARACTERS) return t('account.password.tooShort');
   if (passwordBytes(password) > MAXIMUM_PASSWORD_UTF8_BYTES) return t('account.password.tooLong');
-  if (COMMON_PASSWORDS.has(password.toLowerCase())) return t('account.password.tooCommon');
+  if (!/\p{Lu}/u.test(password)) return t('account.password.missingUppercase');
+  if (!/\p{Ll}/u.test(password)) return t('account.password.missingLowercase');
+  if (!/\p{N}/u.test(password)) return t('account.password.missingNumber');
+  if (!/[^\p{L}\p{N}\s]/u.test(password)) return t('account.password.missingSpecial');
   return null;
 }
 
@@ -100,11 +99,60 @@ function loginPasswordIssue(t: Translator, password: string): string | null {
 
 function PasswordGuidance({ password }: Readonly<{ password: string }>) {
   const t = useTranslation();
-  const hasIssue = password ? newPasswordIssue(t, password) !== null : false;
-  return <>
-    <p id="password-guidance" className="password-guidance">{t('account.password.help')}</p>
-    {hasIssue ? <p className="password-warning" role="status">{t('account.password.warning')}</p> : null}
-  </>;
+  const compositionIcons = [
+    { glyph: 'uppercase', label: t('account.password.missingUppercase') },
+    { glyph: 'lowercase', label: t('account.password.missingLowercase') },
+    { glyph: 'numbers', label: t('account.password.missingNumber') },
+    { glyph: 'asterisk', label: t('account.password.missingSpecial') },
+  ];
+  const rules = [
+    {
+      id: 'minimum',
+      label: t('account.password.rule.minimum'),
+      passed: Array.from(password).length >= MINIMUM_PASSWORD_CHARACTERS,
+    },
+    {
+      id: 'composition',
+      label: t('account.password.rule.composition'),
+      passed: /\p{Lu}/u.test(password)
+        && /\p{Ll}/u.test(password)
+        && /\p{N}/u.test(password)
+        && /[^\p{L}\p{N}\s]/u.test(password),
+    },
+  ];
+  const passedRules = rules.filter((rule) => rule.passed).length;
+
+  return <div id="password-guidance" className="password-requirements">
+    <p className="password-requirements-title">{t('account.password.rulesTitle')}</p>
+    <ul className="password-rules">
+      {rules.map((rule) => {
+        const Icon = rule.passed ? Check : X;
+        return <li key={rule.id} className={rule.passed ? 'is-passed' : 'is-pending'}>
+          <Icon size={17} strokeWidth={2.5} aria-hidden="true" />
+          {rule.id === 'composition' ? <span
+            className="password-composition-icons"
+            role="img"
+            aria-label={rule.label}
+          >
+            {compositionIcons.map((icon) => <span
+              key={icon.glyph}
+              className="material-symbols-outlined password-composition-symbol"
+              title={icon.label}
+              aria-hidden="true"
+            >{icon.glyph}</span>)}
+          </span> : <span>{rule.label}</span>}
+          <span className="sr-only"> — {rule.passed
+            ? t('account.password.rule.met')
+            : t('account.password.rule.unmet')}</span>
+        </li>;
+      })}
+    </ul>
+    <p className="sr-only" role="status" aria-live="polite">
+      {t('account.password.rulesStatus')
+        .replace('{passed}', String(passedRules))
+        .replace('{total}', String(rules.length))}
+    </p>
+  </div>;
 }
 
 function AuthCard({ children }: Readonly<{ children: React.ReactNode }>) {

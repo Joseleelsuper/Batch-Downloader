@@ -19,7 +19,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 class AdminBootstrapTest {
-    private static final String ADMIN_PASSWORD = "bootstrap-admin-2026";
+    private static final String ADMIN_PASSWORD = "Bootstrap-admin-2026!";
     private static final Instant NOW = Instant.parse("2026-08-08T12:00:00Z");
     private final UserAccountStore users = mock(UserAccountStore.class);
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -69,6 +69,23 @@ class AdminBootstrapTest {
 
         verify(users, never()).save(existing);
         verify(passwords, never()).encode(ADMIN_PASSWORD);
+    }
+
+    @Test
+    void keepsAnExistingAdministratorWithALegacyPasswordWhenTheHashMatches() {
+        String legacyPassword = "legacy-admin-2026";
+        UserAccount existing = UserAccount.bootstrapAdmin(
+                "admin", "admin", "admin@example.com", "admin@example.com",
+                "configured-hash", NOW.minusSeconds(60));
+        when(users.findByNormalizedUsername("admin")).thenReturn(Optional.of(existing));
+        when(passwords.matches(legacyPassword, "configured-hash")).thenReturn(true);
+        AdminBootstrap bootstrap = new AdminBootstrap(
+                users, clock, "admin", "admin@batch-downloader.local", legacyPassword, passwords);
+
+        bootstrap.run(arguments);
+
+        verify(users, never()).save(existing);
+        verify(passwords, never()).encode(legacyPassword);
     }
 
     @Test

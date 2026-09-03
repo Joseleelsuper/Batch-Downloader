@@ -53,7 +53,7 @@ class IdentityServiceTransactionTest {
                 Duration.ofHours(1),
                 new TransactionTemplate(new FlagTransactionManager(transactionActive)));
 
-        service.register("user@example.com", "long-enough-password");
+        service.register("user@example.com", "Long-enough1!");
 
         assertThat(transactionActive).isFalse();
     }
@@ -82,9 +82,9 @@ class IdentityServiceTransactionTest {
                 Duration.ofHours(1),
                 new TransactionTemplate(new FlagTransactionManager(transactionActive)));
 
-        service.register("user@example.com", "long-enough-password");
+        service.register("user@example.com", "Long-enough1!");
 
-        verify(passwords, times(1)).hash("long-enough-password");
+        verify(passwords, times(1)).hash("Long-enough1!");
         verify(users, times(2)).save(any());
         assertThat(transactionActive).isFalse();
     }

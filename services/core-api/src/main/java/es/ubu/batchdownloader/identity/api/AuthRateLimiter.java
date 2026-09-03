@@ -78,6 +78,12 @@ class AuthRateLimiter {
         require(verifications, key(ip, email), verificationLimit, 3600);
     }
 
+    /** Reserva una cuota de reenvío sin convertir un login bloqueado en un 429. */
+    boolean tryVerification(String ip, String email) {
+        return verifications.get(key(ip, email), ignored -> new AtomicInteger()).incrementAndGet()
+                <= verificationLimit;
+    }
+
     /** Crea una caché con tamaño defensivo y caducidad fija. */
     private static Cache<String, AtomicInteger> cache(Duration window) {
         return Caffeine.newBuilder()

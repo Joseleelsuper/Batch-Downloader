@@ -111,9 +111,9 @@ class IdentityServiceTokenTest {
         when(tokens.findByHashAndTypeForUpdate(hash, IdentityToken.Type.PASSWORD_RESET))
                 .thenReturn(Optional.of(token));
         when(users.findById(user.id())).thenReturn(Optional.of(user));
-        when(passwords.hash("new-secure-password")).thenReturn("new-hash");
+        when(passwords.hash("New-secure1!")).thenReturn("new-hash");
 
-        service.resetPassword("reset-token", "new-secure-password");
+        service.resetPassword("reset-token", "New-secure1!");
 
         assertThat(user.passwordHash()).isEqualTo("new-hash");
         assertThat(token.consumedAt()).isEqualTo(NOW);

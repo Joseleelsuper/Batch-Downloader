@@ -118,6 +118,30 @@ describe('account flows', () => {
     expect(screen.getByText(t('account.password.mismatch'))).toBeInTheDocument();
   });
 
+  it('actualiza cada requisito de contraseña mientras se escribe', () => {
+    const { container } = render(
+      <MemoryRouter><RegisterPage /></MemoryRouter>,
+    );
+    const password = container.querySelector('input[type="password"]')!;
+    const minimumRule = screen.getByText(t('account.password.rule.minimum')).closest('li')!;
+    const compositionRule = screen.getByRole('img', { name: t('account.password.rule.composition') }).closest('li')!;
+
+    expect(password).toHaveAttribute('minlength', '8');
+    expect(minimumRule).toHaveClass('is-pending');
+    expect(compositionRule).toHaveClass('is-pending');
+    expect(container.querySelectorAll('.password-composition-symbol')).toHaveLength(4);
+
+    fireEvent.change(password, { target: { value: 'Strong-pass1!' } });
+    expect(minimumRule).toHaveClass('is-passed');
+    expect(compositionRule).toHaveClass('is-passed');
+
+    fireEvent.change(password, { target: { value: 'weak-pass123!' } });
+    expect(compositionRule).toHaveClass('is-pending');
+
+    fireEvent.change(password, { target: { value: 'x'.repeat(73) } });
+    expect(compositionRule).toHaveClass('is-pending');
+  });
+
   it('removes a verification token from the URL before completing the request', async () => {
     const confirm = vi.spyOn(accountApi, 'confirmEmail').mockResolvedValue(undefined);
     render(
@@ -146,12 +170,12 @@ describe('account flows', () => {
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/reset-password'));
     expect(screen.getByTestId('location')).not.toHaveTextContent('token=');
     const passwords = container.querySelectorAll('input[type="password"]');
-    fireEvent.change(passwords[0], { target: { value: 'new-secure-password' } });
-    fireEvent.change(passwords[1], { target: { value: 'new-secure-password' } });
+    fireEvent.change(passwords[0], { target: { value: 'New-secure1!' } });
+    fireEvent.change(passwords[1], { target: { value: 'New-secure1!' } });
     fireEvent.submit(container.querySelector('form')!);
 
     await waitFor(() => expect(reset).toHaveBeenCalledWith(
-      'secret-reset-token', 'new-secure-password',
+      'secret-reset-token', 'New-secure1!',
     ));
     expect(await screen.findByText(t('account.reset.success'))).toBeInTheDocument();
   });
@@ -307,8 +331,8 @@ describe('account flows', () => {
     expect(screen.getByText(t('account.password.tooLong'))).toBeInTheDocument();
     expect(register).not.toHaveBeenCalled();
 
-    fireEvent.change(passwords[0], { target: { value: 'x'.repeat(13) } });
-    fireEvent.change(passwords[1], { target: { value: 'x'.repeat(13) } });
+    fireEvent.change(passwords[0], { target: { value: 'x'.repeat(7) } });
+    fireEvent.change(passwords[1], { target: { value: 'x'.repeat(7) } });
     fireEvent.submit(container.querySelector('form')!);
     expect(screen.getByText(t('account.password.tooShort'))).toBeInTheDocument();
     expect(register).not.toHaveBeenCalled();
@@ -316,19 +340,19 @@ describe('account flows', () => {
     fireEvent.change(passwords[0], { target: { value: 'password123456' } });
     fireEvent.change(passwords[1], { target: { value: 'password123456' } });
     fireEvent.submit(container.querySelector('form')!);
-    expect(screen.getByText(t('account.password.tooCommon'))).toBeInTheDocument();
+    expect(screen.getByText(t('account.password.missingUppercase'))).toBeInTheDocument();
     expect(register).not.toHaveBeenCalled();
 
     fireEvent.change(email, { target: { value: `${'a'.repeat(245)}@example.com` } });
-    fireEvent.change(passwords[0], { target: { value: 'secure-password' } });
-    fireEvent.change(passwords[1], { target: { value: 'secure-password' } });
+    fireEvent.change(passwords[0], { target: { value: 'Secure-pass1!' } });
+    fireEvent.change(passwords[1], { target: { value: 'Secure-pass1!' } });
     fireEvent.submit(container.querySelector('form')!);
     expect(screen.getByText(t('account.email.tooLong'))).toBeInTheDocument();
     expect(register).not.toHaveBeenCalled();
 
     fireEvent.change(email, { target: { value: 'person@example.com' } });
-    fireEvent.change(passwords[0], { target: { value: 'secure-password' } });
-    fireEvent.change(passwords[1], { target: { value: 'secure-password' } });
+    fireEvent.change(passwords[0], { target: { value: 'Secure-pass1!' } });
+    fireEvent.change(passwords[1], { target: { value: 'Secure-pass1!' } });
     fireEvent.submit(container.querySelector('form')!);
     expect(await screen.findByText('El correo ya está en uso.')).toBeInTheDocument();
     fireEvent.submit(container.querySelector('form')!);
@@ -399,8 +423,8 @@ describe('account flows', () => {
     fireEvent.submit(container.querySelector('form')!);
     expect(screen.getByText(t('account.password.tooLong'))).toBeInTheDocument();
 
-    fireEvent.change(passwords[0], { target: { value: 'secure-password' } });
-    fireEvent.change(passwords[1], { target: { value: 'secure-password' } });
+    fireEvent.change(passwords[0], { target: { value: 'Secure-pass1!' } });
+    fireEvent.change(passwords[1], { target: { value: 'Secure-pass1!' } });
     fireEvent.submit(container.querySelector('form')!);
     expect(await screen.findByText('El enlace de recuperación ha caducado.')).toBeInTheDocument();
   });

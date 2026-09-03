@@ -1,5 +1,6 @@
 package es.ubu.batchdownloader.identity.api;
 
+import es.ubu.batchdownloader.common.ForbiddenException;
 import es.ubu.batchdownloader.identity.application.IdentityService;
 import es.ubu.batchdownloader.identity.application.IdentityView;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountAuthenticator;
@@ -68,7 +69,16 @@ public class IdentityController {
             HttpServletRequest servletRequest,
             HttpServletResponse servletResponse) {
         rateLimiter.login(clientIp(servletRequest), request.email());
-        Authentication authentication = authenticator.authenticateUser(request.email(), request.password());
+        Authentication authentication;
+        try {
+            authentication = authenticator.authenticateUser(request.email(), request.password());
+        } catch (ForbiddenException exception) {
+            if ("email_not_verified".equals(exception.code())
+                    && rateLimiter.tryVerification(clientIp(servletRequest), request.email())) {
+                identities.resendEmailVerification(request.email());
+            }
+            throw exception;
+        }
         saveAuthentication(authentication, servletRequest, servletResponse);
         return identities.findById(currentAccount.require(authentication).id());
     }
