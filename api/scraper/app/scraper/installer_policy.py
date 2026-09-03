@@ -24,10 +24,12 @@ from app.scraper.candidates import (
     infer_operating_system,
     is_download_candidate,
     operating_system_for_extension,
+    product_tokens,
     registered_domain,
     score_candidate,
 )
 from app.scraper.github import parse_github_repo
+from app.scraper.text import normalize_text
 from app.scraper.validator import (
     ValidationConfidence,
     ValidationResult,
@@ -58,6 +60,32 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
     """Convierte las descargas conservadas de Winstall en candidatos validables."""
     candidates: list[InstallerCandidate] = []
     winstall_referer = payload.get("winstall_url")
+
+    # El detalle de la API contiene la asociación autoritativa URL-versión. Se
+    # materializa primero para que los enlaces duplicados extraídos de la página
+    # no sustituyan ese contexto por la cadena genérica ``winstall_api``.
+    declared: dict[str, tuple[str | None, str | None]] = {}
+    for version in app.versions:
+        for url in version.installers:
+            current = declared.get(url)
+            if current is None or version_label_is_preferred(
+                current[0],
+                version.version,
+                getattr(app, "latest_version", None),
+            ):
+                declared[url] = (version.version, version.installer_type)
+    for url, (version, installer_type) in declared.items():
+        candidates.append(
+            InstallerCandidate(
+                url=url,
+                source="winstall_api",
+                label=f"{app.name} {installer_type or ''}".strip(),
+                context=version,
+                asset_kind="winstall_download",
+                referer=winstall_referer,
+            )
+        )
+
     for item in payload.get("winstall_downloads") or []:
         if isinstance(item, dict) and item.get("url"):
             candidates.append(
@@ -81,19 +109,24 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
                     referer=winstall_referer,
                 )
             )
-    for version in app.versions:
-        for url in version.installers:
-            candidates.append(
-                InstallerCandidate(
-                    url=url,
-                    source="winstall_api",
-                    label=f"{app.name} {version.installer_type or ''}".strip(),
-                    context=version.version,
-                    asset_kind="winstall_download",
-                    referer=winstall_referer,
-                )
-            )
     return dedupe_candidates(candidates)
+
+
+def version_label_is_preferred(
+    current: str | None,
+    candidate: str | None,
+    latest: str | None,
+) -> bool:
+    """Elige el contexto más reciente sin depender del orden del proveedor."""
+    if versions_equal(candidate, latest):
+        return not versions_equal(current, latest)
+    if versions_equal(current, latest):
+        return False
+    current_version = parse_version(current)
+    candidate_version = parse_version(candidate)
+    if current_version is not None and candidate_version is not None:
+        return candidate_version > current_version
+    return current is None and candidate is not None
 
 
 def known_official_candidates(app: WinstallApp) -> list[InstallerCandidate]:
@@ -365,12 +398,24 @@ def validated_installer_version(
         url=result.final_url or candidate.url,
         source=candidate.source,
         label=result.filename or candidate.label,
-        context=candidate.context,
+    )
+    original_candidate = InstallerCandidate(
+        url=candidate.url,
+        source=candidate.source,
+        label=candidate.label,
     )
     return (
         extract_version(final_candidate)
-        or extract_version(candidate)
-        or (candidate.context if candidate.source == "winstall_api" and candidate.context else None)
+        or extract_version(original_candidate)
+        or (
+            candidate.context
+            if (
+                candidate.asset_kind == "winstall_download"
+                or candidate.source.startswith("winstall_")
+            )
+            and parse_version(candidate.context) is not None
+            else None
+        )
     )
 
 
@@ -395,6 +440,139 @@ def validated_installers_cover_latest_version(
     return False
 
 
+def versions_equal(first: str | None, second: str | None) -> bool:
+    """Compara etiquetas de versión conservando un fallback textual estricto."""
+    if not first or not second:
+        return False
+    first_version = parse_version(first)
+    second_version = parse_version(second)
+    if first_version is not None and second_version is not None:
+        return first_version == second_version
+    return normalized_version_label(first) == normalized_version_label(second)
+
+
+def installer_app_compatibility_reason(
+    app: WinstallApp,
+    installer: ValidInstaller,
+) -> str | None:
+    """Descarta binarios válidos que pertenecen a otro producto o rama.
+
+    La validación HTTP prueba que existe un binario, no que sea el binario de la
+    aplicación. Se confía en la relación URL-versión declarada por Winstall y,
+    para candidatos descubiertos en la web oficial, se exige concordancia de
+    versión e identidad antes de publicarlos.
+    """
+    declared_urls = {
+        normalized_artifact_identity(url)
+        for version in app.versions
+        for url in version.installers
+        if url
+    }
+    observed_urls = {
+        normalized_artifact_identity(url)
+        for url in (
+            installer.candidate.url,
+            installer.result.final_url,
+        )
+        if url
+    }
+    if declared_urls & observed_urls:
+        return None
+
+    declared_versions = [
+        version.version for version in app.versions if version.version
+    ]
+    if app.latest_version:
+        declared_versions.append(app.latest_version)
+    if (
+        installer.candidate.asset_kind == "winstall_download"
+        and any(
+            versions_equal(installer.candidate.context, version)
+            for version in declared_versions
+        )
+    ):
+        return None
+
+    if installer.version and declared_versions and not any(
+        versions_equal(installer.version, version) for version in declared_versions
+    ):
+        return "version_not_declared_for_app"
+
+    identity_tokens = app_identity_tokens(app)
+    if not identity_tokens:
+        return None
+    identity_text = normalize_text(
+        " ".join(
+            value
+            for value in (
+                installer.candidate.url,
+                installer.candidate.label,
+                installer.result.final_url,
+                installer.result.filename,
+            )
+            if value
+        )
+    ).replace(" ", "")
+    if any(token.replace(" ", "") in identity_text for token in identity_tokens):
+        return None
+    if installer.candidate.asset_kind == "winstall_download" and not installer.version:
+        # Los endpoints opacos de la API pueden no revelar nombre ni versión; la
+        # asociación explícita del proveedor sigue siendo evidencia de identidad.
+        return None
+    return "product_identity_mismatch"
+
+
+def app_identity_tokens(app: WinstallApp) -> tuple[str, ...]:
+    """Extrae nombres de producto fuertes, excluyendo editor y calificadores."""
+    package_product = app.package_id.rsplit(".", 1)[-1]
+    publisher_tokens = set(product_tokens(app.publisher or ""))
+    qualifiers = {
+        "business",
+        "community",
+        "edition",
+        "enterprise",
+        "free",
+        "home",
+        "premium",
+        "professional",
+        "pro",
+        "standard",
+        "ultimate",
+        "x64",
+        "x86",
+        "win32",
+        "win64",
+        "arm64",
+        "aarch64",
+    }
+    tokens = product_tokens(f"{app.name} {package_product}")
+    return tuple(
+        token
+        for token in tokens
+        if token not in publisher_tokens
+        and token not in qualifiers
+        and not token.isdigit()
+    )
+
+
+def normalized_artifact_identity(url: str) -> str:
+    """Normaliza una URL estable permitiendo que HTTP se actualice a HTTPS."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return url
+    return urlunparse(
+        (
+            "",
+            (parsed.hostname or "").lower(),
+            parsed.path.rstrip("/"),
+            "",
+            parsed.query,
+            "",
+        )
+    )
+
+
 def normalized_version_label(value: str) -> str:
     """Normaliza prefijos decorativos sin confundir versiones distintas."""
     normalized = value.strip().casefold()
@@ -407,6 +585,7 @@ def normalized_version_label(value: str) -> str:
 
 def rank_installers(
     installers: list[ValidInstaller],
+    latest_version: str | None = None,
 ) -> list[tuple[ValidInstaller, int, bool]]:
     """Ordena versiones dentro de cada combinación de sistema y arquitectura."""
     grouped: dict[tuple[str, str], list[ValidInstaller]] = {}
@@ -418,7 +597,10 @@ def rank_installers(
 
     ranked: list[tuple[ValidInstaller, int, bool]] = []
     for group in grouped.values():
-        group.sort(key=installer_sort_key, reverse=True)
+        group.sort(
+            key=lambda installer: installer_sort_key(installer, latest_version),
+            reverse=True,
+        )
         for index, installer in enumerate(group):
             ranked.append((installer, index, index == 0))
     return ranked
@@ -474,10 +656,14 @@ def is_windows_winstall_archive(
     )
 
 
-def installer_sort_key(installer: ValidInstaller) -> tuple[int, Any, int, int]:
+def installer_sort_key(
+    installer: ValidInstaller,
+    latest_version: str | None = None,
+) -> tuple[int, int, Any, int, int]:
     """Construye la clave estable para ordenar versiones y resolución."""
     version = parse_version(installer.version)
     return (
+        1 if versions_equal(installer.version, latest_version) else 0,
         1 if version is not None else 0,
         version or Version("0"),
         1 if installer.status == ResolutionStatus.DIRECT else 0,
@@ -527,6 +713,8 @@ def catalog_url_for_installer(installer: ValidInstaller) -> str:
         and is_sourceforge_download_url(candidate.referer)
     ):
         return candidate.referer
+    if is_sourceforge_download_url(candidate.url):
+        return candidate.url
     return installer.result.final_url or candidate.url
 
 

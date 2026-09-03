@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.validator import (
     BROWSER_COMPATIBLE_USER_AGENT,
+    SOURCEFORGE_USER_AGENT,
     DownloadValidator,
     ValidationConfidence,
     domain_has_public_dns,
@@ -1061,6 +1062,43 @@ def test_sourceforge_download_hosts_use_the_provider_specific_flow() -> None:
         "https://netix.dl.sourceforge.net/project/app/App.exe"
     )
     assert not is_sourceforge_download_url("https://sourceforge.example/App.exe")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_sourceforge_partial_download_uses_non_browser_user_agent(monkeypatch) -> None:
+    """Cloudflare bloquea el UA simulado, pero admite el consumidor identificado."""
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.sourceforge.net/project/app/AppSetup.exe"
+    observed_user_agents: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        observed_user_agents.append(request.headers["user-agent"])
+        return httpx.Response(
+            206,
+            headers={
+                "content-type": "application/octet-stream",
+                "content-range": "bytes 0-1023/4096",
+            },
+            content=b"MZ" + bytes(32),
+        )
+
+    respx.get(url).mock(side_effect=respond)
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_api",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.confidence == ValidationConfidence.VALIDATED
+    assert observed_user_agents == [SOURCEFORGE_USER_AGENT]
 
 
 @pytest.mark.asyncio

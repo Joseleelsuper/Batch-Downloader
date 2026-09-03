@@ -671,7 +671,10 @@ class CatalogRepository:
                 initial_url=initial_url,
                 resolver_type="generic_http",
                 resolver_config=json_safe({"winstall_id": app.package_id}),
-                resolution_status=ResolutionStatus.MISSING.value,
+                # La mera creación de una fila no demuestra que el instalador no
+                # exista. Solo una verificación de ausencia activa puede promoverla
+                # posteriormente a ``missing``.
+                resolution_status=ResolutionStatus.REQUIRES_MANUAL_REVIEW.value,
                 validation_status=ValidationStatus.UNCHECKED.value,
             )
             self.session.add(source)

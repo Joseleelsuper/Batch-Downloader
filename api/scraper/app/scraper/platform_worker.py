@@ -12,6 +12,7 @@ import httpx
 from sqlalchemy.exc import (
     OperationalError,
 )
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
@@ -52,6 +53,7 @@ from app.scraper.installer_policy import (
     fallback_candidates,
     github_collection_timeout_seconds,
     infer_validated_operating_system,
+    installer_app_compatibility_reason,
     is_actionable_installer_candidate,
     is_catalog_publishable_installer,
     is_download_landing_page,
@@ -288,18 +290,50 @@ class PlatformScraperWorker:
                     await runtime.increment("apps_skipped")
                     await runtime.increment("apps_skipped_unchanged")
             except TimeoutError:
-                await finish_item(
-                    self.settings,
-                    item,
-                    "fail",
-                    f"Timeout after {self.settings.scrape_app_timeout_seconds:.0f}s",
-                )
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
+                reason = f"timeout_after_{self.settings.scrape_app_timeout_seconds:.0f}s"
+                if item.attempts < 4:
+                    await finish_item(
+                        self.settings,
+                        item,
+                        "requeue",
+                        reason,
+                        delay_seconds=min(30, 2 ** item.attempts),
+                    )
+                else:
+                    await finish_item(self.settings, item, "fail", reason)
+                    await runtime.increment("apps_failed")
+                    await runtime.increment("apps_transient_failed")
                 logger.warning(
                     "scrape_app_timeout",
                     winstall_id=item.package_id,
                     timeout_seconds=self.settings.scrape_app_timeout_seconds,
+                    attempts=item.attempts,
+                    requeued=item.attempts < 4,
+                )
+            except SQLAlchemyTimeoutError as exc:
+                if item.attempts < 4:
+                    await finish_item(
+                        self.settings,
+                        item,
+                        "requeue",
+                        "database_pool_retry",
+                        delay_seconds=min(30, 2 ** item.attempts),
+                    )
+                    logger.warning(
+                        "scraper_app_requeued",
+                        winstall_id=item.package_id,
+                        reason="database_pool_retry",
+                        attempts=item.attempts,
+                    )
+                    continue
+                await finish_item(self.settings, item, "fail", "database_pool_timeout")
+                await runtime.increment("apps_failed")
+                await runtime.increment("apps_transient_failed")
+                logger.warning(
+                    "scraper_app_failed",
+                    winstall_id=item.package_id,
+                    error=exc.__class__.__name__,
+                    detail=exception_detail(exc),
                 )
             except OperationalError as exc:
                 if is_transient_mysql_lock_error(exc) and item.attempts < 4:
@@ -444,7 +478,11 @@ class PlatformScraperWorker:
             "direct": direct_diagnostics.as_metadata(),
             "fallback": fallback_diagnostics.as_metadata(),
         }
-        if not any(is_catalog_publishable_installer(installer) for installer in valid_installers):
+        if not any(
+            is_catalog_publishable_installer(installer)
+            and installer_app_compatibility_reason(app, installer) is None
+            for installer in valid_installers
+        ):
             elapsed = asyncio.get_running_loop().time() - item_started_at
             remaining = self.settings.scrape_app_timeout_seconds - elapsed - 5.0
             if remaining > 5.0:
@@ -475,15 +513,25 @@ class PlatformScraperWorker:
                     validation_diagnostics["fallback_refresh"] = refreshed_diagnostics.as_metadata()
 
         observed_installers = valid_installers
-        valid_installers = [
+        publishable_installers = [
             installer
             for installer in observed_installers
             if is_catalog_publishable_installer(installer)
         ]
+        compatibility_rejections: dict[str, int] = {}
+        valid_installers = []
+        for installer in publishable_installers:
+            reason = installer_app_compatibility_reason(app, installer)
+            if reason is None:
+                valid_installers.append(installer)
+            else:
+                compatibility_rejections[reason] = compatibility_rejections.get(reason, 0) + 1
         validation_diagnostics["publication"] = {
             "observed": len(observed_installers),
             "publishable": len(valid_installers),
-            "attested_or_non_public": len(observed_installers) - len(valid_installers),
+            "attested_or_non_public": len(observed_installers)
+            - len(publishable_installers),
+            "incompatible": compatibility_rejections,
         }
 
         await set_current(
@@ -1202,13 +1250,15 @@ class PlatformScraperWorker:
                         status=status,
                         operating_system=operating_system,
                         architecture=infer_architecture(candidate),
-                        version=validated_installer_version(candidate, result)
-                        or app.latest_version,
+                        version=validated_installer_version(candidate, result),
                     )
                 )
                 diagnostics.valid += 1
 
-            if pending or len(valid) >= max_valid:
+            publishable_count = sum(
+                1 for installer in valid if is_catalog_publishable_installer(installer)
+            )
+            if pending or publishable_count >= max_valid:
                 break
 
         unprocessed = max(0, len(candidates_to_validate) - processed)
@@ -1216,6 +1266,7 @@ class PlatformScraperWorker:
             diagnostics.skipped["validation_budget_exhausted"] = (
                 diagnostics.skipped.get("validation_budget_exhausted", 0) + unprocessed
             )
+        valid.sort(key=is_catalog_publishable_installer, reverse=True)
         return valid[:max_valid], diagnostics
 
     async def _save_valid_installers(
@@ -1237,7 +1288,7 @@ class PlatformScraperWorker:
             official_url (str | None): Dirección de `official` que debe procesarse.
             installers (list[ValidInstaller]): Valor de `installers` utilizado por la operación.
         """
-        ranked = rank_installers(installers)
+        ranked = rank_installers(installers, app.latest_version)
         if validated_installers_cover_latest_version(app.latest_version, installers):
             await catalog.promote_winstall_latest_version(software_app_id)
         expired_sources: set[uuid.UUID] = set()

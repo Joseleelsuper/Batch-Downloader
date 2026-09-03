@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 import app.scraper.catalog_fetcher as catalog_fetcher
+import app.scraper.filter_worker as filter_worker_module
 import app.scraper.pipeline_runtime as pipeline_runtime
 import app.scraper.platform_worker as platform_worker
 import app.scraper.searcher_worker as searcher_worker
@@ -26,6 +27,7 @@ from app.scraper.installer_policy import (
     dedupe_valid_installers,
     fallback_candidates,
     infer_validated_operating_system,
+    installer_app_compatibility_reason,
     is_actionable_installer_candidate,
     is_catalog_publishable_installer,
     is_windows_winstall_archive,
@@ -210,6 +212,70 @@ async def test_incremental_scope_selects_new_unresolved_and_changed_apps(monkeyp
     assert skipped == 1
 
 
+@pytest.mark.asyncio
+async def test_selected_scope_resolves_local_ids_without_remote_catalog(monkeypatch) -> None:
+    """Una reparación dirigida no depende de estabilizar las 14.000 apps remotas."""
+    app_id = uuid4()
+    local_app = SimpleNamespace(
+        id=app_id,
+        winstall_id="Vendor.Selected",
+        name="Selected App",
+        metadata_json={
+            "_id": "Vendor.Selected",
+            "name": "Selected App",
+            "latestVersion": "1.0.0",
+            "versions": [
+                {
+                    "version": "1.0.0",
+                    "installers": ["https://cdn.example.test/Selected-1.0.0.exe"],
+                }
+            ],
+        },
+    )
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeCatalog:
+        def __init__(self, *_args):
+            pass
+
+        async def snapshot_refresh_targets(self, *, app_ids):
+            assert app_ids == [app_id]
+            return [local_app]
+
+    monkeypatch.setattr(searcher_worker, "CatalogRepository", FakeCatalog)
+    monkeypatch.setattr(
+        searcher_worker,
+        "async_session_local",
+        lambda: lambda: FakeSession(),
+    )
+    settings = Settings()
+    runtime = PipelineRuntime(
+        settings=settings,
+        run_id=uuid4(),
+        run_started_at=utc_now(),
+        scope=ScrapeScope.SELECTED,
+        selected_app_ids=(app_id,),
+    )
+
+    targets, app_ids, winstall_ids, missing, skipped = await SearcherWorker(
+        settings
+    )._select_local_targets(runtime)
+
+    assert [target.package_id for target in targets] == ["Vendor.Selected"]
+    assert targets[0].installer_data_complete is True
+    assert targets[0].installer_urls == ["https://cdn.example.test/Selected-1.0.0.exe"]
+    assert app_ids == [str(app_id)]
+    assert winstall_ids == ["Vendor.Selected"]
+    assert missing == []
+    assert skipped == 0
+
+
 def test_fallback_candidates_include_winstall_api_and_page_links() -> None:
     """Comprueba el escenario `fallback_candidates_include_winstall_api_and_page_links`."""
     app = SimpleNamespace(
@@ -243,6 +309,7 @@ def test_fallback_candidates_include_winstall_api_and_page_links() -> None:
         "https://cdn.example.com/App-1.2.3.dmg",
     ]
     assert candidates[0].asset_kind == "winstall_download"
+    assert candidates[0].context == "1.2.3"
 
 
 def test_rank_installers_marks_latest_per_platform_architecture() -> None:
@@ -284,6 +351,125 @@ def test_rank_installers_prefers_direct_over_fallback_for_same_version() -> None
 
     assert ranked[0] == (direct, 0, True)
     assert ranked[1] == (fallback, 1, False)
+
+
+def test_rank_installers_prefers_expected_version_over_unrelated_newer_version() -> None:
+    """La versión de otra rama no puede convertirse en primaria por ser mayor."""
+    expected = valid(
+        "https://python.org/python-3.11.9-amd64.exe",
+        "windows",
+        "x86_64",
+        "3.11.9",
+        80,
+    )
+    unrelated = valid(
+        "https://python.org/python-3.14.2-amd64.exe",
+        "windows",
+        "x86_64",
+        "3.14.2",
+        100,
+    )
+
+    ranked = rank_installers([unrelated, expected], "3.11.9")
+
+    assert ranked[0] == (expected, 0, True)
+    assert ranked[1] == (unrelated, 1, False)
+
+
+def test_installer_compatibility_rejects_other_product_and_version_branch() -> None:
+    """Un binario real no basta si pertenece a otro producto o rama del proveedor."""
+    authentic = parse_winstall_app(
+        {
+            "_id": "Altova.Authentic.2026.Enterprise",
+            "name": "Altova Authentic 2026 Enterprise Edition",
+            "publisher": "Altova",
+            "latestVersion": "2026.02.00.01",
+            "versions": [
+                {
+                    "version": "2026.02.00.01",
+                    "installers": [
+                        "https://cdn.sw.altova.com/v2026r2/en/AuthenticEnt2026rel2_x64.exe"
+                    ],
+                }
+            ],
+        }
+    )
+    mission_kit = valid(
+        "https://cdn.sw.altova.com/v2026r2/en/MissionKitEnt2026rel2_x64.exe",
+        "windows",
+        "x86_64",
+        "2026.02.00.01",
+        120,
+    )
+    python = parse_winstall_app(
+        {
+            "_id": "Python.Python.3.11",
+            "name": "Python 3.11",
+            "publisher": "Python Software Foundation",
+            "latestVersion": "3.11.9",
+            "versions": [
+                {
+                    "version": "3.11.9",
+                    "installers": [
+                        "https://python.org/python-3.11.9-amd64.exe"
+                    ],
+                }
+            ],
+        }
+    )
+    python_314 = valid(
+        "https://python.org/python-3.14.2-amd64.exe",
+        "windows",
+        "x86_64",
+        "3.14.2",
+        120,
+    )
+
+    assert (
+        installer_app_compatibility_reason(authentic, mission_kit)
+        == "product_identity_mismatch"
+    )
+    assert (
+        installer_app_compatibility_reason(python, python_314)
+        == "version_not_declared_for_app"
+    )
+
+
+def test_installer_compatibility_accepts_declared_opaque_winstall_endpoint() -> None:
+    """La relación autoritativa permite endpoints cuyo nombre no revela el producto."""
+    url = "https://aifast.komect.com/portal/pc/downloadPcClient/1852100238471585872"
+    app = parse_winstall_app(
+        {
+            "_id": "ChinaMobile.CMCCProxy",
+            "name": "CMCC Proxy",
+            "publisher": "China Mobile",
+            "latestVersion": "5.18.0",
+            "versions": [{"version": "5.18.0", "installers": [url]}],
+        }
+    )
+    candidate = InstallerCandidate(
+        url=url,
+        source="winstall_api",
+        score=35,
+        asset_kind="winstall_download",
+        context="5.18.0",
+    )
+    installer = ValidInstaller(
+        candidate=candidate,
+        result=ValidationResult(
+            ok=True,
+            url=url,
+            final_url=url,
+            filename="downloadPcClient.exe",
+            extension=".exe",
+        ),
+        status=ResolutionStatus.FALLBACK,
+        operating_system="windows",
+        architecture="x86_64",
+        version="5.18.0",
+    )
+
+    assert installer_app_compatibility_reason(app, installer) is None
 
 
 def test_dedupes_redirect_variants_that_only_change_query_parameters() -> None:
@@ -341,6 +527,25 @@ def test_winstall_version_context_identifies_an_unversioned_binary() -> None:
     )
 
     assert validated_installer_version(candidate, result) == "2.4.0"
+
+
+def test_validated_filename_version_wins_over_provider_context() -> None:
+    """Una etiqueta del proveedor no puede ocultar la versión real del fichero."""
+    candidate = InstallerCandidate(
+        url="https://cdn.example.com/download",
+        source="winstall_api",
+        context="2.5.0",
+        asset_kind="winstall_download",
+    )
+    result = ValidationResult(
+        ok=True,
+        url=candidate.url,
+        final_url=candidate.url,
+        filename="Flowy-AIPC-0.2.10-setup.exe",
+        extension=".exe",
+    )
+
+    assert validated_installer_version(candidate, result) == "0.2.10"
 
 
 def test_public_version_advances_only_when_the_new_artifact_was_validated() -> None:
@@ -1242,6 +1447,169 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
     await PlatformScraperWorker(settings).run(runtime)
 
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_filter_worker_requeues_database_pool_timeout(monkeypatch) -> None:
+    """La contención al filtrar no convierte una app existente en fallo terminal."""
+    item = SimpleNamespace(
+        id=uuid4(),
+        package_id="Vendor.App",
+        app_name="App",
+        payload_json={"package_id": "Vendor.App"},
+        attempts=1,
+    )
+    claims = [item, None]
+    finishes: list[tuple[str, str | None]] = []
+
+    async def fake_claim(*_args, **_kwargs):
+        return claims.pop(0)
+
+    async def fake_finish(_settings, _item, action, message, **_kwargs):
+        finishes.append((action, message))
+
+    async def no_active_work(*_args, **_kwargs) -> bool:
+        return False
+
+    async def no_op(*_args, **_kwargs) -> None:
+        return None
+
+    class PoolTimeoutSession:
+        async def __aenter__(self):
+            raise SQLAlchemyTimeoutError()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(filter_worker_module, "claim_item", fake_claim)
+    monkeypatch.setattr(filter_worker_module, "finish_item", fake_finish)
+    monkeypatch.setattr(filter_worker_module, "queue_has_active_work", no_active_work)
+    monkeypatch.setattr(filter_worker_module, "set_current", no_op)
+    monkeypatch.setattr(
+        filter_worker_module,
+        "parse_payload_app",
+        lambda *_args: SimpleNamespace(package_id="Vendor.App", name="App"),
+    )
+    monkeypatch.setattr(
+        filter_worker_module,
+        "async_session_local",
+        lambda: lambda: PoolTimeoutSession(),
+    )
+    settings = Settings()
+    runtime = PipelineRuntime(settings=settings, run_id=uuid4(), run_started_at=utc_now())
+    runtime.searcher_done.set()
+
+    await FilterWorker(settings).run(runtime)
+
+    assert finishes == [("requeue", "database_pool_retry")]
+    assert runtime.counters.apps_failed == 0
+
+
+@pytest.mark.asyncio
+async def test_platform_worker_requeues_app_timeout(monkeypatch) -> None:
+    """Un proveedor lento recibe intentos acotados antes de declararse fallido."""
+    item = SimpleNamespace(
+        id=uuid4(),
+        package_id="Vendor.Slow",
+        app_name="Slow",
+        payload_json={},
+        attempts=1,
+    )
+    claims = [item, None]
+    finishes: list[tuple[str, str | None]] = []
+
+    async def fake_claim(*_args, **_kwargs):
+        return claims.pop(0)
+
+    async def fake_finish(_settings, _item, action, message, **_kwargs):
+        finishes.append((action, message))
+
+    async def no_active_work(*_args, **_kwargs) -> bool:
+        return False
+
+    worker = PlatformScraperWorker(Settings())
+
+    async def time_out(*_args, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(platform_worker, "claim_item", fake_claim)
+    monkeypatch.setattr(platform_worker, "finish_item", fake_finish)
+    monkeypatch.setattr(platform_worker, "queue_has_active_work", no_active_work)
+    monkeypatch.setattr(worker, "_scrape_item", time_out)
+    runtime = PipelineRuntime(
+        settings=worker.settings,
+        run_id=uuid4(),
+        run_started_at=utc_now(),
+    )
+    runtime.searcher_done.set()
+    runtime.filter_done.set()
+
+    await worker.run(runtime)
+
+    assert finishes == [("requeue", "timeout_after_90s")]
+    assert runtime.counters.apps_failed == 0
+
+
+@pytest.mark.asyncio
+async def test_attested_candidates_do_not_exhaust_publishable_budget() -> None:
+    """Los retos de borde no deben impedir probar el siguiente binario real."""
+    app = parse_winstall_app(
+        {
+            "_id": "Vendor.App",
+            "name": "Vendor App",
+            "author": "Vendor",
+            "latestVersion": "1.0.0",
+            "versions": [],
+        }
+    )
+    challenged = [
+        InstallerCandidate(
+            url=f"https://edge.example.test/AppSetup-x64-{index}.exe",
+            source="winstall_page",
+            asset_kind="winstall_download",
+        )
+        for index in range(4)
+    ]
+    binary = InstallerCandidate(
+        url="https://cdn.example.test/App.exe",
+        source="winstall_page",
+        asset_kind="winstall_download",
+    )
+    worker = PlatformScraperWorker(Settings())
+
+    class MixedValidator:
+        async def validate(self, candidate: InstallerCandidate) -> ValidationResult:
+            confidence = (
+                ValidationConfidence.VALIDATED
+                if candidate.url == binary.url
+                else ValidationConfidence.ATTESTED
+            )
+            return ValidationResult(
+                ok=True,
+                url=candidate.url,
+                final_url=candidate.url,
+                filename=candidate.url.rsplit("/", 1)[-1],
+                extension=".exe",
+                confidence=confidence,
+                transport_security=(
+                    None
+                    if confidence == ValidationConfidence.VALIDATED
+                    else "https_winstall_edge_attested"
+                ),
+            )
+
+    worker.validator = MixedValidator()
+
+    installers, diagnostics = await worker._validate_candidate_group(
+        app,
+        [*challenged, binary],
+        ResolutionStatus.FALLBACK,
+        max_candidates=5,
+        max_valid=1,
+    )
+
+    assert [installer.candidate.url for installer in installers] == [binary.url]
+    assert diagnostics.attempted == 5
 
 
 def test_only_fully_validated_installers_are_publishable() -> None:

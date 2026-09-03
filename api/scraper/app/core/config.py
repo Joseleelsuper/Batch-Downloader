@@ -79,11 +79,11 @@ class Settings(BaseSettings):
     database_password: SecretStr = SecretStr("batch_downloader")
     """Campo declarado `database_password` de `Settings`.
     """
-    database_pool_max: int = Field(default=2, ge=1)
-    """Número máximo de conexiones persistentes del proceso."""
-    database_max_overflow: int = Field(default=0, ge=0)
-    """Conexiones adicionales permitidas sobre el pool; se mantiene en cero."""
-    database_pool_timeout_seconds: float = Field(default=2.0, gt=0)
+    database_pool_max: int = Field(default=8, ge=1)
+    """Conexiones persistentes para workers concurrentes y consultas de API."""
+    database_max_overflow: int = Field(default=4, ge=0)
+    """Margen corto para que una ráfaga del pipeline no bloquee el catálogo."""
+    database_pool_timeout_seconds: float = Field(default=5.0, gt=0)
     """Espera máxima para adquirir una conexión."""
     database_pool_recycle_seconds: int = Field(default=1500, ge=60)
     """Antigüedad máxima de una conexión antes de reciclarla."""

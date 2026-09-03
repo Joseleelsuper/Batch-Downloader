@@ -331,6 +331,13 @@ def score_candidate(
     )
     if asset_kind == "source_archive":
         score -= 150
+    # Una descarga declarada expresamente por Winstall merece llegar a la
+    # validación aunque use un endpoint opaco o el nombre contenga una etiqueta
+    # como ``beta``. Este bono no publica nada por sí solo: el validador todavía
+    # debe observar un artefacto binario seguro y la política del catálogo debe
+    # aceptar su identidad y versión.
+    if candidate.asset_kind == "winstall_download":
+        score += 35
     if extension in (
         WINDOWS_INSTALLER_EXTENSIONS
         + MACOS_INSTALLER_EXTENSIONS
@@ -380,6 +387,10 @@ def score_candidate(
         version=version,
     )
     score += len(match_tokens) * 12
+    if version and version_labels_match(extract_version(candidate), version):
+        # La versión actual debe llegar antes que el historial cuando el
+        # presupuesto de validación es acotado.
+        score += 80
     score += variant_score(text=text, app_name=app_name, package_id=package_id)
     return InstallerCandidate(
         url=candidate.url,
@@ -517,6 +528,30 @@ def product_tokens(value: str) -> list[str]:
         if len(token) >= 3 and token not in stopwords
     ]
     return list(dict.fromkeys(tokens))
+
+
+def version_labels_match(first: str | None, second: str | None) -> bool:
+    """Compara versiones numéricas ignorando ``v`` y ceros finales."""
+    if not first or not second:
+        return False
+
+    def parts(value: str) -> tuple[int, ...] | None:
+        normalized = value.strip().casefold().removeprefix("version").strip(" :-_")
+        if normalized.startswith("v"):
+            normalized = normalized[1:]
+        raw_parts = normalized.split(".")
+        if not raw_parts or not all(part.isdigit() for part in raw_parts):
+            return None
+        values = [int(part) for part in raw_parts]
+        while len(values) > 1 and values[-1] == 0:
+            values.pop()
+        return tuple(values)
+
+    first_parts = parts(first)
+    second_parts = parts(second)
+    if first_parts is not None and second_parts is not None:
+        return first_parts == second_parts
+    return first.strip().casefold() == second.strip().casefold()
 
 
 def variant_score(text: str, app_name: str | None, package_id: str | None) -> int:
@@ -760,7 +795,7 @@ def sourceforge_mirror_variant(candidate: InstallerCandidate) -> InstallerCandid
     host = (parsed.hostname or "").lower()
     if host in {"sourceforge.net", "www.sourceforge.net"}:
         match = re.fullmatch(
-            r"/projects?/([^/]+)/files/(.+)/download/?",
+            r"/projects?/([^/]+)/files/(.+?)(?:/download)?/?",
             parsed.path,
             flags=re.IGNORECASE,
         )

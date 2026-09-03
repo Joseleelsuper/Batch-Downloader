@@ -23,6 +23,7 @@ from app.repositories.pipeline import (
     PipelineRepository,
 )
 from app.repositories.runs import ScrapeRunRepository, worker_id
+from app.scraper.installer_policy import version_label_is_preferred
 from app.scraper.pipeline_runtime import (
     PipelineRuntime,
     async_session_local,
@@ -36,6 +37,7 @@ from app.scraper.winstall import (
     WinstallApp,
     WinstallClient,
     WinstallDetailIncompleteError,
+    parse_winstall_app,
     winstall_detail_fingerprint,
     winstall_summary_fingerprint,
 )
@@ -69,25 +71,45 @@ class SearcherWorker:
         """
         try:
             async with WinstallClient(self.settings) as winstall:
-                await set_current(
-                    self.settings,
-                    runtime.run_id,
-                    None,
-                    None,
-                    "searcher_stabilizing_winstall_catalog",
-                )
-                catalog_snapshot = await winstall.catalog_snapshot()
-                (
-                    targets,
-                    manifest_app_ids,
-                    manifest_winstall_ids,
-                    provider_missing,
-                    skipped_unchanged,
-                ) = await retry_database_pool_operation(
-                    self.settings,
-                    "searcher_select_scope",
-                    lambda: self._select_scope_targets(runtime, catalog_snapshot),
-                )
+                if runtime.scope == ScrapeScope.SELECTED:
+                    await set_current(
+                        self.settings,
+                        runtime.run_id,
+                        None,
+                        None,
+                        "searcher_loading_selected_apps",
+                    )
+                    (
+                        targets,
+                        manifest_app_ids,
+                        manifest_winstall_ids,
+                        provider_missing,
+                        skipped_unchanged,
+                    ) = await retry_database_pool_operation(
+                        self.settings,
+                        "searcher_select_scope",
+                        lambda: self._select_local_targets(runtime),
+                    )
+                else:
+                    await set_current(
+                        self.settings,
+                        runtime.run_id,
+                        None,
+                        None,
+                        "searcher_stabilizing_winstall_catalog",
+                    )
+                    catalog_snapshot = await winstall.catalog_snapshot()
+                    (
+                        targets,
+                        manifest_app_ids,
+                        manifest_winstall_ids,
+                        provider_missing,
+                        skipped_unchanged,
+                    ) = await retry_database_pool_operation(
+                        self.settings,
+                        "searcher_select_scope",
+                        lambda: self._select_scope_targets(runtime, catalog_snapshot),
+                    )
                 await self._save_manifest(
                     runtime,
                     manifest_app_ids,
@@ -119,19 +141,48 @@ class SearcherWorker:
                     try:
                         app = await winstall.get_app(lightweight_app.package_id)
                     except WinstallDetailIncompleteError:
-                        await self._record_provider_failure(
-                            runtime,
-                            lightweight_app.package_id,
-                            "detail_incomplete",
-                        )
-                        continue
+                        if lightweight_app.installer_data_complete:
+                            app = lightweight_app
+                            logger.warning(
+                                "winstall_cached_detail_used",
+                                winstall_id=lightweight_app.package_id,
+                                scope=runtime.scope.value,
+                                reason="detail_incomplete",
+                            )
+                        else:
+                            await self._record_provider_failure(
+                                runtime,
+                                lightweight_app.package_id,
+                                "detail_incomplete",
+                            )
+                            continue
                     except Exception as exc:
-                        await self._record_provider_failure(
-                            runtime,
-                            lightweight_app.package_id,
-                            exc.__class__.__name__,
-                        )
-                        continue
+                        if lightweight_app.installer_data_complete:
+                            app = lightweight_app
+                            logger.warning(
+                                "winstall_cached_detail_used",
+                                winstall_id=lightweight_app.package_id,
+                                scope=runtime.scope.value,
+                                reason=exc.__class__.__name__,
+                            )
+                        else:
+                            await self._record_provider_failure(
+                                runtime,
+                                lightweight_app.package_id,
+                                exc.__class__.__name__,
+                            )
+                            continue
+
+                    download_versions: dict[str, str | None] = {}
+                    for version in app.versions:
+                        for url in version.installers:
+                            current_version = download_versions.get(url)
+                            if url not in download_versions or version_label_is_preferred(
+                                current_version,
+                                version.version,
+                                app.latest_version,
+                            ):
+                                download_versions[url] = version.version
 
                     payload: dict[str, Any] = {
                         "package_id": app.package_id,
@@ -142,8 +193,12 @@ class SearcherWorker:
                         "source_code_url": None,
                         "winstall_download_urls": app.installer_urls,
                         "winstall_downloads": [
-                            {"url": url, "label": None, "context": "winstall_api"}
-                            for url in app.installer_urls
+                            {
+                                "url": url,
+                                "label": None,
+                                "context": version,
+                            }
+                            for url, version in download_versions.items()
                         ],
                         "provider_detail_complete": app.installer_data_complete,
                         "winstall_summary_fingerprint": winstall_summary_fingerprint(app),
@@ -163,6 +218,56 @@ class SearcherWorker:
                     await runtime.increment("apps_discovered")
         finally:
             runtime.searcher_done.set()
+
+    async def _select_local_targets(
+        self,
+        runtime: PipelineRuntime,
+    ) -> tuple[list[WinstallApp], list[str], list[str], list[str], int]:
+        """Resuelve un scope seleccionado sin descargar el catálogo remoto completo."""
+        async with async_session_local()() as session:
+            catalog = CatalogRepository(
+                session,
+                UrlProtector(self.settings.url_protection_secret),
+            )
+            local_targets = await catalog.snapshot_refresh_targets(
+                app_ids=list(runtime.selected_app_ids)
+            )
+        found = {app.id for app in local_targets}
+        if found != set(runtime.selected_app_ids):
+            raise ValueError("selected_scope_contains_unknown_app_id")
+        targets = [self._cached_winstall_app(app) for app in local_targets]
+        return (
+            targets,
+            [str(app.id) for app in local_targets],
+            [app.winstall_id for app in local_targets],
+            [],
+            0,
+        )
+
+    @staticmethod
+    def _cached_winstall_app(app: SoftwareApp) -> WinstallApp:
+        """Reconstruye el último detalle completo sin inventar campos ausentes."""
+        metadata = app.metadata_json if isinstance(app.metadata_json, dict) else {}
+        if metadata:
+            try:
+                cached = parse_winstall_app(metadata)
+            except (TypeError, ValueError):
+                cached = None
+            if cached is not None and cached.package_id == app.winstall_id:
+                return cached
+        return WinstallApp(
+            package_id=app.winstall_id,
+            name=app.name,
+            description=None,
+            publisher=None,
+            homepage=None,
+            icon=None,
+            icon_url=None,
+            latest_version=None,
+            tags=[],
+            versions=[],
+            raw={},
+        )
 
     async def _select_scope_targets(
         self,

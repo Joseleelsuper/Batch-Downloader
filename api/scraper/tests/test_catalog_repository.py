@@ -217,6 +217,32 @@ async def test_should_scrape_retries_review_apps_but_skips_resolved_apps() -> No
 
 
 @pytest.mark.asyncio
+async def test_new_winstall_source_starts_in_review_not_missing() -> None:
+    """Crear el registro no constituye evidencia de ausencia de instalador."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        repository = CatalogRepository(session, UrlProtector("test-secret"))
+        app = await repository.upsert_winstall_app(
+            parse_winstall_app(
+                {
+                    "_id": "Vendor.New",
+                    "name": "New App",
+                    "versions": [],
+                }
+            )
+        )
+        source = await repository.default_source_for_app(app.id)
+
+        assert source is not None
+        assert source.resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+        assert source.validation_status == ValidationStatus.UNCHECKED.value
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_winstall_refresh_updates_provider_fields_but_preserves_manual_values() -> None:
     """Un full refresca versiones/tags sin pisar un nombre marcado como manual."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")

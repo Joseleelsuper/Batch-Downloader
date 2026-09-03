@@ -229,7 +229,10 @@ class DownloadSource(Base, TimestampMixin):
     """Campo declarado `resolver_config` de `DownloadSource`.
     """
     resolution_status: Mapped[str] = mapped_column(
-        String(32), default=ResolutionStatus.MISSING.value, index=True, nullable=False
+        String(32),
+        default=ResolutionStatus.REQUIRES_MANUAL_REVIEW.value,
+        index=True,
+        nullable=False,
     )
     """Campo declarado `resolution_status` de `DownloadSource`.
     """

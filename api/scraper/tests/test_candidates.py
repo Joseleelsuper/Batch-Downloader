@@ -451,6 +451,75 @@ def test_sourceforge_manifest_placeholder_uses_public_router() -> None:
         "jdReplace-4.3-WindowsInstaller.exe"
     )
 
+    direct_file = sourceforge_mirror_variant(
+        InstallerCandidate(
+            url="https://sourceforge.net/projects/sevenzip/files/7-Zip/23.01/7zr.exe",
+            source="winstall_api",
+            asset_kind="winstall_download",
+        )
+    )
+    assert direct_file is not None
+    assert direct_file.url == (
+        "https://downloads.sourceforge.net/project/sevenzip/7-Zip/23.01/7zr.exe"
+    )
+
+
+def test_winstall_declared_beta_and_opaque_endpoint_reach_validation() -> None:
+    """La puntuación no descarta instaladores autoritativos antes de inspeccionarlos."""
+    beta = score_candidate(
+        InstallerCandidate(
+            url="https://dl.deep-vocal.com/editor/Setup_DeepVocal_beta_2.1.0.zip",
+            source="winstall_api",
+            asset_kind="winstall_download",
+        ),
+        app_name="DeepVocal",
+        package_id="Boxstar.DeepVocal",
+        publisher="Boxstar",
+        version="2.1.0",
+    )
+    opaque = score_candidate(
+        InstallerCandidate(
+            url="https://aifast.komect.com/portal/pc/downloadPcClient/1852100238471585872",
+            source="winstall_api",
+            asset_kind="winstall_download",
+        ),
+        app_name="CMCC Proxy",
+        package_id="ChinaMobile.CMCCProxy",
+        publisher="China Mobile",
+        version="5.18.0",
+    )
+
+    assert beta.score > 0
+    assert opaque.score > 0
+
+
+def test_current_declared_version_is_prioritized_before_history() -> None:
+    """El límite de candidatos no debe agotarse con versiones antiguas."""
+    current = score_candidate(
+        InstallerCandidate(
+            url="https://python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe",
+            source="winstall_api",
+            context="3.11.9",
+            asset_kind="winstall_download",
+        ),
+        app_name="Python 3.11",
+        package_id="Python.Python.3.11",
+        version="3.11.9",
+    )
+    historical = score_candidate(
+        InstallerCandidate(
+            url="https://python.org/ftp/python/3.11.0/python-3.11.0-amd64.exe",
+            source="winstall_api",
+            context="3.11.0",
+            asset_kind="winstall_download",
+        ),
+        app_name="Python 3.11",
+        package_id="Python.Python.3.11",
+        version="3.11.9",
+    )
+
+    assert current.score > historical.score
+
 
 def test_version_extraction_does_not_treat_ip_host_as_version() -> None:
     """Comprueba el escenario `version_extraction_does_not_treat_ip_host_as_version`.

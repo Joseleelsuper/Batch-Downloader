@@ -59,6 +59,8 @@ BROWSER_COMPATIBLE_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/139.0.0.0 Safari/537.36"
 )
+SOURCEFORGE_USER_AGENT = "BatchDownloaderScraper/0.1"
+"""Identificación no simulada que SourceForge admite para descargas parciales."""
 
 
 class ValidationConfidence(StrEnum):
@@ -653,7 +655,12 @@ def transport_security_for(url: str, candidate: InstallerCandidate) -> str | Non
     return None
 
 
-def metadata_headers(referer: str | None = None, *, partial: bool = False) -> dict[str, str]:
+def metadata_headers(
+    referer: str | None = None,
+    *,
+    partial: bool = False,
+    user_agent: str = BROWSER_COMPATIBLE_USER_AGENT,
+) -> dict[str, str]:
     """Ejecuta la operación `metadata_headers`.
 
     Args:
@@ -666,7 +673,7 @@ def metadata_headers(referer: str | None = None, *, partial: bool = False) -> di
     headers = {
         "Accept": "application/octet-stream,application/x-msdownload,application/x-msi,*/*",
         "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
-        "User-Agent": BROWSER_COMPATIBLE_USER_AGENT,
+        "User-Agent": user_agent,
     }
     if referer:
         headers["Referer"] = referer
@@ -731,7 +738,12 @@ async def request_sourceforge_metadata(
         if delay > 0:
             await asyncio.sleep(delay)
         try:
-            return await request_partial(client, url, referer=referer)
+            return await request_partial(
+                client,
+                url,
+                referer=referer,
+                user_agent=SOURCEFORGE_USER_AGENT,
+            )
         finally:
             _SOURCEFORGE_NEXT_REQUEST[loop] = (
                 loop.time() + SOURCEFORGE_MIN_INTERVAL_SECONDS
@@ -753,6 +765,7 @@ async def request_partial(
     *,
     referer: str | None = None,
     max_bytes: int = 4096,
+    user_agent: str = BROWSER_COMPATIBLE_USER_AGENT,
 ) -> httpx.Response:
     """Ejecuta la operación `request_partial`.
 
@@ -768,7 +781,11 @@ async def request_partial(
     async with client.stream(
         "GET",
         url,
-        headers=metadata_headers(referer, partial=True),
+        headers=metadata_headers(
+            referer,
+            partial=True,
+            user_agent=user_agent,
+        ),
     ) as streamed:
         content = bytearray()
         async for chunk in streamed.aiter_raw():
