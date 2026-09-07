@@ -16,7 +16,7 @@ import java.util.UUID;
 
 /** Serializa el manifiesto estable incluido en el ZIP y publicado en almacenamiento. */
 final class DownloadManifestWriter {
-    private static final int MANIFEST_VERSION = 2;
+    private static final int MANIFEST_VERSION = 3;
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -35,10 +35,16 @@ final class DownloadManifestWriter {
             Map<UUID, String> manualShortcutPaths) {
         Map<UUID, ManifestItem> items = new HashMap<>();
         for (DownloadedArtifact artifact : downloaded) {
+            var installation = artifact.installation();
             items.put(artifact.itemId(), new ManifestItem(
-                    artifact.itemId(), artifact.appId(), artifact.sourceRef(), null,
+                    artifact.itemId(), artifact.appId(), artifact.sourceRef(),
+                    installation == null ? null : installation.appName(),
                     artifact.filename(), "COMPLETED", artifact.sizeBytes(), artifact.sha256(),
-                    artifact.filename(), null, null, null));
+                    artifact.filename(), null, null, null,
+                    installation == null ? null : installation.operatingSystem(),
+                    installation == null ? null : installation.architecture(),
+                    installation == null ? null : installation.version(),
+                    installation == null ? null : LinuxInstallerBundleWriter.support(installation)));
         }
         for (FailedDownload failure : failed) {
             DownloadItemMetadata metadata = failedMetadata.get(failure.itemId());

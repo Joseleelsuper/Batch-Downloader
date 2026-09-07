@@ -79,6 +79,7 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
             appId={app.id}
             appName={selectedOption.version ? `${app.name} ${selectedOption.version}` : app.name}
             sourceRef={selectedOption.id}
+            operatingSystem={selectedOption.operatingSystem === 'linux' ? 'linux' : undefined}
             disabled={!isCatalogAppSelectable(app)}
           />
         ) : null}
@@ -119,6 +120,9 @@ function DownloadOptions({
           onClick={() => onSelect(option.id)}
         >
           <span>{option.filename ?? option.finalDomain ?? '-'}</span>
+          {option.operatingSystem === 'linux' ? (
+            <small>{t(option.installationSupport === 'automatic' ? 'linux.support.automatic' : 'linux.support.manual')}</small>
+          ) : null}
           <small>
             {installerPlatformLabel(option)}
             {option.isLatest ? ` · ${t('app.details.latestInstaller')}` : ''}

@@ -1,0 +1,2 @@
+services/download-worker/src/main/resources/linux-installer/** text eol=lf
+scripts/linux-installer/** text eol=lf

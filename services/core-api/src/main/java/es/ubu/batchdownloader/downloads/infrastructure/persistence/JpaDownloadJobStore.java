@@ -18,6 +18,24 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 @Repository
 class JpaDownloadJobStore implements DownloadJobStore {
+    @Override
+    public void saveLinuxContext(UUID jobId,
+            es.ubu.batchdownloader.downloads.application.DownloadJobView.LinuxContext context) {
+        repository.flush();
+        jdbc.update("INSERT INTO download_job_linux_context(job_id, linux_target, architecture, dependencies) VALUES (?, ?, ?, ?)",
+                jobId.toString(), context.target(), context.architecture(),
+                context.addedDependencyAppIds().stream().map(UUID::toString).collect(java.util.stream.Collectors.joining(",")));
+    }
+
+    @Override
+    public es.ubu.batchdownloader.downloads.application.DownloadJobView.LinuxContext linuxContext(UUID jobId) {
+        var rows = jdbc.query("SELECT linux_target, architecture, dependencies FROM download_job_linux_context WHERE job_id = ?",
+                (row, index) -> new es.ubu.batchdownloader.downloads.application.DownloadJobView.LinuxContext(
+                        row.getString(1), row.getString(2), row.getString(3).isBlank() ? List.of()
+                            : java.util.Arrays.stream(row.getString(3).split(",")).map(UUID::fromString).toList()),
+                jobId.toString());
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
     /** Estados que ya no ocupan una plaza de admisión. */
     private static final List<DownloadJobStatus> TERMINAL_STATUSES = List.of(
             DownloadJobStatus.READY,

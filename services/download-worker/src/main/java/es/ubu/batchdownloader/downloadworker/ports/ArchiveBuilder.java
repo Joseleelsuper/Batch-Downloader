@@ -16,6 +16,10 @@ public interface ArchiveBuilder {
         void add(String path, Path source) throws IOException;
         /** Añade contenido pequeño ya materializado. */
         void add(String path, byte[] content) throws IOException;
+        /** Script propio del runtime, con permisos UNIX 0755. */
+        default void addExecutable(String path, byte[] content) throws IOException {
+            add(path, content);
+        }
     }
 
     /** Produce las entradas de un archivo abierto. */

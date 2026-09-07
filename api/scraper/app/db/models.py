@@ -372,6 +372,9 @@ class ResolvedSource(Base):
     """Representa el componente `ResolvedSource`.
     """
     __tablename__ = "resolved_sources"
+    install_profile: Mapped[LinuxInstallProfileRow | None] = relationship(
+        lazy="joined", uselist=False, cascade="all, delete-orphan"
+    )
     """Campo declarado `__tablename__` de `ResolvedSource`.
     """
 
@@ -449,6 +452,27 @@ class ResolvedSource(Base):
     )
     """Campo declarado `__table_args__` de `ResolvedSource`.
     """
+
+
+class LinuxInstallProfileRow(Base):
+    """Receta revisada para una fuente Linux concreta."""
+    __tablename__ = "linux_install_profiles"
+    source_ref: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("resolved_sources.id", ondelete="CASCADE"), primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger, default=1, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    profile_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
+class SoftwareAppDependencyVersion(Base):
+    __tablename__ = "software_app_dependency_versions"
+    app_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("software_apps.id", ondelete="CASCADE"), primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+
+
+class SoftwareAppDependency(Base):
+    __tablename__ = "software_app_dependencies"
+    app_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("software_apps.id", ondelete="CASCADE"), primary_key=True)
+    dependency_app_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("software_apps.id", ondelete="CASCADE"), primary_key=True)
 
 
 class ResolverLog(Base):

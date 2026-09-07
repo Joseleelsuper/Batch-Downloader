@@ -41,6 +41,21 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ScraperInternalClient {
+    public JsonNode linuxProfile(UUID appId, UUID sourceRef, JsonNode body) {
+        return linuxRequest("/apps/" + appId + "/sources/" + sourceRef + "/profile", body);
+    }
+
+    public JsonNode linuxDependencies(UUID appId, JsonNode body) {
+        return linuxRequest("/apps/" + appId + "/dependencies", body);
+    }
+
+    private JsonNode linuxRequest(String path, JsonNode body) {
+        if (body != null && body.toString().length() > 128 * 1024) {
+            throw new BadRequestException("linux_profile_too_large", "La receta supera el límite permitido.");
+        }
+        return send(body == null ? "GET" : "PUT", "/internal/v1/linux" + path,
+                body == null ? "" : body.toString(), JsonNode.class, "linux_profile_unavailable");
+    }
     /**
      * Ejecutor HTTP interno con políticas transversales compuestas.
      */

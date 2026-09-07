@@ -146,12 +146,16 @@ async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -
     )
 
     assert result.provider == "groq"
-    assert result.model == "qwen/qwen3-32b"
+    assert result.model == "qwen/qwen3.8-27b"
     assert result.description == "Descripcion larga valida para la app."
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
-        "qwen/qwen3-32b",
+        "qwen/qwen3.6-27b",
+        "qwen/qwen3.8-27b",
     ]
+    assert all(
+        json.loads(call.request.content)["reasoning_effort"] == "none"
+        for call in groq_route.calls
+    )
     assert not deepseek_route.called
 
 
@@ -193,10 +197,8 @@ async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable()
 
     assert result.provider == "deepseek"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
-        "qwen/qwen3-32b",
         "qwen/qwen3.6-27b",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3.8-27b",
     ]
     assert json.loads(deepseek_route.calls[0].request.content)["thinking"] == {
         "type": "disabled"
@@ -263,7 +265,7 @@ async def test_unavailable_groq_model_cools_down_and_tries_next_model(
     assert result.provider == "groq"
     assert result.model == "qwen/qwen3-32b"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
+        "qwen/qwen3.6-27b",
         "qwen/qwen3-32b",
     ]
     assert not deepseek_route.called
@@ -329,12 +331,12 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
 
     assert first.model == "qwen/qwen3-32b"
     assert second.model == "qwen/qwen3-32b"
-    assert third.model == "llama-3.1-8b-instant"
+    assert third.model == "qwen/qwen3.6-27b"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
+        "qwen/qwen3.6-27b",
         "qwen/qwen3-32b",
         "qwen/qwen3-32b",
-        "llama-3.1-8b-instant",
+        "qwen/qwen3.6-27b",
     ]
 
 

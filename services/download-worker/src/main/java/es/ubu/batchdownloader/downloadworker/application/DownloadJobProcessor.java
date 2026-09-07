@@ -30,6 +30,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -62,6 +63,9 @@ public class DownloadJobProcessor {
     private final ManualShortcutWriter manualShortcuts;
     /** Serialización aislada del manifiesto público. */
     private final DownloadManifestWriter manifests;
+    private final LinuxInstallerBundleWriter linuxInstaller;
+    @Value("${app.download.linux-installer-enabled:true}")
+    private boolean linuxInstallerEnabled = true;
     /** Resolución acotada de fuentes antes de descargar. */
     private final DownloadResolutionService resolutions;
 
@@ -105,6 +109,7 @@ public class DownloadJobProcessor {
         this.manualShortcuts = new ManualShortcutWriter(
                 metadataLookup, filenamePolicy, publicHttpsUriPolicy);
         this.manifests = new DownloadManifestWriter(objectMapper, clock);
+        this.linuxInstaller = new LinuxInstallerBundleWriter(objectMapper);
         this.resolutions = new DownloadResolutionService(
                 sourceResolver, executor, properties, cancellations, events, clock);
     }
@@ -332,8 +337,12 @@ public class DownloadJobProcessor {
                 : failed.isEmpty() ? "READY" : "PARTIAL";
         byte[] manifest = manifests.write(
                 event, status, downloaded, failed, shortcuts.metadata(), shortcuts.pathsByItem());
+        var installerEntries = linuxInstallerEnabled
+                ? linuxInstaller.write(event.payload().jobId(), downloaded, manifest)
+                : java.util.Map.<String, byte[]>of();
+        if (!installerEntries.isEmpty()) metrics.linuxInstallerCreated();
         return new ArchivePreparation(
-                status, List.copyOf(downloaded), List.copyOf(failed), shortcuts, manifest);
+                status, List.copyOf(downloaded), List.copyOf(failed), shortcuts, manifest, installerEntries);
     }
 
     /** La fase de empaquetado no realiza accesos HTTP: solo consume temporales ya completos. */
@@ -352,6 +361,13 @@ public class DownloadJobProcessor {
             writer.add(entry.path(), entry.source());
         }
         writer.add("manifest.json", preparation.manifest());
+        for (var entry : preparation.installerEntries().entrySet()) {
+            if (entry.getKey().endsWith(".sh") || entry.getKey().equals("bin/batch-linux-installer")) {
+                writer.addExecutable(entry.getKey(), entry.getValue());
+            } else {
+                writer.add(entry.getKey(), entry.getValue());
+            }
+        }
         return new ArchiveOutcome(
                 preparation.status(),
                 preparation.downloaded().size(),
@@ -365,7 +381,8 @@ public class DownloadJobProcessor {
             List<DownloadedArtifact> downloaded,
             List<FailedDownload> failed,
             ManualShortcutWriter.Result shortcuts,
-            byte[] manifest) {}
+            byte[] manifest,
+            java.util.Map<String, byte[]> installerEntries) {}
 
     /** Datos terminales calculados al cerrar el ZIP. */
     private record ArchiveOutcome(

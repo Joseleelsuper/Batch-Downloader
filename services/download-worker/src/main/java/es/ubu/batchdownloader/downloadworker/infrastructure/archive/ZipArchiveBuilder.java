@@ -5,11 +5,11 @@ import es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
+import org.apache.commons.compress.archivers.zip.Zip64Mode;
 
 /**
  * Implementa el componente {@code ZipArchiveBuilder}.
@@ -29,7 +29,9 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
      */
     @Override
     public void build(OutputStream target, int compressionLevel, ArchiveContents contents) {
-        try (ZipOutputStream zip = new ZipOutputStream(target, StandardCharsets.UTF_8)) {
+        try (ZipArchiveOutputStream zip = new ZipArchiveOutputStream(target)) {
+            zip.setEncoding("UTF-8");
+            zip.setUseZip64(Zip64Mode.AsNeeded);
             zip.setLevel(Math.clamp(compressionLevel, 0, 9));
             contents.write(new ArchiveWriter() {
                 /** {@inheritDoc} */
@@ -41,9 +43,16 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
                 /** {@inheritDoc} */
                 @Override
                 public void add(String path, byte[] content) throws IOException {
-                    zip.putNextEntry(new ZipEntry(safeEntryName(path)));
+                    zip.putArchiveEntry(entry(safeEntryName(path), false));
                     zip.write(content);
-                    zip.closeEntry();
+                    zip.closeArchiveEntry();
+                }
+
+                @Override
+                public void addExecutable(String path, byte[] content) throws IOException {
+                    zip.putArchiveEntry(entry(safeEntryName(path), true));
+                    zip.write(content);
+                    zip.closeArchiveEntry();
                 }
             });
         } catch (IOException exception) {
@@ -81,11 +90,17 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
      * @param source Fuente de descarga sobre la que se actúa.
      * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
      */
-    private void add(ZipOutputStream zip, String filename, Path source) throws IOException {
-        zip.putNextEntry(new ZipEntry(filename));
+    private static ZipArchiveEntry entry(String name, boolean executable) {
+        ZipArchiveEntry entry = new ZipArchiveEntry(name);
+        entry.setUnixMode(executable ? 0100755 : 0100644);
+        return entry;
+    }
+
+    private void add(ZipArchiveOutputStream zip, String filename, Path source) throws IOException {
+        zip.putArchiveEntry(entry(filename, false));
         try (InputStream input = Files.newInputStream(source)) {
             input.transferTo(zip);
         }
-        zip.closeEntry();
+        zip.closeArchiveEntry();
     }
 }

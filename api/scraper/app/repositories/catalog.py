@@ -1142,6 +1142,38 @@ class CatalogRepository:
             resolved.expires_at = now
             resolved.checked_at = now
 
+    async def valid_resolved_sources_for_app(
+        self,
+        software_app_id: uuid.UUID,
+    ) -> list[ResolvedSource]:
+        """Devuelve los binarios que actualmente sostienen la publicación."""
+        rows = await self.session.scalars(
+            select(ResolvedSource)
+            .join(DownloadSource)
+            .where(DownloadSource.software_app_id == software_app_id)
+            .where(ResolvedSource.validation_status == ValidationStatus.VALID.value)
+            .where(ResolvedSource.status.in_(AVAILABLE_RESOLUTION_STATUSES))
+        )
+        return list(rows)
+
+    async def expire_resolved_sources(
+        self,
+        resolved_sources: list[ResolvedSource],
+    ) -> set[uuid.UUID]:
+        """Caduca filas concretas y recompone el estado de sus plataformas."""
+        now = utc_now()
+        source_ids: set[uuid.UUID] = set()
+        for resolved in resolved_sources:
+            if resolved.validation_status != ValidationStatus.VALID.value:
+                continue
+            resolved.validation_status = ValidationStatus.EXPIRED.value
+            resolved.expires_at = now
+            resolved.checked_at = now
+            source_ids.add(resolved.download_source_id)
+        if source_ids:
+            await self.refresh_source_statuses(source_ids)
+        return source_ids
+
     async def mark_source_status(
         self,
         source_id: uuid.UUID,

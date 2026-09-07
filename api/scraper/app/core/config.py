@@ -23,6 +23,9 @@ class GroqDescriptionModel(StrEnum):
     QWEN_3_6_27B = "qwen/qwen3.6-27b"
     """Constante que define `QWEN_3_6_27B`.
     """
+    QWEN_3_8_27B = "qwen/qwen3.8-27b"
+    """Constante que define `QWEN_3_8_27B`.
+    """
     LLAMA_4_SCOUT = "meta-llama/llama-4-scout-17b-16e-instruct"
     """Constante que define `LLAMA_4_SCOUT`.
     """
@@ -32,9 +35,7 @@ class GroqDescriptionModel(StrEnum):
 
 
 DEFAULT_GROQ_DESCRIPTION_FALLBACKS = (
-    GroqDescriptionModel.QWEN_3_32B,
-    GroqDescriptionModel.QWEN_3_6_27B,
-    GroqDescriptionModel.LLAMA_4_SCOUT,
+    GroqDescriptionModel.QWEN_3_8_27B,
 )
 """Constante que define `DEFAULT_GROQ_DESCRIPTION_FALLBACKS`.
 """
@@ -181,7 +182,7 @@ class Settings(BaseSettings):
     llm_groq_base_url: str = "https://api.groq.com/openai/v1"
     """Campo declarado `llm_groq_base_url` de `Settings`.
     """
-    llm_groq_model: str = "llama-3.1-8b-instant"
+    llm_groq_model: str = "qwen/qwen3.6-27b"
     """Campo declarado `llm_groq_model` de `Settings`.
     """
     llm_groq_fallback_models: tuple[GroqDescriptionModel, ...] = (

@@ -115,6 +115,41 @@ public class DownloadJobService {
     /** Ejecuta la fase corta de expiración dentro de MySQL. */
     private final TransactionTemplate transactions;
 
+    public record LinuxPreview(String target, String architecture, int totalCount,
+            int automaticCount, int manualCount, int omittedCount,
+            List<LinuxPreviewItem> items) {}
+
+    public record LinuxPreviewItem(UUID appId, String name, UUID sourceRef,
+            String installationSupport, boolean dependency) {}
+
+    @Transactional(readOnly = true)
+    public LinuxPreview previewLinux(List<UUID> requested, List<String> systems, UUID sourceRef,
+            String manager, String architecture) {
+        LinuxTarget target = LinuxTarget.optional(manager, architecture, systems);
+        if (target == null || requested == null || requested.isEmpty() || requested.size() > maxApps
+                || (sourceRef != null && requested.size() != 1)) {
+            throw new BadRequestException("invalid_linux_selection", "Indica un lote Linux válido.");
+        }
+        List<UUID> ids = sources.expandLinuxDependencies(new LinkedHashSet<>(requested));
+        var selected = sources.findLinuxSources(ids, target, sourceRef);
+        if (sourceRef != null && !selected.containsKey(requested.getFirst())) {
+            throw new ConflictException("linux_source_incompatible", "Esta fuente no es compatible con el destino.");
+        }
+        var manual = sources.findManualSources(ids);
+        List<LinuxPreviewItem> items = ids.stream().map(id -> {
+            var source = selected.get(id);
+            var fallback = manual.get(id);
+            return new LinuxPreviewItem(id, source != null ? source.appName()
+                    : fallback != null ? fallback.appName() : id.toString(),
+                    source == null ? null : source.sourceRef(), source != null ? source.installationSupport()
+                            : fallback != null ? "manual" : "unavailable", !requested.contains(id));
+        }).toList();
+        return new LinuxPreview(target.manager(), target.architecture(), ids.size(),
+                (int) items.stream().filter(i -> "automatic".equals(i.installationSupport())).count(),
+                (int) items.stream().filter(i -> "manual".equals(i.installationSupport())).count(),
+                (int) items.stream().filter(i -> "unavailable".equals(i.installationSupport())).count(), items);
+    }
+
     /**
      * Inicializa una instancia de {@code DownloadJobService}.
      *
@@ -215,6 +250,14 @@ public class DownloadJobService {
             List<String> operatingSystems,
             UUID sourceRef,
             boolean notifyWhenReady) {
+        return create(owner, requestedAppIds, operatingSystems, sourceRef, notifyWhenReady, null, null);
+    }
+
+    @Transactional
+    public DownloadJobView create(RequestOwner owner, List<UUID> requestedAppIds,
+            List<String> operatingSystems, UUID sourceRef, boolean notifyWhenReady,
+            String linuxTarget, String targetArchitecture) {
+        LinuxTarget target = LinuxTarget.optional(linuxTarget, targetArchitecture, operatingSystems);
         LinkedHashSet<UUID> appIds = new LinkedHashSet<>(requestedAppIds == null ? List.of() : requestedAppIds);
         appIds.remove(null);
         if (appIds.isEmpty() || appIds.size() > maxApps) {
@@ -224,6 +267,11 @@ public class DownloadJobService {
             throw new BadRequestException(
                     "invalid_source_selection",
                     "La fuente seleccionada requiere una única aplicación.");
+        }
+        List<UUID> originalAppIds = List.copyOf(appIds);
+        if (target != null) appIds.addAll(sources.expandLinuxDependencies(appIds));
+        if (appIds.size() > maxApps) {
+            throw new BadRequestException("linux_dependency_limit", "El lote y sus dependencias superan el límite.");
         }
         jobs.lockAdmission();
         Instant now = clock.instant();
@@ -242,7 +290,13 @@ public class DownloadJobService {
             enforceAnonymousLimits(owner, now);
         }
         Map<UUID, CatalogSourceLookup.VerifiedSource> selected;
-        if (sourceRef == null) {
+        if (target != null) {
+            selected = sources.findLinuxSources(appIds, target, sourceRef);
+            if (sourceRef != null && !selected.containsKey(appIds.getFirst())) {
+                throw new ConflictException("linux_source_incompatible",
+                        "La fuente elegida no es compatible con el destino Linux.");
+            }
+        } else if (sourceRef == null) {
             selected = sources.findVerifiedSources(appIds, operatingSystems);
         } else {
             UUID appId = appIds.getFirst();
@@ -253,7 +307,7 @@ public class DownloadJobService {
                             "La versión seleccionada ya no está disponible para descargar."));
             selected = Map.of(appId, exactSource);
         }
-        Map<UUID, CatalogSourceLookup.ManualSource> manualSources = sourceRef == null
+        Map<UUID, CatalogSourceLookup.ManualSource> manualSources = sourceRef == null || target != null
                 ? sources.findManualSources(appIds)
                 : Map.of();
         List<DownloadJobItem> items = appIds.stream()
@@ -292,6 +346,12 @@ public class DownloadJobService {
                 now,
                 now.plus(retention)));
         events.jobRequested(job);
+        if (target != null) {
+            var context = new DownloadJobView.LinuxContext(target.manager(), target.architecture(),
+                    appIds.stream().filter(id -> !originalAppIds.contains(id)).toList());
+            jobs.saveLinuxContext(job.id(), context);
+            return DownloadJobView.from(job).withLinuxContext(context);
+        }
         return DownloadJobView.from(job);
     }
 
@@ -304,7 +364,7 @@ public class DownloadJobService {
      */
     @Transactional(readOnly = true)
     public DownloadJobView get(RequestOwner owner, UUID jobId) {
-        return DownloadJobView.from(accessibleJob(owner, jobId));
+        return DownloadJobView.from(accessibleJob(owner, jobId)).withLinuxContext(jobs.linuxContext(jobId));
     }
 
     /**

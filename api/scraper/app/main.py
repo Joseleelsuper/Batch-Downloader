@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import TimeoutError as SqlAlchemyTimeoutError
 
 from app.api.internal_routes import internal_router
+from app.api.linux_install_routes import router as linux_install_router
 from app.api.routes import router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -33,3 +34,4 @@ async def database_capacity_exhausted(
     )
 app.include_router(router)
 app.include_router(internal_router)
+app.include_router(linux_install_router)

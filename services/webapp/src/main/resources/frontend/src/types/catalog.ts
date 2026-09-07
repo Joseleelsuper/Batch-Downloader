@@ -83,6 +83,8 @@ export interface CatalogStats {
 }
 
 export interface DownloadOption {
+  installationSupport?: 'automatic' | 'manual' | 'not_applicable';
+  compatibleLinuxTargets?: string[];
   id: string;
   filename?: string | null;
   extension?: string | null;
@@ -129,6 +131,7 @@ export interface DownloadJobItem {
 }
 
 export interface DownloadJob {
+  linux?: { target: string; architecture: string; addedDependencyAppIds: string[] } | null;
   id: string;
   status: DownloadJobStatus;
   failureCode: string | null;

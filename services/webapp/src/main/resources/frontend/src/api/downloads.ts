@@ -2,14 +2,33 @@ import type { DownloadJob, OperatingSystem } from '../types/catalog';
 import { API_BASE, requestJson } from './http';
 import { createRetryScheduler } from './liveConnection';
 
-export type CreateDownloadJobRequest =
+export type LinuxTarget = 'apt' | 'dnf' | 'pacman' | 'zypper' | 'portable';
+export type LinuxArchitecture = 'x86_64' | 'x86' | 'aarch64';
+export interface LinuxSelection { linuxTarget: LinuxTarget; targetArchitecture: LinuxArchitecture }
+export interface LinuxPreview {
+  target: LinuxTarget;
+  architecture: LinuxArchitecture;
+  totalCount: number;
+  automaticCount: number;
+  manualCount: number;
+  omittedCount: number;
+  items: { appId: string; name: string; sourceRef: string | null; installationSupport: string; dependency: boolean }[];
+}
+
+export type CreateDownloadJobRequest = Partial<LinuxSelection> & (
   | {
     appIds: string[];
     sourceRef?: string;
     operatingSystems?: OperatingSystem[];
     notifyWhenReady?: boolean;
   }
-  | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean };
+  | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean });
+
+export function previewLinuxDownload(request: CreateDownloadJobRequest): Promise<LinuxPreview> {
+  return requestJson<LinuxPreview>('/api/v1/download-jobs/linux-preview', {
+    method: 'POST', body: JSON.stringify(request),
+  });
+}
 
 const pendingCreations = new Map<string, Promise<DownloadJob>>();
 const TERMINAL_STATUSES = new Set([

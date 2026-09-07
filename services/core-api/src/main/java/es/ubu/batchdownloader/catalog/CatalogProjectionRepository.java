@@ -374,9 +374,10 @@ public class CatalogProjectionRepository {
                 """
                 SELECT rs.id, rs.filename, rs.extension, rs.final_domain, rs.score, rs.status, rs.metadata_json,
                        ds.operating_system, ds.architecture, rs.version, rs.is_latest, rs.version_status,
-                       rs.release_rank
+                       rs.release_rank, JSON_UNQUOTE(JSON_EXTRACT(lip.profile_json, '$.strategy')) AS linux_strategy
                 FROM download_sources ds
                 JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                LEFT JOIN linux_install_profiles lip ON lip.source_ref = rs.id AND lip.status = 'approved'
                 WHERE ds.software_app_id = ?
                   AND ds.catalog_available = 1
                   AND rs.catalog_downloadable = 1
@@ -398,7 +399,11 @@ public class CatalogProjectionRepository {
                         sourceLabel(rs.getString("status")),
                         rs.getInt("score"),
                         rs.getString("final_domain"),
-                        rowNum == 0),
+                        rowNum == 0,
+                        LinuxInstallationSupport.support(rs.getString("operating_system"),
+                                rs.getString("extension"), rs.getString("linux_strategy")),
+                        "linux".equals(rs.getString("operating_system"))
+                                ? LinuxInstallationSupport.targets(rs.getString("extension")) : List.of()),
                 UuidBytes.fromUuid(appId));
     }
 

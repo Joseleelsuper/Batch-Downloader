@@ -174,7 +174,18 @@ public class CatalogDtos {
             String sourceLabel,
             int score,
             String finalDomain,
-            boolean isPrimary) {}
+            boolean isPrimary,
+            String installationSupport,
+            List<String> compatibleLinuxTargets) {
+        public DownloadOption(String id, String filename, String extension, String operatingSystem,
+                String architecture, String version, boolean isLatest, String versionStatus,
+                String sourceLabel, int score, String finalDomain, boolean isPrimary) {
+            this(id, filename, extension, operatingSystem, architecture, version, isLatest, versionStatus,
+                    sourceLabel, score, finalDomain, isPrimary,
+                    LinuxInstallationSupport.support(operatingSystem, extension, null),
+                    "linux".equals(operatingSystem) ? LinuxInstallationSupport.targets(extension) : List.of());
+        }
+    }
 
     /**
      * Representa los datos inmutables de {@code AppDetails}.

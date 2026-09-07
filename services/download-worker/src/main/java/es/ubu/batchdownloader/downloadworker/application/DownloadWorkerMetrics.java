@@ -79,4 +79,8 @@ public class DownloadWorkerMetrics {
     public void capacityDeferred(String reason) {
         registry.counter("download_worker_capacity_deferred", "reason", reason).increment();
     }
+
+    public void linuxInstallerCreated() {
+        registry.counter("download_worker_linux_installer_created").increment();
+    }
 }

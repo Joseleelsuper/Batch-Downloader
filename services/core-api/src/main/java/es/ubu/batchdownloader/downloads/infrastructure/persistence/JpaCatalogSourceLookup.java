@@ -20,6 +20,76 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 class JpaCatalogSourceLookup implements CatalogSourceLookup {
+    @Override
+    public List<UUID> expandLinuxDependencies(Collection<UUID> appIds) {
+        var all = new java.util.LinkedHashSet<>(appIds);
+        var pending = new ArrayList<>(all);
+        while (!pending.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(pending.size(), "?"));
+            List<UUID> found = jdbc.query(
+                    "SELECT dependency_app_id FROM software_app_dependencies WHERE app_id IN ("
+                            + placeholders + ") ORDER BY dependency_app_id",
+                    (row, index) -> UuidBytes.toUuid(row.getBytes(1)),
+                    pending.stream().map(UuidBytes::fromUuid).toArray());
+            pending = new ArrayList<>();
+            for (UUID dependency : found) if (all.add(dependency)) pending.add(dependency);
+            if (all.size() > 100) throw new es.ubu.batchdownloader.common.BadRequestException(
+                    "linux_dependency_limit", "El lote y sus dependencias superan 100 aplicaciones.");
+        }
+        return List.copyOf(all);
+    }
+
+    @Override
+    public Map<UUID, VerifiedSource> findLinuxSources(Collection<UUID> appIds,
+            es.ubu.batchdownloader.downloads.application.LinuxTarget target, UUID exactSource) {
+        if (appIds.isEmpty()) return Map.of();
+        var ids = List.copyOf(appIds);
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        String extensions = String.join(",", java.util.Collections.nCopies(target.extensions().size(), "?"));
+        String sql = """
+                SELECT ds.software_app_id, rs.id AS source_ref, ds.architecture,
+                       app.name AS app_name, app.official_url, rs.extension,
+                       JSON_UNQUOTE(JSON_EXTRACT(lip.profile_json, '$.strategy')) AS linux_strategy
+                FROM software_apps app
+                JOIN download_sources ds ON ds.software_app_id = app.id
+                JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                LEFT JOIN linux_install_profiles lip ON lip.source_ref = rs.id AND lip.status = 'approved'
+                WHERE app.app_status = 'active' AND app.catalog_status = 'available'
+                  AND ds.resolution_status IN ('direct', 'fallback')
+                  AND ds.validation_status = 'valid' AND ds.catalog_available = 1
+                  AND rs.catalog_downloadable = 1 AND ds.operating_system = 'linux'
+                  AND ds.software_app_id IN (%s) AND LOWER(rs.extension) IN (%s)
+                  AND ds.architecture IN (?, 'any', 'all', 'noarch', 'universal', 'unknown')
+                  AND (lip.source_ref IS NULL
+                       OR COALESCE(JSON_LENGTH(JSON_EXTRACT(lip.profile_json, '$.linuxTargets')), 0) = 0
+                       OR JSON_CONTAINS(JSON_EXTRACT(lip.profile_json, '$.linuxTargets'), JSON_QUOTE(?)))
+                  AND (? IS NULL OR ds.software_app_id <> ? OR rs.id = ?)
+                ORDER BY ds.software_app_id,
+                         CASE WHEN LOWER(rs.extension) IN ('.deb', '.rpm', '.pkg.tar.zst') THEN 0
+                              WHEN LOWER(rs.extension) = '.appimage' THEN 1 ELSE 2 END,
+                         (ds.architecture = ?) DESC, rs.is_latest DESC,
+                         COALESCE(rs.release_rank, 2147483647), rs.score DESC, rs.checked_at DESC, rs.id
+                """.formatted(placeholders, extensions);
+        List<Object> parameters = new ArrayList<>();
+        ids.forEach(id -> parameters.add(UuidBytes.fromUuid(id)));
+        parameters.addAll(target.extensions());
+        parameters.add(target.architecture());
+        parameters.add(target.manager());
+        parameters.add(exactSource == null ? null : UuidBytes.fromUuid(exactSource));
+        parameters.add(UuidBytes.fromUuid(ids.getFirst()));
+        parameters.add(exactSource == null ? null : UuidBytes.fromUuid(exactSource));
+        parameters.add(target.architecture());
+        Map<UUID, VerifiedSource> result = new LinkedHashMap<>();
+        jdbc.query(sql, (ResultSet row) -> {
+            UUID appId = UuidBytes.toUuid(row.getBytes("software_app_id"));
+            result.putIfAbsent(appId, new VerifiedSource(appId,
+                    UuidBytes.toUuid(row.getBytes("source_ref")), "linux",
+                    row.getString("architecture"), row.getString("app_name"), row.getString("official_url"),
+                    es.ubu.batchdownloader.catalog.LinuxInstallationSupport.support("linux",
+                            row.getString("extension"), row.getString("linux_strategy"))));
+        }, parameters.toArray());
+        return Map.copyOf(result);
+    }
     /**
      * Constante que define {@code DEFAULT_OPERATING_SYSTEMS}.
      */

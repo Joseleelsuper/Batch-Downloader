@@ -239,6 +239,13 @@ class AppDescriptionLLMClient:
             "max_tokens": 520,
             "response_format": {"type": "json_object"},
         }
+        if provider.name == LLMProviderName.GROQ and provider.model.startswith(
+            "qwen/qwen3"
+        ):
+            # Los modelos Qwen actuales razonan por defecto. Desactivarlo evita
+            # que consuman el presupuesto con <think> y permite que Groq valide
+            # el objeto JSON final de forma determinista.
+            payload["reasoning_effort"] = "none"
         if provider.name == LLMProviderName.DEEPSEEK:
             payload["thinking"] = {"type": "disabled"}
         headers = {

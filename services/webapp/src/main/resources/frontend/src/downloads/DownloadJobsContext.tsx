@@ -15,6 +15,8 @@ import {
   fetchDownloadJobFileLink,
 } from '../api/downloads';
 import type { CreateDownloadJobRequest } from '../api/downloads';
+import type { LinuxSelection } from '../api/downloads';
+import { LinuxTargetDialog } from './LinuxTargetDialog';
 import { ApiRequestError } from '../api/http';
 import { useTranslation, type Translator } from '../services/i18n';
 import type { DownloadJob } from '../types/catalog';
@@ -129,6 +131,15 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
   const [jobs, setJobs] = useState<TrackedDownloadJob[]>(readStoredJobs);
   const [startError, setStartError] = useState<string | null>(null);
   const jobsRef = useRef(jobs);
+  const [linuxRequest, setLinuxRequest] = useState<DownloadJobRequest | null>(null);
+  const linuxPending = useRef<{
+    resolve: (selection: LinuxSelection) => void;
+    reject: (error: Error) => void;
+  } | null>(null);
+  useEffect(() => () => {
+    linuxPending.current?.reject(new Error('linux_selection_cancelled'));
+    linuxPending.current = null;
+  }, []);
   jobsRef.current = jobs;
   const attemptedDownloads = useRef(new Set(
     jobs.filter((entry) => entry.autoDownloadAttempted).map((entry) => entry.id),
@@ -140,7 +151,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
 
   const updateJob = useCallback((jobId: string, job: DownloadJob) => {
     setJobs((current) => current.map((entry) => entry.id === jobId
-      ? { ...entry, job, connectionError: false }
+      ? { ...entry, job: { ...job, linux: job.linux ?? entry.job?.linux }, connectionError: false }
       : entry));
   }, []);
 
@@ -180,7 +191,17 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
   const start = useCallback(async (request: DownloadJobRequest, label?: string) => {
     setStartError(null);
     try {
-      const created = await createDownloadJob(request);
+      let selectedRequest = request;
+      if (request.operatingSystems?.length === 1 && request.operatingSystems[0] === 'linux'
+          && (!request.linuxTarget || !request.targetArchitecture)) {
+        if (linuxPending.current) throw new Error('linux_selection_pending');
+        const selection = await new Promise<LinuxSelection>((resolve, reject) => {
+          linuxPending.current = { resolve, reject };
+          setLinuxRequest(request);
+        });
+        selectedRequest = { ...request, ...selection };
+      }
+      const created = await createDownloadJob(selectedRequest);
       setJobs((current) => {
         const withoutStaleCopy = current.filter((entry) => entry.id !== created.id);
         return [...withoutStaleCopy, {
@@ -196,7 +217,9 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       });
       return created;
     } catch (cause) {
-      setStartError(requestErrorMessage(t, cause));
+      if (!(cause instanceof Error && cause.message === 'linux_selection_cancelled')) {
+        setStartError(requestErrorMessage(t, cause));
+      }
       throw cause;
     }
   }, [t]);
@@ -249,6 +272,17 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
   return (
     <DownloadJobsContext.Provider value={value}>
       {children}
+      {linuxRequest ? <LinuxTargetDialog request={linuxRequest}
+        onSelect={(selection) => {
+          linuxPending.current?.resolve(selection);
+          linuxPending.current = null;
+          setLinuxRequest(null);
+        }}
+        onCancel={() => {
+          linuxPending.current?.reject(new Error('linux_selection_cancelled'));
+          linuxPending.current = null;
+          setLinuxRequest(null);
+        }} /> : null}
       {jobs.map((entry) => (
         <DownloadJobTracker
           entry={entry}

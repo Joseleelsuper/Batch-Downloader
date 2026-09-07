@@ -13,6 +13,12 @@ import java.util.UUID;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 public interface DownloadJobStore {
+    default void saveLinuxContext(UUID jobId,
+            es.ubu.batchdownloader.downloads.application.DownloadJobView.LinuxContext context) {}
+
+    default es.ubu.batchdownloader.downloads.application.DownloadJobView.LinuxContext linuxContext(UUID jobId) {
+        return null;
+    }
     /**
      * Serializa la comprobación de límites y la inserción dentro de la transacción actual.
      */

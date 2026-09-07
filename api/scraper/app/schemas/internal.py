@@ -43,6 +43,11 @@ class InternalSourceResolution(BaseModel):
     """Campo declarado `architecture` de `InternalSourceResolution`.
     """
     trust_status: SourceTrustStatus = Field(alias="trustStatus")
+    app_name: str | None = Field(default=None, alias="appName")
+    version: str | None = None
+    extension: str | None = None
+    installation_profile: dict | None = Field(default=None, alias="installationProfile")
+    signature_base64: str | None = Field(default=None, alias="signatureBase64")
     """Campo declarado `trust_status` de `InternalSourceResolution`.
     """
 

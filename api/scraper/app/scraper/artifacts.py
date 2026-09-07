@@ -362,6 +362,10 @@ DEFAULT_ARTIFACT_FORMAT_REGISTRY = ArtifactFormatRegistry(
             ("application/java-archive",),
             (b"PK\x03\x04",),
         ),
+        ArtifactFormat(
+            ".pkg.tar.zst", (ArtifactPlatform.LINUX,),
+            ("application/zstd", "application/x-zstd"), (b"\x28\xb5\x2f\xfd",),
+        ),
     )
 )
 """Constante que define `DEFAULT_ARTIFACT_FORMAT_REGISTRY`.

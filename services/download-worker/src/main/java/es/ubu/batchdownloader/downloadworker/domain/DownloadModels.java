@@ -4,6 +4,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -43,8 +44,20 @@ public final class DownloadModels {
             String architecture,
             Long expectedSizeBytes,
             String expectedSha256,
-            String expectedMime) {
+            String expectedMime,
+            InstallationMetadata installation) {
+        public ResolvedDownloadItem(UUID itemId, UUID appId, UUID sourceRef, URI url,
+                String filename, String operatingSystem, String architecture, Long expectedSizeBytes,
+                String expectedSha256, String expectedMime) {
+            this(itemId, appId, sourceRef, url, filename, operatingSystem, architecture,
+                    expectedSizeBytes, expectedSha256, expectedMime, null);
+        }
     }
+
+    /** Metadatos declarativos; nunca incluye la URL resuelta del ejecutable. */
+    public record InstallationMetadata(String appName, String version, String extension,
+            String operatingSystem, String architecture, Map<String, Object> profile,
+            String signatureBase64) {}
 
     /**
      * Representa los datos inmutables de {@code DownloadedArtifact}.
@@ -68,7 +81,12 @@ public final class DownloadModels {
             Path path,
             long sizeBytes,
             String sha256,
-            String objectKey) {
+            String objectKey,
+            InstallationMetadata installation) {
+        public DownloadedArtifact(UUID itemId, UUID appId, UUID sourceRef, String filename,
+                Path path, long sizeBytes, String sha256, String objectKey) {
+            this(itemId, appId, sourceRef, filename, path, sizeBytes, sha256, objectKey, null);
+        }
     }
 
     /**
@@ -145,7 +163,17 @@ public final class DownloadModels {
             String archivePath,
             String objectKey,
             String error,
-            String manualShortcut) {
+            String manualShortcut,
+            String operatingSystem,
+            String architecture,
+            String version,
+            String installationSupport) {
+        public ManifestItem(UUID itemId, UUID appId, UUID sourceRef, String appName,
+                String filename, String status, Long sizeBytes, String sha256,
+                String archivePath, String objectKey, String error, String manualShortcut) {
+            this(itemId, appId, sourceRef, appName, filename, status, sizeBytes, sha256,
+                    archivePath, objectKey, error, manualShortcut, null, null, null, null);
+        }
     }
 
     /**

@@ -32,6 +32,7 @@ from app.scraper.installer_policy import (
     is_catalog_publishable_installer,
     is_windows_winstall_archive,
     known_official_candidates,
+    persisted_installer_app_compatibility_reason,
     rank_installers,
     should_collect_official_installers,
     use_only_known_official_candidates,
@@ -470,6 +471,96 @@ def test_installer_compatibility_accepts_declared_opaque_winstall_endpoint() -> 
     )
 
     assert installer_app_compatibility_reason(app, installer) is None
+
+
+def test_persisted_installer_compatibility_expires_wrong_version_branch() -> None:
+    """Una fuente antigua de otra rama deja de sostener el catálogo."""
+    app = parse_winstall_app(
+        {
+            "_id": "Python.Python.3.7",
+            "name": "Python 3.7",
+            "publisher": "Python Software Foundation",
+            "latestVersion": "3.7.9",
+            "versions": [
+                {
+                    "version": "3.7.9",
+                    "installers": ["https://python.org/python-3.7.9-amd64.exe"],
+                }
+            ],
+        }
+    )
+
+    assert (
+        persisted_installer_app_compatibility_reason(
+            app,
+            url="https://python.org/python-3.14.7-arm64.exe",
+            filename="python-3.14.7-arm64.exe",
+            version="3.14.7",
+            metadata={"candidate_source": "href", "asset_kind": "installer"},
+        )
+        == "version_not_declared_for_app"
+    )
+
+
+def test_persisted_installer_compatibility_preserves_winstall_provenance() -> None:
+    """La versión validada recompone el contexto de filas Winstall antiguas."""
+    app = parse_winstall_app(
+        {
+            "_id": "Microsoft.VCRedist.2013.x64",
+            "name": "Microsoft Visual C++ 2013 Redistributable (x64)",
+            "publisher": "Microsoft",
+            "latestVersion": "12.0.40664.0",
+            "versions": [
+                {
+                    "version": "12.0.40664.0",
+                    "installers": ["https://download.microsoft.com/opaque"],
+                }
+            ],
+        }
+    )
+
+    assert (
+        persisted_installer_app_compatibility_reason(
+            app,
+            url="https://cdn.microsoft.com/vcredist_x64.exe",
+            filename="vcredist_x64.exe",
+            version="12.0.40664.0",
+            metadata={
+                "candidate_source": "winstall_api",
+                "asset_kind": "winstall_download",
+            },
+        )
+        is None
+    )
+
+
+def test_installer_compatibility_accepts_named_compact_vendor_version() -> None:
+    """Un nombre de producto fuerte permite la notación compacta del fabricante."""
+    app = parse_winstall_app(
+        {
+            "_id": "IPU.CoolPack",
+            "name": "CoolPack",
+            "publisher": "IPU",
+            "latestVersion": "1.50",
+            "versions": [
+                {
+                    "version": "1.50",
+                    "installers": ["https://example.test/coolpack-v150.exe"],
+                }
+            ],
+        }
+    )
+
+    assert (
+        persisted_installer_app_compatibility_reason(
+            app,
+            url="https://cdn.sanity.io/files/coolpack-v150.exe",
+            filename="coolpack-v150.exe",
+            version="1.5.0",
+            metadata={"candidate_source": "href", "asset_kind": "installer"},
+        )
+        is None
+    )
 
 
 def test_dedupes_redirect_variants_that_only_change_query_parameters() -> None:

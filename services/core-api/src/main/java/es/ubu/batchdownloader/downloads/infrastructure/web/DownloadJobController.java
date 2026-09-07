@@ -128,7 +128,10 @@ public class DownloadJobController {
                 ? distinctAppIds(request.appIds())
                 : bundleAppIds(request.bundleId(), authentication);
         workerCapacity.requireAvailable();
-        DownloadJobView created = jobs.create(
+        DownloadJobView created = request.linuxTarget() != null || request.targetArchitecture() != null
+                ? jobs.create(owner, appIds, normalizedOperatingSystems(request.operatingSystems()),
+                    request.sourceRef(), request.notifyWhenReady(), request.linuxTarget(), request.targetArchitecture())
+                : jobs.create(
                 owner,
                 appIds,
                 normalizedOperatingSystems(request.operatingSystems()),
@@ -139,6 +142,17 @@ public class DownloadJobController {
             response.header(HttpHeaders.SET_COOKIE, ownerCookie(token).toString());
         }
         return response.body(created);
+    }
+
+    /** Vista previa sin crear jobs, consultar al proveedor ni reservar capacidad. */
+    @PostMapping("/linux-preview")
+    DownloadJobService.LinuxPreview preview(@Valid @RequestBody CreateDownloadJobRequest request,
+            Authentication authentication) {
+        validateSource(request);
+        List<UUID> appIds = request.bundleId() == null ? distinctAppIds(request.appIds())
+                : bundleAppIds(request.bundleId(), authentication);
+        return jobs.previewLinux(appIds, normalizedOperatingSystems(request.operatingSystems()),
+                request.sourceRef(), request.linuxTarget(), request.targetArchitecture());
     }
 
     /**
@@ -403,5 +417,7 @@ public class DownloadJobController {
             String bundleId,
             List<String> operatingSystems,
             UUID sourceRef,
-            boolean notifyWhenReady) {}
+            boolean notifyWhenReady,
+            String linuxTarget,
+            String targetArchitecture) {}
 }

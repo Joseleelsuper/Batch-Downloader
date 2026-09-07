@@ -451,6 +451,26 @@ def versions_equal(first: str | None, second: str | None) -> bool:
     return normalized_version_label(first) == normalized_version_label(second)
 
 
+def compact_numeric_versions_equal(first: str | None, second: str | None) -> bool:
+    """Reconoce formatos equivalentes como ``1.50`` y ``1.5.0``.
+
+    Esta tolerancia sólo se usa junto con una coincidencia fuerte de producto;
+    no sustituye a la comparación normal de ramas de versión.
+    """
+    if not first or not second:
+        return False
+
+    def compact(value: str) -> str | None:
+        normalized = normalized_version_label(value)
+        parts = normalized.split(".")
+        if len(parts) < 2 or any(not part.isdigit() for part in parts):
+            return None
+        return "".join(parts)
+
+    first_compact = compact(first)
+    return first_compact is not None and first_compact == compact(second)
+
+
 def installer_app_compatibility_reason(
     app: WinstallApp,
     installer: ValidInstaller,
@@ -493,14 +513,7 @@ def installer_app_compatibility_reason(
     ):
         return None
 
-    if installer.version and declared_versions and not any(
-        versions_equal(installer.version, version) for version in declared_versions
-    ):
-        return "version_not_declared_for_app"
-
     identity_tokens = app_identity_tokens(app)
-    if not identity_tokens:
-        return None
     identity_text = normalize_text(
         " ".join(
             value
@@ -513,13 +526,82 @@ def installer_app_compatibility_reason(
             if value
         )
     ).replace(" ", "")
-    if any(token.replace(" ", "") in identity_text for token in identity_tokens):
+    identity_matches = any(
+        token.replace(" ", "") in identity_text for token in identity_tokens
+    )
+    if installer.version and declared_versions and not any(
+        versions_equal(installer.version, version) for version in declared_versions
+    ):
+        if not (
+            identity_matches
+            and any(
+                compact_numeric_versions_equal(installer.version, version)
+                for version in declared_versions
+            )
+        ):
+            return "version_not_declared_for_app"
+
+    if not identity_tokens:
+        return None
+    if identity_matches:
         return None
     if installer.candidate.asset_kind == "winstall_download" and not installer.version:
         # Los endpoints opacos de la API pueden no revelar nombre ni versión; la
         # asociación explícita del proveedor sigue siendo evidencia de identidad.
         return None
     return "product_identity_mismatch"
+
+
+def persisted_installer_app_compatibility_reason(
+    app: WinstallApp,
+    *,
+    url: str,
+    filename: str | None,
+    version: str | None,
+    metadata: dict[str, Any] | None,
+) -> str | None:
+    """Revalúa la identidad de un binario ya publicado con la política actual.
+
+    Las filas antiguas no siempre conservaron el contexto de versión del
+    candidato. Cuando proceden directamente de Winstall se puede reconstruir
+    de forma segura a partir de la versión validada; para descubrimientos web
+    se mantiene la comprobación estricta de nombre y rama.
+    """
+    safe_metadata = metadata if isinstance(metadata, dict) else {}
+    source = str(safe_metadata.get("candidate_source") or "persisted_catalog")
+    asset_kind = str(safe_metadata.get("asset_kind") or "installer")
+    context_value = safe_metadata.get("candidate_context")
+    context = str(context_value) if context_value else None
+    if context is None and (
+        asset_kind == "winstall_download" or source.startswith("winstall_")
+    ):
+        context = version
+    label_value = safe_metadata.get("candidate_label")
+    candidate = InstallerCandidate(
+        url=url,
+        source=source,
+        label=str(label_value) if label_value else None,
+        context=context,
+        asset_kind=asset_kind,
+    )
+    return installer_app_compatibility_reason(
+        app,
+        ValidInstaller(
+            candidate=candidate,
+            result=ValidationResult(
+                ok=True,
+                url=url,
+                final_url=url,
+                final_domain=registered_domain(url),
+                filename=filename,
+                confidence=ValidationConfidence.VALIDATED,
+            ),
+            status=ResolutionStatus.FALLBACK,
+            operating_system=str(safe_metadata.get("operating_system") or "unknown"),
+            architecture=str(safe_metadata.get("architecture") or "UNKNOWN"),
+            version=version,
+        ),
+    )
 
 
 def app_identity_tokens(app: WinstallApp) -> tuple[str, ...]:
@@ -695,6 +777,8 @@ def resolved_metadata(installer: ValidInstaller, is_latest: bool) -> dict[str, o
         "version_status": "latest" if is_latest else "previous",
         "validation_confidence": installer.result.confidence.value,
     }
+    if installer.candidate.context:
+        metadata["candidate_context"] = installer.candidate.context
     if installer.result.transport_security:
         metadata["transport_security"] = installer.result.transport_security
     if catalog_url_for_installer(installer) != (

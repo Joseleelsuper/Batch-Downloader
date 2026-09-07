@@ -40,7 +40,22 @@ public record DownloadJobView(
         Long artifactSizeBytes,
         String artifactSha256,
         String waitReason,
-        Instant retryAt) {
+        Instant retryAt,
+        LinuxContext linux) {
+
+    public record LinuxContext(String target, String architecture, List<UUID> addedDependencyAppIds) {}
+
+    public DownloadJobView(UUID id, DownloadJobStatus status, int progress, int requestedCount,
+            int acceptedCount, int omittedCount, String failureCode, List<Item> items, Instant createdAt,
+            Instant expiresAt, Long artifactSizeBytes, String artifactSha256, String waitReason, Instant retryAt) {
+        this(id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode, items,
+                createdAt, expiresAt, artifactSizeBytes, artifactSha256, waitReason, retryAt, null);
+    }
+
+    public DownloadJobView withLinuxContext(LinuxContext context) {
+        return new DownloadJobView(id, status, progress, requestedCount, acceptedCount, omittedCount,
+                failureCode, items, createdAt, expiresAt, artifactSizeBytes, artifactSha256, waitReason, retryAt, context);
+    }
 
     /** Conserva el constructor anterior para consumidores Java ya compilados contra el contrato. */
     public DownloadJobView(

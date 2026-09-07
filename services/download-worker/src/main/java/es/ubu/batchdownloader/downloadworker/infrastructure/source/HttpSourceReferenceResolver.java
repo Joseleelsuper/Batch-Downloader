@@ -6,6 +6,7 @@ import es.ubu.batchdownloader.downloadworker.application.InfrastructureException
 import es.ubu.batchdownloader.downloadworker.config.SourceResolverProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ResolvedDownloadItem;
+import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.InstallationMetadata;
 import es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver;
 import java.io.IOException;
 import java.net.URI;
@@ -13,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -103,7 +105,10 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
                 resolved.architecture(),
                 resolved.expectedSizeBytes(),
                 normalizeSha256(resolved.expectedSha256()),
-                resolved.expectedMime());
+                resolved.expectedMime(),
+                new InstallationMetadata(resolved.appName(), resolved.version(), resolved.extension(),
+                        resolved.operatingSystem(), resolved.architecture(), resolved.installationProfile(),
+                        resolved.signatureBase64()));
     }
 
     /**
@@ -219,6 +224,17 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
             String expectedMime,
             String operatingSystem,
             String architecture,
-            String trustStatus) {
+            String trustStatus,
+            String appName,
+            String version,
+            String extension,
+            Map<String, Object> installationProfile,
+            String signatureBase64) {
+        public SourceResolutionResponse(UUID sourceRef, UUID appId, String url, String expectedFilename,
+                Long expectedSizeBytes, String expectedSha256, String expectedMime,
+                String operatingSystem, String architecture, String trustStatus) {
+            this(sourceRef, appId, url, expectedFilename, expectedSizeBytes, expectedSha256,
+                    expectedMime, operatingSystem, architecture, trustStatus, null, null, null, null, null);
+        }
     }
 }

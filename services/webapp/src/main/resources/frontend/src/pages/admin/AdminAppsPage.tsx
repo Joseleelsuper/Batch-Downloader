@@ -44,6 +44,7 @@ import { Pagination } from '../../components/Pagination';
 import { usePollingTask } from '../../hooks/usePollingTask';
 import { useTranslation } from '../../services/i18n';
 import { useAdminAppsActivity } from './useAdminAppsActivity';
+import { LinuxInstallProfiles } from './LinuxInstallProfiles';
 import type {
   AdminAppFilter,
   AppDetails,
@@ -1094,6 +1095,7 @@ export function AdminAppsPage() {
                 ) : null}
               </div>
 
+              {selected ? <LinuxInstallProfiles key={selected.id} app={selected} /> : null}
               {creating ? (
                 <section
                   className="manual-installer-panel website-discovery-panel"

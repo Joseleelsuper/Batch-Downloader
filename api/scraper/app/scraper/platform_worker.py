@@ -59,6 +59,7 @@ from app.scraper.installer_policy import (
     is_download_landing_page,
     is_windows_winstall_archive,
     known_official_candidates,
+    persisted_installer_app_compatibility_reason,
     rank_installers,
     resolved_metadata,
     should_collect_official_installers,
@@ -546,6 +547,25 @@ class PlatformScraperWorker:
             logs = ResolverLogRepository(session)
             pipeline = PipelineRepository(session)
             software_app = await catalog.upsert_winstall_app(app)
+            expired_incompatible = await self._expire_incompatible_published_installers(
+                catalog,
+                logs,
+                software_app.id,
+                app,
+            )
+            if expired_incompatible:
+                validation_diagnostics["publication"]["expired_incompatible"] = (
+                    expired_incompatible
+                )
+                await session.flush()
+                await session.refresh(
+                    software_app,
+                    attribute_names=[
+                        "catalog_available_source_count",
+                        "catalog_review_source_count",
+                        "catalog_status",
+                    ],
+                )
             if not valid_installers:
                 if software_app.catalog_status == "available":
                     await logs.add(
@@ -611,6 +631,44 @@ class PlatformScraperWorker:
             )
             await session.commit()
             return ScrapeOutcome.RESOLVED
+
+    async def _expire_incompatible_published_installers(
+        self,
+        catalog: CatalogRepository,
+        logs: ResolverLogRepository,
+        software_app_id: uuid.UUID,
+        app: WinstallApp,
+    ) -> int:
+        """Retira fuentes antiguas que la evidencia actual identifica como ajenas."""
+        incompatible = []
+        for resolved in await catalog.valid_resolved_sources_for_app(software_app_id):
+            url = catalog.reveal_url(resolved)
+            if not url:
+                continue
+            reason = persisted_installer_app_compatibility_reason(
+                app,
+                url=url,
+                filename=resolved.filename,
+                version=resolved.version,
+                metadata=resolved.metadata_json,
+            )
+            if reason is None:
+                continue
+            incompatible.append(resolved)
+            await logs.add(
+                phase="resolve",
+                status="expired_incompatible",
+                download_source_id=resolved.download_source_id,
+                message="A previously published artifact no longer matches this app.",
+                safe_metadata={
+                    "winstall_id": app.package_id,
+                    "reason": reason,
+                    "filename": resolved.filename,
+                    "version": resolved.version,
+                },
+            )
+        await catalog.expire_resolved_sources(incompatible)
+        return len(incompatible)
 
     async def _enrich_github_icon(
         self,

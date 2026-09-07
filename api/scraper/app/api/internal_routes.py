@@ -11,6 +11,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 
@@ -24,7 +25,7 @@ from app.core.config import Settings, get_settings
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ValidationStatus
-from app.db.models import ResolvedSource
+from app.db.models import ResolvedSource, SoftwareApp, SoftwareAppDependency
 from app.db.session import engine, get_session
 from app.domain.source_resolution import SourceTrustStatus, source_trust_status
 from app.repositories.catalog import CatalogRepository
@@ -69,6 +70,8 @@ from app.scraper.manual_installer import (
     inspection_view,
 )
 from app.scraper.manual_installer_apply import apply_manual_installer
+from app.schemas.linux_install import default_profile
+from app.scraper.linux_install import bundled_signature
 from app.scraper.safe_http import SafeHttpError
 from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 from app.scraper.website_discovery import (
@@ -218,6 +221,18 @@ async def get_source_resolution(
         and all(character in "0123456789abcdefABCDEF" for character in sha256)
         else None
     )
+    profile = None
+    app_name = None
+    signature = None
+    if resolved.source.operating_system == "linux":
+        row = resolved.install_profile
+        profile = dict(row.profile_json) if row and row.status == "approved" else default_profile(resolved.extension)
+        profile["dependencies"] = [str(d) for d in (await session.scalars(
+            select(SoftwareAppDependency.dependency_app_id).where(
+                SoftwareAppDependency.app_id == resolved.source.software_app_id))).all()]
+        app_name = await session.scalar(select(SoftwareApp.name).where(SoftwareApp.id == resolved.source.software_app_id))
+        if trust_status == SourceTrustStatus.VERIFIED:
+            signature = await bundled_signature(profile)
     response = InternalSourceResolution(
         sourceRef=str(resolved.id),
         appId=str(resolved.source.software_app_id),
@@ -229,6 +244,11 @@ async def get_source_resolution(
         operatingSystem=resolved.source.operating_system,
         architecture=resolved.source.architecture,
         trustStatus=trust_status,
+        appName=app_name,
+        version=resolved.version,
+        extension=resolved.extension,
+        installationProfile=profile,
+        signatureBase64=signature,
     )
     if trust_status != SourceTrustStatus.VERIFIED:
         await session.commit()

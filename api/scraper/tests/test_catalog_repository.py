@@ -677,6 +677,94 @@ async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
 
 
 @pytest.mark.asyncio
+async def test_expire_resolved_sources_only_demotes_affected_platform() -> None:
+    """La limpieza selectiva conserva otras plataformas verificadas de la app."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    now = utc_now()
+    protector = UrlProtector("test-secret")
+    async with session_factory() as session:
+        app = SoftwareApp(
+            id=uuid4(),
+            winstall_id="Python.Python.3.7",
+            slug="python-python-3-7",
+            name="Python 3.7",
+            normalized_name="python 3 7",
+            app_status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        wrong_source = DownloadSource(
+            id=uuid4(),
+            software_app_id=app.id,
+            operating_system="windows",
+            architecture="aarch64",
+            resolution_status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+        )
+        wrong = ResolvedSource(
+            id=uuid4(),
+            download_source_id=wrong_source.id,
+            resolved_url_encrypted=protector.protect(
+                "https://python.org/python-3.14.7-arm64.exe"
+            ),
+            final_domain="python.org",
+            filename="python-3.14.7-arm64.exe",
+            extension=".exe",
+            version="3.14.7",
+            status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+            checked_at=now,
+            expires_at=utc_after(hours=1),
+        )
+        wrong_source.resolved_sources = [wrong]
+        good_source = DownloadSource(
+            id=uuid4(),
+            software_app_id=app.id,
+            operating_system="windows",
+            architecture="x86_64",
+            resolution_status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+        )
+        good = ResolvedSource(
+            id=uuid4(),
+            download_source_id=good_source.id,
+            resolved_url_encrypted=protector.protect(
+                "https://python.org/python-3.7.9-amd64.exe"
+            ),
+            final_domain="python.org",
+            filename="python-3.7.9-amd64.exe",
+            extension=".exe",
+            version="3.7.9",
+            status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+            checked_at=now,
+            expires_at=utc_after(hours=1),
+        )
+        good_source.resolved_sources = [good]
+        app.sources = [wrong_source, good_source]
+        session.add(app)
+        await session.commit()
+
+        repository = CatalogRepository(session, protector)
+        current = await repository.valid_resolved_sources_for_app(app.id)
+        assert {resolved.id for resolved in current} == {wrong.id, good.id}
+
+        await repository.expire_resolved_sources([wrong])
+        await session.commit()
+
+        assert wrong.validation_status == ValidationStatus.EXPIRED.value
+        assert wrong_source.resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
+        assert wrong_source.validation_status == ValidationStatus.UNCHECKED.value
+        assert good.validation_status == ValidationStatus.VALID.value
+        assert good_source.resolution_status == ResolutionStatus.DIRECT.value
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_so_filter_projects_platforms_with_verified_binary_history() -> None:
     """Comprueba el escenario `so_filter_projects_platforms_with_verified_binary_history`.
     """

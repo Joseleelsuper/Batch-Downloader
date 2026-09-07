@@ -191,7 +191,7 @@ public final class DefaultRemoteDownloader implements RemoteDownloader {
                 target,
                 fileBytes,
                 sha256,
-                null);
+                null, item.installation());
     }
 
     private MessageDigest sha256Digest() {

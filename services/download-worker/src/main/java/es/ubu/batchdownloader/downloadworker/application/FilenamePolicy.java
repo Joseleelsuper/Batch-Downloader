@@ -45,7 +45,9 @@ public class FilenamePolicy {
      * @return Colección de elementos obtenidos por la operación.
      */
     public Set<String> newNameSet() {
-        return new HashSet<>();
+        return new HashSet<>(Set.of("manifest.json", "install.sh", "uninstall.sh", "update.sh",
+                "rollback.sh", "installer.conf", "readme.md", "version", "checksums.sha256",
+                "config", "lib", "bin", "plugins", "signatures"));
     }
 
     /**
@@ -131,6 +133,10 @@ public class FilenamePolicy {
      */
     private ExtensionParts extensionParts(String filename) {
         String lower = filename.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".pkg.tar.zst")) {
+            return new ExtensionParts(filename.substring(0, filename.length() - 12),
+                    filename.substring(filename.length() - 12));
+        }
         if (lower.endsWith(".tar.gz")) {
             return new ExtensionParts(filename.substring(0, filename.length() - 7), filename.substring(filename.length() - 7));
         }

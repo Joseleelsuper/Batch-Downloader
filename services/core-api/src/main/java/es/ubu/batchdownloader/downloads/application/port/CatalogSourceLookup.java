@@ -12,6 +12,16 @@ import java.util.UUID;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 public interface CatalogSourceLookup {
+    /** Selecciona únicamente formatos compatibles; una fuente explícita nunca se sustituye. */
+    default Map<UUID, VerifiedSource> findLinuxSources(Collection<UUID> appIds,
+            es.ubu.batchdownloader.downloads.application.LinuxTarget target, UUID exactSource) {
+        return findVerifiedSources(appIds, List.of("linux"));
+    }
+
+    /** Incluye dependencias declaradas, manteniendo primero la selección original. */
+    default List<UUID> expandLinuxDependencies(Collection<UUID> appIds) {
+        return List.copyOf(appIds);
+    }
     /**
      * Metadatos públicos suficientes para ofrecer una descarga manual segura.
      *
@@ -38,7 +48,12 @@ public interface CatalogSourceLookup {
             String operatingSystem,
             String architecture,
             String appName,
-            String officialPageUrl) {
+            String officialPageUrl,
+            String installationSupport) {
+        public VerifiedSource(UUID appId, UUID sourceRef, String operatingSystem, String architecture,
+                String appName, String officialPageUrl) {
+            this(appId, sourceRef, operatingSystem, architecture, appName, officialPageUrl, null);
+        }
         /**
          * Inicializa una instancia de {@code VerifiedSource}.
          *

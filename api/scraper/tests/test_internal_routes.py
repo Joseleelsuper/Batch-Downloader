@@ -1020,6 +1020,11 @@ async def test_internal_resolution_returns_verified_source_without_logging_secre
         "operatingSystem": "windows",
         "architecture": "x86_64",
         "trustStatus": "VERIFIED",
+        "appName": None,
+        "version": None,
+        "extension": ".exe",
+        "installationProfile": None,
+        "signatureBase64": None,
     }
     assert INTERNAL_TOKEN not in caplog.text
     assert download_url not in caplog.text
