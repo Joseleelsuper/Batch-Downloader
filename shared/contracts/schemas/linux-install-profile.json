@@ -1,0 +1,259 @@
+{
+  "$defs": {
+    "UpdatePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "enum": [
+            "github",
+            "official"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "repository": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repository"
+        },
+        "assetPattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assetpattern"
+        },
+        "checksumPattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checksumpattern"
+        },
+        "signaturePattern": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signaturepattern"
+        },
+        "allowedHosts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Allowedhosts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "provider",
+        "allowedHosts"
+      ],
+      "title": "UpdatePolicy",
+      "type": "object"
+    },
+    "Verification": {
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "pattern": "^(?:[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "publicKey": {
+          "maxLength": 65536,
+          "title": "Publickey",
+          "type": "string"
+        },
+        "signatureUrl": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signatureurl"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "publicKey"
+      ],
+      "title": "Verification",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "default": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "strategy": {
+      "enum": [
+        "deb",
+        "rpm",
+        "arch",
+        "appimage",
+        "tarball",
+        "jar",
+        "manual"
+      ],
+      "title": "Strategy",
+      "type": "string"
+    },
+    "scope": {
+      "default": "auto",
+      "enum": [
+        "auto",
+        "user",
+        "system"
+      ],
+      "title": "Scope",
+      "type": "string"
+    },
+    "entrypoint": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entrypoint"
+    },
+    "dependencies": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Dependencies",
+      "type": "array"
+    },
+    "systemPackages": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "propertyNames": {
+        "enum": [
+          "apt",
+          "dnf",
+          "pacman",
+          "zypper",
+          "portable"
+        ]
+      },
+      "title": "Systempackages",
+      "type": "object"
+    },
+    "linuxTargets": {
+      "items": {
+        "enum": [
+          "apt",
+          "dnf",
+          "pacman",
+          "zypper",
+          "portable"
+        ],
+        "type": "string"
+      },
+      "title": "Linuxtargets",
+      "type": "array"
+    },
+    "desktopName": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Desktopname"
+    },
+    "update": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UpdatePolicy"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Verification"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "strategy"
+  ],
+  "title": "LinuxInstallProfile",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -87,9 +87,32 @@ function ActionsHarness() {
   );
 }
 
+function LinuxHarness() {
+  const downloads = useDownloadJobs();
+  return (
+    <div>
+      <button type="button" onClick={() => void downloads.start({
+        appIds: ['linux-app'],
+        operatingSystems: ['linux'],
+      }).catch(() => undefined)}>
+        Iniciar Linux
+      </button>
+      <output data-testid="linux-start-error">{downloads.startError ?? ''}</output>
+    </div>
+  );
+}
+
 describe('DownloadJobsProvider', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true,
+      value(this: HTMLDialogElement) { this.removeAttribute('open'); },
+    });
   });
 
   afterEach(() => {
@@ -141,6 +164,47 @@ describe('DownloadJobsProvider', () => {
     act(() => pushJob?.(job('READY', 100)));
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('READY'));
     expect(click).toHaveBeenCalledOnce();
+  });
+
+  it('requests a Linux target before creating an exclusively Linux job', async () => {
+    vi.spyOn(downloadsApi, 'previewLinuxDownload').mockResolvedValue({
+      target: 'apt',
+      architecture: 'x86_64',
+      totalCount: 1,
+      automaticCount: 1,
+      manualCount: 0,
+      omittedCount: 0,
+      items: [],
+    });
+    vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(vi.fn());
+    render(<DownloadJobsProvider><LinuxHarness /></DownloadJobsProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar Linux' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Preparar ZIP' }));
+
+    await waitFor(() => expect(downloadsApi.createDownloadJob).toHaveBeenCalledWith({
+      appIds: ['linux-app'],
+      operatingSystems: ['linux'],
+      linuxTarget: 'apt',
+      targetArchitecture: 'x86_64',
+    }));
+  });
+
+  it('cancels Linux selection without creating a job or showing a global error', async () => {
+    vi.spyOn(downloadsApi, 'previewLinuxDownload').mockResolvedValue({
+      target: 'apt', architecture: 'x86_64', totalCount: 1,
+      automaticCount: 1, manualCount: 0, omittedCount: 0, items: [],
+    });
+    const create = vi.spyOn(downloadsApi, 'createDownloadJob');
+    render(<DownloadJobsProvider><LinuxHarness /></DownloadJobsProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar Linux' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.getByTestId('linux-start-error')).toBeEmptyDOMElement();
   });
 
   it('shows a retryable signing error without removing the permanent manual action', async () => {

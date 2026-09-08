@@ -1,4 +1,5 @@
 """Materializa firmas públicas con el transporte SSRF existente; nunca instala software."""
+
 from __future__ import annotations
 
 import base64
@@ -21,10 +22,15 @@ async def bundled_signature(profile: dict) -> str | None:
         return await validate_public_https_url(value)
 
     try:
-        response = await HttpxPublicResourceFetcher(validate).fetch(FetchRequest(
-            url=url, timeout=15, max_redirects=4, max_bytes=1024 * 1024,
-            accept="application/pgp-signature, application/octet-stream",
-        ))
+        response = await HttpxPublicResourceFetcher(validate).fetch(
+            FetchRequest(
+                url=url,
+                timeout=15,
+                max_redirects=4,
+                max_bytes=1024 * 1024,
+                accept="application/pgp-signature, application/octet-stream",
+            )
+        )
         if response.status_code != 200 or not response.content:
             return None
         return base64.b64encode(response.content).decode("ascii")

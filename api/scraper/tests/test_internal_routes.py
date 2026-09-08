@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.internal_routes import INTERNAL_SERVICE_TOKEN_HEADER, internal_router
+from app.api.linux_install_routes import router as linux_router
 from app.core.config import Settings, get_settings
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
@@ -152,6 +153,7 @@ async def internal_api() -> InternalApiFixture:
         )
         application = FastAPI()
         application.include_router(internal_router)
+        application.include_router(linux_router)
         application.dependency_overrides[get_settings] = lambda: settings
 
         async def override_session():

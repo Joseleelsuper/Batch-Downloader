@@ -207,9 +207,11 @@ describe('semantic administration page', () => {
     );
 
     const run = await screen.findByRole('button', { name: 'Ejecutar benchmark' });
-    expect(run).toBeEnabled();
-    expect(screen.getByRole('checkbox', { name: /multilingual-e5-base/ })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: /candidate-model/ })).toBeChecked();
+    await waitFor(() => {
+      expect(run).toBeEnabled();
+      expect(screen.getByRole('checkbox', { name: /multilingual-e5-base/ })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: /candidate-model/ })).toBeChecked();
+    });
   });
 
   it('keeps activation actionable and routes candidates without current evidence to comparison', async () => {

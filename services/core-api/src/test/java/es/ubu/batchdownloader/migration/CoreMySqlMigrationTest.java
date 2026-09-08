@@ -111,6 +111,13 @@ class CoreMySqlMigrationTest {
             assertThat(columnNullable(connection, "download_jobs", "artifact_sha256")).isTrue();
             assertThat(columnNullable(connection, "download_jobs", "wait_reason")).isTrue();
             assertThat(columnNullable(connection, "download_jobs", "retry_at")).isTrue();
+            assertThat(tableExists(connection, "download_job_linux_context")).isTrue();
+            assertThat(columnNullable(connection, "download_job_linux_context", "linux_target"))
+                    .isFalse();
+            assertThat(columnNullable(connection, "download_job_linux_context", "architecture"))
+                    .isFalse();
+            assertThat(columnNullable(connection, "download_job_linux_context", "dependencies"))
+                    .isFalse();
             assertThat(tableExists(connection, "oauth_identities")).isFalse();
             assertThat(columnNullable(connection, "core_users", "password_hash")).isFalse();
             execute(connection, """
@@ -147,7 +154,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("15");
+            assertThat(flywayVersion(connection)).isEqualTo("16");
         }
     }
 

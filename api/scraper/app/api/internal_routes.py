@@ -49,6 +49,7 @@ from app.schemas.internal import (
     WebsiteAppDiscoveryRequest,
     WebsiteAppDiscoveryView,
 )
+from app.schemas.linux_install import default_profile
 from app.scraper.candidates import InstallerCandidate, infer_operating_system
 from app.scraper.content_workers import (
     DescriptorWorker,
@@ -63,6 +64,7 @@ from app.scraper.installer_policy import (
     infer_validated_operating_system,
     known_official_candidates_for_package,
 )
+from app.scraper.linux_install import bundled_signature
 from app.scraper.manual_installer import (
     ManualInstallerError,
     ManualInstallerInspectionRepository,
@@ -70,8 +72,6 @@ from app.scraper.manual_installer import (
     inspection_view,
 )
 from app.scraper.manual_installer_apply import apply_manual_installer
-from app.schemas.linux_install import default_profile
-from app.scraper.linux_install import bundled_signature
 from app.scraper.safe_http import SafeHttpError
 from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 from app.scraper.website_discovery import (
@@ -226,11 +226,24 @@ async def get_source_resolution(
     signature = None
     if resolved.source.operating_system == "linux":
         row = resolved.install_profile
-        profile = dict(row.profile_json) if row and row.status == "approved" else default_profile(resolved.extension)
-        profile["dependencies"] = [str(d) for d in (await session.scalars(
-            select(SoftwareAppDependency.dependency_app_id).where(
-                SoftwareAppDependency.app_id == resolved.source.software_app_id))).all()]
-        app_name = await session.scalar(select(SoftwareApp.name).where(SoftwareApp.id == resolved.source.software_app_id))
+        profile = (
+            dict(row.profile_json)
+            if row and row.status == "approved"
+            else default_profile(resolved.extension)
+        )
+        profile["dependencies"] = [
+            str(d)
+            for d in (
+                await session.scalars(
+                    select(SoftwareAppDependency.dependency_app_id).where(
+                        SoftwareAppDependency.app_id == resolved.source.software_app_id
+                    )
+                )
+            ).all()
+        ]
+        app_name = await session.scalar(
+            select(SoftwareApp.name).where(SoftwareApp.id == resolved.source.software_app_id)
+        )
         if trust_status == SourceTrustStatus.VERIFIED:
             signature = await bundled_signature(profile)
     response = InternalSourceResolution(

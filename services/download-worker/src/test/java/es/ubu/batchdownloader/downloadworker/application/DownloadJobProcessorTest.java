@@ -12,6 +12,7 @@ import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRe
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRequestedEvent;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadItemMetadata;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadedArtifact;
+import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.InstallationMetadata;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ResolvedDownloadItem;
 import es.ubu.batchdownloader.downloadworker.domain.EventTypes;
 import es.ubu.batchdownloader.downloadworker.infrastructure.Hashing;
@@ -48,6 +49,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Agrupa los escenarios de prueba de {@code DownloadJobProcessorTest}.
@@ -131,7 +133,7 @@ class DownloadJobProcessorTest {
         assertThat(store.objects.keySet())
                 .doesNotContain("jobs/" + event.payload().jobId() + "/files/Good.exe");
         String manifest = new String(store.objects.get("jobs/" + event.payload().jobId() + "/manifest.json"));
-        assertThat(manifest).contains("\"manifestVersion\" : 2")
+        assertThat(manifest).contains("\"manifestVersion\" : 3")
                 .contains("\"status\" : \"PARTIAL\"")
                 .contains("remote_http_404")
                 .contains("\"appName\" : \"Bad app\"")
@@ -353,6 +355,56 @@ class DownloadJobProcessorTest {
         assertThat(store.objects.keySet()).anyMatch(key -> key.endsWith("/bundle.zip"));
     }
 
+    @Test
+    void addsTheOfflineInstallerToLinuxArchives() throws Exception {
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        RecordingPublisher publisher = new RecordingPublisher();
+        InstallationMetadata installation = new InstallationMetadata(
+                "Example Linux", "1.0", ".appimage", "linux", "x86_64", null, null);
+        SourceReferenceResolver resolver = linuxResolver(installation);
+        RemoteDownloader downloader = localDownloader();
+        DownloadJobProcessor processor = processor(
+                downloader, store, publisher, 10, metadataLookup(true),
+                new Semaphore(1, true), resolver);
+        DownloadJobRequestedEvent event = event(List.of(item("ok", "Example.AppImage")));
+
+        processor.process(event);
+
+        byte[] archive = store.objects.get("jobs/" + event.payload().jobId() + "/bundle.zip");
+        assertThat(zipEntry(archive, "install.sh")).startsWith("#!/usr/bin/env bash");
+        assertThat(zipEntry(archive, "config/components/" + id("app-ok") + ".json"))
+                .contains("\"strategy\" : \"appimage\"")
+                .doesNotContain("downloads.example.com");
+        assertThat(zipEntry(archive, "checksums.sha256"))
+                .contains("  Example.AppImage\n")
+                .contains("  manifest.json\n");
+        String manifest = new String(store.objects.get(
+                "jobs/" + event.payload().jobId() + "/manifest.json"));
+        assertThat(manifest)
+                .contains("\"operatingSystem\" : \"linux\"")
+                .contains("\"installationSupport\" : \"automatic\"");
+    }
+
+    @Test
+    void featureFlagOmitsOnlyTheLinuxInstallerRuntime() throws Exception {
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        RecordingPublisher publisher = new RecordingPublisher();
+        InstallationMetadata installation = new InstallationMetadata(
+                "Example Linux", "1.0", ".appimage", "linux", "x86_64", null, null);
+        DownloadJobProcessor processor = processor(
+                localDownloader(), store, publisher, 10, metadataLookup(true),
+                new Semaphore(1, true), linuxResolver(installation));
+        ReflectionTestUtils.setField(processor, "linuxInstallerEnabled", false);
+        DownloadJobRequestedEvent event = event(List.of(item("ok", "Example.AppImage")));
+
+        processor.process(event);
+
+        byte[] archive = store.objects.get("jobs/" + event.payload().jobId() + "/bundle.zip");
+        assertThat(zipEntry(archive, "install.sh")).isNull();
+        assertThat(zipEntry(archive, "Example.AppImage")).isEqualTo("linux-payload");
+        assertThat(zipEntry(archive, "manifest.json")).contains("\"manifestVersion\" : 3");
+    }
+
     /**
      * Procesa los datos recibidos mediante {@code processor}.
      *
@@ -398,6 +450,30 @@ class DownloadJobProcessorTest {
             int maxItems,
             JobItemMetadataLookup metadataLookup,
             Semaphore packagingSemaphore) {
+        SourceReferenceResolver resolver = item -> new ResolvedDownloadItem(
+                item.itemId(),
+                item.appId(),
+                item.sourceRef(),
+                URI.create("https://downloads.example.com/" + filename(item.itemId())),
+                filename(item.itemId()),
+                "windows",
+                "x86_64",
+                1_024L,
+                null,
+                null);
+        return processor(
+                downloader, store, publisher, maxItems, metadataLookup,
+                packagingSemaphore, resolver);
+    }
+
+    private DownloadJobProcessor processor(
+            RemoteDownloader downloader,
+            ArtifactStore store,
+            EventPublisher publisher,
+            int maxItems,
+            JobItemMetadataLookup metadataLookup,
+            Semaphore packagingSemaphore,
+            SourceReferenceResolver resolver) {
         DownloadProperties downloadProperties = new DownloadProperties(
                 maxItems,
                 DataSize.ofMegabytes(10),
@@ -411,17 +487,6 @@ class DownloadJobProcessorTest {
         StorageProperties storage = new StorageProperties(
                 "http://minio", "key", "secret", "installers", Duration.ofHours(1));
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
-        SourceReferenceResolver resolver = item -> new ResolvedDownloadItem(
-                item.itemId(),
-                item.appId(),
-                item.sourceRef(),
-                URI.create("https://downloads.example.com/" + filename(item.itemId())),
-                filename(item.itemId()),
-                "windows",
-                "x86_64",
-                1_024L,
-                null,
-                null);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         return new DownloadJobProcessor(
                 resolver,
@@ -442,6 +507,37 @@ class DownloadJobProcessorTest {
                 packagingSemaphore,
                 new DownloadWorkerMetrics(registry),
                 new TemporaryDiskCapacity(downloadProperties));
+    }
+
+    private SourceReferenceResolver linuxResolver(InstallationMetadata installation) {
+        return item -> new ResolvedDownloadItem(
+                item.itemId(),
+                item.appId(),
+                item.sourceRef(),
+                URI.create("https://downloads.example.com/Example.AppImage"),
+                "Example.AppImage",
+                "linux",
+                "x86_64",
+                1_024L,
+                null,
+                "application/octet-stream",
+                installation);
+    }
+
+    private RemoteDownloader localDownloader() {
+        return (item, filename, target, budget, maximum) -> {
+            try {
+                byte[] content = "linux-payload".getBytes();
+                budget.consume(content.length);
+                Files.createDirectories(target.getParent());
+                Files.write(target, content);
+                return new DownloadedArtifact(
+                        item.itemId(), item.appId(), item.sourceRef(), filename, target,
+                        content.length, Hashing.sha256(target), null, item.installation());
+            } catch (Exception exception) {
+                throw new InfrastructureException("test_write_failed", exception);
+            }
+        };
     }
 
     /**

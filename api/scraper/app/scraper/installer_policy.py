@@ -65,22 +65,22 @@ def fallback_candidates(payload: dict[str, Any], app: WinstallApp) -> list[Insta
     # materializa primero para que los enlaces duplicados extraídos de la página
     # no sustituyan ese contexto por la cadena genérica ``winstall_api``.
     declared: dict[str, tuple[str | None, str | None]] = {}
-    for version in app.versions:
-        for url in version.installers:
+    for release in app.versions:
+        for url in release.installers:
             current = declared.get(url)
             if current is None or version_label_is_preferred(
                 current[0],
-                version.version,
+                release.version,
                 getattr(app, "latest_version", None),
             ):
-                declared[url] = (version.version, version.installer_type)
-    for url, (version, installer_type) in declared.items():
+                declared[url] = (release.version, release.installer_type)
+    for url, (version_label, installer_type) in declared.items():
         candidates.append(
             InstallerCandidate(
                 url=url,
                 source="winstall_api",
                 label=f"{app.name} {installer_type or ''}".strip(),
-                context=version,
+                context=version_label,
                 asset_kind="winstall_download",
                 referer=winstall_referer,
             )

@@ -619,6 +619,136 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /download-jobs/linux-preview:
+    post:
+      operationId: previewLinuxDownload
+      summary: Revisar compatibilidad y dependencias sin crear una descarga
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDownloadJobRequest'
+      responses:
+        '200':
+          description: Selección Linux compatible, manual y no disponible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxDownloadPreview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/apps/{appId}/linux/sources/{sourceRef}/profile:
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+      - name: sourceRef
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getLinuxInstallProfile
+      summary: Consultar una receta Linux (solo administrador)
+      responses:
+        '200':
+          description: Receta y versión actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxProfileVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: saveLinuxInstallProfile
+      summary: Revisar y guardar una receta Linux sin comandos shell
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinuxProfileWrite'
+      responses:
+        '200':
+          description: Nueva versión; afecta a futuros ZIP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxProfileVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /admin/apps/{appId}/linux/dependencies:
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+    get:
+      operationId: getLinuxDependencies
+      summary: Consultar dependencias de una aplicación (solo administrador)
+      responses:
+        '200':
+          description: Dependencias y versión del grafo de esta aplicación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxDependencyVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: saveLinuxDependencies
+      summary: Guardar dependencias sin ciclos y con control de concurrencia
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedVersion, dependencies]
+              properties:
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+                dependencies:
+                  type: array
+                  maxItems: 99
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Grafo actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxDependencyVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
   /download-jobs/{jobId}:
     get:
       operationId: getDownloadJob
@@ -2273,6 +2403,13 @@ components:
       type: object
       required: [id, operatingSystem, architecture, isLatest, sourceLabel, score, isPrimary]
       properties:
+        installationSupport:
+          type: string
+          enum: [automatic, manual, not_applicable]
+        compatibleLinuxTargets:
+          type: array
+          items:
+            $ref: '#/components/schemas/LinuxTarget'
         id:
           type: string
           format: uuid
@@ -2361,6 +2498,16 @@ components:
       type: object
       additionalProperties: false
       properties:
+        sourceRef:
+          description: Fuente exacta para una aplicación; nunca se sustituye silenciosamente.
+          type: string
+          format: uuid
+        linuxTarget:
+          $ref: '#/components/schemas/LinuxTarget'
+        targetArchitecture:
+          description: Requiere linuxTarget y operatingSystems igual a [linux].
+          type: string
+          enum: [x86_64, x86, aarch64]
         appIds:
           type: array
           minItems: 1
@@ -2384,7 +2531,83 @@ components:
       oneOf:
         - required: [appIds]
         - required: [bundleId]
+    LinuxTarget:
+      description: Familia de paquetes del equipo de destino; solo para selección exclusivamente Linux.
+      type: string
+      enum: [apt, dnf, pacman, zypper, portable]
+    LinuxProfileVersion:
+      type: object
+      required: [version, status, profile]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [draft, approved]
+        profile:
+          $ref: '../schemas/linux-install-profile.json'
+    LinuxProfileWrite:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, status, profile]
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [draft, approved]
+        profile:
+          $ref: '../schemas/linux-install-profile.json'
+    LinuxDependencyVersion:
+      type: object
+      required: [version, dependencies]
+      properties:
+        version:
+          type: integer
+        dependencies:
+          type: array
+          items:
+            type: string
+            format: uuid
+    LinuxDownloadPreview:
+      type: object
+      required: [target, architecture, totalCount, automaticCount, manualCount, omittedCount, items]
+      properties:
+        target:
+          $ref: '#/components/schemas/LinuxTarget'
+        architecture:
+          type: string
+        totalCount:
+          type: integer
+        automaticCount:
+          type: integer
+        manualCount:
+          type: integer
+        omittedCount:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            required: [appId, name, sourceRef, installationSupport, dependency]
+            properties:
+              appId:
+                type: string
+                format: uuid
+              name:
+                type: string
+              sourceRef:
+                type: [string, 'null']
+                format: uuid
+              installationSupport:
+                type: string
+                enum: [automatic, manual, unavailable]
+              dependency:
+                type: boolean
     DownloadJobStatus:
+      description: Estado global del ZIP; independiente de la capacidad de instalación del runtime.
       type: string
       enum: [QUEUED, RESOLVING, DOWNLOADING, PACKAGING, READY, PARTIAL, MANUAL_ONLY, FAILED, CANCELLED, EXPIRED]
     DownloadFileLink:
@@ -2425,6 +2648,18 @@ components:
       type: object
       required: [id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode, items, createdAt, expiresAt]
       properties:
+        linux:
+          type: [object, 'null']
+          properties:
+            target:
+              $ref: '#/components/schemas/LinuxTarget'
+            architecture:
+              type: string
+            addedDependencyAppIds:
+              type: array
+              items:
+                type: string
+                format: uuid
         id:
           type: string
           format: uuid

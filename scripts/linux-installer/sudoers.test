@@ -1,0 +1,2 @@
+# Exclusivo de la imagen desechable de pruebas, nunca se distribuye en el runtime.
+installer ALL=(ALL) NOPASSWD: ALL

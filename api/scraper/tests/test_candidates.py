@@ -206,6 +206,27 @@ def test_infers_platform_architecture_and_version_for_multios_assets() -> None:
     assert infer_operating_system(linux) == "linux"
 
 
+def test_arch_package_path_is_not_truncated_or_scored_below_other_native_packages() -> None:
+    """Un paquete Pacman conserva su sufijo compuesto y la prioridad de paquete nativo."""
+    candidates = extract_candidates(
+        "<button>Download /releases/example-x86_64.pkg.tar.zst</button>",
+        "https://example.com/downloads",
+    )
+    arch = candidates[0]
+    deb = InstallerCandidate(
+        url="https://example.com/releases/example-x86_64.deb",
+        source="button",
+        label="Download",
+    )
+
+    assert [candidate.url for candidate in candidates] == [
+        "https://example.com/releases/example-x86_64.pkg.tar.zst"
+    ]
+    assert detect_extension(arch.url) == ".pkg.tar.zst"
+    assert infer_operating_system(arch) == "linux"
+    assert score_candidate(arch).score == score_candidate(deb).score
+
+
 def test_infer_architecture_ignores_svg_path_fragments() -> None:
     """Comprueba el escenario `infer_architecture_ignores_svg_path_fragments`.
     """

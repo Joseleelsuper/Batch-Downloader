@@ -1,0 +1,14 @@
+ARG BASE_IMAGE=python:3.14.6-slim-bookworm
+FROM ${BASE_IMAGE}
+USER root
+RUN if command -v apt-get; then apt-get update && apt-get install -y --no-install-recommends bash python3 sudo shellcheck bats gnupg tar gzip xz-utils ca-certificates; \
+    elif command -v dnf; then dnf -y install bash python3 sudo ShellCheck bats gnupg2 tar gzip rpm-build; \
+    elif command -v pacman; then pacman -Syu --noconfirm bash python sudo shellcheck bats gnupg tar gzip base-devel; \
+    else zypper --non-interactive install bash python3 sudo ShellCheck bats gpg2 tar gzip rpm-build; fi
+RUN useradd --create-home --uid 2000 installer
+COPY scripts/linux-installer/sudoers.test /etc/sudoers.d/installer-tests
+RUN chmod 0440 /etc/sudoers.d/installer-tests
+WORKDIR /workspace
+USER installer
+ENV PYTHONDONTWRITEBYTECODE=1
+CMD ["bash", "scripts/linux-installer/verify.sh"]

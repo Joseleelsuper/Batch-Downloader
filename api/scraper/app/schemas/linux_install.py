@@ -1,8 +1,9 @@
 """Perfiles declarativos de instalación Linux. Ningún campo acepta comandos."""
+
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -11,8 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 Target = Literal["apt", "dnf", "pacman", "zypper", "portable"]
 Strategy = Literal["deb", "rpm", "arch", "appimage", "tarball", "jar", "manual"]
 
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
 
 class UpdatePolicy(StrictModel):
     provider: Literal["github", "official"]
@@ -33,20 +36,32 @@ class UpdatePolicy(StrictModel):
     @model_validator(mode="after")
     def provider_fields(self) -> UpdatePolicy:
         if self.provider == "github":
-            if not self.repository or not self.asset_pattern or "api.github.com" not in self.allowed_hosts:
+            if (
+                not self.repository
+                or not self.asset_pattern
+                or "api.github.com" not in self.allowed_hosts
+            ):
                 raise ValueError("github_repository_asset_and_host_required")
         elif not self.url or not approved_url(self.url, self.allowed_hosts):
             raise ValueError("official_https_manifest_required")
         return self
 
+
 def approved_url(value: str, hosts: list[str]) -> bool:
     try:
         url = urlsplit(value)
-        return (url.scheme == "https" and url.hostname in hosts
-                and url.port in (None, 443) and not url.username and not url.password
-                and not url.fragment and not any(ord(c) < 32 for c in value))
+        return (
+            url.scheme == "https"
+            and url.hostname in hosts
+            and url.port in (None, 443)
+            and not url.username
+            and not url.password
+            and not url.fragment
+            and not any(ord(c) < 32 for c in value)
+        )
     except ValueError:
         return False
+
 
 class Verification(StrictModel):
     fingerprint: str = Field(pattern=r"^(?:[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$")
@@ -59,6 +74,7 @@ class Verification(StrictModel):
         if "BEGIN PGP PUBLIC KEY BLOCK" not in value or "PRIVATE" in value:
             raise ValueError("public_key_required")
         return value
+
 
 class LinuxInstallProfile(StrictModel):
     schema_version: Literal[1] = Field(default=1, alias="schemaVersion")
@@ -75,16 +91,24 @@ class LinuxInstallProfile(StrictModel):
     @field_validator("entrypoint")
     @classmethod
     def relative_entrypoint(cls, value: str | None) -> str | None:
-        if value and (value.startswith("/") or "\\" in value or ":" in value
-                      or ".." in value.split("/") or any(ord(c) < 32 for c in value)):
+        if value and (
+            value.startswith("/")
+            or "\\" in value
+            or ":" in value
+            or ".." in value.split("/")
+            or any(ord(c) < 32 for c in value)
+        ):
             raise ValueError("unsafe_entrypoint")
         return value
 
     @field_validator("system_packages")
     @classmethod
     def package_names(cls, values: dict[str, list[str]]) -> dict[str, list[str]]:
-        if any(len(packages) > 50 or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._:-]{0,127}", p)
-                                        for p in packages) for packages in values.values()):
+        if any(
+            len(packages) > 50
+            or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._:-]{0,127}", p) for p in packages)
+            for packages in values.values()
+        ):
             raise ValueError("invalid_system_package")
         return values
 
@@ -100,29 +124,46 @@ class LinuxInstallProfile(StrictModel):
         if self.strategy in ("tarball", "jar") and not self.entrypoint:
             raise ValueError("recipe_entrypoint_required")
         if self.verification and self.verification.signature_url:
-            if not self.update or not approved_url(self.verification.signature_url, self.update.allowed_hosts):
+            if not self.update or not approved_url(
+                self.verification.signature_url, self.update.allowed_hosts
+            ):
                 raise ValueError("signature_origin_not_approved")
         return self
+
 
 class ProfileWrite(StrictModel):
     expected_version: int = Field(alias="expectedVersion", ge=0)
     status: Literal["draft", "approved"]
     profile: LinuxInstallProfile
 
+
 class DependenciesWrite(StrictModel):
     dependencies: list[UUID] = Field(max_length=99)
     expected_version: int = Field(alias="expectedVersion", ge=0)
 
-FORMAT_STRATEGIES = {".deb": "deb", ".rpm": "rpm", ".pkg.tar.zst": "arch",
-                     ".appimage": "appimage", ".tar.gz": "tarball", ".jar": "jar"}
-FORMAT_TARGETS = {".deb": ["apt"], ".rpm": ["dnf", "zypper"],
-                  ".pkg.tar.zst": ["pacman"], ".appimage": ["apt", "dnf", "pacman", "zypper", "portable"],
-                  ".tar.gz": ["apt", "dnf", "pacman", "zypper", "portable"],
-                  ".jar": ["apt", "dnf", "pacman", "zypper", "portable"]}
+
+FORMAT_STRATEGIES = {
+    ".deb": "deb",
+    ".rpm": "rpm",
+    ".pkg.tar.zst": "arch",
+    ".appimage": "appimage",
+    ".tar.gz": "tarball",
+    ".jar": "jar",
+}
+FORMAT_TARGETS = {
+    ".deb": ["apt"],
+    ".rpm": ["dnf", "zypper"],
+    ".pkg.tar.zst": ["pacman"],
+    ".appimage": ["apt", "dnf", "pacman", "zypper", "portable"],
+    ".tar.gz": ["apt", "dnf", "pacman", "zypper", "portable"],
+    ".jar": ["apt", "dnf", "pacman", "zypper", "portable"],
+}
+
 
 def default_profile(extension: str | None) -> dict:
     strategy = FORMAT_STRATEGIES.get((extension or "").lower(), "manual")
     if strategy in ("tarball", "jar"):
         strategy = "manual"
-    return LinuxInstallProfile(strategy=strategy).model_dump(by_alias=True, mode="json", exclude_none=True)
-
+    return LinuxInstallProfile(strategy=cast(Strategy, strategy)).model_dump(
+        by_alias=True, mode="json", exclude_none=True
+    )

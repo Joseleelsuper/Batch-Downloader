@@ -145,11 +145,14 @@ class Installer:
                    "bundle": self.bundle["id"], "uid": os.getuid(), "transaction": tx or self.tx,
                    "scope": self.scope(c), "manager": self.machine["manager"],
                    "runtime": str(RUNTIME), "purge": self.args.purge}
-        command = ["python3", str(RUNTIME / "lib/system.py")]
+        command = ["python3", "-B", str(RUNTIME / "lib/system.py")]
         if os.geteuid() != 0:
             require(shutil.which("sudo"), "sudo_required")
             command = ["sudo", *(["-n"] if self.args.silent else []), "--", *command]
-        result = run(command, input=json.dumps(request), capture_output=True)
+        result = subprocess.run(command, input=json.dumps(request), capture_output=True, text=True)
+        if result.returncode:
+            code = result.stderr.strip()
+            require(False, code if re.fullmatch(r"[a-z_]{1,100}", code) else "system_operation_failed")
         return json.loads(result.stdout or "{}")
 
     def scope(self, c):
@@ -228,7 +231,13 @@ class Installer:
             return
         stage = self.state_root / "runtime.new"
         if stage.exists(): shutil.rmtree(stage)
-        shutil.copytree(RUNTIME, stage, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "components", "bundle.json"))
+        allowed = {"bin", "lib", "plugins", "VERSION", "README.md", "installer.conf",
+                   "install.sh", "uninstall.sh", "update.sh", "rollback.sh"}
+        def runtime_only(directory, names):
+            if Path(directory) == RUNTIME:
+                return set(names) - allowed
+            return {name for name in names if name == "__pycache__" or name.endswith(".pyc")}
+        shutil.copytree(RUNTIME, stage, ignore=runtime_only)
         previous = self.state_root / "runtime.old"
         if previous.exists(): shutil.rmtree(previous)
         if target.exists(): os.replace(target, previous)
@@ -395,8 +404,20 @@ class Installer:
                 inspect(c["profile"]["strategy"], payload)
                 selected[identifier], payloads[identifier] = c, payload
             else: selected[identifier] = c
-        for c in selected.values():
-            require(all(d in selected for d in c["profile"].get("dependencies", [])), "dependency_not_installable")
+        if self.args.action == "install":
+            # Propaga la indisponibilidad de una dependencia sin impedir las apps independientes.
+            while True:
+                blocked = [key for key, c in selected.items()
+                           if any(d not in selected for d in c["profile"].get("dependencies", []))]
+                if not blocked:
+                    break
+                for key in blocked:
+                    print("MANUAL:", key, "dependency_not_installable")
+                    del selected[key]
+            if not selected:
+                print(text("No hay componentes instalables para este equipo.",
+                           "No components can be installed on this machine."))
+                return
         with tempfile.TemporaryDirectory(prefix="batch-linux-") as temporary:
             work = Path(temporary)
             if self.args.action == "update":

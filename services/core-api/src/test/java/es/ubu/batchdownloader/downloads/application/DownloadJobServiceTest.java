@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -254,6 +255,76 @@ class DownloadJobServiceTest {
                 .hasMessageContaining("única aplicación");
 
         verify(sources, never()).findVerifiedSources(any(), any());
+    }
+
+    @Test
+    void previewsAutomaticManualAndUnavailableDependenciesWithoutCreatingAJob() {
+        UUID requested = UUID.randomUUID();
+        UUID manualDependency = UUID.randomUUID();
+        UUID unavailableDependency = UUID.randomUUID();
+        UUID sourceRef = UUID.randomUUID();
+        List<UUID> expanded = List.of(requested, manualDependency, unavailableDependency);
+        when(sources.expandLinuxDependencies(any())).thenReturn(expanded);
+        when(sources.findLinuxSources(eq(expanded), any(LinuxTarget.class), isNull()))
+                .thenReturn(Map.of(requested, new CatalogSourceLookup.VerifiedSource(
+                        requested,
+                        sourceRef,
+                        "linux",
+                        "x86_64",
+                        "Aplicación",
+                        "https://example.com/app",
+                        "automatic")));
+        when(sources.findManualSources(eq(expanded))).thenReturn(Map.of(
+                manualDependency,
+                new CatalogSourceLookup.ManualSource(
+                        manualDependency, "Dependencia manual", "https://example.com/dependency")));
+
+        DownloadJobService.LinuxPreview preview = service.previewLinux(
+                List.of(requested), List.of("linux"), null, "apt", "x86_64");
+
+        assertThat(preview.totalCount()).isEqualTo(3);
+        assertThat(preview.automaticCount()).isOne();
+        assertThat(preview.manualCount()).isOne();
+        assertThat(preview.omittedCount()).isOne();
+        assertThat(preview.items())
+                .extracting(DownloadJobService.LinuxPreviewItem::dependency)
+                .containsExactly(false, true, true);
+        verify(jobs, never()).save(any(DownloadJob.class));
+        verify(jobs, never()).lockAdmission();
+    }
+
+    @Test
+    void createsALinuxJobWithExpandedDependenciesAndPersistsItsTarget() {
+        UUID requested = UUID.randomUUID();
+        UUID dependency = UUID.randomUUID();
+        UUID requestedSource = UUID.randomUUID();
+        UUID dependencySource = UUID.randomUUID();
+        List<UUID> expanded = List.of(requested, dependency);
+        when(sources.expandLinuxDependencies(any())).thenReturn(expanded);
+        when(sources.findLinuxSources(any(), any(LinuxTarget.class), isNull()))
+                .thenReturn(Map.of(
+                        requested, new CatalogSourceLookup.VerifiedSource(
+                                requested, requestedSource, "linux", "aarch64", "Aplicación", null,
+                                "automatic"),
+                        dependency, new CatalogSourceLookup.VerifiedSource(
+                                dependency, dependencySource, "linux", "aarch64", "Dependencia", null,
+                                "automatic")));
+
+        DownloadJobView view = service.create(
+                new RequestOwner(null, "browser-hash", "ip-hash"),
+                List.of(requested),
+                List.of("linux"),
+                null,
+                false,
+                "apt",
+                "aarch64");
+
+        assertThat(view.acceptedCount()).isEqualTo(2);
+        assertThat(view.linux().target()).isEqualTo("apt");
+        assertThat(view.linux().architecture()).isEqualTo("aarch64");
+        assertThat(view.linux().addedDependencyAppIds()).containsExactly(dependency);
+        verify(jobs).saveLinuxContext(eq(view.id()), eq(view.linux()));
+        verify(events).jobRequested(any(DownloadJob.class));
     }
 
     /**

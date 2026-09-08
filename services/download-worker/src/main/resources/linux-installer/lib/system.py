@@ -206,32 +206,57 @@ def main():
                 before = read_json(journal)
                 prefix = str(uid) + ":" + request["bundle"] + ":"
                 # Solo restaura los registros afectados por esta transacción.
-                for key in set(state["records"]) | set(before["records"]):
+                intents = before.get("intents", {})
+                for key in set(state["records"]) | set(before["records"]) | set(intents):
                     current, prior = state["records"].get(key), before["records"].get(key)
-                    if current == prior: continue
+                    if current == prior and key not in intents: continue
+                    if current == prior and key in intents:
+                        current = intents[key]
                     owners = set((current or {}).get("owners", [])) | set((prior or {}).get("owners", []))
                     require(any(o.startswith(prefix) for o in owners), "restore_owner_mismatch")
                     if prior:
                         if prior["manager"] == "portable": activate_portable(prior)
                         elif not prior["preexisting"]:
                             installed = manager_call(prior["manager"], "query", prior["name"], check=False)
+                            require(installed in (None, prior["version"], (current or {}).get("version")),
+                                    "package_changed_externally")
                             if installed != prior["version"]:
                                 require(prior.get("file") and Path(prior["file"]).is_file(), "rollback_file_unavailable")
                                 manager_call(prior["manager"], "downgrade", prior["file"])
                         state["records"][key] = prior
                     elif current:
                         remove_record(current)
-                        del state["records"][key]
+                        state["records"].pop(key, None)
+                prune(state)
                 atomic_json(state_file, state)
                 journal.unlink()
             print("{}")
             return
         if not journal.exists(): atomic_json(journal, copy.deepcopy(state))
+        def remember(key, expected):
+            snapshot = read_json(journal)
+            snapshot.setdefault("intents", {})[key] = copy.deepcopy(expected)
+            atomic_json(journal, snapshot)
+
+        def native_intent(package, payload=None):
+            key = manager + ":" + package
+            installed = manager_call(manager, "query", package, check=False)
+            prior = state["records"].get(key)
+            expected = copy.deepcopy(prior) if prior else {
+                "manager": manager, "name": package, "preexisting": bool(installed),
+                "version": installed, "file": None, "history": [], "owners": [],
+            }
+            expected["owners"] = sorted(set(expected["owners"]) | {owner})
+            if payload and not expected["preexisting"]:
+                expected.update(version=manager_call(manager, "version", str(payload)), file=str(payload))
+            remember(key, expected)
+
         record = {}
         try:
             if action == "dependencies":
                 for package in c["profile"].get("systemPackages", {}).get(manager, []):
                     require(PACKAGE.fullmatch(package), "invalid_dependency_package")
+                    native_intent(package)
                     native_record(manager, package, None, owner, state, dependency=True)
                     atomic_json(state_file, state)
             elif action == "install":
@@ -263,11 +288,19 @@ def main():
                             "package_architecture_mismatch")
                     package = manager_call(manager, "identify", str(payload))
                     require(PACKAGE.fullmatch(package), "invalid_native_package_name")
+                    native_intent(package, payload)
                     record = native_record(manager, package, payload, owner, state)
-                else: record = system_portable(c, payload, owner, state)
+                else:
+                    remember("portable:" + c["appId"], {
+                        "manager": "portable", "name": c["appId"], "preexisting": False,
+                        "version": c["sha256"], "owners": [owner], "history": [],
+                        "directory": str(Path("/opt/batch-linux-installer") / c["appId"] / c["sha256"]),
+                    })
+                    record = system_portable(c, payload, owner, state)
             elif action == "remove":
                 for key, entry in list(state["records"].items()):
                     if owner not in entry["owners"]: continue
+                    remember(key, entry)
                     if len(entry["owners"]) == 1:
                         remove_record(entry)
                         del state["records"][key]
@@ -277,6 +310,7 @@ def main():
                               if owner in r["owners"] and r["history"]]
                 require(candidates, "rollback_version_unavailable")
                 for entry in candidates:
+                    remember(entry["manager"] + ":" + entry["name"], {**entry, **entry["history"][0]})
                     old = entry["history"].pop(0)
                     if entry["manager"] == "portable":
                         entry["history"].insert(0, {"directory": entry["directory"], "version": entry["version"]})
@@ -296,4 +330,8 @@ def main():
         print(json.dumps({"preexisting": record.get("preexisting", False)}))
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(str(error) if isinstance(error, ValueError) else "system_operation_failed", file=sys.stderr)
+        sys.exit(1)

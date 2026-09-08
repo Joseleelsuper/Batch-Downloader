@@ -7,8 +7,10 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
 import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
@@ -34,7 +36,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
-@WebMvcTest(AdminAppController.class)
+@WebMvcTest({AdminAppController.class, LinuxInstallAdminController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
     "server.port=0",
@@ -197,6 +199,29 @@ class AdminAppSecurityTest {
                 .contentType("application/json")
                 .content(websiteDiscoveryRequest()))
                 .andExpect(status().isAccepted());
+    }
+
+    @Test
+    void linuxRecipeEndpointsRequireAdministratorAndCsrf() throws Exception {
+        String sourceRef = "00000000-0000-0000-0000-000000000004";
+        String path = "/api/v1/admin/apps/{appId}/linux/sources/{sourceRef}/profile";
+
+        mvc.perform(get(path, APP_ID, sourceRef))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(path, APP_ID, sourceRef)
+                        .with(administrator())
+                        .contentType("application/json")
+                        .content("{\"expectedVersion\":0,\"status\":\"draft\",\"profile\":{}}"))
+                .andExpect(status().isForbidden());
+
+        when(scraperClient.linuxProfile(any(UUID.class), any(UUID.class), any()))
+                .thenReturn(JsonNodeFactory.instance.objectNode().put("version", 1));
+        mvc.perform(put(path, APP_ID, sourceRef)
+                        .with(administrator())
+                        .with(csrf())
+                        .contentType("application/json")
+                        .content("{\"expectedVersion\":0,\"status\":\"draft\",\"profile\":{}}"))
+                .andExpect(status().isOk());
     }
 
     private static RequestPostProcessor administrator() {

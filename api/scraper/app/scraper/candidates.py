@@ -90,7 +90,7 @@ NEGATIVE_KEYWORDS = (
 
 URL_PATTERN = re.compile(
     r"https?://[^\s'\"<>\\]+|(?:(?:\.\./|\.\/|/)?[A-Za-z0-9._~!$&'()*+,;=:@%/-]+"
-    r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.appimage|\.dmg|\.pkg|\.tar\.gz|\.jar)(?:\?[^\s'\"<>\\]*)?)",
+    r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.appimage|\.dmg|\.pkg\.tar\.zst|\.pkg|\.tar\.gz|\.jar)(?:\?[^\s'\"<>\\]*)?)",
     re.IGNORECASE,
 )
 """Constante que define `URL_PATTERN`.
@@ -341,7 +341,7 @@ def score_candidate(
     if extension in (
         WINDOWS_INSTALLER_EXTENSIONS
         + MACOS_INSTALLER_EXTENSIONS
-        + (".deb", ".rpm", ".appimage")
+        + (".deb", ".rpm", ".appimage", ".pkg.tar.zst")
     ):
         score += 70
     elif extension == ".zip":
