@@ -52,9 +52,14 @@ import org.springframework.util.unit.DataSize;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * Agrupa los escenarios de prueba de {@code DownloadJobProcessorTest}.
+ * Caracteriza resultados parciales y manuales, orden real de finalización, espera de empaquetado,
+ * limpieza y contenido Linux usando transferencias y almacenamiento controlados.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de procesamiento y capacidad
  */
 class DownloadJobProcessorTest {
     /**
@@ -85,7 +90,8 @@ class DownloadJobProcessorTest {
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
 
     /**
-     * Libera el estado utilizado por los escenarios de prueba.
+     * Interrumpe el pool de la prueba al terminar cada escenario para no conservar tareas entre
+     * casos.
      */
     @AfterEach
     void shutdownExecutor() {
@@ -93,10 +99,9 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Comprueba el escenario {@code
-     * createsPartialManifestZipStoresArtifactsAndPublishesDeterministicEvents}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Con un instalador válido y otro rechazado, comprueba ZIP y manifiesto parcial, acceso manual,
+     * seis eventos de progreso, recuentos y limpieza de temporales; no se publican objetos
+     * individuales de instalador.
      */
     @Test
     void createsPartialManifestZipStoresArtifactsAndPublishesDeterministicEvents() throws Exception {
@@ -122,8 +127,8 @@ class DownloadJobProcessorTest {
         };
         DownloadJobProcessor processor = processor(downloader, store, publisher, 10);
         DownloadJobRequestedEvent event = event(List.of(
-                item("ok", "Good.exe"),
-                item("bad", "Bad.exe")));
+                item("ok"),
+                item("bad")));
 
         processor.process(event);
 
@@ -160,7 +165,8 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsOversizedJobAsAStableFailureEventWithoutDownloading}.
+     * Supera el máximo de elementos y comprueba que se publica únicamente el fallo terminal sin
+     * llamar al descargador ni guardar objetos.
      */
     @Test
     void rejectsOversizedJobAsAStableFailureEventWithoutDownloading() {
@@ -171,14 +177,15 @@ class DownloadJobProcessorTest {
         };
         DownloadJobProcessor processor = processor(unused, store, publisher, 1);
 
-        processor.process(event(List.of(item("one", "one.exe"), item("two", "two.exe"))));
+        processor.process(event(List.of(item("one"), item("two"))));
 
         assertThat(store.objects).isEmpty();
         assertThat(publisher.routingKeys).containsExactly(EventTypes.JOB_FAILED_ROUTING_KEY);
     }
 
     /**
-     * Comprueba el escenario {@code doesNotPublishAnUnusableArchiveWhenEveryInstallerIsRejected}.
+     * Rechaza todos los instaladores y omite páginas oficiales; comprueba que no se guarda un ZIP y
+     * que el último evento es de fallo.
      */
     @Test
     void doesNotPublishAnUnusableArchiveWhenEveryInstallerIsRejected() {
@@ -190,7 +197,7 @@ class DownloadJobProcessorTest {
         DownloadJobProcessor processor = processor(
                 rejected, store, publisher, 10, metadataLookup(false));
 
-        processor.process(event(List.of(item("bad", "Bad.exe"))));
+        processor.process(event(List.of(item("bad"))));
 
         assertThat(store.objects).isEmpty();
         assertThat(publisher.routingKeys).containsExactly(
@@ -201,7 +208,8 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Comprueba el escenario {@code createsManualOnlyZipWhenEveryFailedAppHasASafeOfficialPage}.
+     * Rechaza el instalador pero conserva una página oficial válida y comprueba un resultado
+     * MANUAL_ONLY con cero éxitos y un elemento fallido.
      */
     @Test
     void createsManualOnlyZipWhenEveryFailedAppHasASafeOfficialPage() {
@@ -211,7 +219,7 @@ class DownloadJobProcessorTest {
             throw new DownloadRejectedException("remote_http_404");
         };
         DownloadJobProcessor processor = processor(rejected, store, publisher, 10);
-        DownloadJobRequestedEvent event = event(List.of(item("bad", "Bad.exe")));
+        DownloadJobRequestedEvent event = event(List.of(item("bad")));
 
         processor.process(event);
 
@@ -225,9 +233,8 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Comprueba que una aplicación sin fuente llegue directamente al ZIP como acceso manual.
-     *
-     * @throws Exception Si no puede leerse el ZIP generado.
+     * Procesa un elemento sin sourceRef y comprueba el acceso .url y el resultado MANUAL_ONLY sin
+     * efectuar una transferencia.
      */
     @Test
     void createsShortcutForManualItemWithoutResolvingOrDownloading() throws Exception {
@@ -253,8 +260,8 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Comprueba el escenario {@code
-     * rejectsSensitiveOfficialPageQueriesInsteadOfWritingThemToAShortcut}.
+     * Aporta una página con access_token tras rechazar el instalador y comprueba que no se guarda
+     * ningún objeto ni se publica disponibilidad.
      */
     @Test
     void rejectsSensitiveOfficialPageQueriesInsteadOfWritingThemToAShortcut() {
@@ -273,14 +280,15 @@ class DownloadJobProcessorTest {
         DownloadJobProcessor processor = processor(
                 rejected, store, publisher, 10, sensitiveMetadata);
 
-        processor.process(event(List.of(item("bad", "Bad.exe"))));
+        processor.process(event(List.of(item("bad"))));
 
         assertThat(store.objects).isEmpty();
         assertThat(publisher.routingKeys.getLast()).isEqualTo(EventTypes.JOB_FAILED_ROUTING_KEY);
     }
 
     /**
-     * Comprueba el escenario {@code publishesTerminalItemsInTheirRealCompletionOrder}.
+     * Bloquea el elemento lento hasta publicarse el rápido y comprueba que los eventos COMPLETED
+     * siguen ese orden aunque la solicitud enumere primero el lento.
      */
     @Test
     void publishesTerminalItemsInTheirRealCompletionOrder() {
@@ -312,7 +320,7 @@ class DownloadJobProcessorTest {
         };
         DownloadJobProcessor processor = processor(downloader, store, publisher, 10);
 
-        processor.process(event(List.of(item("slow", "Slow.exe"), item("fast", "Fast.exe"))));
+        processor.process(event(List.of(item("slow"), item("fast"))));
 
         assertThat(publisher.events.stream()
                         .filter(DownloadJobProgressedEvent.class::isInstance)
@@ -322,6 +330,11 @@ class DownloadJobProcessorTest {
                 .containsExactly(FAST_ITEM_ID, SLOW_ITEM_ID);
     }
 
+    /**
+     * Retiene todos los permisos de ZIP y comprueba que la descarga ya publicó COMPLETED mientras
+     * el procesamiento sigue pendiente y todavía no hay objetos; al liberar permiso se guarda el
+     * ZIP.
+     */
     @Test
     void finishesDownloadsBeforeWaitingForAPackagingPermit() throws Exception {
         CountDownLatch completed = new CountDownLatch(1);
@@ -345,7 +358,7 @@ class DownloadJobProcessorTest {
                 downloader, store, publisher, 10, metadataLookup(true), packaging);
 
         CompletableFuture<Void> processing = CompletableFuture.runAsync(
-                () -> processor.process(event(List.of(item("fast", "Fast.exe")))));
+                () -> processor.process(event(List.of(item("fast")))));
 
         assertThat(completed.await(2, TimeUnit.SECONDS)).isTrue();
         assertThat(processing).isNotDone();
@@ -355,6 +368,10 @@ class DownloadJobProcessorTest {
         assertThat(store.objects.keySet()).anyMatch(key -> key.endsWith("/bundle.zip"));
     }
 
+    /**
+     * Procesa un AppImage y comprueba launcher, receta, referencias de checksums y soporte
+     * automático en manifiesto, sin exponer el host de descarga en la configuración.
+     */
     @Test
     void addsTheOfflineInstallerToLinuxArchives() throws Exception {
         MemoryArtifactStore store = new MemoryArtifactStore();
@@ -366,7 +383,7 @@ class DownloadJobProcessorTest {
         DownloadJobProcessor processor = processor(
                 downloader, store, publisher, 10, metadataLookup(true),
                 new Semaphore(1, true), resolver);
-        DownloadJobRequestedEvent event = event(List.of(item("ok", "Example.AppImage")));
+        DownloadJobRequestedEvent event = event(List.of(item("ok")));
 
         processor.process(event);
 
@@ -385,6 +402,10 @@ class DownloadJobProcessorTest {
                 .contains("\"installationSupport\" : \"automatic\"");
     }
 
+    /**
+     * Desactiva el runtime Linux y comprueba que desaparece install.sh pero se conservan instalador
+     * y manifiesto versionado dentro del ZIP.
+     */
     @Test
     void featureFlagOmitsOnlyTheLinuxInstallerRuntime() throws Exception {
         MemoryArtifactStore store = new MemoryArtifactStore();
@@ -395,7 +416,7 @@ class DownloadJobProcessorTest {
                 localDownloader(), store, publisher, 10, metadataLookup(true),
                 new Semaphore(1, true), linuxResolver(installation));
         ReflectionTestUtils.setField(processor, "linuxInstallerEnabled", false);
-        DownloadJobRequestedEvent event = event(List.of(item("ok", "Example.AppImage")));
+        DownloadJobRequestedEvent event = event(List.of(item("ok")));
 
         processor.process(event);
 
@@ -406,13 +427,14 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Procesa los datos recibidos mediante {@code processor}.
+     * Compone el procesador con metadatos de páginas oficiales seguras para los escenarios
+     * generales.
      *
-     * @param downloader Valor de {@code downloader} utilizado por la operación.
-     * @param store Valor de {@code store} utilizado por la operación.
-     * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @param maxItems Valor de {@code maxItems} utilizado por la operación.
-     * @return Resultado producido por {@code processor}.
+     * @param downloader Doble de transferencia que controla contenidos o fallos del escenario.
+     * @param store Almacén de prueba que conserva los objetos publicados para sus aserciones.
+     * @param publisher Registro de eventos que permite comprobar orden y resultados terminales.
+     * @param maxItems Límite de elementos configurado para probar admisión o rechazo del trabajo.
+     * @return procesador aislado con los dobles recibidos.
      */
     private DownloadJobProcessor processor(
             RemoteDownloader downloader,
@@ -423,14 +445,15 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Procesa los datos recibidos mediante {@code processor}.
+     * Añade un permiso justo de empaquetado al procesador con metadatos controlados.
      *
-     * @param downloader Valor de {@code downloader} utilizado por la operación.
-     * @param store Valor de {@code store} utilizado por la operación.
-     * @param publisher Valor de {@code publisher} utilizado por la operación.
-     * @param maxItems Valor de {@code maxItems} utilizado por la operación.
-     * @param metadataLookup Valor de {@code metadataLookup} utilizado por la operación.
-     * @return Resultado producido por {@code processor}.
+     * @param downloader Doble de transferencia que controla contenidos o fallos del escenario.
+     * @param store Almacén de prueba que conserva los objetos publicados para sus aserciones.
+     * @param publisher Registro de eventos que permite comprobar orden y resultados terminales.
+     * @param maxItems Límite de elementos configurado para probar admisión o rechazo del trabajo.
+     * @param metadataLookup Consulta simulada de nombres y páginas oficiales para alternativas
+     *     manuales.
+     * @return procesador con una plaza de ZIP disponible.
      */
     private DownloadJobProcessor processor(
             RemoteDownloader downloader,
@@ -443,6 +466,19 @@ class DownloadJobProcessorTest {
                 new java.util.concurrent.Semaphore(1, true));
     }
 
+    /**
+     * Añade una resolución Windows determinista a la composición con permisos controlados.
+     *
+     * @param downloader Doble de transferencia que controla contenidos o fallos del escenario.
+     * @param store Almacén de prueba que conserva los objetos publicados para sus aserciones.
+     * @param publisher Registro de eventos que permite comprobar orden y resultados terminales.
+     * @param maxItems Límite de elementos configurado para probar admisión o rechazo del trabajo.
+     * @param metadataLookup Consulta simulada de nombres y páginas oficiales para alternativas
+     *     manuales.
+     * @param packagingSemaphore Permisos controlados por la prueba para observar la espera antes de
+     *     comprimir.
+     * @return procesador con fuentes y tamaños conocidos de prueba.
+     */
     private DownloadJobProcessor processor(
             RemoteDownloader downloader,
             ArtifactStore store,
@@ -466,6 +502,21 @@ class DownloadJobProcessorTest {
                 packagingSemaphore, resolver);
     }
 
+    /**
+     * Compone las mismas fases del procesador con reloj fijo, directorio temporal y adaptadores
+     * controlados sin depender de Core, scraper o MinIO.
+     *
+     * @param downloader Doble de transferencia que controla contenidos o fallos del escenario.
+     * @param store Almacén de prueba que conserva los objetos publicados para sus aserciones.
+     * @param publisher Registro de eventos que permite comprobar orden y resultados terminales.
+     * @param maxItems Límite de elementos configurado para probar admisión o rechazo del trabajo.
+     * @param metadataLookup Consulta simulada de nombres y páginas oficiales para alternativas
+     *     manuales.
+     * @param packagingSemaphore Permisos controlados por la prueba para observar la espera antes de
+     *     comprimir.
+     * @param resolver Resolución simulada que fija URI y metadatos de instalación del escenario.
+     * @return procesador que permite verificar contenido y coordinación localmente.
+     */
     private DownloadJobProcessor processor(
             RemoteDownloader downloader,
             ArtifactStore store,
@@ -488,27 +539,31 @@ class DownloadJobProcessorTest {
                 "http://minio", "key", "secret", "installers", Duration.ofHours(1));
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        return new DownloadJobProcessor(
-                resolver,
-                metadataLookup,
-                downloader,
-                store,
-                new ZipArchiveBuilder(),
-                publisher,
-                new FilenamePolicy(),
-                new PublicHttpsUriPolicy(hostname -> List.of(publicAddress())),
-                mapper,
-                executor,
-                downloadProperties,
-                storage,
-                Clock.fixed(Instant.parse("2026-07-11T12:00:00Z"), ZoneOffset.UTC),
-                new DownloadCancellationRegistry(),
-                new JobCapacity(downloadProperties.jobConcurrency(), registry),
-                packagingSemaphore,
-                new DownloadWorkerMetrics(registry),
-                new TemporaryDiskCapacity(downloadProperties));
+        Clock clock = Clock.fixed(Instant.parse("2026-07-11T12:00:00Z"), ZoneOffset.UTC);
+        DownloadCancellationRegistry cancellations = new DownloadCancellationRegistry();
+        DownloadWorkerMetrics metrics = new DownloadWorkerMetrics(registry);
+        FilenamePolicy filenames = new FilenamePolicy();
+        DownloadEventEmitter events = new DownloadEventEmitter(publisher, storage, clock);
+        DownloadJobFiles files = new DownloadJobFiles(store, metrics, downloadProperties);
+        DownloadPipelineFactory pipelines = (event, items, directory, window) -> new DownloadPipeline(
+                event, items, directory, window, executor, downloader, filenames, downloadProperties,
+                cancellations, metrics, events, clock, files);
+        return new DownloadJobProcessor(pipelines, store, new ZipArchiveBuilder(), downloadProperties, clock,
+                cancellations, new JobCapacity(downloadProperties.jobConcurrency(), registry), packagingSemaphore,
+                metrics, new TemporaryDiskCapacity(downloadProperties), null, events, files,
+                new ManualShortcutWriter(metadataLookup, filenames,
+                        new PublicHttpsUriPolicy(hostname -> List.of(publicAddress()))),
+                new DownloadManifestWriter(mapper, clock), new LinuxInstallerBundleWriter(mapper),
+                new DownloadResolutionService(resolver, executor, downloadProperties, cancellations, events, clock));
     }
 
+    /**
+     * Construye una resolución AppImage que conserva los UUID recibidos y los metadatos del
+     * escenario.
+     *
+     * @param installation Metadatos Linux que se conservan al resolver el instalador de ejemplo.
+     * @return resolutor local sin llamadas HTTP.
+     */
     private SourceReferenceResolver linuxResolver(InstallationMetadata installation) {
         return item -> new ResolvedDownloadItem(
                 item.itemId(),
@@ -524,6 +579,12 @@ class DownloadJobProcessorTest {
                 installation);
     }
 
+    /**
+     * Simula una transferencia escribiendo linux-payload, consumiendo presupuesto y calculando la
+     * huella real del temporal.
+     *
+     * @return descargador local que conserva los metadatos de instalación.
+     */
     private RemoteDownloader localDownloader() {
         return (item, filename, target, budget, maximum) -> {
             try {
@@ -541,10 +602,11 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Ejecuta la operación {@code metadataLookup}.
+     * Asigna nombres estables a los elementos y permite activar o retirar su página oficial.
      *
-     * @param safeOfficialPage Valor de {@code safeOfficialPage} utilizado por la operación.
-     * @return Resultado producido por {@code metadataLookup}.
+     * @param safeOfficialPage true proporciona una página HTTPS pública; false deja al elemento sin
+     *     alternativa manual.
+     * @return consulta de metadatos en memoria por UUID de elemento.
      */
     private JobItemMetadataLookup metadataLookup(boolean safeOfficialPage) {
         return (jobId, items) -> items.stream().collect(java.util.stream.Collectors.toMap(
@@ -560,10 +622,10 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Ejecuta la operación {@code publicAddress}.
+     * Aporta una dirección pública fija al doble DNS para evitar consultas de red durante las
+     * pruebas.
      *
-     * @return Resultado producido por {@code publicAddress}.
-     * @throws AssertionError Si no puede completarse la operación bajo las condiciones requeridas.
+     * @return dirección IPv4 8.8.8.8 construida sin consultar DNS.
      */
     private static InetAddress publicAddress() {
         try {
@@ -574,12 +636,13 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Ejecuta la operación {@code zipEntry}.
+     * Recorre el ZIP en memoria y lee la primera entrada cuyo nombre coincide exactamente con la
+     * ruta solicitada.
      *
-     * @param archive Valor de {@code archive} utilizado por la operación.
-     * @param expectedPath Valor esperado de {@code path}.
-     * @return Resultado producido por {@code zipEntry}.
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param archive Bytes del ZIP producido por el procesador.
+     * @param expectedPath Nombre exacto de la entrada cuyo contenido debe inspeccionarse.
+     * @return contenido textual de la entrada o null si no existe.
+     * @throws java.lang.Exception si no puede leerse el ZIP generado por el escenario.
      */
     private static String zipEntry(byte[] archive, String expectedPath) throws Exception {
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(archive))) {
@@ -593,10 +656,11 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Ejecuta la operación {@code event}.
+     * Crea una solicitud válida con fecha fija y UUID de evento, trabajo y correlación propios de
+     * la prueba.
      *
-     * @param items Colección de elementos que debe procesarse.
-     * @return Resultado producido por {@code event}.
+     * @param items Selección ordenada que se incluye en la solicitud de prueba.
+     * @return sobre de solicitud con la selección recibida.
      */
     private DownloadJobRequestedEvent event(List<DownloadItemRequest> items) {
         return new DownloadJobRequestedEvent(
@@ -612,13 +676,12 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Ejecuta la operación {@code item}.
+     * Deriva UUID diferentes de elemento, aplicación y fuente a partir de una semilla común.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param filename Valor de {@code filename} utilizado por la operación.
-     * @return Resultado producido por {@code item}.
+     * @param id Texto de fixture del que se derivan UUID estables de elemento, aplicación y fuente.
+     * @return selección exacta reproducible para el escenario.
      */
-    private DownloadItemRequest item(String id, String filename) {
+    private DownloadItemRequest item(String id) {
         return new DownloadItemRequest(
                 DownloadJobProcessorTest.id("item-" + id),
                 DownloadJobProcessorTest.id("app-" + id),
@@ -626,29 +689,33 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Ejecuta la operación {@code filename}.
+     * Distingue el instalador rechazado del resto al construir respuestas del resolutor de prueba.
      *
-     * @param itemId Identificador de {@code item} utilizado por la operación.
-     * @return Resultado producido por {@code filename}.
+     * @param itemId UUID del elemento que distingue el nombre Bad.exe del nombre Good.exe.
+     * @return Bad.exe para BAD_ITEM_ID y Good.exe en los demás casos.
      */
     private static String filename(UUID itemId) {
         return BAD_ITEM_ID.equals(itemId) ? "Bad.exe" : "Good.exe";
     }
 
     /**
-     * Ejecuta la operación {@code id}.
+     * Deriva un UUID de nombre a partir de una semilla UTF-8 de fixture.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code id}.
+     * @param value Semilla UTF-8 que identifica de forma reproducible una entidad del escenario.
+     * @return UUID reproducible para la misma semilla.
      */
     private static UUID id(String value) {
         return UUID.nameUUIDFromBytes(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     /**
-     * Agrupa los escenarios de prueba de {@code MemoryArtifactStore}.
+     * Captura objetos completos en memoria para comprobar contenido y compensación sin un servidor
+     * de almacenamiento.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Pruebas de procesamiento y capacidad
      */
     private static class MemoryArtifactStore implements ArtifactStore {
         /**
@@ -657,13 +724,12 @@ class DownloadJobProcessorTest {
         private final Map<String, byte[]> objects = new HashMap<>();
 
         /**
-         * Implementa {@code put} para {@code MemoryArtifactStore}.
+         * Lee el archivo producido por el respaldo de streaming y conserva sus bytes bajo la clave
+         * solicitada.
          *
-         * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-         * @param source Fuente de descarga sobre la que se actúa.
-         * @param contentType Valor de {@code contentType} utilizado por la operación.
-         * @throws RuntimeException Si no puede completarse la operación bajo las condiciones
-         *     requeridas.
+         * @param objectKey Clave con la que se conserva o retira un objeto del almacén en memoria.
+         * @param source Archivo local cuyos bytes se capturan para inspeccionar el resultado.
+         * @param contentType Metadato del puerto que el doble en memoria no necesita conservar.
          */
         @Override
         public void put(String objectKey, Path source, String contentType) {
@@ -675,9 +741,10 @@ class DownloadJobProcessorTest {
         }
 
         /**
-         * Elimina el recurso solicitado mediante {@code delete}.
+         * Retira el objeto capturado para que las aserciones puedan comprobar compensación de
+         * resultados incompletos.
          *
-         * @param objectKey Valor de {@code objectKey} utilizado por la operación.
+         * @param objectKey Clave con la que se conserva o retira un objeto del almacén en memoria.
          */
         @Override
         public void delete(String objectKey) {
@@ -687,9 +754,13 @@ class DownloadJobProcessorTest {
     }
 
     /**
-     * Agrupa los escenarios de prueba de {@code RecordingPublisher}.
+     * Captura claves y sobres de eventos y permite sincronizar descargas con la publicación del
+     * elemento rápido.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Pruebas de procesamiento y capacidad
      */
     private static class RecordingPublisher implements EventPublisher {
         /**
@@ -706,27 +777,28 @@ class DownloadJobProcessorTest {
         private final CountDownLatch fastTerminalPublished;
 
         /**
-         * Inicializa una instancia de {@code RecordingPublisher}.
+         * Crea un registro de eventos sin barrera adicional de sincronización.
          */
         private RecordingPublisher() {
             this(null);
         }
 
         /**
-         * Inicializa una instancia de {@code RecordingPublisher}.
+         * Conecta una barrera opcional que permite comprobar el orden real de finalización.
          *
-         * @param fastTerminalPublished Valor de {@code fastTerminalPublished} utilizado por la
-         *     operación.
+         * @param fastTerminalPublished Barrera opcional que se abre cuando el elemento rápido
+         *     publica COMPLETED.
          */
         private RecordingPublisher(CountDownLatch fastTerminalPublished) {
             this.fastTerminalPublished = fastTerminalPublished;
         }
 
         /**
-         * Publica el contenido solicitado mediante {@code publish}.
+         * Registra el mensaje y abre la barrera cuando se publica COMPLETED para el elemento
+         * rápido.
          *
-         * @param routingKey Valor de {@code routingKey} utilizado por la operación.
-         * @param event Evento que debe procesarse.
+         * @param routingKey Clave registrada para comprobar qué contrato de evento se publicó.
+         * @param event Sobre registrado para comprobar estado, recuentos y orden de publicación.
          */
         @Override
         public void publish(String routingKey, Object event) {

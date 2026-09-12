@@ -11,9 +11,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /**
- * Agrupa los escenarios de prueba de {@code JdbcInboxRepositoryTest}.
+ * Caracteriza reserva, finalización y liberación de eventos sobre una base H2 independiente por
+ * prueba.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.persistence.JdbcInboxRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
  */
 class JdbcInboxRepositoryTest {
     /**
@@ -22,7 +27,8 @@ class JdbcInboxRepositoryTest {
     private JdbcInboxRepository repository;
 
     /**
-     * Prepara el estado necesario para los escenarios de prueba.
+     * Crea una base en memoria con la tabla del inbox y un repositorio JDBC para aislar las
+     * reservas de cada escenario.
      */
     @BeforeEach
     void setUp() {
@@ -41,7 +47,8 @@ class JdbcInboxRepositoryTest {
     }
 
     /**
-     * Comprueba el escenario {@code processesAnEventOnlyOnceAfterCompletion}.
+     * Reserva un evento, rechaza un segundo intento y comprueba que completar la reserva impide
+     * recuperarla incluso con duración cero.
      */
     @Test
     void processesAnEventOnlyOnceAfterCompletion() {
@@ -54,7 +61,8 @@ class JdbcInboxRepositoryTest {
     }
 
     /**
-     * Comprueba el escenario {@code releaseAllowsRabbitRetryToClaimAgain}.
+     * Libera una reserva pendiente y comprueba que el mismo evento puede reservarse de nuevo para
+     * el reintento.
      */
     @Test
     void releaseAllowsRabbitRetryToClaimAgain() {

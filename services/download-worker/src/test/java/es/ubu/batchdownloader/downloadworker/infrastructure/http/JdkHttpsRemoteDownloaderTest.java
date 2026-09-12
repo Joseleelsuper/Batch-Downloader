@@ -33,9 +33,15 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Agrupa los escenarios de prueba de {@code JdkHttpsRemoteDownloaderTest}.
+ * Verifica validación, redirecciones, límites, MIME e integridad al transmitir instaladores con
+ * respuestas HTTP simuladas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.JdkHttpsRemoteDownloader
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de archivo y transporte
  */
 class JdkHttpsRemoteDownloaderTest {
     /**
@@ -45,9 +51,8 @@ class JdkHttpsRemoteDownloaderTest {
     Path temp;
 
     /**
-     * Comprueba el escenario {@code streamsHttpsResponseComputesHashAndHonorsBudget}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Entrega una respuesta HTTPS que cabe en el presupuesto y comprueba los bytes escritos, el
+     * tamaño y una huella SHA-256 de 64 caracteres.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -71,7 +76,7 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsNonHttpsBeforeOpeningConnection}.
+     * Propone una URL HTTP y exige https_required sin realizar llamadas al cliente de red.
      */
     @Test
     void rejectsNonHttpsBeforeOpeningConnection() {
@@ -90,9 +95,7 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsDeclaredFileLargerThanConfiguredLimit}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Declara 100 bytes frente a un límite de diez y comprueba file_size_limit_exceeded.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -115,9 +118,8 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Comprueba el escenario {@code acceptsCurrentBinaryMimeWhenHistoricalMimeDiffers}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Cambia entre tipos MIME binarios históricos y actuales y comprueba que se conservan los bytes
+     * y el tamaño del instalador recibido.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -147,9 +149,8 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Comprueba el escenario {@code stillRejectsHtmlInsteadOfAnInstaller}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Devuelve HTML con estado 200 y comprueba que se rechaza como
+     * unexpected_download_content_type.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -173,9 +174,8 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Comprueba el escenario {@code acceptsChangedLatestInstallerSizeWhenNoDigestPinsTheArtifact}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Actualiza el tamaño de una fuente sin huella fijada y comprueba que se acepta el contenido
+     * actual.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -201,9 +201,8 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Comprueba el escenario {@code acceptsChangedInstallerSizeWhenDigestStillMatches}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Proporciona un tamaño histórico distinto y un SHA-256 coincidente con el contenido actual y
+     * comprueba que la descarga se conserva.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -234,9 +233,8 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Comprueba el escenario {@code stillRejectsInstallerWhenDigestDoesNotMatch}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Proporciona una huella distinta de la calculada y comprueba source_sha256_mismatch y
+     * eliminación del archivo de destino.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -264,7 +262,10 @@ class JdkHttpsRemoteDownloaderTest {
         assertThat(target).doesNotExist();
     }
 
-    /** Comprueba que cada redirect se ejecuta como un salto explícito y vuelve a pasar la política. */
+    /**
+     * Devuelve una redirección relativa seguida de éxito y comprueba el orden y las dos URI
+     * solicitadas explícitamente.
+     */
     @Test
     @SuppressWarnings("unchecked")
     void followsRedirectsOneHopAtATime() throws Exception {
@@ -300,11 +301,12 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Ejecuta la operación {@code downloader}.
+     * Compone el descargador con un cliente simulado, límite controlado y DNS público fijo para
+     * evitar consultas externas.
      *
-     * @param client Valor de {@code client} utilizado por la operación.
-     * @param maxFileSize Valor de {@code maxFileSize} utilizado por la operación.
-     * @return Resultado producido por {@code downloader}.
+     * @param client cliente HTTP simulado que proporciona las respuestas del escenario.
+     * @param maxFileSize límite por archivo, con su unidad de tamaño.
+     * @return descargador listo para consumir las respuestas del escenario.
      */
     private JdkHttpsRemoteDownloader downloader(HttpClient client, DataSize maxFileSize) {
         DownloadProperties properties = new DownloadProperties(
@@ -328,35 +330,38 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Ejecuta la operación {@code item}.
+     * Construye una fuente Windows de prueba y conserva las expectativas opcionales de tamaño,
+     * huella y MIME recibidas por la sobrecarga.
      *
-     * @param url URL del recurso que debe procesarse.
-     * @return Resultado producido por {@code item}.
+     * @param url dirección original del instalador, válida o inválida según el escenario.
+     * @return fuente resuelta con identidades aleatorias y nombre App.exe.
      */
     private ResolvedDownloadItem item(String url) {
         return item(url, null, null, null);
     }
 
     /**
-     * Ejecuta la operación {@code item}.
+     * Construye una fuente Windows de prueba y conserva las expectativas opcionales de tamaño,
+     * huella y MIME recibidas por la sobrecarga.
      *
-     * @param url URL del recurso que debe procesarse.
-     * @param expectedSizeBytes Valor esperado de {@code sizeBytes}.
-     * @param expectedSha256 Valor esperado de {@code sha256}.
-     * @return Resultado producido por {@code item}.
+     * @param url dirección original del instalador, válida o inválida según el escenario.
+     * @param expectedSizeBytes tamaño histórico en bytes; null indica que no se conoce.
+     * @param expectedSha256 SHA-256 fijado para la fuente; null permite cambios de contenido.
+     * @return fuente resuelta con identidades aleatorias y nombre App.exe.
      */
     private ResolvedDownloadItem item(String url, Long expectedSizeBytes, String expectedSha256) {
         return item(url, expectedSizeBytes, expectedSha256, null);
     }
 
     /**
-     * Ejecuta la operación {@code item}.
+     * Construye una fuente Windows de prueba y conserva las expectativas opcionales de tamaño,
+     * huella y MIME recibidas por la sobrecarga.
      *
-     * @param url URL del recurso que debe procesarse.
-     * @param expectedSizeBytes Valor esperado de {@code sizeBytes}.
-     * @param expectedSha256 Valor esperado de {@code sha256}.
-     * @param expectedMime Valor esperado de {@code mime}.
-     * @return Resultado producido por {@code item}.
+     * @param url dirección original del instalador, válida o inválida según el escenario.
+     * @param expectedSizeBytes tamaño histórico en bytes; null indica que no se conoce.
+     * @param expectedSha256 SHA-256 fijado para la fuente; null permite cambios de contenido.
+     * @param expectedMime tipo MIME histórico; null indica que no se conoce.
+     * @return fuente resuelta con identidades aleatorias y nombre App.exe.
      */
     private ResolvedDownloadItem item(
             String url,
@@ -377,21 +382,23 @@ class JdkHttpsRemoteDownloaderTest {
     }
 
     /**
-     * Ejecuta la operación {@code headers}.
+     * Construye las cabeceras de una respuesta simulada y omite Content-Type cuando no se
+     * proporciona.
      *
-     * @param contentLength Valor de {@code contentLength} utilizado por la operación.
-     * @return Resultado producido por {@code headers}.
+     * @param contentLength longitud en bytes declarada por el servidor.
+     * @return cabeceras HTTP con la longitud declarada y el MIME opcional.
      */
     private HttpHeaders headers(long contentLength) {
         return headers(contentLength, null);
     }
 
     /**
-     * Ejecuta la operación {@code headers}.
+     * Construye las cabeceras de una respuesta simulada y omite Content-Type cuando no se
+     * proporciona.
      *
-     * @param contentLength Valor de {@code contentLength} utilizado por la operación.
-     * @param contentType Valor de {@code contentType} utilizado por la operación.
-     * @return Resultado producido por {@code headers}.
+     * @param contentLength longitud en bytes declarada por el servidor.
+     * @param contentType tipo MIME de la respuesta; null omite la cabecera.
+     * @return cabeceras HTTP con la longitud declarada y el MIME opcional.
      */
     private HttpHeaders headers(long contentLength, String contentType) {
         Map<String, List<String>> values = contentType == null

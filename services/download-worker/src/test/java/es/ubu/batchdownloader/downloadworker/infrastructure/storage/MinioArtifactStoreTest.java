@@ -15,8 +15,20 @@ import java.io.IOException;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
-/** Verifica la compensación de una subida multipart interrumpida. */
+/**
+ * Comprueba compensación de objetos parciales cuando falla el productor del ZIP transmitido a
+ * almacenamiento.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.storage.MinioArtifactStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
+ */
 class MinioArtifactStoreTest {
+    /**
+     * Hace fallar el escritor con IOException y comprueba InfrastructureException y la solicitud de
+     * eliminación del objeto en MinIO.
+     */
     @Test
     void removesThePartialObjectWhenTheStreamWriterFails() throws Exception {
         MinioClient client = mock(MinioClient.class);

@@ -11,9 +11,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Agrupa los escenarios de prueba de {@code ZipArchiveBuilderTest}.
+ * Comprueba el contenido de los ZIP generados y sus permisos Unix sin depender de un extractor
+ * externo.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.archive.ZipArchiveBuilder
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de archivo y transporte
  */
 class ZipArchiveBuilderTest {
     /**
@@ -23,9 +28,8 @@ class ZipArchiveBuilderTest {
     Path temp;
 
     /**
-     * Comprueba el escenario {@code createsArchiveWithArtifactsAndManifest}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Añade un archivo y un manifiesto al ZIP y verifica ambas entradas y los bytes del instalador
+     * tras reabrirlo.
      */
     @Test
     void createsArchiveWithArtifactsAndManifest() throws Exception {
@@ -48,6 +52,10 @@ class ZipArchiveBuilderTest {
         }
     }
 
+    /**
+     * Añade un lanzador ejecutable y una configuración ordinaria y comprueba permisos Unix 0755 y
+     * 0644, respectivamente.
+     */
     @Test
     void marksOnlyInstallerLaunchersAsExecutableForLinux() throws Exception {
         Path zip = temp.resolve("linux-bundle.zip");

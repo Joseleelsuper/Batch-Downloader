@@ -12,20 +12,26 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
 import org.apache.commons.compress.archivers.zip.Zip64Mode;
 
 /**
- * Implementa el componente {@code ZipArchiveBuilder}.
+ * Construye ZIP UTF-8 con Zip64 cuando hace falta y copia entradas por streaming. Valida nombres
+ * relativos y asigna permisos UNIX a los scripts ejecutables del runtime.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Construcción de archivos
  */
 public class ZipArchiveBuilder implements ArchiveBuilder {
     /**
-     * Construye el resultado solicitado mediante {@code build}.
+     * Abre el ZIP con compresión acotada, permite producir las entradas y cierra el archivo y su
+     * flujo de destino incluso si falla la escritura.
      *
-     * @param target Valor de {@code target} utilizado por la operación.
-     * @param artifacts Valor de {@code artifacts} utilizado por la operación.
-     * @param supplementalEntries Valor de {@code supplementalEntries} utilizado por la operación.
-     * @param manifest Valor de {@code manifest} utilizado por la operación.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param target Flujo de salida del archivo; la implementación ZIP lo cierra al terminar o
+     *     fallar.
+     * @param compressionLevel Nivel de compresión solicitado; ZIP lo acota entre cero y nueve.
+     * @param contents Productor que añade entradas mientras el archivo permanece abierto.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si hay un
+     *     error de E/S al crear el ZIP o un nombre de entrada inseguro.
      */
     @Override
     public void build(OutputStream target, int compressionLevel, ArchiveContents contents) {
@@ -48,6 +54,14 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
                     zip.closeArchiveEntry();
                 }
 
+                /**
+                 * Valida la ruta y escribe una entrada regular con permisos Unix 0755 para permitir
+                 * ejecutar el lanzador tras extraer el ZIP.
+                 *
+                 * @param path nombre relativo de la entrada ZIP, sujeto a validación.
+                 * @param content bytes que se incorporan a la entrada ejecutable.
+                 * @throws java.io.IOException si falla la escritura o el cierre de la entrada.
+                 */
                 @Override
                 public void addExecutable(String path, byte[] content) throws IOException {
                     zip.putArchiveEntry(entry(safeEntryName(path), true));
@@ -61,12 +75,13 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
     }
 
     /**
-     * Ejecuta la operación {@code safeEntryName}.
+     * Rechaza nombres ausentes, rutas absolutas, barras inversas y segmentos .. antes de crear una
+     * entrada ZIP.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code safeEntryName}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param value Nombre de entrada que se valida antes de escribir en el ZIP.
+     * @return nombre relativo original, sin normalizar ni cambiar sus caracteres.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si el
+     *     nombre no supera las restricciones, con código invalid_zip_entry.
      */
     private String safeEntryName(String value) {
         if (value == null
@@ -83,12 +98,12 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
     }
 
     /**
-     * Ejecuta la operación {@code add}.
+     * Crea la cabecera ZIP con tipo de archivo regular y permisos UNIX 0755 o 0644 según el uso de
+     * la entrada.
      *
-     * @param zip Valor de {@code zip} utilizado por la operación.
-     * @param filename Valor de {@code filename} utilizado por la operación.
-     * @param source Fuente de descarga sobre la que se actúa.
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * @param name Nombre relativo ya validado para la cabecera de la entrada.
+     * @param executable true fija permisos UNIX 0755; false utiliza 0644.
+     * @return entrada todavía no escrita en el archivo.
      */
     private static ZipArchiveEntry entry(String name, boolean executable) {
         ZipArchiveEntry entry = new ZipArchiveEntry(name);
@@ -96,6 +111,15 @@ public class ZipArchiveBuilder implements ArchiveBuilder {
         return entry;
     }
 
+    /**
+     * Abre la entrada, transfiere el archivo local por streaming y cierra su lectura y la entrada
+     * antes de continuar.
+     *
+     * @param zip Archivo ZIP abierto al que se añade la entrada.
+     * @param filename Nombre relativo ya validado de la entrada que recibe el archivo local.
+     * @param source Archivo local que se lee por streaming, sin cargarlo completo en memoria.
+     * @throws java.io.IOException si falla la lectura local, la copia o el cierre de la entrada.
+     */
     private void add(ZipArchiveOutputStream zip, String filename, Path source) throws IOException {
         zip.putArchiveEntry(entry(filename, false));
         try (InputStream input = Files.newInputStream(source)) {

@@ -10,13 +10,19 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Agrupa los escenarios de prueba de {@code PublicHttpsUriPolicyTest}.
+ * Comprueba rechazo de HTTP y de respuestas DNS que incluyen direcciones privadas o rangos
+ * reservados.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de archivo y transporte
  */
 class PublicHttpsUriPolicyTest {
     /**
-     * Comprueba el escenario {@code acceptsOnlyHttpsWithEntirelyPublicDnsAnswers}.
+     * Fija una respuesta DNS pública y comprueba aceptación de HTTPS y rechazo de HTTP con
+     * https_required.
      */
     @Test
     void acceptsOnlyHttpsWithEntirelyPublicDnsAnswers() {
@@ -31,7 +37,8 @@ class PublicHttpsUriPolicyTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsAHostWhenAnyDnsAnswerIsPrivate}.
+     * Mezcla una dirección pública con loopback y exige el rechazo completo del host con
+     * non_public_download_host.
      */
     @Test
     void rejectsAHostWhenAnyDnsAnswerIsPrivate() {
@@ -45,9 +52,8 @@ class PublicHttpsUriPolicyTest {
     }
 
     /**
-     * Comprueba el escenario {@code classifiesReservedRangesAsNonPublic}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Comprueba que las direcciones de documentación 192.0.2.1 y de CGNAT 100.64.0.1 no se
+     * clasifican como públicas.
      */
     @Test
     void classifiesReservedRangesAsNonPublic() throws Exception {
@@ -62,12 +68,12 @@ class PublicHttpsUriPolicyTest {
     }
 
     /**
-     * Ejecuta la operación {@code address}.
+     * Convierte un literal IP de prueba en la respuesta del doble DNS.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code address}.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param value literal de dirección IP del escenario.
+     * @return dirección indicada por el escenario.
+     * @throws java.lang.IllegalArgumentException si el literal no puede convertirse en dirección
+     *     IP.
      */
     private InetAddress address(String value) {
         try {

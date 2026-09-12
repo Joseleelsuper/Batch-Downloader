@@ -30,9 +30,15 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Agrupa los escenarios de prueba de {@code DownloadJobListenerTest}.
+ * Caracteriza validación del contrato, reserva del inbox, seguimiento del latido y espera por
+ * capacidad al consumir trabajos.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.messaging.DownloadJobListener
+ * @see es.ubu.batchdownloader.downloadworker.messaging.InboxDownloadJobHandler
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
  */
 class DownloadJobListenerTest {
     /**
@@ -70,7 +76,7 @@ class DownloadJobListenerTest {
     private final DownloadJobListener listener = new DownloadJobListener(handler, heartbeat);
 
     /**
-     * Comprueba el escenario {@code skipsAlreadyProcessedEvent}.
+     * Deniega la reserva del inbox y comprueba que no se procesa ni se completa el evento.
      */
     @Test
     void skipsAlreadyProcessedEvent() {
@@ -84,7 +90,8 @@ class DownloadJobListenerTest {
     }
 
     /**
-     * Comprueba el escenario {@code completesInboxOnlyAfterSuccessfulProcessing}.
+     * Concede la reserva y comprueba ejecución del procesador, confirmación del inbox y registro de
+     * éxito en el latido.
      */
     @Test
     void completesInboxOnlyAfterSuccessfulProcessing() {
@@ -99,7 +106,7 @@ class DownloadJobListenerTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsUnsupportedVersionBeforeClaimingInbox}.
+     * Envía la versión dos y exige rechazo sin reencolado antes de intentar reservar el inbox.
      */
     @Test
     void rejectsUnsupportedVersionBeforeClaimingInbox() {
@@ -112,7 +119,8 @@ class DownloadJobListenerTest {
     }
 
     /**
-     * Comprueba el escenario {@code releasesInboxWhenProcessingFailsSoRabbitCanRetry}.
+     * Hace fallar el procesamiento y comprueba propagación, liberación de reserva, ausencia de
+     * confirmación y registro del fallo en el latido.
      */
     @Test
     void releasesInboxWhenProcessingFailsSoRabbitCanRetry() {
@@ -127,6 +135,10 @@ class DownloadJobListenerTest {
         verify(heartbeat).failure(org.mockito.ArgumentMatchers.any(IllegalStateException.class));
     }
 
+    /**
+     * Aplaza por capacidad y comprueba envío a la cola de espera y latido exitoso sin registrar un
+     * fallo de procesamiento.
+     */
     @Test
     void routesCapacityWaitWithoutThrowingIntoTheFailureRetryInterceptor() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
@@ -151,10 +163,11 @@ class DownloadJobListenerTest {
     }
 
     /**
-     * Ejecuta la operación {@code event}.
+     * Construye un comando de descarga con un elemento y versión controlada para comprobar admisión
+     * del mensaje.
      *
-     * @param version Valor de {@code version} utilizado por la operación.
-     * @return Resultado producido por {@code event}.
+     * @param version versión del contrato de entrada que aceptará o rechazará el consumidor.
+     * @return sobre con identidades nuevas y fecha actual.
      */
     private DownloadJobRequestedEvent event(int version) {
         return new DownloadJobRequestedEvent(

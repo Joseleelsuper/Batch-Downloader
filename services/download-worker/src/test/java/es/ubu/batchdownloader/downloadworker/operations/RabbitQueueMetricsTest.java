@@ -11,8 +11,21 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 
+/**
+ * Comprueba la instantánea de profundidad y consumidores publicada a Micrometer desde las
+ * propiedades de RabbitMQ.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.operations.RabbitQueueMetrics
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
+ */
 class RabbitQueueMetricsTest {
 
+    /**
+     * Aporta siete trabajos de entrada y dos en espera y comprueba profundidad total nueve, espera
+     * dos y tres consumidores.
+     */
     @Test
     void refreshPublishesQueueDepthAndConsumerSnapshot() {
         AmqpAdmin rabbit = mock(AmqpAdmin.class);
@@ -38,6 +51,10 @@ class RabbitQueueMetricsTest {
         assertThat(registry.get("download_worker_queue_consumers").gauge().value()).isEqualTo(3);
     }
 
+    /**
+     * Aporta contadores no numéricos y después respuestas ausentes y comprueba que las tres
+     * métricas conservan el valor cero.
+     */
     @Test
     void refreshKeepsPreviousSnapshotWhenRabbitDoesNotReturnQueueProperties() {
         AmqpAdmin rabbit = mock(AmqpAdmin.class);

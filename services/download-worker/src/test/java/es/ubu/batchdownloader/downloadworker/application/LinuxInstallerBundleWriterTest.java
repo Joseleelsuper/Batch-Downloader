@@ -16,13 +16,25 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Verifica el instalador offline que se incorpora a los ZIP con ejecutables Linux. */
+/**
+ * Comprueba recetas, firmas y huellas del runtime offline y la degradación manual cuando el ZIP no
+ * contiene requisitos suficientes.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.LinuxInstallerBundleWriter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de procesamiento y capacidad
+ */
 class LinuxInstallerBundleWriterTest {
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
 
     @TempDir
     Path temp;
 
+    /**
+     * Incluye aplicación firmada y dependencia Linux y comprueba recursos del runtime, bytes de
+     * firma, relación de dependencia, ausencia de URL privada y nombres del índice de integridad.
+     */
     @Test
     void writesRuntimeComponentsSignatureAndCompleteChecksums() throws Exception {
         UUID dependencyId = UUID.randomUUID();
@@ -76,6 +88,10 @@ class LinuxInstallerBundleWriterTest {
                 .contains("  install.sh\n");
     }
 
+    /**
+     * Aporta una receta con dependencia ausente y sin firma requerida y comprueba estrategia
+     * manual, retirada de la dependencia no incluida y motivo de degradación.
+     */
     @Test
     void downgradesToManualWhenAnApprovedDependencyOrSignatureIsMissing() throws Exception {
         UUID applicationId = UUID.randomUUID();
@@ -103,6 +119,10 @@ class LinuxInstallerBundleWriterTest {
         assertThat(LinuxInstallerBundleWriter.support(application.installation())).isEqualTo("manual");
     }
 
+    /**
+     * Proporciona únicamente un instalador Windows y comprueba que no se generan entradas del
+     * runtime Linux.
+     */
     @Test
     void omitsTheInstallerForAJobWithoutLinuxArtifacts() throws Exception {
         DownloadedArtifact windows = artifact(
@@ -115,6 +135,17 @@ class LinuxInstallerBundleWriterTest {
                 UUID.randomUUID(), List.of(windows), new byte[0])).isEmpty();
     }
 
+    /**
+     * Crea un archivo local pequeño y metadatos controlados para verificar la configuración del
+     * bundle.
+     *
+     * @param appId UUID de la aplicación representada por el artefacto de prueba.
+     * @param filename Nombre propuesto que se conserva para probar saneamiento o configuración del
+     *     instalador.
+     * @param metadata Receta, plataforma y firma controladas por el escenario de instalación.
+     * @return artefacto de prueba con una huella declarada fija.
+     * @throws java.lang.Exception si no puede escribirse el archivo temporal del escenario.
+     */
     private DownloadedArtifact artifact(UUID appId, String filename, InstallationMetadata metadata)
             throws Exception {
         Path payload = temp.resolve(filename);

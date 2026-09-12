@@ -17,10 +17,21 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.unit.DataSize;
 
-/** Verifica el contrato HTTP interno de capacidad temporal. */
+/**
+ * Verifica autenticación de consultas internas y traducción de falta de espacio a una respuesta
+ * reintentable.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.WorkerCapacityController
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de archivo y transporte
+ */
 class WorkerCapacityControllerTest {
     @TempDir Path temporary;
 
+    /**
+     * Presenta un secreto incorrecto y exige una respuesta 401.
+     */
     @Test
     void rejectsInvalidInternalToken() {
         WorkerCapacityController controller = controller(mock(TemporaryDiskCapacity.class));
@@ -28,6 +39,10 @@ class WorkerCapacityControllerTest {
         assertThat(controller.check("wrong").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
+    /**
+     * Deja vacío el secreto configurado y comprueba que valores vacíos o ausentes en la petición
+     * siguen produciendo 401.
+     */
     @Test
     void rejectsRequestsWhenTheInternalTokenIsNotConfigured() {
         WorkerCapacityController controller = controller(mock(TemporaryDiskCapacity.class), "");
@@ -36,6 +51,10 @@ class WorkerCapacityControllerTest {
         assertThat(controller.check(null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
+    /**
+     * Simula falta de capacidad temporal y comprueba estado 503, código storage_busy y Retry-After
+     * de 30 segundos.
+     */
     @Test
     void returnsStorageBusyWithRetryAfter() {
         TemporaryDiskCapacity capacity = mock(TemporaryDiskCapacity.class);
@@ -52,10 +71,26 @@ class WorkerCapacityControllerTest {
                 body -> assertThat(body.get("code")).isEqualTo("storage_busy"));
     }
 
+    /**
+     * Compone el controlador con directorio temporal, límites de prueba y secreto interno explícito
+     * o predeterminado.
+     *
+     * @param capacity control de espacio temporal simulado.
+     * @return controlador sin conexiones a servicios externos.
+     */
     private WorkerCapacityController controller(TemporaryDiskCapacity capacity) {
         return controller(capacity, "token");
     }
 
+    /**
+     * Compone el controlador con directorio temporal, límites de prueba y secreto interno explícito
+     * o predeterminado.
+     *
+     * @param capacity control de espacio temporal simulado.
+     * @param serviceToken secreto interno que debe presentar la consulta de capacidad; vacío
+     *     permite probar configuración incompleta.
+     * @return controlador sin conexiones a servicios externos.
+     */
     private WorkerCapacityController controller(
             TemporaryDiskCapacity capacity,
             String serviceToken) {
