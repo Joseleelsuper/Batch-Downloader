@@ -36,7 +36,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 class OutboxDispatcher {
     /**
-     * Constante que define {@code LOGGER}.
+     * Logger de la clase, usado para registrar decisiones sin exponer datos sensibles.
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(OutboxDispatcher.class);
     /**

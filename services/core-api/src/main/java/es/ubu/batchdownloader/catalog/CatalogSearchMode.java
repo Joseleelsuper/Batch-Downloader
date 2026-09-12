@@ -16,11 +16,11 @@ import java.util.Locale;
  */
 public enum CatalogSearchMode {
     /**
-     * Constante que define {@code LEXICAL}.
+     * Valor compartido que fija l e x i c a l para el comportamiento del componente.
      */
     LEXICAL("lexical"),
     /**
-     * Constante que define {@code SEMANTIC}.
+     * Valor compartido que fija s e m a n t i c para el comportamiento del componente.
      */
     SEMANTIC("semantic");
 

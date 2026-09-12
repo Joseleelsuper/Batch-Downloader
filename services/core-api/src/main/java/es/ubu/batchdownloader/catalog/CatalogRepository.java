@@ -35,12 +35,13 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class CatalogRepository {
     /**
-     * Constante que define {@code REVIEW_LAST_ORDER}.
+     * Valor compartido que fija r e v i e w  l a s t  o r d e r para el comportamiento del
+     * componente.
      */
     private static final String REVIEW_LAST_ORDER =
             "a.catalog_review_priority ASC";
     /**
-     * Constante que define {@code CATALOG_STATUSES}.
+     * Valor compartido que representa c a t a l o g  s t a t u s e s en el contrato del módulo.
      */
     private static final Set<String> CATALOG_STATUSES =
             Set.of("all", "available", "review", "missing", "unresolved");

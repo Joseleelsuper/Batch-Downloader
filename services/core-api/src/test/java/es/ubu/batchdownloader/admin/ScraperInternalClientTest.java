@@ -229,9 +229,7 @@ class ScraperInternalClientTest {
     }
 
     /**
-     * Ejecuta la operación {@code client}.
-     *
-     * @return Resultado producido por {@code client}.
+     * Ejecuta client y comunica su resultado manteniendo las reglas del componente.
      */
     private ScraperInternalClient client() {
         return new ScraperInternalClient(

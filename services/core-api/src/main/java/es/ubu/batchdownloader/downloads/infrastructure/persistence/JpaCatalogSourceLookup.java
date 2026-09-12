@@ -118,7 +118,8 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         return Map.copyOf(result);
     }
     /**
-     * Constante que define {@code DEFAULT_OPERATING_SYSTEMS}.
+     * Valor compartido que fija d e f a u l t  o p e r a t i n g  s y s t e m s para el
+     * comportamiento del componente.
      */
     private static final List<String> DEFAULT_OPERATING_SYSTEMS = List.of("windows", "linux", "macos");
     /**

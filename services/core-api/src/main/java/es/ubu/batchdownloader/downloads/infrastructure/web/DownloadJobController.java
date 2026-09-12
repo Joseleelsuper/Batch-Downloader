@@ -53,15 +53,16 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/v1/download-jobs")
 public class DownloadJobController {
     /**
-     * Constante que define {@code OWNER_COOKIE}.
+     * Valor compartido que fija o w n e r  c o o k i e para el comportamiento del componente.
      */
     static final String OWNER_COOKIE = "BATCH_DOWNLOAD_OWNER";
     /**
-     * Constante que define {@code OPERATING_SYSTEMS}.
+     * Valor compartido que fija o p e r a t i n g  s y s t e m s para el comportamiento del
+     * componente.
      */
     private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
     /**
-     * Constante que define {@code RANDOM}.
+     * Valor compartido que fija r a n d o m para el comportamiento del componente.
      */
     private static final SecureRandom RANDOM = new SecureRandom();
 

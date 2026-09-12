@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class DownloadRequestOwner {
     /**
-     * Constante que define {@code HMAC_ALGORITHM}.
+     * Valor compartido que fija h m a c  a l g o r i t h m para el comportamiento del componente.
      */
     private static final String HMAC_ALGORITHM = "HmacSHA256";
 

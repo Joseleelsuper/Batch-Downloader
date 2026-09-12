@@ -36,7 +36,8 @@ import org.springframework.lang.Nullable;
 @Component
 public class SseDownloadJobNotifier implements DownloadJobNotifier {
     /**
-     * Constante que define {@code SSE_TIMEOUT_MILLIS}.
+     * Valor de configuración que limita s s e  t i m e o u t  m i l l i s y evita esperas
+     * indefinidas.
      */
     private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(30).toMillis();
     /**

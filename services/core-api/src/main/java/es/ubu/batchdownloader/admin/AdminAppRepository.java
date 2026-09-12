@@ -36,7 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class AdminAppRepository {
     /**
-     * Constante que define {@code DELETE_BATCH_SIZE}.
+     * Valor compartido que fija d e l e t e  b a t c h  s i z e para el comportamiento del
+     * componente.
      */
     private static final int DELETE_BATCH_SIZE = 500;
     /**

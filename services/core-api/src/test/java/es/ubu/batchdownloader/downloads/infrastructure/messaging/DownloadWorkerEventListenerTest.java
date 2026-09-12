@@ -164,21 +164,19 @@ class DownloadWorkerEventListenerTest {
     }
 
     /**
-     * Ejecuta la operación {@code message}.
+     * Ejecuta message y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param json Valor de {@code json} utilizado por la operación.
-     * @return Resultado producido por {@code message}.
+     * @param json Valor de `json` utilizado por el escenario.
      */
     private Message message(String json) {
         return new Message(json.getBytes(StandardCharsets.UTF_8), new MessageProperties());
     }
 
     /**
-     * Ejecuta la operación {@code progressed}.
+     * Ejecuta progressed y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param itemId Identificador de {@code item} utilizado por la operación.
-     * @return Resultado producido por {@code progressed}.
+     * @param jobId Identificador de la entidad que se procesa.
+     * @param itemId Identificador de la entidad que se procesa.
      */
     private String progressed(UUID jobId, UUID itemId) {
         return """

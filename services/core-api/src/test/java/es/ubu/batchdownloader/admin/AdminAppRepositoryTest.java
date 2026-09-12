@@ -193,17 +193,15 @@ class AdminAppRepositoryTest {
     }
 
     /**
-     * Ejecuta la operación {@code row}.
+     * Ejecuta row y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param appKey Valor de {@code appKey} utilizado por la operación.
-     * @param name Nombre del elemento sobre el que se actúa.
-     * @param winstallId Identificador de {@code winstall} utilizado por la operación.
-     * @param officialUrl Dirección de {@code official} que debe procesarse.
-     * @param operatingSystem Valor de {@code operatingSystem} utilizado por la operación.
-     * @param extension Valor de {@code extension} utilizado por la operación.
-     * @param sourceRef Valor de {@code sourceRef} utilizado por la operación.
-     * @return Resultado producido por {@code row}.
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param appKey Valor de `appKey` utilizado por el escenario.
+     * @param name Nombre o etiqueta visible usada por la operación.
+     * @param winstallId Identificador de la entidad que se procesa.
+     * @param officialUrl URL o URI del recurso que se procesa.
+     * @param operatingSystem Valor de `operatingSystem` utilizado por el escenario.
+     * @param extension Valor de `extension` utilizado por el escenario.
+     * @param sourceRef Valor de `sourceRef` utilizado por el escenario.
      */
     private ResultSet row(
             String appKey,

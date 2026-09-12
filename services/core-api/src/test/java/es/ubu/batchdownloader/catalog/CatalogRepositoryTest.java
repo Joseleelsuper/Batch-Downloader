@@ -454,10 +454,9 @@ class CatalogRepositoryTest {
     }
 
     /**
-     * Ejecuta la operación {@code repository}.
+     * Ejecuta repository y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
-     * @return Resultado producido por {@code repository}.
+     * @param jdbc Valor de `jdbc` utilizado por el escenario.
      */
     private static CatalogRepository repository(JdbcTemplate jdbc) {
         Clock clock = Clock.fixed(Instant.parse("2026-08-23T01:00:00Z"), ZoneOffset.UTC);

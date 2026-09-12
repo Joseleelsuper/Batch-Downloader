@@ -31,11 +31,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1")
 public class CatalogController {
     /**
-     * Constante que define {@code OPERATING_SYSTEMS}.
+     * Valor compartido que fija o p e r a t i n g  s y s t e m s para el comportamiento del
+     * componente.
      */
     private static final Set<String> OPERATING_SYSTEMS = Set.of("windows", "linux", "macos");
     /**
-     * Constante que define {@code PUBLIC_CATALOG_STATUSES}.
+     * Valor compartido que representa p u b l i c  c a t a l o g  s t a t u s e s en el contrato
+     * del módulo.
      */
     private static final Set<String> PUBLIC_CATALOG_STATUSES = Set.of("all", "available", "review", "missing");
     /**

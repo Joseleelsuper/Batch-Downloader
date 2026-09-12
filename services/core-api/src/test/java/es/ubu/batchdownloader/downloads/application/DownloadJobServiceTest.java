@@ -57,7 +57,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @ExtendWith(MockitoExtension.class)
 class DownloadJobServiceTest {
     /**
-     * Constante que define {@code NOW}.
+     * Valor compartido que fija n o w para el comportamiento del componente.
      */
     private static final Instant NOW = Instant.parse("2026-07-13T12:00:00Z");
 

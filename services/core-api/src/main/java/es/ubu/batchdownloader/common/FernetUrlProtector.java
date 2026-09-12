@@ -25,19 +25,19 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public class FernetUrlProtector {
     /**
-     * Constante que define {@code VERSION}.
+     * Valor compartido que fija v e r s i o n para el comportamiento del componente.
      */
     private static final int VERSION = 0x80;
     /**
-     * Constante que define {@code TIMESTAMP_BYTES}.
+     * Valor compartido que fija t i m e s t a m p  b y t e s para el comportamiento del componente.
      */
     private static final int TIMESTAMP_BYTES = 8;
     /**
-     * Constante que define {@code IV_BYTES}.
+     * Valor compartido que fija i v  b y t e s para el comportamiento del componente.
      */
     private static final int IV_BYTES = 16;
     /**
-     * Constante que define {@code HMAC_BYTES}.
+     * Valor compartido que fija h m a c  b y t e s para el comportamiento del componente.
      */
     private static final int HMAC_BYTES = 32;
 

@@ -165,10 +165,9 @@ class SemanticSearchClientTest {
     }
 
     /**
-     * Ejecuta la operación {@code client}.
+     * Ejecuta client y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param timeout Tiempo máximo permitido para completar la operación.
-     * @return Resultado producido por {@code client}.
+     * @param timeout Límite temporal de la operación.
      */
     private SemanticSearchClient client(Duration timeout) {
         return new SemanticSearchClient(
@@ -180,11 +179,10 @@ class SemanticSearchClientTest {
     }
 
     /**
-     * Ejecuta la operación {@code startServer}.
+     * Ejecuta start server y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param body Cuerpo recibido por la solicitud.
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * @param status Estado que condiciona la transición.
+     * @param body Contenido que se normaliza o comprueba.
      */
     private void startServer(int status, String body) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

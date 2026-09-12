@@ -31,7 +31,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 @RestController
 public class AdminSemanticController {
     /**
-     * Constante que define {@code INTERNAL_ROOT}.
+     * Valor compartido que fija i n t e r n a l  r o o t para el comportamiento del componente.
      */
     private static final String INTERNAL_ROOT = "/internal/v1/admin/semantic";
 

@@ -37,7 +37,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class SemanticSearchClient {
     /**
-     * Constante que define {@code FUNCTIONAL_CANDIDATE_LIMIT}.
+     * Valor compartido que fija f u n c t i o n a l  c a n d i d a t e  l i m i t para el
+     * comportamiento del componente.
      */
     private static final int FUNCTIONAL_CANDIDATE_LIMIT = 20000;
 

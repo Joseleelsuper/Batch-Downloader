@@ -10,11 +10,11 @@ package es.ubu.batchdownloader.identity.domain;
  */
 public enum UserRole {
     /**
-     * Constante que define {@code USER}.
+     * Valor compartido que fija u s e r para el comportamiento del componente.
      */
     USER,
     /**
-     * Constante que define {@code ADMIN}.
+     * Valor compartido que fija a d m i n para el comportamiento del componente.
      */
     ADMIN
 }

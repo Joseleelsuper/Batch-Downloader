@@ -26,10 +26,11 @@ public final class IdentityToken {
      * @category Identidad
      */
     public enum Type { /**
- * Constante que define {@code EMAIL_VERIFICATION}.
+ * Valor compartido que fija e m a i l  v e r i f i c a t i o n para el comportamiento del
+ * componente.
  */
 EMAIL_VERIFICATION, /**
- * Constante que define {@code PASSWORD_RESET}.
+ * Valor compartido que fija p a s s w o r d  r e s e t para el comportamiento del componente.
  */
 PASSWORD_RESET }
 

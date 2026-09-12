@@ -22,11 +22,11 @@ import org.springframework.stereotype.Component;
 @Component
 class IdentityOutboxPublisher implements IdentityEventPublisher {
     /**
-     * Constante que define {@code EVENT_TYPE}.
+     * Valor compartido que fija e v e n t  t y p e para el comportamiento del componente.
      */
     private static final String EVENT_TYPE = "notification.email.requested";
     /**
-     * Constante que define {@code ROUTING_KEY}.
+     * Constante de protocolo que identifica o protege r o u t i n g  k e y.
      */
     private static final String ROUTING_KEY = "notification.email.requested";
     /**

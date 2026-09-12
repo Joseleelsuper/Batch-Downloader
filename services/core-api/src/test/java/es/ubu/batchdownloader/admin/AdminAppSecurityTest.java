@@ -50,7 +50,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 })
 class AdminAppSecurityTest {
     /**
-     * Constante que define {@code APP_ID}.
+     * Valor compartido que fija a p p  i d para el comportamiento del componente.
      */
     private static final String APP_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -234,9 +234,7 @@ class AdminAppSecurityTest {
     }
 
     /**
-     * Ejecuta la operación {@code validRequest}.
-     *
-     * @return Resultado producido por {@code validRequest}.
+     * Ejecuta valid request y comunica su resultado manteniendo las reglas del componente.
      */
     private String validRequest() {
         return """
@@ -252,9 +250,8 @@ class AdminAppSecurityTest {
     }
 
     /**
-     * Ejecuta la operación {@code websiteDiscoveryRequest}.
-     *
-     * @return Resultado producido por {@code websiteDiscoveryRequest}.
+     * Ejecuta website discovery request y comunica su resultado manteniendo las reglas del
+     * componente.
      */
     private String websiteDiscoveryRequest() {
         return """

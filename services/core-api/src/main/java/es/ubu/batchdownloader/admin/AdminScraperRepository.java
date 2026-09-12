@@ -40,7 +40,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class AdminScraperRepository {
     /**
-     * Constante que define {@code COMMANDS}.
+     * Valor compartido que fija c o m m a n d s para el comportamiento del componente.
      */
     private static final Set<String> COMMANDS = Set.of("pause", "resume", "stop", "force_stop", "run_once");
     /** Ventana de conservación de los elementos terminales de cola. */
