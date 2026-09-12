@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "ref": "a2c32e0",
+  "modules": {
+    "api/scraper": {
+      "migrations": {
+        "files": 21,
+        "physical": 2056,
+        "code": 1580,
+        "comments": 265,
+        "blank": 211,
+        "empty_descriptions": 33
+      },
+      "production": {
+        "files": 76,
+        "physical": 24480,
+        "code": 16222,
+        "comments": 5565,
+        "blank": 2693,
+        "empty_descriptions": 151
+      },
+      "tests": {
+        "files": 32,
+        "physical": 11031,
+        "code": 7840,
+        "comments": 1526,
+        "blank": 1665,
+        "empty_descriptions": 83
+      }
+    },
+    "support": {
+      "production": {
+        "files": 5,
+        "physical": 1103,
+        "code": 933,
+        "comments": 42,
+        "blank": 128,
+        "empty_descriptions": 1
+      },
+      "tests": {
+        "files": 6,
+        "physical": 1127,
+        "code": 985,
+        "comments": 13,
+        "blank": 129,
+        "empty_descriptions": 0
+      }
+    },
+    "services/core-api": {
+      "production": {
+        "files": 143,
+        "physical": 19291,
+        "code": 11826,
+        "comments": 6255,
+        "blank": 1210,
+        "empty_descriptions": 345
+      },
+      "migrations": {
+        "files": 15,
+        "physical": 412,
+        "code": 367,
+        "comments": 14,
+        "blank": 31,
+        "empty_descriptions": 0
+      },
+      "tests": {
+        "files": 54,
+        "physical": 5877,
+        "code": 4652,
+        "comments": 605,
+        "blank": 620,
+        "empty_descriptions": 10
+      }
+    },
+    "services/download-worker": {
+      "production": {
+        "files": 102,
+        "physical": 7916,
+        "code": 5769,
+        "comments": 1620,
+        "blank": 527,
+        "empty_descriptions": 70
+      },
+      "tests": {
+        "files": 23,
+        "physical": 2829,
+        "code": 2072,
+        "comments": 470,
+        "blank": 287,
+        "empty_descriptions": 18
+      }
+    },
+    "services/notification-service": {
+      "production": {
+        "files": 29,
+        "physical": 2047,
+        "code": 1236,
+        "comments": 635,
+        "blank": 176,
+        "empty_descriptions": 34
+      },
+      "tests": {
+        "files": 14,
+        "physical": 1288,
+        "code": 930,
+        "comments": 181,
+        "blank": 177,
+        "empty_descriptions": 3
+      }
+    },
+    "services/semantic-service": {
+      "production": {
+        "files": 31,
+        "physical": 8506,
+        "code": 6050,
+        "comments": 1596,
+        "blank": 860,
+        "empty_descriptions": 49
+      },
+      "migrations": {
+        "files": 8,
+        "physical": 430,
+        "code": 396,
+        "comments": 0,
+        "blank": 34,
+        "empty_descriptions": 0
+      },
+      "tests": {
+        "files": 9,
+        "physical": 1573,
+        "code": 1267,
+        "comments": 134,
+        "blank": 172,
+        "empty_descriptions": 2
+      }
+    },
+    "services/translation-service": {
+      "production": {
+        "files": 9,
+        "physical": 644,
+        "code": 360,
+        "comments": 234,
+        "blank": 50,
+        "empty_descriptions": 14
+      },
+      "tests": {
+        "files": 4,
+        "physical": 367,
+        "code": 240,
+        "comments": 83,
+        "blank": 44,
+        "empty_descriptions": 2
+      }
+    },
+    "services/webapp": {
+      "production": {
+        "files": 76,
+        "physical": 16007,
+        "code": 14498,
+        "comments": 43,
+        "blank": 1466,
+        "empty_descriptions": 0
+      },
+      "tests": {
+        "files": 31,
+        "physical": 5701,
+        "code": 5093,
+        "comments": 0,
+        "blank": 608,
+        "empty_descriptions": 0
+      }
+    },
+    "shared/java-contracts": {
+      "production": {
+        "files": 2,
+        "physical": 180,
+        "code": 144,
+        "comments": 18,
+        "blank": 18,
+        "empty_descriptions": 0
+      },
+      "tests": {
+        "files": 2,
+        "physical": 70,
+        "code": 56,
+        "comments": 2,
+        "blank": 12,
+        "empty_descriptions": 0
+      }
+    }
+  },
+  "roles": {
+    "migrations": {
+      "files": 44,
+      "physical": 2898,
+      "code": 2343,
+      "comments": 279,
+      "blank": 276,
+      "empty_descriptions": 33
+    },
+    "production": {
+      "files": 473,
+      "physical": 80174,
+      "code": 57038,
+      "comments": 16008,
+      "blank": 7128,
+      "empty_descriptions": 664
+    },
+    "tests": {
+      "files": 175,
+      "physical": 29863,
+      "code": 23135,
+      "comments": 3014,
+      "blank": 3714,
+      "empty_descriptions": 118
+    }
+  },
+  "total": {
+    "files": 692,
+    "physical": 112935,
+    "code": 82516,
+    "comments": 19301,
+    "blank": 11118,
+    "empty_descriptions": 815
+  },
+  "flyway_sha256": {
+    "services/core-api/src/main/resources/db/migration/V10__identity_tokens_version.sql": "b4713266fc1d84024c1651cca97d357c0ac562a0acf16f854502b9831aa2adda",
+    "services/core-api/src/main/resources/db/migration/V11__user_download_history.sql": "5b896a26d71f59eab71b7ba1603b86f0b45812d19c9e16f9064138a2ab27b37f",
+    "services/core-api/src/main/resources/db/migration/V12__canonical_bundle_owners_and_session_cut.sql": "d5ed5b5c68c049ad5b1b0053d09f700a1655f68c35a44599ff862966e9084c90",
+    "services/core-api/src/main/resources/db/migration/V13__manual_download_job_items.sql": "902409ead49f12890330d20d930926cb068e233780a0cae78eb81538897a1582",
+    "services/core-api/src/main/resources/db/migration/V14__download_artifact_metadata_and_capacity_wait.sql": "820c350cab11e6ab13913d10e2c9a05cb1f305a384e405c3df5df660ff47a732",
+    "services/core-api/src/main/resources/db/migration/V15__catalog_download_sort_priority.sql": "f69d5e7e3241844b6f8fe0b6c95cf0efbce6c1d4581439bca14423774a3d578f",
+    "services/core-api/src/main/resources/db/migration/V16__linux_download_context.sql": "84fea10ecb139b5d8f4c77594b0657df5bc0187a3a196f67ed59688900980293",
+    "services/core-api/src/main/resources/db/migration/V2__core_catalog_compatibility_base.sql": "c3fd60ba00c818d326b3b447a347885b69535ca05b1cf83f405875b2578a0e54",
+    "services/core-api/src/main/resources/db/migration/V3__admin_bundles_and_scraper_control.sql": "8e1ce764f2e7c011a2cdcd2763f980c23e851fcf2ce3d7efe12a478c47fba824",
+    "services/core-api/src/main/resources/db/migration/V4__identity_download_jobs_and_outbox.sql": "7b88c53cd142f16353dd055084e47c3d04ec1c20845df75c606c9eadd9543262",
+    "services/core-api/src/main/resources/db/migration/V5__anonymous_download_jobs_bundle_ownership_and_icon_metrics.sql": "d8291e43f8fd00e48656d2edc513f91b0c89712b5e4b43fe33f8ed352fc3b93f",
+    "services/core-api/src/main/resources/db/migration/V6__catalog_download_counts.sql": "f7b4e07928726e70ae4412a7ada249a2f759cf700833e41cd28917afb816b84a",
+    "services/core-api/src/main/resources/db/migration/V7__download_job_item_metadata.sql": "678d77bd726161b451a1afeb2c76adcfd997eeccd7b1695c0334a3f682cd8406",
+    "services/core-api/src/main/resources/db/migration/V8__serialize_download_job_admission.sql": "a3a6cec66b3aa6de5b9420248495b23ccd979eb37f4e9c216f6691fca8b0066a",
+    "services/core-api/src/main/resources/db/migration/V9__claim_core_outbox_events.sql": "cc28dd9cf4abdcb66e2d73c7bf7bbe67c2f54abe2acd94f4a706a44a595e48e4"
+  }
+}
