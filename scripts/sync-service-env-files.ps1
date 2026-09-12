@@ -137,7 +137,6 @@ function Save-OrCheckFile {
 
 $targets = @(
     [pscustomobject]@{ Name = "Scraper API"; ExamplePath = "api/scraper/.env.example"; OutputPath = "api/scraper/.env" },
-    [pscustomobject]@{ Name = "Scraper Scheduler"; ExamplePath = "api/scraper/.env.scheduler.example"; OutputPath = "api/scraper/.env.scheduler" },
     [pscustomobject]@{ Name = "Core API"; ExamplePath = "services/core-api/.env.example"; OutputPath = "services/core-api/.env" },
     [pscustomobject]@{ Name = "Download Worker"; ExamplePath = "services/download-worker/.env.example"; OutputPath = "services/download-worker/.env" },
     [pscustomobject]@{ Name = "Notification Service"; ExamplePath = "services/notification-service/.env.example"; OutputPath = "services/notification-service/.env" },
