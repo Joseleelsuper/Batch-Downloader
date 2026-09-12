@@ -49,8 +49,8 @@ target-version = "py314"
 select = ["E", "F", "I", "UP", "B", "C90"]
 
 [tool.ruff.lint.mccabe]
-# Los casos de uso del store, benchmark y migrador ya tienen responsabilidades acotadas.
-max-complexity = 15
+# Cada fase del indexador, trabajador y entrenador conserva un flujo revisable.
+max-complexity = 10
 
 [tool.coverage.run]
 branch = true
