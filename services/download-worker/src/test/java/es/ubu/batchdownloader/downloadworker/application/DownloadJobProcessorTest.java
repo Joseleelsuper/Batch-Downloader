@@ -63,19 +63,19 @@ import org.springframework.test.util.ReflectionTestUtils;
  */
 class DownloadJobProcessorTest {
     /**
-     * Constante que define {@code GOOD_ITEM_ID}.
+     * Valor compartido que fija g o o d  i t e m  i d para el comportamiento del componente.
      */
     private static final UUID GOOD_ITEM_ID = id("item-ok");
     /**
-     * Constante que define {@code BAD_ITEM_ID}.
+     * Valor compartido que fija b a d  i t e m  i d para el comportamiento del componente.
      */
     private static final UUID BAD_ITEM_ID = id("item-bad");
     /**
-     * Constante que define {@code FAST_ITEM_ID}.
+     * Valor compartido que fija f a s t  i t e m  i d para el comportamiento del componente.
      */
     private static final UUID FAST_ITEM_ID = id("item-fast");
     /**
-     * Constante que define {@code SLOW_ITEM_ID}.
+     * Valor compartido que fija s l o w  i t e m  i d para el comportamiento del componente.
      */
     private static final UUID SLOW_ITEM_ID = id("item-slow");
     /**

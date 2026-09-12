@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class DownloadCancellationRegistry {
     /**
-     * Constante que define {@code RETENTION}.
+     * Valor de configuración que limita r e t e n t i o n y evita esperas indefinidas.
      */
     private static final Duration RETENTION = Duration.ofMinutes(30);
 

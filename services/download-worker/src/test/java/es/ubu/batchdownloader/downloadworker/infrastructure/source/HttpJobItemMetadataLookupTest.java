@@ -29,15 +29,15 @@ import org.junit.jupiter.api.Test;
  */
 class HttpJobItemMetadataLookupTest {
     /**
-     * Constante que define {@code JOB_ID}.
+     * Valor compartido que fija j o b  i d para el comportamiento del componente.
      */
     private static final UUID JOB_ID = UUID.fromString("00000000-0000-4000-8000-000000000001");
     /**
-     * Constante que define {@code ITEM_ID}.
+     * Valor compartido que fija i t e m  i d para el comportamiento del componente.
      */
     private static final UUID ITEM_ID = UUID.fromString("00000000-0000-4000-8000-000000000002");
     /**
-     * Constante que define {@code APP_ID}.
+     * Valor compartido que fija a p p  i d para el comportamiento del componente.
      */
     private static final UUID APP_ID = UUID.fromString("00000000-0000-4000-8000-000000000003");
 

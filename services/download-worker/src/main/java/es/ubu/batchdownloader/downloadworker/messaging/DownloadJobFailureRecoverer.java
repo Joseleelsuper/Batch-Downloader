@@ -29,11 +29,11 @@ import org.springframework.amqp.rabbit.retry.MessageRecoverer;
  */
 public final class DownloadJobFailureRecoverer implements MessageRecoverer {
     /**
-     * Constante que define {@code LOGGER}.
+     * Logger de la clase, usado para registrar decisiones sin exponer datos sensibles.
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobFailureRecoverer.class);
     /**
-     * Constante que define {@code FAILURE_CODE}.
+     * Valor compartido que fija f a i l u r e  c o d e para el comportamiento del componente.
      */
     private static final String FAILURE_CODE = "download_job_processing_failed";
 

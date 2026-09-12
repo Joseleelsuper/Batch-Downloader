@@ -20,11 +20,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class FilenamePolicy {
     /**
-     * Constante que define {@code MAX_FILENAME_LENGTH}.
+     * Valor compartido que fija m a x  f i l e n a m e  l e n g t h para el comportamiento del
+     * componente.
      */
     private static final int MAX_FILENAME_LENGTH = 180;
     /**
-     * Constante que define {@code WINDOWS_RESERVED_NAMES}.
+     * Valor compartido que fija w i n d o w s  r e s e r v e d  n a m e s para el comportamiento
+     * del componente.
      */
     private static final Set<String> WINDOWS_RESERVED_NAMES = Set.of(
             "CON", "PRN", "AUX", "NUL",
