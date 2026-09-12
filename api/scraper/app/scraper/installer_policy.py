@@ -426,18 +426,7 @@ def validated_installers_cover_latest_version(
     """Exige que algún binario validado corresponda a la versión anunciada."""
     if not latest_version or not latest_version.strip():
         return False
-    expected = parse_version(latest_version)
-    for installer in installers:
-        if not installer.version:
-            continue
-        actual = parse_version(installer.version)
-        if expected is not None and actual is not None:
-            if expected == actual:
-                return True
-            continue
-        if normalized_version_label(latest_version) == normalized_version_label(installer.version):
-            return True
-    return False
+    return any(versions_equal(latest_version, installer.version) for installer in installers)
 
 
 def versions_equal(first: str | None, second: str | None) -> bool:
