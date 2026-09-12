@@ -26,9 +26,18 @@ import java.util.stream.Stream;
 import org.springframework.stereotype.Repository;
 
 /**
- * Implementa el componente {@code JsonFileLocaleCatalog}.
+ * Lee y valida al arrancar las páginas template y es y conserva un único JSON español en memoria.
+ *
+ * Exige paridad de archivos y claves, texto español no vacío y ausencia de claves duplicadas
+ * dentro de una página o entre páginas. Calcula el ETag sobre los bytes que sirve el controlador.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.translation.application.port.LocaleCatalog
+ * @see es.ubu.batchdownloader.translation.infrastructure.web.LocaleController
+ * @see es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Traducciones
  */
 @Repository
 public class JsonFileLocaleCatalog implements LocaleCatalog {
@@ -52,9 +61,13 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     private final Map<String, LocaleDocument> cache;
 
     /**
-     * Inicializa una instancia de {@code JsonFileLocaleCatalog}.
+     * Carga páginas ordenadas, valida la plantilla y fusiona una sola vez el catálogo español que
+     * se servirá.
      *
-     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @param properties Ruta del catálogo y duración de caché configuradas para el servicio.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     las páginas no existen, no son JSON estricto o incumplen la paridad y unicidad de claves.
      */
     public JsonFileLocaleCatalog(TranslationProperties properties) {
         Path localesPath = properties.localesPath();
@@ -64,8 +77,7 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
         Map<String, ObjectNode> spanishPages = readPages(
                 localesPath.resolve(SPANISH_DIRECTORY), strictMapper);
         validateTemplate(templatePages);
-        validateSpanishLocale(templatePages, spanishPages);
-        ObjectNode spanish = mergePages(spanishPages, strictMapper, SPANISH_DIRECTORY);
+        ObjectNode spanish = validateSpanishLocale(templatePages, spanishPages, strictMapper);
         byte[] spanishContent = writeBytes(spanish, strictMapper);
         cache = Map.of(
                 SPANISH_LOCALE,
@@ -73,10 +85,10 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findByLocale}.
+     * Consulta el documento precargado, sin realizar E/S ni volver a fusionar páginas.
      *
-     * @param locale Valor de {@code locale} utilizado por la operación.
-     * @return Resultado producido por {@code findByLocale}.
+     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+     * @return documento español, o Optional vacío para otro código.
      */
     @Override
     public Optional<LocaleDocument> findByLocale(String locale) {
@@ -84,9 +96,9 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Ejecuta la operación {@code strictObjectMapper}.
+     * Configura Jackson para rechazar propiedades JSON duplicadas al leer cualquier página.
      *
-     * @return Resultado producido por {@code strictObjectMapper}.
+     * @return lector estricto compartido durante la carga del catálogo.
      */
     private ObjectMapper strictObjectMapper() {
         JsonFactory factory = JsonFactory.builder()
@@ -96,11 +108,14 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Lee los archivos de página de un catálogo.
+     * Lee los archivos JSON regulares de un directorio en orden de nombre y los indexa por página.
      *
-     * @param directory Directorio del catálogo que debe procesarse.
-     * @param mapper Valor de {@code mapper} utilizado por la operación.
-     * @return Páginas indexadas por nombre de archivo.
+     * @param directory Directorio de páginas JSON de un catálogo.
+     * @param mapper Lector/serializador JSON configurado para rechazar claves duplicadas.
+     * @return mapa ordenado de objetos JSON por nombre de archivo.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     falta el directorio, está vacío, no puede listarse o alguna página no es válida.
      */
     private Map<String, ObjectNode> readPages(Path directory, ObjectMapper mapper) {
         if (!Files.isDirectory(directory)) {
@@ -133,14 +148,15 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Ejecuta la operación {@code readObject}.
+     * Interpreta una página como un objeto JSON estricto, rechazando otros tipos en la raíz.
      *
-     * @param content Contenido que debe procesarse.
-     * @param fileName Valor de {@code fileName} utilizado por la operación.
-     * @param mapper Valor de {@code mapper} utilizado por la operación.
-     * @return Resultado producido por {@code readObject}.
-     * @throws LocaleCatalogConfigurationException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param content Bytes UTF-8 del catálogo JSON completo.
+     * @param fileName Nombre de la página utilizado en los errores de configuración.
+     * @param mapper Lector/serializador JSON configurado para rechazar claves duplicadas.
+     * @return objeto raíz de la página.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     el contenido no es JSON estricto o su raíz no es un objeto.
      */
     private ObjectNode readObject(byte[] content, String fileName, ObjectMapper mapper) {
         try {
@@ -157,12 +173,13 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Ejecuta la operación {@code readBytes}.
+     * Lee por completo un archivo regular de traducciones, identificando la página cuando falla.
      *
-     * @param path Ruta del recurso que debe procesarse.
-     * @return Resultado producido por {@code readBytes}.
-     * @throws LocaleCatalogConfigurationException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param path Ruta del archivo regular de traducciones que se debe leer.
+     * @return contenido original del archivo.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     la ruta no es un archivo regular o falla su lectura.
      */
     private byte[] readBytes(Path path) {
         if (!Files.isRegularFile(path)) {
@@ -178,11 +195,13 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateTemplate}.
+     * Exige páginas no vacías, claves no vacías y valores de texto; comprueba también duplicados
+     * entre páginas.
      *
-     * @param templatePages Páginas que definen el contrato de traducciones.
-     * @throws LocaleCatalogConfigurationException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param templatePages Páginas de referencia con las claves admitidas para cada archivo.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     alguna página o clave de la plantilla incumple esas condiciones.
      */
     private void validateTemplate(Map<String, ObjectNode> templatePages) {
         for (Map.Entry<String, ObjectNode> page : templatePages.entrySet()) {
@@ -204,15 +223,20 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateSpanishLocale}.
+     * Comprueba la paridad de páginas y claves y textos españoles no vacíos; devuelve su fusión
+     * validada.
      *
-     * @param templatePages Páginas que definen el contrato de traducciones.
-     * @param spanishPages Páginas con los mensajes en español.
-     * @throws LocaleCatalogConfigurationException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param templatePages Páginas de referencia con las claves admitidas para cada archivo.
+     * @param spanishPages Páginas del idioma español que deben coincidir con la plantilla.
+     * @param mapper Lector/serializador JSON configurado para rechazar claves duplicadas.
+     * @return catálogo español completo sin claves repetidas.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     faltan o sobran páginas o claves, hay valores inválidos o se repiten claves entre páginas.
      */
-    private void validateSpanishLocale(
-            Map<String, ObjectNode> templatePages, Map<String, ObjectNode> spanishPages) {
+    private ObjectNode validateSpanishLocale(
+            Map<String, ObjectNode> templatePages, Map<String, ObjectNode> spanishPages,
+            ObjectMapper mapper) {
         Set<String> missingPages = difference(templatePages.keySet(), spanishPages.keySet());
         Set<String> unexpectedPages = difference(spanishPages.keySet(), templatePages.keySet());
         if (!missingPages.isEmpty() || !unexpectedPages.isEmpty()) {
@@ -242,10 +266,23 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
                 }
             }
         }
-        mergePages(spanishPages, strictObjectMapper(), SPANISH_DIRECTORY);
+        return mergePages(spanishPages, mapper, SPANISH_DIRECTORY);
     }
 
-    /** Fusiona las páginas, rechazando claves repetidas entre archivos. */
+    /**
+     * Combina páginas en un objeto plano y rechaza cualquier clave que aparezca en más de una
+     * página.
+     *
+     * @param pages Páginas ya leídas, conservadas por nombre de archivo.
+     * @param mapper Lector/serializador JSON configurado para rechazar claves duplicadas.
+     * @param catalogName Nombre del catálogo utilizado para identificar claves duplicadas entre
+     *     páginas.
+     *
+     * @return objeto con todas las traducciones, conservando el orden de las páginas.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     alguna clave está repetida entre páginas.
+     */
     private ObjectNode mergePages(
             Map<String, ObjectNode> pages, ObjectMapper mapper, String catalogName) {
         ObjectNode merged = mapper.createObjectNode();
@@ -266,7 +303,17 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
         return merged;
     }
 
-    /** Serializa el catálogo fusionado que se entrega al cliente. */
+    /**
+     * Serializa el objeto validado a los bytes JSON que se usarán tanto para el ETag como para
+     * HTTP.
+     *
+     * @param content Objeto JSON fusionado y validado del idioma.
+     * @param mapper Lector/serializador JSON configurado para rechazar claves duplicadas.
+     * @return representación JSON UTF-8.
+     * @throws
+     *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
+     *     falla la serialización del catálogo.
+     */
     private byte[] writeBytes(ObjectNode content, ObjectMapper mapper) {
         try {
             return mapper.writeValueAsBytes(content);
@@ -277,10 +324,10 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Ejecuta la operación {@code fieldNames}.
+     * Obtiene los nombres de claves para comparar una página española con su plantilla.
      *
-     * @param object Valor de {@code object} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param object Objeto JSON cuyos nombres de campo se comparan con la plantilla.
+     * @return conjunto independiente de nombres del objeto.
      */
     private Set<String> fieldNames(ObjectNode object) {
         Set<String> names = new HashSet<>();
@@ -289,11 +336,12 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Ejecuta la operación {@code difference}.
+     * Calcula qué nombres del primer conjunto no aparecen en el segundo sin modificar los
+     * originales.
      *
-     * @param left Valor de {@code left} utilizado por la operación.
-     * @param right Valor de {@code right} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param left Conjunto de nombres del que se parte, sin modificarlo.
+     * @param right Nombres que se excluyen del resultado.
+     * @return conjunto de nombres ausentes en right.
      */
     private Set<String> difference(Set<String> left, Set<String> right) {
         Set<String> result = new HashSet<>(left);
@@ -302,11 +350,12 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Ejecuta la operación {@code calculateEtag}.
+     * Calcula SHA-256 sobre los bytes del catálogo y lo encierra entre comillas para usarlo como
+     * ETag fuerte.
      *
-     * @param content Contenido que debe procesarse.
-     * @return Resultado producido por {@code calculateEtag}.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param content Bytes UTF-8 del catálogo JSON completo.
+     * @return ETag estable para exactamente el mismo contenido.
+     * @throws IllegalStateException si el runtime no dispone del algoritmo SHA-256.
      */
     private String calculateEtag(byte[] content) {
         try {
