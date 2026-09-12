@@ -15,6 +15,7 @@ import app.scraper.filter_worker as filter_worker_module
 import app.scraper.pipeline_runtime as pipeline_runtime
 import app.scraper.platform_worker as platform_worker
 import app.scraper.searcher_worker as searcher_worker
+import app.scraper.worker_recovery as worker_recovery
 from app.core.config import Settings
 from app.core.time import utc_now
 from app.db.enums import ResolutionStatus, ScrapeScope
@@ -170,6 +171,8 @@ async def test_incremental_scope_selects_new_unresolved_and_changed_apps(monkeyp
     class FakeCatalog:
         def __init__(self, *_args):
             pass
+            self.winstall = self
+            self.sources = self
 
         async def winstall_refresh_states(self):
             return {
@@ -244,6 +247,8 @@ async def test_selected_scope_resolves_local_ids_without_remote_catalog(monkeypa
     class FakeCatalog:
         def __init__(self, *_args):
             pass
+            self.winstall = self
+            self.sources = self
 
         async def snapshot_refresh_targets(self, *, app_ids):
             assert app_ids == [app_id]
@@ -1574,6 +1579,7 @@ async def test_filter_worker_requeues_database_pool_timeout(monkeypatch) -> None
 
     monkeypatch.setattr(filter_worker_module, "claim_item", fake_claim)
     monkeypatch.setattr(filter_worker_module, "finish_item", fake_finish)
+    monkeypatch.setattr(worker_recovery, "finish_item", fake_finish)
     monkeypatch.setattr(filter_worker_module, "queue_has_active_work", no_active_work)
     monkeypatch.setattr(filter_worker_module, "set_current", no_op)
     monkeypatch.setattr(

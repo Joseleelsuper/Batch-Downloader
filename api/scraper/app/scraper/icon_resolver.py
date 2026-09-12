@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `icon_resolver`.
-"""
+"""Implementa las responsabilidades del módulo `icon_resolver`."""
+
 from __future__ import annotations
 
 import asyncio
@@ -43,8 +43,8 @@ IMAGE_HTML_PATTERN = re.compile(r"<img[^>]+src=[\"']([^\"']+)[\"']", re.IGNORECA
 
 @dataclass(frozen=True)
 class IconResult:
-    """Representa el resultado de `Icon`.
-    """
+    """Representa el resultado de `Icon`."""
+
     url: str
     """Atributo de clase `url` de `IconResult`.
     """
@@ -54,8 +54,8 @@ class IconResult:
 
 
 class IconResolver:
-    """Representa el componente `IconResolver`.
-    """
+    """Representa el componente `IconResolver`."""
+
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         """Inicializa una instancia de `IconResolver`.
 
@@ -376,21 +376,29 @@ class IconResolver:
                     continue
                 if not response.is_success or not await public_https_url(str(response.url)):
                     return None
-                content_type = response.headers.get("content-type", "").lower()
-                if not content_type.startswith("image/"):
-                    return None
-                content_length = int_or_none(response.headers.get("content-length", ""))
-                if content_length is not None and content_length > self.settings.icon_max_bytes:
-                    return None
-                bytes_read = 0
-                async for chunk in response.aiter_bytes():
-                    bytes_read += len(chunk)
-                    if bytes_read > self.settings.icon_max_bytes:
-                        return None
-                return IconResult(str(response.url), result.source)
+                return await self._accept_image_content(response, result.source)
             finally:
                 await response.aclose()
         return None
+
+    async def _accept_image_content(
+        self, response: httpx.Response, source: str
+    ) -> IconResult | None:
+        """Acepta solo imágenes cuyo tamaño declarado y descargado caben en el límite
+        configurado.
+        """
+        content_type = response.headers.get("content-type", "").lower()
+        if not content_type.startswith("image/"):
+            return None
+        content_length = int_or_none(response.headers.get("content-length", ""))
+        if content_length is not None and content_length > self.settings.icon_max_bytes:
+            return None
+        bytes_read = 0
+        async for chunk in response.aiter_bytes():
+            bytes_read += len(chunk)
+            if bytes_read > self.settings.icon_max_bytes:
+                return None
+        return IconResult(str(response.url), source)
 
 
 def largest_icon_size(value: object) -> int:

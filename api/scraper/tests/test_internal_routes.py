@@ -1091,7 +1091,7 @@ async def test_internal_resolution_revalidates_expired_candidate_before_revealin
             confidence=ValidationConfidence.VALIDATED,
         )
 
-    monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
 
     response = await internal_api.client.get(
         f"/internal/v1/sources/{resolved.id}/resolution",
@@ -1131,7 +1131,7 @@ async def test_internal_resolution_keeps_failed_revalidation_secret(
         """
         return ValidationResult(ok=False, url=candidate.url, reason="http_404")
 
-    monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
 
     response = await internal_api.client.get(
         f"/internal/v1/sources/{resolved.id}/resolution",
@@ -1173,7 +1173,7 @@ async def test_internal_resolution_does_not_invalidate_on_transient_revalidation
         """
         return ValidationResult(ok=False, url=candidate.url, reason="http_503")
 
-    monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
 
     response = await internal_api.client.get(
         f"/internal/v1/sources/{resolved.id}/resolution",
@@ -1237,7 +1237,7 @@ async def test_internal_resolution_recovers_itch_from_official_windows_endpoint(
             confidence=ValidationConfidence.VALIDATED,
         )
 
-    monkeypatch.setattr("app.api.internal_routes.DownloadValidator.validate", validate)
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
 
     response = await internal_api.client.get(
         f"/internal/v1/sources/{resolved.id}/resolution",
@@ -1297,7 +1297,7 @@ async def test_internal_resolution_rechecks_candidate_after_acquiring_lock(
         lock_after_other_request_renewed,
     )
     monkeypatch.setattr(
-        "app.api.internal_routes.DownloadValidator.validate",
+        "app.application.source_resolution.DownloadValidator.validate",
         validation_must_not_run,
     )
 

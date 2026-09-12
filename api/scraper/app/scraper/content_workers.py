@@ -389,7 +389,7 @@ class SOFilterWorker:
                     await session.commit()
                     await finish_item(self.settings, item, "discard", "software_app_missing")
                     return True
-                systems = await catalog.refresh_operating_systems(app_id)
+                systems = await catalog.sources.refresh_operating_systems(app_id)
                 await pipeline.save_snapshot(
                     run_id=item.run_id,
                     worker_id=self.worker_id,

@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `description_enricher`.
-"""
+"""Implementa las responsabilidades del módulo `description_enricher`."""
+
 from __future__ import annotations
 
 import hashlib
@@ -43,8 +43,8 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class GeneratedDescription:
-    """Representa el componente `GeneratedDescription`.
-    """
+    """Representa el componente `GeneratedDescription`."""
+
     description: str
     """Atributo de clase `description` de `GeneratedDescription`.
     """
@@ -61,8 +61,8 @@ class GeneratedDescription:
 
 @dataclass(frozen=True)
 class EnrichmentResult:
-    """Representa el resultado de `Enrichment`.
-    """
+    """Representa el resultado de `Enrichment`."""
+
     app_id: Any
     """Atributo de clase `app_id` de `EnrichmentResult`.
     """
@@ -85,8 +85,8 @@ class EnrichmentResult:
 
 @dataclass(frozen=True)
 class DescriptionJobResult:
-    """Representa el resultado de `DescriptionJob`.
-    """
+    """Representa el resultado de `DescriptionJob`."""
+
     app_id: Any
     """Atributo de clase `app_id` de `DescriptionJobResult`.
     """
@@ -108,8 +108,8 @@ class DescriptionJobResult:
 
 
 class LLMRateLimiter(Protocol):
-    """Representa el componente `LLMRateLimiter`.
-    """
+    """Representa el componente `LLMRateLimiter`."""
+
     async def wait_for_slot(self) -> Any:
         """Ejecuta `wait_for_slot` dentro de `LLMRateLimiter`.
 
@@ -120,8 +120,8 @@ class LLMRateLimiter(Protocol):
 
 
 class AppDescriptionLLMClient:
-    """Encapsula la comunicación con `AppDescriptionLLM`.
-    """
+    """Encapsula la comunicación con `AppDescriptionLLM`."""
+
     def __init__(
         self,
         settings: Settings,
@@ -239,9 +239,7 @@ class AppDescriptionLLMClient:
             "max_tokens": 520,
             "response_format": {"type": "json_object"},
         }
-        if provider.name == LLMProviderName.GROQ and provider.model.startswith(
-            "qwen/qwen3"
-        ):
+        if provider.name == LLMProviderName.GROQ and provider.model.startswith("qwen/qwen3"):
             # Los modelos Qwen actuales razonan por defecto. Desactivarlo evita
             # que consuman el presupuesto con <think> y permite que Groq valide
             # el objeto JSON final de forma determinista.
@@ -292,32 +290,7 @@ class AppDescriptionLLMClient:
                 cooldown_seconds=self.settings.llm_transient_cooldown_seconds,
             ) from exc
 
-        if response.status_code >= 400:
-            logger.warning(
-                "llm_request_failed",
-                provider=provider.name.value,
-                model=provider.model,
-                status_code=response.status_code,
-            )
-            retryable = response.status_code in TRANSIENT_HTTP_STATUSES
-            cooldown_seconds = None
-            if response.status_code == 429:
-                cooldown_seconds = cooldown_from_headers(
-                    response.headers,
-                    default_seconds=self.settings.llm_rate_limit_cooldown_seconds,
-                )
-            elif retryable:
-                cooldown_seconds = self.settings.llm_transient_cooldown_seconds
-            elif response.status_code in {400, 404}:
-                retryable = True
-                cooldown_seconds = self.settings.llm_model_error_cooldown_seconds
-            raise LLMGenerationError(
-                f"http_{response.status_code}",
-                provider.name.value,
-                provider.model,
-                retryable=retryable,
-                cooldown_seconds=cooldown_seconds,
-            )
+        self._require_successful_response(provider, response)
 
         try:
             body = response.json()
@@ -432,10 +405,41 @@ class AppDescriptionLLMClient:
             cooldown_seconds=seconds,
         )
 
+    def _require_successful_response(
+        self, provider: LLMProviderConfig, response: httpx.Response
+    ) -> None:
+        """Clasifica rechazos del proveedor y conserva las esperas de cuota, transporte y modelo."""
+        if response.status_code >= 400:
+            logger.warning(
+                "llm_request_failed",
+                provider=provider.name.value,
+                model=provider.model,
+                status_code=response.status_code,
+            )
+            retryable = response.status_code in TRANSIENT_HTTP_STATUSES
+            cooldown_seconds = None
+            if response.status_code == 429:
+                cooldown_seconds = cooldown_from_headers(
+                    response.headers,
+                    default_seconds=self.settings.llm_rate_limit_cooldown_seconds,
+                )
+            elif retryable:
+                cooldown_seconds = self.settings.llm_transient_cooldown_seconds
+            elif response.status_code in {400, 404}:
+                retryable = True
+                cooldown_seconds = self.settings.llm_model_error_cooldown_seconds
+            raise LLMGenerationError(
+                f"http_{response.status_code}",
+                provider.name.value,
+                provider.model,
+                retryable=retryable,
+                cooldown_seconds=cooldown_seconds,
+            )
+
 
 class AppDescriptionEnricher:
-    """Representa el componente `AppDescriptionEnricher`.
-    """
+    """Representa el componente `AppDescriptionEnricher`."""
+
     def __init__(
         self,
         settings: Settings,
@@ -690,9 +694,7 @@ def build_embedding_metadata(app: SoftwareApp) -> dict[str, Any]:
         dict[str, Any]: Mapa con los datos producidos por la operación.
     """
     tags = sorted(
-        tag.tag.strip()
-        for tag in app.__dict__.get("tags", [])
-        if tag.tag and tag.tag.strip()
+        tag.tag.strip() for tag in app.__dict__.get("tags", []) if tag.tag and tag.tag.strip()
     )
     sources = app.__dict__.get("sources", [])
     systems = sorted(
@@ -725,9 +727,7 @@ def build_embedding_metadata(app: SoftwareApp) -> dict[str, Any]:
         "operatingSystems": systems,
         "architectures": architectures,
         "version": (app.latest_version or "").strip() or None,
-        "officialDomain": (
-            registered_domain(app.official_url) if app.official_url else None
-        ),
+        "officialDomain": (registered_domain(app.official_url) if app.official_url else None),
     }
 
 
@@ -747,8 +747,7 @@ def build_embedding_text(app: SoftwareApp) -> str:
         f"Editor: {metadata['publisher'] or '-'}",
         f"Tags: {', '.join(metadata['tags']) or '-'}",
         f"Descripcion corta: {metadata['shortDescription'] or '-'}",
-        "Descripcion larga: "
-        f"{metadata['longDescription'] or metadata['shortDescription'] or '-'}",
+        f"Descripcion larga: {metadata['longDescription'] or metadata['shortDescription'] or '-'}",
         f"Sistemas: {', '.join(metadata['operatingSystems']) or '-'}",
         f"Arquitecturas: {', '.join(metadata['architectures']) or '-'}",
         f"Version: {metadata['version'] or '-'}",

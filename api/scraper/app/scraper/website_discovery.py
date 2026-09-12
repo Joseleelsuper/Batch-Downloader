@@ -30,7 +30,8 @@ from app.db.models import (
     WebsiteAppDiscoveryInstaller,
 )
 from app.db.session import AsyncSessionLocal
-from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.catalog import CatalogRepository
+from app.repositories.catalog_rules import ResolvedSourceCreate
 from app.repositories.pipeline import (
     QUEUE_WEBSITE_APP_DISCOVERY,
     PipelineRepository,
@@ -44,6 +45,7 @@ from app.scraper.candidates import (
 )
 from app.scraper.description_enricher import AppDescriptionLLMClient
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.inspection_lifecycle import InspectionProgress, append_warning, load_inspection
 from app.scraper.installer_policy import (
     ValidInstaller,
     dedupe_candidates,
@@ -57,7 +59,6 @@ from app.scraper.installer_policy import (
 )
 from app.scraper.llm import LLMGenerationError
 from app.scraper.manual_installer import (
-    append_warning,
     clean_optional,
     description_provenance,
     field_suggestion,
@@ -501,22 +502,7 @@ class WebsiteAppDiscoverer:
         """
         await set_phase("validating_website")
         warnings: list[str] = []
-        try:
-            page, page_warning = await fetch_official_page(
-                official_url,
-                self.settings,
-            )
-            if page_warning:
-                warnings.append(page_warning)
-        except SafeHttpError as exc:
-            if exc.transient:
-                raise WebsiteDiscoveryTransientError(exc.code) from exc
-            raise WebsiteDiscoveryError(exc.code) from exc
-        if page.content_type and page.content_type not in {
-            "text/html",
-            "application/xhtml+xml",
-        }:
-            raise WebsiteDiscoveryError("official_website_not_html")
+        page = await self._read_official_website(official_url, warnings)
 
         await set_phase("reading_website_metadata")
         evidence = parse_page_evidence(page.content, page.final_url)
@@ -876,6 +862,30 @@ class WebsiteAppDiscoverer:
             "installers:some_candidates_rejected" if partial_failure else None,
         )
 
+    async def _read_official_website(
+        self, official_url: str, warnings: list[str]
+    ) -> SafeHttpResponse:
+        """Exige una página HTML pública y conserva la clasificación transitoria de errores de
+        red.
+        """
+        try:
+            page, page_warning = await fetch_official_page(
+                official_url,
+                self.settings,
+            )
+            if page_warning:
+                warnings.append(page_warning)
+        except SafeHttpError as exc:
+            if exc.transient:
+                raise WebsiteDiscoveryTransientError(exc.code) from exc
+            raise WebsiteDiscoveryError(exc.code) from exc
+        if page.content_type and page.content_type not in {
+            "text/html",
+            "application/xhtml+xml",
+        }:
+            raise WebsiteDiscoveryError("official_website_not_html")
+        return page
+
 
 class WebsiteAppDiscoveryWorker:
     """Ejecuta el procesamiento en segundo plano de `WebsiteAppDiscovery`."""
@@ -899,140 +909,57 @@ class WebsiteAppDiscoveryWorker:
         """
 
     async def process_one(self) -> bool:
-        """Procesa la operación `one`.
+        """Reserva un descubrimiento y guarda instaladores, sugerencias y fin de cola juntos.
 
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+        Devuelve False si no hay trabajo. Las URLs ilegibles fallan sin consultar la red;
+        los errores transitorios respetan el presupuesto de intentos de la reserva.
         """
         async with AsyncSessionLocal() as session:
             pipeline = PipelineRepository(session)
             item = await pipeline.claim_next(
                 QUEUE_WEBSITE_APP_DISCOVERY,
                 self.worker_id,
-                lease_seconds=max(
-                    90,
-                    int(self.settings.request_timeout_seconds * 12),
-                ),
+                lease_seconds=max(90, int(self.settings.request_timeout_seconds * 12)),
             )
             if item is None:
                 await session.rollback()
                 return False
             await session.commit()
-
-            try:
-                discovery_id = uuid.UUID(str((item.payload_json or {}).get("discovery_id")))
-            except ValueError, TypeError, AttributeError:
-                await pipeline.fail(item, "invalid_website_discovery_id")
-                await session.commit()
-                return True
-
-            discovery = await session.get(WebsiteAppDiscovery, discovery_id)
+            discovery = await load_inspection(
+                session, pipeline, item, WebsiteAppDiscovery, "discovery_id", "website_discovery"
+            )
             if discovery is None:
-                await pipeline.discard(item, "website_discovery_not_found")
-                await session.commit()
                 return True
-            if discovery.status in {"applied", "expired"}:
-                await pipeline.discard(item, f"website_discovery_{discovery.status}")
-                await session.commit()
-                return True
-            if discovery.expires_at <= utc_now():
-                discovery.status = "expired"
-                discovery.phase = "expired"
-                discovery.error_code = "website_discovery_expired"
-                await pipeline.discard(item, discovery.error_code)
-                await session.commit()
-                return True
-
+            progress = InspectionProgress(
+                session, pipeline, item, discovery, self.settings.manual_inspection_max_attempts
+            )
             protector = UrlProtector(self.settings.url_protection_secret)
-            official_url = protector.reveal(discovery.official_url_encrypted)
-            if not official_url:
-                discovery.status = "failed"
-                discovery.phase = "failed"
-                discovery.error_code = "website_discovery_url_unreadable"
-                await pipeline.fail(item, discovery.error_code)
-                await session.commit()
+            try:
+                official_url, installer_urls = reveal_discovery_inputs(discovery, protector)
+            except WebsiteDiscoveryError as exc:
+                await progress.fail(exc.code, touch=False)
                 return True
-            installer_urls: dict[str, str] = {}
-            for operating_system, column_name in INSTALLER_URL_COLUMNS.items():
-                protected_url = getattr(discovery, column_name)
-                if not protected_url:
-                    continue
-                installer_url = protector.reveal(protected_url)
-                if not installer_url:
-                    discovery.status = "failed"
-                    discovery.phase = "failed"
-                    discovery.error_code = "website_discovery_url_unreadable"
-                    await pipeline.fail(item, discovery.error_code)
-                    await session.commit()
-                    return True
-                installer_urls[operating_system] = installer_url
-
-            discovery.status = "running"
-            discovery.phase = "starting"
-            discovery.error_code = None
-            discovery.updated_at = utc_now()
-            await session.commit()
-
-            async def set_phase(phase: str) -> None:
-                """Establece la operación `phase`.
-
-                Args:
-                    phase (str): Valor de `phase` utilizado por la operación.
-                """
-                discovery.phase = phase
-                discovery.updated_at = utc_now()
-                await session.commit()
-
+            await progress.start()
             try:
                 result, installers, warnings = await WebsiteAppDiscoverer(self.settings).inspect(
                     official_url,
                     installer_urls,
-                    set_phase=set_phase,
+                    set_phase=progress.set_phase,
                 )
             except WebsiteDiscoveryTransientError as exc:
-                if item.attempts < self.settings.manual_inspection_max_attempts:
-                    discovery.status = "queued"
-                    discovery.phase = "retry_wait"
-                    discovery.error_code = None
-                    discovery.warnings_json = append_warning(
-                        discovery.warnings_json,
-                        f"retry:{exc.code}",
-                    )
-                    await pipeline.requeue(
-                        item,
-                        exc.code,
-                        delay_seconds=min(60, 2 ** max(1, item.attempts)),
-                    )
-                else:
-                    discovery.status = "failed"
-                    discovery.phase = "failed"
-                    discovery.error_code = exc.code
-                    await pipeline.fail(item, exc.code)
-                discovery.updated_at = utc_now()
-                await session.commit()
+                await progress.retry(exc.code)
                 return True
             except WebsiteDiscoveryError as exc:
-                discovery.status = "failed"
-                discovery.phase = "failed"
-                discovery.error_code = exc.code
-                discovery.updated_at = utc_now()
-                await pipeline.fail(item, exc.code)
-                await session.commit()
+                await progress.fail(exc.code)
                 return True
-            except Exception as exc:  # noqa: BLE001 - persiste un código de fallo seguro
+            except Exception as exc:  # noqa: BLE001 - confirma un código seguro para errores no clasificados
                 logger.error(
                     "website_app_discovery_failed",
                     discovery_id=str(discovery.id),
                     error=exc.__class__.__name__,
                 )
-                discovery.status = "failed"
-                discovery.phase = "failed"
-                discovery.error_code = "website_discovery_internal_error"
-                discovery.updated_at = utc_now()
-                await pipeline.fail(item, discovery.error_code)
-                await session.commit()
+                await progress.fail("website_discovery_internal_error")
                 return True
-
             await session.execute(
                 delete(WebsiteAppDiscoveryInstaller).where(
                     WebsiteAppDiscoveryInstaller.discovery_id == discovery.id
@@ -1054,17 +981,7 @@ class WebsiteAppDiscoveryWorker:
                         score=installer.score,
                     )
                 )
-            discovery.result_json = result
-            discovery.warnings_json = append_warning(
-                discovery.warnings_json,
-                *warnings,
-            )
-            discovery.status = "ready"
-            discovery.phase = "ready"
-            discovery.error_code = None
-            discovery.updated_at = utc_now()
-            await pipeline.complete(item)
-            await session.commit()
+            await progress.complete(result, warnings)
             return True
 
 
@@ -1094,48 +1011,13 @@ async def apply_website_app_discovery(
     if discovery is None:
         raise WebsiteDiscoveryError("website_discovery_not_found", 404)
     if discovery.status == "applied" and discovery.applied_app_id is not None:
-        app = await session.get(SoftwareApp, discovery.applied_app_id)
-        if app is None:
-            raise WebsiteDiscoveryError("website_discovery_app_not_found", 409)
-        installer_count = int(
-            (discovery.result_json or {}).get(
-                "appliedInstallerCount",
-                len(discovery.installers),
-            )
-        )
-        return app, installer_count, list(discovery.warnings_json or [])
+        return await applied_discovery_result(session, discovery)
     if discovery.status == "expired":
         raise WebsiteDiscoveryError("website_discovery_expired", 409)
     if discovery.status != "ready" or not discovery.result_json:
         raise WebsiteDiscoveryError("website_discovery_not_ready", 409)
 
-    name = clean_optional(request.name)
-    if not name:
-        raise WebsiteDiscoveryError("name_required")
-    official_url = await validate_public_https_url(request.official_url)
-    if has_sensitive_query(official_url):
-        raise WebsiteDiscoveryError(
-            "official_url_query_credentials_forbidden",
-        )
-    expected_official_url = clean_optional(
-        (discovery.result_json.get("suggestions") or {}).get("officialUrl", {}).get("value")
-    )
-    if not expected_official_url or registered_domain(official_url) != registered_domain(
-        expected_official_url
-    ):
-        raise WebsiteDiscoveryError(
-            "official_url_changed_rediscovery_required",
-            409,
-        )
-
-    duplicate = await session.scalar(
-        select(SoftwareApp.id)
-        .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
-        .where(func.lower(SoftwareApp.official_url) == official_url.casefold())
-        .limit(1)
-    )
-    if duplicate is not None:
-        raise WebsiteDiscoveryError("official_url_already_registered", 409)
+    name, official_url = await validate_discovery_application(session, discovery, request)
 
     icon_url = clean_optional(request.icon_url)
     if icon_url:
@@ -1219,7 +1101,7 @@ async def apply_website_app_discovery(
     catalog = CatalogRepository(session, protector)
     source_ids: set[uuid.UUID] = set()
     for installer, release_rank, is_latest in rank_installers(valid_installers):
-        source = await catalog.source_for_platform(
+        source = await catalog.sources.source_for_platform(
             app.id,
             installer.operating_system,
             installer.architecture,
@@ -1243,7 +1125,7 @@ async def apply_website_app_discovery(
         source_ids.add(source.id)
         metadata = resolved_metadata(installer, is_latest)
         metadata["discovery_id"] = str(discovery.id)
-        await catalog.save_resolved_source(
+        await catalog.sources.save_resolved_source(
             ResolvedSourceCreate(
                 source_id=source.id,
                 url=installer.result.final_url or installer.candidate.url,
@@ -1266,8 +1148,8 @@ async def apply_website_app_discovery(
         )
 
     if source_ids:
-        await catalog.refresh_source_statuses(source_ids)
-        await catalog.refresh_operating_systems(app.id)
+        await catalog.sources.refresh_source_statuses(source_ids)
+        await catalog.sources.refresh_operating_systems(app.id)
     await session.flush()
     await session.refresh(
         app,
@@ -1482,3 +1364,76 @@ def best_installer_version(installers: list[DiscoveredInstaller]) -> str | None:
     deterministic = [(key(version), version) for version in versions]
     deterministic = [item for item in deterministic if item[0]]
     return max(deterministic)[1] if deterministic else versions[0]
+
+
+def reveal_discovery_inputs(
+    discovery: WebsiteAppDiscovery, protector: UrlProtector
+) -> tuple[str, dict[str, str]]:
+    """Descifra la página oficial y cada instalador suministrado; rechaza pérdidas de información.
+
+    Raises:
+        WebsiteDiscoveryError: Alguna URL protegida no puede recuperarse.
+    """
+    official_url = protector.reveal(discovery.official_url_encrypted)
+    if not official_url:
+        raise WebsiteDiscoveryError("website_discovery_url_unreadable")
+    installer_urls = {}
+    for operating_system, column_name in INSTALLER_URL_COLUMNS.items():
+        protected_url = getattr(discovery, column_name)
+        if not protected_url:
+            continue
+        installer_url = protector.reveal(protected_url)
+        if not installer_url:
+            raise WebsiteDiscoveryError("website_discovery_url_unreadable")
+        installer_urls[operating_system] = installer_url
+    return official_url, installer_urls
+
+
+async def validate_discovery_application(
+    session: AsyncSession, discovery: WebsiteAppDiscovery, request: WebsiteAppDiscoveryApplyRequest
+) -> tuple[str, str]:
+    """Exige nombre, dominio inspeccionado y ausencia de otra aplicación activa con la misma web."""
+    name = clean_optional(request.name)
+    if not name:
+        raise WebsiteDiscoveryError("name_required")
+    official_url = await validate_public_https_url(request.official_url)
+    if has_sensitive_query(official_url):
+        raise WebsiteDiscoveryError(
+            "official_url_query_credentials_forbidden",
+        )
+    expected_official_url = clean_optional(
+        ((discovery.result_json or {}).get("suggestions") or {}).get("officialUrl", {}).get("value")
+    )
+    if not expected_official_url or registered_domain(official_url) != registered_domain(
+        expected_official_url
+    ):
+        raise WebsiteDiscoveryError(
+            "official_url_changed_rediscovery_required",
+            409,
+        )
+
+    duplicate = await session.scalar(
+        select(SoftwareApp.id)
+        .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+        .where(func.lower(SoftwareApp.official_url) == official_url.casefold())
+        .limit(1)
+    )
+    if duplicate is not None:
+        raise WebsiteDiscoveryError("official_url_already_registered", 409)
+    return name, official_url
+
+
+async def applied_discovery_result(
+    session: AsyncSession, discovery: WebsiteAppDiscovery
+) -> tuple[SoftwareApp, int, list[str]]:
+    """Devuelve la publicación previa para que repetir la aplicación sea idempotente."""
+    app = await session.get(SoftwareApp, discovery.applied_app_id)
+    if app is None:
+        raise WebsiteDiscoveryError("website_discovery_app_not_found", 409)
+    installer_count = int(
+        (discovery.result_json or {}).get(
+            "appliedInstallerCount",
+            len(discovery.installers),
+        )
+    )
+    return app, installer_count, list(discovery.warnings_json or [])

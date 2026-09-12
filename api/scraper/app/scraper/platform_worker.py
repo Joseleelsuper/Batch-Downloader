@@ -12,7 +12,6 @@ import httpx
 from sqlalchemy.exc import (
     OperationalError,
 )
-from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
@@ -24,7 +23,8 @@ from app.db.enums import (
     ValidationStatus,
 )
 from app.db.models import ScraperWorkItem
-from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.catalog import CatalogRepository
+from app.repositories.catalog_rules import ResolvedSourceCreate
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
     QUEUE_FILTER_SCRAPER,
@@ -70,7 +70,6 @@ from app.scraper.installer_policy import (
 from app.scraper.pipeline_runtime import (
     PipelineRuntime,
     async_session_local,
-    is_transient_mysql_lock_error,
 )
 from app.scraper.pipeline_support import (
     claim_item,
@@ -95,7 +94,12 @@ from app.scraper.validator import (
 from app.scraper.winstall import (
     WinstallApp,
 )
-from app.scraper.winstall_candidates import collect_winstall_parent_index_candidates
+from app.scraper.winstall_candidates import (
+    collect_winstall_github_candidates,
+    collect_winstall_parent_index_candidates,
+    read_limited_html,
+)
+from app.scraper.worker_recovery import recover_worker_failure
 
 logger = get_logger(__name__)
 """Estado global asociado a `logger`.
@@ -278,18 +282,7 @@ class PlatformScraperWorker:
                 async with asyncio.timeout(self.settings.scrape_app_timeout_seconds):
                     outcome = await self._scrape_item(runtime, item)
                 await finish_item(self.settings, item, "complete", None)
-                if outcome == ScrapeOutcome.RESOLVED:
-                    await runtime.increment("apps_resolved")
-                elif outcome == ScrapeOutcome.CONFIRMED_MISSING:
-                    await runtime.increment("apps_confirmed_missing")
-                elif outcome == ScrapeOutcome.NEEDS_REVIEW:
-                    await runtime.increment("apps_needs_review")
-                elif outcome == ScrapeOutcome.TRANSIENT_FAILED:
-                    await runtime.increment("apps_failed")
-                    await runtime.increment("apps_transient_failed")
-                elif outcome == ScrapeOutcome.SKIPPED_UNCHANGED:
-                    await runtime.increment("apps_skipped")
-                    await runtime.increment("apps_skipped_unchanged")
+                await count_scrape_outcome(runtime, outcome)
             except TimeoutError:
                 reason = f"timeout_after_{self.settings.scrape_app_timeout_seconds:.0f}s"
                 if item.attempts < 4:
@@ -298,7 +291,7 @@ class PlatformScraperWorker:
                         item,
                         "requeue",
                         reason,
-                        delay_seconds=min(30, 2 ** item.attempts),
+                        delay_seconds=min(30, 2**item.attempts),
                     )
                 else:
                     await finish_item(self.settings, item, "fail", reason)
@@ -311,60 +304,8 @@ class PlatformScraperWorker:
                     attempts=item.attempts,
                     requeued=item.attempts < 4,
                 )
-            except SQLAlchemyTimeoutError as exc:
-                if item.attempts < 4:
-                    await finish_item(
-                        self.settings,
-                        item,
-                        "requeue",
-                        "database_pool_retry",
-                        delay_seconds=min(30, 2 ** item.attempts),
-                    )
-                    logger.warning(
-                        "scraper_app_requeued",
-                        winstall_id=item.package_id,
-                        reason="database_pool_retry",
-                        attempts=item.attempts,
-                    )
-                    continue
-                await finish_item(self.settings, item, "fail", "database_pool_timeout")
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
-                logger.warning(
-                    "scraper_app_failed",
-                    winstall_id=item.package_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
-            except OperationalError as exc:
-                if is_transient_mysql_lock_error(exc) and item.attempts < 4:
-                    await finish_item(self.settings, item, "requeue", "mysql_lock_retry")
-                    logger.warning(
-                        "scraper_app_requeued",
-                        winstall_id=item.package_id,
-                        reason="mysql_lock_retry",
-                        attempts=item.attempts,
-                    )
-                    continue
-                await finish_item(self.settings, item, "fail", "OperationalError")
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
-                logger.warning(
-                    "scraper_app_failed",
-                    winstall_id=item.package_id,
-                    error="OperationalError",
-                    detail=exception_detail(exc),
-                )
             except Exception as exc:
-                await finish_item(self.settings, item, "fail", exc.__class__.__name__)
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
-                logger.warning(
-                    "scraper_app_failed",
-                    winstall_id=item.package_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
+                await recover_worker_failure(self.settings, runtime, item, exc, "scraper")
 
     async def _scrape_item(
         self,
@@ -394,7 +335,7 @@ class PlatformScraperWorker:
         )
         async with async_session_local()() as session:
             catalog = CatalogRepository(session, self.url_protector)
-            software_app, _created = await catalog.upsert_winstall_app_with_created(app)
+            software_app, _created = await catalog.winstall.upsert_winstall_app_with_created(app)
             software_app_id = software_app.id
             software_app_official_url = software_app.official_url
             software_app_icon_url = software_app.icon_url
@@ -479,61 +420,11 @@ class PlatformScraperWorker:
             "direct": direct_diagnostics.as_metadata(),
             "fallback": fallback_diagnostics.as_metadata(),
         }
-        if not any(
-            is_catalog_publishable_installer(installer)
-            and installer_app_compatibility_reason(app, installer) is None
-            for installer in valid_installers
-        ):
-            elapsed = asyncio.get_running_loop().time() - item_started_at
-            remaining = self.settings.scrape_app_timeout_seconds - elapsed - 5.0
-            if remaining > 5.0:
-                try:
-                    async with asyncio.timeout(min(25.0, remaining)):
-                        refreshed_fallback = await self._collect_winstall_github_candidates(
-                            app,
-                            fallback,
-                        )
-                        (
-                            refreshed_valid,
-                            refreshed_diagnostics,
-                        ) = await self._validate_candidate_group(
-                            app,
-                            refreshed_fallback,
-                            ResolutionStatus.FALLBACK,
-                            max_candidates=48,
-                            max_valid=12,
-                        )
-                except TimeoutError:
-                    validation_diagnostics["fallback_refresh"] = {
-                        "errors": {"RefreshBudgetExceeded": 1}
-                    }
-                else:
-                    valid_installers = dedupe_valid_installers(
-                        [*valid_installers, *refreshed_valid]
-                    )
-                    validation_diagnostics["fallback_refresh"] = refreshed_diagnostics.as_metadata()
+        valid_installers = await self._refresh_missing_candidates(
+            app, fallback, valid_installers, validation_diagnostics, item_started_at
+        )
 
-        observed_installers = valid_installers
-        publishable_installers = [
-            installer
-            for installer in observed_installers
-            if is_catalog_publishable_installer(installer)
-        ]
-        compatibility_rejections: dict[str, int] = {}
-        valid_installers = []
-        for installer in publishable_installers:
-            reason = installer_app_compatibility_reason(app, installer)
-            if reason is None:
-                valid_installers.append(installer)
-            else:
-                compatibility_rejections[reason] = compatibility_rejections.get(reason, 0) + 1
-        validation_diagnostics["publication"] = {
-            "observed": len(observed_installers),
-            "publishable": len(valid_installers),
-            "attested_or_non_public": len(observed_installers)
-            - len(publishable_installers),
-            "incompatible": compatibility_rejections,
-        }
+        valid_installers = publishable_app_installers(app, valid_installers, validation_diagnostics)
 
         await set_current(
             self.settings,
@@ -546,7 +437,7 @@ class PlatformScraperWorker:
             catalog = CatalogRepository(session, self.url_protector)
             logs = ResolverLogRepository(session)
             pipeline = PipelineRepository(session)
-            software_app = await catalog.upsert_winstall_app(app)
+            software_app = await catalog.winstall.upsert_winstall_app(app)
             expired_incompatible = await self._expire_incompatible_published_installers(
                 catalog,
                 logs,
@@ -554,9 +445,7 @@ class PlatformScraperWorker:
                 app,
             )
             if expired_incompatible:
-                validation_diagnostics["publication"]["expired_incompatible"] = (
-                    expired_incompatible
-                )
+                validation_diagnostics["publication"]["expired_incompatible"] = expired_incompatible
                 await session.flush()
                 await session.refresh(
                     software_app,
@@ -581,10 +470,10 @@ class PlatformScraperWorker:
                     )
                     await session.commit()
                     return ScrapeOutcome.TRANSIENT_FAILED
-                source = await catalog.default_source_for_app(software_app.id)
-                verification = await catalog.active_absence_verification(software_app.id)
+                source = await catalog.sources.default_source_for_app(software_app.id)
+                verification = await catalog.sources.active_absence_verification(software_app.id)
                 if source:
-                    await catalog.mark_source_status(
+                    await catalog.sources.mark_source_status(
                         source.id,
                         ResolutionStatus.MISSING
                         if verification
@@ -641,7 +530,7 @@ class PlatformScraperWorker:
     ) -> int:
         """Retira fuentes antiguas que la evidencia actual identifica como ajenas."""
         incompatible = []
-        for resolved in await catalog.valid_resolved_sources_for_app(software_app_id):
+        for resolved in await catalog.sources.valid_resolved_sources_for_app(software_app_id):
             url = catalog.reveal_url(resolved)
             if not url:
                 continue
@@ -667,7 +556,7 @@ class PlatformScraperWorker:
                     "version": resolved.version,
                 },
             )
-        await catalog.expire_resolved_sources(incompatible)
+        await catalog.sources.expire_resolved_sources(incompatible)
         return len(incompatible)
 
     async def _enrich_github_icon(
@@ -686,7 +575,7 @@ class PlatformScraperWorker:
             software_app (SoftwareApp): Valor de `software_app` utilizado por la operación.
             app (WinstallApp): Aplicación sobre la que se realiza la operación.
         """
-        from app.repositories.catalog import is_github_homepage, is_replaceable_github_icon
+        from app.repositories.catalog_rules import is_github_homepage, is_replaceable_github_icon
 
         if not (is_github_homepage(official_url) and is_replaceable_github_icon(icon_url)):
             return
@@ -921,34 +810,14 @@ class PlatformScraperWorker:
             list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
         """
         refreshed = self._collect_winstall_official_referer_candidates(app, candidates)
-        seen_repositories: set[tuple[str, str]] = set()
-        for candidate in candidates:
-            repo = parse_github_repo(candidate.url)
-            if not repo:
-                continue
-            repo_key = (repo.owner.lower(), repo.name.lower())
-            if repo_key in seen_repositories:
-                continue
-            seen_repositories.add(repo_key)
-            try:
-                async with asyncio.timeout(github_collection_timeout_seconds(self.settings)):
-                    release_candidates = await self.github.collect(
-                        candidate.url,
-                        app.latest_version,
-                    )
-            except Exception:
-                continue
-            for release_candidate in release_candidates:
-                refreshed.append(
-                    InstallerCandidate(
-                        url=release_candidate.url,
-                        source=f"winstall_{release_candidate.source}",
-                        label=release_candidate.label or candidate.label,
-                        context=release_candidate.context or candidate.context,
-                        asset_kind=release_candidate.asset_kind or candidate.asset_kind,
-                        referer=candidate.referer,
-                    )
-                )
+        refreshed.extend(
+            await collect_winstall_github_candidates(
+                self.settings,
+                self.github,
+                candidates,
+                app.latest_version,
+            )
+        )
         refreshed.extend(await self._collect_winstall_sourceforge_candidates(app, candidates))
         refreshed.extend(await self._collect_winstall_landing_candidates(app, candidates))
         refreshed.extend(await self._collect_winstall_parent_index_candidates(candidates))
@@ -1013,56 +882,6 @@ class PlatformScraperWorker:
         if not landing_pages:
             return []
 
-        async def fetch_landing(
-            client: httpx.AsyncClient,
-            landing: InstallerCandidate,
-        ) -> list[InstallerCandidate]:
-            parsed = urlparse(landing.url)
-            if not parsed.hostname or not await domain_has_public_dns(parsed.hostname):
-                return []
-            headers: dict[str, str] = {}
-            homepage = getattr(app, "homepage", None)
-            if homepage and registered_domain(homepage) == registered_domain(landing.url):
-                headers["Referer"] = homepage
-            try:
-                async with client.stream("GET", landing.url, headers=headers) as response:
-                    if not response.is_success:
-                        return []
-                    if "html" not in response.headers.get("content-type", "").lower():
-                        return []
-                    content = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        remaining = 1_000_000 - len(content)
-                        if remaining <= 0:
-                            break
-                        content.extend(chunk[:remaining])
-                    html = bytes(content).decode("utf-8", errors="ignore")
-                    base_url = str(response.url)
-            except Exception:
-                return []
-
-            landing_domain = registered_domain(base_url)
-            nested: list[InstallerCandidate] = []
-            for item in extract_candidates(html, base_url):
-                if registered_domain(item.url) != landing_domain:
-                    continue
-                if not item.extension and not candidate_has_download_intent(item):
-                    continue
-                nested.append(
-                    InstallerCandidate(
-                        url=item.url,
-                        source="winstall_download_page",
-                        label=item.label or landing.label,
-                        context=landing.context,
-                        asset_kind="winstall_download",
-                        match_tokens=landing.match_tokens,
-                        referer=base_url,
-                    )
-                )
-                if len(nested) >= 200:
-                    break
-            return nested
-
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.request_timeout_seconds,
@@ -1070,7 +889,12 @@ class PlatformScraperWorker:
                 headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
             ) as client:
                 batches = await asyncio.gather(
-                    *(fetch_landing(client, landing) for landing in landing_pages),
+                    *(
+                        self._fetch_winstall_landing(
+                            client, landing, getattr(app, "homepage", None)
+                        )
+                        for landing in landing_pages
+                    ),
                     return_exceptions=True,
                 )
         except Exception:
@@ -1081,6 +905,50 @@ class PlatformScraperWorker:
             if isinstance(batch, list):
                 refreshed.extend(batch)
         return dedupe_candidates(refreshed)
+
+    async def _fetch_winstall_landing(
+        self,
+        client: httpx.AsyncClient,
+        landing: InstallerCandidate,
+        homepage: str | None,
+    ) -> list[InstallerCandidate]:
+        """Extrae enlaces del dominio de una página Winstall con HTML limitado a 1 MB."""
+        parsed = urlparse(landing.url)
+        if not parsed.hostname or not await domain_has_public_dns(parsed.hostname):
+            return []
+        headers: dict[str, str] = {}
+        if homepage and registered_domain(homepage) == registered_domain(landing.url):
+            headers["Referer"] = homepage
+        try:
+            async with client.stream("GET", landing.url, headers=headers) as response:
+                page = await read_limited_html(response)
+                if page is None:
+                    return []
+                html, base_url = page
+        except Exception:
+            return []
+
+        landing_domain = registered_domain(base_url)
+        nested: list[InstallerCandidate] = []
+        for item in extract_candidates(html, base_url):
+            if registered_domain(item.url) != landing_domain:
+                continue
+            if not item.extension and not candidate_has_download_intent(item):
+                continue
+            nested.append(
+                InstallerCandidate(
+                    url=item.url,
+                    source="winstall_download_page",
+                    label=item.label or landing.label,
+                    context=landing.context,
+                    asset_kind="winstall_download",
+                    match_tokens=landing.match_tokens,
+                    referer=base_url,
+                )
+            )
+            if len(nested) >= 200:
+                break
+        return nested
 
     async def _collect_winstall_sourceforge_candidates(
         self,
@@ -1207,45 +1075,10 @@ class PlatformScraperWorker:
                 obtenidos por la operación.
         """
         diagnostics = CandidateValidationDiagnostics()
-        scored = []
-        expanded_candidates: list[InstallerCandidate] = []
-        for candidate in dedupe_candidates(candidates):
-            try:
-                expanded_candidates.extend(candidate_variants(candidate))
-            except (TypeError, ValueError) as exc:
-                diagnostics.error(exc)
-        for candidate in dedupe_candidates(expanded_candidates):
-            diagnostics.discovered += 1
-            try:
-                scored_candidate = score_candidate(
-                    candidate,
-                    app_name=app.name,
-                    package_id=app.package_id,
-                    publisher=app.publisher,
-                    version=app.latest_version,
-                )
-                operating_system = infer_operating_system(candidate)
-            except (TypeError, ValueError) as exc:
-                diagnostics.error(exc)
-                continue
-            if (
-                not operating_system
-                and not is_windows_winstall_archive(scored_candidate)
-                and not is_download_candidate(scored_candidate)
-            ):
-                diagnostics.skip("no_platform_or_download_intent")
-                continue
-            diagnostics.eligible += 1
-            scored.append(scored_candidate)
-        scored.sort(key=lambda candidate: candidate.score, reverse=True)
-
+        candidates_to_validate = score_validation_candidates(
+            app, candidates, max_candidates, diagnostics
+        )
         valid: list[ValidInstaller] = []
-        candidates_to_validate = []
-        for candidate in scored[:max_candidates]:
-            if candidate.score <= 0:
-                diagnostics.skip("non_positive_score")
-                continue
-            candidates_to_validate.append(candidate)
 
         loop = asyncio.get_running_loop()
         budget_seconds = max(
@@ -1289,29 +1122,7 @@ class PlatformScraperWorker:
                 ) + len(pending)
             processed = offset + len(batch)
 
-            for task in done:
-                candidate, result, error = task.result()
-                if error is not None:
-                    diagnostics.error(error)
-                    continue
-                if result is None or not result.ok:
-                    diagnostics.reject(result.reason if result else "unknown")
-                    continue
-                operating_system = infer_validated_operating_system(candidate, result)
-                if not operating_system:
-                    diagnostics.reject("operating_system_unresolved")
-                    continue
-                valid.append(
-                    ValidInstaller(
-                        candidate=candidate,
-                        result=result,
-                        status=status,
-                        operating_system=operating_system,
-                        architecture=infer_architecture(candidate),
-                        version=validated_installer_version(candidate, result),
-                    )
-                )
-                diagnostics.valid += 1
+            record_validation_results(done, valid, status, diagnostics)
 
             publishable_count = sum(
                 1 for installer in valid if is_catalog_publishable_installer(installer)
@@ -1348,11 +1159,11 @@ class PlatformScraperWorker:
         """
         ranked = rank_installers(installers, app.latest_version)
         if validated_installers_cover_latest_version(app.latest_version, installers):
-            await catalog.promote_winstall_latest_version(software_app_id)
+            await catalog.winstall.promote_winstall_latest_version(software_app_id)
         expired_sources: set[uuid.UUID] = set()
         for installer, release_rank, is_latest in ranked:
             catalog_url = catalog_url_for_installer(installer)
-            source = await catalog.ensure_download_source(
+            source = await catalog.sources.ensure_download_source(
                 software_app_id=software_app_id,
                 app=app,
                 operating_system=installer.operating_system,
@@ -1360,9 +1171,9 @@ class PlatformScraperWorker:
                 initial_url=official_url or app.homepage,
             )
             if source.id not in expired_sources:
-                await catalog.expire_valid_resolved_sources(source.id)
+                await catalog.sources.expire_valid_resolved_sources(source.id)
                 expired_sources.add(source.id)
-            await catalog.save_resolved_source(
+            await catalog.sources.save_resolved_source(
                 ResolvedSourceCreate(
                     source_id=source.id,
                     url=catalog_url,
@@ -1395,4 +1206,177 @@ class PlatformScraperWorker:
                     "is_latest": is_latest,
                 },
             )
-        await catalog.refresh_source_statuses(expired_sources)
+        await catalog.sources.refresh_source_statuses(expired_sources)
+
+    async def _refresh_missing_candidates(
+        self,
+        app: WinstallApp,
+        fallback: list[InstallerCandidate],
+        valid_installers: list[ValidInstaller],
+        validation_diagnostics: dict,
+        item_started_at: float,
+    ) -> list[ValidInstaller]:
+        """Reintenta proveedores cuando falta un artefacto publicable, dentro del presupuesto
+        restante.
+        """
+        if not any(
+            is_catalog_publishable_installer(installer)
+            and installer_app_compatibility_reason(app, installer) is None
+            for installer in valid_installers
+        ):
+            elapsed = asyncio.get_running_loop().time() - item_started_at
+            remaining = self.settings.scrape_app_timeout_seconds - elapsed - 5.0
+            if remaining > 5.0:
+                try:
+                    async with asyncio.timeout(min(25.0, remaining)):
+                        refreshed_fallback = await self._collect_winstall_github_candidates(
+                            app,
+                            fallback,
+                        )
+                        (
+                            refreshed_valid,
+                            refreshed_diagnostics,
+                        ) = await self._validate_candidate_group(
+                            app,
+                            refreshed_fallback,
+                            ResolutionStatus.FALLBACK,
+                            max_candidates=48,
+                            max_valid=12,
+                        )
+                except TimeoutError:
+                    validation_diagnostics["fallback_refresh"] = {
+                        "errors": {"RefreshBudgetExceeded": 1}
+                    }
+                else:
+                    valid_installers = dedupe_valid_installers(
+                        [*valid_installers, *refreshed_valid]
+                    )
+                    validation_diagnostics["fallback_refresh"] = refreshed_diagnostics.as_metadata()
+        return valid_installers
+
+
+async def count_scrape_outcome(runtime: PipelineRuntime, outcome: ScrapeOutcome) -> None:
+    """Registra las garantías del resultado sin confundir omisiones, ausencias y fallos
+    transitorios.
+    """
+    if outcome == ScrapeOutcome.RESOLVED:
+        await runtime.increment("apps_resolved")
+    elif outcome == ScrapeOutcome.CONFIRMED_MISSING:
+        await runtime.increment("apps_confirmed_missing")
+    elif outcome == ScrapeOutcome.NEEDS_REVIEW:
+        await runtime.increment("apps_needs_review")
+    elif outcome == ScrapeOutcome.TRANSIENT_FAILED:
+        await runtime.increment("apps_failed")
+        await runtime.increment("apps_transient_failed")
+    elif outcome == ScrapeOutcome.SKIPPED_UNCHANGED:
+        await runtime.increment("apps_skipped")
+        await runtime.increment("apps_skipped_unchanged")
+
+
+def publishable_app_installers(
+    app: WinstallApp, valid_installers: list[ValidInstaller], validation_diagnostics: dict
+) -> list[ValidInstaller]:
+    """Filtra evidencia no publicable o incompatible y conserva el motivo de cada rechazo."""
+    observed_installers = valid_installers
+    publishable_installers = [
+        installer
+        for installer in observed_installers
+        if is_catalog_publishable_installer(installer)
+    ]
+    compatibility_rejections: dict[str, int] = {}
+    valid_installers = []
+    for installer in publishable_installers:
+        reason = installer_app_compatibility_reason(app, installer)
+        if reason is None:
+            valid_installers.append(installer)
+        else:
+            compatibility_rejections[reason] = compatibility_rejections.get(reason, 0) + 1
+    validation_diagnostics["publication"] = {
+        "observed": len(observed_installers),
+        "publishable": len(valid_installers),
+        "attested_or_non_public": len(observed_installers) - len(publishable_installers),
+        "incompatible": compatibility_rejections,
+    }
+    return valid_installers
+
+
+def score_validation_candidates(
+    app: WinstallApp,
+    candidates: list[InstallerCandidate],
+    max_candidates: int,
+    diagnostics: CandidateValidationDiagnostics,
+) -> list[InstallerCandidate]:
+    """Expande variantes, puntúa y descarta candidatos sin plataforma ni intención de descarga."""
+    scored = []
+    expanded_candidates: list[InstallerCandidate] = []
+    for candidate in dedupe_candidates(candidates):
+        try:
+            expanded_candidates.extend(candidate_variants(candidate))
+        except (TypeError, ValueError) as exc:
+            diagnostics.error(exc)
+    for candidate in dedupe_candidates(expanded_candidates):
+        diagnostics.discovered += 1
+        try:
+            scored_candidate = score_candidate(
+                candidate,
+                app_name=app.name,
+                package_id=app.package_id,
+                publisher=app.publisher,
+                version=app.latest_version,
+            )
+            operating_system = infer_operating_system(candidate)
+        except (TypeError, ValueError) as exc:
+            diagnostics.error(exc)
+            continue
+        if (
+            not operating_system
+            and not is_windows_winstall_archive(scored_candidate)
+            and not is_download_candidate(scored_candidate)
+        ):
+            diagnostics.skip("no_platform_or_download_intent")
+            continue
+        diagnostics.eligible += 1
+        scored.append(scored_candidate)
+    scored.sort(key=lambda candidate: candidate.score, reverse=True)
+
+    candidates_to_validate = []
+    for candidate in scored[:max_candidates]:
+        if candidate.score <= 0:
+            diagnostics.skip("non_positive_score")
+            continue
+        candidates_to_validate.append(candidate)
+    return candidates_to_validate
+
+
+def record_validation_results(
+    done: set[asyncio.Task],
+    valid: list[ValidInstaller],
+    status: ResolutionStatus,
+    diagnostics: CandidateValidationDiagnostics,
+) -> None:
+    """Convierte validaciones terminadas en instaladores con plataforma o diagnósticos de
+    rechazo.
+    """
+    for task in done:
+        candidate, result, error = task.result()
+        if error is not None:
+            diagnostics.error(error)
+            continue
+        if result is None or not result.ok:
+            diagnostics.reject(result.reason if result else "unknown")
+            continue
+        operating_system = infer_validated_operating_system(candidate, result)
+        if not operating_system:
+            diagnostics.reject("operating_system_unresolved")
+            continue
+        valid.append(
+            ValidInstaller(
+                candidate=candidate,
+                result=result,
+                status=status,
+                operating_system=operating_system,
+                architecture=infer_architecture(candidate),
+                version=validated_installer_version(candidate, result),
+            )
+        )
+        diagnostics.valid += 1

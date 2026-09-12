@@ -21,6 +21,8 @@ class FakeCatalog:
         self.saved = []
         """Estado de instancia asociado a `saved`.
         """
+        self.winstall = self
+        self.sources = self
 
     async def expire_valid_resolved_sources(self, _source_id):
         """Ejecuta `expire_valid_resolved_sources` dentro de `FakeCatalog`.

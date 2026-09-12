@@ -20,8 +20,9 @@ from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ScrapeScope, ValidationStatus
 from app.db.models import ScrapeRun
 from app.db.session import AsyncSessionLocal
-from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.catalog import CatalogRepository
 from app.repositories.catalog_projection import CatalogProjectionRepository
+from app.repositories.catalog_rules import ResolvedSourceCreate
 from app.repositories.heartbeat import WorkerHeartbeatRepository
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
@@ -403,7 +404,7 @@ async def repair_platforms() -> None:
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
-        repaired = await catalog.repair_resolved_source_platforms()
+        repaired = await catalog.sources.repair_resolved_source_platforms()
         await session.commit()
     logger.info("platform_repair_finished", repaired=repaired)
 
@@ -413,7 +414,7 @@ async def repair_source_statuses() -> None:
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
-        repaired = await catalog.repair_source_statuses()
+        repaired = await catalog.sources.repair_source_statuses()
         await session.commit()
     logger.info("source_status_repair_finished", repaired=repaired)
 
@@ -452,7 +453,7 @@ async def repair_known_apps() -> None:
             async with AsyncSessionLocal() as session:
                 catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
                 logs = ResolverLogRepository(session)
-                software_app = await catalog.upsert_winstall_app(app)
+                software_app = await catalog.winstall.upsert_winstall_app(app)
                 validator = DownloadValidator(settings)
                 for candidate in candidates:
                     result = await validator.validate(candidate)
@@ -470,14 +471,14 @@ async def repair_known_apps() -> None:
                     operating_system = infer_validated_operating_system(candidate, result)
                     if not operating_system:
                         continue
-                    source = await catalog.ensure_download_source(
+                    source = await catalog.sources.ensure_download_source(
                         software_app_id=software_app.id,
                         app=app,
                         operating_system=operating_system,
                         architecture=infer_architecture(candidate),
                         initial_url=app.homepage,
                     )
-                    await catalog.expire_valid_resolved_sources(source.id)
+                    await catalog.sources.expire_valid_resolved_sources(source.id)
                     installer = ValidInstaller(
                         candidate=candidate,
                         result=result,
@@ -486,7 +487,7 @@ async def repair_known_apps() -> None:
                         architecture=infer_architecture(candidate),
                         version=extract_version(candidate) or app.latest_version,
                     )
-                    await catalog.save_resolved_source(
+                    await catalog.sources.save_resolved_source(
                         ResolvedSourceCreate(
                             source_id=source.id,
                             url=result.final_url or candidate.url,

@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `winstall`.
-"""
+"""Implementa las responsabilidades del módulo `winstall`."""
+
 from __future__ import annotations
 
 import hashlib
@@ -21,8 +21,8 @@ from app.scraper.text import normalize_text
 
 @dataclass(frozen=True)
 class WinstallVersion:
-    """Representa el componente `WinstallVersion`.
-    """
+    """Representa el componente `WinstallVersion`."""
+
     version: str | None
     """Atributo de clase `version` de `WinstallVersion`.
     """
@@ -36,8 +36,8 @@ class WinstallVersion:
 
 @dataclass(frozen=True)
 class WinstallDownload:
-    """Representa el componente `WinstallDownload`.
-    """
+    """Representa el componente `WinstallDownload`."""
+
     url: str
     """Atributo de clase `url` de `WinstallDownload`.
     """
@@ -51,8 +51,8 @@ class WinstallDownload:
 
 @dataclass(frozen=True)
 class WinstallPageLinks:
-    """Representa el componente `WinstallPageLinks`.
-    """
+    """Representa el componente `WinstallPageLinks`."""
+
     official_url: str | None
     """Atributo de clase `official_url` de `WinstallPageLinks`.
     """
@@ -66,8 +66,8 @@ class WinstallPageLinks:
 
 @dataclass(frozen=True)
 class WinstallApp:
-    """Representa el componente `WinstallApp`.
-    """
+    """Representa el componente `WinstallApp`."""
+
     package_id: str
     """Atributo de clase `package_id` de `WinstallApp`.
     """
@@ -145,8 +145,8 @@ class WinstallDetailIncompleteError(WinstallProviderError):
 
 
 class WinstallClient:
-    """Encapsula la comunicación con `Winstall`.
-    """
+    """Encapsula la comunicación con `Winstall`."""
+
     provider_name = "winstall"
     """Atributo de clase `provider_name` de `WinstallClient`.
     """
@@ -253,50 +253,9 @@ class WinstallClient:
             if payload is None and offset == 0:
                 payload = await self._fetch_catalog_from_next_data()
             if not isinstance(payload, dict):
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_page_unavailable offset={offset}"
-                )
+                raise WinstallCatalogIncompleteError(f"catalog_page_unavailable offset={offset}")
 
-            try:
-                page_total = int(payload["total"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_total_invalid offset={offset}"
-                ) from exc
-            if page_total < 0:
-                raise WinstallCatalogIncompleteError("catalog_total_negative")
-            if announced_total is None:
-                announced_total = page_total
-            elif page_total != announced_total:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_total_changed expected={announced_total} actual={page_total}"
-                )
-
-            payload_offset = payload.get("offset", offset)
-            try:
-                normalized_offset = int(payload_offset)
-            except (TypeError, ValueError) as exc:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_offset_invalid expected={offset}"
-                ) from exc
-            if normalized_offset != offset:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_offset_mismatch expected={offset} actual={normalized_offset}"
-                )
-
-            data = payload.get("data")
-            if not isinstance(data, list):
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_data_invalid offset={offset}"
-                )
-            if not data and offset < announced_total:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_ended_early offset={offset} total={announced_total}"
-                )
-            if any(not isinstance(item, dict) for item in data):
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_item_invalid offset={offset}"
-                )
+            announced_total, data = validate_catalog_page(payload, offset, announced_total)
             rows.extend(data)
             offset += len(data)
 
@@ -587,9 +546,7 @@ def parse_winstall_app(payload: dict[str, Any]) -> WinstallApp:
     """
     raw_versions = payload.get("versions")
     installer_data_complete = isinstance(raw_versions, list) and all(
-        isinstance(item, dict)
-        and "installers" in item
-        and isinstance(item.get("installers"), list)
+        isinstance(item, dict) and "installers" in item and isinstance(item.get("installers"), list)
         for item in raw_versions
     )
     versions = [
@@ -663,3 +620,42 @@ def _winstall_fingerprint(payload: dict[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_catalog_page(
+    payload: dict[str, Any], offset: int, announced_total: int | None
+) -> tuple[int, list[dict[str, Any]]]:
+    """Exige total estable, desplazamiento exacto y registros completos en cada página Winstall."""
+    try:
+        page_total = int(payload["total"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WinstallCatalogIncompleteError(f"catalog_total_invalid offset={offset}") from exc
+    if page_total < 0:
+        raise WinstallCatalogIncompleteError("catalog_total_negative")
+    if announced_total is None:
+        announced_total = page_total
+    elif page_total != announced_total:
+        raise WinstallCatalogIncompleteError(
+            f"catalog_total_changed expected={announced_total} actual={page_total}"
+        )
+
+    payload_offset = payload.get("offset", offset)
+    try:
+        normalized_offset = int(payload_offset)
+    except (TypeError, ValueError) as exc:
+        raise WinstallCatalogIncompleteError(f"catalog_offset_invalid expected={offset}") from exc
+    if normalized_offset != offset:
+        raise WinstallCatalogIncompleteError(
+            f"catalog_offset_mismatch expected={offset} actual={normalized_offset}"
+        )
+
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise WinstallCatalogIncompleteError(f"catalog_data_invalid offset={offset}")
+    if not data and offset < announced_total:
+        raise WinstallCatalogIncompleteError(
+            f"catalog_ended_early offset={offset} total={announced_total}"
+        )
+    if any(not isinstance(item, dict) for item in data):
+        raise WinstallCatalogIncompleteError(f"catalog_item_invalid offset={offset}")
+    return announced_total, data

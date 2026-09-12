@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `resolver`.
-"""
+"""Implementa las responsabilidades del módulo `resolver`."""
+
 from __future__ import annotations
 
 import uuid
@@ -10,7 +10,8 @@ from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import DownloadSource
-from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.catalog import CatalogRepository
+from app.repositories.catalog_rules import ResolvedSourceCreate
 from app.repositories.logs import ResolverLogRepository
 from app.scraper.candidates import (
     InstallerCandidate,
@@ -26,8 +27,8 @@ from app.scraper.winstall import WinstallApp, WinstallClient
 
 
 class InstallerResolver:
-    """Representa el componente `InstallerResolver`.
-    """
+    """Representa el componente `InstallerResolver`."""
+
     def __init__(
         self,
         settings: Settings,
@@ -92,7 +93,7 @@ class InstallerResolver:
             ResolutionStatus: Resultado producido por la operación.
         """
         official_url = source.initial_url or app.homepage
-        await self.catalog.expire_valid_resolved_sources(source.id)
+        await self.catalog.sources.expire_valid_resolved_sources(source.id)
 
         if official_url:
             strategy = self.strategies.find(official_url)
@@ -110,11 +111,11 @@ class InstallerResolver:
             return fallback_status
 
         final_status = (
-            ResolutionStatus.REQUIRES_MANUAL_REVIEW
-            if official_url
-            else ResolutionStatus.MISSING
+            ResolutionStatus.REQUIRES_MANUAL_REVIEW if official_url else ResolutionStatus.MISSING
         )
-        await self.catalog.mark_source_status(source.id, final_status, ValidationStatus.UNCHECKED)
+        await self.catalog.sources.mark_source_status(
+            source.id, final_status, ValidationStatus.UNCHECKED
+        )
         await self.logs.add(
             phase="resolve",
             status=final_status.value,
@@ -153,9 +154,7 @@ class InstallerResolver:
 
         candidates: list[InstallerCandidate] = []
         if html:
-            candidates.extend(
-                await run_cpu_bound(extract_candidates, html, official_url)
-            )
+            candidates.extend(await run_cpu_bound(extract_candidates, html, official_url))
             await self.logs.add(
                 phase="official_http",
                 status="candidates",
@@ -336,7 +335,9 @@ class InstallerResolver:
         latest_candidates: list[InstallerCandidate] = []
         for repo in repos.values():
             try:
-                collected = await self.github.collect(f"https://github.com/{repo.owner}/{repo.name}")
+                collected = await self.github.collect(
+                    f"https://github.com/{repo.owner}/{repo.name}"
+                )
             except Exception as exc:
                 await self.logs.add(
                     phase="winstall_github_latest",
@@ -457,7 +458,7 @@ class InstallerResolver:
             version (str | None): Valor de `version` utilizado por la operación.
             is_primary (bool): Valor de `is_primary` utilizado por la operación.
         """
-        await self.catalog.save_resolved_source(
+        await self.catalog.sources.save_resolved_source(
             ResolvedSourceCreate(
                 source_id=source_id,
                 url=result.final_url or candidate.url,

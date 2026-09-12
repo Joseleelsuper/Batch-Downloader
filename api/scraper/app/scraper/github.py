@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `github`.
-"""
+"""Implementa las responsabilidades del módulo `github`."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,8 +22,8 @@ from app.scraper.candidates import (
 
 @dataclass(frozen=True)
 class GitHubRepo:
-    """Representa el componente `GitHubRepo`.
-    """
+    """Representa el componente `GitHubRepo`."""
+
     owner: str
     """Atributo de clase `owner` de `GitHubRepo`.
     """
@@ -33,8 +33,8 @@ class GitHubRepo:
 
 
 class GitHubReleaseResolver:
-    """Representa el componente `GitHubReleaseResolver`.
-    """
+    """Representa el componente `GitHubReleaseResolver`."""
+
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         """Inicializa una instancia de `GitHubReleaseResolver`.
 
@@ -151,7 +151,7 @@ class GitHubReleaseResolver:
                     label=asset_name if isinstance(asset_name, str) else None,
                     context=release_label,
                     asset_kind=asset_kind_for_github_asset(asset_url),
-                )
+                ),
             )
         return candidates
 
@@ -172,25 +172,9 @@ class GitHubReleaseResolver:
             list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
         """
         discovered_tags = list(tags)
-        for tag in discovered_tags:
-            candidates = await self._collect_from_expanded_assets(client, repo, tag)
-            if candidates:
-                return candidates
-
-        for tag in discovered_tags:
-            response = await client.get(
-                f"https://github.com/{repo.owner}/{repo.name}/releases/tag/{quote(tag, safe='')}"
-            )
-            if not response.is_success:
-                continue
-            candidates = self._candidates_from_html(
-                response.text,
-                str(response.url),
-                "github_release_html",
-                release_tag=tag,
-            )
-            if candidates:
-                return candidates
+        candidates = await self._collect_known_tags(client, repo, discovered_tags)
+        if candidates:
+            return candidates
 
         latest_response = await client.get(
             f"https://github.com/{repo.owner}/{repo.name}/releases/latest"
@@ -208,6 +192,12 @@ class GitHubReleaseResolver:
             if candidates:
                 return candidates
 
+        return await self._collect_known_tags(client, repo, discovered_tags)
+
+    async def _collect_known_tags(
+        self, client: httpx.AsyncClient, repo: GitHubRepo, discovered_tags: list[str]
+    ) -> list[InstallerCandidate]:
+        """Prueba activos expandidos y después HTML de cada tag, respetando su prioridad."""
         for tag in discovered_tags:
             candidates = await self._collect_from_expanded_assets(client, repo, tag)
             if candidates:
@@ -227,6 +217,7 @@ class GitHubReleaseResolver:
             )
             if candidates:
                 return candidates
+
         return []
 
     async def _collect_from_expanded_assets(
@@ -369,9 +360,7 @@ def is_allowed_github_asset(url: str) -> bool:
     if extension in {".zip", ".tar.gz"}:
         return is_github_release_asset(url)
     return extension in (
-        WINDOWS_INSTALLER_EXTENSIONS
-        + MACOS_INSTALLER_EXTENSIONS
-        + LINUX_INSTALLER_EXTENSIONS
+        WINDOWS_INSTALLER_EXTENSIONS + MACOS_INSTALLER_EXTENSIONS + LINUX_INSTALLER_EXTENSIONS
     )
 
 

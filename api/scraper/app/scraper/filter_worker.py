@@ -24,17 +24,15 @@ from app.scraper.candidates import (
     InstallerCandidate,
     registered_domain,
 )
-from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.github import GitHubReleaseResolver
 from app.scraper.installer_policy import (
     dedupe_candidates,
     fallback_candidates,
-    github_collection_timeout_seconds,
     prepare_scored_candidates,
 )
 from app.scraper.pipeline_runtime import (
     PipelineRuntime,
     async_session_local,
-    is_transient_mysql_lock_error,
 )
 from app.scraper.pipeline_support import (
     claim_item,
@@ -52,7 +50,11 @@ from app.scraper.validator import (
 from app.scraper.winstall import (
     WinstallApp,
 )
-from app.scraper.winstall_candidates import collect_winstall_parent_index_candidates
+from app.scraper.winstall_candidates import (
+    collect_winstall_github_candidates,
+    collect_winstall_parent_index_candidates,
+)
+from app.scraper.worker_recovery import recover_worker_failure
 
 logger = get_logger(__name__)
 """Estado global asociado a `logger`.
@@ -140,7 +142,7 @@ class FilterWorker:
                         session,
                         UrlProtector(self.settings.url_protection_secret),
                     )
-                    if not await catalog.should_scrape_winstall_package(
+                    if not await catalog.winstall.should_scrape_winstall_package(
                         app.package_id,
                         force_refresh=bool(payload.get("force_refresh")),
                     ):
@@ -179,66 +181,8 @@ class FilterWorker:
                     )
                     await session.commit()
                 await finish_item(self.settings, item, "complete", None)
-            except SQLAlchemyTimeoutError as exc:
-                if item.attempts < 4:
-                    await finish_item(
-                        self.settings,
-                        item,
-                        "requeue",
-                        "database_pool_retry",
-                        delay_seconds=min(30, 2 ** item.attempts),
-                    )
-                    logger.warning(
-                        "filter_app_requeued",
-                        winstall_id=item.package_id,
-                        reason="database_pool_retry",
-                        attempts=item.attempts,
-                    )
-                    continue
-                await finish_item(self.settings, item, "fail", "database_pool_timeout")
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
-                logger.warning(
-                    "filter_app_failed",
-                    winstall_id=item.package_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
-            except OperationalError as exc:
-                if is_transient_mysql_lock_error(exc) and item.attempts < 4:
-                    await finish_item(
-                        self.settings,
-                        item,
-                        "requeue",
-                        "mysql_lock_retry",
-                        delay_seconds=min(30, 2 ** item.attempts),
-                    )
-                    logger.warning(
-                        "filter_app_requeued",
-                        winstall_id=item.package_id,
-                        reason="mysql_lock_retry",
-                        attempts=item.attempts,
-                    )
-                    continue
-                await finish_item(self.settings, item, "fail", "OperationalError")
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
-                logger.warning(
-                    "filter_app_failed",
-                    winstall_id=item.package_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
             except Exception as exc:
-                await finish_item(self.settings, item, "fail", exc.__class__.__name__)
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
-                logger.warning(
-                    "filter_app_failed",
-                    winstall_id=item.package_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
+                await recover_worker_failure(self.settings, runtime, item, exc, "filter")
         runtime.filter_done.set()
 
     async def _official_page_valid(self, url: str | None) -> bool:
@@ -339,34 +283,14 @@ class FilterWorker:
             list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
         """
         refreshed: list[InstallerCandidate] = []
-        seen_repositories: set[tuple[str, str]] = set()
-        for candidate in candidates:
-            repo = parse_github_repo(candidate.url)
-            if not repo:
-                continue
-            repo_key = (repo.owner.lower(), repo.name.lower())
-            if repo_key in seen_repositories:
-                continue
-            seen_repositories.add(repo_key)
-            try:
-                async with asyncio.timeout(github_collection_timeout_seconds(self.settings)):
-                    release_candidates = await self.github.collect(
-                        candidate.url,
-                        app.latest_version,
-                    )
-            except Exception:
-                continue
-            for release_candidate in release_candidates:
-                refreshed.append(
-                    InstallerCandidate(
-                        url=release_candidate.url,
-                        source=f"winstall_{release_candidate.source}",
-                        label=release_candidate.label or candidate.label,
-                        context=release_candidate.context or candidate.context,
-                        asset_kind=release_candidate.asset_kind or candidate.asset_kind,
-                        referer=candidate.referer,
-                    )
-                )
+        refreshed.extend(
+            await collect_winstall_github_candidates(
+                self.settings,
+                self.github,
+                candidates,
+                app.latest_version,
+            )
+        )
         refreshed.extend(await self._collect_winstall_parent_index_candidates(candidates))
         return dedupe_candidates(refreshed)
 

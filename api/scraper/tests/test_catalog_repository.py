@@ -17,8 +17,8 @@ from app.db.models import (
     ResolvedSource,
     SoftwareApp,
 )
-from app.repositories.catalog import (
-    CatalogRepository,
+from app.repositories.catalog import CatalogRepository
+from app.repositories.catalog_rules import (
     ResolvedSourceCreate,
     has_current_available_installer,
     inferred_platform_for_resolved_source,
@@ -205,13 +205,13 @@ async def test_should_scrape_retries_review_apps_but_skips_resolved_apps() -> No
         await session.commit()
         repository = CatalogRepository(session, UrlProtector("test-secret"))
 
-        assert await repository.should_scrape_winstall_package("Vendor.App") is False
+        assert await repository.winstall.should_scrape_winstall_package("Vendor.App") is False
 
         app.sources[0].resolution_status = ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
         app.sources[0].validation_status = ValidationStatus.UNCHECKED.value
         await session.commit()
 
-        assert await repository.should_scrape_winstall_package("Vendor.App") is True
+        assert await repository.winstall.should_scrape_winstall_package("Vendor.App") is True
 
     await engine.dispose()
 
@@ -225,7 +225,7 @@ async def test_new_winstall_source_starts_in_review_not_missing() -> None:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         repository = CatalogRepository(session, UrlProtector("test-secret"))
-        app = await repository.upsert_winstall_app(
+        app = await repository.winstall.upsert_winstall_app(
             parse_winstall_app(
                 {
                     "_id": "Vendor.New",
@@ -234,7 +234,7 @@ async def test_new_winstall_source_starts_in_review_not_missing() -> None:
                 }
             )
         )
-        source = await repository.default_source_for_app(app.id)
+        source = await repository.sources.default_source_for_app(app.id)
 
         assert source is not None
         assert source.resolution_status == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
@@ -267,21 +267,21 @@ async def test_winstall_refresh_updates_provider_fields_but_preserves_manual_val
     })
     async with session_factory() as session:
         repository = CatalogRepository(session, protector)
-        app = await repository.upsert_winstall_app(initial)
+        app = await repository.winstall.upsert_winstall_app(initial)
         app.name = "Reviewed Name"
         app.normalized_name = "reviewed name"
         app.metadata_json = {
             **(app.metadata_json or {}),
             "manual_installer": {"field_sources": {"name": "manual"}},
         }
-        source = await repository.default_source_for_app(app.id)
+        source = await repository.sources.default_source_for_app(app.id)
         assert source is not None
         source.resolver_type = "manual_http"
         source.resolver_config = {"source": "admin_manual"}
         source.initial_url = "https://manual.example.test/download"
         await session.commit()
 
-        updated, created = await repository.upsert_winstall_app_with_created(refreshed)
+        updated, created = await repository.winstall.upsert_winstall_app_with_created(refreshed)
         await session.commit()
 
         assert created is False
@@ -311,12 +311,12 @@ async def test_resolved_artifact_fingerprint_deduplicates_revalidation() -> None
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         repository = CatalogRepository(session, UrlProtector("test-secret"))
-        app = await repository.upsert_winstall_app(parse_winstall_app({
+        app = await repository.winstall.upsert_winstall_app(parse_winstall_app({
             "_id": "Vendor.Dedupe",
             "name": "Dedupe",
             "versions": [],
         }))
-        source = await repository.default_source_for_app(app.id)
+        source = await repository.sources.default_source_for_app(app.id)
         assert source is not None
         create = ResolvedSourceCreate(
             source_id=source.id,
@@ -332,9 +332,9 @@ async def test_resolved_artifact_fingerprint_deduplicates_revalidation() -> None
             validation_status=ValidationStatus.VALID,
             metadata={"operating_system": "windows", "architecture": "x86_64"},
         )
-        first = await repository.save_resolved_source(create)
+        first = await repository.sources.save_resolved_source(create)
         await session.flush()
-        second = await repository.save_resolved_source(create)
+        second = await repository.sources.save_resolved_source(create)
         await session.flush()
         rows = list(await session.scalars(select(ResolvedSource)))
 
@@ -353,7 +353,7 @@ async def test_available_app_promotes_new_version_only_after_validation() -> Non
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         repository = CatalogRepository(session, UrlProtector("test-secret"))
-        app = await repository.upsert_winstall_app(parse_winstall_app({
+        app = await repository.winstall.upsert_winstall_app(parse_winstall_app({
             "_id": "Vendor.Promote",
             "name": "Promote",
             "latestVersion": "1.0.0",
@@ -363,7 +363,7 @@ async def test_available_app_promotes_new_version_only_after_validation() -> Non
         await session.commit()
         await session.refresh(app)
 
-        await repository.upsert_winstall_app(parse_winstall_app({
+        await repository.winstall.upsert_winstall_app(parse_winstall_app({
             "_id": "Vendor.Promote",
             "name": "Promote",
             "latestVersion": "2.0.0",
@@ -372,7 +372,7 @@ async def test_available_app_promotes_new_version_only_after_validation() -> Non
         assert app.latest_version == "1.0.0"
         assert app.winstall_latest_version == "2.0.0"
 
-        assert await repository.promote_winstall_latest_version(app.id) is True
+        assert await repository.winstall.promote_winstall_latest_version(app.id) is True
         assert app.latest_version == "2.0.0"
     await engine.dispose()
 
@@ -398,7 +398,7 @@ async def test_absence_evidence_persists_until_provider_fingerprints_change() ->
                 }
             ],
         }
-        app = await repository.upsert_winstall_app(parse_winstall_app(payload))
+        app = await repository.winstall.upsert_winstall_app(parse_winstall_app(payload))
         verification = InstallerAbsenceVerification(
             software_app_id=app.id,
             status="active",
@@ -414,7 +414,7 @@ async def test_absence_evidence_persists_until_provider_fingerprints_change() ->
         session.add(verification)
         await session.commit()
 
-        await repository.upsert_winstall_app(parse_winstall_app(payload))
+        await repository.winstall.upsert_winstall_app(parse_winstall_app(payload))
         await session.flush()
         assert verification.status == "active"
 
@@ -427,10 +427,10 @@ async def test_absence_evidence_persists_until_provider_fingerprints_change() ->
                 }
             ],
         }
-        await repository.upsert_winstall_app(parse_winstall_app(changed))
+        await repository.winstall.upsert_winstall_app(parse_winstall_app(changed))
         await session.flush()
 
-        source = await repository.default_source_for_app(app.id)
+        source = await repository.sources.default_source_for_app(app.id)
         assert verification.status == "invalidated"
         assert verification.invalidation_reason == "winstall_changed_or_candidate_appeared"
         assert source is not None
@@ -580,7 +580,7 @@ async def test_repair_resolved_source_platforms_moves_cross_platform_installers(
         repaired = await CatalogRepository(
             session,
             UrlProtector("test-secret"),
-        ).repair_resolved_source_platforms()
+        ).sources.repair_resolved_source_platforms()
         await session.commit()
 
         assert repaired == 2
@@ -667,7 +667,7 @@ async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
         await session.commit()
 
         repository = CatalogRepository(session, UrlProtector("test-secret"))
-        await repository.refresh_source_statuses({source.id})
+        await repository.sources.refresh_source_statuses({source.id})
         await session.commit()
 
         assert source.resolution_status == ResolutionStatus.DIRECT.value
@@ -749,10 +749,10 @@ async def test_expire_resolved_sources_only_demotes_affected_platform() -> None:
         await session.commit()
 
         repository = CatalogRepository(session, protector)
-        current = await repository.valid_resolved_sources_for_app(app.id)
+        current = await repository.sources.valid_resolved_sources_for_app(app.id)
         assert {resolved.id for resolved in current} == {wrong.id, good.id}
 
-        await repository.expire_resolved_sources([wrong])
+        await repository.sources.expire_resolved_sources([wrong])
         await session.commit()
 
         assert wrong.validation_status == ValidationStatus.EXPIRED.value
@@ -813,7 +813,7 @@ async def test_so_filter_projects_platforms_with_verified_binary_history() -> No
         systems = await CatalogRepository(
             session,
             UrlProtector("test-secret"),
-        ).refresh_operating_systems(app.id)
+        ).sources.refresh_operating_systems(app.id)
         await session.commit()
 
         assert systems == ["windows", "macos"]
@@ -824,7 +824,7 @@ async def test_so_filter_projects_platforms_with_verified_binary_history() -> No
         systems = await CatalogRepository(
             session,
             UrlProtector("test-secret"),
-        ).refresh_operating_systems(app.id)
+        ).sources.refresh_operating_systems(app.id)
         await session.commit()
         assert systems == ["windows", "macos"]
         assert app.version == 1

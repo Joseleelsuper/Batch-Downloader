@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `playwright_fallback`.
-"""
+"""Implementa las responsabilidades del módulo `playwright_fallback`."""
+
 from __future__ import annotations
 
 import re
@@ -25,8 +25,8 @@ WINDOWS_DESKTOP_USER_AGENT = (
 
 
 class PlaywrightCandidateCollector:
-    """Representa el componente `PlaywrightCandidateCollector`.
-    """
+    """Representa el componente `PlaywrightCandidateCollector`."""
+
     def __init__(self, settings: Settings) -> None:
         """Inicializa una instancia de `PlaywrightCandidateCollector`.
 
@@ -94,38 +94,7 @@ class PlaywrightCandidateCollector:
 
                     # Vuelve a explorar después de cada interacción. Muchos sitios abren
                     # primero un diálogo AJAX y después muestran las rutas reales de descarga.
-                    seen_controls: set[str] = set()
-                    for _depth in range(3):
-                        locator = page.locator("a, button, [role=button]").filter(
-                            has_text=DOWNLOAD_CONTROL_PATTERN
-                        )
-                        handles = await locator.element_handles()
-                        clicked = 0
-                        for handle in handles:
-                            if clicked >= 4:
-                                break
-                            try:
-                                if not await handle.is_visible():
-                                    continue
-                                fingerprint = await control_fingerprint(handle)
-                                if fingerprint in seen_controls:
-                                    continue
-                                seen_controls.add(fingerprint)
-                                # El clic del DOM evita que los reintentos queden bloqueados
-                                # por capas de consentimiento mientras el timeout exterior
-                                # de la página cierra el contexto.
-                                await handle.evaluate("element => element.click()")
-                                clicked += 1
-                                await page.wait_for_timeout(700)
-                                await collect_page_candidates(collected, page, page.url)
-                                if any(candidate.extension for candidate in collected.values()):
-                                    break
-                            except Exception:
-                                continue
-                        if clicked == 0 or any(
-                            candidate.extension for candidate in collected.values()
-                        ):
-                            break
+                    await explore_download_controls(page, collected)
                 except Exception:
                     pass
                 finally:
@@ -207,3 +176,37 @@ async def collect_page_candidates(collected, page, base_url: str) -> None:
     html = await page.content()
     for candidate in extract_candidates(html, base_url):
         collected.setdefault(candidate.url, candidate)
+
+
+async def explore_download_controls(page, collected: dict[str, InstallerCandidate]) -> None:
+    """Explora hasta tres niveles y cuatro controles visibles por nivel hasta hallar un
+    artefacto.
+    """
+    seen_controls: set[str] = set()
+    for _depth in range(3):
+        locator = page.locator("a, button, [role=button]").filter(has_text=DOWNLOAD_CONTROL_PATTERN)
+        handles = await locator.element_handles()
+        clicked = 0
+        for handle in handles:
+            if clicked >= 4:
+                break
+            try:
+                if not await handle.is_visible():
+                    continue
+                fingerprint = await control_fingerprint(handle)
+                if fingerprint in seen_controls:
+                    continue
+                seen_controls.add(fingerprint)
+                # El clic del DOM evita que los reintentos queden bloqueados
+                # por capas de consentimiento mientras el timeout exterior
+                # de la página cierra el contexto.
+                await handle.evaluate("element => element.click()")
+                clicked += 1
+                await page.wait_for_timeout(700)
+                await collect_page_candidates(collected, page, page.url)
+                if any(candidate.extension for candidate in collected.values()):
+                    break
+            except Exception:
+                continue
+        if clicked == 0 or any(candidate.extension for candidate in collected.values()):
+            break

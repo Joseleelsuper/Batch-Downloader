@@ -1,5 +1,5 @@
-"""Implementa las responsabilidades del módulo `manual_installer`.
-"""
+"""Implementa las responsabilidades del módulo `manual_installer`."""
+
 from __future__ import annotations
 
 import hashlib
@@ -40,6 +40,7 @@ from app.scraper.artifacts import (
 )
 from app.scraper.candidates import InstallerCandidate, extract_version, registered_domain
 from app.scraper.description_enricher import AppDescriptionLLMClient
+from app.scraper.inspection_lifecycle import InspectionProgress, load_inspection
 from app.scraper.llm import LLMGenerationError
 from app.scraper.safe_http import (
     SafeHttpError,
@@ -96,8 +97,8 @@ logger = get_logger(__name__)
 
 
 class ManualInstallerError(Exception):
-    """Representa un error relacionado con `ManualInstaller`.
-    """
+    """Representa un error relacionado con `ManualInstaller`."""
+
     def __init__(self, code: str, status_code: int) -> None:
         """Inicializa una instancia de `ManualInstallerError`.
 
@@ -115,8 +116,8 @@ class ManualInstallerError(Exception):
 
 
 class ManualInstallerTransientError(Exception):
-    """Representa un error relacionado con `ManualInstallerTransient`.
-    """
+    """Representa un error relacionado con `ManualInstallerTransient`."""
+
     def __init__(self, code: str) -> None:
         """Inicializa una instancia de `ManualInstallerTransientError`.
 
@@ -131,8 +132,8 @@ class ManualInstallerTransientError(Exception):
 
 @dataclass(frozen=True)
 class ValidatedManualInstaller:
-    """Representa el componente `ValidatedManualInstaller`.
-    """
+    """Representa el componente `ValidatedManualInstaller`."""
+
     result: ValidationResult
     """Atributo de clase `result` de `ValidatedManualInstaller`.
     """
@@ -151,8 +152,8 @@ class ValidatedManualInstaller:
 
 
 class ManualInstallerInspectionRepository:
-    """Gestiona la persistencia y consulta de `ManualInstallerInspection`.
-    """
+    """Gestiona la persistencia y consulta de `ManualInstallerInspection`."""
+
     def __init__(
         self,
         session: AsyncSession,
@@ -202,9 +203,7 @@ class ManualInstallerInspectionRepository:
         installer_url = clean_optional(installer_url)
         if installer_url:
             installer_url = await validate_public_https_url(installer_url)
-        safe_installer_urls = await validate_manual_installer_urls(
-            installer_urls or {}
-        )
+        safe_installer_urls = await validate_manual_installer_urls(installer_urls or {})
         if not installer_url and not safe_installer_urls:
             raise ManualInstallerError(
                 "at_least_one_installer_url_required",
@@ -214,17 +213,7 @@ class ManualInstallerInspectionRepository:
         if has_sensitive_query(source_page_url):
             raise ManualInstallerError("source_page_query_credentials_forbidden", 422)
 
-        app = await self.session.scalar(
-            select(SoftwareApp)
-            .where(SoftwareApp.id == app_id)
-            .with_for_update()
-        )
-        if app is None:
-            raise ManualInstallerError("app_not_found", 404)
-        if app.app_status != AppStatus.ACTIVE.value:
-            raise ManualInstallerError("app_not_active", 409)
-        if app.catalog_status not in {"review", "missing"}:
-            raise ManualInstallerError("app_no_longer_unresolved", 409)
+        app = await self._lock_inspectable_app(app_id)
 
         await self._expire_stale(app_id)
         input_hash = inspection_input_hash(
@@ -256,9 +245,7 @@ class ManualInstallerInspectionRepository:
             select(ManualInstallerInspection)
             .where(ManualInstallerInspection.software_app_id == app_id)
             .where(ManualInstallerInspection.input_hash == input_hash)
-            .where(
-                ManualInstallerInspection.captured_app_version == app.version
-            )
+            .where(ManualInstallerInspection.captured_app_version == app.version)
             .where(ManualInstallerInspection.status == "failed")
             .order_by(ManualInstallerInspection.created_at.desc())
             .limit(1)
@@ -406,10 +393,25 @@ class ManualInstallerInspectionRepository:
         inspection.error_code = "app_changed_reinspect_required"
         inspection.updated_at = utc_now()
 
+    async def _lock_inspectable_app(self, app_id: uuid.UUID) -> SoftwareApp:
+        """Bloquea una aplicación activa y pendiente de resolución antes de reservar su
+        inspección.
+        """
+        app = await self.session.scalar(
+            select(SoftwareApp).where(SoftwareApp.id == app_id).with_for_update()
+        )
+        if app is None:
+            raise ManualInstallerError("app_not_found", 404)
+        if app.app_status != AppStatus.ACTIVE.value:
+            raise ManualInstallerError("app_not_active", 409)
+        if app.catalog_status not in {"review", "missing"}:
+            raise ManualInstallerError("app_no_longer_unresolved", 409)
+        return app
+
 
 class ManualInstallerInspector:
-    """Representa el componente `ManualInstallerInspector`.
-    """
+    """Representa el componente `ManualInstallerInspector`."""
+
     def __init__(self, settings: Settings) -> None:
         """Inicializa una instancia de `ManualInstallerInspector`.
 
@@ -472,9 +474,7 @@ class ManualInstallerInspector:
         if artifact_format is None:
             raise ManualInstallerError("unsupported_installer_format", 422)
         inferred_operating_system = (
-            artifact_format.platforms[0].value
-            if len(artifact_format.platforms) == 1
-            else None
+            artifact_format.platforms[0].value if len(artifact_format.platforms) == 1 else None
         )
         if (
             inferred_operating_system
@@ -535,9 +535,7 @@ class ManualInstallerInspector:
         ]
         validated = validated_installers[0]
         detected_installer_versions = {
-            item.version
-            for item in validated_installers
-            if item.version
+            item.version for item in validated_installers if item.version
         }
         deterministic_installer_version = (
             next(iter(detected_installer_versions))
@@ -667,8 +665,7 @@ class ManualInstallerInspector:
 
 
 class ManualInstallerWorker:
-    """Ejecuta el procesamiento en segundo plano de `ManualInstaller`.
-    """
+    """Ejecuta el procesamiento en segundo plano de `ManualInstaller`."""
 
     def __init__(self, settings: Settings, worker_id: str = "manual-installer-1") -> None:
         """Inicializa una instancia de `ManualInstallerWorker`.
@@ -685,10 +682,10 @@ class ManualInstallerWorker:
         """
 
     async def process_one(self) -> bool:
-        """Procesa la operación `one`.
+        """Reserva una inspección y publica sus sugerencias si la aplicación sigue vigente.
 
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+        Devuelve False cuando la cola está vacía. Los rechazos, reintentos y resultados
+        se confirman antes de devolver True; ninguna sesión se comparte con otro worker.
         """
         async with AsyncSessionLocal() as session:
             pipeline = PipelineRepository(session)
@@ -701,156 +698,53 @@ class ManualInstallerWorker:
                 await session.rollback()
                 return False
             await session.commit()
-
-            try:
-                inspection_id = uuid.UUID(str((item.payload_json or {}).get("inspection_id")))
-            except (ValueError, TypeError, AttributeError):
-                await pipeline.fail(item, "invalid_inspection_id")
-                await session.commit()
-                return True
-
-            inspection = await session.get(ManualInstallerInspection, inspection_id)
+            inspection = await load_inspection(
+                session, pipeline, item, ManualInstallerInspection, "inspection_id", "inspection"
+            )
             if inspection is None:
-                await pipeline.discard(item, "inspection_not_found")
-                await session.commit()
                 return True
-            if inspection.status in {"applied", "expired"}:
-                await pipeline.discard(item, f"inspection_{inspection.status}")
-                await session.commit()
-                return True
-            if inspection.expires_at <= utc_now():
-                inspection.status = "expired"
-                inspection.phase = "expired"
-                inspection.error_code = "inspection_expired"
-                await pipeline.discard(item, "inspection_expired")
-                await session.commit()
-                return True
-
+            progress = InspectionProgress(
+                session, pipeline, item, inspection, self.settings.manual_inspection_max_attempts
+            )
             app = await session.get(SoftwareApp, inspection.software_app_id)
             protector = UrlProtector(self.settings.url_protection_secret)
-            installer_inputs = reveal_manual_installer_inputs(
-                inspection,
-                protector,
-            )
+            installer_inputs = reveal_manual_installer_inputs(inspection, protector)
             source_page_url = protector.reveal(inspection.source_page_url_encrypted)
             if app is None or not installer_inputs or not source_page_url:
-                inspection.status = "failed"
-                inspection.phase = "failed"
-                inspection.error_code = (
-                    "app_not_found" if app is None else "inspection_url_unreadable"
+                await progress.fail(
+                    "app_not_found" if app is None else "inspection_url_unreadable", touch=False
                 )
-                await pipeline.fail(item, inspection.error_code)
-                await session.commit()
                 return True
-            if (
-                app.version != inspection.captured_app_version
-                or app.app_status != AppStatus.ACTIVE.value
-                or app.catalog_status not in {"review", "missing"}
-            ):
-                inspection.status = "expired"
-                inspection.phase = "expired"
-                inspection.error_code = "app_changed_reinspect_required"
-                inspection.updated_at = utc_now()
-                await pipeline.discard(item, inspection.error_code)
-                await session.commit()
+            if not inspection_app_is_current(app, inspection):
+                await progress.expire("app_changed_reinspect_required")
                 return True
-
-            inspection.status = "running"
-            inspection.phase = "starting"
-            inspection.error_code = None
-            inspection.updated_at = utc_now()
-            await session.commit()
-
-            async def set_phase(phase: str) -> None:
-                """Establece la operación `phase`.
-
-                Args:
-                    phase (str): Valor de `phase` utilizado por la operación.
-                """
-                inspection.phase = phase
-                inspection.updated_at = utc_now()
-                await session.commit()
-
-            inspector = ManualInstallerInspector(self.settings)
+            await progress.start()
             try:
-                result, warnings = await inspector.inspect(
+                result, warnings = await ManualInstallerInspector(self.settings).inspect(
                     app,
                     installer_inputs,
                     source_page_url,
-                    set_phase=set_phase,
+                    set_phase=progress.set_phase,
                 )
             except ManualInstallerTransientError as exc:
-                if item.attempts < self.settings.manual_inspection_max_attempts:
-                    inspection.status = "queued"
-                    inspection.phase = "retry_wait"
-                    inspection.error_code = None
-                    inspection.warnings_json = append_warning(
-                        inspection.warnings_json,
-                        f"retry:{exc.code}",
-                    )
-                    await pipeline.requeue(
-                        item,
-                        exc.code,
-                        delay_seconds=min(60, 2 ** max(1, item.attempts)),
-                    )
-                else:
-                    inspection.status = "failed"
-                    inspection.phase = "failed"
-                    inspection.error_code = exc.code
-                    await pipeline.fail(item, exc.code)
-                inspection.updated_at = utc_now()
-                await session.commit()
+                await progress.retry(exc.code)
                 return True
             except ManualInstallerError as exc:
-                inspection.status = "failed"
-                inspection.phase = "failed"
-                inspection.error_code = exc.code
-                inspection.updated_at = utc_now()
-                await pipeline.fail(item, exc.code)
-                await session.commit()
+                await progress.fail(exc.code)
                 return True
-            except Exception as exc:  # noqa: BLE001 - persiste un fallo seguro y tipado
+            except Exception as exc:  # noqa: BLE001 - confirma un código seguro para errores no clasificados
                 logger.error(
                     "manual_installer_inspection_failed",
                     inspection_id=str(inspection.id),
                     error=exc.__class__.__name__,
                 )
-                inspection.status = "failed"
-                inspection.phase = "failed"
-                inspection.error_code = "inspection_internal_error"
-                inspection.updated_at = utc_now()
-                await pipeline.fail(item, "inspection_internal_error")
-                await session.commit()
+                await progress.fail("inspection_internal_error")
                 return True
-
-            await session.refresh(
-                app,
-                attribute_names=["version", "app_status", "catalog_status"],
-            )
-            if (
-                app.version != inspection.captured_app_version
-                or app.app_status != AppStatus.ACTIVE.value
-                or app.catalog_status not in {"review", "missing"}
-            ):
-                inspection.status = "expired"
-                inspection.phase = "expired"
-                inspection.error_code = "app_changed_reinspect_required"
-                inspection.updated_at = utc_now()
-                await pipeline.discard(item, inspection.error_code)
-                await session.commit()
+            await session.refresh(app, attribute_names=["version", "app_status", "catalog_status"])
+            if not inspection_app_is_current(app, inspection):
+                await progress.expire("app_changed_reinspect_required")
                 return True
-
-            inspection.result_json = result
-            inspection.warnings_json = append_warning(
-                inspection.warnings_json,
-                *warnings,
-            )
-            inspection.status = "ready"
-            inspection.phase = "ready"
-            inspection.error_code = None
-            inspection.updated_at = utc_now()
-            await pipeline.complete(item)
-            await session.commit()
+            await progress.complete(result, warnings)
             return True
 
 
@@ -925,67 +819,30 @@ def parse_page_evidence(content: bytes, page_url: str) -> dict[str, str]:
     html = content.decode("utf-8", errors="replace")
     parser = HTMLParser(html)
     evidence: dict[str, str] = {}
-    json_ld = first_software_application(parser)
-    if json_ld:
-        evidence["name"] = safe_value(json_ld.get("name"), 180)
-        if evidence["name"]:
-            evidence["name_source"] = "json_ld"
-        evidence["publisher"] = safe_value(
-            nested_name(json_ld.get("publisher")) or nested_name(json_ld.get("author")),
-            180,
-        )
-        if evidence["publisher"]:
-            evidence["publisher_source"] = "json_ld"
-        evidence["version"] = safe_value(
-            json_ld.get("softwareVersion") or json_ld.get("version"),
-            100,
-        )
-        evidence["description"] = safe_value(json_ld.get("description"), 4000)
-        evidence["description_source"] = "json_ld"
-        json_ld_icon = nested_url(json_ld.get("image")) or nested_url(json_ld.get("logo"))
-        if json_ld_icon:
-            evidence["icon"] = safe_join(page_url, json_ld_icon)
-            evidence["icon_source"] = "json_ld"
-
+    _add_structured_evidence(parser, page_url, evidence)
     metadata = meta_values(parser)
-    if not evidence.get("name"):
-        if metadata.get("og:title"):
-            evidence["name"] = metadata["og:title"]
-            evidence["name_source"] = "open_graph"
-        elif metadata.get("twitter:title"):
-            evidence["name"] = metadata["twitter:title"]
-            evidence["name_source"] = "twitter"
-        else:
-            title = parser.css_first("title")
-            document_title = safe_value(title.text() if title else None, 180)
-            if document_title:
-                evidence["name"] = document_title
-                evidence["name_source"] = "source_page"
-    if not evidence.get("publisher") and metadata.get("og:site_name"):
-        evidence["publisher"] = metadata["og:site_name"]
-        evidence["publisher_source"] = "open_graph"
-    if not evidence.get("description"):
-        if metadata.get("og:description"):
-            evidence["description"] = metadata["og:description"]
-            evidence["description_source"] = "open_graph"
-        elif metadata.get("twitter:description"):
-            evidence["description"] = metadata["twitter:description"]
-            evidence["description_source"] = "twitter"
-        elif metadata.get("description"):
-            evidence["description"] = metadata["description"]
-            evidence["description_source"] = "open_graph"
-    if not evidence.get("icon"):
-        icon = metadata.get("og:image") or metadata.get("twitter:image")
-        if icon:
-            evidence["icon"] = safe_join(page_url, icon)
-            evidence["icon_source"] = (
-                "open_graph" if metadata.get("og:image") else "twitter"
-            )
-        else:
-            linked_icon = page_icon_url(parser, page_url)
-            if linked_icon:
-                evidence["icon"] = linked_icon
-                evidence["icon_source"] = "source_page"
+    title = parser.css_first("title")
+    fallback_fields = {
+        "name": [
+            (metadata.get("og:title"), "open_graph"),
+            (metadata.get("twitter:title"), "twitter"),
+            (safe_value(title.text() if title else None, 180), "source_page"),
+        ],
+        "publisher": [(metadata.get("og:site_name"), "open_graph")],
+        "description": [
+            (metadata.get("og:description"), "open_graph"),
+            (metadata.get("twitter:description"), "twitter"),
+            (metadata.get("description"), "open_graph"),
+        ],
+    }
+    for field, choices in fallback_fields.items():
+        if evidence.get(field):
+            continue
+        for value, source in choices:
+            if value:
+                evidence[field], evidence[f"{field}_source"] = value, source
+                break
+    _add_icon_evidence(parser, page_url, metadata, evidence)
 
     canonical = canonical_url(parser, page_url)
     if canonical:
@@ -1006,7 +863,7 @@ def first_software_application(parser: HTMLParser) -> dict | None:
         raw = (node.text() or "")[:100_000]
         try:
             payload = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             continue
         for item in json_ld_items(payload):
             item_type = item.get("@type")
@@ -1283,17 +1140,22 @@ def field_suggestion(value: str | None, source: str | None) -> dict[str, str | N
     Returns:
         dict[str, str | None]: Mapa con los datos producidos por la operación.
     """
-    safe_source = source if source in {
-        "current",
-        "json_ld",
-        "open_graph",
-        "twitter",
-        "canonical",
-        "filename",
-        "generated_ai",
-        "manual",
-        "source_page",
-    } else "unavailable"
+    safe_source = (
+        source
+        if source
+        in {
+            "current",
+            "json_ld",
+            "open_graph",
+            "twitter",
+            "canonical",
+            "filename",
+            "generated_ai",
+            "manual",
+            "source_page",
+        }
+        else "unavailable"
+    )
     return {"value": clean_optional(value), "source": safe_source}
 
 
@@ -1557,17 +1419,51 @@ def clean_optional(value: object) -> str | None:
     return cleaned or None
 
 
-def append_warning(
-    existing: list[str] | None,
-    *warnings: str,
-) -> list[str]:
-    """Ejecuta la operación `append_warning`.
+def inspection_app_is_current(app: SoftwareApp, inspection: ManualInstallerInspection) -> bool:
+    """Exige la misma revisión activa y pendiente de catálogo antes de aceptar sugerencias."""
+    return (
+        app.version == inspection.captured_app_version
+        and app.app_status == AppStatus.ACTIVE.value
+        and app.catalog_status in {"review", "missing"}
+    )
 
-    Args:
-        existing (list[str] | None): Valor de `existing` utilizado por la operación.
-        *warnings (str): Valor de `warnings` utilizado por la operación.
 
-    Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
-    """
-    return list(dict.fromkeys([*(existing or []), *(warning for warning in warnings if warning)]))
+def _add_structured_evidence(parser: HTMLParser, page_url: str, evidence: dict[str, str]) -> None:
+    """Prioriza los campos permitidos de SoftwareApplication y conserva su procedencia."""
+    json_ld = first_software_application(parser)
+    if json_ld:
+        evidence["name"] = safe_value(json_ld.get("name"), 180)
+        if evidence["name"]:
+            evidence["name_source"] = "json_ld"
+        evidence["publisher"] = safe_value(
+            nested_name(json_ld.get("publisher")) or nested_name(json_ld.get("author")),
+            180,
+        )
+        if evidence["publisher"]:
+            evidence["publisher_source"] = "json_ld"
+        evidence["version"] = safe_value(
+            json_ld.get("softwareVersion") or json_ld.get("version"),
+            100,
+        )
+        evidence["description"] = safe_value(json_ld.get("description"), 4000)
+        evidence["description_source"] = "json_ld"
+        json_ld_icon = nested_url(json_ld.get("image")) or nested_url(json_ld.get("logo"))
+        if json_ld_icon:
+            evidence["icon"] = safe_join(page_url, json_ld_icon)
+            evidence["icon_source"] = "json_ld"
+
+
+def _add_icon_evidence(
+    parser: HTMLParser, page_url: str, metadata: dict[str, str], evidence: dict[str, str]
+) -> None:
+    """Completa un icono ausente con Open Graph, Twitter o el enlace declarado por la página."""
+    if not evidence.get("icon"):
+        icon = metadata.get("og:image") or metadata.get("twitter:image")
+        if icon:
+            evidence["icon"] = safe_join(page_url, icon)
+            evidence["icon_source"] = "open_graph" if metadata.get("og:image") else "twitter"
+        else:
+            linked_icon = page_icon_url(parser, page_url)
+            if linked_icon:
+                evidence["icon"] = linked_icon
+                evidence["icon_source"] = "source_page"

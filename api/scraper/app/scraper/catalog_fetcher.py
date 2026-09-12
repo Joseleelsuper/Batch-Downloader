@@ -84,21 +84,8 @@ class CatalogFetcher:
         Throws:
             worker_error: Si no puede completarse la operación bajo las condiciones requeridas.
         """
-        if recover_running:
-            recovered = await self.runs.recover_running(
-                "Recovered before startup scrape because the scheduler container was restarted."
-            )
-            if recovered:
-                logger.warning("scrape_running_locks_recovered", recovered=recovered)
-                await self.session.commit()
-
         selected_app_ids = selected_app_ids or []
-        if scope == ScrapeScope.SELECTED and not selected_app_ids:
-            raise ValueError("selected_scope_requires_app_ids")
-        if scope != ScrapeScope.SELECTED and selected_app_ids:
-            raise ValueError("app_ids_only_allowed_for_selected_scope")
-        if len(selected_app_ids) > 500:
-            raise ValueError("selected_scope_limit_exceeded")
+        await self._prepare_run_request(recover_running, scope, selected_app_ids)
 
         run = await self.runs.acquire(scope=scope, request_id=request_id)
         if run is None:
@@ -111,24 +98,12 @@ class CatalogFetcher:
                 await self.runs.mark_run_request_started(request, run_id)
         await self.session.commit()
 
-        repaired_platforms = await self.catalog.repair_resolved_source_platforms()
+        repaired_platforms = await self.catalog.sources.repair_resolved_source_platforms()
         if repaired_platforms:
             await self.session.commit()
             logger.warning("resolved_source_platforms_repaired", count=repaired_platforms)
 
-        async with async_session_local()() as session:
-            pipeline = PipelineRepository(session)
-            recovered_items = await pipeline.reset_expired_leases()
-            orphaned_run_items = await pipeline.recover_orphaned_run_items()
-            pruned_snapshots = await pipeline.prune_expired_snapshots()
-            pending_work = await pipeline.has_pending_work()
-            await session.commit()
-        if recovered_items:
-            logger.warning("scraper_pipeline_leases_recovered", count=recovered_items)
-        if orphaned_run_items:
-            logger.warning("scraper_orphaned_run_items_recovered", count=orphaned_run_items)
-        if pruned_snapshots:
-            logger.info("scraper_snapshots_pruned", count=pruned_snapshots)
+        pending_work = await self._recover_pipeline()
 
         runtime = PipelineRuntime(
             settings=self.settings,
@@ -301,3 +276,42 @@ class CatalogFetcher:
             await asyncio.gather(*(worker.run(runtime) for worker in workers))
         finally:
             runtime.so_filter_done.set()
+
+    async def _prepare_run_request(
+        self, recover_running: bool, scope: ScrapeScope, selected_app_ids: list[uuid.UUID]
+    ) -> None:
+        """Recupera reservas del scheduler anterior y valida el alcance antes de adquirir una
+        ejecución.
+        """
+        if recover_running:
+            recovered = await self.runs.recover_running(
+                "Recovered before startup scrape because the scheduler container was restarted."
+            )
+            if recovered:
+                logger.warning("scrape_running_locks_recovered", recovered=recovered)
+                await self.session.commit()
+
+        selected_app_ids = selected_app_ids or []
+        if scope == ScrapeScope.SELECTED and not selected_app_ids:
+            raise ValueError("selected_scope_requires_app_ids")
+        if scope != ScrapeScope.SELECTED and selected_app_ids:
+            raise ValueError("app_ids_only_allowed_for_selected_scope")
+        if len(selected_app_ids) > 500:
+            raise ValueError("selected_scope_limit_exceeded")
+
+    async def _recover_pipeline(self) -> bool:
+        """Recupera leases y trabajos huérfanos y poda instantáneas en una sesión independiente."""
+        async with async_session_local()() as session:
+            pipeline = PipelineRepository(session)
+            recovered_items = await pipeline.reset_expired_leases()
+            orphaned_run_items = await pipeline.recover_orphaned_run_items()
+            pruned_snapshots = await pipeline.prune_expired_snapshots()
+            pending_work = await pipeline.has_pending_work()
+            await session.commit()
+        if recovered_items:
+            logger.warning("scraper_pipeline_leases_recovered", count=recovered_items)
+        if orphaned_run_items:
+            logger.warning("scraper_orphaned_run_items_recovered", count=orphaned_run_items)
+        if pruned_snapshots:
+            logger.info("scraper_snapshots_pruned", count=pruned_snapshots)
+        return pending_work

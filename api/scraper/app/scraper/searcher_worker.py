@@ -138,75 +138,11 @@ class SearcherWorker:
                         lightweight_app.name,
                         "searcher_fetching_winstall_app",
                     )
-                    try:
-                        app = await winstall.get_app(lightweight_app.package_id)
-                    except WinstallDetailIncompleteError:
-                        if lightweight_app.installer_data_complete:
-                            app = lightweight_app
-                            logger.warning(
-                                "winstall_cached_detail_used",
-                                winstall_id=lightweight_app.package_id,
-                                scope=runtime.scope.value,
-                                reason="detail_incomplete",
-                            )
-                        else:
-                            await self._record_provider_failure(
-                                runtime,
-                                lightweight_app.package_id,
-                                "detail_incomplete",
-                            )
-                            continue
-                    except Exception as exc:
-                        if lightweight_app.installer_data_complete:
-                            app = lightweight_app
-                            logger.warning(
-                                "winstall_cached_detail_used",
-                                winstall_id=lightweight_app.package_id,
-                                scope=runtime.scope.value,
-                                reason=exc.__class__.__name__,
-                            )
-                        else:
-                            await self._record_provider_failure(
-                                runtime,
-                                lightweight_app.package_id,
-                                exc.__class__.__name__,
-                            )
-                            continue
+                    app = await self._load_complete_app(winstall, runtime, lightweight_app)
+                    if app is None:
+                        continue
 
-                    download_versions: dict[str, str | None] = {}
-                    for version in app.versions:
-                        for url in version.installers:
-                            current_version = download_versions.get(url)
-                            if url not in download_versions or version_label_is_preferred(
-                                current_version,
-                                version.version,
-                                app.latest_version,
-                            ):
-                                download_versions[url] = version.version
-
-                    payload: dict[str, Any] = {
-                        "package_id": app.package_id,
-                        "winstall_url": (
-                            f"{self.settings.winstall_base_url}/apps/{app.package_id}"
-                        ),
-                        "official_url": app.homepage,
-                        "source_code_url": None,
-                        "winstall_download_urls": app.installer_urls,
-                        "winstall_downloads": [
-                            {
-                                "url": url,
-                                "label": None,
-                                "context": version,
-                            }
-                            for url, version in download_versions.items()
-                        ],
-                        "provider_detail_complete": app.installer_data_complete,
-                        "winstall_summary_fingerprint": winstall_summary_fingerprint(app),
-                        "winstall_detail_fingerprint": winstall_detail_fingerprint(app),
-                        "scope": runtime.scope.value,
-                        "force_refresh": True,
-                        "app": app.raw,
-                    }
+                    payload = self._queue_payload(runtime, app)
                     depth = await self._enqueue_app(runtime, app, payload)
                     logger.info(
                         "searcher_item_enqueued",
@@ -219,6 +155,31 @@ class SearcherWorker:
         finally:
             runtime.searcher_done.set()
 
+    async def _load_complete_app(
+        self, winstall: WinstallClient, runtime: PipelineRuntime, lightweight_app: WinstallApp
+    ) -> WinstallApp | None:
+        """Recupera detalle o usa una instantánea completa; registra fallos de proveedor sin
+        publicarlos.
+        """
+        try:
+            return await winstall.get_app(lightweight_app.package_id)
+        except Exception as exc:
+            reason = (
+                "detail_incomplete"
+                if isinstance(exc, WinstallDetailIncompleteError)
+                else exc.__class__.__name__
+            )
+            if lightweight_app.installer_data_complete:
+                logger.warning(
+                    "winstall_cached_detail_used",
+                    winstall_id=lightweight_app.package_id,
+                    scope=runtime.scope.value,
+                    reason=reason,
+                )
+                return lightweight_app
+            await self._record_provider_failure(runtime, lightweight_app.package_id, reason)
+            return None
+
     async def _select_local_targets(
         self,
         runtime: PipelineRuntime,
@@ -229,7 +190,7 @@ class SearcherWorker:
                 session,
                 UrlProtector(self.settings.url_protection_secret),
             )
-            local_targets = await catalog.snapshot_refresh_targets(
+            local_targets = await catalog.winstall.snapshot_refresh_targets(
                 app_ids=list(runtime.selected_app_ids)
             )
         found = {app.id for app in local_targets}
@@ -251,7 +212,7 @@ class SearcherWorker:
         if metadata:
             try:
                 cached = parse_winstall_app(metadata)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 cached = None
             if cached is not None and cached.package_id == app.winstall_id:
                 return cached
@@ -282,11 +243,11 @@ class SearcherWorker:
                 UrlProtector(self.settings.url_protection_secret),
             )
             if runtime.scope == ScrapeScope.UNRESOLVED:
-                local_targets = await catalog.snapshot_refresh_targets(
+                local_targets = await catalog.winstall.snapshot_refresh_targets(
                     statuses={"review", "missing"}
                 )
             elif runtime.scope == ScrapeScope.SELECTED:
-                local_targets = await catalog.snapshot_refresh_targets(
+                local_targets = await catalog.winstall.snapshot_refresh_targets(
                     app_ids=list(runtime.selected_app_ids)
                 )
                 found = {app.id for app in local_targets}
@@ -309,7 +270,7 @@ class SearcherWorker:
                     0,
                 )
 
-            states = await catalog.winstall_refresh_states()
+            states = await catalog.winstall.winstall_refresh_states()
 
         if runtime.scope == ScrapeScope.FULL:
             return (
@@ -436,12 +397,12 @@ class SearcherWorker:
             )
             if software_app is not None:
                 has_verification = (
-                    await catalog.active_absence_verification(software_app.id)
+                    await catalog.sources.active_absence_verification(software_app.id)
                 ) is not None
                 if not has_verification:
-                    source = await catalog.default_source_for_app(software_app.id)
+                    source = await catalog.sources.default_source_for_app(software_app.id)
                     if source is not None:
-                        await catalog.mark_source_status(
+                        await catalog.sources.mark_source_status(
                             source.id,
                             ResolutionStatus.REQUIRES_MANUAL_REVIEW,
                         )
@@ -510,3 +471,39 @@ class SearcherWorker:
             )
             await asyncio.sleep(self.settings.scrape_searcher_backpressure_sleep_seconds)
         return False
+
+    def _queue_payload(self, runtime: PipelineRuntime, app: WinstallApp) -> dict[str, Any]:
+        """Construye evidencia de cola eligiendo la versión preferida de cada URL de instalador."""
+        download_versions: dict[str, str | None] = {}
+        for version in app.versions:
+            for url in version.installers:
+                current_version = download_versions.get(url)
+                if url not in download_versions or version_label_is_preferred(
+                    current_version,
+                    version.version,
+                    app.latest_version,
+                ):
+                    download_versions[url] = version.version
+
+        payload: dict[str, Any] = {
+            "package_id": app.package_id,
+            "winstall_url": (f"{self.settings.winstall_base_url}/apps/{app.package_id}"),
+            "official_url": app.homepage,
+            "source_code_url": None,
+            "winstall_download_urls": app.installer_urls,
+            "winstall_downloads": [
+                {
+                    "url": url,
+                    "label": None,
+                    "context": version,
+                }
+                for url, version in download_versions.items()
+            ],
+            "provider_detail_complete": app.installer_data_complete,
+            "winstall_summary_fingerprint": winstall_summary_fingerprint(app),
+            "winstall_detail_fingerprint": winstall_detail_fingerprint(app),
+            "scope": runtime.scope.value,
+            "force_refresh": True,
+            "app": app.raw,
+        }
+        return payload
