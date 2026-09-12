@@ -11,8 +11,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspection;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscovery;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserRole;
@@ -214,7 +214,7 @@ class AdminAppSecurityTest {
                         .content("{\"expectedVersion\":0,\"status\":\"draft\",\"profile\":{}}"))
                 .andExpect(status().isForbidden());
 
-        when(scraperClient.linuxProfile(any(UUID.class), any(UUID.class), any()))
+        when(scraperClient.writeLinuxProfile(any(UUID.class), any(UUID.class), any()))
                 .thenReturn(JsonNodeFactory.instance.objectNode().put("version", 1));
         mvc.perform(put(path, APP_ID, sourceRef)
                         .with(administrator())

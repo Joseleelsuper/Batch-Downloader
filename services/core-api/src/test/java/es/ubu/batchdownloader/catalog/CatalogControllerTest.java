@@ -39,13 +39,9 @@ class CatalogControllerTest {
         List<CatalogDtos.CatalogAlphabetEntry> alphabet = List.of(
                 new CatalogDtos.CatalogAlphabetEntry("A", 1, 15),
                 new CatalogDtos.CatalogAlphabetEntry("C", 3, 13));
-        when(catalog.search(
-                        any(), any(), any(), any(), anyList(), anyList(), any(),
-                        anyInt(), anyInt(), any(SemanticCandidateSet.class)))
+        when(catalog.search(any(CatalogQuery.class), any(), anyInt(), anyInt(), any(SemanticCandidateSet.class)))
                 .thenReturn(List.of());
-        when(catalog.alphabet(
-                        any(), any(), any(), any(), anyList(), anyList(), anyInt(),
-                        any(SemanticCandidateSet.class)))
+        when(catalog.alphabet(any(CatalogQuery.class), anyInt(), any(SemanticCandidateSet.class)))
                 .thenReturn(alphabet);
         CatalogController controller = controller();
 
@@ -53,9 +49,7 @@ class CatalogControllerTest {
                 null, "all", null, null, null, null, "name", 1, 12, "lexical");
 
         assertThat(response.alphabet()).isEqualTo(alphabet);
-        verify(catalog).alphabet(
-                isNull(), eq("all"), eq(List.of()), isNull(), eq(List.of()), eq(List.of()),
-                eq(12), any(SemanticCandidateSet.class));
+        verify(catalog).alphabet(eq(new CatalogQuery(null, "all", List.of(), null, List.of(), List.of())), eq(12), any(SemanticCandidateSet.class));
     }
 
     /**
@@ -63,9 +57,7 @@ class CatalogControllerTest {
      */
     @Test
     void appsUsesRepeatedTagsAndOnePublisherWithAllMatching() {
-        when(catalog.search(
-                        any(), any(), any(), any(), anyList(), anyList(), any(),
-                        anyInt(), anyInt(), any(SemanticCandidateSet.class)))
+        when(catalog.search(any(CatalogQuery.class), any(), anyInt(), anyInt(), any(SemanticCandidateSet.class)))
                 .thenReturn(List.of());
         CatalogController controller = controller();
 
@@ -81,17 +73,7 @@ class CatalogControllerTest {
                 20,
                 "lexical");
 
-        verify(catalog).search(
-                eq("epic"),
-                eq("available"),
-                eq(List.of()),
-                isNull(),
-                eq(List.of(".NET", "runtime")),
-                eq(List.of("ACME, Inc.")),
-                eq("updated"),
-                eq(1),
-                eq(20),
-                any(SemanticCandidateSet.class));
+        verify(catalog).search(eq(new CatalogQuery("epic", "available", List.of(), null, List.of(".NET", "runtime"), List.of("ACME, Inc."))), eq("updated"), eq(1), eq(20), any(SemanticCandidateSet.class));
     }
 
     /**
@@ -99,29 +81,13 @@ class CatalogControllerTest {
      */
     @Test
     void facetsParsesTheSameFilterContractAsApps() {
-        when(catalog.facets(
-                        any(), any(), any(), any(), anyList(), anyList(),
-                        any(SemanticCandidateSet.class)))
+        when(catalog.facets(any(CatalogQuery.class), any(SemanticCandidateSet.class)))
                 .thenReturn(new CatalogDtos.CatalogFacetsResponse(List.of(), List.of()));
         CatalogController controller = controller();
 
-        controller.facets(
-                null,
-                "review",
-                List.of("windows"),
-                "x64",
-                List.of("productivity"),
-                "Code Sector",
-                "lexical");
+        controller.facets(null, "review", List.of("windows"), "x64", List.of("productivity"), "Code Sector", "lexical");
 
-        verify(catalog).facets(
-                isNull(),
-                eq("review"),
-                eq(List.of("windows")),
-                eq("x64"),
-                eq(List.of("productivity")),
-                eq(List.of("Code Sector")),
-                any(SemanticCandidateSet.class));
+        verify(catalog).facets(eq(new CatalogQuery(null, "review", List.of("windows"), "x64", List.of("productivity"), List.of("Code Sector"))), any(SemanticCandidateSet.class));
     }
 
     /**

@@ -10,7 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.ubu.batchdownloader.downloads.application.DownloadJobService;
+import es.ubu.batchdownloader.downloads.application.DownloadJobEventHandler;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -35,7 +35,7 @@ class DownloadWorkerEventListenerTest {
     @Test
     void rejectsMalformedMessagesWithoutClaimingAnInboxRecord() {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
-        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
         DownloadWorkerEventListener listener = listener(jdbc, jobs);
 
         assertThatThrownBy(() -> listener.receive(message("not-json")))
@@ -52,7 +52,7 @@ class DownloadWorkerEventListenerTest {
     void letsTransientJobApplicationFailuresReachRabbitRetryHandling() {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(startsWith("INSERT IGNORE"), any(Object[].class))).thenReturn(1);
-        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
         UUID jobId = UUID.randomUUID();
         UUID itemId = UUID.randomUUID();
         Mockito.doThrow(new IllegalStateException("database temporarily unavailable"))
@@ -72,7 +72,7 @@ class DownloadWorkerEventListenerTest {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
                 .thenReturn(1);
-        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
         UUID jobId = UUID.randomUUID();
         DownloadWorkerEventListener listener = listener(jdbc, jobs);
 
@@ -92,7 +92,7 @@ class DownloadWorkerEventListenerTest {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
                 .thenReturn(0);
-        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
         DownloadWorkerEventListener listener = listener(jdbc, jobs);
 
         listener.receive(message(ready(UUID.randomUUID())));
@@ -106,7 +106,7 @@ class DownloadWorkerEventListenerTest {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
                 .thenReturn(1);
-        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
         UUID jobId = UUID.randomUUID();
 
         listener(jdbc, jobs).receive(message(readyWithMetadata(jobId)));
@@ -125,7 +125,7 @@ class DownloadWorkerEventListenerTest {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
                 .thenReturn(1);
-        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
 
         assertThatThrownBy(() -> listener(jdbc, jobs).receive(message(readyWithOnlySize(UUID.randomUUID()))))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class)
@@ -140,7 +140,7 @@ class DownloadWorkerEventListenerTest {
         JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
         when(jdbc.update(startsWith("INSERT IGNORE INTO core_inbox_messages"), any(Object[].class)))
                 .thenReturn(1);
-        DownloadJobService jobs = Mockito.mock(DownloadJobService.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
         UUID jobId = UUID.randomUUID();
 
         listener(jdbc, jobs).receive(message(deferred(jobId)));
@@ -158,7 +158,7 @@ class DownloadWorkerEventListenerTest {
      * @param jobs Valor de {@code jobs} utilizado por la operación.
      * @return Resultado producido por {@code listener}.
      */
-    private DownloadWorkerEventListener listener(JdbcTemplate jdbc, DownloadJobService jobs) {
+    private DownloadWorkerEventListener listener(JdbcTemplate jdbc, DownloadJobEventHandler jobs) {
         return new DownloadWorkerEventListener(
                 new ObjectMapper(), jdbc, jobs, Clock.fixed(Instant.parse("2026-07-13T12:00:00Z"), ZoneOffset.UTC));
     }

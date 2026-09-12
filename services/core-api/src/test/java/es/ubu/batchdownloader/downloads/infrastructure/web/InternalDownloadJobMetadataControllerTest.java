@@ -9,8 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import es.ubu.batchdownloader.downloads.application.DownloadJobService;
-import es.ubu.batchdownloader.downloads.application.DownloadJobService.DownloadItemMetadata;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService.DownloadItemMetadata;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.util.List;
@@ -65,7 +65,7 @@ class InternalDownloadJobMetadataControllerTest {
      * Dato compartido {@code jobs} para los escenarios de prueba.
      */
     @MockitoBean
-    private DownloadJobService jobs;
+    private DownloadJobAccessService jobs;
 
     /**
      * Dato compartido {@code users} para los escenarios de prueba.

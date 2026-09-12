@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspectionRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppInstallerUrls;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryRequest;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspectionRequest;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppInstallerUrls;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryRequest;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UnprocessableEntityException;
 import java.net.InetSocketAddress;

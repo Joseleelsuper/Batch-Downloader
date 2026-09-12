@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.architecture;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleName;
 
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
@@ -25,4 +26,18 @@ class ArchitectureRulesTest {
             .that().resideInAnyPackage("..downloads.application..", "..identity.application..")
             .should().dependOnClassesThat().resideInAnyPackage(
                     "..downloads.infrastructure..", "..identity.infrastructure..");
+
+    /** El consumidor de eventos no puede admitir trabajos ni entregar sus archivos al usuario. */
+    @ArchTest
+    static final ArchRule EVENT_CONSUMER_USES_EVENT_APPLICATION = noClasses()
+            .that().haveSimpleName("DownloadWorkerEventListener")
+            .should().dependOnClassesThat(simpleName("DownloadJobService")
+                    .or(simpleName("DownloadJobAccessService")));
+
+    /** La expiración no inicia trabajos nuevos ni solicita resoluciones al catálogo. */
+    @ArchTest
+    static final ArchRule EXPIRATION_DOES_NOT_ADMIT_DOWNLOADS = noClasses()
+            .that().haveSimpleName("DownloadJobExpiration")
+            .should().dependOnClassesThat(simpleName("DownloadJobService")
+                    .or(simpleName("CatalogSourceLookup")));
 }

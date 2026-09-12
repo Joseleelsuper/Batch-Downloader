@@ -2,7 +2,7 @@ package es.ubu.batchdownloader.admin;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationRequest;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationRequest;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.catalog.CatalogRepository;
+import es.ubu.batchdownloader.catalog.CatalogQuery;
 import es.ubu.batchdownloader.catalog.SemanticCandidateSet;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -19,17 +20,7 @@ class AdminAppControllerTest {
     @Test
     void listAppsUsesOnlyCurrentAdministrativeFilters() {
         CatalogRepository catalog = mock(CatalogRepository.class);
-        when(catalog.search(
-                        eq("editor"),
-                        eq("unresolved"),
-                        eq(List.of("windows")),
-                        eq("x64"),
-                        eq(List.of()),
-                        eq(List.of()),
-                        eq("updated"),
-                        eq(1),
-                        eq(20),
-                        any(SemanticCandidateSet.class)))
+        when(catalog.search(eq(new CatalogQuery("editor", "unresolved", List.of("windows"), "x64", List.of(), List.of())), eq("updated"), eq(1), eq(20), any(SemanticCandidateSet.class)))
                 .thenReturn(List.of());
         AdminAppController controller = new AdminAppController(
                 catalog,
@@ -46,16 +37,6 @@ class AdminAppControllerTest {
                 1,
                 20);
 
-        verify(catalog).search(
-                eq("editor"),
-                eq("unresolved"),
-                eq(List.of("windows")),
-                eq("x64"),
-                eq(List.of()),
-                eq(List.of()),
-                eq("updated"),
-                eq(1),
-                eq(20),
-                any(SemanticCandidateSet.class));
+        verify(catalog).search(eq(new CatalogQuery("editor", "unresolved", List.of("windows"), "x64", List.of(), List.of())), eq("updated"), eq(1), eq(20), any(SemanticCandidateSet.class));
     }
 }

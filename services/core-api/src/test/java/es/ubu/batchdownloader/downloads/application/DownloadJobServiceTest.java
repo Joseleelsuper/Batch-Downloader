@@ -90,6 +90,9 @@ class DownloadJobServiceTest {
      * Dato compartido {@code service} para los escenarios de prueba.
      */
     private DownloadJobService service;
+    private DownloadJobAccessService access;
+    private DownloadJobEventHandler handler;
+    private DownloadJobExpiration expiration;
 
     /**
      * Prepara el estado necesario para los escenarios de prueba.
@@ -99,23 +102,16 @@ class DownloadJobServiceTest {
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         lenient().when(sources.findManualSources(any())).thenReturn(Map.of());
-        service = new DownloadJobService(
-                jobs,
-                sources,
-                users,
-                events,
-                notifier,
-                artifacts,
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        DownloadLimits limits = new DownloadLimits(100, Duration.ofHours(24), Duration.ofMinutes(5),
+                2, 10, 30, 3, 50);
+        DownloadJobNotifications notifications = new DownloadJobNotifications(notifier, users, events);
+        service = new DownloadJobService(jobs, sources, events, clock, limits);
+        access = new DownloadJobAccessService(jobs,
                 (objectKey, validity) -> URI.create("https://storage.example.test/" + objectKey),
-                Clock.fixed(NOW, ZoneOffset.UTC),
-                100,
-                Duration.ofHours(24),
-                Duration.ofMinutes(5),
-                2,
-                10,
-                30,
-                3,
-                50,
+                clock, limits, events, notifications);
+        handler = new DownloadJobEventHandler(jobs, clock, limits, notifications);
+        expiration = new DownloadJobExpiration(jobs, artifacts, notifier, clock,
                 new TransactionTemplate(transactionManager));
         lenient().when(jobs.save(any(DownloadJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -137,11 +133,7 @@ class DownloadJobServiceTest {
                         "Aplicación aceptada",
                         "https://example.com/app")));
 
-        DownloadJobView view = service.create(
-                new RequestOwner(null, "browser-hash", "ip-hash"),
-                List.of(acceptedApp, omittedApp),
-                List.of("windows"),
-                true);
+        DownloadJobView view = service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(acceptedApp, omittedApp), List.of("windows"), null, null, null), true);
 
         assertThat(view.requestedCount()).isEqualTo(2);
         assertThat(view.acceptedCount()).isOne();
@@ -173,11 +165,7 @@ class DownloadJobServiceTest {
                 new CatalogSourceLookup.ManualSource(
                         manualApp, "Aplicación manual", "https://example.com/manual")));
 
-        DownloadJobView view = service.create(
-                new RequestOwner(null, "browser-hash", "ip-hash"),
-                List.of(downloadableApp, manualApp),
-                List.of("windows"),
-                false);
+        DownloadJobView view = service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(downloadableApp, manualApp), List.of("windows"), null, null, null), false);
 
         assertThat(view.requestedCount()).isEqualTo(2);
         assertThat(view.acceptedCount()).isEqualTo(2);
@@ -208,12 +196,7 @@ class DownloadJobServiceTest {
                         "Aplicación versionada",
                         "https://example.com/app")));
 
-        DownloadJobView view = service.create(
-                new RequestOwner(null, "browser-hash", "ip-hash"),
-                List.of(appId),
-                List.of("windows"),
-                sourceRef,
-                false);
+        DownloadJobView view = service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(appId), List.of("windows"), sourceRef, null, null), false);
 
         assertThat(view.acceptedCount()).isOne();
         ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
@@ -230,12 +213,7 @@ class DownloadJobServiceTest {
         when(sources.findVerifiedSource(appId, sourceRef, List.of("windows")))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.create(
-                new RequestOwner(null, "browser-hash", "ip-hash"),
-                List.of(appId),
-                List.of("windows"),
-                sourceRef,
-                false))
+        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(appId), List.of("windows"), sourceRef, null, null), false))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("versión seleccionada");
 
@@ -245,12 +223,7 @@ class DownloadJobServiceTest {
     /** Comprueba que una fuente concreta no pueda aplicarse a varias aplicaciones. */
     @Test
     void rejectsAnExplicitSourceForMultipleApplications() {
-        assertThatThrownBy(() -> service.create(
-                new RequestOwner(null, "browser-hash", "ip-hash"),
-                List.of(UUID.randomUUID(), UUID.randomUUID()),
-                List.of("windows"),
-                UUID.randomUUID(),
-                false))
+        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(UUID.randomUUID(), UUID.randomUUID()), List.of("windows"), UUID.randomUUID(), null, null), false))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("única aplicación");
 
@@ -279,8 +252,7 @@ class DownloadJobServiceTest {
                 new CatalogSourceLookup.ManualSource(
                         manualDependency, "Dependencia manual", "https://example.com/dependency")));
 
-        DownloadJobService.LinuxPreview preview = service.previewLinux(
-                List.of(requested), List.of("linux"), null, "apt", "x86_64");
+        DownloadJobService.LinuxPreview preview = service.previewLinux(new DownloadSelection(List.of(requested), List.of("linux"), null, "apt", "x86_64"));
 
         assertThat(preview.totalCount()).isEqualTo(3);
         assertThat(preview.automaticCount()).isOne();
@@ -310,14 +282,7 @@ class DownloadJobServiceTest {
                                 dependency, dependencySource, "linux", "aarch64", "Dependencia", null,
                                 "automatic")));
 
-        DownloadJobView view = service.create(
-                new RequestOwner(null, "browser-hash", "ip-hash"),
-                List.of(requested),
-                List.of("linux"),
-                null,
-                false,
-                "apt",
-                "aarch64");
+        DownloadJobView view = service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(requested), List.of("linux"), null, "apt", "aarch64"), false);
 
         assertThat(view.acceptedCount()).isEqualTo(2);
         assertThat(view.linux().target()).isEqualTo("apt");
@@ -334,11 +299,7 @@ class DownloadJobServiceTest {
     void rejectsAnonymousCreationWhenItsActiveJobQuotaIsExhausted() {
         when(jobs.countAnonymousNonTerminal("browser-hash")).thenReturn(2L);
 
-        assertThatThrownBy(() -> service.create(
-                        new RequestOwner(null, "browser-hash", "ip-hash"),
-                        List.of(UUID.randomUUID()),
-                        List.of(),
-                        false))
+        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(UUID.randomUUID()), List.of(), null, null, null), false))
                 .isInstanceOf(RateLimitException.class)
                 .hasMessageContaining("m\u00e1ximo");
 
@@ -349,11 +310,7 @@ class DownloadJobServiceTest {
     void rejectsTheFiftyFirstPendingJobAfterEightActiveAndFortyTwoQueued() {
         when(jobs.countNonTerminal()).thenReturn(50L);
 
-        assertThatThrownBy(() -> service.create(
-                        new RequestOwner(null, "browser-hash", "ip-hash"),
-                        List.of(UUID.randomUUID()),
-                        List.of("windows"),
-                        false))
+        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(UUID.randomUUID()), List.of("windows"), null, null, null), false))
                 .isInstanceOfSatisfying(ServiceUnavailableException.class, exception -> {
                     assertThat(exception.code()).isEqualTo("service_busy");
                     assertThat(exception.retryAfterSeconds()).isEqualTo(30);
@@ -382,7 +339,7 @@ class DownloadJobServiceTest {
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
         TransactionSynchronizationManager.initSynchronization();
         try {
-            service.applyReady(
+            handler.applyReady(
                     job.id(),
                     DownloadJobStatus.READY,
                     "jobs/example/bundle.zip",
@@ -420,7 +377,7 @@ class DownloadJobServiceTest {
                 .doNothing()
                 .when(artifacts).deleteJobArtifacts(ready.id());
 
-        service.expireReadyJobs();
+        expiration.expireReadyJobs();
 
         assertThat(ready.status()).isEqualTo(DownloadJobStatus.EXPIRED);
         verify(artifacts, times(3)).deleteJobArtifacts(ready.id());
@@ -450,12 +407,12 @@ class DownloadJobServiceTest {
         UUID secondId = job.items().get(1).id();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        assertThat(service.itemMetadata(job.id(), List.of(secondId, firstId)))
-                .extracting(DownloadJobService.DownloadItemMetadata::appName)
+        assertThat(access.itemMetadata(job.id(), List.of(secondId, firstId)))
+                .extracting(DownloadJobAccessService.DownloadItemMetadata::appName)
                 .containsExactly("Segunda", "Primera");
 
         UUID foreignItem = UUID.randomUUID();
-        assertThatThrownBy(() -> service.itemMetadata(job.id(), List.of(firstId, foreignItem)))
+        assertThatThrownBy(() -> access.itemMetadata(job.id(), List.of(firstId, foreignItem)))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("No existe el trabajo.");
     }

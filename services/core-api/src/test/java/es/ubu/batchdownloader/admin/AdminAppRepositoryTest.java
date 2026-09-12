@@ -8,7 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.PatchSourceRequest;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.UuidBytes;
