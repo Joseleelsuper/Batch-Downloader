@@ -104,6 +104,8 @@ paths:
                 $ref: '#/components/schemas/User'
         '204':
           description: No existe una sesión autenticada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /auth/email-verification/confirm:
     post:
       operationId: confirmEmailVerification
@@ -2774,11 +2776,12 @@ components:
       type: object
       additionalProperties: false
       oneOf:
-        - required: [officialPageUrl]
+        - required: [officialPageUrl, officialConfirmedAbsent]
           properties:
             officialPageUrl: {type: string, format: uri, pattern: '^https://'}
             officialConfirmedAbsent: {type: boolean, const: true}
-        - properties:
+        - required: [officialConfirmedAbsent]
+          properties:
             officialPageUrl: {type: 'null'}
             officialConfirmedAbsent: {type: boolean, const: false}
       required:
