@@ -31,7 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class ProcessEmailNotificationTest {
 
     /**
-     * Constante que define {@code EVENT_ID}.
+     * Valor compartido que fija e v e n t  i d para el comportamiento del componente.
      */
     private static final UUID EVENT_ID = UUID.fromString("83e7ddfe-0fb4-4f19-9694-137ada2bb39c");
 

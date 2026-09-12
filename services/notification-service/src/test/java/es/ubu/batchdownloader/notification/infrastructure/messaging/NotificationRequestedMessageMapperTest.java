@@ -25,15 +25,15 @@ import org.junit.jupiter.api.Test;
 class NotificationRequestedMessageMapperTest {
 
     /**
-     * Constante que define {@code ROUTING_KEY}.
+     * Constante de protocolo que identifica o protege r o u t i n g  k e y.
      */
     private static final String ROUTING_KEY = "notification.email.requested";
     /**
-     * Constante que define {@code EVENT_ID}.
+     * Valor compartido que fija e v e n t  i d para el comportamiento del componente.
      */
     private static final UUID EVENT_ID = UUID.fromString("83e7ddfe-0fb4-4f19-9694-137ada2bb39c");
     /**
-     * Constante que define {@code OCCURRED_AT}.
+     * Valor compartido que fija o c c u r r e d  a t para el comportamiento del componente.
      */
     private static final Instant OCCURRED_AT = Instant.parse("2026-07-11T10:00:00Z");
 

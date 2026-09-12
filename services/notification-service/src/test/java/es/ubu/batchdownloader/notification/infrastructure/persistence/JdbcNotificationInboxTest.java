@@ -30,7 +30,7 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 class JdbcNotificationInboxTest {
 
     /**
-     * Constante que define {@code NOW}.
+     * Valor compartido que fija n o w para el comportamiento del componente.
      */
     private static final Instant NOW = Instant.parse("2026-07-11T10:00:00Z");
 
