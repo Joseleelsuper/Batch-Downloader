@@ -705,7 +705,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    """Ejecuta la operación solicitada y traduce errores controlados a código uno."""
+    """Ejecuta el subcomando de salud solicitado y traduce sus errores controlados a código uno."""
     parser = build_parser()
     arguments = parser.parse_args()
     try:
