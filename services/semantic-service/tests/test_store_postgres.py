@@ -1,4 +1,7 @@
-"""Contiene las pruebas de `test_store_postgres`.
+"""Verifica migraciones, reservas, búsqueda, retención y activación sobre PostgreSQL real con
+pgvector.
+Los escenarios comparten una base efímera; una repetición de la suite requiere otra base
+nueva.
 """
 from __future__ import annotations
 
@@ -18,19 +21,19 @@ from app.retention import SemanticRetentionStore
 from app.store import SemanticStore
 
 testcontainers_postgres = pytest.importorskip("testcontainers.postgres")
-"""Estado global asociado a `testcontainers_postgres`.
-"""
+
 PostgresContainer = testcontainers_postgres.PostgresContainer
-"""Estado global asociado a `PostgresContainer`.
-"""
+
 
 
 @pytest.fixture(scope="module")
 def postgres_dsn() -> Iterator[str]:
-    """Ejecuta la operación `postgres_dsn`.
+    """Proporciona un DSN de pruebas explícito o crea y retira un contenedor pgvector exclusivo.
+    La ausencia de Docker hace fallar CI y omite la integración en un host local sin
+    contenedores.
 
     Yields:
-        Iterator[str]: Elemento producido por la operación.
+        DSN de la base nueva compartida por este módulo de pruebas.
     """
     configured_dsn = os.environ.get("SEMANTIC_TEST_POSTGRES_DSN")
     if configured_dsn:
@@ -63,7 +66,13 @@ def postgres_dsn() -> Iterator[str]:
 
 
 def test_schema_verification_rejects_checksum_drift(postgres_dsn: str) -> None:
-    """Rechaza un historial aplicado cuyo contenido ya no coincide con el archivo."""
+    """Una huella de migración alterada impide verificar el esquema; la prueba restaura el
+    checksum original al terminar.
+
+    Args:
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
+    """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     migrations = Database._migration_files()
@@ -104,7 +113,13 @@ def test_schema_verification_rejects_checksum_drift(postgres_dsn: str) -> None:
 def test_worker_heartbeat_degrades_only_after_persistent_failures_or_staleness(
     postgres_dsn: str,
 ) -> None:
-    """Comprueba reinicio, umbral de fallos, recuperación y antigüedad."""
+    """Dos fallos transitorios conservan salud; el tercero o un latido vencido degradan, y éxito
+    o nueva instancia recuperan.
+
+    Args:
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
+    """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     store = WorkerHeartbeatStore(database)
@@ -178,7 +193,13 @@ def test_worker_heartbeat_degrades_only_after_persistent_failures_or_staleness(
 def test_retention_prunes_only_old_terminal_rows_and_preserves_benchmarks(
     postgres_dsn: str,
 ) -> None:
-    """Comprueba límites, estados activos y conservación indefinida de benchmarks."""
+    """La retención elimina solo un lote terminal vencido, conserva colas pendientes y desvincula
+    el benchmark sin borrarlo.
+
+    Args:
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
+    """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     now = datetime(2026, 8, 23, tzinfo=UTC)
@@ -191,6 +212,12 @@ def test_retention_prunes_only_old_terminal_rows_and_preserves_benchmarks(
         database.migrate()
 
         def seed(connection) -> None:
+            """Inserta trabajos viejos completos y pendientes y un benchmark asociado para
+            comprobar la limpieza selectiva.
+
+            Args:
+                connection: Conexión de la transacción de preparación del escenario.
+            """
             connection.execute(
                 """
                 INSERT INTO semantic_documents(app_id, content_hash, content, metadata)
@@ -300,10 +327,14 @@ def test_retention_prunes_only_old_terminal_rows_and_preserves_benchmarks(
 def test_migration_sync_dimension_contract_search_and_explicit_activation(
     postgres_dsn: str,
 ) -> None:
-    """Comprueba el escenario `migration_sync_dimension_contract_search_and_explicit_activation`.
+    """La sincronización es idempotente, preparar no activa y un cambio de contenido invalida
+    búsquedas hasta reconstruir cobertura.
+    Comprueba dimensiones vectoriales, cambio explícito de peso y borrado en cascada al
+    retirar el documento.
 
     Args:
-        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
     """
     settings = Settings(postgres_dsn_override=postgres_dsn)
     database = Database(settings)
@@ -419,16 +450,18 @@ def test_migration_sync_dimension_contract_search_and_explicit_activation(
 def test_hnsw_benchmark_compares_approximate_and_exact_search(
     postgres_dsn: str,
 ) -> None:
-    """Comprueba el escenario `hnsw_benchmark_compares_approximate_and_exact_search`.
+    """Un corpus ortogonal de tres vectores alcanza recall completo en HNSW y devuelve tiempo y
+    tamaño reales del índice.
 
     Args:
-        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
     """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     try:
         database.migrate()
-        metrics = SemanticStore(database).benchmark_hnsw(
+        metrics = SemanticStore(database).benchmarks.benchmark_hnsw(
             dimensions=3,
             app_ids=[
                 "00000000-0000-0000-0000-000000000011",
@@ -452,10 +485,12 @@ def test_hnsw_benchmark_compares_approximate_and_exact_search(
 def test_training_variants_can_share_one_dataset_snapshot(
     postgres_dsn: str,
 ) -> None:
-    """Comprueba el escenario `training_variants_can_share_one_dataset_snapshot`.
+    """Las versiones LoRA completa y smoke pueden registrarse para el mismo dataset sin
+    colisionar entre sí.
 
     Args:
-        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
     """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
@@ -494,17 +529,21 @@ def test_training_variants_can_share_one_dataset_snapshot(
 def test_admin_migration_reconciles_models_and_recovers_operation_leases(
     postgres_dsn: str,
 ) -> None:
-    """Comprueba el escenario `admin_migration_reconciles_models_and_recovers_operation_leases`.
+    """La cola deduplica solicitudes, rechaza claves incompatibles, recupera leases y conserva
+    las fases finales no cancelables.
+    Comprueba también que el borrado no permite retirar modelos activos ni usados por otro
+    benchmark.
 
     Args:
-        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
     """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
     try:
         database.migrate()
         admin = SemanticAdminStore(database)
-        models = admin.models()
+        models = admin.models.list_models()
         e5 = next(
             model
             for model in models
@@ -514,41 +553,41 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
         assert e5["minimumSimilarity"] == 0.82
 
         artifact = models[2]
-        delete = admin.create_operation(
+        delete = admin.operations.create_operation(
             kind="delete",
             actor="admin-test",
             idempotency_key="delete-fixture-test",
             request_payload={"modelId": str(artifact["id"])},
             model_id=str(artifact["id"]),
         )
-        claimed_delete = admin.claim_operation("worker-delete", lease_seconds=30)
+        claimed_delete = admin.operations.claim_operation("worker-delete", lease_seconds=30)
         assert claimed_delete["id"] == delete["id"]
-        assert admin.begin_finalization(
+        assert admin.operations.begin_finalization(
             str(delete["id"]),
             owner="worker-delete",
             phase="deleting",
             message="deleting fixture",
         )
-        deletion = admin.begin_model_deletion(
+        deletion = admin.lifecycle.begin_model_deletion(
             str(artifact["id"]),
             excluding_operation_id=str(delete["id"]),
         )
-        admin.finish_model_deletion(
+        admin.lifecycle.finish_model_deletion(
             str(artifact["id"]),
             operation_id=str(delete["id"]),
             model_version=deletion["modelVersion"],
         )
-        assert admin.operation(str(delete["id"]))["status"] == "succeeded"
+        assert admin.operations.operation(str(delete["id"]))["status"] == "succeeded"
 
         payload = {"modelIds": [e5["id"], models[1]["id"]]}
-        first = admin.create_operation(
+        first = admin.operations.create_operation(
             kind="benchmark",
             actor="admin-test",
             idempotency_key="benchmark-idempotency-test",
             request_payload=payload,
             model_id=e5["id"],
         )
-        duplicate = admin.create_operation(
+        duplicate = admin.operations.create_operation(
             kind="benchmark",
             actor="admin-test",
             idempotency_key="benchmark-idempotency-test",
@@ -560,12 +599,12 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
             RuntimeError,
             match="semantic_model_has_open_operations",
         ):
-            admin.assert_model_deletable(models[1]["id"])
+            admin.models.assert_model_deletable(models[1]["id"])
         with pytest.raises(
             RuntimeError,
             match="semantic_idempotency_key_conflict",
         ):
-            admin.create_operation(
+            admin.operations.create_operation(
                 kind="benchmark",
                 actor="admin-test",
                 idempotency_key="benchmark-idempotency-test",
@@ -573,7 +612,7 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
                 model_id=e5["id"],
             )
 
-        claimed = admin.claim_operation("worker-one", lease_seconds=30)
+        claimed = admin.operations.claim_operation("worker-one", lease_seconds=30)
         assert claimed is not None
         assert claimed["id"] == first["id"]
         database.run(
@@ -586,51 +625,51 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
                 (first["id"],),
             )
         )
-        recovered = admin.claim_operation("worker-two", lease_seconds=30)
+        recovered = admin.operations.claim_operation("worker-two", lease_seconds=30)
         assert recovered is not None
         assert recovered["id"] == first["id"]
         assert recovered["attempts"] == 2
-        cancelled = admin.request_cancel(str(first["id"]))
+        cancelled = admin.operations.request_cancel(str(first["id"]))
         assert cancelled["status"] == "cancel_requested"
-        admin.mark_cancelled(str(first["id"]))
-        assert admin.operation(str(first["id"]))["status"] == "cancelled"
-        retry = admin.retry_operation(
+        admin.operations.mark_cancelled(str(first["id"]))
+        assert admin.operations.operation(str(first["id"]))["status"] == "cancelled"
+        retry = admin.operations.retry_operation(
             str(first["id"]),
             actor="admin-test",
             idempotency_key="benchmark-retry-idempotency-test",
         )
         assert retry["id"] != str(first["id"])
         assert retry["status"] == "queued"
-        assert admin.request_cancel(retry["id"])["status"] == "cancelled"
+        assert admin.operations.request_cancel(retry["id"])["status"] == "cancelled"
 
-        cancelled_activation = admin.create_operation(
+        cancelled_activation = admin.operations.create_operation(
             kind="activate",
             actor="admin-test",
             idempotency_key="activation-cancel-test",
             request_payload={"benchmarkRunId": str(first["id"])},
             model_id=models[1]["id"],
         )
-        claimed_activation = admin.claim_operation("worker-three", lease_seconds=30)
+        claimed_activation = admin.operations.claim_operation("worker-three", lease_seconds=30)
         assert claimed_activation["id"] == cancelled_activation["id"]
-        assert admin.request_cancel(cancelled_activation["id"])["status"] == (
+        assert admin.operations.request_cancel(cancelled_activation["id"])["status"] == (
             "cancel_requested"
         )
-        assert not admin.begin_activation(
+        assert not admin.operations.begin_activation(
             cancelled_activation["id"],
             owner="worker-three",
         )
-        admin.mark_cancelled(cancelled_activation["id"])
+        admin.operations.mark_cancelled(cancelled_activation["id"])
 
-        atomic_activation = admin.create_operation(
+        atomic_activation = admin.operations.create_operation(
             kind="activate",
             actor="admin-test",
             idempotency_key="activation-atomic-test",
             request_payload={"benchmarkRunId": str(first["id"]), "atomic": True},
             model_id=models[1]["id"],
         )
-        claimed_atomic = admin.claim_operation("worker-four", lease_seconds=30)
+        claimed_atomic = admin.operations.claim_operation("worker-four", lease_seconds=30)
         assert claimed_atomic["id"] == atomic_activation["id"]
-        assert admin.begin_activation(
+        assert admin.operations.begin_activation(
             atomic_activation["id"],
             owner="worker-four",
         )
@@ -638,8 +677,8 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
             RuntimeError,
             match="semantic_operation_not_cancellable",
         ):
-            admin.request_cancel(atomic_activation["id"])
-        admin.fail_operation(
+            admin.operations.request_cancel(atomic_activation["id"])
+        admin.operations.fail_operation(
             atomic_activation["id"],
             "semantic_test_complete",
             "test complete",
@@ -649,7 +688,7 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
             RuntimeError,
             match="active_semantic_model_cannot_be_deleted",
         ):
-            admin.assert_model_deletable(e5["id"])
+            admin.models.assert_model_deletable(e5["id"])
     finally:
         database.close()
 
@@ -657,10 +696,12 @@ def test_admin_migration_reconciles_models_and_recovers_operation_leases(
 def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
     postgres_dsn: str,
 ) -> None:
-    """Comprueba el escenario `admin_activation_and_rollback_are_atomic_and_benchmark_gated`.
+    """Una activación con cobertura y benchmark comparables cambia modelo e índice y completa su
+    operación; el retorno al anterior exige confirmar la regresión.
 
     Args:
-        postgres_dsn (str): Valor de `postgres_dsn` utilizado por la operación.
+        postgres_dsn: Conexión a una base de datos efímera nueva para la suite; las pruebas
+            integradas comparten su evolución.
     """
     database = Database(Settings(postgres_dsn_override=postgres_dsn))
     database.open()
@@ -668,7 +709,7 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
         database.migrate()
         semantic = SemanticStore(database)
         admin = SemanticAdminStore(database)
-        models = admin.models()
+        models = admin.models.list_models()
         active = next(model for model in models if model["active"])
         candidate = next(model for model in models if not model["active"])
         document = {
@@ -740,15 +781,18 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
         )
 
         def configuration(model: dict[str, object]) -> dict[str, object]:
-            """Ejecuta la operación `configuration`.
+            """Captura la configuración real del artefacto que debe coincidir con el benchmark al
+            activar.
 
             Args:
-                model (dict[str, object]): Modelo utilizado por la operación.
+                model: Modelo cuya configuración real se adjunta a la evidencia del benchmark
+                    del escenario.
 
             Returns:
-                dict[str, object]: Mapa con los datos producidos por la operación.
+                repositorio, revisión, prefijos y similitud mínima que se adjuntan a la
+                    evidencia.
             """
-            artifact = admin.artifact(str(model["id"]))
+            artifact = admin.models.artifact(str(model["id"]))
             return {
                 "repository": artifact["hf_repository"],
                 "revision": artifact["resolved_revision"],
@@ -757,20 +801,20 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
                 "minimumSimilarity": float(artifact["minimum_similarity"]),
             }
 
-        benchmark_operation = admin.create_operation(
+        benchmark_operation = admin.operations.create_operation(
             kind="benchmark",
             actor="admin-test",
             idempotency_key=f"activation-benchmark-{uuid.uuid4()}",
             request_payload={"modelIds": [active["id"], candidate["id"]]},
             model_id=str(active["id"]),
         )
-        claimed_benchmark = admin.claim_operation(
+        claimed_benchmark = admin.operations.claim_operation(
             "activation-benchmark-worker",
             lease_seconds=60,
         )
         assert claimed_benchmark["id"] == benchmark_operation["id"]
         benchmark_run_id = str(uuid.uuid4())
-        admin.save_benchmark_run(
+        admin.lifecycle.save_benchmark_run(
             run_id=benchmark_run_id,
             operation_id=str(benchmark_operation["id"]),
             model_ids=[str(active["id"]), str(candidate["id"])],
@@ -804,30 +848,30 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
                 "markdown": "/reports/fixture.md",
             },
         )
-        assert admin.operation(str(benchmark_operation["id"]))["status"] == (
+        assert admin.operations.operation(str(benchmark_operation["id"]))["status"] == (
             "succeeded"
         )
-        assert admin.eligible_benchmark(str(candidate["id"]))["id"] == (
+        assert admin.models.eligible_benchmark(str(candidate["id"]))["id"] == (
             benchmark_run_id
         )
-        assert admin.active_model_id() == str(active["id"])
+        assert admin.models.active_model_id() == str(active["id"])
 
-        activation = admin.create_operation(
+        activation = admin.operations.create_operation(
             kind="activate",
             actor="admin-test",
             idempotency_key=f"activation-{uuid.uuid4()}",
             request_payload={"benchmarkRunId": benchmark_run_id},
             model_id=str(candidate["id"]),
         )
-        assert admin.claim_operation(
+        assert admin.operations.claim_operation(
             "activation-worker",
             lease_seconds=60,
         )["id"] == activation["id"]
-        assert admin.begin_activation(
+        assert admin.operations.begin_activation(
             str(activation["id"]),
             owner="activation-worker",
         )
-        activated = admin.activate_model(
+        activated = admin.lifecycle.activate_model(
             str(candidate["id"]),
             operation_id=str(activation["id"]),
             benchmark_run_id=benchmark_run_id,
@@ -835,8 +879,8 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
             confirm_regression=False,
         )
         assert activated["indexVersion"] == candidate_index["indexVersion"]
-        assert admin.active_model_id() == str(candidate["id"])
-        assert admin.operation(str(activation["id"]))["status"] == "succeeded"
+        assert admin.models.active_model_id() == str(candidate["id"])
+        assert admin.operations.operation(str(activation["id"]))["status"] == "succeeded"
         active_runtime = semantic.active_model()
         assert active_runtime is not None
         assert active_runtime[0].model_version == candidate["modelVersion"]
@@ -849,22 +893,22 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
             limit=10,
         )[0]["appId"] == document["appId"]
 
-        rollback = admin.create_operation(
+        rollback = admin.operations.create_operation(
             kind="activate",
             actor="admin-test",
             idempotency_key=f"rollback-{uuid.uuid4()}",
             request_payload={"benchmarkRunId": benchmark_run_id},
             model_id=str(active["id"]),
         )
-        assert admin.claim_operation(
+        assert admin.operations.claim_operation(
             "rollback-worker",
             lease_seconds=60,
         )["id"] == rollback["id"]
-        assert admin.begin_activation(
+        assert admin.operations.begin_activation(
             str(rollback["id"]),
             owner="rollback-worker",
         )
-        restored = admin.activate_model(
+        restored = admin.lifecycle.activate_model(
             str(active["id"]),
             operation_id=str(rollback["id"]),
             benchmark_run_id=benchmark_run_id,
@@ -872,8 +916,8 @@ def test_admin_activation_and_rollback_are_atomic_and_benchmark_gated(
             confirm_regression=True,
         )
         assert restored["indexVersion"] == active_index["indexVersion"]
-        assert admin.active_model_id() == str(active["id"])
-        assert admin.operation(str(rollback["id"]))["status"] == "succeeded"
+        assert admin.models.active_model_id() == str(active["id"])
+        assert admin.operations.operation(str(rollback["id"]))["status"] == "succeeded"
         restored_runtime = semantic.active_model()
         assert restored_runtime is not None
         assert restored_runtime[0].model_version == active["modelVersion"]

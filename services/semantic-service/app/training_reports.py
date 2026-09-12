@@ -1,4 +1,6 @@
-"""Persistencia de informes producidos por el entrenamiento semántico."""
+"""Publica la misma ejecución de evaluación como JSON, CSV y tabla Markdown para comparación
+reproducible.
+"""
 
 from __future__ import annotations
 
@@ -17,18 +19,23 @@ def write_reports(
     dataset_hash: str,
     smoke: bool = False,
 ) -> dict[str, str]:
-    """Ejecuta la operación `write_reports`.
+    """Escribe métricas y candidato seleccionado en tres formatos con el mismo UUID y hash de
+    dataset.
+    La tabla ordena por puntuación y señala cuándo la ejecución smoke impide seleccionar o
+    activar modelos.
 
     Args:
-        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
-        selected (str | None): Valor de `selected` utilizado por la operación.
-        report_dir (Path): Valor de `report_dir` utilizado por la operación.
-        run_id (str): Identificador de `run` utilizado por la operación.
-        dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
-        smoke (bool): Valor de `smoke` utilizado por la operación.
+        metrics: Métricas por variante, con identificadores, calidad, latencias y tamaño de
+            índices.
+        selected: Versión ganadora seleccionada o None si no hay candidato elegible.
+        report_dir: Directorio de salida que se crea si todavía no existe.
+        run_id: UUID que identifica los tres informes de la misma ejecución.
+        dataset_hash: SHA-256 del snapshot de documentos y consultas evaluados.
+        smoke: Si es True, usa un subconjunto determinista y un paso; ningún resultado será
+            elegible para selección.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        rutas json, csv y markdown de los archivos escritos.
     """
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / f"{run_id}.json"

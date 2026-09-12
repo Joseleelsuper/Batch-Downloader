@@ -1,4 +1,6 @@
-"""Implementa las responsabilidades del módulo `admin_benchmark`."""
+"""Compara modelos locales sin entrenarlos y persiste evidencia reproducible para decidir una
+activación administrativa.
+"""
 
 from __future__ import annotations
 
@@ -31,18 +33,22 @@ def run_admin_benchmark(
     operation_id: str,
     model_ids: list[str],
 ) -> dict[str, Any]:
-    """Ejecuta la operación `admin_benchmark`.
+    """Evalúa todos los modelos ready con el mismo catálogo y consultas, midiendo carga,
+    calentamiento, ranking e índice HNSW.
+    Publica informes y evidencia con huellas de catálogo, configuración y entorno; comprueba
+    cancelación entre modelos.
 
     Args:
-        operation_id (str): Identificador de `operation` utilizado por la operación.
-        model_ids (list[str]): Colección de identificadores de `model`.
+        operation_id: UUID del trabajo administrativo al que se vinculan progreso y resultado.
+        model_ids: UUID de los artefactos ready que se comparan en el orden indicado.
 
     Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
+        UUID, dataset, modelos comparados y rutas de informes.
 
-    Throws:
-        RuntimeError: Si el estado de ejecución impide completar la operación.
-        InterruptedError: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        RuntimeError: Si hay menos de dos documentos, no hay consultas o un artefacto no está
+            listo.
+        InterruptedError: Si se solicita cancelar antes del siguiente modelo.
     """
     settings = get_settings()
     database = Database(settings)
@@ -56,7 +62,7 @@ def run_admin_benchmark(
         documents = semantic.active_documents()
         if len(documents) < 2:
             raise RuntimeError("semantic_benchmark_requires_two_documents")
-        admin.update_operation(
+        admin.operations.update_operation(
             operation_id,
             phase="benchmarking",
             message="Preparando el dataset reproducible",
@@ -72,11 +78,11 @@ def run_admin_benchmark(
         model_configurations: dict[str, dict[str, Any]] = {}
         total = len(model_ids)
         for index, model_id in enumerate(model_ids, start=1):
-            if admin.cancel_requested(operation_id):
+            if admin.operations.cancel_requested(operation_id):
                 raise InterruptedError("semantic_operation_cancelled")
             completed_before_model = (index - 1) * len(queries)
             total_query_work = total * len(queries)
-            admin.update_operation(
+            admin.operations.update_operation(
                 operation_id,
                 phase="benchmarking",
                 current=completed_before_model,
@@ -84,7 +90,7 @@ def run_admin_benchmark(
                 unit="queries",
                 message=f"Cargando el modelo {index} de {total}",
             )
-            artifact = admin.artifact(model_id)
+            artifact = admin.models.artifact(model_id)
             model_version = artifact.get("model_version")
             if not model_version or artifact["artifact_state"] != "ready":
                 raise RuntimeError("semantic_model_not_ready")
@@ -144,7 +150,7 @@ def run_admin_benchmark(
                 "passagePrefix": artifact["passage_prefix"],
                 "minimumSimilarity": float(artifact["minimum_similarity"]),
             }
-            admin.update_operation(
+            admin.operations.update_operation(
                 operation_id,
                 phase="benchmarking",
                 current=index * len(queries),
@@ -167,7 +173,7 @@ def run_admin_benchmark(
             dataset_hash=dataset_hash,
             hardware=hardware,
         )
-        admin.save_benchmark_run(
+        admin.lifecycle.save_benchmark_run(
             run_id=run_id,
             operation_id=operation_id,
             model_ids=model_ids,
@@ -206,10 +212,30 @@ def _benchmark_progress_callback(
     model_index: int,
     model_total: int,
 ) -> Callable[[str, int, int], None]:
-    """Crea un callback estable para informar del avance de un modelo."""
+    """Adapta el progreso local de un modelo al contador global de consultas de la operación.
+
+    Args:
+        admin: Composición de almacenes administrativos para actualizar el trabajo en curso.
+        operation_id: UUID del trabajo administrativo al que se vinculan progreso y resultado.
+        completed_before_model: Consultas ya evaluadas por modelos anteriores de esta misma
+            ejecución.
+        total_query_work: Total de consultas multiplicado por el número de modelos comparados.
+        model_index: Posición del modelo actual, empezando en uno.
+        model_total: Número total de modelos que se comparan.
+
+    Returns:
+        callback que suma trabajo previo y publica un mensaje seguro de fase.
+    """
 
     def update(stage: str, current: int, stage_total: int) -> None:
-        admin.update_operation(
+        """Actualiza progreso global y mensaje manteniendo la operación en fase benchmarking.
+
+        Args:
+            stage: Fase de preparación o ranking informada por la evaluación del runtime.
+            current: Consultas completadas dentro de la fase del modelo actual.
+            stage_total: Consultas previstas en la etapa comunicada por el runtime.
+        """
+        admin.operations.update_operation(
             operation_id,
             phase="benchmarking",
             current=completed_before_model + current,
@@ -225,15 +251,16 @@ def _benchmark_progress_callback(
 
 
 def _progress_message(stage: str, current: int, total: int) -> str:
-    """Ejecuta el paso interno `_progress_message`.
+    """Convierte las fases de embeddings y ranking en una descripción legible para
+    administración.
 
     Args:
-        stage (str): Valor de `stage` utilizado por la operación.
-        current (int): Valor de `current` utilizado por la operación.
-        total (int): Valor de `total` utilizado por la operación.
+        stage: Fase de preparación o ranking informada por la evaluación del runtime.
+        current: Consultas completadas dentro de la fase del modelo actual.
+        total: Consultas previstas para la fase actual.
 
     Returns:
-        str: Resultado producido por la operación.
+        mensaje de preparación o contador de consultas ordenadas.
     """
     if stage == "embedding-documents":
         return "creando los embeddings del catálogo"
@@ -243,10 +270,12 @@ def _progress_message(stage: str, current: int, total: int) -> str:
 
 
 def _score(metrics: list[dict[str, Any]]) -> None:
-    """Ejecuta el paso interno `_score`.
+    """Normaliza calidad, latencia y memoria dentro de la comparación y añade puntuación
+    70/20/10; marca como recomendado el primer máximo.
 
     Args:
-        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
+        metrics: Filas de calidad, latencias y tamaños por modelo; deben contener al menos una
+            variante.
     """
     dimensions = (
         ([metric["ndcgAt10"] for metric in metrics], "qualityNormalized", False),
@@ -274,10 +303,12 @@ def _score(metrics: list[dict[str, Any]]) -> None:
 
 
 def _hardware() -> dict[str, Any]:
-    """Ejecuta el paso interno `_hardware`.
+    """Describe el entorno de ejecución que acompaña a las métricas para comparar resultados en
+    condiciones equivalentes.
 
     Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
+        plataforma, procesador, versiones de Python y PyTorch, dispositivo y nombre CUDA si
+            existe.
     """
     return {
         "platform": platform.platform(),
@@ -297,17 +328,20 @@ def _write_reports(
     dataset_hash: str,
     hardware: dict[str, Any],
 ) -> dict[str, str]:
-    """Ejecuta el paso interno `_write_reports`.
+    """Escribe la comparación completa en JSON, CSV y Markdown con las mismas métricas y huella
+    del dataset.
 
     Args:
-        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
-        report_dir (Path): Valor de `report_dir` utilizado por la operación.
-        run_id (str): Identificador de `run` utilizado por la operación.
-        dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
-        hardware (dict[str, Any]): Valor de `hardware` utilizado por la operación.
+        metrics: Filas de calidad, latencias y tamaños por modelo; deben contener al menos una
+            variante.
+        report_dir: Directorio de los informes que se crea si todavía no existe.
+        run_id: UUID que vincula los tres formatos de informe a la misma evaluación.
+        dataset_hash: Huella del snapshot de documentos y consultas.
+        hardware: Plataforma, versiones y dispositivo con los que se obtuvieron las
+            mediciones.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        rutas de los tres informes; la tabla se ordena por puntuación descendente.
     """
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / f"{run_id}.json"

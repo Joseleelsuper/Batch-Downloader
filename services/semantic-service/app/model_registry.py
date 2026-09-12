@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `model_registry`.
+"""Define revisiones reproducibles de modelos base y nombres estables para artefactos e índices
+HNSW.
 """
 from __future__ import annotations
 
@@ -8,33 +9,39 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ModelDefinition:
-    """Representa el componente `ModelDefinition`.
+    """Describe un modelo base antes de prepararlo o entrenarlo, con revisión fija y prefijos de
+    codificación.
+
+    Attributes:
+        key: Nombre corto utilizado en configuración y versiones de modelo.
+        repository: Repositorio de origen de sus archivos.
+        revision: Commit exacto que evita cambios implícitos de pesos.
+        dimensions: Número de componentes de cada vector de embeddings.
+        query_prefix: Prefijo que se añade a consultas antes de codificarlas.
+        passage_prefix: Prefijo que se añade a documentos antes de codificarlos.
+
+    See Also:
+        app.embeddings.RegisteredModel: Identidad y configuración de un modelo persistido.
     """
     key: str
-    """Atributo de clase `key` de `ModelDefinition`.
-    """
+
     repository: str
-    """Atributo de clase `repository` de `ModelDefinition`.
-    """
+
     revision: str
-    """Atributo de clase `revision` de `ModelDefinition`.
-    """
+
     dimensions: int
-    """Atributo de clase `dimensions` de `ModelDefinition`.
-    """
+
     query_prefix: str
-    """Atributo de clase `query_prefix` de `ModelDefinition`.
-    """
+
     passage_prefix: str
-    """Atributo de clase `passage_prefix` de `ModelDefinition`.
-    """
+
 
     @property
     def zero_shot_version(self) -> str:
-        """Ejecuta `zero_shot_version` dentro de `ModelDefinition`.
+        """Identifica la variante sin entrenamiento del modelo base y su revisión fija.
 
         Returns:
-            str: Resultado producido por la operación.
+            identificador con formato clave@revisión:zero-shot.
         """
         return f"{self.key}@{self.revision}:zero-shot"
 
@@ -65,39 +72,38 @@ MODEL_DEFINITIONS = (
         passage_prefix="",
     ),
 )
-"""Constante que define `MODEL_DEFINITIONS`.
-"""
+
 
 MODELS_BY_KEY = {model.key: model for model in MODEL_DEFINITIONS}
-"""Constante que define `MODELS_BY_KEY`.
-"""
+
 MODELS_BY_VERSION = {model.zero_shot_version: model for model in MODEL_DEFINITIONS}
-"""Constante que define `MODELS_BY_VERSION`.
-"""
+
 
 
 def model_index_name(model_version: str) -> str:
-    """Ejecuta la operación `model_index_name`.
+    """Deriva un nombre SQL corto y estable para el índice HNSW de una versión de modelo.
 
     Args:
-        model_version (str): Valor de `model_version` utilizado por la operación.
+        model_version: Identidad inmutable del modelo, incluida su revisión y variante de
+            entrenamiento.
 
     Returns:
-        str: Resultado producido por la operación.
+        nombre ix_embeddings_<16 caracteres de SHA-256>_hnsw, sin interpolar el identificador
+            original.
     """
     digest = hashlib.sha256(model_version.encode("utf-8")).hexdigest()[:16]
     return f"ix_embeddings_{digest}_hnsw"
 
 
 def local_model_identity(repository: str, revision: str) -> tuple[str, str]:
-    """Construye la identidad estable de un artefacto local.
+    """Construye clave y versión estables a partir del repositorio y su revisión resuelta.
 
     Args:
-        repository (str): Valor de `repository` utilizado por la operación.
-        revision (str): Valor de `revision` utilizado por la operación.
+        repository: Repositorio de origen del artefacto.
+        revision: Revisión fija del repositorio que identifica sus archivos.
 
     Returns:
-        tuple[str, str]: Resultado producido por la operación.
+        par clave/versión; las barras del repositorio se sustituyen por dos guiones.
     """
 
     model_key = repository.replace("/", "--")

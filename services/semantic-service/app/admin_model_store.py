@@ -1,4 +1,6 @@
-"""Consultas y registro de artefactos del almacén semántico administrativo."""
+"""Consulta artefactos, elegibilidad de benchmarks y configuración registrada para administración
+de modelos.
+"""
 
 from __future__ import annotations
 
@@ -7,40 +9,48 @@ from pathlib import Path
 from typing import Any
 
 from app.admin_rows import iso_value, model_from_row
+from app.catalog_fingerprint import CATALOG_SNAPSHOT_CTE
 from app.database import Database
 from app.model_registry import local_model_identity
 
 
 class SemanticModelStore:
-    """Casos de uso de consulta y registro de modelos semánticos."""
+    """Accede al catálogo de modelos y sus artefactos sin asumir responsabilidades de reserva o
+    activación.
 
-    database: Database
+    See Also:
+        app.admin_model_lifecycle.SemanticModelLifecycleStore: Transiciones atómicas de
+            activación y borrado.
+        app.admin_operation_store.SemanticOperationStore: Reservas y ejecución persistente de
+            tareas.
+    """
 
-    def models(self) -> list[dict[str, Any]]:
-        """Ejecuta `models` dentro de `SemanticAdminStore`.
+    def __init__(self, database: Database) -> None:
+        """Conserva el pool usado por cada consulta y actualización de metadatos.
+
+        Args:
+            database: Pool que proporciona una transacción independiente para cada llamada
+                run.
+        """
+        self.database = database
+
+    def list_models(self, *, local_only: bool = False) -> list[dict[str, Any]]:
+        """Proyecta artefactos no eliminados junto al índice y al último benchmark, poniendo
+        primero el modelo activo.
+        La disponibilidad local se comprueba antes de eliminar las rutas privadas de la
+        respuesta.
+
+        Args:
+            local_only: Si es True, exige un directorio local existente antes de proyectar el
+                modelo.
 
         Returns:
-            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+            modelos por actividad y fecha de creación descendentes, sin rutas del sistema de
+                archivos.
         """
         rows = self.database.run(
             lambda connection: connection.execute(
-                """
-                WITH catalog AS (
-                    SELECT encode(
-                        digest(
-                            COALESCE(
-                                string_agg(
-                                    app_id::text || ':' || content_hash,
-                                    '|' ORDER BY app_id
-                                ) FILTER (WHERE active),
-                                ''
-                            ),
-                            'sha256'
-                        ),
-                        'hex'
-                    ) AS snapshot_hash
-                    FROM semantic_documents
-                )
+                CATALOG_SNAPSHOT_CTE + """
                 SELECT
                     a.*,
                     m.model_version,
@@ -80,18 +90,33 @@ class SemanticModelStore:
                 """
             ).fetchall()
         )
-        return [model_from_row(row) for row in rows]
+        return [model_from_row(row) for row in rows if not local_only or (
+            row["local_path"] and Path(row["local_path"]).is_dir()
+        )]
 
     def local_models(self) -> list[dict[str, Any]]:
-        """Devuelve únicamente modelos cuyo artefacto existe en almacenamiento local."""
-        return [
-            model
-            for model in self.models()
-            if model.get("localPath") and Path(model["localPath"]).is_dir()
-        ]
+        """Filtra el catálogo por directorios de artefactos que existen en el sistema de archivos
+        local.
+
+        Returns:
+            modelos locales en el orden del catálogo administrativo.
+        """
+        return self.list_models(local_only=True)
 
     def local_model(self, model_id: str) -> dict[str, Any]:
-        """Obtiene un modelo visible solo cuando su artefacto local está disponible."""
+        """Resuelve un artefacto visible en el catálogo local, excluyendo registros sin
+        directorio disponible.
+
+        Args:
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
+
+        Returns:
+            proyección pública del modelo local.
+
+        Raises:
+            LookupError: Si el artefacto no existe o su directorio local no está disponible.
+        """
         model = next(
             (row for row in self.local_models() if row["id"] == model_id),
             None,
@@ -101,33 +126,25 @@ class SemanticModelStore:
         return model
 
     def eligible_benchmark(self, model_id: str) -> dict[str, Any] | None:
-        """Ejecuta `eligible_benchmark` dentro de `SemanticAdminStore`.
+        """Busca el benchmark completo más reciente que evalúa el candidato y el modelo activo
+        sobre el catálogo actual.
+        Exige métricas elegibles y configuración idéntica del candidato; la activación vuelve
+        a comprobarlo bajo bloqueo.
 
         Args:
-            model_id (str): Identificador de `model` utilizado por la operación.
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
 
         Returns:
-            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+            UUID y hash del dataset de la ejecución compatible, o None si no existe.
+
+        See Also:
+            app.admin_model_lifecycle.require_activation_benchmark: Revalidación durante la
+                transacción de activación.
         """
         row = self.database.run(
             lambda connection: connection.execute(
-                """
-                WITH catalog AS (
-                    SELECT encode(
-                        digest(
-                            COALESCE(
-                                string_agg(
-                                    app_id::text || ':' || content_hash,
-                                    '|' ORDER BY app_id
-                                ) FILTER (WHERE active),
-                                ''
-                            ),
-                            'sha256'
-                        ),
-                        'hex'
-                    ) AS snapshot_hash
-                    FROM semantic_documents
-                )
+                CATALOG_SNAPSHOT_CTE + """
                 SELECT run.id::text AS id, run.dataset_hash
                 FROM benchmark_runs run
                 JOIN semantic_model_artifacts artifact
@@ -183,16 +200,19 @@ class SemanticModelStore:
         *,
         excluding_operation_id: str | None = None,
     ) -> None:
-        """Comprueba la operación `model_deletable`.
+        """Comprueba que un artefacto no está activo ni participa en operaciones abiertas de
+        preparación, benchmark o borrado.
 
         Args:
-            model_id (str): Identificador de `model` utilizado por la operación.
-            excluding_operation_id (str | None): Identificador de `excluding_operation` utilizado
-                por la operación.
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
+            excluding_operation_id: UUID de la operación de borrado propia que no debe
+                bloquearse a sí misma.
 
-        Throws:
-            RuntimeError: Si el estado de ejecución impide completar la operación.
-            LookupError: Si no existe el elemento solicitado.
+        Raises:
+            LookupError: Si el artefacto no existe o ya está eliminado.
+            RuntimeError: Si el modelo está activo o tiene operaciones abiertas distintas de
+                la propia.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -229,33 +249,37 @@ class SemanticModelStore:
             raise RuntimeError("semantic_model_has_open_operations")
 
     def model(self, model_id: str) -> dict[str, Any]:
-        """Ejecuta `model` dentro de `SemanticAdminStore`.
+        """Localiza un artefacto no eliminado por su UUID, aunque sus archivos no estén
+        disponibles localmente.
 
         Args:
-            model_id (str): Identificador de `model` utilizado por la operación.
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            proyección administrativa del modelo.
 
-        Throws:
-            LookupError: Si no existe el elemento solicitado.
+        Raises:
+            LookupError: Si no aparece en el catálogo de artefactos no eliminados.
         """
-        model = next((row for row in self.models() if row["id"] == model_id), None)
+        model = next((row for row in self.list_models() if row["id"] == model_id), None)
         if model is None:
             raise LookupError("semantic_model_not_found")
         return model
 
     def artifact(self, model_id: str) -> dict[str, Any]:
-        """Ejecuta `artifact` dentro de `SemanticAdminStore`.
+        """Recupera metadatos internos y ruta de un artefacto para que el trabajador pueda
+        validarlo o eliminarlo.
 
         Args:
-            model_id (str): Identificador de `model` utilizado por la operación.
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            fila completa, incluida local_path; no se devuelve directamente al navegador.
 
-        Throws:
-            LookupError: Si no existe el elemento solicitado.
+        Raises:
+            LookupError: Si el artefacto no existe o está eliminado.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -280,12 +304,16 @@ class SemanticModelStore:
         local_path: str,
         artifact_bytes: int,
     ) -> None:
-        """Ejecuta `reconcile_artifact_path` dentro de `SemanticAdminStore`.
+        """Reconcilia la ubicación descubierta en disco sin reducir el tamaño registrado.
+        Actualiza artefacto y ruta ausente del modelo en dos transacciones independientes; no
+        reemplaza una ruta de modelo ya existente.
 
         Args:
-            model_id (str): Identificador de `model` utilizado por la operación.
-            local_path (str): Ruta de `local` utilizada por la operación.
-            artifact_bytes (int): Valor de `artifact_bytes` utilizado por la operación.
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
+            local_path: Ruta del directorio de artefactos, ya inspeccionado por el trabajador
+                de modelos.
+            artifact_bytes: Tamaño comprobado de los archivos locales, en bytes.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -312,10 +340,11 @@ class SemanticModelStore:
         )
 
     def active_model_id(self) -> str | None:
-        """Ejecuta `active_model_id` dentro de `SemanticAdminStore`.
+        """Consulta la identidad del artefacto actualmente activo, sin comprobar cobertura ni
+        disponibilidad del disco.
 
         Returns:
-            str | None: Resultado producido por la operación.
+            UUID del artefacto activo o None si no lo hay.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -330,13 +359,14 @@ class SemanticModelStore:
         return row["model_id"] if row and row["model_id"] else None
 
     def benchmarks(self, limit: int = 50) -> list[dict[str, Any]]:
-        """Ejecuta `benchmarks` dentro de `SemanticAdminStore`.
+        """Lista las ejecuciones de benchmark más recientes con sus métricas, configuración y
+        tamaño del conjunto evaluado.
 
         Args:
-            limit (int): Número máximo de elementos que se recuperarán.
+            limit: Máximo de ejecuciones a consultar; se limita al intervalo de 1 a 200.
 
         Returns:
-            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+            hasta el límite normalizado de ejecuciones por fecha descendente.
         """
         rows = self.database.run(
             lambda connection: connection.execute(
@@ -378,12 +408,15 @@ class SemanticModelStore:
         *,
         message: str | None = None,
     ) -> None:
-        """Marca la operación `artifact_state`.
+        """Persiste el resultado de validación del artefacto y registra validated_at únicamente
+        al pasar a ready.
 
         Args:
-            model_id (str): Identificador de `model` utilizado por la operación.
-            state (str): Valor de `state` utilizado por la operación.
-            message (str | None): Mensaje que debe procesarse.
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
+            state: Estado de validación persistido; ready registra además la fecha de
+                validación.
+            message: Explicación segura del estado; None elimina el mensaje anterior.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -408,28 +441,43 @@ class SemanticModelStore:
         dimensions: int,
         metadata: dict[str, Any],
     ) -> str:
-        """Ejecuta `register_validated_artifact` dentro de `SemanticAdminStore`.
+        """Guarda el manifiesto validado y registra la versión de embeddings en una misma
+        transacción.
+        Al reconciliar una versión existente actualiza configuración y ubicación sin activar
+        el modelo.
 
         Args:
-            model_id (str): Identificador de `model` utilizado por la operación.
-            local_path (str): Ruta de `local` utilizada por la operación.
-            artifact_bytes (int): Valor de `artifact_bytes` utilizado por la operación.
-            manifest_digest (str): Valor de `manifest_digest` utilizado por la operación.
-            dimensions (int): Valor de `dimensions` utilizado por la operación.
-            metadata (dict[str, Any]): Valor de `metadata` utilizado por la operación.
+            model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre
+                del repositorio.
+            local_path: Ruta del directorio de artefactos, ya inspeccionado por el trabajador
+                de modelos.
+            artifact_bytes: Tamaño comprobado de los archivos locales, en bytes.
+            manifest_digest: SHA-256 del manifiesto validado de archivos del artefacto.
+            dimensions: Número comprobado de componentes del vector producido por el modelo.
+            metadata: Metadatos validados que se fusionan con los ya registrados para el
+                artefacto.
 
         Returns:
-            str: Resultado producido por la operación.
+            identidad estable formada por la clave normalizada del repositorio, revisión y
+                sufijo :zero-shot.
+
+        Raises:
+            LookupError: Si el artefacto ha desaparecido antes de la actualización.
         """
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Marca el artefacto ready y crea o reconcilia la versión correspondiente antes de
+            confirmar los dos cambios.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión cedida por Database.run; el llamador confirma o revierte
+                    todos sus cambios.
 
-            Throws:
-                LookupError: Si no existe el elemento solicitado.
+            Returns:
+                versión de modelo asociada al artefacto validado.
+
+            Raises:
+                LookupError: Si el UUID de artefacto ya no existe.
             """
             artifact = connection.execute(
                 """

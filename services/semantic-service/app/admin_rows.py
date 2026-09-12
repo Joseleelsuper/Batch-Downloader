@@ -1,4 +1,6 @@
-"""Conversión estable de filas administrativas y utilidades de artefactos."""
+"""Proyecta filas internas a respuestas administrativas sin exponer rutas locales ni solicitudes
+completas.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +10,15 @@ from typing import Any
 
 
 def model_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Convierte una fila de modelo en el contrato público de administración."""
+    """Construye la vista administrativa de un modelo y su último benchmark, normalizando UUID,
+    fechas y contadores.
+
+    Args:
+        row: Fila de PostgreSQL con las columnas requeridas por la proyección.
+
+    Returns:
+        metadatos públicos con estados, cobertura y vigencia del benchmark; omite local_path.
+    """
     metadata = row["metadata"] or {}
     metrics = row.get("benchmark_metrics") or []
     metric = metric_for(metrics, str(row["id"]))
@@ -61,7 +71,15 @@ def model_from_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def operation_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Convierte una fila de operación en el contrato público de administración."""
+    """Expone estado y progreso de una operación con los modelos relacionados y su resultado, sin
+    copiar el payload de entrada.
+
+    Args:
+        row: Fila de PostgreSQL con las columnas requeridas por la proyección.
+
+    Returns:
+        contrato de operación con fechas ISO-8601, reserva y error seguro.
+    """
     request_payload = dict(row["request_payload"] or {})
     related_model_ids = [
         str(value)
@@ -102,14 +120,30 @@ def metric_for(
     metrics: list[dict[str, Any]],
     model_id: str | None,
 ) -> dict[str, Any] | None:
-    """Selecciona la métrica que corresponde al modelo indicado."""
+    """Selecciona la primera métrica asociada al UUID de un modelo dentro del benchmark.
+
+    Args:
+        metrics: Resultados por modelo, con elegibilidad y puntuaciones comparables.
+        model_id: UUID del artefacto persistido; no es la versión del modelo ni el nombre del
+            repositorio.
+
+    Returns:
+        métrica del modelo o None si no hay identidad o coincidencia.
+    """
     if not model_id:
         return None
     return next((metric for metric in metrics if metric.get("modelId") == model_id), None)
 
 
 def iso_value(value: datetime | None) -> str | None:
-    """Serializa un instante como ISO-8601 normalizando valores sin zona a UTC."""
+    """Convierte un instante opcional a ISO-8601 y asigna UTC a valores sin zona.
+
+    Args:
+        value: Instante opcional; si carece de zona horaria se interpreta como UTC.
+
+    Returns:
+        fecha con desplazamiento horario o None para un campo ausente.
+    """
     if value is None:
         return None
     if value.tzinfo is None:
@@ -118,6 +152,17 @@ def iso_value(value: datetime | None) -> str | None:
 
 
 def directory_bytes(path: str | Path) -> int:
-    """Calcula el tamaño de los archivos contenidos en una ruta."""
+    """Suma el tamaño lógico de archivos descendientes de un directorio sin incluir el tamaño de
+    las carpetas.
+
+    Args:
+        path: Directorio cuyos archivos descendientes se suman; no reserva ni libera espacio.
+
+    Returns:
+        suma en bytes; las rutas inexistentes producen cero.
+
+    Raises:
+        OSError: Si no se puede inspeccionar un archivo durante el recorrido.
+    """
     root = Path(path)
     return sum(entry.stat().st_size for entry in root.rglob("*") if entry.is_file())

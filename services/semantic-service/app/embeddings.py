@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `embeddings`.
+"""Carga modelos locales de SentenceTransformer y produce vectores normalizados para consultas y
+documentos.
 """
 from __future__ import annotations
 
@@ -15,51 +16,60 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class RegisteredModel:
-    """Representa el componente `RegisteredModel`.
+    """Conserva la identidad y configuración persistidas que permiten reproducir la codificación
+    de un índice.
+
+    Attributes:
+        model_version: Identidad de modelo, revisión y variante de entrenamiento.
+        artifact_id: UUID del artefacto local o None en registros históricos.
+        model_key: Clave corta de la familia de modelo.
+        hf_repository: Repositorio del que proceden los archivos.
+        hf_revision: Revisión fija de los pesos.
+        dimensions: Número de componentes de cada vector.
+        query_prefix: Texto antepuesto a consultas.
+        passage_prefix: Texto antepuesto a documentos.
+        artifact_path: Directorio local; None impide cargar el modelo.
+        rrf_weight: Peso del modelo para la fusión de rankings.
+        minimum_similarity: Similitud mínima registrada para aceptar candidatos.
+
+    See Also:
+        app.store.SemanticStore.active_model: Resuelve la identidad activa con índice
+            completo.
     """
     model_version: str
-    """Atributo de clase `model_version` de `RegisteredModel`.
-    """
+
     artifact_id: str | None
-    """Atributo de clase `artifact_id` de `RegisteredModel`.
-    """
+
     model_key: str
-    """Atributo de clase `model_key` de `RegisteredModel`.
-    """
+
     hf_repository: str
-    """Atributo de clase `hf_repository` de `RegisteredModel`.
-    """
+
     hf_revision: str
-    """Atributo de clase `hf_revision` de `RegisteredModel`.
-    """
+
     dimensions: int
-    """Atributo de clase `dimensions` de `RegisteredModel`.
-    """
+
     query_prefix: str
-    """Atributo de clase `query_prefix` de `RegisteredModel`.
-    """
+
     passage_prefix: str
-    """Atributo de clase `passage_prefix` de `RegisteredModel`.
-    """
+
     artifact_path: str | None = None
-    """Atributo de clase `artifact_path` de `RegisteredModel`.
-    """
+
     rrf_weight: float = 1.0
-    """Atributo de clase `rrf_weight` de `RegisteredModel`.
-    """
+
     minimum_similarity: float = 0.0
-    """Atributo de clase `minimum_similarity` de `RegisteredModel`.
-    """
+
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> RegisteredModel:
-        """Ejecuta `from_row` dentro de `RegisteredModel`.
+        """Convierte una fila persistida, normalizando UUID y valores numéricos y aplicando los
+        valores históricos por defecto.
 
         Args:
-            row (dict[str, Any]): Valor de `row` utilizado por la operación.
+            row: Fila de PostgreSQL con las columnas requeridas por la proyección.
 
         Returns:
-            RegisteredModel: Resultado producido por la operación.
+            identidad inmutable; rrf_weight vacío o cero toma 1.0 y minimum_similarity vacío
+                toma 0.0.
         """
         return cls(
             model_version=row["model_version"],
@@ -81,7 +91,13 @@ class RegisteredModel:
 
 
 class EmbeddingRuntime:
-    """Mantiene el estado de ejecución de `Embedding`.
+    """Comparte una instancia local del modelo y serializa carga, calentamiento y codificación
+    mediante un bloqueo reentrante.
+    La construcción no carga pesos. La primera codificación valida las dimensiones y evita
+    ejecutar código remoto.
+
+    See Also:
+        RegisteredModel: Configuración que debe corresponder al índice consultado.
     """
 
     def __init__(
@@ -92,44 +108,41 @@ class EmbeddingRuntime:
         cache_dir: str,
         batch_size: int = 32,
     ) -> None:
-        """Inicializa una instancia de `EmbeddingRuntime`.
+        """Conserva la configuración de carga diferida y normaliza el tamaño mínimo del lote a
+        uno.
 
         Args:
-            registered (RegisteredModel): Valor de `registered` utilizado por la operación.
-            device (str): Valor de `device` utilizado por la operación.
-            cache_dir (str): Valor de `cache_dir` utilizado por la operación.
-            batch_size (int): Valor de `batch_size` utilizado por la operación.
+            registered: Identidad, dimensiones, prefijos y ruta local del modelo que se va a
+                codificar.
+            device: Dispositivo de ejecución aceptado por SentenceTransformer, como cpu.
+            cache_dir: Directorio local de caché; la carga nunca descarga archivos remotos.
+            batch_size: Máximo de textos por lote de codificación; se eleva a uno si es menor.
         """
         self.registered = registered
-        """Estado de instancia asociado a `registered`.
-        """
+
         self.device = device
-        """Estado de instancia asociado a `device`.
-        """
+
         self.cache_dir = cache_dir
-        """Estado de instancia asociado a `cache_dir`.
-        """
+
         self.batch_size = max(1, batch_size)
-        """Estado de instancia asociado a `batch_size`.
-        """
+
         self._model: SentenceTransformer | None = None
-        """Estado de instancia asociado a `_model`.
-        """
+
         self._lock = threading.RLock()
-        """Estado de instancia asociado a `_lock`.
-        """
+
         self._warmed = False
-        """Estado de instancia asociado a `_warmed`.
-        """
+
 
     def _load(self) -> SentenceTransformer:
-        """Ejecuta el paso interno `_load`.
+        """Carga una sola vez los pesos desde el directorio local y comprueba que producen las
+        dimensiones registradas.
 
         Returns:
-            SentenceTransformer: Resultado producido por la operación.
+            modelo reutilizable protegido por el mismo bloqueo de codificación.
 
-        Throws:
-            RuntimeError: Si el estado de ejecución impide completar la operación.
+        Raises:
+            RuntimeError: Si falta el directorio local o las dimensiones reales no coinciden
+                con las registradas.
         """
         from sentence_transformers import SentenceTransformer
 
@@ -157,23 +170,26 @@ class EmbeddingRuntime:
             return self._model
 
     def encode_query(self, query: str) -> list[float]:
-        """Ejecuta `encode_query` dentro de `EmbeddingRuntime`.
+        """Codifica la consulta con el prefijo configurado en el mismo espacio vectorial del
+        índice de documentos.
 
         Args:
-            query (str): Valor de `query` utilizado por la operación.
+            query: Texto de consulta sin prefijo; se antepone el configurado en el modelo.
 
         Returns:
-            list[float]: Colección de elementos obtenidos por la operación.
+            vector normalizado de la consulta, convertido a lista de float.
         """
         return self._encode([self.registered.query_prefix + query])[0].tolist()
 
     def load(self) -> None:
-        """Ejecuta `load` dentro de `EmbeddingRuntime`.
+        """Prepara los pesos locales sin ejecutar una consulta ni marcar el runtime como
+        calentado.
         """
         self._load()
 
     def warmup(self) -> None:
-        """Ejecuta `warmup` dentro de `EmbeddingRuntime`.
+        """Codifica una consulta de salud una sola vez; cualquier codificación previa ya
+        satisface el calentamiento.
         """
         with self._lock:
             if self._warmed:
@@ -181,37 +197,40 @@ class EmbeddingRuntime:
             self._encode([self.registered.query_prefix + "healthcheck"])
 
     def encode_queries(self, queries: list[str]) -> list[list[float]]:
-        """Ejecuta `encode_queries` dentro de `EmbeddingRuntime`.
+        """Añade el prefijo de consulta a cada entrada y codifica todas con la misma instancia
+        del modelo.
 
         Args:
-            queries (list[str]): Valor de `queries` utilizado por la operación.
+            queries: Consultas sin prefijo, en el orden en que deben devolverse los vectores.
 
         Returns:
-            list[list[float]]: Colección de elementos obtenidos por la operación.
+            vectores normalizados en el orden original de las consultas.
         """
         prefixed = [self.registered.query_prefix + query for query in queries]
         return self._encode(prefixed).tolist()
 
     def encode_documents(self, documents: list[str]) -> list[list[float]]:
-        """Ejecuta `encode_documents` dentro de `EmbeddingRuntime`.
+        """Añade el prefijo de pasaje de cada documento antes de codificarlo para el índice.
 
         Args:
-            documents (list[str]): Colección de documentos que debe procesarse.
+            documents: Textos de documentos sin prefijo, en el orden de entrada.
 
         Returns:
-            list[list[float]]: Colección de elementos obtenidos por la operación.
+            vectores normalizados en el orden original de los documentos.
         """
         prefixed = [self.registered.passage_prefix + document for document in documents]
         return self._encode(prefixed).tolist()
 
     def _encode(self, values: list[str]) -> np.ndarray:
-        """Ejecuta el paso interno `_encode`.
+        """Serializa la codificación en lotes, normaliza los embeddings y marca el runtime como
+        calentado al terminar.
 
         Args:
-            values (list[str]): Valor de `values` utilizado por la operación.
+            values: Textos ya prefijados; el llamador conserva su correspondencia con
+                consultas o documentos.
 
         Returns:
-            np.ndarray: Resultado producido por la operación.
+            matriz NumPy float32 con un vector por texto de entrada.
         """
         with self._lock:
             model = self._load()
@@ -227,12 +246,15 @@ class EmbeddingRuntime:
 
 
 def vector_literal(values: list[float]) -> str:
-    """Ejecuta la operación `vector_literal`.
+    """Serializa componentes numéricos con nueve cifras significativas en la sintaxis de entrada
+    de pgvector.
 
     Args:
-        values (list[float]): Valor de `values` utilizado por la operación.
+        values: Componentes del vector, en el mismo orden que espera la columna vector de
+            PostgreSQL.
 
     Returns:
-        str: Resultado producido por la operación.
+        literal entre corchetes para pasarlo como parámetro SQL, sin interpolarlo en la
+            consulta.
     """
     return "[" + ",".join(format(float(value), ".9g") for value in values) + "]"

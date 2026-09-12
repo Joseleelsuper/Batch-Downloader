@@ -1,4 +1,6 @@
-"""Pruebas de los wrappers HTTP del servicio semántico."""
+"""Verifica rechazo de credenciales internas y recuperación de plazas después de agotar la
+capacidad HTTP.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +13,7 @@ from app.http_policies import InternalServiceTokenGuard, SearchCapacityGuard
 
 @pytest.mark.asyncio
 async def test_internal_token_guard_rejects_missing_token_and_accepts_exact_match() -> None:
+    """El guarda rechaza una cabecera ausente con 401 y acepta únicamente el secreto configurado."""
     guard = InternalServiceTokenGuard("shared-secret")
 
     with pytest.raises(HTTPException) as rejected:
@@ -23,6 +26,9 @@ async def test_internal_token_guard_rejects_missing_token_and_accepts_exact_matc
 
 @pytest.mark.asyncio
 async def test_capacity_guard_times_out_and_releases_its_slot_in_finally() -> None:
+    """Una segunda petición sin plaza devuelve 503; cerrar la primera libera capacidad para la
+    siguiente.
+    """
     slots = asyncio.Semaphore(1)
     guard = SearchCapacityGuard(slots, 0.01)
     first = guard()

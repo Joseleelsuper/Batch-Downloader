@@ -1,4 +1,6 @@
-"""Persistencia aislada de benchmarks y mediciones del índice semántico."""
+"""Mide HNSW en tablas temporales de PostgreSQL y guarda evidencia de las ejecuciones del
+entrenador.
+"""
 from __future__ import annotations
 
 import json
@@ -13,7 +15,13 @@ from app.embeddings import vector_literal
 
 
 class HnswBenchmarkStore(Protocol):
-    """Contrato mínimo requerido por la evaluación de runtimes."""
+    """Contrato mínimo para medir recall aproximado, coste de construcción y tamaño de un índice
+    sobre vectores preparados.
+
+    See Also:
+        app.runtime_evaluation.prepare_runtime_evaluation: Consume mediciones sin conocer las
+            tablas de PostgreSQL.
+    """
 
     def benchmark_hnsw(
         self,
@@ -24,14 +32,39 @@ class HnswBenchmarkStore(Protocol):
         query_vectors: list[list[float]],
         cutoff: int = 20,
     ) -> dict[str, float | int]:
-        """Mide construcción y recall del índice HNSW temporal."""
+        """Compara el ranking aproximado con el exacto sobre el mismo corpus y conjunto de
+        consultas.
+
+        Args:
+            dimensions: Número positivo de componentes de los vectores, compatible con
+                pgvector.
+            app_ids: UUID del corpus en el mismo orden y con la misma longitud que
+                document_vectors.
+            document_vectors: Vectores normalizados del corpus, ordenados por app_ids.
+            query_vectors: Vectores normalizados de consultas; se evalúan como máximo los
+                primeros cien.
+            cutoff: Tamaño positivo del ranking comparado, limitado al número de documentos;
+                por defecto 20.
+
+        Returns:
+            hnswRecallAt20, hnswBuildMs en milisegundos y hnswIndexBytes en bytes.
+        """
 
 
 class SemanticBenchmarkStore:
-    """Ejecuta las transacciones exclusivas de benchmarking semántico."""
+    """Implementa medición HNSW aislada en una tabla temporal y persistencia de reportes de
+    entrenamiento.
+
+    See Also:
+        HnswBenchmarkStore: Contrato utilizado durante la evaluación de variantes.
+    """
 
     def __init__(self, database: Database) -> None:
-        """Inicializa el store con una base de datos ya configurada."""
+        """Conserva el pool para medir índices temporales y guardar ejecuciones.
+
+        Args:
+            database: Pool que delimita las transacciones de persistencia y evaluación.
+        """
         self.database = database
 
     def benchmark_hnsw(
@@ -43,7 +76,25 @@ class SemanticBenchmarkStore:
         query_vectors: list[list[float]],
         cutoff: int = 20,
     ) -> dict[str, float | int]:
-        """Mide recall, tiempo de construcción y tamaño de un HNSW temporal."""
+        """Crea un índice HNSW temporal y compara hasta cien consultas con su ranking exacto
+        usando ef_search=40.
+        La tabla desaparece al confirmar; un corpus o consultas vacíos devuelven métricas en
+        cero.
+
+        Args:
+            dimensions: Número positivo de componentes de los vectores, compatible con
+                pgvector.
+            app_ids: UUID del corpus en el mismo orden y con la misma longitud que
+                document_vectors.
+            document_vectors: Vectores normalizados del corpus, ordenados por app_ids.
+            query_vectors: Vectores normalizados de consultas; se evalúan como máximo los
+                primeros cien.
+            cutoff: Tamaño positivo del ranking comparado, limitado al número de documentos;
+                por defecto 20.
+
+        Returns:
+            recall medio, tiempo de construcción en ms y tamaño real del índice en bytes.
+        """
         if not app_ids or not query_vectors:
             return {
                 "hnswRecallAt20": 0.0,
@@ -54,6 +105,16 @@ class SemanticBenchmarkStore:
         index_name = f"{table_name}_hnsw"
 
         def mutate(connection: Any) -> dict[str, float | int]:
+            """Inserta vectores en una tabla temporal y mide HNSW alternando planes exactos y
+            aproximados en la misma conexión.
+
+            Args:
+                connection: Conexión de la misma transacción que contiene tabla temporal,
+                    índice y consultas de medición.
+
+            Returns:
+                métricas del índice temporal antes de descartarlo al confirmar.
+            """
             table = sql.Identifier(table_name)
             index = sql.Identifier(index_name)
             dimension = sql.SQL(str(dimensions))
@@ -144,7 +205,21 @@ class SemanticBenchmarkStore:
         selected_model_version: str | None,
         paths: dict[str, str],
     ) -> None:
-        """Persiste de forma atómica la evidencia y las rutas de un benchmark."""
+        """Guarda configuración, métricas, candidato y rutas de informes sin modificar la
+        selección ni activación de modelos.
+
+        Args:
+            run_id: UUID que vincula los tres formatos de informe a la misma evaluación.
+            dataset_hash: Huella del snapshot de documentos y consultas.
+            seed: Semilla de particiones y selección del conjunto de consultas.
+            configuration: Parámetros de la ejecución, incluidos snapshot y pesos de
+                comparación.
+            metrics: Filas de calidad, latencias y tamaños por modelo; deben contener al menos
+                una variante.
+            selected_model_version: Candidato seleccionado por el entrenador o None si no hubo
+                uno elegible.
+            paths: Rutas de los informes json, csv y markdown ya escritos.
+        """
         self.database.run(
             lambda connection: connection.execute(
                 """

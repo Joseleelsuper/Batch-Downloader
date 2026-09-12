@@ -1,4 +1,6 @@
-"""Preparación reproducible de snapshots y negativos de entrenamiento."""
+"""Genera consultas y negativos difíciles con particiones por aplicación y snapshots
+identificados por su contenido.
+"""
 
 from __future__ import annotations
 
@@ -30,43 +32,48 @@ DESCRIPTION_STOPWORDS = {
     "una",
     "utiliza",
 }
-"""Constante que define `DESCRIPTION_STOPWORDS`.
-"""
+
 EVALUATION_CANDIDATE_LIMIT = 2000
-"""Constante que define `EVALUATION_CANDIDATE_LIMIT`.
-"""
+
 
 
 @dataclass
 class NegativeMiningIndex:
-    """Representa el componente `NegativeMiningIndex`."""
+    """Precalcula tokens y alias para buscar negativos difíciles sin recorrer repetidamente todo
+    el corpus.
+
+    Attributes:
+        documents_by_id: Documento original por UUID.
+        tokens_by_id: Términos del contenido y metadatos de cada documento.
+        aliases_by_id: Nombre y paquete normalizados para excluir falsos negativos.
+        postings: UUID por partición y término.
+        fallback_by_split: UUID de cada partición en orden determinista para completar
+            candidatos.
+    """
 
     documents_by_id: dict[str, dict[str, Any]]
-    """Atributo de clase `documents_by_id` de `NegativeMiningIndex`.
-    """
+
     tokens_by_id: dict[str, set[str]]
-    """Atributo de clase `tokens_by_id` de `NegativeMiningIndex`.
-    """
+
     aliases_by_id: dict[str, set[str]]
-    """Atributo de clase `aliases_by_id` de `NegativeMiningIndex`.
-    """
+
     postings: dict[tuple[str, str], set[str]]
-    """Atributo de clase `postings` de `NegativeMiningIndex`.
-    """
+
     fallback_by_split: dict[str, list[str]]
-    """Atributo de clase `fallback_by_split` de `NegativeMiningIndex`.
-    """
+
 
 
 def split_for_app(app_id: str, seed: int) -> str:
-    """Ejecuta la operación `split_for_app`.
+    """Asigna cada aplicación a una partición estable usando SHA-256 de semilla e identidad.
 
     Args:
-        app_id (str): Identificador de `app` utilizado por la operación.
-        seed (int): Valor de `seed` utilizado por la operación.
+        app_id: Identidad estable de la aplicación; todas sus consultas comparten partición.
+        seed: Semilla que determina particiones, desempates y selección reproducible del
+            conjunto.
 
     Returns:
-        str: Resultado producido por la operación.
+        train en los primeros 80 buckets, validation en los siguientes 10 y test en los
+            últimos 10.
     """
     bucket = int(hashlib.sha256(f"{seed}:{app_id}".encode()).hexdigest()[:8], 16) % 100
     if bucket < 80:
@@ -77,35 +84,25 @@ def split_for_app(app_id: str, seed: int) -> str:
 
 
 def build_query_snapshot(documents: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
-    """Construye la operación `query_snapshot`.
+    """Deriva consultas de navegación, editor e intención a partir del catálogo y añade positivos
+    y negativos de la misma partición.
 
     Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        seed (int): Valor de `seed` utilizado por la operación.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        seed: Semilla que determina particiones, desempates y selección reproducible del
+            conjunto.
 
     Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        filas con texto, relevantes, alias, tipo, partición y contenido de negativos
+            difíciles.
     """
     split_by_app = {
         document["app_id"]: split_for_app(document["app_id"], seed) for document in documents
     }
-    by_tag: dict[tuple[str, str], set[str]] = defaultdict(set)
-    by_platform_tag: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    by_tag, by_platform_tag = _positive_groups(documents, split_by_app)
     mining_index = build_negative_mining_index(documents, seed)
     rows: list[dict[str, Any]] = []
-    for document in documents:
-        metadata = document.get("metadata") or {}
-        split = split_by_app[document["app_id"]]
-        systems = {
-            str(value).strip().lower()
-            for value in metadata.get("operatingSystems") or []
-            if str(value).strip()
-        }
-        for tag in metadata.get("tags") or []:
-            normalized_tag = str(tag).strip().lower()
-            by_tag[(split, normalized_tag)].add(document["app_id"])
-            for system in systems:
-                by_platform_tag[(split, system, normalized_tag)].add(document["app_id"])
     for document in documents:
         metadata = document.get("metadata") or {}
         app_id = document["app_id"]
@@ -190,18 +187,54 @@ def build_query_snapshot(documents: list[dict[str, Any]], seed: int) -> list[dic
     return rows
 
 
+def _positive_groups(
+    documents: list[dict[str, Any]], split_by_app: dict[str, str],
+) -> tuple[dict[tuple[str, str], set[str]], dict[tuple[str, str, str], set[str]]]:
+    """Agrupa aplicaciones por etiqueta y por plataforma/etiqueta dentro de cada partición.
+
+    Args:
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        split_by_app: Partición asignada a cada aplicación para impedir positivos entre
+            particiones.
+
+    Returns:
+        dos índices de positivos que impiden mezclar aplicaciones de entrenamiento, validación
+            y prueba.
+    """
+    by_tag: dict[tuple[str, str], set[str]] = defaultdict(set)
+    by_platform_tag: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    for document in documents:
+        metadata = document.get("metadata") or {}
+        split = split_by_app[document["app_id"]]
+        systems = {
+            str(value).strip().lower()
+            for value in metadata.get("operatingSystems") or []
+            if str(value).strip()
+        }
+        for tag in metadata.get("tags") or []:
+            normalized_tag = str(tag).strip().lower()
+            by_tag[(split, normalized_tag)].add(document["app_id"])
+            for system in systems:
+                by_platform_tag[(split, system, normalized_tag)].add(document["app_id"])
+    return by_tag, by_platform_tag
+
+
 def build_negative_mining_index(
     documents: list[dict[str, Any]],
     seed: int,
 ) -> NegativeMiningIndex:
-    """Construye la operación `negative_mining_index`.
+    """Indexa términos y alias por partición y prepara un orden reproducible para completar
+    candidatos con poca coincidencia.
 
     Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        seed (int): Valor de `seed` utilizado por la operación.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        seed: Semilla que determina particiones, desempates y selección reproducible del
+            conjunto.
 
     Returns:
-        NegativeMiningIndex: Resultado de `build_negative_mining_index`.
+        índice de búsqueda de negativos reutilizable para todas las consultas del snapshot.
     """
     documents_by_id = {document["app_id"]: document for document in documents}
     tokens_by_id: dict[str, set[str]] = {}
@@ -254,18 +287,24 @@ def mine_hard_negatives(
     limit: int = 3,
     mining_index: NegativeMiningIndex | None = None,
 ) -> list[dict[str, Any]]:
-    """Ejecuta la operación `mine_hard_negatives`.
+    """Selecciona documentos léxicamente próximos de la misma partición excluyendo relevantes y
+    alias positivos.
+    Completa candidatos escasos con un orden determinista y desempata mediante la huella de
+    semilla, consulta e identidad.
 
     Args:
-        query_row (dict[str, Any]): Valor de `query_row` utilizado por la operación.
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        seed (int): Valor de `seed` utilizado por la operación.
-        limit (int): Número máximo de elementos que se recuperarán.
-        mining_index (NegativeMiningIndex | None): Valor de `mining_index` utilizado por la
-            operación.
+        query_row: Consulta con relevantes, alias positivos y partición que limita los
+            negativos candidatos.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        seed: Semilla que determina particiones, desempates y selección reproducible del
+            conjunto.
+        limit: Máximo de negativos difíciles que se seleccionan; por defecto tres.
+        mining_index: Índice reutilizable del mismo dataset y semilla; None lo construye en
+            esta llamada.
 
     Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        hasta limit documentos difíciles, sin introducir positivos conocidos como negativos.
     """
     query = str(query_row["query"])
     query_tokens = set(normalized_tokens(query))
@@ -319,16 +358,22 @@ def write_snapshot(
     root: Path,
     seed: int,
 ) -> tuple[str, Path]:
-    """Ejecuta la operación `write_snapshot`.
+    """Calcula la huella de semilla y registros en su orden de entrada y guarda documentos y
+    particiones como JSONL.
+    Si ya existe el manifiesto de esa huella reutiliza el directorio sin reescribir sus
+    archivos.
 
     Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
-        root (Path): Valor de `root` utilizado por la operación.
-        seed (int): Valor de `seed` utilizado por la operación.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        queries: Consultas con positivos, conjunto de relevantes, tipo y partición del
+            dataset.
+        root: Directorio bajo el que se guardan snapshots en datasets/<hash>.
+        seed: Semilla que determina particiones, desempates y selección reproducible del
+            conjunto.
 
     Returns:
-        tuple[str, Path]: Resultado producido por la operación.
+        SHA-256 del dataset y ruta de su snapshot.
     """
     digest = hashlib.sha256()
     digest.update(f"seed:{seed}\n".encode())

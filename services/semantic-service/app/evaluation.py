@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `evaluation`.
+"""Define métricas de recuperación y rankings de referencia para comparar candidatos semánticos
+con las mismas consultas.
 """
 from __future__ import annotations
 
@@ -8,15 +9,16 @@ from collections.abc import Iterable
 
 
 def reciprocal_rank(ranked: list[str], relevant: set[str], cutoff: int) -> float:
-    """Ejecuta la operación `reciprocal_rank`.
+    """Mide la inversa de la posición del primer resultado relevante dentro del corte solicitado.
 
     Args:
-        ranked (list[str]): Valor de `ranked` utilizado por la operación.
-        relevant (set[str]): Valor de `relevant` utilizado por la operación.
-        cutoff (int): Valor de `cutoff` utilizado por la operación.
+        ranked: UUID de aplicaciones en orden de relevancia; el ranking debe estar libre de
+            duplicados.
+        relevant: UUID de aplicaciones consideradas relevantes para la consulta.
+        cutoff: Número positivo de posiciones superiores que se tienen en cuenta.
 
     Returns:
-        float: Resultado producido por la operación.
+        1/posición con posiciones desde uno, o cero cuando no hay acierto.
     """
     for index, app_id in enumerate(ranked[:cutoff], start=1):
         if app_id in relevant:
@@ -25,15 +27,17 @@ def reciprocal_rank(ranked: list[str], relevant: set[str], cutoff: int) -> float
 
 
 def average_precision(ranked: list[str], relevant: set[str], cutoff: int) -> float:
-    """Ejecuta la operación `average_precision`.
+    """Promedia la precisión acumulada en cada acierto, normalizada por los relevantes que caben
+    en el corte.
 
     Args:
-        ranked (list[str]): Valor de `ranked` utilizado por la operación.
-        relevant (set[str]): Valor de `relevant` utilizado por la operación.
-        cutoff (int): Valor de `cutoff` utilizado por la operación.
+        ranked: UUID de aplicaciones en orden de relevancia; el ranking debe estar libre de
+            duplicados.
+        relevant: UUID de aplicaciones consideradas relevantes para la consulta.
+        cutoff: Número positivo de posiciones superiores que se tienen en cuenta.
 
     Returns:
-        float: Resultado producido por la operación.
+        precisión media entre cero y uno; cero si el conjunto relevante está vacío.
     """
     if not relevant:
         return 0.0
@@ -48,15 +52,17 @@ def average_precision(ranked: list[str], relevant: set[str], cutoff: int) -> flo
 
 
 def recall(ranked: list[str], relevant: set[str], cutoff: int) -> float:
-    """Ejecuta la operación `recall`.
+    """Mide qué proporción de todos los documentos relevantes aparece entre los primeros
+    resultados.
 
     Args:
-        ranked (list[str]): Valor de `ranked` utilizado por la operación.
-        relevant (set[str]): Valor de `relevant` utilizado por la operación.
-        cutoff (int): Valor de `cutoff` utilizado por la operación.
+        ranked: UUID de aplicaciones en orden de relevancia; el ranking debe estar libre de
+            duplicados.
+        relevant: UUID de aplicaciones consideradas relevantes para la consulta.
+        cutoff: Número positivo de posiciones superiores que se tienen en cuenta.
 
     Returns:
-        float: Resultado producido por la operación.
+        fracción recuperada o cero cuando no hay relevantes.
     """
     if not relevant:
         return 0.0
@@ -64,15 +70,17 @@ def recall(ranked: list[str], relevant: set[str], cutoff: int) -> float:
 
 
 def ndcg(ranked: list[str], relevant: set[str], cutoff: int) -> float:
-    """Ejecuta la operación `ndcg`.
+    """Compara la ganancia descontada de relevancia binaria con el mejor orden posible dentro del
+    corte.
 
     Args:
-        ranked (list[str]): Valor de `ranked` utilizado por la operación.
-        relevant (set[str]): Valor de `relevant` utilizado por la operación.
-        cutoff (int): Valor de `cutoff` utilizado por la operación.
+        ranked: UUID de aplicaciones en orden de relevancia; el ranking debe estar libre de
+            duplicados.
+        relevant: UUID de aplicaciones consideradas relevantes para la consulta.
+        cutoff: Número positivo de posiciones superiores que se tienen en cuenta.
 
     Returns:
-        float: Resultado producido por la operación.
+        ganancia normalizada o cero si no hay posiciones relevantes posibles.
     """
     dcg = sum(
         1.0 / math.log2(index + 2)
@@ -87,38 +95,43 @@ def ndcg(ranked: list[str], relevant: set[str], cutoff: int) -> float:
 
 
 def mean(values: Iterable[float]) -> float:
-    """Ejecuta la operación `mean`.
+    """Materializa una secuencia finita y calcula su media aritmética.
 
     Args:
-        values (Iterable[float]): Valor de `values` utilizado por la operación.
+        values: Medidas numéricas cuyo promedio se necesita; admite generadores finitos.
 
     Returns:
-        float: Resultado producido por la operación.
+        media o cero si la secuencia no contiene valores.
     """
     materialized = list(values)
     return sum(materialized) / len(materialized) if materialized else 0.0
 
 
 def lexical_rank(query: str, documents: list[dict]) -> list[str]:
-    """Ejecuta la operación `lexical_rank`.
+    """Ordena candidatos por coincidencias de nombre y paquete, prefijo y términos de editor y
+    contenido.
+    Sirve de referencia local del benchmark; no ejecuta las consultas de búsqueda de MySQL.
 
     Args:
-        query (str): Valor de `query` utilizado por la operación.
-        documents (list[dict]): Colección de documentos que debe procesarse.
+        query: Texto que se compara con nombre, paquete, editor y contenido de los documentos.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        UUID con puntuación positiva, por puntuación descendente y UUID en los empates.
     """
     tokens = normalized_tokens(query)
 
     def score(document: dict) -> tuple[float, str]:
-        """Ejecuta la operación `score`.
+        """Puntúa una aplicación priorizando nombre o paquete exactos y prefijos antes que
+        coincidencias de términos.
 
         Args:
-            document (dict): Documento que debe procesarse.
+            document: Aplicación con contenido y metadatos a comparar con la consulta del
+                cierre.
 
         Returns:
-            tuple[float, str]: Resultado producido por la operación.
+            puntuación y UUID que permite desempatar de forma estable.
         """
         metadata = document.get("metadata") or {}
         name = str(metadata.get("name") or "").lower()
@@ -153,16 +166,18 @@ def reciprocal_rank_fusion(
     semantic_weight: float,
     k: int = 60,
 ) -> list[str]:
-    """Ejecuta la operación `reciprocal_rank_fusion`.
+    """Suma contribuciones inversas de rango de los resultados léxicos y semánticos para producir
+    un orden combinado.
 
     Args:
-        lexical (list[str]): Valor de `lexical` utilizado por la operación.
-        semantic (list[str]): Valor de `semantic` utilizado por la operación.
-        semantic_weight (float): Valor de `semantic_weight` utilizado por la operación.
-        k (int): Valor de `k` utilizado por la operación.
+        lexical: UUID del ranking léxico en orden de relevancia.
+        semantic: UUID del ranking semántico en orden de relevancia.
+        semantic_weight: Peso semántico de la fusión RRF; None evalúa exclusivamente el
+            ranking semántico.
+        k: Constante positiva que suaviza diferencias de posición; por defecto 60.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        unión de candidatos por puntuación descendente, con UUID como desempate.
     """
     scores: dict[str, float] = {}
     for rank, app_id in enumerate(lexical, start=1):
@@ -173,13 +188,15 @@ def reciprocal_rank_fusion(
 
 
 def normalized_tokens(value: str) -> list[str]:
-    """Ejecuta la operación `normalized_tokens`.
+    """Convierte texto a minúsculas, separa caracteres no alfanuméricos Unicode y descarta
+    términos de menos de dos caracteres.
 
     Args:
-        value (str): Valor que debe procesarse.
+        value: Texto de consulta, nombre, paquete o contenido que se desea comparar
+            léxicamente.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        términos en su orden original, conservando repeticiones.
     """
     return [
         token

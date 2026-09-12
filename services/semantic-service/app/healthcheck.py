@@ -1,4 +1,6 @@
-"""Comprueba procesos semánticos que no exponen un servidor HTTP."""
+"""Proporciona sondas de contenedor para base de datos, directorios de trabajo y latidos de
+workers.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +14,12 @@ from app.config import get_settings
 
 
 def database_ready() -> bool:
-    """Comprueba PostgreSQL con una conexión breve fuera del pool del proceso."""
+    """Abre una conexión de prueba con timeout de tres segundos y verifica que PostgreSQL
+    responde SELECT 1.
+
+    Returns:
+        True si la consulta responde; False ante cualquier fallo de conexión o ejecución.
+    """
     settings = get_settings()
     try:
         with connect(settings.postgres_dsn, connect_timeout=3) as connection:
@@ -22,7 +29,14 @@ def database_ready() -> bool:
 
 
 def directory_writable(path: str) -> bool:
-    """Comprueba mediante un temporal que un directorio de trabajo es escribible."""
+    """Crea el directorio si falta e intenta abrir un archivo temporal que se retira al cerrar.
+
+    Args:
+        path: Directorio local de modelos o informes cuya escritura exige el contenedor.
+
+    Returns:
+        True si puede escribirse y cerrar el temporal; False ante OSError.
+    """
     directory = Path(path)
     try:
         directory.mkdir(parents=True, exist_ok=True)
@@ -33,7 +47,17 @@ def directory_writable(path: str) -> bool:
 
 
 def worker_ready(role: str, max_age_seconds: float, failure_threshold: int) -> bool:
-    """Comprueba que el worker pulsa y no acumula fallos persistentes."""
+    """Comprueba que existe un latido reciente del rol y no supera la racha admitida de fallos.
+
+    Args:
+        role: Rol del trabajador indexer o model-worker; se normaliza antes de consultar el
+            latido.
+        max_age_seconds: Antigüedad máxima aceptada del último latido en segundos.
+        failure_threshold: Cantidad de fallos consecutivos que invalida la disponibilidad.
+
+    Returns:
+        False si falta la fila, está obsoleta, acumula fallos o no puede consultarse.
+    """
     settings = get_settings()
     normalized_role = role.strip().lower().replace("_", "-")
     try:
@@ -58,7 +82,9 @@ def worker_ready(role: str, max_age_seconds: float, failure_threshold: int) -> b
 
 
 def main() -> None:
-    """Finaliza con error si la base o un directorio requerido no están listos."""
+    """Combina las comprobaciones solicitadas y termina con código 0 si están listas o 1 si
+    alguna falla.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--writable", action="append", default=[])
     parser.add_argument("--worker", choices=("indexer", "model-worker"))

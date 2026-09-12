@@ -1,4 +1,6 @@
-"""Contiene las pruebas de `test_evaluation`."""
+"""Caracteriza métricas, fusión RRF, particiones reproducibles y reutilización de embeddings
+entre variantes.
+"""
 
 import pytest
 
@@ -16,7 +18,9 @@ from app.training_dataset import (
 
 
 def test_rrf_fuses_both_rankings_deterministically() -> None:
-    """Comprueba el escenario `rrf_fuses_both_rankings_deterministically`."""
+    """El candidato presente en ambos rankings queda primero y la fusión conserva la unión de
+    identidades.
+    """
     ranked = reciprocal_rank_fusion(
         ["literal", "both"],
         ["semantic", "both"],
@@ -27,12 +31,14 @@ def test_rrf_fuses_both_rankings_deterministically() -> None:
 
 
 def test_ndcg_rewards_relevant_results_near_the_top() -> None:
-    """Comprueba el escenario `ndcg_rewards_relevant_results_near_the_top`."""
+    """Mover un acierto a la primera posición incrementa la ganancia descontada normalizada."""
     assert ndcg(["a", "b"], {"a"}, 10) > ndcg(["b", "a"], {"a"}, 10)
 
 
 def test_snapshot_splits_by_application_and_keeps_multiple_tag_positives() -> None:
-    """Comprueba el escenario `snapshot_splits_by_application_and_keeps_multiple_tag_positives`."""
+    """Todas las consultas y positivos de una aplicación comparten partición y las etiquetas
+    admiten varios relevantes.
+    """
     documents = [
         {
             "app_id": "00000000-0000-0000-0000-000000000001",
@@ -75,7 +81,9 @@ def test_snapshot_splits_by_application_and_keeps_multiple_tag_positives() -> No
 
 
 def test_hard_negatives_are_reproducible_and_never_cross_splits_or_positives() -> None:
-    """Comprueba negativos reproducibles, sin positivos ni cruces entre particiones."""
+    """La misma semilla reproduce los negativos, excluye positivos y mantiene cada negativo
+    dentro de su partición.
+    """
     documents = [
         {
             "app_id": f"00000000-0000-0000-0000-{index:012d}",
@@ -104,51 +112,56 @@ def test_hard_negatives_are_reproducible_and_never_cross_splits_or_positives() -
 
 
 def test_rrf_weights_reuse_one_embedding_evaluation() -> None:
-    """Comprueba el escenario `rrf_weights_reuse_one_embedding_evaluation`."""
+    """Cambiar de semántica pura a RRF reutiliza embeddings y mantiene calidad perfecta en un
+    corpus de dos documentos.
+    """
 
     class FakeRuntime:
-        """Agrupa los escenarios de prueba de `FakeRuntime`."""
+        """Produce vectores ortogonales y cuenta codificaciones para detectar trabajo repetido
+        entre variantes.
+        """
 
         document_calls = 0
-        """Atributo de clase `document_calls` de `FakeRuntime`.
-        """
+
         query_calls = 0
-        """Atributo de clase `query_calls` de `FakeRuntime`.
-        """
+
 
         def encode_documents(self, values: list[str]) -> list[list[float]]:
-            """Ejecuta `encode_documents` dentro de `FakeRuntime`.
+            """Comprueba el corpus recibido y registra una única preparación de sus dos vectores.
 
             Args:
-                values (list[str]): Valor de `values` utilizado por la operación.
+                values: Textos de los dos documentos cuya codificación debe prepararse una
+                    sola vez.
 
             Returns:
-                list[list[float]]: Colección de elementos obtenidos por la operación.
+                dos vectores unitarios ortogonales.
             """
             self.document_calls += 1
             assert values == ["primera", "segunda"]
             return [[1.0, 0.0], [0.0, 1.0]]
 
         def encode_query(self, _query: str) -> list[float]:
-            """Ejecuta `encode_query` dentro de `FakeRuntime`.
+            """Cuenta codificaciones individuales y sitúa la consulta sobre el primer documento.
 
             Args:
-                _query (str): Valor de `_query` utilizado por la operación.
+                _query: Consulta ignorada por el doble que siempre coincide con el primer
+                    documento.
 
             Returns:
-                list[float]: Colección de elementos obtenidos por la operación.
+                vector unitario del primer documento.
             """
             self.query_calls += 1
             return [1.0, 0.0]
 
         def encode_queries(self, queries: list[str]) -> list[list[float]]:
-            """Ejecuta `encode_queries` dentro de `FakeRuntime`.
+            """Reutiliza el doble individual para medir también las consultas preparadas por
+            lote.
 
             Args:
-                queries (list[str]): Valor de `queries` utilizado por la operación.
+                queries: Consultas que el doble codifica en su orden de entrada.
 
             Returns:
-                list[list[float]]: Colección de elementos obtenidos por la operación.
+                un vector por consulta.
             """
             return [self.encode_query(query) for query in queries]
 
@@ -193,49 +206,51 @@ def test_rrf_weights_reuse_one_embedding_evaluation() -> None:
 
 
 def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
-    """Comprueba el escenario `semantic_only_evaluation_skips_literal_ranking`.
+    """La evaluación semántica omite el ranking léxico, publica progreso y rechaza después una
+    fusión sin preparación léxica.
 
     Args:
-        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+        monkeypatch: Sustituciones locales de configuración o colaboradores que pytest
+            restaura después de la prueba.
     """
 
     class FakeRuntime:
-        """Agrupa los escenarios de prueba de `FakeRuntime`."""
+        """Ofrece vectores deterministas sin cargar pesos para aislar la preparación semántica."""
 
         registered = type("Registered", (), {"dimensions": 2})()
-        """Atributo de clase `registered` de `FakeRuntime`.
-        """
+
 
         def encode_documents(self, _values: list[str]) -> list[list[float]]:
-            """Ejecuta `encode_documents` dentro de `FakeRuntime`.
+            """Devuelve los dos documentos como vectores ortogonales.
 
             Args:
-                _values (list[str]): Valor de `_values` utilizado por la operación.
+                _values: Textos ignorados por el doble que devuelve dos vectores ortogonales.
 
             Returns:
-                list[list[float]]: Colección de elementos obtenidos por la operación.
+                matriz de dos vectores unitarios.
             """
             return [[1.0, 0.0], [0.0, 1.0]]
 
         def encode_query(self, _query: str) -> list[float]:
-            """Ejecuta `encode_query` dentro de `FakeRuntime`.
+            """Hace coincidir cada consulta con el primer documento del escenario.
 
             Args:
-                _query (str): Valor de `_query` utilizado por la operación.
+                _query: Consulta ignorada por el doble que siempre coincide con el primer
+                    documento.
 
             Returns:
-                list[float]: Colección de elementos obtenidos por la operación.
+                vector unitario del primer documento.
             """
             return [1.0, 0.0]
 
         def encode_queries(self, queries: list[str]) -> list[list[float]]:
-            """Ejecuta `encode_queries` dentro de `FakeRuntime`.
+            """Codifica el lote con el mismo doble individual usado para la medición de latencia.
 
             Args:
-                queries (list[str]): Valor de `queries` utilizado por la operación.
+                queries: Consultas que el doble codifica en su orden de entrada.
 
             Returns:
-                list[list[float]]: Colección de elementos obtenidos por la operación.
+                vectores en el orden de las consultas.
             """
             return [self.encode_query(query) for query in queries]
 
@@ -281,10 +296,11 @@ def test_semantic_only_evaluation_skips_literal_ranking(monkeypatch) -> None:
 
 
 def test_snapshot_persists_catalog_and_is_immutable(tmp_path) -> None:
-    """Comprueba el escenario `snapshot_persists_catalog_and_is_immutable`.
+    """Volver a escribir entradas y semilla idénticas reutiliza hash, directorio y manifiesto sin
+    cambiar sus bytes.
 
     Args:
-        tmp_path (Any): Directorio temporal proporcionado por pytest.
+        tmp_path: Directorio temporal exclusivo que pytest retira al finalizar el escenario.
     """
     documents = [
         {
@@ -325,7 +341,9 @@ def test_snapshot_persists_catalog_and_is_immutable(tmp_path) -> None:
 
 
 def test_training_model_definitions_have_immutable_local_artifact_identifiers() -> None:
-    """Comprueba que los modelos locales mantienen identificadores reproducibles."""
+    """Los tres modelos base fijan commits de cuarenta caracteres e incorporan esa revisión en su
+    versión zero-shot.
+    """
     assert len(MODEL_DEFINITIONS) == 3
     for definition in MODEL_DEFINITIONS:
         assert "/" in definition.repository

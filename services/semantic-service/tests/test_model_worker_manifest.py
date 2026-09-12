@@ -1,4 +1,5 @@
-"""Contiene las pruebas de `test_model_worker_manifest`.
+"""Caracteriza validación de manifiestos y resolución de artefactos locales sin descargar ni
+cargar modelos.
 """
 from pathlib import Path
 
@@ -10,10 +11,11 @@ from app.model_worker import SemanticModelWorker
 def test_manifest_validation_ignores_runtime_cache_and_checks_expected_sizes(
     tmp_path: Path,
 ) -> None:
-    """Comprueba que la caché auxiliar no altera el manifiesto del modelo.
+    """Modificar .cache no cambia la huella del artefacto; un tamaño de manifiesto incorrecto sí
+    impide validarlo.
 
     Args:
-        tmp_path (Path): Directorio temporal proporcionado por pytest.
+        tmp_path: Directorio temporal exclusivo que pytest retira al finalizar el escenario.
     """
     (tmp_path / "model.safetensors").write_bytes(b"weights")
     (tmp_path / "config.json").write_text("{}", encoding="utf-8")
@@ -48,7 +50,12 @@ def test_manifest_validation_ignores_runtime_cache_and_checks_expected_sizes(
 def test_local_artifact_only_resolves_manual_or_managed_directories(
     tmp_path: Path,
 ) -> None:
-    """Comprueba que la resolución de modelos se limita al almacenamiento local."""
+    """La búsqueda devuelve None sin carpetas y recupera la importación manual por repositorio y
+    revisión cuando existe.
+
+    Args:
+        tmp_path: Directorio temporal exclusivo que pytest retira al finalizar el escenario.
+    """
     worker = object.__new__(SemanticModelWorker)
     worker.artifacts_root = tmp_path / "artifacts"
     worker.manual_root = tmp_path / "manual"

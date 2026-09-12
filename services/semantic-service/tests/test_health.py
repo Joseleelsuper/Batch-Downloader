@@ -1,15 +1,17 @@
-"""Verifica los contratos de vida y disponibilidad del servicio semántico."""
+"""Comprueba separación entre presencia del API y disponibilidad de PostgreSQL y caché de
+modelos.
+"""
 
 import json
 
 import pytest
 
-from app import main
+from app import health_router as main
 
 
 @pytest.mark.asyncio
 async def test_health_liveness_does_not_require_database() -> None:
-    """Liveness confirma el proceso sin consultar PostgreSQL ni cargar modelos."""
+    """Liveness responde ok sin depender de una conexión a PostgreSQL."""
     assert await main.health_live() == {
         "status": "ok",
         "service": "semantic-service",
@@ -23,7 +25,14 @@ async def test_health_readiness_reflects_database(
     ready: bool,
     status: int,
 ) -> None:
-    """Readiness usa PostgreSQL sin depender de que exista un modelo activo."""
+    """Con caché escribible, readiness refleja disponibilidad de base de datos con 200 o 503.
+
+    Args:
+        monkeypatch: Sustituciones locales de configuración o colaboradores que pytest
+            restaura después de la prueba.
+        ready: Resultado simulado de disponibilidad de PostgreSQL.
+        status: Código HTTP esperado para la disponibilidad simulada.
+    """
     monkeypatch.setattr(main.database, "healthy", lambda: ready)
     monkeypatch.setattr(main, "directory_writable", lambda _path: True)
 
@@ -37,7 +46,13 @@ async def test_health_readiness_reflects_database(
 async def test_health_readiness_requires_writable_model_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Readiness rechaza un caché que impediría preparar o cargar modelos."""
+    """Una base de datos sana no compensa una caché sin escritura: readiness devuelve 503 y
+    expone la capacidad fallida.
+
+    Args:
+        monkeypatch: Sustituciones locales de configuración o colaboradores que pytest
+            restaura después de la prueba.
+    """
     monkeypatch.setattr(main.database, "healthy", lambda: True)
     monkeypatch.setattr(main, "directory_writable", lambda _path: False)
 

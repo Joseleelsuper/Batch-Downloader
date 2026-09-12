@@ -1,5 +1,4 @@
-"""Implementa las responsabilidades del módulo `admin_schemas`.
-"""
+"""Valida identidades y precondiciones de las operaciones administrativas solicitadas desde Core."""
 from __future__ import annotations
 
 from typing import Literal
@@ -9,33 +8,40 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AdminModel(BaseModel):
-    """Representa los datos validados de `AdminModel`.
+    """Comparte aceptación de nombres Python y alias camelCase entre solicitudes y respuestas
+    administrativas.
+
+    Attributes:
+        model_config: populate_by_name mantiene ambos formatos de entrada.
     """
     model_config = ConfigDict(populate_by_name=True)
-    """Campo declarado `model_config` de `AdminModel`.
-    """
+
 
 
 class BenchmarkModelsRequest(AdminModel):
-    """Representa una solicitud de `BenchmarkModels`.
+    """Identifica de dos a cuatro artefactos distintos que deben compararse en la misma
+    ejecución.
+
+    Attributes:
+        model_ids: UUID únicos; la ruta añade el activo si falta sin superar cuatro modelos.
     """
     model_ids: list[UUID] = Field(alias="modelIds", min_length=2, max_length=4)
-    """Campo declarado `model_ids` de `BenchmarkModelsRequest`.
-    """
+
 
     @field_validator("model_ids")
     @classmethod
     def unique_models(cls, values: list[UUID]) -> list[UUID]:
-        """Ejecuta `unique_models` dentro de `BenchmarkModelsRequest`.
+        """Rechaza UUID repetidos para no comparar dos veces el mismo artefacto ni alterar el
+        número de candidatos.
 
         Args:
-            values (list[UUID]): Valor de `values` utilizado por la operación.
+            values: UUID ya validados y en el orden enviado por el administrador.
 
         Returns:
-            list[UUID]: Colección de elementos obtenidos por la operación.
+            la lista original sin reordenarla.
 
-        Throws:
-            ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+        Raises:
+            ValueError: Si la lista contiene un UUID repetido.
         """
         if len(set(values)) != len(values):
             raise ValueError("model_ids_must_be_unique")
@@ -43,28 +49,37 @@ class BenchmarkModelsRequest(AdminModel):
 
 
 class ActivateModelRequest(AdminModel):
-    """Representa una solicitud de `ActivateModel`.
+    """Conserva evidencia y precondiciones para cambiar el modelo activo sin aceptar una decisión
+    administrativa obsoleta.
+
+    Attributes:
+        benchmark_run_id: UUID del benchmark completo que justifica la activación.
+        expected_current_model_id: Activo observado por el solicitante; None exige ausencia de
+            activo.
+        confirm_regression: Permite una puntuación inferior, sin omitir controles de
+            elegibilidad ni cobertura.
     """
     benchmark_run_id: UUID = Field(alias="benchmarkRunId")
-    """Campo declarado `benchmark_run_id` de `ActivateModelRequest`.
-    """
+
     expected_current_model_id: UUID | None = Field(
         default=None,
         alias="expectedCurrentModelId",
     )
-    """Campo declarado `expected_current_model_id` de `ActivateModelRequest`.
-    """
+
     confirm_regression: bool = Field(default=False, alias="confirmRegression")
-    """Campo declarado `confirm_regression` de `ActivateModelRequest`.
-    """
+
 
 
 class SemanticOperationResponse(AdminModel):
-    """Representa una respuesta de `SemanticOperation`.
+    """Confirma la identidad del trabajo persistente que el cliente puede consultar o recuperar
+    después.
+
+    Attributes:
+        operation_id: UUID de la operación nueva o deduplicada.
+        status: Estado permitido de cola, ejecución, cancelación o resultado terminal.
     """
     operation_id: UUID = Field(alias="operationId")
-    """Campo declarado `operation_id` de `SemanticOperationResponse`.
-    """
+
     status: Literal[
         "queued",
         "running",
@@ -73,5 +88,4 @@ class SemanticOperationResponse(AdminModel):
         "succeeded",
         "failed",
     ] = "queued"
-    """Atributo de clase `status` de `SemanticOperationResponse`.
-    """
+

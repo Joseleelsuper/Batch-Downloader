@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `store`.
+"""Mantiene la proyección reconstruible del catálogo, su cola de embeddings y la cobertura de
+cada índice.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from typing import Any
 from psycopg import sql
 
 from app.benchmark_store import SemanticBenchmarkStore
+from app.catalog_fingerprint import model_catalog_coverage
 from app.database import Database
 from app.embeddings import RegisteredModel, vector_literal
 from app.model_registry import model_index_name
@@ -21,15 +23,17 @@ def ensure_model_hnsw_index(
     model_version: str,
     dimensions: int,
 ) -> None:
-    """Garantiza la operación `model_hnsw_index`.
+    """Crea el índice parcial HNSW para una versión concreta con nombres SQL escapados y
+    dimensiones comprobadas.
 
     Args:
-        connection (Any): Conexión de base de datos utilizada por la operación.
-        model_version (str): Valor de `model_version` utilizado por la operación.
-        dimensions (int): Valor de `dimensions` utilizado por la operación.
+        connection: Conexión de la transacción del llamador, que confirma o revierte todos sus
+            cambios.
+        model_version: Identidad inmutable del modelo y revisión cuyos embeddings se procesan.
+        dimensions: Número de componentes del vector; HNSW admite de 1 a 2000.
 
-    Throws:
-        ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+    Raises:
+        ValueError: Si las dimensiones están fuera del intervalo de 1 a 2000.
     """
     if not 1 <= dimensions <= 2000:
         raise ValueError(f"unsupported_hnsw_dimensions:{dimensions}")
@@ -46,32 +50,74 @@ def ensure_model_hnsw_index(
     )
 
 
+def invalidate_complete_indexes(connection: Any) -> None:
+    """Invalida índices completos cuando cambia el catálogo; mantiene active como estado de
+    despliegue pero impide servir búsquedas con complete=False.
+
+    Args:
+        connection: Conexión de la transacción del llamador, que confirma o revierte todos sus
+            cambios.
+    """
+    connection.execute(
+        """
+        UPDATE embedding_models model
+        SET deployment_state = CASE
+                WHEN model.active THEN 'active'
+                ELSE 'stale'
+            END
+        WHERE EXISTS (
+            SELECT 1
+            FROM semantic_index_state state
+            WHERE state.model_version = model.model_version
+              AND state.complete = TRUE
+        )
+        """
+    )
+    connection.execute(
+        """
+        UPDATE semantic_index_state
+        SET complete = FALSE, built_at = now()
+        WHERE complete = TRUE
+        """
+    )
+
+
 class SemanticStore:
-    """Gestiona el almacenamiento de `Semantic`.
+    """Sincroniza documentos y vectores de PostgreSQL y publica cobertura para que las consultas
+    usen únicamente índices completos.
+
+    See Also:
+        app.indexer.SemanticIndexer: Sincroniza páginas y codifica trabajos reservados.
+        app.search_router.semantic_search: Consulta el modelo con cobertura completa.
     """
     def __init__(self, database: Database) -> None:
-        """Inicializa una instancia de `SemanticStore`.
+        """Conecta proyección y medición HNSW al mismo pool del servicio.
 
         Args:
-            database (Database): Acceso a la base de datos utilizado por la operación.
+            database: Acceso transaccional al pool; durante una operación exclusiva reutiliza
+                la conexión reservada bajo el bloqueo del proceso.
         """
         self.database = database
-        """Estado de instancia asociado a `database`.
-        """
+
         self.benchmarks = SemanticBenchmarkStore(database)
         """Transacciones aisladas de medición y persistencia de benchmarks."""
 
     def active_model(self) -> tuple[RegisteredModel, str] | None:
-        """Ejecuta `active_model` dentro de `SemanticStore`.
+        """Resuelve el modelo activo únicamente cuando su estado de índice está marcado completo.
 
         Returns:
-            tuple[RegisteredModel, str] | None: Resultado producido por la operación.
+            registro del modelo y versión del índice, o None si no existe una combinación
+                lista.
         """
         def query(connection):
-            """Ejecuta la consulta definida para la operación.
+            """Lee modelo activo y completitud del índice en la misma consulta.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
+
+            Returns:
+                identidad registrada y versión de índice o None.
             """
             row = connection.execute(
                 """
@@ -90,16 +136,17 @@ class SemanticStore:
         return self.database.run(query)
 
     def model(self, model_version: str) -> RegisteredModel:
-        """Ejecuta `model` dentro de `SemanticStore`.
+        """Recupera la configuración de una versión registrada sin exigir que esté activa.
 
         Args:
-            model_version (str): Valor de `model_version` utilizado por la operación.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
 
         Returns:
-            RegisteredModel: Resultado producido por la operación.
+            registro inmutable para construir un runtime local.
 
-        Throws:
-            LookupError: Si no existe el elemento solicitado.
+        Raises:
+            LookupError: Si esa versión no está registrada.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -112,13 +159,14 @@ class SemanticStore:
         return RegisteredModel.from_row(row)
 
     def selected_model_version(self, fallback: str) -> str:
-        """Ejecuta `selected_model_version` dentro de `SemanticStore`.
+        """Prioriza el modelo activo y después el candidato seleccionado más reciente para la
+        siguiente indexación.
 
         Args:
-            fallback (str): Valor de `fallback` utilizado por la operación.
+            fallback: Versión inicial utilizada si no existe modelo activo ni seleccionado.
 
         Returns:
-            str: Resultado producido por la operación.
+            versión elegida o fallback si no hay activo ni seleccionado.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -141,24 +189,32 @@ class SemanticStore:
         minimum_similarity: float,
         limit: int,
     ) -> list[dict[str, Any]]:
-        """Ejecuta `exact_search` dentro de `SemanticStore`.
+        """Calcula distancia coseno exacta sobre documentos activos cuyos vectores coinciden con
+        su hash actual.
+        Deshabilita recorridos por índice solo en esta transacción para garantizar ranking
+        exacto y desempate por UUID.
 
         Args:
-            model (RegisteredModel): Modelo utilizado por la operación.
-            query_vector (list[float]): Valor de `query_vector` utilizado por la operación.
-            minimum_similarity (float): Valor de `minimum_similarity` utilizado por la operación.
-            limit (int): Número máximo de elementos que se recuperarán.
+            model: Registro con versión, prefijos y dimensiones de los vectores consultados.
+            query_vector: Vector normalizado de la consulta con las dimensiones del modelo.
+            minimum_similarity: Umbral inclusivo de similitud coseno para aceptar candidatos.
+            limit: Máximo de filas que la consulta o reserva devuelve.
 
         Returns:
-            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+            candidatos ordenados, con appId, rango desde uno y similitud.
         """
         literal = vector_literal(query_vector)
 
         def query(connection):
-            """Ejecuta la consulta definida para la operación.
+            """Consulta candidatos por distancia y umbral con los recorridos aproximados
+            deshabilitados localmente.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
+
+            Returns:
+                proyecciones ordenadas de candidatos aceptados.
             """
             connection.execute("SET LOCAL enable_indexscan = off")
             connection.execute("SET LOCAL enable_bitmapscan = off")
@@ -202,23 +258,29 @@ class SemanticStore:
         model_version: str,
         seen_at: datetime,
     ) -> int:
-        """Ejecuta `upsert_document_page` dentro de `SemanticStore`.
+        """Sincroniza una página del catálogo y encola hashes sin embedding para el modelo
+        seleccionado.
+        Confirma documentos, trabajos e invalidación de índices conjuntamente; actualiza
+        seen_at incluso si el contenido no cambió.
 
         Args:
-            documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-            model_version (str): Valor de `model_version` utilizado por la operación.
-            seen_at (datetime): Instante asociado a `seen`.
+            documents: Página de Scraper con appId, contentHash, content y metadata.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
+            seen_at: Instante UTC compartido por todas las páginas del mismo barrido.
 
         Returns:
-            int: Resultado producido por la operación.
+            número de documentos nuevos o con hash diferente.
         """
         changed = 0
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Guarda documentos, recupera trabajos necesarios y retira la marca complete si se
+            detecta contenido nuevo o modificado.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
             """
             nonlocal changed
             for document in documents:
@@ -286,46 +348,32 @@ class SemanticStore:
                 # El hash de documento se comparte entre todas las proyecciones.
                 # Marca como incompletos los estados publicados antes de construir
                 # vectores para no servir un barrido parcialmente actualizado.
-                connection.execute(
-                    """
-                    UPDATE embedding_models model
-                    SET deployment_state = CASE
-                            WHEN model.active THEN 'active'
-                            ELSE 'stale'
-                        END
-                    WHERE EXISTS (
-                        SELECT 1
-                        FROM semantic_index_state state
-                        WHERE state.model_version = model.model_version
-                          AND state.complete = TRUE
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    UPDATE semantic_index_state
-                    SET complete = FALSE, built_at = now()
-                    WHERE complete = TRUE
-                    """
-                )
+                invalidate_complete_indexes(connection)
 
         self.database.run(mutate)
         return changed
 
     def finish_sweep(self, seen_at: datetime) -> int:
-        """Ejecuta `finish_sweep` dentro de `SemanticStore`.
+        """Elimina documentos que no aparecieron en el barrido completo e invalida índices si
+        hubo eliminaciones.
 
         Args:
-            seen_at (datetime): Instante asociado a `seen`.
+            seen_at: Instante UTC compartido por todas las páginas del mismo barrido.
 
         Returns:
-            int: Resultado producido por la operación.
+            número de documentos retirados; solo debe llamarse después de recibir todas las
+                páginas.
         """
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Elimina filas anteriores al inicio del barrido y retira completitud en la misma
+            transacción.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
+
+            Returns:
+                número de documentos borrados.
             """
             result = connection.execute(
                 """
@@ -335,28 +383,7 @@ class SemanticStore:
                 (seen_at,),
             )
             if result.rowcount:
-                connection.execute(
-                    """
-                    UPDATE embedding_models model
-                    SET deployment_state = CASE
-                            WHEN model.active THEN 'active'
-                            ELSE 'stale'
-                        END
-                    WHERE EXISTS (
-                        SELECT 1
-                        FROM semantic_index_state state
-                        WHERE state.model_version = model.model_version
-                          AND state.complete = TRUE
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    UPDATE semantic_index_state
-                    SET complete = FALSE, built_at = now()
-                    WHERE complete = TRUE
-                    """
-                )
+                invalidate_complete_indexes(connection)
             return result.rowcount
 
         return self.database.run(mutate)
@@ -369,22 +396,29 @@ class SemanticStore:
         limit: int,
         lease_seconds: int,
     ) -> list[dict[str, Any]]:
-        """Reserva la operación `jobs`.
+        """Reserva trabajos de embeddings vencidos o disponibles para el modelo y hash actual
+        usando SKIP LOCKED.
 
         Args:
-            model_version (str): Valor de `model_version` utilizado por la operación.
-            owner (str): Valor de `owner` utilizado por la operación.
-            limit (int): Número máximo de elementos que se recuperarán.
-            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
+            owner: Identidad exclusiva del trabajador que reserva los trabajos.
+            limit: Máximo de filas que la consulta o reserva devuelve.
+            lease_seconds: Segundos de vigencia de la reserva a partir del reloj de
+                PostgreSQL.
 
         Returns:
-            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+            trabajos processing con contenido, intentos incrementados y nueva reserva.
         """
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Adquiere un lote elegible sin esperar filas bloqueadas por otros indexadores.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
+
+            Returns:
+                filas reservadas con el contenido a codificar.
             """
             return connection.execute(
                 """
@@ -425,18 +459,23 @@ class SemanticStore:
         jobs: list[dict[str, Any]],
         embeddings: list[list[float]],
     ) -> None:
-        """Ejecuta `complete_jobs` dentro de `SemanticStore`.
+        """Guarda vectores y marca completados los trabajos del lote en la misma transacción;
+        exige correspondencia uno a uno mediante zip estricto.
 
         Args:
-            model_version (str): Valor de `model_version` utilizado por la operación.
-            jobs (list[dict[str, Any]]): Valor de `jobs` utilizado por la operación.
-            embeddings (list[list[float]]): Valor de `embeddings` utilizado por la operación.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
+            jobs: Trabajos previamente reservados con UUID, documento y hash del contenido.
+            embeddings: Vectores correspondientes a jobs, en el mismo orden y con la misma
+                longitud.
         """
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Sustituye cada vector y libera la reserva de su trabajo después de comprobar la
+            longitud del lote.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
             """
             for job, embedding in zip(jobs, embeddings, strict=True):
                 connection.execute(
@@ -469,11 +508,12 @@ class SemanticStore:
         self.database.run(mutate)
 
     def fail_jobs(self, jobs: list[dict[str, Any]], error: str) -> None:
-        """Ejecuta `fail_jobs` dentro de `SemanticStore`.
+        """Libera las reservas fallidas y programa otro intento dentro de 30 segundos con un
+        error seguro acotado.
 
         Args:
-            jobs (list[dict[str, Any]]): Valor de `jobs` utilizado por la operación.
-            error (str): Error que debe registrarse o propagarse.
+            jobs: Trabajos previamente reservados con UUID, documento y hash del contenido.
+            error: Descripción segura del fallo de codificación, recortada a 500 caracteres.
         """
         retry_at = datetime.now(UTC) + timedelta(seconds=30)
         self.database.run(
@@ -492,49 +532,36 @@ class SemanticStore:
         )
 
     def coverage_and_promote(self, model_version: str) -> dict[str, Any]:
-        """Ejecuta `coverage_and_promote` dentro de `SemanticStore`.
+        """Recalcula cobertura y huella, crea HNSW al completarla y registra el estado preparado
+        sin activar un modelo nuevo.
 
         Args:
-            model_version (str): Valor de `model_version` utilizado por la operación.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            conteos, completitud y versión de índice derivada de modelo y huella.
+
+        Raises:
+            LookupError: Si se alcanza cobertura completa pero la versión ya no está
+                registrada.
         """
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Publica cobertura, índice físico y estado de despliegue con la misma vista
+            transaccional del catálogo.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
 
-            Throws:
-                LookupError: Si no existe el elemento solicitado.
+            Returns:
+                cobertura esperada e indexada, completitud y versión del índice.
+
+            Raises:
+                LookupError: Si falta el registro del modelo que se iba a preparar.
             """
-            coverage = connection.execute(
-                """
-                SELECT COUNT(*) FILTER (WHERE d.active) AS expected,
-                       COUNT(*) FILTER (
-                           WHERE d.active AND e.content_hash = d.content_hash
-                       ) AS indexed,
-                       encode(
-                           digest(
-                               COALESCE(
-                                   string_agg(
-                                       d.app_id::text || ':' || d.content_hash,
-                                       '|' ORDER BY d.app_id
-                                   ) FILTER (WHERE d.active),
-                                   ''
-                               ),
-                               'sha256'
-                           ),
-                           'hex'
-                       ) AS snapshot_hash
-                FROM semantic_documents d
-                LEFT JOIN software_embeddings e
-                  ON e.app_id = d.app_id AND e.model_version = %s
-                """,
-                (model_version,),
-            ).fetchone()
+            coverage = model_catalog_coverage(connection, model_version)
             expected = int(coverage["expected"] or 0)
             indexed = int(coverage["indexed"] or 0)
             complete = expected > 0 and expected == indexed
@@ -602,41 +629,13 @@ class SemanticStore:
 
         return self.database.run(mutate)
 
-    def benchmark_hnsw(
-        self,
-        *,
-        dimensions: int,
-        app_ids: list[str],
-        document_vectors: list[list[float]],
-        query_vectors: list[list[float]],
-        cutoff: int = 20,
-    ) -> dict[str, float | int]:
-        """Ejecuta `benchmark_hnsw` dentro de `SemanticStore`.
-
-        Args:
-            dimensions (int): Valor de `dimensions` utilizado por la operación.
-            app_ids (list[str]): Colección de identificadores de `app`.
-            document_vectors (list[list[float]]): Valor de `document_vectors` utilizado por la
-                operación.
-            query_vectors (list[list[float]]): Valor de `query_vectors` utilizado por la operación.
-            cutoff (int): Valor de `cutoff` utilizado por la operación.
-
-        Returns:
-            dict[str, float | int]: Mapa con los datos producidos por la operación.
-        """
-        return self.benchmarks.benchmark_hnsw(
-            dimensions=dimensions,
-            app_ids=app_ids,
-            document_vectors=document_vectors,
-            query_vectors=query_vectors,
-            cutoff=cutoff,
-        )
 
     def active_documents(self) -> list[dict[str, Any]]:
-        """Ejecuta `active_documents` dentro de `SemanticStore`.
+        """Recupera el corpus activo en orden estable de UUID para snapshots y evaluación
+        reproducible.
 
         Returns:
-            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+            documentos con hash, texto y metadatos.
         """
         return self.database.run(
             lambda connection: connection.execute(
@@ -658,14 +657,17 @@ class SemanticStore:
         dataset_hash: str,
         training_config: dict[str, Any],
     ) -> None:
-        """Ejecuta `register_trained_model` dentro de `SemanticStore`.
+        """Registra una nueva versión entrenada con ubicación y parámetros de entrenamiento; una
+        versión ya existente conserva sus datos.
 
         Args:
-            base (RegisteredModel): Valor de `base` utilizado por la operación.
-            model_version (str): Valor de `model_version` utilizado por la operación.
-            artifact_path (str): Ruta de `artifact` utilizada por la operación.
-            dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
-            training_config (dict[str, Any]): Valor de `training_config` utilizado por la operación.
+            base: Registro base del que se heredan familia, revisión, dimensiones y prefijos.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
+            artifact_path: Directorio local del artefacto entrenado y validado.
+            dataset_hash: Huella del conjunto reproducible usado para entrenar.
+            training_config: Semilla, épocas, lotes y demás parámetros del entrenamiento
+                realizado.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -693,11 +695,14 @@ class SemanticStore:
         )
 
     def select_model(self, model_version: str, *, rrf_weight: float = 1.0) -> None:
-        """Ejecuta `select_model` dentro de `SemanticStore`.
+        """Marca un único candidato selected y registra su peso RRF; los candidatos anteriores
+        vuelven a registered sin cambiar el activo.
 
         Args:
-            model_version (str): Valor de `model_version` utilizado por la operación.
-            rrf_weight (float): Valor de `rrf_weight` utilizado por la operación.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
+            rrf_weight: Peso semántico para la fusión RRF; None conserva el registrado cuando
+                el método lo admite.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -722,25 +727,44 @@ class SemanticStore:
         *,
         rrf_weight: float | None = None,
     ) -> dict[str, Any]:
-        """Ejecuta `activate_complete_model` dentro de `SemanticStore`.
+        """Publica directamente una versión con cobertura no vacía y completa junto con su índice
+        y peso RRF.
+        Esta operación de almacén no aplica el protocolo administrativo de benchmark ni modelo
+        anterior esperado.
 
         Args:
-            model_version (str): Valor de `model_version` utilizado por la operación.
-            rrf_weight (float | None): Valor de `rrf_weight` utilizado por la operación.
+            model_version: Identidad inmutable del modelo y revisión cuyos embeddings se
+                procesan.
+            rrf_weight: Peso semántico para la fusión RRF; None conserva el registrado cuando
+                el método lo admite.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            versión activa, índice, conteos y peso final.
+
+        Raises:
+            LookupError: Si la versión no está registrada.
+            RuntimeError: Si el catálogo está vacío o quedan documentos sin el embedding
+                actual.
+
+        See Also:
+            app.admin_model_lifecycle.SemanticModelLifecycleStore.activate_model: Activación
+                administrativa con evidencia y comprobación del modelo anterior.
         """
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Comprueba cobertura, construye HNSW y sustituye el activo dentro de una
+            transacción.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción del llamador, que confirma o revierte
+                    todos sus cambios.
 
-            Throws:
-                RuntimeError: Si el estado de ejecución impide completar la operación.
-                LookupError: Si no existe el elemento solicitado.
+            Returns:
+                identidades y cobertura de la versión publicada.
+
+            Raises:
+                LookupError: Si falta el modelo.
+                RuntimeError: Si la cobertura es vacía o incompleta.
             """
             model = connection.execute(
                 """
@@ -752,31 +776,7 @@ class SemanticStore:
             ).fetchone()
             if not model:
                 raise LookupError("embedding_model_not_registered")
-            coverage = connection.execute(
-                """
-                SELECT COUNT(*) FILTER (WHERE d.active) AS expected,
-                       COUNT(*) FILTER (
-                           WHERE d.active AND e.content_hash = d.content_hash
-                       ) AS indexed,
-                       encode(
-                           digest(
-                               COALESCE(
-                                   string_agg(
-                                       d.app_id::text || ':' || d.content_hash,
-                                       '|' ORDER BY d.app_id
-                                   ) FILTER (WHERE d.active),
-                                   ''
-                               ),
-                               'sha256'
-                           ),
-                           'hex'
-                       ) AS snapshot_hash
-                FROM semantic_documents d
-                LEFT JOIN software_embeddings e
-                  ON e.app_id = d.app_id AND e.model_version = %s
-                """,
-                (model_version,),
-            ).fetchone()
+            coverage = model_catalog_coverage(connection, model_version)
             expected = int(coverage["expected"] or 0)
             indexed = int(coverage["indexed"] or 0)
             if expected == 0 or indexed != expected:
@@ -857,36 +857,3 @@ class SemanticStore:
             }
 
         return self.database.run(mutate)
-
-    def save_benchmark_run(
-        self,
-        *,
-        run_id: str,
-        dataset_hash: str,
-        seed: int,
-        configuration: dict[str, Any],
-        metrics: list[dict[str, Any]],
-        selected_model_version: str | None,
-        paths: dict[str, str],
-    ) -> None:
-        """Guarda la operación `benchmark_run`.
-
-        Args:
-            run_id (str): Identificador de `run` utilizado por la operación.
-            dataset_hash (str): Valor de `dataset_hash` utilizado por la operación.
-            seed (int): Valor de `seed` utilizado por la operación.
-            configuration (dict[str, Any]): Valor de `configuration` utilizado por la operación.
-            metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
-            selected_model_version (str | None): Valor de `selected_model_version` utilizado por la
-                operación.
-            paths (dict[str, str]): Valor de `paths` utilizado por la operación.
-        """
-        self.benchmarks.save_benchmark_run(
-            run_id=run_id,
-            dataset_hash=dataset_hash,
-            seed=seed,
-            configuration=configuration,
-            metrics=metrics,
-            selected_model_version=selected_model_version,
-            paths=paths,
-        )

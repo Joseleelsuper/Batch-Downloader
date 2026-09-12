@@ -1,5 +1,4 @@
-"""Implementa las responsabilidades del módulo `model_validation`.
-"""
+"""Valida modelos locales en un proceso aislado sin descargas ni ejecución de código remoto."""
 from __future__ import annotations
 
 import argparse
@@ -19,19 +18,22 @@ def validate_model(
     passage_prefix: str,
     device: str,
 ) -> dict[str, object]:
-    """Valida la operación `model`.
+    """Carga el artefacto offline y codifica cuatro textos de prueba para comprobar dimensiones,
+    forma estable y componentes finitas.
 
     Args:
-        path (Path): Ruta del recurso que debe procesarse.
-        query_prefix (str): Valor de `query_prefix` utilizado por la operación.
-        passage_prefix (str): Valor de `passage_prefix` utilizado por la operación.
-        device (str): Valor de `device` utilizado por la operación.
+        path: Directorio de pesos locales previamente inspeccionado contra su manifiesto.
+        query_prefix: Texto antepuesto a las dos consultas de prueba.
+        passage_prefix: Texto antepuesto a los dos documentos de prueba.
+        device: Dispositivo de inferencia local, cpu por defecto.
 
     Returns:
-        dict[str, object]: Mapa con los datos producidos por la operación.
+        dimensiones, número de pruebas, tiempo de carga y codificación en ms y memoria RSS en
+            bytes.
 
-    Throws:
-        RuntimeError: Si el estado de ejecución impide completar la operación.
+    Raises:
+        RuntimeError: Si las dimensiones no admiten HNSW, la forma cambia o aparecen NaN o
+            infinitos.
     """
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
@@ -75,10 +77,8 @@ def validate_model(
 
 
 def main() -> None:
-    """Ejecuta el punto de entrada del módulo.
-
-    Throws:
-        SystemExit: Si no puede completarse la operación bajo las condiciones requeridas.
+    """Lee ruta, prefijos y dispositivo; imprime un resultado JSON o un código seguro de
+    incompatibilidad y termina con salida 2.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", required=True)

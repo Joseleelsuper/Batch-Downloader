@@ -1,4 +1,6 @@
-"""Contiene las pruebas de `test_admin_benchmark`."""
+"""Comprueba reutilización e invalidación de snapshots de benchmark por contenido real del
+catálogo.
+"""
 
 import json
 
@@ -7,11 +9,13 @@ from app.training_dataset import write_snapshot
 
 
 def test_evaluation_snapshot_reuses_matching_catalog(tmp_path, monkeypatch) -> None:
-    """Comprueba el escenario `evaluation_snapshot_reuses_matching_catalog`.
+    """Un catálogo con idéntica huella reutiliza consultas y directorio y completa la huella
+    ausente del manifiesto histórico.
 
     Args:
-        tmp_path (Any): Directorio temporal proporcionado por pytest.
-        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+        tmp_path: Directorio temporal exclusivo que pytest retira al finalizar el escenario.
+        monkeypatch: Sustituciones locales de configuración o colaboradores que pytest
+            restaura después de la prueba.
     """
     documents = [
         {
@@ -73,11 +77,13 @@ def test_evaluation_snapshot_rebuilds_when_content_changes(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """Comprueba el escenario `evaluation_snapshot_rebuilds_when_content_changes`.
+    """Cambiar el hash de un documento obliga a generar consultas nuevas aunque se conserve el
+    número de aplicaciones.
 
     Args:
-        tmp_path (Any): Directorio temporal proporcionado por pytest.
-        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+        tmp_path: Directorio temporal exclusivo que pytest retira al finalizar el escenario.
+        monkeypatch: Sustituciones locales de configuración o colaboradores que pytest
+            restaura después de la prueba.
     """
     original = [
         {

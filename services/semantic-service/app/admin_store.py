@@ -1,4 +1,4 @@
-"""Implementa las responsabilidades del módulo `admin_store`."""
+"""Compone consultas de modelos, ciclo de vida y operaciones administrativas sobre el mismo pool."""
 
 from __future__ import annotations
 
@@ -6,22 +6,39 @@ import shutil
 from typing import Any
 
 from app.admin_model_lifecycle import SemanticModelLifecycleStore
+from app.admin_model_store import SemanticModelStore
 from app.admin_operation_store import SemanticOperationStore
 from app.database import Database
 
 
-class SemanticAdminStore(SemanticModelLifecycleStore, SemanticOperationStore):
-    """Gestiona el almacenamiento de `SemanticAdmin`."""
+class SemanticAdminStore:
+    """Agrupa colaboradores independientes del API administrativo sin compartir estado mediante
+    herencia.
+
+    Attributes:
+        models: Consulta artefactos locales, configuración y benchmarks.
+        operations: Gestiona idempotencia, reservas, progreso y reintentos.
+        lifecycle: Prepara, activa y elimina modelos con sus comprobaciones atómicas.
+
+    See Also:
+        app.admin_model_store.SemanticModelStore: Catálogo local de artefactos.
+        app.admin_operation_store.SemanticOperationStore: Cola persistente de operaciones.
+        app.admin_model_lifecycle.SemanticModelLifecycleStore: Transiciones del modelo y su
+            índice.
+    """
 
     def __init__(self, database: Database) -> None:
-        """Inicializa una instancia de `SemanticAdminStore`.
+        """Conecta los tres almacenes con el mismo pool, manteniendo las transacciones de cada
+        operación independientes.
 
         Args:
-            database (Database): Acceso a la base de datos utilizado por la operación.
+            database: Pool del servicio; cada llamada run delimita la transacción de su
+                operación.
         """
         self.database = database
-        """Estado de instancia asociado a `database`.
-        """
+        self.models = SemanticModelStore(database)
+        self.operations = SemanticOperationStore(database)
+        self.lifecycle = SemanticModelLifecycleStore(database)
 
     def overview(
         self,
@@ -30,21 +47,35 @@ class SemanticAdminStore(SemanticModelLifecycleStore, SemanticOperationStore):
         model_max_bytes: int,
         model_min_free_bytes: int,
     ) -> dict[str, Any]:
-        """Ejecuta `overview` dentro de `SemanticAdminStore`.
+        """Resume modelo local activo, índice listo, operaciones pendientes y presupuesto de
+        disco.
+        Si no se puede consultar el directorio, informa cero bytes libres y totales sin fallar
+        el resumen.
 
         Args:
-            model_cache_dir (str): Valor de `model_cache_dir` utilizado por la operación.
-            model_max_bytes (int): Valor de `model_max_bytes` utilizado por la operación.
-            model_min_free_bytes (int): Valor de `model_min_free_bytes` utilizado por la operación.
+            model_cache_dir: Directorio local cuyos bytes libres y capacidad se consultan.
+            model_max_bytes: Máximo configurado de bytes de artefactos que puede ocupar el
+                servicio.
+            model_min_free_bytes: Reserva mínima de bytes libres que deben mantenerse para
+                operaciones de modelos.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            estado de búsqueda, modelo activo, operaciones en curso y capacidad en bytes.
         """
-        models = self.local_models()
+        models = self.models.local_models()
         active = next((model for model in models if model["active"]), None)
 
         def count_active_operations(connection: Any) -> int:
-            """Cuenta operaciones activas sin asumir que PostgreSQL devolvió una fila."""
+            """Cuenta operaciones queued, running y cancel_requested que aún ocupan capacidad
+            administrativa.
+
+            Args:
+                connection: Conexión de la transacción cedida por Database.run; no se abre
+                    otra conexión.
+
+            Returns:
+                número de operaciones activas; cero si no se obtiene una fila.
+            """
             row = connection.execute(
                 """
                 SELECT COUNT(*) AS count
@@ -58,21 +89,16 @@ class SemanticAdminStore(SemanticModelLifecycleStore, SemanticOperationStore):
         model_bytes = sum(int(model["artifactBytes"]) for model in models)
         try:
             usage = shutil.disk_usage(model_cache_dir)
-            disk = {
-                "modelBytes": model_bytes,
-                "freeBytes": usage.free,
-                "totalBytes": usage.total,
-                "reservedBytes": model_min_free_bytes,
-                "maximumModelBytes": model_max_bytes,
-            }
+            free_bytes, total_bytes = usage.free, usage.total
         except OSError:
-            disk = {
-                "modelBytes": model_bytes,
-                "freeBytes": 0,
-                "totalBytes": 0,
-                "reservedBytes": model_min_free_bytes,
-                "maximumModelBytes": model_max_bytes,
-            }
+            free_bytes = total_bytes = 0
+        disk = {
+            "modelBytes": model_bytes,
+            "freeBytes": free_bytes,
+            "totalBytes": total_bytes,
+            "reservedBytes": model_min_free_bytes,
+            "maximumModelBytes": model_max_bytes,
+        }
         return {
             "service": "semantic-service",
             "searchReady": active is not None and active["index"]["complete"],

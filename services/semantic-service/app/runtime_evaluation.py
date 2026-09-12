@@ -1,4 +1,6 @@
-"""Evaluación semántica y lexical preparada para runtime y benchmarks."""
+"""Mide calidad de rankings, latencia e índices sobre un corpus fijo, reutilizando embeddings
+entre variantes.
+"""
 
 from __future__ import annotations
 
@@ -29,38 +31,44 @@ EVALUATION_CANDIDATE_LIMIT = 2000
 
 @dataclass
 class PreparedRuntimeEvaluation:
-    """Representa el componente `PreparedRuntimeEvaluation`."""
+    """Conserva resultados de codificación para comparar pesos RRF sin volver a cargar ni
+    codificar el mismo modelo.
+
+    Attributes:
+        queries: Consultas evaluadas en orden estable.
+        semantic_rankings: Ranking vectorial exacto de hasta 2000 candidatos por consulta.
+        lexical_rankings: Ranking léxico o lista vacía si se deshabilitó.
+        semantic_latencies_ms: Tiempo de ranking más codificación medida o estimada por
+            mediana, en ms.
+        lexical_latencies_ms: Latencia del ranking léxico en ms.
+        embedding_build_ms: Tiempo de codificación del corpus en ms.
+        document_vector_bytes: Bytes ocupados por la matriz float32.
+        index_metrics: Recall, tiempo de construcción y tamaño de HNSW medido.
+        latency_sample_size: Hasta 100 consultas codificadas individualmente para medir
+            latencia.
+        includes_lexical: Indica si se pueden evaluar variantes híbridas.
+    """
 
     queries: list[dict[str, Any]]
-    """Atributo de clase `queries` de `PreparedRuntimeEvaluation`.
-    """
+
     semantic_rankings: list[list[str]]
-    """Atributo de clase `semantic_rankings` de `PreparedRuntimeEvaluation`.
-    """
+
     lexical_rankings: list[list[str]]
-    """Atributo de clase `lexical_rankings` de `PreparedRuntimeEvaluation`.
-    """
+
     semantic_latencies_ms: list[float]
-    """Atributo de clase `semantic_latencies_ms` de `PreparedRuntimeEvaluation`.
-    """
+
     lexical_latencies_ms: list[float]
-    """Atributo de clase `lexical_latencies_ms` de `PreparedRuntimeEvaluation`.
-    """
+
     embedding_build_ms: float
-    """Atributo de clase `embedding_build_ms` de `PreparedRuntimeEvaluation`.
-    """
+
     document_vector_bytes: int
-    """Atributo de clase `document_vector_bytes` de `PreparedRuntimeEvaluation`.
-    """
+
     index_metrics: dict[str, float | int]
-    """Atributo de clase `index_metrics` de `PreparedRuntimeEvaluation`.
-    """
+
     latency_sample_size: int
-    """Atributo de clase `latency_sample_size` de `PreparedRuntimeEvaluation`.
-    """
+
     includes_lexical: bool = True
-    """Atributo de clase `includes_lexical` de `PreparedRuntimeEvaluation`.
-    """
+
 
 
 def evaluate_runtime(
@@ -72,19 +80,22 @@ def evaluate_runtime(
     semantic_weight: float | None,
     benchmark_store: HnswBenchmarkStore | None = None,
 ) -> dict[str, Any]:
-    """Ejecuta la operación `evaluate_runtime`.
+    """Prepara embeddings y rankings del corpus y calcula las métricas de una única variante.
 
     Args:
-        runtime (EmbeddingRuntime): Valor de `runtime` utilizado por la operación.
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
-        variant (str): Valor de `variant` utilizado por la operación.
-        semantic_weight (float | None): Valor de `semantic_weight` utilizado por la operación.
-        benchmark_store (HnswBenchmarkStore | None): Valor de `benchmark_store` utilizado por la
-            operación.
+        runtime: Modelo local cargado de forma diferida que produce vectores normalizados.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        queries: Consultas con positivos, conjunto de relevantes, tipo y partición del
+            dataset.
+        variant: Nombre de la variante que identifica cada fila del informe.
+        semantic_weight: Peso semántico de la fusión RRF; None evalúa exclusivamente el
+            ranking semántico.
+        benchmark_store: Adaptador para medir HNSW real; None omite esa medición y conserva
+            sus métricas en cero.
 
     Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
+        calidad, latencia, consumo de memoria y métricas del índice de esa variante.
     """
     prepared = prepare_runtime_evaluation(
         runtime,
@@ -108,20 +119,24 @@ def prepare_runtime_evaluation(
     include_lexical: bool = True,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> PreparedRuntimeEvaluation:
-    """Ejecuta la operación `prepare_runtime_evaluation`.
+    """Codifica corpus y consultas, calcula rankings exactos y opcionalmente mide HNSW real.
+    Mide individualmente hasta 100 consultas y usa su mediana para estimar la codificación de
+    las restantes; las latencias no equivalen a tráfico concurrente.
 
     Args:
-        runtime (EmbeddingRuntime): Valor de `runtime` utilizado por la operación.
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
-        benchmark_store (HnswBenchmarkStore | None): Valor de `benchmark_store` utilizado por la
-            operación.
-        include_lexical (bool): Valor de `include_lexical` utilizado por la operación.
-        progress (Callable[[str, int, int], None] | None): Valor de `progress` utilizado por la
-            operación.
+        runtime: Modelo local cargado de forma diferida que produce vectores normalizados.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        queries: Consultas con positivos, conjunto de relevantes, tipo y partición del
+            dataset.
+        benchmark_store: Adaptador para medir HNSW real; None omite esa medición y conserva
+            sus métricas en cero.
+        include_lexical: Si es False, evita preparar rankings léxicos y prohíbe evaluar
+            variantes híbridas.
+        progress: Callback opcional con fase, unidades completadas y total de consultas.
 
     Returns:
-        PreparedRuntimeEvaluation: Resultado producido por la operación.
+        resultados reutilizables por variantes semánticas e híbridas.
     """
     if progress is not None:
         progress("embedding-documents", 0, len(queries))
@@ -215,18 +230,21 @@ def evaluate_prepared_runtime(
     variant: str,
     semantic_weight: float | None,
 ) -> dict[str, Any]:
-    """Ejecuta la operación `evaluate_prepared_runtime`.
+    """Calcula calidad y coste de una variante usando rankings preparados, añadiendo el coste RRF
+    si es híbrida.
 
     Args:
-        prepared (PreparedRuntimeEvaluation): Valor de `prepared` utilizado por la operación.
-        variant (str): Valor de `variant` utilizado por la operación.
-        semantic_weight (float | None): Valor de `semantic_weight` utilizado por la operación.
+        prepared: Rankings, latencias y mediciones reutilizables producidas para el mismo
+            conjunto de consultas.
+        variant: Nombre de la variante que identifica cada fila del informe.
+        semantic_weight: Peso semántico de la fusión RRF; None evalúa exclusivamente el
+            ranking semántico.
 
     Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
+        métricas de calidad, percentiles en ms, QPS agregado y tamaños en bytes.
 
-    Throws:
-        RuntimeError: Si el estado de ejecución impide completar la operación.
+    Raises:
+        RuntimeError: Si se solicita fusión RRF sin haber preparado rankings léxicos.
     """
     rankings: list[tuple[dict[str, Any], list[str]]] = []
     latencies: list[float] = []
@@ -293,14 +311,17 @@ def evaluate_lexical(
     documents: list[dict[str, Any]],
     queries: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Ejecuta la operación `evaluate_lexical`.
+    """Ejecuta el ranking léxico de referencia y mide calidad y latencia sobre las mismas
+    consultas del benchmark.
 
     Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        queries (list[dict[str, Any]]): Valor de `queries` utilizado por la operación.
+        documents: Documentos del catálogo con app_id, contenido, huella y metadatos
+            utilizados en la evaluación.
+        queries: Consultas con positivos, conjunto de relevantes, tipo y partición del
+            dataset.
 
     Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
+        fila de referencia lexical; las métricas de construcción y tamaño vectorial son cero.
     """
     latencies = []
     rankings = []
@@ -345,10 +366,10 @@ def evaluate_lexical(
 
 
 def accelerator_memory_bytes() -> int:
-    """Ejecuta la operación `accelerator_memory_bytes`.
+    """Consulta memoria asignada por PyTorch al dispositivo CUDA actual cuando está disponible.
 
     Returns:
-        int: Resultado producido por la operación.
+        bytes asignados o cero si no hay CUDA o falla la consulta.
     """
     try:
         import torch
@@ -364,11 +385,12 @@ def inherit_index_metrics(
     target: dict[str, Any],
     source: dict[str, Any],
 ) -> None:
-    """Ejecuta la operación `inherit_index_metrics`.
+    """Copia mediciones del índice de validación a la evaluación de confirmación para evitar
+    medir de nuevo el mismo artefacto.
 
     Args:
-        target (dict[str, Any]): Valor de `target` utilizado por la operación.
-        source (dict[str, Any]): Fuente de descarga sobre la que se actúa.
+        target: Fila que recibe los siete campos de construcción, recall y tamaño.
+        source: Fila con mediciones previas del mismo índice.
     """
     for key in (
         "embeddingBuildMs",
@@ -383,14 +405,16 @@ def inherit_index_metrics(
 
 
 def percentile(values: list[float], quantile: float) -> float:
-    """Ejecuta la operación `percentile`.
+    """Selecciona el valor ordenado más próximo al cuantil, acotando el índice a la muestra
+    disponible.
 
     Args:
-        values (list[float]): Valor de `values` utilizado por la operación.
-        quantile (float): Valor de `quantile` utilizado por la operación.
+        values: Muestra de latencias u otras medidas numéricas.
+        quantile: Fracción del percentil; el índice resultante se limita a los extremos de la
+            muestra.
 
     Returns:
-        float: Resultado producido por la operación.
+        valor de la muestra o cero si está vacía.
     """
     if not values:
         return 0.0
@@ -404,14 +428,18 @@ def score_variants(
     *,
     lexical_exact: float,
 ) -> list[dict[str, Any]]:
-    """Ejecuta la operación `score_variants`.
+    """Añade puntuación relativa 70% calidad, 20% latencia y 10% memoria a las filas recibidas.
+    Solo declara elegible un modelo entrenado que no empeora navegación léxica y mejora nDCG
+    frente a su variante base del mismo peso.
 
     Args:
-        metrics (list[dict[str, Any]]): Valor de `metrics` utilizado por la operación.
-        lexical_exact (float): Valor de `lexical_exact` utilizado por la operación.
+        metrics: Métricas por variante, con identificadores, calidad, latencias y tamaño de
+            índices.
+        lexical_exact: MRR@1 de navegación de la referencia léxica que el candidato no debe
+            empeorar.
 
     Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        la misma lista, modificada con normalizaciones, puntuación y elegibilidad.
     """
     quality_values = [row["ndcgAt10"] for row in metrics]
     inverse_latency = [1.0 / max(row["p95Ms"], 0.001) for row in metrics]

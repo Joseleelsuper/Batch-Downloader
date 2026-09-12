@@ -1,4 +1,6 @@
-"""Políticas acotadas de retención para trabajo operativo de Semantic."""
+"""Retira historial terminal sin reserva activa mediante lotes pequeños que no esperan filas
+bloqueadas.
+"""
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -19,9 +21,16 @@ DEFAULT_RETENTION_BATCH_SIZE = 500
 
 
 class SemanticRetentionStore:
-    """Poda trabajo terminal sin borrar pendientes, leases ni benchmarks."""
+    """Elimina trabajos completados tras 30 días y operaciones terminales tras 90 días,
+    preservando todo trabajo pendiente o reservado.
+    """
 
     def __init__(self, database: Database) -> None:
+        """Conserva el pool para confirmar juntos los lotes de limpieza del historial.
+
+        Args:
+            database: Pool que delimita las transacciones de persistencia y evaluación.
+        """
         self.database = database
 
     def prune(
@@ -30,7 +39,19 @@ class SemanticRetentionStore:
         now: datetime | None = None,
         batch_size: int = DEFAULT_RETENTION_BATCH_SIZE,
     ) -> dict[str, int]:
-        """Elimina un lote por tabla y devuelve contadores estables."""
+        """Elimina como máximo un lote por tabla con SKIP LOCKED, priorizando las filas
+        terminales más antiguas.
+
+        Args:
+            now: Reloj UTC opcional para calcular los cortes; None usa el instante actual.
+            batch_size: Máximo positivo de filas por tabla que se eliminan en una llamada.
+
+        Returns:
+            conteos de embeddingJobs y operations eliminados.
+
+        Raises:
+            ValueError: Si el tamaño del lote no es positivo.
+        """
         if batch_size < 1:
             raise ValueError("retention_batch_size_must_be_positive")
         current = now or datetime.now(UTC)
@@ -38,6 +59,16 @@ class SemanticRetentionStore:
         operation_cutoff = current - timedelta(days=OPERATION_RETENTION_DAYS)
 
         def operation(connection: Connection[dict[str, Any]]) -> dict[str, int]:
+            """Borra filas terminales vencidas y sin propietario ni lease dentro de la misma
+            transacción.
+
+            Args:
+                connection: Conexión de la misma transacción que contiene tabla temporal,
+                    índice y consultas de medición.
+
+            Returns:
+                conteos reales de los dos lotes retirados.
+            """
             jobs = connection.execute(
                 """
                 WITH doomed AS (

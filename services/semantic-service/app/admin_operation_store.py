@@ -1,4 +1,6 @@
-"""Cola transaccional de operaciones semánticas administrativas."""
+"""Persiste la cola administrativa con idempotencia, reservas temporales y transiciones de
+cancelación y reintento.
+"""
 
 from __future__ import annotations
 
@@ -11,9 +13,22 @@ from app.database import Database
 
 
 class SemanticOperationStore:
-    """Casos de uso de creación, leasing, reintento y cancelación de operaciones."""
+    """Coordina trabajos administrativos entre API y trabajador sin compartir sesiones ni estado
+    de ejecución en memoria.
 
-    database: Database
+    See Also:
+        app.model_worker.SemanticModelWorker: Reserva y ejecuta los trabajos.
+        app.admin_router: Traduce conflictos y estados al contrato HTTP.
+    """
+
+    def __init__(self, database: Database) -> None:
+        """Conserva el pool utilizado para los cambios transaccionales de la cola.
+
+        Args:
+            database: Pool del servicio; run confirma o revierte la transacción de cada
+                operación.
+        """
+        self.database = database
 
     def create_operation(
         self,
@@ -29,22 +44,37 @@ class SemanticOperationStore:
         progress_total: int = 0,
         progress_unit: str = "items",
     ) -> dict[str, Any]:
-        """Crea la operación `operation`.
+        """Recupera la operación equivalente o inserta una nueva conservando su solicitud y
+        actor.
+        Con clave de idempotencia, un bloqueo asesor serializa la comprobación y rechaza
+        contenido incompatible; sin ella se busca trabajo equivalente abierto.
 
         Args:
-            kind (str): Valor de `kind` utilizado por la operación.
-            actor (str): Valor de `actor` utilizado por la operación.
-            idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
-            request_payload (dict[str, Any]): Valor de `request_payload` utilizado por la operación.
-            model_id (str | None): Identificador de `model` utilizado por la operación.
-            model_version (str | None): Valor de `model_version` utilizado por la operación.
-            repository (str | None): Valor de `repository` utilizado por la operación.
-            resolved_revision (str | None): Valor de `resolved_revision` utilizado por la operación.
-            progress_total (int): Valor de `progress_total` utilizado por la operación.
-            progress_unit (str): Valor de `progress_unit` utilizado por la operación.
+            kind: Tipo de trabajo que selecciona la fase del trabajador: benchmark, prepare,
+                activate o delete.
+            actor: Identidad de la cuenta que solicita el trabajo, normalizada en la
+                dependencia HTTP.
+            idempotency_key: Clave opcional; reutilizarla con otro contenido produce un
+                conflicto.
+            request_payload: Parámetros JSON que se conservan para ejecutar y deduplicar el
+                trabajo.
+            model_id: UUID del artefacto sobre el que se actúa; None para operaciones de
+                repositorio.
+            model_version: Versión de embeddings asociada al artefacto, si ya está registrada.
+            repository: Repositorio de origen si el trabajo todavía no tiene UUID de
+                artefacto.
+            resolved_revision: Revisión inmutable del repositorio de origen, si corresponde.
+            progress_total: Cantidad prevista de unidades; cero significa que todavía no se
+                conoce.
+            progress_unit: Unidad del contador de progreso, por ejemplo models o documents.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            fila interna creada o recuperada; conserva el payload necesario para el
+                trabajador.
+
+        Raises:
+            RuntimeError: Si una clave ya identifica otro tipo, payload, modelo, repositorio o
+                revisión.
         """
         payload_json = json.dumps(
             request_payload,
@@ -53,13 +83,19 @@ class SemanticOperationStore:
         )
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Comprueba idempotencia y trabajo equivalente antes de insertar el nuevo UUID
+            dentro de la misma transacción.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción actual, conservada hasta terminar el
+                    cambio de estado.
 
-            Throws:
-                RuntimeError: Si el estado de ejecución impide completar la operación.
+            Returns:
+                fila existente compatible o recién insertada.
+
+            Raises:
+                RuntimeError: Si la clave de idempotencia se reutiliza para una solicitud
+                    distinta.
             """
             if idempotency_key:
                 connection.execute(
@@ -144,14 +180,15 @@ class SemanticOperationStore:
         limit: int = 100,
         active_only: bool = False,
     ) -> list[dict[str, Any]]:
-        """Ejecuta `operations` dentro de `SemanticAdminStore`.
+        """Consulta el historial administrativo más reciente y permite limitarlo a trabajos que
+        aún ocupan capacidad.
 
         Args:
-            limit (int): Número máximo de elementos que se recuperarán.
-            active_only (bool): Valor de `active_only` utilizado por la operación.
+            limit: Máximo de operaciones; el almacén lo acota entre 1 y 250.
+            active_only: Si es True, incluye solo queued, running y cancel_requested.
 
         Returns:
-            list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+            proyecciones de operación por fecha descendente, hasta el límite normalizado.
         """
         clause = "WHERE status IN ('queued', 'running', 'cancel_requested')" if active_only else ""
         rows = self.database.run(
@@ -169,16 +206,16 @@ class SemanticOperationStore:
         return [operation_from_row(row) for row in rows]
 
     def operation(self, operation_id: str) -> dict[str, Any]:
-        """Ejecuta `operation` dentro de `SemanticAdminStore`.
+        """Consulta estado, progreso y resultado público de una operación concreta.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            proyección administrativa, sin copiar el payload interno.
 
-        Throws:
-            LookupError: Si no existe el elemento solicitado.
+        Raises:
+            LookupError: Si el UUID de operación no existe.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -191,16 +228,17 @@ class SemanticOperationStore:
         return operation_from_row(row)
 
     def operation_request(self, operation_id: str) -> dict[str, Any]:
-        """Ejecuta `operation_request` dentro de `SemanticAdminStore`.
+        """Recupera los parámetros originales que el trabajador necesita para ejecutar una
+        operación.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            payload de entrada como diccionario, vacío si no había contenido.
 
-        Throws:
-            LookupError: Si no existe el elemento solicitado.
+        Raises:
+            LookupError: Si el UUID de operación no existe.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -217,21 +255,30 @@ class SemanticOperationStore:
         return dict(row["request_payload"] or {})
 
     def claim_operation(self, owner: str, lease_seconds: int) -> dict[str, Any] | None:
-        """Reserva la operación `operation`.
+        """Reserva el trabajo pendiente más antiguo o recupera uno running con reserva vencida
+        usando SKIP LOCKED.
+        Antes termina cancelaciones con reserva vencida; la nueva reserva incrementa intentos
+        y conserva la fase recuperada.
 
         Args:
-            owner (str): Valor de `owner` utilizado por la operación.
-            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+            owner: Identidad exclusiva del trabajador que adquiere o renueva la reserva.
+            lease_seconds: Duración de la reserva a partir de now() de PostgreSQL, en
+                segundos.
 
         Returns:
-            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+            fila reservada para este trabajador o None si no hay trabajo elegible.
         """
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Finaliza cancelaciones vencidas y adquiere como máximo una operación sin esperar
+            filas bloqueadas por otros workers.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción actual, conservada hasta terminar el
+                    cambio de estado.
+
+            Returns:
+                fila reservada o None cuando la cola no ofrece trabajo.
             """
             connection.execute(
                 """
@@ -273,12 +320,14 @@ class SemanticOperationStore:
         return self.database.run(mutate)
 
     def renew_operation(self, operation_id: str, owner: str, lease_seconds: int) -> None:
-        """Ejecuta `renew_operation` dentro de `SemanticAdminStore`.
+        """Prolonga la reserva solo si la operación sigue running y pertenece al mismo
+        trabajador.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            owner (str): Valor de `owner` utilizado por la operación.
-            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
+            owner: Identidad exclusiva del trabajador que adquiere o renueva la reserva.
+            lease_seconds: Duración de la reserva a partir de now() de PostgreSQL, en
+                segundos.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -302,15 +351,17 @@ class SemanticOperationStore:
         unit: str | None = None,
         message: str | None = None,
     ) -> None:
-        """Actualiza la operación `operation`.
+        """Actualiza fase, mensaje y contadores indicados; None conserva contadores y unidad,
+        pero permite vaciar el mensaje.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            phase (str): Valor de `phase` utilizado por la operación.
-            current (int | None): Valor de `current` utilizado por la operación.
-            total (int | None): Valor de `total` utilizado por la operación.
-            unit (str | None): Valor de `unit` utilizado por la operación.
-            message (str | None): Mensaje que debe procesarse.
+            operation_id: UUID de la operación administrativa persistida.
+            phase: Fase funcional que se guarda para recuperación y presentación del progreso.
+            current: Unidades completadas; None conserva el contador anterior.
+            total: Unidades previstas; None conserva el total anterior.
+            unit: Unidad de progreso; None conserva la anterior.
+            message: Explicación segura para administración, sin rutas ni contenidos
+                sensibles.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -336,16 +387,18 @@ class SemanticOperationStore:
         phase: str,
         message: str,
     ) -> bool:
-        """Ejecuta `begin_finalization` dentro de `SemanticAdminStore`.
+        """Entra en una fase final indivisible solo mientras el trabajo siga running y conserve
+        su propietario.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            owner (str): Valor de `owner` utilizado por la operación.
-            phase (str): Valor de `phase` utilizado por la operación.
-            message (str): Mensaje que debe procesarse.
+            operation_id: UUID de la operación administrativa persistida.
+            owner: Identidad exclusiva del trabajador que adquiere o renueva la reserva.
+            phase: Fase funcional que se guarda para recuperación y presentación del progreso.
+            message: Explicación segura para administración, sin rutas ni contenidos
+                sensibles.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si se actualizó la fila; False si se canceló o cambió la reserva.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -370,14 +423,15 @@ class SemanticOperationStore:
         *,
         owner: str,
     ) -> bool:
-        """Ejecuta `begin_activation` dentro de `SemanticAdminStore`.
+        """Marca la fase activating antes del intercambio atómico para impedir una cancelación
+        intermedia.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            owner (str): Valor de `owner` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
+            owner: Identidad exclusiva del trabajador que adquiere o renueva la reserva.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si el trabajador todavía conserva una operación ejecutable.
         """
         return self.begin_finalization(
             operation_id,
@@ -391,11 +445,12 @@ class SemanticOperationStore:
         operation_id: str,
         result: dict[str, Any],
     ) -> None:
-        """Ejecuta `complete_operation` dentro de `SemanticAdminStore`.
+        """Marca succeeded, completa el contador si se conoce su total y libera la reserva
+        guardando el resultado JSON.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            result (dict[str, Any]): Resultado que debe procesarse.
+            operation_id: UUID de la operación administrativa persistida.
+            result: Resultado JSON que se devuelve a quien consulta la operación terminada.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -421,12 +476,14 @@ class SemanticOperationStore:
         error_code: str,
         message: str,
     ) -> None:
-        """Ejecuta `fail_operation` dentro de `SemanticAdminStore`.
+        """Registra failed con código y mensaje acotados a 120 y 500 caracteres, fecha final y
+        reserva liberada.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            error_code (str): Valor de `error_code` utilizado por la operación.
-            message (str): Mensaje que debe procesarse.
+            operation_id: UUID de la operación administrativa persistida.
+            error_code: Código estable del fallo; se recorta a 120 caracteres al persistirlo.
+            message: Explicación segura para administración, sin rutas ni contenidos
+                sensibles.
         """
         self.database.run(
             lambda connection: connection.execute(
@@ -443,24 +500,36 @@ class SemanticOperationStore:
         )
 
     def request_cancel(self, operation_id: str) -> dict[str, Any]:
-        """Ejecuta `request_cancel` dentro de `SemanticAdminStore`.
+        """Cancela inmediatamente trabajos queued o solicita parada cooperativa de los running.
+        Los estados terminales se devuelven sin alterarlos y las fases finales protegidas
+        rechazan la cancelación.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            estado público después de aplicar o recuperar la solicitud.
+
+        Raises:
+            LookupError: Si la operación no existe.
+            RuntimeError: Si está activando, eliminando, finalizando o publicando un resultado
+                indivisible.
         """
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Bloquea el estado de la operación antes de decidir entre cancelación inmediata,
+            cooperativa o estado ya terminal.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción actual, conservada hasta terminar el
+                    cambio de estado.
 
-            Throws:
-                RuntimeError: Si el estado de ejecución impide completar la operación.
-                LookupError: Si no existe el elemento solicitado.
+            Returns:
+                proyección de la operación tras la decisión.
+
+            Raises:
+                LookupError: Si el UUID no existe.
+                RuntimeError: Si está dentro de una fase final no cancelable.
             """
             source = connection.execute(
                 """
@@ -510,26 +579,41 @@ class SemanticOperationStore:
         actor: str,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
-        """Reintenta la operación `operation`.
+        """Crea un nuevo intento a partir de una operación failed o cancelled, conservando la
+        solicitud original y el enlace _retryOf.
+        La clave opcional permite recuperar el mismo reintento sin duplicarlo; la operación
+        anterior conserva su historial.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
-            actor (str): Valor de `actor` utilizado por la operación.
-            idempotency_key (str | None): Valor de `idempotency_key` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
+            actor: Identidad de la cuenta que solicita el trabajo, normalizada en la
+                dependencia HTTP.
+            idempotency_key: Clave opcional; reutilizarla con otro contenido produce un
+                conflicto.
 
         Returns:
-            dict[str, Any]: Mapa con los datos producidos por la operación.
+            proyección del nuevo intento o del reintento ya creado con esa clave.
+
+        Raises:
+            LookupError: Si el intento original no existe.
+            RuntimeError: Si aún no es reintentable o la clave pertenece a otro intento
+                original.
         """
 
         def mutate(connection):
-            """Aplica la mutación definida para el escenario.
+            """Bloquea el intento original, comprueba el estado y deduplica o inserta el
+            reintento con su nuevo actor.
 
             Args:
-                connection (Any): Conexión de base de datos utilizada por la operación.
+                connection: Conexión de la transacción actual, conservada hasta terminar el
+                    cambio de estado.
 
-            Throws:
-                RuntimeError: Si el estado de ejecución impide completar la operación.
-                LookupError: Si no existe el elemento solicitado.
+            Returns:
+                proyección del reintento.
+
+            Raises:
+                LookupError: Si la operación original no existe.
+                RuntimeError: Si el estado o la clave de idempotencia impiden reintentar.
             """
             source = connection.execute(
                 """
@@ -600,13 +684,13 @@ class SemanticOperationStore:
         return self.database.run(mutate)
 
     def cancel_requested(self, operation_id: str) -> bool:
-        """Ejecuta `cancel_requested` dentro de `SemanticAdminStore`.
+        """Consulta la señal persistente que permite detener trabajo cooperativo entre fases.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True solo para cancel_requested; una operación ausente produce False.
         """
         row = self.database.run(
             lambda connection: connection.execute(
@@ -617,10 +701,11 @@ class SemanticOperationStore:
         return bool(row and row["status"] == "cancel_requested")
 
     def mark_cancelled(self, operation_id: str) -> None:
-        """Marca la operación `cancelled`.
+        """Confirma la parada cooperativa, registra fecha final y libera el propietario y
+        vencimiento de la reserva.
 
         Args:
-            operation_id (str): Identificador de `operation` utilizado por la operación.
+            operation_id: UUID de la operación administrativa persistida.
         """
         self.database.run(
             lambda connection: connection.execute(

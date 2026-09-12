@@ -1,4 +1,6 @@
-"""Implementa las responsabilidades del módulo `benchmark_snapshot`."""
+"""Reutiliza snapshots de evaluación solo cuando coinciden semilla, tamaño y huella del catálogo
+activo.
+"""
 
 from __future__ import annotations
 
@@ -17,16 +19,19 @@ def evaluation_snapshot(
     root: Path,
     seed: int,
 ) -> tuple[str, Path, list[dict[str, Any]], str]:
-    """Ejecuta la operación `evaluation_snapshot`.
+    """Busca el snapshot compatible más reciente o genera consultas nuevas y registra su huella
+    del catálogo.
+    Usa validación y prueba; si el conjunto generado carece de ambas, recurre a todas sus
+    consultas.
 
     Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
-        root (Path): Valor de `root` utilizado por la operación.
-        seed (int): Valor de `seed` utilizado por la operación.
+        documents: Corpus activo con UUID, hash de contenido y metadatos, común a todos los
+            modelos comparados.
+        root: Directorio que contiene datasets/<hash> para reutilizar snapshots compatibles.
+        seed: Semilla de particiones y selección del conjunto de consultas.
 
     Returns:
-        tuple[str, Path, list[dict[str, Any]], str]: Colección de elementos obtenidos por la
-            operación.
+        hash del dataset, directorio, consultas ordenadas y huella del catálogo.
     """
     catalog_hash = catalog_snapshot_hash(documents)
     datasets_root = root / "datasets"
@@ -68,17 +73,20 @@ def _cached_evaluation_snapshot(
     document_count: int,
     catalog_hash: str,
 ) -> tuple[str, Path, list[dict[str, Any]]] | None:
-    """Ejecuta el paso interno `_cached_evaluation_snapshot`.
+    """Verifica manifiesto, archivos de partición y huella antes de recuperar un snapshot
+    existente.
+    Los manifiestos históricos sin huella se completan a partir de sus documentos; los errores
+    de lectura invalidan la caché.
 
     Args:
-        manifest_path (Path): Ruta de `manifest` utilizada por la operación.
-        seed (int): Valor de `seed` utilizado por la operación.
-        document_count (int): Valor de `document_count` utilizado por la operación.
-        catalog_hash (str): Valor de `catalog_hash` utilizado por la operación.
+        manifest_path: Ruta del manifiesto candidato a reutilizar.
+        seed: Semilla de particiones y selección del conjunto de consultas.
+        document_count: Número actual de documentos que debe coincidir con el manifiesto.
+        catalog_hash: Huella actual de UUID y hashes del contenido ordenados por identidad.
 
     Returns:
-        tuple[str, Path, list[dict[str, Any]]] | None: Colección de elementos obtenidos por la
-            operación.
+        dataset, directorio y consultas compatibles o None si falta información, difiere o no
+            puede leerse.
     """
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -111,13 +119,14 @@ def _cached_evaluation_snapshot(
 
 
 def _read_json_lines(path: Path) -> list[dict[str, Any]]:
-    """Ejecuta el paso interno `_read_json_lines`.
+    """Carga objetos JSON de las líneas no vacías de un archivo UTF-8.
 
     Args:
-        path (Path): Ruta del recurso que debe procesarse.
+        path: Archivo JSONL o directorio local que se inspecciona según el contrato del
+            método.
 
     Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        registros en su orden de escritura; propaga errores de lectura o JSON.
     """
     with path.open("r", encoding="utf-8") as source:
         return [json.loads(line) for line in source if line.strip()]
@@ -126,13 +135,14 @@ def _read_json_lines(path: Path) -> list[dict[str, Any]]:
 def _ordered_evaluation_queries(
     rows: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Ejecuta el paso interno `_ordered_evaluation_queries`.
+    """Ordena consultas por aplicación positiva, tipo y texto para repetir la evaluación en el
+    mismo orden.
 
     Args:
-        rows (Iterable[dict[str, Any]]): Valor de `rows` utilizado por la operación.
+        rows: Consultas del conjunto de evaluación, posiblemente recibidas como generador.
 
     Returns:
-        list[dict[str, Any]]: Colección de elementos obtenidos por la operación.
+        lista materializada con orden estable.
     """
     return sorted(
         list(rows),
@@ -145,13 +155,15 @@ def _ordered_evaluation_queries(
 
 
 def _catalog_hash_from_file(path: Path) -> str:
-    """Ejecuta el paso interno `_catalog_hash_from_file`.
+    """Calcula la huella del catálogo utilizando únicamente identidad y hash de cada documento
+    almacenado.
 
     Args:
-        path (Path): Ruta del recurso que debe procesarse.
+        path: Archivo JSONL o directorio local que se inspecciona según el contrato del
+            método.
 
     Returns:
-        str: Resultado producido por la operación.
+        SHA-256 compatible con el catálogo actual.
     """
     return catalog_snapshot_hash(
         [
@@ -168,11 +180,13 @@ def _record_catalog_hash(
     snapshot_dir: Path,
     catalog_hash: str,
 ) -> None:
-    """Ejecuta el paso interno `_record_catalog_hash`.
+    """Completa la huella de catálogo en el manifiesto mediante archivo temporal y reemplazo; si
+    ya coincide conserva el archivo.
 
     Args:
-        snapshot_dir (Path): Valor de `snapshot_dir` utilizado por la operación.
-        catalog_hash (str): Valor de `catalog_hash` utilizado por la operación.
+        snapshot_dir: Directorio del snapshot cuyo manifiesto se completa con la huella del
+            catálogo.
+        catalog_hash: Huella actual de UUID y hashes del contenido ordenados por identidad.
     """
     manifest_path = snapshot_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -188,13 +202,19 @@ def _record_catalog_hash(
 
 
 def catalog_snapshot_hash(documents: list[dict[str, Any]]) -> str:
-    """Ejecuta la operación `catalog_snapshot_hash`.
+    """Calcula SHA-256 de UUID y hash de contenido en orden de aplicación para detectar cambios
+    del corpus.
 
     Args:
-        documents (list[dict[str, Any]]): Colección de documentos que debe procesarse.
+        documents: Corpus activo con UUID, hash de contenido y metadatos, común a todos los
+            modelos comparados.
 
     Returns:
-        str: Resultado producido por la operación.
+        huella compatible con la CTE SQL del catálogo, incluido el corpus vacío.
+
+    See Also:
+        app.catalog_fingerprint.CATALOG_SNAPSHOT_CTE: Equivalente SQL utilizado dentro de
+            transacciones.
     """
     payload = "|".join(
         f"{row['app_id']}:{row['content_hash']}"
