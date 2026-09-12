@@ -147,8 +147,7 @@ services:
     pull_policy: always
     command: ["scheduler"]
     env_file:
-      - path: ./api/scraper/.env.scheduler.example
-      - path: ./api/scraper/.env.scheduler
+      - path: ./api/scraper/.env
         required: false
     environment:
       SCRAPER_DATABASE_HOST: mysql

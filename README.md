@@ -201,7 +201,7 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 
 ## Variables de entorno
 
-`.env.example` contiene valores compartidos, puertos y secretos; los `.env.example` de cada servicio contienen ajustes no sensibles. Las variantes `.env.scheduler`, `.env.indexer`, `.env.model-worker` y `.env.trainer` repiten la configuración de su servicio con el rol indicado.
+`.env.example` contiene valores compartidos, puertos y secretos; los `.env.example` de cada servicio contienen ajustes no sensibles.
 
 <details>
 <summary><strong>Globales</strong> — <code>.env.example</code></summary>
