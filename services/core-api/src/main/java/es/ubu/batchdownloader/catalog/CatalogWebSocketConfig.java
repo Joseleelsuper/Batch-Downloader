@@ -9,9 +9,15 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
 /**
- * Define la configuración utilizada por {@code CatalogWebSocketConfig}.
+ * Registra los canales público y administrativo de actualizaciones con un origen de navegador
+ * explícitamente permitido.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.CatalogChangeNotifier
+ * @see es.ubu.batchdownloader.admin.AdminScraperNotifier
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 @Configuration
 @EnableWebSocket
@@ -28,10 +34,13 @@ public class CatalogWebSocketConfig implements WebSocketConfigurer {
     private final String publicBaseUrl;
 
     /**
-     * Inicializa una instancia de {@code CatalogWebSocketConfig}.
+     * Conecta los dos difusores y el origen público autorizado para sus conexiones.
      *
-     * @param notifier Valor de {@code notifier} utilizado por la operación.
-     * @param scraperNotifier Valor de {@code scraperNotifier} utilizado por la operación.
+     * @param notifier Difusor de invalidaciones públicas del catálogo por WebSocket.
+     * @param scraperNotifier Difusor administrativo del estado del scraper, protegido por la
+     *     seguridad de su ruta.
+     * @param publicBaseUrl Origen exacto del frontend permitido para establecer las conexiones
+     *     WebSocket.
      */
     public CatalogWebSocketConfig(
             CatalogChangeNotifier notifier,
@@ -43,9 +52,10 @@ public class CatalogWebSocketConfig implements WebSocketConfigurer {
     }
 
     /**
-     * Implementa {@code registerWebSocketHandlers} para {@code CatalogWebSocketConfig}.
+     * Asocia los difusores con /api/v1/catalog/ws y /api/v1/admin/scraper/ws bajo el origen
+     * permitido.
      *
-     * @param registry Valor de {@code registry} utilizado por la operación.
+     * @param registry Registro de endpoints WebSocket del contexto Spring.
      */
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {

@@ -12,12 +12,25 @@ import org.springframework.stereotype.Repository;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Implementa el componente {@code JpaDownloadJobStore}.
+ * Combina JPA para agregados y SQL para cuotas y progreso atómico sin compartir estado entre
+ * trabajadores.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.port.DownloadJobStore
+ * @see es.ubu.batchdownloader.downloads.infrastructure.persistence.DownloadJobEntity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Repository
 class JpaDownloadJobStore implements DownloadJobStore {
+    /**
+     * Fuerza la inserción JPA del trabajo antes de guardar su destino y la lista de dependencias en
+     * la misma transacción.
+     *
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param context Destino Linux y dependencias añadidas que se adjuntan a la vista del trabajo.
+     */
     @Override
     public void saveLinuxContext(UUID jobId,
             es.ubu.batchdownloader.downloads.application.DownloadJobView.LinuxContext context) {
@@ -27,6 +40,12 @@ class JpaDownloadJobStore implements DownloadJobStore {
                 context.addedDependencyAppIds().stream().map(UUID::toString).collect(java.util.stream.Collectors.joining(",")));
     }
 
+    /**
+     * Reconstruye destino, arquitectura y UUID de dependencias a partir del contexto persistido.
+     *
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @return contexto guardado o null cuando el trabajo no tiene uno.
+     */
     @Override
     public es.ubu.batchdownloader.downloads.application.DownloadJobView.LinuxContext linuxContext(UUID jobId) {
         var rows = jdbc.query("SELECT linux_target, architecture, dependencies FROM download_job_linux_context WHERE job_id = ?",
@@ -52,16 +71,21 @@ class JpaDownloadJobStore implements DownloadJobStore {
     private final JdbcTemplate jdbc;
 
     /**
-     * Inicializa una instancia de {@code JpaDownloadJobStore}.
+     * Conecta el repositorio de agregados y SQL que participa en la misma transacción de Spring.
      *
-     * @param repository Repositorio utilizado por la operación.
+     * @param repository Repositorio JPA de trabajos que carga sus elementos y aplica concurrencia
+     *     optimista.
+     * @param jdbc Acceso SQL que participa en la transacción de Spring del llamador.
      */
     JpaDownloadJobStore(SpringDataDownloadJobRepository repository, JdbcTemplate jdbc) {
         this.repository = repository;
         this.jdbc = jdbc;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Bloquea la fila única de capacidad con SELECT FOR UPDATE hasta el fin de la transacción del
+     * llamador.
+     */
     @Override
     public void lockAdmission() {
         jdbc.queryForObject(
@@ -70,10 +94,10 @@ class JpaDownloadJobStore implements DownloadJobStore {
     }
 
     /**
-     * Guarda el recurso solicitado mediante {@code save}.
+     * Reutiliza la entidad existente o crea una nueva y sincroniza el agregado mediante JPA.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
-     * @return Resultado producido por {@code save}.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
+     * @return agregado reconstruido de la entidad guardada.
      */
     @Override
     public DownloadJob save(DownloadJob job) {
@@ -83,10 +107,9 @@ class JpaDownloadJobStore implements DownloadJobStore {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findById}.
+     * {@inheritDoc}
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @return Resultado producido por {@code findById}.
+     * @param id UUID estable del trabajo o elemento representado.
      */
     @Override
     public Optional<DownloadJob> findById(UUID id) {
@@ -94,10 +117,9 @@ class JpaDownloadJobStore implements DownloadJobStore {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findDownloadableExpiredBefore}.
+     * {@inheritDoc}
      *
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
      */
     @Override
     public List<DownloadJob> findDownloadableExpiredBefore(Instant now) {
@@ -111,10 +133,9 @@ class JpaDownloadJobStore implements DownloadJobStore {
     }
 
     /**
-     * Implementa {@code countAnonymousNonTerminal} para {@code JpaDownloadJobStore}.
+     * {@inheritDoc}
      *
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
      */
     @Override
     public long countAnonymousNonTerminal(String anonymousOwnerHash) {
@@ -123,11 +144,10 @@ class JpaDownloadJobStore implements DownloadJobStore {
     }
 
     /**
-     * Implementa {@code countAnonymousCreatedSince} para {@code JpaDownloadJobStore}.
+     * {@inheritDoc}
      *
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} utilizado por la operación.
-     * @param createdAfter Valor de {@code createdAfter} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param createdAfter Instante inicial incluido en la ventana de creaciones.
      */
     @Override
     public long countAnonymousCreatedSince(String anonymousOwnerHash, Instant createdAfter) {
@@ -135,30 +155,52 @@ class JpaDownloadJobStore implements DownloadJobStore {
     }
 
     /**
-     * Implementa {@code countAnonymousIpCreatedSince} para {@code JpaDownloadJobStore}.
+     * {@inheritDoc}
      *
-     * @param anonymousIpHash Valor de {@code anonymousIpHash} utilizado por la operación.
-     * @param createdAfter Valor de {@code createdAfter} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param anonymousIpHash HMAC de la dirección IP para cuotas; null si no se dispone de ella.
+     * @param createdAfter Instante inicial incluido en la ventana de creaciones.
      */
     @Override
     public long countAnonymousIpCreatedSince(String anonymousIpHash, Instant createdAfter) {
         return repository.countByAnonymousIpHashAndCreatedAtGreaterThanEqual(anonymousIpHash, createdAfter);
     }
 
-    /** {@inheritDoc} */
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public long countNonTerminal() {
         return repository.countByStatusNotIn(TERMINAL_STATUSES);
     }
 
-    /** {@inheritDoc} */
+    /**
+     * {@inheritDoc}
+     *
+     * @param ownerId UUID de la cuenta propietaria o null para un trabajo anónimo.
+     */
     @Override
     public long countNonTerminalByOwner(UUID ownerId) {
         return repository.countByOwnerIdAndStatusNotIn(ownerId, TERMINAL_STATUSES);
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Actualiza solo un elemento no terminal, mantiene el máximo de bytes y recalcula estado y
+     * progreso del trabajo con SQL.
+     * Excluye trabajos terminales de ambas actualizaciones y aumenta las versiones para invalidar
+     * escrituras optimistas antiguas.
+     *
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param itemId UUID de un elemento perteneciente al trabajo indicado.
+     * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
+     * @param bytesDownloaded Bytes transferidos del instalador; el dominio conserva el máximo
+     *     recibido.
+     * @param sha256 SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está
+     *     disponible.
+     * @param errorCode Código seguro del fallo del elemento o null si no hay un fallo que
+     *     comunicar.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @return trabajo consultado después de las actualizaciones o vacío si no existe.
+     */
     @Override
     public Optional<DownloadJob> applyProgress(
             UUID jobId,

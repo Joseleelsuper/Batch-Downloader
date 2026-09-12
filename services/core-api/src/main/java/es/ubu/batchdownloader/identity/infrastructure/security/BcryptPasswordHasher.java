@@ -5,9 +5,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * Implementa el componente {@code BcryptPasswordHasher}.
+ * Adapta el codificador de Spring al puerto de hash utilizado por los casos de identidad.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.application.port.PasswordHasher
+ * @see es.ubu.batchdownloader.identity.application.PasswordPolicy
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 @Component
 class BcryptPasswordHasher implements PasswordHasher {
@@ -17,19 +22,19 @@ class BcryptPasswordHasher implements PasswordHasher {
     private final PasswordEncoder encoder;
 
     /**
-     * Inicializa una instancia de {@code BcryptPasswordHasher}.
+     * Recibe el codificador configurado con coste y límites de capacidad de BCrypt.
      *
-     * @param encoder Valor de {@code encoder} utilizado por la operación.
+     * @param encoder Codificador de contraseñas de Spring configurado para BCrypt y capacidad
+     *     acotada.
      */
     BcryptPasswordHasher(PasswordEncoder encoder) {
         this.encoder = encoder;
     }
 
     /**
-     * Indica si existe el recurso mediante {@code hash}.
+     * {@inheritDoc}
      *
-     * @param rawPassword Valor de {@code rawPassword} utilizado por la operación.
-     * @return Resultado producido por {@code hash}.
+     * @param rawPassword Contraseña sin hash que no debe persistirse ni registrarse.
      */
     @Override
     public String hash(String rawPassword) {
@@ -37,11 +42,10 @@ class BcryptPasswordHasher implements PasswordHasher {
     }
 
     /**
-     * Implementa {@code matches} para {@code BcryptPasswordHasher}.
+     * {@inheritDoc}
      *
-     * @param rawPassword Valor de {@code rawPassword} utilizado por la operación.
-     * @param passwordHash Valor de {@code passwordHash} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param rawPassword Contraseña sin hash que no debe persistirse ni registrarse.
+     * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
      */
     @Override
     public boolean matches(String rawPassword, String passwordHash) {

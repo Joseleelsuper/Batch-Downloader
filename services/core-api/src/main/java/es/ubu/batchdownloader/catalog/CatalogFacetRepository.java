@@ -11,32 +11,46 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Resuelve el índice alfabético y las facetas compatibles con la selección actual.
+ * Calcula facetas e índice alfabético reutilizando los filtros de resultados y el mismo conjunto de
+ * candidatos semánticos.
+ *
+ * @see es.ubu.batchdownloader.catalog.CatalogQuery
+ * @see es.ubu.batchdownloader.catalog.CatalogFilterSql
+ * @see es.ubu.batchdownloader.catalog.SemanticCandidateSql
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 @Repository
 public class CatalogFacetRepository {
     private final JdbcTemplate jdbc;
 
-    /** Inicializa las facetas con el acceso JDBC compartido. */
+    /**
+     * Conecta el acceso SQL a las facetas y grupos del catálogo.
+     *
+     * @param jdbc Acceso SQL a catálogo, fuentes y proyecciones persistidas en MySQL.
+     */
     public CatalogFacetRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
-    public List<CatalogAlphabetEntry> alphabet(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            int pageSize,
-            SemanticCandidateSet candidates) {
-        status = CatalogRepository.normalizeCatalogStatus(status);
+    /**
+     * Cuenta grupos A–Z y otros prefijos bajo los filtros vigentes y calcula la página inicial de
+     * cada letra con el tamaño solicitado.
+     *
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param pageSize Aplicaciones por página; el controlador limita el rango a 1–100.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return grupos con contenido; # ocupa la primera página cuando hay otros prefijos.
+     */
+    public List<CatalogAlphabetEntry> alphabet(CatalogQuery filters, int pageSize, SemanticCandidateSet candidates) {
         int safePageSize = Math.max(1, pageSize);
         List<Object> params = new ArrayList<>();
         StringBuilder sql = new StringBuilder();
         if (candidates.semantic()) {
-            sql.append(SemanticCandidateSql.cte(query, candidates, params));
+            sql.append(SemanticCandidateSql.cte(filters.query(), candidates, params));
         }
         sql.append("SELECT COALESCE(SUM(UPPER(LEFT(TRIM(a.normalized_name), 1)) "
                 + "NOT REGEXP '^[A-Z]$'), 0) AS count_other");
@@ -55,11 +69,9 @@ public class CatalogFacetRepository {
         }
         sql.append(" WHERE a.app_status = 'active'");
         if (candidates.semantic()) {
-            CatalogFilterSql.appendStructured(
-                    sql, params, status, operatingSystems, architecture, tags, publishers);
+            CatalogFilterSql.appendStructured(sql, params, filters);
         } else {
-            CatalogFilterSql.appendAll(
-                    sql, params, query, status, operatingSystems, architecture, tags, publishers);
+            CatalogFilterSql.appendAll(sql, params, filters);
         }
         List<List<CatalogAlphabetEntry>> rows = jdbc.query(
                 sql.toString(),
@@ -86,260 +98,86 @@ public class CatalogFacetRepository {
     }
 
     /**
-     * Ejecuta la operación {@code facets}.
+     * Consulta etiquetas y editores mediante el mismo constructor de filtros y candidatos.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @return Resultado producido por {@code facets}.
-     * @param candidates Valor de {@code candidates} utilizado por la operación.
-     * @return Resultado producido por {@code facets}.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return facetas ordenadas por recuento descendente y etiqueta.
      */
-    public CatalogFacetsResponse facets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            SemanticCandidateSet candidates) {
-        if (candidates.semantic()) {
-            return semanticFacets(
-                    query,
-                    status,
-                    operatingSystems,
-                    architecture,
-                    tags,
-                    publishers,
-                    candidates);
-        }
-        status = CatalogRepository.normalizeCatalogStatus(status);
+    public CatalogFacetsResponse facets(CatalogQuery filters, SemanticCandidateSet candidates) {
         return new CatalogFacetsResponse(
-                tagFacets(query, status, operatingSystems, architecture, tags, publishers),
-                publisherFacets(query, status, operatingSystems, architecture, tags, publishers));
+                facetValues(filters, candidates, true), facetValues(filters, candidates, false));
     }
 
     /**
-     * Ejecuta la operación {@code semanticSearch}.
+     * Agrupa por etiqueta normalizada o editor y cuenta aplicaciones distintas tras aplicar todos
+     * los filtros, incluidos los de faceta seleccionada.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @param page Número de página solicitado.
-     * @param pageSize Número máximo de elementos incluidos en una página.
-     * @param candidates Valor de {@code candidates} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @param tags true agrupa etiquetas; false agrupa editores no vacíos.
+     * @return facetas con recuentos del conjunto filtrado.
      */
-    private CatalogFacetsResponse semanticFacets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            SemanticCandidateSet candidates) {
-        status = CatalogRepository.normalizeCatalogStatus(status);
-        return new CatalogFacetsResponse(
-                semanticTagFacets(
-                        query,
-                        status,
-                        operatingSystems,
-                        architecture,
-                        tags,
-                        publishers,
-                        candidates),
-                semanticPublisherFacets(
-                        query,
-                        status,
-                        operatingSystems,
-                        architecture,
-                        tags,
-                        publishers,
-                        candidates));
-    }
-
-    /**
-     * Ejecuta la operación {@code semanticTagFacets}.
-     *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param candidates Valor de {@code candidates} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     */
-    private List<FacetItem> semanticTagFacets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            SemanticCandidateSet candidates) {
+    private List<FacetItem> facetValues(
+            CatalogQuery filters, SemanticCandidateSet candidates, boolean tags) {
         List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(SemanticCandidateSql.cte(query, candidates, params));
-        sql.append("""
+        StringBuilder sql = new StringBuilder();
+        if (candidates.semantic()) {
+            sql.append(SemanticCandidateSql.cte(filters.query(), candidates, params));
+        }
+        sql.append(tags ? """
                 SELECT MIN(t.tag) AS label, t.normalized_tag AS normalized_value,
                        COUNT(DISTINCT a.id) AS app_count
                 FROM software_app_tags t
                 JOIN software_apps a ON a.id = t.software_app_id
-                JOIN semantic_candidates ranked ON ranked.id = a.id
-                WHERE a.app_status = 'active'
-                """);
-        CatalogFilterSql.appendStructured(
-                sql,
-                params,
-                status,
-                operatingSystems,
-                architecture,
-                tags,
-                publishers);
-        sql.append("""
-                GROUP BY t.normalized_tag
-                ORDER BY app_count DESC, label ASC
-                """);
-        return jdbc.query(
-                sql.toString(),
-                (rs, rowNum) -> facetItem(
-                        rs.getString("label"),
-                        rs.getString("normalized_value"),
-                        rs.getLong("app_count")),
-                params.toArray());
-    }
-
-    /**
-     * Ejecuta la operación {@code semanticPublisherFacets}.
-     *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param candidates Valor de {@code candidates} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     */
-    private List<FacetItem> semanticPublisherFacets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            SemanticCandidateSet candidates) {
-        List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(SemanticCandidateSql.cte(query, candidates, params));
-        sql.append("""
+                """ : """
                 SELECT a.publisher AS label, LOWER(TRIM(a.publisher)) AS normalized_value,
                        COUNT(DISTINCT a.id) AS app_count
                 FROM software_apps a
-                JOIN semantic_candidates ranked ON ranked.id = a.id
-                WHERE a.app_status = 'active'
-                  AND a.publisher IS NOT NULL
-                  AND TRIM(a.publisher) <> ''
                 """);
-        CatalogFilterSql.appendStructured(
-                sql,
-                params,
-                status,
-                operatingSystems,
-                architecture,
-                tags,
-                publishers);
-        sql.append("""
-                GROUP BY a.publisher
-                ORDER BY app_count DESC, label ASC
-                """);
-        return jdbc.query(
-                sql.toString(),
-                (rs, rowNum) -> facetItem(
-                        rs.getString("label"),
-                        rs.getString("normalized_value"),
-                        rs.getLong("app_count")),
+        if (candidates.semantic()) {
+            sql.append(" JOIN semantic_candidates ranked ON ranked.id = a.id");
+        }
+        sql.append(" WHERE a.app_status = 'active'");
+        if (!tags) {
+            sql.append(" AND a.publisher IS NOT NULL AND TRIM(a.publisher) <> ''");
+        }
+        if (candidates.semantic()) {
+            CatalogFilterSql.appendStructured(sql, params, filters);
+        } else {
+            CatalogFilterSql.appendAll(sql, params, filters);
+        }
+        sql.append(tags ? " GROUP BY t.normalized_tag" : " GROUP BY a.publisher")
+                .append(" ORDER BY app_count DESC, label ASC");
+        return jdbc.query(sql.toString(), (rs, rowNum) -> facetItem(
+                rs.getString("label"), rs.getString("normalized_value"), rs.getLong("app_count")),
                 params.toArray());
     }
 
-    /**
-     * Ejecuta la operación {@code tagFacets}.
-     *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     */
-    private List<FacetItem> tagFacets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers) {
-        StringBuilder sql = new StringBuilder("""
-                SELECT MIN(t.tag) AS label, t.normalized_tag AS normalized_value, COUNT(DISTINCT a.id) AS app_count
-                FROM software_app_tags t
-                JOIN software_apps a ON a.id = t.software_app_id
-                WHERE a.app_status = 'active'
-                """);
-        List<Object> params = new ArrayList<>();
-        CatalogFilterSql.appendAll(
-                sql, params, query, status, operatingSystems, architecture, tags, publishers);
-        sql.append("""
-                GROUP BY t.normalized_tag
-                ORDER BY app_count DESC, label ASC
-                """);
-        return jdbc.query(sql.toString(), (rs, rowNum) -> facetItem(
-                rs.getString("label"),
-                rs.getString("normalized_value"),
-                rs.getLong("app_count")), params.toArray());
-    }
+
+
+
+
+
+
+
+
+
+
 
     /**
-     * Publica el contenido solicitado mediante {@code publisherFacets}.
+     * Completa etiqueta o clave ausentes y calcula el grupo alfabético de presentación.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param label Texto visible de una faceta; se usa guion cuando falta o está en blanco.
+     * @param normalizedValue Clave de comparación de la faceta; si falta se deriva de su etiqueta
+     *     visible.
+     * @param count Número de aplicaciones distintas que pertenecen a la faceta o grupo alfabético.
+     * @return faceta con etiqueta no vacía y recuento recibido.
      */
-    private List<FacetItem> publisherFacets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers) {
-        StringBuilder sql = new StringBuilder("""
-                SELECT a.publisher AS label, LOWER(TRIM(a.publisher)) AS normalized_value, COUNT(DISTINCT a.id) AS app_count
-                FROM software_apps a
-                WHERE a.app_status = 'active'
-                  AND a.publisher IS NOT NULL
-                  AND TRIM(a.publisher) <> ''
-                """);
-        List<Object> params = new ArrayList<>();
-        CatalogFilterSql.appendAll(
-                sql, params, query, status, operatingSystems, architecture, tags, publishers);
-        sql.append("""
-                GROUP BY a.publisher
-                ORDER BY app_count DESC, label ASC
-                """);
-        return jdbc.query(sql.toString(), (rs, rowNum) -> facetItem(
-                rs.getString("label"),
-                rs.getString("normalized_value"),
-                rs.getLong("app_count")), params.toArray());
-    }
-
-    /** Construye una faceta normalizada y su agrupación alfabética. */
     private FacetItem facetItem(String label, String normalizedValue, long count) {
         String safeLabel = label == null || label.isBlank() ? "-" : label.trim();
         String safeNormalized = normalizedValue == null || normalizedValue.isBlank()
@@ -349,10 +187,11 @@ public class CatalogFacetRepository {
     }
 
     /**
-     * Ejecuta la operación {@code facetLetter}.
+     * Retira diacríticos y busca el primer prefijo significativo; cifras o letras no latinas se
+     * agrupan en # y la puntuación inicial se omite.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code facetLetter}.
+     * @param value Texto que se normaliza o clasifica según el método.
+     * @return letra A–Z o #.
      */
     static String facetLetter(String value) {
         if (value == null || value.isBlank()) {

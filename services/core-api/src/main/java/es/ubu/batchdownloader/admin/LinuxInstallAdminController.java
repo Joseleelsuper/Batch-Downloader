@@ -12,41 +12,95 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Fachada protegida por la política /api/v1/admin/** del servicio Core. */
+/**
+ * Expone lectura y edición administrativa de perfiles y dependencias Linux y audita las versiones
+ * guardadas por el scraper.
+ *
+ * @see es.ubu.batchdownloader.admin.ScraperInternalClient
+ * @see es.ubu.batchdownloader.admin.AdminAuditService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Administración
+ */
 @RestController
 @RequestMapping("/api/v1/admin/apps/{appId}/linux")
 public class LinuxInstallAdminController {
     private final ScraperInternalClient scraper;
     private final AdminAuditService audit;
 
+    /**
+     * Conecta lectura y escritura explícitas del contrato Linux con su auditoría.
+     *
+     * @param scraper Consultas y mantenimiento de las colas del scraper, o su cliente HTTP según la
+     *     firma.
+     * @param audit Registro de acciones con actor UUID y metadatos seguros sin URLs resueltas.
+     */
     public LinuxInstallAdminController(ScraperInternalClient scraper, AdminAuditService audit) {
         this.scraper = scraper;
         this.audit = audit;
     }
 
+    /**
+     * Consulta el perfil Linux de la fuente exacta dentro de su aplicación.
+     *
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param sourceRef UUID de la fuente resuelta exacta cuyo perfil Linux se consulta o modifica.
+     * @return perfil y versión comunicados por el scraper.
+     */
     @GetMapping("/sources/{sourceRef}/profile")
     public JsonNode profile(@PathVariable UUID appId, @PathVariable UUID sourceRef) {
-        return scraper.linuxProfile(appId, sourceRef, null);
+        return scraper.readLinuxProfile(appId, sourceRef);
     }
 
+    /**
+     * Guarda el perfil de la fuente mediante PUT y audita aplicación, fuente y versión resultante.
+     *
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param sourceRef UUID de la fuente resuelta exacta cuyo perfil Linux se consulta o modifica.
+     * @param body JSON del contrato interno correspondiente; Semantic o Scraper realiza su
+     *     validación funcional.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return perfil guardado con su versión.
+     */
     @PutMapping("/sources/{sourceRef}/profile")
     public JsonNode saveProfile(@PathVariable UUID appId, @PathVariable UUID sourceRef,
             @RequestBody JsonNode body, @AuthenticationPrincipal AccountPrincipal principal) {
-        JsonNode result = scraper.linuxProfile(appId, sourceRef, body);
+        JsonNode result = scraper.writeLinuxProfile(appId, sourceRef, body);
         audit.record(principal.getUsername(), "app.linux.profile", "source", sourceRef.toString(),
                 Map.of("appId", appId.toString(), "version", result.path("version").asLong()));
         return result;
     }
 
+    /**
+     * Consulta la selección vigente de dependencias Linux de una aplicación.
+     *
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @return dependencias y versión comunicadas por el scraper.
+     */
     @GetMapping("/dependencies")
     public JsonNode dependencies(@PathVariable UUID appId) {
-        return scraper.linuxDependencies(appId, null);
+        return scraper.readLinuxDependencies(appId);
     }
 
+    /**
+     * Sustituye dependencias mediante PUT y audita el UUID de aplicación y la versión guardada.
+     *
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param body JSON del contrato interno correspondiente; Semantic o Scraper realiza su
+     *     validación funcional.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return dependencias guardadas con su versión.
+     */
     @PutMapping("/dependencies")
     public JsonNode saveDependencies(@PathVariable UUID appId, @RequestBody JsonNode body,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        JsonNode result = scraper.linuxDependencies(appId, body);
+        JsonNode result = scraper.writeLinuxDependencies(appId, body);
         audit.record(principal.getUsername(), "app.linux.dependencies", "app", appId.toString(),
                 Map.of("version", result.path("version").asLong()));
         return result;

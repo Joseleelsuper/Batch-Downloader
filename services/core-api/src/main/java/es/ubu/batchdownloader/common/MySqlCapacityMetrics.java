@@ -11,7 +11,15 @@ import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Publica el estado global mínimo de MySQL usando el pool existente de Core. */
+/**
+ * Publica contadores globales de consultas lentas y conexiones de MySQL sin convertir un fallo de
+ * observación en fallo del servicio.
+ *
+ * @see es.ubu.batchdownloader.common.ApiExceptionHandler
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Infraestructura de Core
+ */
 @Component
 final class MySqlCapacityMetrics {
     /** Registro de incidencias de lectura sin interrumpir la aplicación. */
@@ -25,7 +33,13 @@ final class MySqlCapacityMetrics {
     /** Acceso ligero al estado global de MySQL. */
     private final JdbcTemplate jdbc;
 
-    /** Inicializa los medidores Prometheus sin crear otro pool. */
+    /**
+     * Registra gauges de consultas lentas, hilos conectados y hilos ejecutándose sobre contadores
+     * atómicos.
+     *
+     * @param jdbc Acceso SQL utilizado para consultar los contadores globales de MySQL.
+     * @param registry Registro donde se publica duración y resultado sin incluir contenido ni URLs.
+     */
     MySqlCapacityMetrics(JdbcTemplate jdbc, MeterRegistry registry) {
         this.jdbc = jdbc;
         registry.gauge("batch_mysql_slow_queries", slowQueries);
@@ -33,7 +47,10 @@ final class MySqlCapacityMetrics {
         registry.gauge("batch_mysql_threads_running", runningThreads);
     }
 
-    /** Refresca una sola vez los tres contadores globales. */
+    /**
+     * Consulta los tres estados globales a intervalos configurados y conserva la última muestra si
+     * MySQL no puede responder.
+     */
     @Scheduled(
             initialDelayString = "${app.metrics.mysql-status-delay:15s}",
             fixedDelayString = "${app.metrics.mysql-status-delay:15s}")
@@ -50,7 +67,12 @@ final class MySqlCapacityMetrics {
         }
     }
 
-    /** Copia cada variable reconocida en su medidor estable. */
+    /**
+     * Actualiza el contador correspondiente e ignora nombres de estado desconocidos.
+     *
+     * @param name Slow_queries, Threads_connected o Threads_running, sin distinguir mayúsculas.
+     * @param value Último valor acumulado o instantáneo comunicado por MySQL.
+     */
     private void update(String name, long value) {
         switch (name.toLowerCase(Locale.ROOT)) {
             case "slow_queries" -> slowQueries.set(value);

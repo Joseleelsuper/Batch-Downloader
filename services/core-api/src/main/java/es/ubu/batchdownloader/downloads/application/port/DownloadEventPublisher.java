@@ -4,28 +4,35 @@ import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 
 /**
- * Define el contrato de {@code DownloadEventPublisher}.
+ * Registra las solicitudes de procesamiento, cancelación y correo que deben sobrevivir al commit
+ * del trabajo.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobService
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobNotifications
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 public interface DownloadEventPublisher {
     /**
-     * Ejecuta la operación {@code jobRequested}.
+     * Publica la selección admitida para que el worker descargue exactamente los elementos
+     * persistidos.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     void jobRequested(DownloadJob job);
     /**
-     * Indica si puede realizarse la operación mediante {@code cancellationRequested}.
+     * Solicita al worker detener cooperativamente el trabajo y liberar sus recursos.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     void cancellationRequested(DownloadJob job);
     /**
-     * Ejecuta la operación {@code terminalNotificationRequested}.
+     * Solicita el correo de resultado para un propietario cuya preferencia ya ha sido comprobada.
      *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param owner Cuenta destinataria con dirección de correo y preferencia de idioma.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     void terminalNotificationRequested(UserAccount owner, DownloadJob job);
 }

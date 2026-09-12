@@ -11,9 +11,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Implementa el componente {@code DownloadRequestOwner}.
+ * Deriva hashes HMAC para reconocer un navegador y aplicar cuotas de red sin persistir cookie o IP
+ * en claro.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see DownloadRequestOwner.RequestOwner
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Component
 public class DownloadRequestOwner {
@@ -28,10 +34,12 @@ public class DownloadRequestOwner {
     private final byte[] secret;
 
     /**
-     * Inicializa una instancia de {@code DownloadRequestOwner}.
+     * Carga la clave HMAC compartida entre resolución de propietarios y cuotas anónimas.
      *
-     * @param anonymousOwnerSecret Valor de {@code anonymousOwnerSecret} utilizado por la operación.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param anonymousOwnerSecret Secreto HMAC configurado para derivar identidades anónimas sin
+     *     guardar el token ni la IP.
+     *
+     * @throws IllegalStateException si el secreto configurado está vacío.
      */
     public DownloadRequestOwner(
             @Value("${app.download.anonymous-owner-secret}") String anonymousOwnerSecret) {
@@ -41,7 +49,17 @@ public class DownloadRequestOwner {
         this.secret = anonymousOwnerSecret.getBytes(StandardCharsets.UTF_8);
     }
 
-    /** Resuelve una cuenta UUID o una petición anónima sin depender del username. */
+    /**
+     * Combina la cuenta autenticada con hashes opcionales de cookie y dirección IP; la IP usa el
+     * prefijo ip: para separar su propósito.
+     *
+     * @param userId UUID de la cuenta autenticada o null si no hay sesión de usuario.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     *
+     * @param remoteAddress Dirección de red observada por Core, o null si no está disponible.
+     * @return identidad de acceso y cuotas sin incluir el token ni la dirección original.
+     */
     public RequestOwner resolve(UUID userId, String browserToken, String remoteAddress) {
         String browserHash = browserToken == null || browserToken.isBlank() ? null : hash(browserToken);
         String ipHash = remoteAddress == null || remoteAddress.isBlank() ? null : hash("ip:" + remoteAddress);
@@ -49,11 +67,11 @@ public class DownloadRequestOwner {
     }
 
     /**
-     * Indica si existe el recurso mediante {@code hash}.
+     * Calcula HMAC-SHA256 con el secreto del servicio para derivar una identidad opaca.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code hash}.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param value Token de navegador o dirección prefijada; no debe incluirse en logs.
+     * @return digest hexadecimal del valor.
+     * @throws IllegalStateException si el proveedor criptográfico no puede calcular el HMAC.
      */
     public String hash(String value) {
         try {
@@ -66,30 +84,33 @@ public class DownloadRequestOwner {
     }
 
     /**
-     * Representa los datos inmutables de {@code RequestOwner}.
+     * Agrupa la cuenta opcional y las identidades anónimas necesarias para comprobar propiedad y
+     * cuotas.
      *
-     * @param userId Valor de {@code userId} incluido en el record.
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} incluido en el record.
-     * @param anonymousIpHash Valor de {@code anonymousIpHash} incluido en el record.
+     * @param userId UUID de la cuenta autenticada o null si no hay sesión de usuario.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param anonymousIpHash HMAC de la dirección IP para cuotas; null si no se dispone de ella.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Descargas
      */
     public record RequestOwner(UUID userId, String anonymousOwnerHash, String anonymousIpHash) {
         /**
-         * Ejecuta la operación {@code authenticated}.
+         * Indica si la solicitud aporta una identidad de cuenta.
          *
-         * @return Indica si se cumple la condición evaluada.
+         * @return true cuando userId no es null.
          */
         public boolean authenticated() {
             return userId != null;
         }
 
         /**
-         * Indica si puede realizarse la operación mediante {@code canAccess}.
+         * Acepta acceso por coincidencia de cuenta o del navegador original del trabajo.
          *
-         * @param ownerId Identificador de {@code owner} utilizado por la operación.
-         * @param jobAnonymousOwnerHash Valor de {@code jobAnonymousOwnerHash} utilizado por la
-         *     operación.
-         * @return Indica si se cumple la condición evaluada.
+         * @param ownerId UUID de la cuenta propietaria o null para un trabajo anónimo.
+         * @param jobAnonymousOwnerHash Hash del navegador propietario persistido en el trabajo.
+         * @return true si coincide al menos una de las identidades disponibles.
          */
         public boolean canAccess(UUID ownerId, String jobAnonymousOwnerHash) {
             return (userId != null && userId.equals(ownerId))
@@ -97,11 +118,11 @@ public class DownloadRequestOwner {
         }
 
         /**
-         * Ejecuta la operación {@code requireAnonymousOwnerHash}.
+         * Exige la identidad del navegador antes de consultar cuotas o acceder a trabajos anónimos.
          *
-         * @return Resultado producido por {@code requireAnonymousOwnerHash}.
-         * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-         *     requeridas.
+         * @return hash no vacío del navegador.
+         * @throws es.ubu.batchdownloader.common.NotFoundException si no existe un hash de
+         *     propietario anónimo.
          */
         public String requireAnonymousOwnerHash() {
             if (anonymousOwnerHash == null || anonymousOwnerHash.isBlank()) {

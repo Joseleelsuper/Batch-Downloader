@@ -10,9 +10,15 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * Publica los datos gestionados por {@code OutboxWriter}.
+ * Registra sobres de eventos en la transacción del caso de uso para que el cambio de datos y su
+ * solicitud de publicación sean atómicos.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.messaging.OutboxDispatcher
+ * @see es.ubu.batchdownloader.messaging.OutboxEventEntity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y retención
  */
 @Component
 public class OutboxWriter {
@@ -30,11 +36,11 @@ public class OutboxWriter {
     private final Clock clock;
 
     /**
-     * Inicializa una instancia de {@code OutboxWriter}.
+     * Conecta la persistencia del outbox con la serialización y el reloj de creación.
      *
-     * @param repository Repositorio utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param repository Persistencia del outbox que participa en la transacción vigente.
+     * @param objectMapper Serializador del sobre de eventos y sus cargas JSON.
+     * @param clock Reloj que fecha eventos, reservas, confirmaciones y próximos intentos.
      */
     public OutboxWriter(OutboxEventRepository repository, ObjectMapper objectMapper, Clock clock) {
         this.repository = repository;
@@ -43,18 +49,20 @@ public class OutboxWriter {
     }
 
     /**
-     * Ejecuta la operación {@code append}.
+     * Añade identidad, versión de esquema, fecha, correlación y causa a la carga y guarda un evento
+     * pendiente en la transacción del llamador.
      *
-     * @param aggregateType Valor de {@code aggregateType} utilizado por la operación.
-     * @param aggregateId Identificador de {@code aggregate} utilizado por la operación.
-     * @param eventType Valor de {@code eventType} utilizado por la operación.
-     * @param routingKey Valor de {@code routingKey} utilizado por la operación.
-     * @param correlationId Identificador de {@code correlation} utilizado por la operación.
-     * @param causationId Identificador de {@code causation} utilizado por la operación.
-     * @param payload Carga de datos recibida por la operación.
-     * @return Resultado producido por {@code append}.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param aggregateType Tipo de agregado que produjo el evento.
+     * @param aggregateId UUID del agregado modificado en la misma transacción.
+     * @param eventType Tipo de evento que identifica su contrato de carga.
+     * @param routingKey Clave AMQP que selecciona los consumidores interesados.
+     * @param correlationId UUID que relaciona el evento con el flujo al que pertenece; puede ser
+     *     null.
+     * @param causationId UUID del evento que causó este cambio; puede ser null para una acción
+     *     inicial.
+     * @param payload Carga del contrato de evento que se serializa dentro del sobre común.
+     * @return UUID del nuevo evento pendiente.
+     * @throws IllegalArgumentException si Jackson no puede serializar la carga.
      */
     public UUID append(
             String aggregateType,

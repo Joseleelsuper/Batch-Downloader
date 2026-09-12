@@ -14,12 +14,27 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Implementa el componente {@code JpaCatalogSourceLookup}.
+ * Selecciona fuentes descargables mediante consultas por lotes, con orden estable, elección exacta
+ * y compatibilidad Linux.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup
+ * @see es.ubu.batchdownloader.downloads.application.DownloadSelection
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Repository
 class JpaCatalogSourceLookup implements CatalogSourceLookup {
+    /**
+     * Recorre dependencias por niveles, conserva primero la selección y evita ciclos mediante UUID
+     * ya visitados.
+     *
+     * @param appIds Selección de UUID de aplicaciones en el orden solicitado.
+     * @return selección seguida de dependencias nuevas, sin duplicados.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si el lote expandido supera cien
+     *     aplicaciones.
+     */
     @Override
     public List<UUID> expandLinuxDependencies(Collection<UUID> appIds) {
         var all = new java.util.LinkedHashSet<>(appIds);
@@ -39,6 +54,18 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         return List.copyOf(all);
     }
 
+    /**
+     * Filtra fuentes descargables por extensión, arquitectura y perfil aprobado del destino; una
+     * fuente exacta limita solo la primera aplicación.
+     * Prioriza paquetes nativos, AppImage, arquitectura exacta y después versión, rango,
+     * puntuación, fecha e identidad.
+     *
+     * @param appIds Selección de UUID de aplicaciones en el orden solicitado.
+     * @param target Gestor Linux seleccionado o contexto validado del destino según la firma.
+     * @param exactSource Fuente obligatoria para la primera aplicación del lote; null permite
+     *     elección automática.
+     * @return una fuente compatible por aplicación; nunca sustituye una fuente exacta incompatible.
+     */
     @Override
     public Map<UUID, VerifiedSource> findLinuxSources(Collection<UUID> appIds,
             es.ubu.batchdownloader.downloads.application.LinuxTarget target, UUID exactSource) {
@@ -100,20 +127,23 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
     private final JdbcTemplate jdbc;
 
     /**
-     * Inicializa una instancia de {@code JpaCatalogSourceLookup}.
+     * Conecta el acceso SQL al catálogo y sus perfiles Linux dentro de la transacción del llamador.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param jdbc Acceso SQL que participa en la transacción de Spring del llamador.
      */
     JpaCatalogSourceLookup(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findVerifiedSources}.
+     * Selecciona una fuente descargable por aplicación con preferencia estable de plataforma y
+     * versión; una comprobación caducada requiere revalidación posterior y no excluye por sí sola
+     * la fuente.
      *
-     * @param appIds Colección de identificadores de {@code app}.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @return Mapa con los datos producidos por la operación.
+     * @param appIds Selección de UUID de aplicaciones en el orden solicitado.
+     * @param operatingSystems Plataformas admitidas con semántica OR; la consulta conserva su
+     *     política de selección.
+     * @return mapa de hasta 101 aplicaciones; vacío para una selección nula o vacía.
      */
     @Override
     public Map<UUID, VerifiedSource> findVerifiedSources(
@@ -187,7 +217,11 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
     }
 
     /**
-     * Recupera nombre y página oficial de las aplicaciones solicitadas que siguen activas.
+     * Consulta en lote aplicaciones activas con página oficial no vacía, aunque no dispongan de
+     * instalador descargable.
+     *
+     * @param appIds Selección de UUID de aplicaciones en el orden solicitado.
+     * @return mapa de hasta 101 alternativas manuales.
      */
     @Override
     public Map<UUID, ManualSource> findManualSources(Collection<UUID> appIds) {
@@ -224,13 +258,15 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
     }
 
     /**
-     * Recupera exactamente la fuente elegida, manteniendo las mismas condiciones de publicación
-     * y validación que la selección automática.
+     * Consulta exclusivamente la fuente indicada y exige que aplicación, plataforma y estados de
+     * disponibilidad sigan siendo válidos.
      *
-     * @param appId Identificador de la aplicación propietaria.
-     * @param sourceRef Identificador de la fuente resuelta solicitada.
-     * @param operatingSystems Sistemas operativos admitidos por la solicitud.
-     * @return Fuente verificada, o vacío cuando no puede descargarse de forma segura.
+     * @param appId UUID público de la aplicación del catálogo.
+     * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
+     * @param operatingSystems Plataformas admitidas con semántica OR; la consulta conserva su
+     *     política de selección.
+     * @return fuente exacta o vacío; los UUID nulos no producen selección.
      */
     @Override
     public Optional<VerifiedSource> findVerifiedSource(
@@ -279,10 +315,12 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizedSystems}.
+     * Ordena las plataformas con la preferencia windows, linux, macos; una selección vacía o sin
+     * valores conocidos permite todas.
      *
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param operatingSystems Plataformas admitidas con semántica OR; la consulta conserva su
+     *     política de selección.
+     * @return lista canónica usada para construir el filtro SQL.
      */
     private static List<String> normalizedSystems(List<String> operatingSystems) {
         if (operatingSystems == null || operatingSystems.isEmpty()) {
@@ -299,10 +337,11 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
     }
 
     /**
-     * Ejecuta la operación {@code appendPlaceholders}.
+     * Añade marcadores SQL separados por comas para enlazar valores sin interpolarlos en la
+     * sentencia.
      *
-     * @param sql Valor de {@code sql} utilizado por la operación.
-     * @param count Valor de {@code count} utilizado por la operación.
+     * @param sql Sentencia en construcción; solo se añaden marcadores de parámetros, nunca valores.
+     * @param count Cantidad de marcadores interrogantes separados por comas.
      */
     private static void appendPlaceholders(StringBuilder sql, int count) {
         for (int index = 0; index < count; index++) {

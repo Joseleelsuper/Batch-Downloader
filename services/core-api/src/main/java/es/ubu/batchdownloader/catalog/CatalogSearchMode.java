@@ -4,9 +4,15 @@ import es.ubu.batchdownloader.common.BadRequestException;
 import java.util.Locale;
 
 /**
- * Enumera los valores admitidos por {@code CatalogSearchMode}.
+ * Distingue búsqueda léxica de búsqueda por embeddings y conserva sus valores explícitos del
+ * contrato HTTP.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.SemanticSearchClient
+ * @see es.ubu.batchdownloader.catalog.SemanticCandidateSet
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 public enum CatalogSearchMode {
     /**
@@ -19,35 +25,35 @@ public enum CatalogSearchMode {
     SEMANTIC("semantic");
 
     /**
-     * Estado {@code wireValue} mantenido por {@code CatalogSearchMode}.
+     * Lexical o semantic.
      */
     private final String wireValue;
 
     /**
-     * Inicializa una instancia de {@code CatalogSearchMode}.
+     * Asocia cada modo de búsqueda con el valor que intercambia el cliente HTTP.
      *
-     * @param wireValue Valor de {@code wireValue} utilizado por la operación.
+     * @param wireValue Nombre lexical o semantic utilizado en el contrato HTTP.
      */
     CatalogSearchMode(String wireValue) {
         this.wireValue = wireValue;
     }
 
     /**
-     * Ejecuta la operación {@code wireValue}.
+     * Expone el nombre estable del modo para respuestas y parámetros HTTP.
      *
-     * @return Resultado producido por {@code wireValue}.
+     * @return lexical o semantic.
      */
     public String wireValue() {
         return wireValue;
     }
 
     /**
-     * Analiza el contenido recibido mediante {@code parse}.
+     * Recorta y normaliza el modo y utiliza lexical cuando falta.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code parse}.
-     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param value Texto que se normaliza o clasifica según el método.
+     * @return modo reconocido.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si el texto no corresponde a
+     *     lexical ni semantic.
      */
     public static CatalogSearchMode parse(String value) {
         String normalized = value == null || value.isBlank()

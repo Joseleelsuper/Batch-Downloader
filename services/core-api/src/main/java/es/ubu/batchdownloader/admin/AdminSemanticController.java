@@ -18,10 +18,15 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * Expone las operaciones HTTP gestionadas por {@code AdminSemanticController}.
+ * Actúa como fachada administrativa de modelos y operaciones semánticas, conservando actor,
+ * idempotencia y estados HTTP y auditando solo solicitudes aceptadas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ * @see es.ubu.batchdownloader.admin.SemanticAdminClient
+ * @see es.ubu.batchdownloader.admin.AdminAuditService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Administración
  */
 @RestController
 public class AdminSemanticController {
@@ -40,10 +45,11 @@ public class AdminSemanticController {
     private final AdminAuditService audit;
 
     /**
-     * Inicializa una instancia de {@code AdminSemanticController}.
+     * Conecta el cliente semántico autenticado con el registro seguro de acciones administrativas.
      *
-     * @param semantic Valor de {@code semantic} utilizado por la operación.
-     * @param audit Valor de {@code audit} utilizado por la operación.
+     * @param semantic Cliente interno que conserva actor e idempotencia y sanitiza errores de
+     *     Semantic.
+     * @param audit Registro de acciones con actor UUID y metadatos seguros sin URLs resueltas.
      */
     public AdminSemanticController(
             SemanticAdminClient semantic,
@@ -53,9 +59,9 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code overview}.
+     * Consulta el resumen de disponibilidad, modelo activo y operaciones del servicio semántico.
      *
-     * @return Resultado producido por {@code overview}.
+     * @return estado y JSON seguro devueltos por Semantic.
      */
     @GetMapping("/api/v1/admin/semantic/overview")
     public ResponseEntity<JsonNode> overview() {
@@ -63,9 +69,9 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code models}.
+     * Consulta el inventario de modelos registrado y sus estados de preparación y actividad.
      *
-     * @return Resultado producido por {@code models}.
+     * @return lista de modelos con el estado HTTP del servicio.
      */
     @GetMapping("/api/v1/admin/semantic/models")
     public ResponseEntity<JsonNode> models() {
@@ -73,10 +79,10 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code model}.
+     * Consulta el estado administrativo de un modelo concreto por UUID.
      *
-     * @param modelId Identificador de {@code model} utilizado por la operación.
-     * @return Resultado producido por {@code model}.
+     * @param modelId UUID del modelo registrado en el servicio semántico.
+     * @return detalle del modelo con el estado HTTP remoto.
      */
     @GetMapping("/api/v1/admin/semantic/models/{modelId}")
     public ResponseEntity<JsonNode> model(@PathVariable UUID modelId) {
@@ -84,10 +90,11 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code benchmarks}.
+     * Codifica el límite en la consulta interna del historial de benchmarks.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Resultado producido por {@code benchmarks}.
+     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
+     *     consulta.
+     * @return historial y estado HTTP del servicio semántico.
      */
     @GetMapping("/api/v1/admin/semantic/benchmarks")
     public ResponseEntity<JsonNode> benchmarks(
@@ -101,12 +108,16 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code benchmark}.
+     * Solicita un benchmark con actor e idempotencia y audita su operación solo si Semantic lo
+     * acepta.
      *
-     * @param body Cuerpo recibido por la solicitud.
-     * @param idempotencyKey Valor de {@code idempotencyKey} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code benchmark}.
+     * @param body JSON del contrato interno correspondiente; Semantic o Scraper realiza su
+     *     validación funcional.
+     * @param idempotencyKey Clave opcional de idempotencia que se conserva al reenviar la mutación
+     *     interna.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return respuesta de aceptación o rechazo del servicio.
      */
     @PostMapping("/api/v1/admin/semantic/benchmarks")
     public ResponseEntity<JsonNode> benchmark(
@@ -129,12 +140,15 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code prepare}.
+     * Solicita la preparación persistente del modelo con actor e idempotencia y audita la
+     * aceptación.
      *
-     * @param modelId Identificador de {@code model} utilizado por la operación.
-     * @param idempotencyKey Valor de {@code idempotencyKey} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code prepare}.
+     * @param modelId UUID del modelo registrado en el servicio semántico.
+     * @param idempotencyKey Clave opcional de idempotencia que se conserva al reenviar la mutación
+     *     interna.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return respuesta de la operación de preparación.
      */
     @PostMapping("/api/v1/admin/semantic/models/{modelId}/prepare")
     public ResponseEntity<JsonNode> prepare(
@@ -152,13 +166,17 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code activate}.
+     * Reenvía las condiciones de activación y distingue activate de rollback en auditoría, dejando
+     * a Semantic comprobar integridad y modelo previo.
      *
-     * @param modelId Identificador de {@code model} utilizado por la operación.
-     * @param body Cuerpo recibido por la solicitud.
-     * @param idempotencyKey Valor de {@code idempotencyKey} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code activate}.
+     * @param modelId UUID del modelo registrado en el servicio semántico.
+     * @param body JSON del contrato interno correspondiente; Semantic o Scraper realiza su
+     *     validación funcional.
+     * @param idempotencyKey Clave opcional de idempotencia que se conserva al reenviar la mutación
+     *     interna.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return respuesta de activación o rechazo sin cambiar el contrato interno.
      */
     @PostMapping("/api/v1/admin/semantic/models/{modelId}/activate")
     public ResponseEntity<JsonNode> activate(
@@ -184,12 +202,15 @@ public class AdminSemanticController {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteModel}.
+     * Solicita eliminación del modelo con actor e idempotencia y audita únicamente una respuesta
+     * aceptada.
      *
-     * @param modelId Identificador de {@code model} utilizado por la operación.
-     * @param idempotencyKey Valor de {@code idempotencyKey} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code deleteModel}.
+     * @param modelId UUID del modelo registrado en el servicio semántico.
+     * @param idempotencyKey Clave opcional de idempotencia que se conserva al reenviar la mutación
+     *     interna.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return respuesta de la operación de borrado.
      */
     @DeleteMapping("/api/v1/admin/semantic/models/{modelId}")
     public ResponseEntity<JsonNode> deleteModel(
@@ -206,11 +227,13 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code operations}.
+     * Consulta operaciones con límite y filtro opcional de actividad codificados en la ruta
+     * interna.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @param active Valor de {@code active} utilizado por la operación.
-     * @return Resultado producido por {@code operations}.
+     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
+     *     consulta.
+     * @param active true limita la consulta a operaciones semánticas todavía no terminales.
+     * @return lista de operaciones con estado HTTP del servicio.
      */
     @GetMapping("/api/v1/admin/semantic/operations")
     public ResponseEntity<JsonNode> operations(
@@ -226,10 +249,10 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code operation}.
+     * Recupera la operación persistida necesaria para seguir o recuperar un flujo administrativo.
      *
-     * @param operationId Identificador de {@code operation} utilizado por la operación.
-     * @return Resultado producido por {@code operation}.
+     * @param operationId UUID de la operación persistida de preparación, benchmark o activación.
+     * @return estado y progreso de la operación.
      */
     @GetMapping("/api/v1/admin/semantic/operations/{operationId}")
     public ResponseEntity<JsonNode> operation(@PathVariable UUID operationId) {
@@ -237,11 +260,13 @@ public class AdminSemanticController {
     }
 
     /**
-     * Indica si puede realizarse la operación mediante {@code cancelOperation}.
+     * Solicita cancelación cooperativa de la operación e incluye el actor sin una clave nueva de
+     * idempotencia.
      *
-     * @param operationId Identificador de {@code operation} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code cancelOperation}.
+     * @param operationId UUID de la operación persistida de preparación, benchmark o activación.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return respuesta de cancelación, auditada solo si es aceptada.
      */
     @DeleteMapping("/api/v1/admin/semantic/operations/{operationId}")
     public ResponseEntity<JsonNode> cancelOperation(
@@ -262,12 +287,15 @@ public class AdminSemanticController {
     }
 
     /**
-     * Reintenta los elementos afectados mediante {@code retryOperation}.
+     * Solicita reintentar una operación bajo una clave de idempotencia y conserva en auditoría la
+     * identidad original.
      *
-     * @param operationId Identificador de {@code operation} utilizado por la operación.
-     * @param idempotencyKey Valor de {@code idempotencyKey} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code retryOperation}.
+     * @param operationId UUID de la operación persistida de preparación, benchmark o activación.
+     * @param idempotencyKey Clave opcional de idempotencia que se conserva al reenviar la mutación
+     *     interna.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return respuesta de reintento o rechazo.
      */
     @PostMapping("/api/v1/admin/semantic/operations/{operationId}/retry")
     public ResponseEntity<JsonNode> retryOperation(
@@ -290,13 +318,15 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code auditAccepted}.
+     * Registra únicamente respuestas 2xx con estado y UUID de operación, sin copiar el cuerpo
+     * completo a auditoría.
      *
-     * @param result Resultado que debe procesarse.
-     * @param actor Identidad del actor que solicita la operación.
-     * @param action Valor de {@code action} utilizado por la operación.
-     * @param targetType Valor de {@code targetType} utilizado por la operación.
-     * @param targetId Identificador de {@code target} utilizado por la operación.
+     * @param result Estado y cuerpo seguro devueltos por el cliente administrativo de Semantic.
+     * @param actor UUID textual de la cuenta administrativa responsable de la acción.
+     * @param action Nombre estable de la acción auditada.
+     * @param targetType Clase funcional del recurso auditado: aplicación, modelo, operación o
+     *     ejecución.
+     * @param targetId Identidad del recurso auditado, sin credenciales ni URLs privadas.
      */
     private void auditAccepted(
             SemanticAdminClient.Result result,
@@ -317,20 +347,21 @@ public class AdminSemanticController {
     }
 
     /**
-     * Ejecuta la operación {@code response}.
+     * Conserva estado y cuerpo seguro del cliente interno en la respuesta administrativa.
      *
-     * @param result Resultado que debe procesarse.
-     * @return Resultado producido por {@code response}.
+     * @param result Estado y cuerpo seguro devueltos por el cliente administrativo de Semantic.
+     * @return respuesta HTTP con el mismo estado funcional.
      */
     private ResponseEntity<JsonNode> response(SemanticAdminClient.Result result) {
         return ResponseEntity.status(result.status()).body(result.body());
     }
 
     /**
-     * Ejecuta la operación {@code actor}.
+     * Exige el principal administrativo y extrae su UUID estable para auditar la acción.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code actor}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return UUID textual del actor.
      */
     private String actor(AccountPrincipal principal) {
         return AdminActor.require(principal);

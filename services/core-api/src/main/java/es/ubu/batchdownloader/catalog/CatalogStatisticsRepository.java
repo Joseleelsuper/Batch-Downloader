@@ -15,9 +15,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Aísla las lecturas baratas de contadores, versiones y última ejecución del catálogo.
+ * Consulta contadores y última ejecución del scraper y produce versiones de invalidación para HTTP
+ * y WebSocket.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.CatalogRepository
+ * @see es.ubu.batchdownloader.catalog.CatalogChangeNotifier
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 @Repository
 public class CatalogStatisticsRepository {
@@ -25,10 +31,10 @@ public class CatalogStatisticsRepository {
     private final Clock clock;
 
     /**
-     * Inicializa el repositorio de estadísticas.
+     * Conecta las proyecciones estadísticas persistidas con el reloj UTC del servicio.
      *
-     * @param jdbc acceso JDBC compartido
-     * @param clock reloj inyectado para respuestas deterministas
+     * @param jdbc Acceso SQL a catálogo, fuentes y proyecciones persistidas en MySQL.
+     * @param clock Reloj que determina la fecha UTC de estadísticas y eventos.
      */
     public CatalogStatisticsRepository(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
@@ -36,9 +42,9 @@ public class CatalogStatisticsRepository {
     }
 
     /**
-     * Obtiene los totales materializados y la última ejecución del scraper.
+     * Lee los totales proyectados por estado y añade última ejecución y fecha UTC de consulta.
      *
-     * @return estadísticas públicas del catálogo
+     * @return estadísticas públicas sin contar de nuevo cada aplicación.
      */
     public CatalogStatsResponse stats() {
         StatsSnapshot snapshot = jdbc.queryForObject("""
@@ -58,9 +64,10 @@ public class CatalogStatisticsRepository {
     }
 
     /**
-     * Obtiene el token materializado usado para invalidar la caché pública.
+     * Combina la versión persistida de catalog_counters con sus cuatro recuentos para invalidar
+     * respuestas del catálogo.
      *
-     * @return versión y contadores autoritativos
+     * @return token textual de versión y cantidades.
      */
     public String cacheVersion() {
         return jdbc.queryForObject(
@@ -74,18 +81,19 @@ public class CatalogStatisticsRepository {
     }
 
     /**
-     * Crea el evento canónico que anuncia un cambio observable del catálogo.
+     * Construye un evento catalog.changed con versión compuesta y fecha UTC actual.
      *
-     * @return evento versionado
+     * @return evento para invalidar las consultas del cliente.
      */
     public CatalogChangeEvent changeEvent() {
         return new CatalogChangeEvent("catalog.changed", changeVersion(), now());
     }
 
     /**
-     * Combina proyección, contadores y estado del scraper en un token estable.
+     * Combina cantidad y actualización de aplicaciones activas, contadores de catálogo y progreso
+     * de la última ejecución en un hash textual.
      *
-     * @return hash barato del estado observable
+     * @return token opaco de cambio; no es una huella criptográfica.
      */
     public String changeVersion() {
         String appToken = jdbc.queryForObject(
@@ -116,6 +124,12 @@ public class CatalogStatisticsRepository {
                 + "|" + (runTokens.isEmpty() ? "" : runTokens.get(0))).hashCode());
     }
 
+    /**
+     * Selecciona la ejecución más reciente por fecha de inicio y proyecta fechas, contadores y
+     * fase.
+     *
+     * @return última ejecución o null cuando no hay historial.
+     */
     private LastScrapeRun latestRun() {
         List<LastScrapeRun> runs = jdbc.query(
                 """
@@ -136,14 +150,39 @@ public class CatalogStatisticsRepository {
         return runs.isEmpty() ? null : runs.get(0);
     }
 
+    /**
+     * Lee una fecha SQL opcional sin convertir la ausencia en una fecha artificial.
+     *
+     * @param resultSet Fila SQL de la que se lee una fecha nullable.
+     * @param column Nombre de una columna nullable que se interpreta con su tipo JDBC.
+     * @return fecha y hora local del timestamp o null.
+     * @throws java.sql.SQLException si falla la lectura de la columna.
+     */
     private LocalDateTime nullableDate(ResultSet resultSet, String column) throws SQLException {
         var value = resultSet.getTimestamp(column);
         return value == null ? null : value.toLocalDateTime();
     }
 
+    /**
+     * Convierte el instante del reloj inyectado a fecha y hora local de la zona UTC.
+     *
+     * @return fecha UTC sin dependencia de la zona del servidor.
+     */
     private LocalDateTime now() {
         return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 
+    /**
+     * Recoge los cuatro contadores de la proyección application_totals en una sola lectura.
+     *
+     * @param total Número de aplicaciones que cumplen el conjunto completo de filtros antes de
+     *     paginar.
+     * @param available Aplicaciones con instalador seleccionable.
+     * @param review Aplicaciones cuyo instalador requiere revisión.
+     * @param missing Aplicaciones sin instalador disponible.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
+     */
     private record StatsSnapshot(long total, long available, long review, long missing) {}
 }

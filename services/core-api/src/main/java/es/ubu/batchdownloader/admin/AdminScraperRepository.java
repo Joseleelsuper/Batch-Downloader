@@ -1,13 +1,13 @@
 package es.ubu.batchdownloader.admin;
 
-import es.ubu.batchdownloader.admin.AdminDtos.AdminAuditItem;
-import es.ubu.batchdownloader.admin.AdminDtos.ResolverLogItem;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperEvent;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperMetricItem;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueItem;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueState;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunSummary;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperSnapshotItem;
+import es.ubu.batchdownloader.admin.AdminAuditDtos.AdminAuditItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperEvent;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperMetricItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueState;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperSnapshotItem;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
@@ -27,9 +27,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Gestiona la persistencia y consulta de {@code AdminScraperRepository}.
+ * Lee la actividad persistente del scraper y registra comandos y recuperaciones administrativas
+ * sobre sus propias colas, sin ejecutar los workers desde Core.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.admin.AdminScraperController
+ * @see es.ubu.batchdownloader.admin.AdminScraperNotifier
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Operaciones administrativas
  */
 @Repository
 public class AdminScraperRepository {
@@ -49,10 +55,11 @@ public class AdminScraperRepository {
     private final Clock clock;
 
     /**
-     * Inicializa una instancia de {@code AdminScraperRepository}.
+     * Conecta las consultas operativas con el reloj utilizado por la retención de trabajos
+     * terminales.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
-     * @param clock Reloj UTC utilizado para calcular la antigüedad.
+     * @param jdbc Acceso JDBC a las tablas operativas y evidencias del catálogo.
+     * @param clock Reloj que fecha evidencias y determina el corte de retención.
      */
     public AdminScraperRepository(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
@@ -60,10 +67,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code runs}.
+     * Consulta ejecuciones desde la más reciente con un límite efectivo entre uno y cien.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado; se acota al intervalo documentado por cada consulta.
+     * @return ejecuciones ordenadas por fecha de inicio descendente.
      */
     public List<ScraperRunSummary> runs(int limit) {
         return jdbc.query(
@@ -77,9 +84,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code current}.
+     * Prioriza una ejecución running y, si no hay ninguna, devuelve la última ejecución conocida
+     * aunque haya terminado.
      *
-     * @return Resultado producido por {@code current}.
+     * @return ejecución seleccionada o null si todavía no hay historial.
      */
     public ScraperRunSummary current() {
         List<ScraperRunSummary> runs = jdbc.query(
@@ -93,10 +101,11 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code logs}.
+     * Consulta los últimos diagnósticos de resolución con sus metadatos seguros y un límite entre
+     * uno y quinientos.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado; se acota al intervalo documentado por cada consulta.
+     * @return registros por fecha descendente.
      */
     public List<ResolverLogItem> logs(int limit) {
         return jdbc.query(
@@ -117,9 +126,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code queues}.
+     * Cuenta todos los estados de las cuatro colas y añade hasta treinta trabajos pendientes por
+     * cola, priorizando los que ya están en curso.
      *
-     * @return Colección de elementos obtenidos por la operación.
+     * @return colas en el orden del pipeline con contadores y una muestra de actividad.
      */
     public List<ScraperQueueState> queues() {
         List<ScraperQueueState> states = new ArrayList<>();
@@ -166,10 +176,11 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code metrics}.
+     * Selecciona entre una y doscientas capturas recientes y las invierte para representar la
+     * evolución cronológica.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado; se acota al intervalo documentado por cada consulta.
+     * @return capturas de métricas ordenadas desde la más antigua de la selección.
      */
     public List<ScraperMetricItem> metrics(int limit) {
         return jdbc.query(
@@ -194,9 +205,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code snapshots}.
+     * Busca las treinta capturas todavía vigentes más recientes y conserva la primera de cada
+     * etapa.
      *
-     * @return Colección de elementos obtenidos por la operación.
+     * @return como máximo una captura por etapa, según el orden de recencia.
      */
     public List<ScraperSnapshotItem> snapshots() {
         Map<String, ScraperSnapshotItem> byStage = new LinkedHashMap<>();
@@ -220,9 +232,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code event}.
+     * Agrupa versión, colas, sesenta capturas de métricas y snapshots vigentes en el evento
+     * scraper.changed.
      *
-     * @return Resultado producido por {@code event}.
+     * @return estado administrativo listo para serializar y enviar por WebSocket.
      */
     public ScraperEvent event() {
         return new ScraperEvent(
@@ -235,9 +248,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code scraperVersion}.
+     * Combina las últimas fechas de trabajos, métricas, snapshots y latidos en una huella corta
+     * para detectar cambios de estado.
      *
-     * @return Resultado producido por {@code scraperVersion}.
+     * @return hash hexadecimal opaco; no es una versión de software ni una huella criptográfica.
      */
     public String scraperVersion() {
         String token = jdbc.queryForObject(
@@ -254,9 +268,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Recupera los elementos afectados mediante {@code recoverStuckQueueItems}.
+     * Reencola trabajos en curso cuyo arrendamiento venció o está ausente, limpiando propietario,
+     * expiración y último error.
      *
-     * @return Número de elementos afectados por la operación.
+     * @return cantidad de trabajos recuperados.
      */
     public int recoverStuckQueueItems() {
         return jdbc.update(
@@ -274,9 +289,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Libera el recurso solicitado mediante {@code releaseInProgressQueueItems}.
+     * Reencola todos los trabajos en curso, incluso con arrendamiento vigente, y limpia la reserva
+     * para una recuperación administrativa forzada.
      *
-     * @return Resultado producido por {@code releaseInProgressQueueItems}.
+     * @return cantidad de trabajos liberados.
      */
     public int releaseInProgressQueueItems() {
         return jdbc.update(
@@ -293,9 +309,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Reintenta los elementos afectados mediante {@code retryFailedQueueItems}.
+     * Vuelve a poner en cola los trabajos fallidos y elimina reserva y último error, conservando su
+     * contador de intentos.
      *
-     * @return Resultado producido por {@code retryFailedQueueItems}.
+     * @return cantidad de trabajos preparados para reintento.
      */
     public int retryFailedQueueItems() {
         return jdbc.update(
@@ -312,9 +329,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code pruneTerminalQueueItems}.
+     * Elimina un lote de trabajos completed o discarded más antiguos que TERMINAL_RETENTION y sin
+     * reserva, empezando por los más antiguos.
      *
-     * @return Resultado producido por {@code pruneTerminalQueueItems}.
+     * @return cantidad eliminada, acotada por RETENTION_BATCH_SIZE.
      */
     public int pruneTerminalQueueItems() {
         return jdbc.update(
@@ -332,9 +350,10 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code forceStopRunningRuns}.
+     * Marca las ejecuciones running como parciales y detenidas, solicita parada cooperativa y
+     * elimina su pausa; no interrumpe procesos del scraper.
      *
-     * @return Resultado producido por {@code forceStopRunningRuns}.
+     * @return cantidad de ejecuciones marcadas.
      */
     public int forceStopRunningRuns() {
         return jdbc.update(
@@ -352,12 +371,13 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Encola la operación solicitada mediante {@code enqueueCommand}.
+     * Registra un comando pendiente para que lo consuma el scraper; run_once se traduce a una
+     * solicitud incremental sin selección explícita.
      *
-     * @param command Comando que debe procesarse.
-     * @param actor Identidad del actor que solicita la operación.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param command Comando permitido por COMMANDS; run_once equivale a una ejecución incremental.
+     * @param actor UUID textual de la cuenta administrativa que solicitó la operación.
+     * @throws es.ubu.batchdownloader.common.ConflictException si el comando no forma parte de la
+     *     lista admitida.
      */
     public void enqueueCommand(String command, String actor) {
         if (!COMMANDS.contains(command)) {
@@ -384,12 +404,14 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Persiste una solicitud de scraping hasta que el scheduler la reclame.
+     * Persiste una solicitud run_once con alcance y selección JSON opcional para que el scraper la
+     * admita y asocie a su ejecución.
      *
-     * @param scope Alcance validado por el controlador.
-     * @param appIds UUID concretos para {@code selected}.
-     * @param actor Identidad autenticada.
-     * @return Identificador durable de la solicitud.
+     * @param scope Alcance de la ejecución validado por el controlador antes de encolarla.
+     * @param appIds UUID de las aplicaciones objetivo; null o lista vacía se guarda como ausencia
+     *     de selección.
+     * @param actor UUID textual de la cuenta administrativa que solicitó la operación.
+     * @return UUID de la solicitud pendiente, distinto del UUID de la futura ejecución.
      */
     public UUID enqueueRun(String scope, List<UUID> appIds, String actor) {
         UUID requestId = UUID.randomUUID();
@@ -414,10 +436,11 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code audit}.
+     * Consulta las acciones administrativas más recientes con un límite efectivo entre uno y
+     * doscientos.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado; se acota al intervalo documentado por cada consulta.
+     * @return entradas de auditoría por fecha descendente.
      */
     public List<AdminAuditItem> audit(int limit) {
         return jdbc.query(
@@ -438,11 +461,12 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Ejecuta la operación {@code run}.
+     * Proyecta identidad, alcance, contadores, latido y estado de parada de una ejecución
+     * persistida.
      *
-     * @param rs Valor de {@code rs} utilizado por la operación.
-     * @return Resultado producido por {@code run}.
-     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param rs Fila actual de la consulta JDBC.
+     * @return resumen que mantiene null para fechas y solicitud ausentes.
+     * @throws java.sql.SQLException si falla la lectura de una columna requerida.
      */
     private ScraperRunSummary run(ResultSet rs) throws SQLException {
         return new ScraperRunSummary(
@@ -470,19 +494,26 @@ public class AdminScraperRepository {
                 rs.getString("error_summary"));
     }
 
-    /** Devuelve un UUID binario opcional como texto. */
+    /**
+     * Convierte un UUID binario opcional a su forma textual para la respuesta administrativa.
+     *
+     * @param rs Fila actual de la consulta JDBC.
+     * @param column Nombre interno de la columna nullable que se desea leer.
+     * @return UUID textual o null.
+     * @throws java.sql.SQLException si no se puede leer la columna de identificador.
+     */
     private String nullableUuid(ResultSet rs, String column) throws SQLException {
         byte[] value = rs.getBytes(column);
         return value == null ? null : UuidBytes.toUuid(value).toString();
     }
 
     /**
-     * Ejecuta la operación {@code nullableDate}.
+     * Lee una fecha JDBC opcional conservando la ausencia del dato.
      *
-     * @param rs Valor de {@code rs} utilizado por la operación.
-     * @param column Valor de {@code column} utilizado por la operación.
-     * @return Resultado producido por {@code nullableDate}.
-     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param rs Fila actual de la consulta JDBC.
+     * @param column Nombre interno de la columna nullable que se desea leer.
+     * @return fecha local persistida o null.
+     * @throws java.sql.SQLException si no se puede leer la columna de fecha.
      */
     private LocalDateTime nullableDate(ResultSet rs, String column) throws SQLException {
         var timestamp = rs.getTimestamp(column);

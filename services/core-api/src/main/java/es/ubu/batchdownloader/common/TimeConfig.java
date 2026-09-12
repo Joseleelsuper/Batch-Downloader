@@ -5,16 +5,20 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Define la configuración utilizada por {@code TimeConfig}.
+ * Proporciona un reloj UTC común que los casos de uso pueden sustituir por uno determinista en
+ * pruebas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Infraestructura de Core
  */
 @Configuration
 public class TimeConfig {
     /**
-     * Ejecuta la operación {@code clock}.
+     * Selecciona la hora del sistema expresada en UTC para fechas y vencimientos del dominio.
      *
-     * @return Resultado producido por {@code clock}.
+     * @return reloj UTC compartido por el contexto de Spring.
      */
     @Bean
     Clock clock() {

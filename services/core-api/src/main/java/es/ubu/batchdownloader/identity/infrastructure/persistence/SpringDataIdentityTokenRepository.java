@@ -12,29 +12,47 @@ import jakarta.persistence.LockModeType;
 import java.time.Instant;
 
 /**
- * Define el contrato de {@code SpringDataIdentityTokenRepository}.
+ * Define consultas JPA de tokens y un bloqueo de escritura que serializa su consumo dentro de una
+ * transacción.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.IdentityTokenEntity
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.JpaIdentityTokenStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 interface SpringDataIdentityTokenRepository extends JpaRepository<IdentityTokenEntity, UUID> {
     /**
-     * Busca el resultado solicitado mediante {@code findByTokenHashAndType}.
+     * Consulta un token por su hash y finalidad sin bloquearlo para consumo.
      *
-     * @param tokenHash Valor de {@code tokenHash} utilizado por la operación.
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @return Resultado producido por {@code findByTokenHashAndType}.
+     * @param tokenHash SHA-256 hexadecimal del token opaco, utilizado para localizarlo sin
+     *     almacenar su original.
+     * @param type Finalidad del token: verificación de correo o restablecimiento de contraseña.
+     * @return entidad coincidente o vacío; no comprueba vigencia.
      */
     Optional<IdentityTokenEntity> findByTokenHashAndType(String tokenHash, IdentityToken.Type type);
 
+    /**
+     * Adquiere un bloqueo pesimista de escritura sobre el token coincidente hasta el fin de la
+     * transacción.
+     *
+     * @param tokenHash SHA-256 hexadecimal del token opaco, utilizado para localizarlo sin
+     *     almacenar su original.
+     * @param type Finalidad del token: verificación de correo o restablecimiento de contraseña.
+     * @return entidad reservada o vacío si no existe.
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select token from IdentityTokenEntity token where token.tokenHash = :hash and token.type = :type")
     Optional<IdentityTokenEntity> findForUpdate(
             @Param("hash") String tokenHash, @Param("type") IdentityToken.Type type);
     /**
-     * Elimina el recurso solicitado mediante {@code deleteByUserIdAndTypeAndConsumedAtIsNull}.
+     * Invalida en lote los tokens aún pendientes de la cuenta y finalidad guardando el instante
+     * indicado como consumo.
      *
-     * @param userId Identificador de {@code user} utilizado por la operación.
-     * @param type Valor de {@code type} utilizado por la operación.
+     * @param userId UUID canónico de la cuenta; no cambia al modificar su nombre visible.
+     * @param type Finalidad del token: verificación de correo o restablecimiento de contraseña.
+     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
      */
     @Modifying
     @Query("update IdentityTokenEntity token set token.consumedAt = :now "

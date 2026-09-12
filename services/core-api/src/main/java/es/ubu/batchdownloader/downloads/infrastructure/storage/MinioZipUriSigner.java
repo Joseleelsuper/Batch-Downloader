@@ -16,9 +16,15 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.lang.Nullable;
 
 /**
- * Implementa el componente {@code MinioZipUriSigner}.
+ * Firma localmente enlaces GET usando el origen público del navegador y una región conocida, sin
+ * consultar MinIO por red.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.port.ZipUriSigner
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobAccessService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Component
 class MinioZipUriSigner implements ZipUriSigner {
@@ -38,13 +44,17 @@ class MinioZipUriSigner implements ZipUriSigner {
     private final Counter failedSigns;
 
     /**
-     * Inicializa una instancia de {@code MinioZipUriSigner}.
+     * Configura el cliente de firma y, cuando se proporciona un registro, contadores de firmas
+     * correctas y fallidas.
      *
-     * @param publicEndpoint Valor de {@code publicEndpoint} utilizado por la operación.
-     * @param accessKey Valor de {@code accessKey} utilizado por la operación.
-     * @param secretKey Valor de {@code secretKey} utilizado por la operación.
-     * @param bucket Valor de {@code bucket} utilizado por la operación.
-     * @param region Valor de {@code region} utilizado por la operación.
+     * @param publicEndpoint Origen del almacén utilizado por el navegador; forma parte de la firma
+     *     S3.
+     * @param accessKey Identificador de la credencial del almacén de objetos.
+     * @param secretKey Secreto de la credencial del almacén; no debe aparecer en respuestas ni
+     *     registros.
+     * @param bucket Contenedor de objetos donde el worker publica los ZIP y sus temporales.
+     * @param region Región S3 conocida que permite firmar sin consultar el almacén por red.
+     * @param registry Registro opcional de métricas; null desactiva la instrumentación.
      */
     @Autowired
     MinioZipUriSigner(
@@ -71,7 +81,18 @@ class MinioZipUriSigner implements ZipUriSigner {
                 : registry.counter("core_download_signed_redirects", "outcome", "failure");
     }
 
-    /** Conserva el constructor anterior para pruebas de firma sin contexto Spring. */
+    /**
+     * Configura el cliente de firma y, cuando se proporciona un registro, contadores de firmas
+     * correctas y fallidas.
+     *
+     * @param publicEndpoint Origen del almacén utilizado por el navegador; forma parte de la firma
+     *     S3.
+     * @param accessKey Identificador de la credencial del almacén de objetos.
+     * @param secretKey Secreto de la credencial del almacén; no debe aparecer en respuestas ni
+     *     registros.
+     * @param bucket Contenedor de objetos donde el worker publica los ZIP y sus temporales.
+     * @param region Región S3 conocida que permite firmar sin consultar el almacén por red.
+     */
     MinioZipUriSigner(
             String publicEndpoint,
             String accessKey,
@@ -89,19 +110,29 @@ class MinioZipUriSigner implements ZipUriSigner {
     }
 
     /**
-     * Implementa {@code signGet} para {@code MinioZipUriSigner}.
+     * Firma la lectura con el nombre predeterminado batch-downloader.zip.
      *
-     * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-     * @param validity Valor de {@code validity} utilizado por la operación.
-     * @return Resultado producido por {@code signGet}.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param objectKey Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
+     * @param validity Vigencia de la firma, convertida a segundos y validada por el cliente S3.
+     * @return URI temporal del ZIP con descarga como adjunto.
      */
     @Override
     public URI signGet(String objectKey, Duration validity) {
         return signGet(objectKey, "batch-downloader.zip", validity);
     }
 
-    /** Firma también las cabeceras de tipo y disposición que devolverá S3. */
+    /**
+     * Sanitiza el nombre y firma GET con tipo application/zip y disposición adjunta; registra el
+     * resultado de la firma.
+     *
+     * @param objectKey Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
+     * @param filename Nombre sugerido; sus caracteres ajenos a letras ASCII, dígitos, punto, guion
+     *     y guion bajo se sustituyen.
+     * @param validity Vigencia de la firma, convertida a segundos y validada por el cliente S3.
+     * @return URI firmada con el origen público sin alterar después su hostname.
+     * @throws IllegalStateException si el nombre, la vigencia o la configuración impiden construir
+     *     la firma.
+     */
     @Override
     public URI signGet(String objectKey, String filename, Duration validity) {
         try {

@@ -21,7 +21,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Login administrativo separado del acceso de cuentas públicas. */
+/**
+ * Gestiona sesiones administrativas mediante nombre de usuario, comprobación de rol y cuotas de
+ * acceso.
+ *
+ * @see es.ubu.batchdownloader.identity.infrastructure.security.AccountAuthenticator
+ * @see es.ubu.batchdownloader.identity.api.AuthRateLimiter
+ * @see es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
+ */
 @RestController
 @RequestMapping("/api/v1/admin/auth")
 public class AdminIdentityController {
@@ -32,6 +42,19 @@ public class AdminIdentityController {
     private final SessionAuthenticationStrategy sessions;
     private final AuthRateLimiter rateLimiter;
 
+    /**
+     * Conecta verificación administrativa y renovación y persistencia de la sesión.
+     *
+     * @param identities Casos de uso de identidad que conservan el UUID y las restricciones de
+     *     unicidad.
+     * @param authenticator Verificador de credenciales que distingue cuentas USER y ADMIN.
+     * @param currentAccount Resolución de la sesión por UUID que vuelve a comprobar que la cuenta
+     *     está habilitada.
+     * @param contexts Repositorio donde se guarda la autenticación de la nueva sesión.
+     * @param sessions Estrategia que renueva identificador de sesión y token CSRF al entrar.
+     * @param rateLimiter Cuotas separadas de acceso, registro, recuperación y reenvío de
+     *     verificación.
+     */
     public AdminIdentityController(
             IdentityService identities,
             AccountAuthenticator authenticator,
@@ -47,6 +70,16 @@ public class AdminIdentityController {
         this.rateLimiter = rateLimiter;
     }
 
+    /**
+     * Consume cuota, exige credenciales de una cuenta ADMIN habilitada y guarda un nuevo contexto
+     * autenticado.
+     *
+     * @param request Cuerpo validado de la operación o solicitud HTTP cuando la firma utiliza
+     *     HttpServletRequest.
+     * @param servletRequest Solicitud HTTP de la que se obtiene dirección remota o sesión.
+     * @param servletResponse Respuesta donde se conservan los cambios de sesión y sus cookies.
+     * @return identidad administrativa de la sesión creada.
+     */
     @PostMapping("/login")
     IdentityView login(
             @Valid @RequestBody LoginRequest request,
@@ -62,11 +95,26 @@ public class AdminIdentityController {
         return identities.findById(currentAccount.require(authentication).id());
     }
 
+    /**
+     * Recupera la cuenta administrativa vigente de una sesión previamente autorizada por Spring
+     * Security.
+     *
+     * @param authentication Autenticación actual de Spring, o null si el visitante no tiene sesión.
+     * @return vista actual de identidad.
+     */
     @GetMapping("/me")
     IdentityView me(Authentication authentication) {
         return identities.findById(currentAccount.require(authentication).id());
     }
 
+    /**
+     * Invalida la sesión administrativa y limpia su contexto de seguridad.
+     *
+     * @param request Cuerpo validado de la operación o solicitud HTTP cuando la firma utiliza
+     *     HttpServletRequest.
+     * @param response Respuesta HTTP en la que se comunica o invalida la sesión.
+     * @return 204 sin cuerpo.
+     */
     @PostMapping("/logout")
     ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
         new SecurityContextLogoutHandler().logout(
@@ -74,5 +122,16 @@ public class AdminIdentityController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Transporta nombre y contraseña del acceso administrativo; el verificador comprueba rol y
+     * límites de BCrypt.
+     *
+     * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
+     * @param password Contraseña recibida; los límites se cuentan en puntos de código y bytes
+     *     UTF-8.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Identidad
+     */
     record LoginRequest(@NotBlank String username, @NotBlank String password) {}
 }

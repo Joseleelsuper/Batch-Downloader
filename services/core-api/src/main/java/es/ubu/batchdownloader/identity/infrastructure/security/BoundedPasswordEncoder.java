@@ -12,9 +12,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Ejecuta BCrypt en un conjunto acotado para que una ráfaga no agote los hilos HTTP.
+ * Limita hilos, cola y espera de los cálculos de contraseña para devolver falta temporal de
+ * capacidad sin saturar los hilos HTTP.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig
+ * @see es.ubu.batchdownloader.common.AuthCapacityException
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 final class BoundedPasswordEncoder implements PasswordEncoder, AutoCloseable {
     /** Codificador BCrypt real. */
@@ -25,12 +31,13 @@ final class BoundedPasswordEncoder implements PasswordEncoder, AutoCloseable {
     private final Duration wait;
 
     /**
-     * Inicializa el codificador acotado.
+     * Crea un pool fijo de hilos daemon y una cola acotada con rechazo inmediato cuando se llena.
      *
-     * @param delegate Codificador real.
-     * @param concurrency Número máximo de cálculos simultáneos.
-     * @param queueCapacity Número máximo de cálculos pendientes.
-     * @param wait Espera máxima de cada solicitud.
+     * @param delegate Codificador que realiza el cálculo criptográfico en los hilos reservados.
+     * @param concurrency Número fijo de cálculos criptográficos que pueden ejecutarse
+     *     simultáneamente.
+     * @param queueCapacity Máximo de cálculos en espera antes de rechazar por falta de capacidad.
+     * @param wait Plazo máximo de espera por el resultado, incluyendo el tiempo en cola.
      */
     BoundedPasswordEncoder(
             PasswordEncoder delegate,
@@ -54,30 +61,52 @@ final class BoundedPasswordEncoder implements PasswordEncoder, AutoCloseable {
                 new ThreadPoolExecutor.AbortPolicy());
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Encola el cálculo del hash y espera como máximo el plazo configurado.
+     *
+     * @param rawPassword Contraseña sin hash que no debe persistirse ni registrarse.
+     * @return hash del codificador delegado.
+     * @throws es.ubu.batchdownloader.common.AuthCapacityException si no hay espacio, vence la
+     *     espera o el hilo solicitante se interrumpe.
+     */
     @Override
     public String encode(CharSequence rawPassword) {
         return execute(() -> delegate.encode(rawPassword));
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Encola la comprobación de contraseña bajo el mismo límite de capacidad y espera.
+     *
+     * @param rawPassword Contraseña sin hash que no debe persistirse ni registrarse.
+     * @param encodedPassword Hash calculado antes de actualizar el agregado de cuenta.
+     * @return resultado de la comparación delegada.
+     */
     @Override
     public boolean matches(CharSequence rawPassword, String encodedPassword) {
         return execute(() -> delegate.matches(rawPassword, encodedPassword));
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Consulta directamente si el hash requiere actualización sin consumir un cálculo en el pool.
+     *
+     * @param encodedPassword Hash calculado antes de actualizar el agregado de cuenta.
+     * @return decisión del codificador delegado.
+     */
     @Override
     public boolean upgradeEncoding(String encodedPassword) {
         return delegate.upgradeEncoding(encodedPassword);
     }
 
     /**
-     * Ejecuta una operación dentro del presupuesto de BCrypt.
+     * Reserva capacidad, espera el resultado y solicita cancelación ante timeout o interrupción;
+     * conserva la marca de interrupción y propaga las excepciones de ejecución no comprobadas.
      *
-     * @param operation Operación que debe ejecutarse.
-     * @param <T> Tipo del resultado.
-     * @return Resultado de la operación.
+     * @param operation Cálculo de hash o verificación que se ejecuta en el pool acotado.
+     * @param <T> Tipo del resultado del cálculo criptográfico.
+     * @return resultado de la operación delegada.
+     * @throws es.ubu.batchdownloader.common.AuthCapacityException si el pool rechaza el trabajo o
+     *     la espera no puede completarse.
+     * @throws IllegalStateException si el cálculo falla con una causa comprobada.
      */
     private <T> T execute(java.util.concurrent.Callable<T> operation) {
         Future<T> future;
@@ -104,17 +133,27 @@ final class BoundedPasswordEncoder implements PasswordEncoder, AutoCloseable {
         }
     }
 
-    /** @return Número de cálculos BCrypt activos. */
+    /**
+     * Consulta los cálculos actualmente ejecutándose en el pool.
+     *
+     * @return número de hilos activos.
+     */
     int activeTasks() {
         return executor.getActiveCount();
     }
 
-    /** @return Número de cálculos en espera. */
+    /**
+     * Consulta los cálculos que aún esperan un hilo disponible.
+     *
+     * @return tamaño actual de la cola.
+     */
     int queuedTasks() {
         return executor.getQueue().size();
     }
 
-    /** Detiene los hilos de cálculo al cerrar Spring. */
+    /**
+     * Solicita la interrupción de los cálculos y detiene el pool al cerrar el componente.
+     */
     @Override
     public void close() {
         executor.shutdownNow();

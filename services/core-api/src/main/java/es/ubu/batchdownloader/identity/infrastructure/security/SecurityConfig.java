@@ -27,10 +27,36 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
-/** Seguridad de sesión compartida con flujos de credenciales separados por rol. */
+/**
+ * Configura autorización por rutas y roles, mutaciones con CSRF, renovación de sesión y capacidad
+ * acotada de BCrypt para Core.
+ *
+ * @see es.ubu.batchdownloader.identity.api.IdentityController
+ * @see es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal
+ * @see es.ubu.batchdownloader.identity.infrastructure.security.BoundedPasswordEncoder
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
+ */
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+    /**
+     * Define acceso administrativo y de usuario, deja la propiedad de descargas a su caso de uso y
+     * protege las mutaciones de navegador con CSRF.
+     * La ruta interna de metadatos comprueba su credencial en el controlador y se excluye de CSRF y
+     * redirección HTTPS.
+     *
+     * @param http Constructor de la cadena de filtros de seguridad HTTP de Spring.
+     * @param objectMapper Serializador de las respuestas JSON seguras de acceso denegado o falta de
+     *     sesión.
+     * @param csrfTokens Repositorio de tokens CSRF utilizado al comprobar mutaciones y renovar la
+     *     sesión.
+     * @param requireHttps Redirige a HTTPS las rutas públicas; la ruta interna de metadatos
+     *     conserva transporte interno.
+     * @return cadena HTTP sin formularios ni autenticación básica, con errores JSON seguros.
+     * @throws Exception si Spring no puede construir la cadena configurada.
+     */
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -82,6 +108,11 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Guarda el token CSRF en una cookie legible por el cliente con alcance en la raíz.
+     *
+     * @return repositorio de tokens usado por la cadena y la renovación de sesión.
+     */
     @Bean
     CsrfTokenRepository csrfTokenRepository() {
         CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
@@ -89,6 +120,13 @@ public class SecurityConfig {
         return repository;
     }
 
+    /**
+     * Combina cambio de identificador de sesión y renovación del token CSRF al autenticarse.
+     *
+     * @param csrfTokens Repositorio de tokens CSRF utilizado al comprobar mutaciones y renovar la
+     *     sesión.
+     * @return estrategia que aplica ambas medidas en orden.
+     */
     @Bean
     SessionAuthenticationStrategy sessionAuthenticationStrategy(CsrfTokenRepository csrfTokens) {
         return new CompositeSessionAuthenticationStrategy(List.of(
@@ -96,6 +134,16 @@ public class SecurityConfig {
                 new CsrfAuthenticationStrategy(csrfTokens)));
     }
 
+    /**
+     * Envuelve BCrypt con coste configurable en un pool con concurrencia, cola y espera acotadas.
+     *
+     * @param strength Coste de BCrypt configurado para generar hashes de contraseña.
+     * @param concurrency Número fijo de cálculos criptográficos que pueden ejecutarse
+     *     simultáneamente.
+     * @param queueCapacity Máximo de cálculos en espera antes de rechazar por falta de capacidad.
+     * @param wait Plazo máximo de espera por el resultado, incluyendo el tiempo en cola.
+     * @return codificador que se cierra junto al contexto de Spring.
+     */
     @Bean(destroyMethod = "close")
     PasswordEncoder passwordEncoder(
             @Value("${app.auth.bcrypt-strength}") int strength,
@@ -106,6 +154,11 @@ public class SecurityConfig {
                 new BCryptPasswordEncoder(strength), concurrency, queueCapacity, wait);
     }
 
+    /**
+     * Persiste la autenticación mediante la sesión HTTP gestionada por Spring.
+     *
+     * @return repositorio del contexto de seguridad por sesión.
+     */
     @Bean
     SecurityContextRepository securityContextRepository() {
         return new HttpSessionSecurityContextRepository();

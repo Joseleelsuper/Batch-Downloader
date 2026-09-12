@@ -1,16 +1,16 @@
 package es.ubu.batchdownloader.admin;
 
-import es.ubu.batchdownloader.admin.AdminDtos.AdminAuditItem;
-import es.ubu.batchdownloader.admin.AdminDtos.ResolverLogItem;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperEvent;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperCommandRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperMetricItem;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueMaintenanceResult;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperQueueState;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunSummary;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperRunRequestResponse;
-import es.ubu.batchdownloader.admin.AdminDtos.ScraperSnapshotItem;
+import es.ubu.batchdownloader.admin.AdminAuditDtos.AdminAuditItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperEvent;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperCommandRequest;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperMetricItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueMaintenanceResult;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueState;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunRequest;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunRequestResponse;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperSnapshotItem;
 import jakarta.validation.Valid;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import java.util.List;
@@ -26,10 +26,16 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Expone las operaciones HTTP gestionadas por {@code AdminScraperController}.
+ * Expone observación, solicitudes de ejecución y mantenimiento controlado del scraper con auditoría
+ * del actor administrativo.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ * @see es.ubu.batchdownloader.admin.AdminScraperRepository
+ * @see es.ubu.batchdownloader.admin.ScraperInternalClient
+ * @see es.ubu.batchdownloader.admin.AdminAuditService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Administración
  */
 @RestController
 public class AdminScraperController {
@@ -38,7 +44,7 @@ public class AdminScraperController {
      */
     private final AdminScraperRepository scraper;
     /**
-     * Estado {@code audit} mantenido por {@code AdminScraperController}.
+     * Proyección administrativa del estado persistido.
      */
     private final AdminAuditService audit;
     /**
@@ -47,11 +53,14 @@ public class AdminScraperController {
     private final ScraperInternalClient scraperClient;
 
     /**
-     * Inicializa una instancia de {@code AdminScraperController}.
+     * Conecta estado persistido, comandos y generación de contenido con la auditoría
+     * administrativa.
      *
-     * @param scraper Valor de {@code scraper} utilizado por la operación.
-     * @param audit Valor de {@code audit} utilizado por la operación.
-     * @param scraperClient Valor de {@code scraperClient} utilizado por la operación.
+     * @param scraper Consultas y mantenimiento de las colas del scraper, o su cliente HTTP según la
+     *     firma.
+     * @param audit Registro de acciones con actor UUID y metadatos seguros sin URLs resueltas.
+     * @param scraperClient Cliente interno autenticado para inspección, descubrimiento y generación
+     *     de contenido.
      */
     public AdminScraperController(
             AdminScraperRepository scraper,
@@ -63,10 +72,11 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code runs}.
+     * Consulta el historial reciente de ejecuciones del scraper.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
+     *     consulta.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/runs")
     public List<ScraperRunSummary> runs(@RequestParam(defaultValue = "30") int limit) {
@@ -74,11 +84,14 @@ public class AdminScraperController {
     }
 
     /**
-     * Crea una solicitud durable; el scheduler la ejecutará cuando no exista otro run activo.
+     * Guarda una solicitud persistente con alcance y UUID seleccionados y audita la intención antes
+     * de que el scheduler la reserve.
      *
-     * @param request Scope y selección ya validados.
-     * @param principal Identidad autenticada.
-     * @return Acuse con el ID estable de la solicitud.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 202 con identidad de solicitud y estado pending.
      */
     @PostMapping("/api/v1/admin/scraper/runs")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -98,9 +111,9 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code current}.
+     * Consulta la última ejecución conocida, que puede haber terminado.
      *
-     * @return Resultado producido por {@code current}.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/current")
     public ScraperRunSummary current() {
@@ -108,10 +121,11 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code logs}.
+     * Consulta registros recientes de resolución con los campos seguros de diagnóstico.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
+     *     consulta.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/logs")
     public List<ResolverLogItem> logs(@RequestParam(defaultValue = "120") int limit) {
@@ -119,9 +133,9 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code queues}.
+     * Consulta recuentos de estado y próxima actividad de las colas persistentes.
      *
-     * @return Colección de elementos obtenidos por la operación.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/queues")
     public List<ScraperQueueState> queues() {
@@ -129,10 +143,11 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code metrics}.
+     * Consulta mediciones recientes de las etapas del scraper.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
+     *     consulta.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/metrics")
     public List<ScraperMetricItem> metrics(@RequestParam(defaultValue = "60") int limit) {
@@ -140,9 +155,9 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code snapshots}.
+     * Consulta las instantáneas persistidas de sincronización de Winstall.
      *
-     * @return Colección de elementos obtenidos por la operación.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/snapshots")
     public List<ScraperSnapshotItem> snapshots() {
@@ -150,9 +165,9 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code event}.
+     * Reúne una instantánea administrativa con versión para actualizar la interfaz.
      *
-     * @return Resultado producido por {@code event}.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/event")
     public ScraperEvent event() {
@@ -160,10 +175,11 @@ public class AdminScraperController {
     }
 
     /**
-     * Recupera los elementos afectados mediante {@code recoverStuckQueueItems}.
+     * Solicita recuperar reservas vencidas y audita la operación de mantenimiento.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code recoverStuckQueueItems}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return tipo recover_stuck y número de elementos afectados.
      */
     @PostMapping("/api/v1/admin/scraper/queues/recover-stuck")
     public ScraperQueueMaintenanceResult recoverStuckQueueItems(
@@ -174,10 +190,11 @@ public class AdminScraperController {
     }
 
     /**
-     * Reintenta los elementos afectados mediante {@code retryFailedQueueItems}.
+     * Devuelve fallos elegibles a la cola de procesamiento y registra la acción administrativa.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code retryFailedQueueItems}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return tipo retry_failed y cantidad reencolada.
      */
     @PostMapping("/api/v1/admin/scraper/queues/retry-failed")
     public ScraperQueueMaintenanceResult retryFailedQueueItems(
@@ -188,10 +205,12 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code pruneTerminalQueueItems}.
+     * Poda únicamente elementos terminales elegibles bajo la ventana y límite del repositorio y
+     * registra el mantenimiento.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code pruneTerminalQueueItems}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return tipo prune_terminal y cantidad eliminada.
      */
     @PostMapping("/api/v1/admin/scraper/queues/prune-terminal")
     public ScraperQueueMaintenanceResult pruneTerminalQueueItems(
@@ -202,11 +221,14 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code command}.
+     * Persiste el comando para el scheduler; force_stop marca ejecuciones activas como detenidas y
+     * libera elementos en progreso, conservando recuentos en auditoría.
      *
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Mapa con los datos producidos por la operación.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 202 con command y status accepted.
      */
     @PostMapping("/api/v1/admin/scraper/commands")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -231,10 +253,12 @@ public class AdminScraperController {
     }
 
     /**
-     * Encola la operación solicitada mediante {@code enqueueMissingDescriptions}.
+     * Solicita encolar descripciones ausentes y audita coincidencias, nuevas tareas y tareas ya
+     * activas.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code enqueueMissingDescriptions}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 202 con el resumen del encolado.
      */
     @PostMapping("/api/v1/admin/scraper/descriptions/enqueue-missing")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -254,10 +278,11 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code audit}.
+     * Consulta las acciones administrativas registradas más recientemente.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
+     *     consulta.
+     * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/audit")
     public List<AdminAuditItem> audit(@RequestParam(defaultValue = "100") int limit) {
@@ -265,10 +290,11 @@ public class AdminScraperController {
     }
 
     /**
-     * Ejecuta la operación {@code actor}.
+     * Exige el principal administrativo y extrae su UUID estable para auditar la acción.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code actor}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return UUID textual del actor.
      */
     private String actor(AccountPrincipal principal) {
         return AdminActor.require(principal);

@@ -23,10 +23,16 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Expone las operaciones HTTP gestionadas por {@code BundleController}.
+ * Expone listados y detalles de bundles y operaciones administrativas auditadas, delegando
+ * visibilidad y selección a los repositorios.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ * @see es.ubu.batchdownloader.bundle.BundleRepository
+ * @see es.ubu.batchdownloader.bundle.BundleAccessPolicy
+ * @see es.ubu.batchdownloader.admin.AdminAuditService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Bundles
  */
 @RestController
 public class BundleController {
@@ -40,10 +46,10 @@ public class BundleController {
     private final AdminAuditService audit;
 
     /**
-     * Inicializa una instancia de {@code BundleController}.
+     * Conecta las operaciones sobre bundles y el registro de acciones administrativas.
      *
-     * @param bundles Valor de {@code bundles} utilizado por la operación.
-     * @param audit Valor de {@code audit} utilizado por la operación.
+     * @param bundles Fachada de consulta y escritura de bundles con sus políticas de visibilidad.
+     * @param audit Registro de acciones administrativas con UUID de actor y recurso.
      */
     public BundleController(BundleRepository bundles, AdminAuditService audit) {
         this.bundles = bundles;
@@ -51,13 +57,16 @@ public class BundleController {
     }
 
     /**
-     * Enumera los elementos solicitados mediante {@code listBundles}.
+     * Pagina los bundles públicos u oficiales con filtro de tipo y orden, acotando tamaño y número
+     * de página.
      *
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @param page Número de página solicitado.
-     * @param pageSize Número máximo de elementos incluidos en una página.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @return Resultado producido por {@code listBundles}.
+     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
+     *     community o user.
+     * @param page Página numerada desde uno; los controladores acotan valores inferiores.
+     * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
+     * @param sort stars prioriza estrellas y fecha; cualquier otro valor ordena por actualización
+     *     descendente.
+     * @return listado público con total antes de paginar.
      */
     @GetMapping("/api/v1/bundles")
     public BundleSearchResponse listBundles(
@@ -72,11 +81,15 @@ public class BundleController {
     }
 
     /**
-     * Obtiene el resultado solicitado mediante {@code getBundle}.
+     * Consulta un UUID o slug aplicando visibilidad pública, propiedad o acceso administrativo.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @return Resultado producido por {@code getBundle}.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return detalle accesible.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si no existe o su visibilidad no
+     *     permite consultarlo.
      */
     @GetMapping("/api/v1/bundles/{bundleId}")
     public BundleDetails getBundle(@PathVariable String bundleId, Authentication authentication) {
@@ -88,13 +101,16 @@ public class BundleController {
     }
 
     /**
-     * Enumera los elementos solicitados mediante {@code listAdminBundles}.
+     * Pagina bundles de cualquier visibilidad para una ruta previamente autorizada como
+     * administrativa.
      *
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @param page Número de página solicitado.
-     * @param pageSize Número máximo de elementos incluidos en una página.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @return Resultado producido por {@code listAdminBundles}.
+     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
+     *     community o user.
+     * @param page Página numerada desde uno; los controladores acotan valores inferiores.
+     * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
+     * @param sort stars prioriza estrellas y fecha; cualquier otro valor ordena por actualización
+     *     descendente.
+     * @return listado administrativo con total correspondiente a su filtro.
      */
     @GetMapping("/api/v1/admin/bundles")
     public BundleSearchResponse listAdminBundles(
@@ -112,11 +128,13 @@ public class BundleController {
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code createBundle}.
+     * Crea el bundle con el UUID del administrador como propietario y registra bundle.create.
      *
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code createBundle}.
+     * @param request Datos validados del bundle y su selección; las escrituras personales incluyen
+     *     control de versión.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return 201 con el detalle creado.
      */
     @PostMapping("/api/v1/admin/bundles")
     @ResponseStatus(HttpStatus.CREATED)
@@ -130,12 +148,15 @@ public class BundleController {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code updateBundle}.
+     * Guarda la edición administrativa y registra su actor y el UUID del bundle modificado.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code updateBundle}.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param request Datos validados del bundle y su selección; las escrituras personales incluyen
+     *     control de versión.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return detalle actualizado.
      */
     @PatchMapping("/api/v1/admin/bundles/{bundleId}")
     public BundleDetails updateBundle(
@@ -149,10 +170,12 @@ public class BundleController {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteBundle}.
+     * Elimina el bundle y registra bundle.delete; la ruta devuelve 204 al completarse.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
      */
     @DeleteMapping("/api/v1/admin/bundles/{bundleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -163,10 +186,13 @@ public class BundleController {
     }
 
     /**
-     * Ejecuta la operación {@code actor}.
+     * Exige que la autenticación contenga la identidad UUID de una cuenta reconocida.
      *
-     * @param authentication Identidad autenticada que ejecuta la operación.
-     * @return Principal UUID requerido por el contrato actual.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return principal de cuenta.
+     * @throws es.ubu.batchdownloader.common.UnauthorizedException si falta la autenticación o su
+     *     principal no es compatible.
      */
     private AccountPrincipal account(Authentication authentication) {
         if (authentication != null
@@ -177,10 +203,11 @@ public class BundleController {
     }
 
     /**
-     * Indica si se cumple la condición mediante {@code isAdmin}.
+     * Busca la autoridad ROLE_ADMIN en la autenticación recibida.
      *
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return true si existe esa autoridad.
      */
     private boolean isAdmin(Authentication authentication) {
         return authentication != null && authentication.getAuthorities().stream()

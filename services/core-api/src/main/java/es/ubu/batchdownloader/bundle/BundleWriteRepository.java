@@ -15,14 +15,31 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Ejecuta las mutaciones transaccionales de bundles y sus relaciones. */
+/**
+ * Guarda metadatos, etiquetas y selección administrativa de bundles en una misma transacción y
+ * conserva el orden de sus aplicaciones.
+ *
+ * @see es.ubu.batchdownloader.bundle.BundleReadRepository
+ * @see es.ubu.batchdownloader.bundle.BundleValues
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Bundles
+ */
 @Repository
 public class BundleWriteRepository {
     private final JdbcTemplate jdbc;
     private final CatalogRepository catalog;
     private final BundleReadRepository reads;
 
-    /** Inicializa las escrituras con sus dependencias de resolución y proyección. */
+    /**
+     * Conecta SQL transaccional, resolución de aplicaciones y lectura del detalle actualizado.
+     *
+     * @param jdbc Acceso SQL que participa en la transacción del llamador.
+     * @param catalog Consulta del catálogo para resolver identidades y enriquecer aplicaciones
+     *     mediante lotes.
+     * @param reads Consultas y proyecciones de bundles utilizadas después de confirmar sus datos en
+     *     la transacción.
+     */
     public BundleWriteRepository(
             JdbcTemplate jdbc,
             CatalogRepository catalog,
@@ -32,7 +49,18 @@ public class BundleWriteRepository {
         this.reads = reads;
     }
 
-    /** Crea un bundle y todas sus relaciones en una única transacción. */
+    /**
+     * Reserva UUID y slug, guarda propietario y metadatos y sustituye etiquetas e items en la misma
+     * transacción.
+     *
+     * @param request Datos validados del bundle y su selección; las escrituras personales incluyen
+     *     control de versión.
+     * @param ownerId UUID canónico de la cuenta propietaria; null para bundles sin propietario
+     *     asignado.
+     * @return detalle creado.
+     * @throws es.ubu.batchdownloader.common.ConflictException si el slug explícito está ocupado o
+     *     la selección supera cien aplicaciones.
+     */
     @Transactional
     public BundleDetails create(UpsertBundleRequest request, UUID ownerId) {
         String requestedSlug = BundleValues.normalizeSlug(
@@ -67,13 +95,16 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code update}.
+     * Conserva el slug anterior cuando no se indica otro y reemplaza metadatos, etiquetas e items
+     * incrementando la versión.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @return Resultado producido por {@code update}.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param publicId UUID textual o slug del bundle solicitado.
+     * @param request Datos validados del bundle y su selección; las escrituras personales incluyen
+     *     control de versión.
+     * @return detalle guardado.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si no existe el bundle.
+     * @throws es.ubu.batchdownloader.common.ConflictException si el nuevo slug está ocupado o la
+     *     selección excede cien aplicaciones.
      */
     @Transactional
     public BundleDetails update(String publicId, UpsertBundleRequest request) {
@@ -103,9 +134,9 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code delete}.
+     * Resuelve el UUID o slug y elimina el bundle dentro de una transacción.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @param publicId UUID textual o slug del bundle solicitado.
      */
     @Transactional
     public void delete(String publicId) {
@@ -114,10 +145,13 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Ejecuta la operación {@code replaceTags}.
+     * Elimina las etiquetas anteriores e inserta las recibidas no nulas ni blancas, deduplicadas
+     * antes de recortar y normalizar.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param tags Etiquetas visibles del bundle, normalizadas para comparar y guardar según su
+     *     flujo.
      */
     private void replaceTags(UUID bundleId, List<String> tags) {
         jdbc.update("DELETE FROM bundle_tags WHERE bundle_id = ?", UuidBytes.fromUuid(bundleId));
@@ -139,12 +173,13 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Ejecuta la operación {@code replaceItems}.
+     * Resuelve hasta cien aplicaciones antes de borrar las anteriores, inserta su orden y actualiza
+     * app_count en la misma transacción.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @param appIds Colección de identificadores de {@code app}.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param appIds Identificadores o slugs de aplicaciones en el orden solicitado; se admite un
+     *     máximo de cien.
      */
     private void replaceItems(UUID bundleId, List<String> appIds) {
         List<String> requested = appIds == null
@@ -180,12 +215,11 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Ejecuta la operación {@code idByPublicId}.
+     * Resuelve UUID o slug a la identidad binaria del bundle antes de escribir.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @return Resultado producido por {@code idByPublicId}.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param publicId UUID textual o slug del bundle solicitado.
+     * @return UUID existente.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si no se encuentra el identificador.
      */
     private UUID idByPublicId(String publicId) {
         List<UUID> ids = jdbc.query(
@@ -205,12 +239,11 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Ejecuta la operación {@code slugById}.
+     * Consulta el slug actual del UUID para conservarlo o comprobar su cambio.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @return Resultado producido por {@code slugById}.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param id UUID estable del bundle.
+     * @return slug guardado.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si la consulta devuelve un slug nulo.
      */
     private String slugById(UUID id) {
         String slug = jdbc.queryForObject(
@@ -224,10 +257,10 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Ejecuta la operación {@code existsSlug}.
+     * Comprueba si un slug está ocupado por cualquier bundle.
      *
-     * @param slug Valor de {@code slug} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param slug Identificador legible del bundle dentro de las rutas públicas.
+     * @return true si existe al menos una coincidencia.
      */
     private boolean existsSlug(String slug) {
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM bundles WHERE slug = ?", Long.class, slug);
@@ -235,10 +268,11 @@ public class BundleWriteRepository {
     }
 
     /**
-     * Ejecuta la operación {@code uniqueSlug}.
+     * Conserva el slug base si está libre y prueba sufijos numéricos desde dos cuando está ocupado.
      *
-     * @param baseSlug Valor de {@code baseSlug} utilizado por la operación.
-     * @return Resultado producido por {@code uniqueSlug}.
+     * @param baseSlug Slug normalizado al que se añadirán sufijos si ya está ocupado.
+     * @return primer candidato libre en el momento de la consulta; la escritura mantiene la
+     *     restricción de unicidad.
      */
     private String uniqueSlug(String baseSlug) {
         String candidate = baseSlug;

@@ -2,7 +2,7 @@ package es.ubu.batchdownloader.downloads.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.ubu.batchdownloader.downloads.application.DownloadJobService;
+import es.ubu.batchdownloader.downloads.application.DownloadJobEventHandler;
 import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
 import java.nio.charset.StandardCharsets;
@@ -18,9 +18,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Procesa los eventos recibidos por {@code DownloadWorkerEventListener}.
+ * Valida y deduplica eventos del worker y confirma su aplicación y el inbox en una misma
+ * transacción.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobEventHandler
+ * @see es.ubu.batchdownloader.downloads.infrastructure.messaging.DownloadOutboxPublisher
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Component
 public class DownloadWorkerEventListener {
@@ -35,24 +41,24 @@ public class DownloadWorkerEventListener {
     /**
      * Estado {@code jobs} mantenido por {@code DownloadWorkerEventListener}.
      */
-    private final DownloadJobService jobs;
+    private final DownloadJobEventHandler jobs;
     /**
      * Estado {@code clock} mantenido por {@code DownloadWorkerEventListener}.
      */
     private final Clock clock;
 
     /**
-     * Inicializa una instancia de {@code DownloadWorkerEventListener}.
+     * Conecta lectura del sobre, reserva SQL del inbox y aplicación transaccional de los cambios.
      *
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
-     * @param jobs Valor de {@code jobs} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param objectMapper Conversor JSON del sobre y la carga útil recibidos de RabbitMQ.
+     * @param jdbc Acceso SQL que participa en la transacción de Spring del llamador.
+     * @param jobs Caso de uso que aplica los eventos del worker al agregado de descarga.
+     * @param clock Reloj que determina cuotas, cambios de estado y vencimientos.
      */
     public DownloadWorkerEventListener(
             ObjectMapper objectMapper,
             JdbcTemplate jdbc,
-            DownloadJobService jobs,
+            DownloadJobEventHandler jobs,
             Clock clock) {
         this.objectMapper = objectMapper;
         this.jdbc = jdbc;
@@ -61,9 +67,12 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code receive}.
+     * Ignora eventos ya reservados y aplica una sola vez los nuevos antes de marcar el inbox como
+     * procesado; un fallo revierte la transacción.
      *
-     * @param message Mensaje que debe procesarse.
+     * @param message Mensaje RabbitMQ con un sobre JSON UTF-8 de versión 1.
+     * @throws org.springframework.amqp.AmqpRejectAndDontRequeueException si el sobre, el tipo o sus
+     *     campos obligatorios no son válidos.
      */
     @RabbitListener(queues = "${app.messaging.download-events-queue}")
     @Transactional
@@ -79,10 +88,13 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Analiza el contenido recibido mediante {@code parse}.
+     * Lee el sobre UTF-8, exige versión 1 y admite únicamente los cuatro eventos publicados por el
+     * worker.
      *
-     * @param message Mensaje que debe procesarse.
-     * @return Resultado producido por {@code parse}.
+     * @param message Mensaje RabbitMQ con un sobre JSON UTF-8 de versión 1.
+     * @return sobre con UUID, tipo y carga útil.
+     * @throws org.springframework.amqp.AmqpRejectAndDontRequeueException si el JSON o el sobre no
+     *     se pueden interpretar.
      */
     private WorkerEvent parse(Message message) {
         try {
@@ -101,9 +113,10 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code apply}.
+     * Dirige la carga útil al caso de uso de progreso, resultado, aplazamiento o fallo
+     * correspondiente.
      *
-     * @param event Evento que debe procesarse.
+     * @param event Sobre validado cuya reserva del inbox pertenece a esta transacción.
      */
     private void apply(WorkerEvent event) {
         JsonNode payload = event.payload();
@@ -118,9 +131,9 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code applyProgress}.
+     * Valida el estado del elemento y aplica bytes, hash y fallo opcionales al trabajo indicado.
      *
-     * @param payload Carga de datos recibida por la operación.
+     * @param payload Campos del evento de descarga dentro del sobre validado.
      */
     private void applyProgress(JsonNode payload) {
         String value = text(payload, "status");
@@ -140,9 +153,10 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code applyReady}.
+     * Exige tamaño y hash juntos cuando existen, aplica el resultado descargable y registra los
+     * elementos completados en el historial de cuentas.
      *
-     * @param payload Carga de datos recibida por la operación.
+     * @param payload Campos del evento de descarga dentro del sobre validado.
      */
     private void applyReady(JsonNode payload) {
         DownloadJobStatus status;
@@ -168,7 +182,12 @@ public class DownloadWorkerEventListener {
         recordAuthenticatedHistory(jobId);
     }
 
-    /** Aplica una espera temporal por capacidad sin convertirla en fallo terminal. */
+    /**
+     * Interpreta el instante del siguiente intento y comunica el motivo temporal de espera al
+     * trabajo.
+     *
+     * @param payload Campos del evento de descarga dentro del sobre validado.
+     */
     private void applyDeferred(JsonNode payload) {
         Instant retryAt;
         try {
@@ -179,7 +198,12 @@ public class DownloadWorkerEventListener {
         jobs.applyDeferred(uuid(payload, "jobId"), text(payload, "waitReason"), retryAt);
     }
 
-    /** El READY y su historial se confirman en la misma transacción del inbox. */
+    /**
+     * Inserta sin duplicar el historial de elementos completados únicamente cuando el trabajo tiene
+     * propietario autenticado.
+     *
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     */
     private void recordAuthenticatedHistory(UUID jobId) {
         jdbc.update(
                 """
@@ -197,11 +221,12 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Reserva el elemento solicitado mediante {@code claim}.
+     * Intenta reservar el UUID del evento con una inserción idempotente dentro de la transacción
+     * vigente.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param eventId UUID del evento, utilizado como clave de deduplicación del inbox.
+     * @param type Tipo de evento de progreso, finalización, aplazamiento o fallo del worker.
+     * @return true únicamente si esta llamada insertó la reserva.
      */
     private boolean claim(UUID eventId, String type) {
         return jdbc.update(
@@ -210,10 +235,10 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Indica si se cumple la condición mediante {@code isWorkerEvent}.
+     * Comprueba pertenencia a los tipos de evento que Core acepta del worker.
      *
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param type Tipo de evento de progreso, finalización, aplazamiento o fallo del worker.
+     * @return true para progressed, ready, deferred o failed.
      */
     private boolean isWorkerEvent(String type) {
         return "download.job.progressed".equals(type)
@@ -222,7 +247,13 @@ public class DownloadWorkerEventListener {
                 || "download.job.failed".equals(type);
     }
 
-    /** Lee un entero largo opcional sin transformar silenciosamente texto inválido en cero. */
+    /**
+     * Lee un entero opcional y rechaza valores presentes que Jackson no puede convertir a long.
+     *
+     * @param object Objeto JSON del que se lee un campo de la carga útil.
+     * @param field Nombre del campo requerido u opcional dentro del objeto JSON.
+     * @return valor numérico o null si el campo falta o es JSON null.
+     */
     private Long nullableLong(JsonNode object, String field) {
         JsonNode value = object.path(field);
         if (value.isMissingNode() || value.isNull()) return null;
@@ -231,11 +262,14 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code uuid}.
+     * Exige un campo textual con un UUID válido antes de usarlo como identidad del evento o
+     * agregado.
      *
-     * @param object Valor de {@code object} utilizado por la operación.
-     * @param field Valor de {@code field} utilizado por la operación.
-     * @return Resultado producido por {@code uuid}.
+     * @param object Objeto JSON del que se lee un campo de la carga útil.
+     * @param field Nombre del campo requerido u opcional dentro del objeto JSON.
+     * @return UUID interpretado.
+     * @throws org.springframework.amqp.AmqpRejectAndDontRequeueException si falta el campo o el
+     *     identificador es inválido.
      */
     private UUID uuid(JsonNode object, String field) {
         try {
@@ -246,11 +280,13 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code text}.
+     * Exige un campo textual no vacío de la carga útil.
      *
-     * @param object Valor de {@code object} utilizado por la operación.
-     * @param field Valor de {@code field} utilizado por la operación.
-     * @return Resultado producido por {@code text}.
+     * @param object Objeto JSON del que se lee un campo de la carga útil.
+     * @param field Nombre del campo requerido u opcional dentro del objeto JSON.
+     * @return texto original, sin recortarlo.
+     * @throws org.springframework.amqp.AmqpRejectAndDontRequeueException si el campo falta, no es
+     *     texto o está en blanco.
      */
     private String text(JsonNode object, String field) {
         String value = optionalText(object, field);
@@ -261,11 +297,11 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code optionalText}.
+     * Lee un campo únicamente cuando su valor JSON es textual.
      *
-     * @param object Valor de {@code object} utilizado por la operación.
-     * @param field Valor de {@code field} utilizado por la operación.
-     * @return Resultado producido por {@code optionalText}.
+     * @param object Objeto JSON del que se lee un campo de la carga útil.
+     * @param field Nombre del campo requerido u opcional dentro del objeto JSON.
+     * @return texto presente o null para cualquier otro tipo o ausencia.
      */
     private String optionalText(JsonNode object, String field) {
         JsonNode value = object.path(field);
@@ -273,22 +309,25 @@ public class DownloadWorkerEventListener {
     }
 
     /**
-     * Ejecuta la operación {@code invalid}.
+     * Crea un rechazo permanente del mensaje para que RabbitMQ no lo reencole.
      *
-     * @param code Valor de {@code code} utilizado por la operación.
-     * @return Resultado producido por {@code invalid}.
+     * @param code Código de validación seguro que identifica el defecto del evento.
+     * @return excepción de rechazo sin reencolado.
      */
     private AmqpRejectAndDontRequeueException invalid(String code) {
         return new AmqpRejectAndDontRequeueException(code);
     }
 
     /**
-     * Representa los datos inmutables de {@code WorkerEvent}.
+     * Transporta la identidad deduplicable y la carga útil de un sobre ya validado.
      *
-     * @param eventId Valor de {@code eventId} incluido en el record.
-     * @param type Valor de {@code type} incluido en el record.
-     * @param payload Valor de {@code payload} incluido en el record.
+     * @param eventId UUID del evento, utilizado como clave de deduplicación del inbox.
+     * @param type Tipo de evento de progreso, finalización, aplazamiento o fallo del worker.
+     * @param payload Campos del evento de descarga dentro del sobre validado.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Descargas
      */
     private record WorkerEvent(UUID eventId, String type, JsonNode payload) {}
 }

@@ -5,37 +5,42 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
- * Define el contrato de {@code SpringDataUserAccountRepository}.
+ * Resuelve ocupación y consulta de nombres y correos normalizados en la tabla de cuentas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.JpaUserAccountStore
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.UserAccountEntity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 interface SpringDataUserAccountRepository extends JpaRepository<UserAccountEntity, UUID> {
     /**
-     * Ejecuta la operación {@code existsByNormalizedUsername}.
+     * Comprueba la ocupación del nombre normalizado sin filtrar el estado de la cuenta.
      *
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
+     * @return true si existe una cuenta con esa clave.
      */
     boolean existsByNormalizedUsername(String normalizedUsername);
     /**
-     * Ejecuta la operación {@code existsByNormalizedEmail}.
+     * Comprueba la ocupación del correo normalizado sin filtrar el estado de la cuenta.
      *
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
+     * @return true si existe una cuenta con esa clave.
      */
     boolean existsByNormalizedEmail(String normalizedEmail);
     /**
-     * Busca el resultado solicitado mediante {@code findByNormalizedUsername}.
+     * Consulta la entidad de cuenta por nombre normalizado sin comprobar autorización.
      *
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @return Resultado producido por {@code findByNormalizedUsername}.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
+     * @return entidad coincidente o vacío.
      */
     Optional<UserAccountEntity> findByNormalizedUsername(String normalizedUsername);
     /**
-     * Busca el resultado solicitado mediante {@code findByNormalizedEmail}.
+     * Consulta la entidad de cuenta por correo normalizado sin comprobar autorización.
      *
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @return Resultado producido por {@code findByNormalizedEmail}.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
+     * @return entidad coincidente o vacío.
      */
     Optional<UserAccountEntity> findByNormalizedEmail(String normalizedEmail);
 }

@@ -14,9 +14,14 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * Implementa el componente {@code FernetUrlProtector}.
+ * Protege URLs con un formato Fernet compatible con Scraper, autenticando el contenido antes de
+ * descifrarlo y admitiendo URLs históricas en claro.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.admin.ScraperInternalClient
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Infraestructura de Core
  */
 public class FernetUrlProtector {
     /**
@@ -50,9 +55,11 @@ public class FernetUrlProtector {
     private final SecureRandom secureRandom = new SecureRandom();
 
     /**
-     * Inicializa una instancia de {@code FernetUrlProtector}.
+     * Divide el SHA-256 del secreto compartido en una clave de firma HMAC y otra de cifrado AES de
+     * 16 bytes cada una.
      *
-     * @param secret Valor de {@code secret} utilizado por la operación.
+     * @param secret Secreto compartido con Scraper del que SHA-256 deriva claves de firma y
+     *     cifrado.
      */
     public FernetUrlProtector(String secret) {
         byte[] digest = sha256(secret);
@@ -61,10 +68,11 @@ public class FernetUrlProtector {
     }
 
     /**
-     * Ejecuta la operación {@code reveal}.
+     * Conserva URLs HTTP o HTTPS históricas y, para tokens, comprueba formato y HMAC antes de
+     * descifrar; no aplica caducidad a su fecha interna.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code reveal}.
+     * @param value Valor que se normaliza o comprueba según el contrato del método.
+     * @return URL descifrada o original; null para ausencia, token inválido o fallo criptográfico.
      */
     public String reveal(String value) {
         if (value == null || value.isBlank()) {
@@ -95,11 +103,12 @@ public class FernetUrlProtector {
     }
 
     /**
-     * Ejecuta la operación {@code protect}.
+     * Cifra UTF-8 con AES-CBC e IV aleatorio, añade versión y fecha y autentica el conjunto con
+     * HMAC-SHA256 antes de codificarlo en Base64 URL.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code protect}.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param value Valor que se normaliza o comprueba según el contrato del método.
+     * @return token Fernet autenticado.
+     * @throws IllegalStateException si el proveedor criptográfico no puede cifrar o autenticar.
      */
     public String protect(String value) {
         try {
@@ -122,13 +131,13 @@ public class FernetUrlProtector {
     }
 
     /**
-     * Ejecuta la operación {@code cipher}.
+     * Inicializa AES-CBC con PKCS5Padding y la clave derivada del secreto compartido.
      *
-     * @param mode Valor de {@code mode} utilizado por la operación.
-     * @param iv Valor de {@code iv} utilizado por la operación.
-     * @return Resultado producido por {@code cipher}.
-     * @throws GeneralSecurityException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param mode Modo Cipher.ENCRYPT_MODE o Cipher.DECRYPT_MODE de la operación.
+     * @param iv Vector de inicialización de 16 bytes que acompaña al texto cifrado.
+     * @return cifrador listo para el modo solicitado.
+     * @throws java.security.GeneralSecurityException si clave, IV o proveedor criptográfico son
+     *     incompatibles.
      */
     private Cipher cipher(int mode, byte[] iv) throws GeneralSecurityException {
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
@@ -137,12 +146,13 @@ public class FernetUrlProtector {
     }
 
     /**
-     * Ejecuta la operación {@code hmac}.
+     * Autentica los bytes completos del token previos a su firma con HMAC-SHA256.
      *
-     * @param payload Carga de datos recibida por la operación.
-     * @return Resultado producido por {@code hmac}.
-     * @throws GeneralSecurityException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param payload Bytes de versión, fecha, IV y contenido cifrado que se autentican
+     *     conjuntamente.
+     * @return firma de 32 bytes.
+     * @throws java.security.GeneralSecurityException si no puede inicializarse el algoritmo o su
+     *     clave.
      */
     private byte[] hmac(byte[] payload) throws GeneralSecurityException {
         Mac mac = Mac.getInstance("HmacSHA256");
@@ -151,11 +161,11 @@ public class FernetUrlProtector {
     }
 
     /**
-     * Ejecuta la operación {@code sha256}.
+     * Deriva 32 bytes de material de clave a partir del secreto en UTF-8.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code sha256}.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param value Valor que se normaliza o comprueba según el contrato del método.
+     * @return huella SHA-256.
+     * @throws IllegalStateException si el proveedor no dispone de SHA-256.
      */
     private static byte[] sha256(String value) {
         try {

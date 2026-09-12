@@ -10,65 +10,87 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
- * Define el contrato de {@code SpringDataDownloadJobRepository}.
+ * Define consultas JPA de agregados completos y recuentos utilizados por admisión y expiración.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.infrastructure.persistence.JpaDownloadJobStore
+ * @see es.ubu.batchdownloader.downloads.infrastructure.persistence.DownloadJobEntity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 interface SpringDataDownloadJobRepository extends JpaRepository<DownloadJobEntity, UUID> {
     /**
-     * Busca el resultado solicitado mediante {@code findById}.
+     * Carga el trabajo junto a sus elementos mediante un grafo de entidad.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @return Resultado producido por {@code findById}.
+     * @param id UUID estable del trabajo o elemento representado.
+     * @return entidad completa o vacío.
      */
     @Override
     @EntityGraph(attributePaths = "items")
     Optional<DownloadJobEntity> findById(UUID id);
 
     /**
-     * Busca el resultado solicitado mediante {@code findByStatusInAndExpiresAtLessThanEqual}.
+     * Carga trabajos y elementos cuyos estados están incluidos y cuyo vencimiento no supera el
+     * límite.
      *
-     * @param statuses Valor de {@code statuses} utilizado por la operación.
-     * @param expiresAt Valor de {@code expiresAt} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param statuses Estados excluidos del recuento o incluidos en la consulta de vencimiento,
+     *     según el contrato.
+     * @param expiresAt Instante límite de disponibilidad del ZIP.
+     * @return agregados candidatos a expiración.
      */
     @EntityGraph(attributePaths = "items")
     List<DownloadJobEntity> findByStatusInAndExpiresAtLessThanEqual(
             Collection<DownloadJobStatus> statuses, Instant expiresAt);
 
     /**
-     * Ejecuta la operación {@code countByAnonymousOwnerHashAndStatusNotIn}.
+     * Cuenta trabajos del navegador cuyo estado no está en el conjunto terminal recibido.
      *
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} utilizado por la operación.
-     * @param statuses Valor de {@code statuses} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param statuses Estados excluidos del recuento o incluidos en la consulta de vencimiento,
+     *     según el contrato.
+     * @return número de trabajos que cumplen los filtros.
      */
     long countByAnonymousOwnerHashAndStatusNotIn(
             String anonymousOwnerHash, Collection<DownloadJobStatus> statuses);
 
     /**
-     * Ejecuta la operación {@code countByAnonymousOwnerHashAndCreatedAtGreaterThanEqual}.
+     * Cuenta creaciones del navegador desde el instante incluido, independientemente del estado
+     * final.
      *
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param createdAt Instante de creación del registro.
+     * @return número de trabajos que cumplen los filtros.
      */
     long countByAnonymousOwnerHashAndCreatedAtGreaterThanEqual(
             String anonymousOwnerHash, Instant createdAt);
 
     /**
-     * Ejecuta la operación {@code countByAnonymousIpHashAndCreatedAtGreaterThanEqual}.
+     * Cuenta creaciones anónimas del hash de IP desde el instante incluido.
      *
-     * @param anonymousIpHash Valor de {@code anonymousIpHash} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param anonymousIpHash HMAC de la dirección IP para cuotas; null si no se dispone de ella.
+     * @param createdAt Instante de creación del registro.
+     * @return número de trabajos que cumplen los filtros.
      */
     long countByAnonymousIpHashAndCreatedAtGreaterThanEqual(
             String anonymousIpHash, Instant createdAt);
 
-    /** Cuenta los trabajos cuyo estado no pertenece a la colección indicada. */
+    /**
+     * Cuenta todos los trabajos cuyo estado no está entre los excluidos.
+     *
+     * @param statuses Estados excluidos del recuento o incluidos en la consulta de vencimiento,
+     *     según el contrato.
+     * @return número de trabajos que cumplen los filtros.
+     */
     long countByStatusNotIn(Collection<DownloadJobStatus> statuses);
 
-    /** Cuenta los trabajos no terminales de una cuenta. */
+    /**
+     * Cuenta trabajos de la cuenta cuyo estado no está entre los excluidos.
+     *
+     * @param ownerId UUID de la cuenta propietaria o null para un trabajo anónimo.
+     * @param statuses Estados excluidos del recuento o incluidos en la consulta de vencimiento,
+     *     según el contrato.
+     * @return número de trabajos que cumplen los filtros.
+     */
     long countByOwnerIdAndStatusNotIn(UUID ownerId, Collection<DownloadJobStatus> statuses);
 }

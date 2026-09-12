@@ -3,6 +3,8 @@ package es.ubu.batchdownloader.downloads.infrastructure.web;
 import es.ubu.batchdownloader.bundle.BundleRepository;
 import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.downloads.application.DownloadJobService;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService;
+import es.ubu.batchdownloader.downloads.application.DownloadSelection;
 import es.ubu.batchdownloader.downloads.application.DownloadJobView;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
@@ -36,10 +38,16 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * Expone las operaciones HTTP gestionadas por {@code DownloadJobController}.
+ * Expone creación, consulta, cancelación, eventos y entrega de ZIP con identidad de cuenta o cookie
+ * anónima y validación de la selección.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobService
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobAccessService
+ * @see es.ubu.batchdownloader.downloads.infrastructure.web.SseDownloadJobNotifier
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @RestController
 @RequestMapping("/api/v1/download-jobs")
@@ -61,6 +69,7 @@ public class DownloadJobController {
      * Estado {@code jobs} mantenido por {@code DownloadJobController}.
      */
     private final DownloadJobService jobs;
+    private final DownloadJobAccessService access;
     /**
      * Estado {@code owners} mantenido por {@code DownloadJobController}.
      */
@@ -81,23 +90,30 @@ public class DownloadJobController {
     private final boolean secureCookie;
 
     /**
-     * Inicializa una instancia de {@code DownloadJobController}.
+     * Conecta admisión, acceso, bundles y capacidad del worker con la configuración de la cookie
+     * anónima.
      *
-     * @param jobs Valor de {@code jobs} utilizado por la operación.
-     * @param owners Valor de {@code owners} utilizado por la operación.
-     * @param bundles Valor de {@code bundles} utilizado por la operación.
-     * @param notifier Valor de {@code notifier} utilizado por la operación.
-     * @param workerCapacity Comprobación interna previa a la transacción.
-     * @param secureCookie Valor de {@code secureCookie} utilizado por la operación.
+     * @param jobs Caso de uso de admisión y previsualización de nuevas selecciones.
+     * @param access Caso de uso de consulta, cancelación y entrega con comprobación del
+     *     propietario.
+     * @param owners Derivación de la identidad de cuenta o navegador usada para autorizar el
+     *     trabajo.
+     * @param bundles Consulta de aplicaciones de bundles bajo sus permisos de acceso.
+     * @param notifier Difusor SSE de instantáneas ya autorizadas.
+     * @param workerCapacity Cliente que comprueba capacidad temporal antes de admitir otro ZIP.
+     * @param secureCookie Activa el atributo Secure de la cookie anónima cuando el despliegue
+     *     utiliza HTTPS.
      */
     public DownloadJobController(
             DownloadJobService jobs,
+            DownloadJobAccessService access,
             DownloadRequestOwner owners,
             BundleRepository bundles,
             SseDownloadJobNotifier notifier,
             DownloadWorkerCapacityClient workerCapacity,
             @Value("${app.download.anonymous-cookie-secure}") boolean secureCookie) {
         this.jobs = jobs;
+        this.access = access;
         this.owners = owners;
         this.bundles = bundles;
         this.notifier = notifier;
@@ -106,13 +122,22 @@ public class DownloadJobController {
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code create}.
+     * Valida selección o bundle y capacidad del worker antes de admitir el trabajo; crea una cookie
+     * opaca solo cuando falta identidad anónima.
      *
-     * @param request Solicitud recibida por la operación.
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
-     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
-     * @return Resultado producido por {@code create}.
+     * @param request Selección validada de aplicaciones o bundle, fuente exacta y destino Linux
+     *     opcionales.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
+     *     cuotas.
+     * @return 202 con el trabajo admitido y, si corresponde, Set-Cookie para acceder después.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si la selección, plataforma o uso
+     *     de fuente exacta son inválidos.
+     * @throws es.ubu.batchdownloader.common.ServiceUnavailableException si el worker o la cola no
+     *     tienen capacidad temporal.
      */
     @PostMapping
     ResponseEntity<DownloadJobView> create(
@@ -128,14 +153,9 @@ public class DownloadJobController {
                 ? distinctAppIds(request.appIds())
                 : bundleAppIds(request.bundleId(), authentication);
         workerCapacity.requireAvailable();
-        DownloadJobView created = request.linuxTarget() != null || request.targetArchitecture() != null
-                ? jobs.create(owner, appIds, normalizedOperatingSystems(request.operatingSystems()),
-                    request.sourceRef(), request.notifyWhenReady(), request.linuxTarget(), request.targetArchitecture())
-                : jobs.create(
-                owner,
-                appIds,
-                normalizedOperatingSystems(request.operatingSystems()),
-                request.sourceRef(),
+        DownloadJobView created = jobs.create(owner,
+                new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()),
+                        request.sourceRef(), request.linuxTarget(), request.targetArchitecture()),
                 request.notifyWhenReady());
         ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.ACCEPTED);
         if (anonymous && (browserToken == null || browserToken.isBlank())) {
@@ -144,25 +164,37 @@ public class DownloadJobController {
         return response.body(created);
     }
 
-    /** Vista previa sin crear jobs, consultar al proveedor ni reservar capacidad. */
+    /**
+     * Resuelve la selección o bundle accesible y evalúa el destino Linux sin crear un trabajo.
+     *
+     * @param request Selección validada de aplicaciones o bundle, fuente exacta y destino Linux
+     *     opcionales.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @return compatibilidad, alternativas manuales y dependencias de la selección.
+     */
     @PostMapping("/linux-preview")
     DownloadJobService.LinuxPreview preview(@Valid @RequestBody CreateDownloadJobRequest request,
             Authentication authentication) {
         validateSource(request);
         List<UUID> appIds = request.bundleId() == null ? distinctAppIds(request.appIds())
                 : bundleAppIds(request.bundleId(), authentication);
-        return jobs.previewLinux(appIds, normalizedOperatingSystems(request.operatingSystems()),
-                request.sourceRef(), request.linuxTarget(), request.targetArchitecture());
+        return jobs.previewLinux(new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()), request.sourceRef(), request.linuxTarget(), request.targetArchitecture()));
     }
 
     /**
-     * Obtiene el resultado solicitado mediante {@code get}.
+     * Consulta el trabajo con la identidad autenticada o el hash del navegador solicitante.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
-     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
-     * @return Resultado producido por {@code get}.
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
+     *     cuotas.
+     * @return vista del trabajo accesible.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si el trabajo no existe o no
+     *     pertenece al solicitante.
      */
     @GetMapping("/{jobId}")
     DownloadJobView get(
@@ -170,17 +202,21 @@ public class DownloadJobController {
             Authentication authentication,
             @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
             HttpServletRequest servletRequest) {
-        return jobs.get(requestOwner(authentication, browserToken, servletRequest), jobId);
+        return access.get(requestOwner(authentication, browserToken, servletRequest), jobId);
     }
 
     /**
-     * Ejecuta la operación {@code events}.
+     * Comprueba acceso antes de suscribir al navegador a cambios SSE e inmediatamente enviar la
+     * vista inicial.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
-     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
-     * @return Resultado producido por {@code events}.
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
+     *     cuotas.
+     * @return conexión SSE que termina cuando el trabajo alcanza un estado terminal.
      */
     @GetMapping(path = "/{jobId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter events(
@@ -188,17 +224,21 @@ public class DownloadJobController {
             Authentication authentication,
             @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
             HttpServletRequest servletRequest) {
-        return notifier.subscribe(jobs.get(requestOwner(authentication, browserToken, servletRequest), jobId));
+        return notifier.subscribe(access.get(requestOwner(authentication, browserToken, servletRequest), jobId));
     }
 
     /**
-     * Indica si puede realizarse la operación mediante {@code cancel}.
+     * Solicita cancelación cooperativa con la misma comprobación de propietario utilizada en las
+     * consultas.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
-     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
-     * @return Resultado producido por {@code cancel}.
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
+     *     cuotas.
+     * @return 202 con la vista resultante de la solicitud de cancelación.
      */
     @DeleteMapping("/{jobId}")
     ResponseEntity<DownloadJobView> cancel(
@@ -207,17 +247,21 @@ public class DownloadJobController {
             @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
             HttpServletRequest servletRequest) {
         return ResponseEntity.accepted()
-                .body(jobs.cancel(requestOwner(authentication, browserToken, servletRequest), jobId));
+                .body(access.cancel(requestOwner(authentication, browserToken, servletRequest), jobId));
     }
 
     /**
-     * Ejecuta la operación {@code file}.
+     * Obtiene permiso temporal de lectura del ZIP y redirige el navegador al almacén.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
-     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
-     * @return Resultado producido por {@code file}.
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
+     *     cuotas.
+     * @return 303 con Location firmado; la disponibilidad y el propietario se validan antes de
+     *     firmar.
      */
     @GetMapping("/{jobId}/file")
     ResponseEntity<Void> file(
@@ -225,15 +269,24 @@ public class DownloadJobController {
             Authentication authentication,
             @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
             HttpServletRequest servletRequest) {
-        URI location = jobs.file(requestOwner(authentication, browserToken, servletRequest), jobId);
+        URI location = access.file(requestOwner(authentication, browserToken, servletRequest), jobId);
         return ResponseEntity.status(HttpStatus.SEE_OTHER)
                 .header(HttpHeaders.LOCATION, location.toASCIIString())
                 .build();
     }
 
     /**
-     * Prepara el mismo enlace firmado sin navegar fuera de la interfaz. El autointento puede así
-     * mostrar un 503 reintentable y conservar visible el enlace manual {@code /file}.
+     * Entrega en JSON un enlace temporal del ZIP para clientes que no pueden seguir directamente la
+     * redirección.
+     *
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
+     *     cuotas.
+     * @return 200 con la URL y Cache-Control no-store.
      */
     @GetMapping("/{jobId}/file-link")
     ResponseEntity<DownloadFileLink> fileLink(
@@ -241,22 +294,34 @@ public class DownloadJobController {
             Authentication authentication,
             @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
             HttpServletRequest servletRequest) {
-        URI location = jobs.file(requestOwner(authentication, browserToken, servletRequest), jobId);
+        URI location = access.file(requestOwner(authentication, browserToken, servletRequest), jobId);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(new DownloadFileLink(location.toASCIIString()));
     }
 
-    /** URL efímera preparada exclusivamente para el intento automático del navegador. */
+    /**
+     * Transporta al navegador un permiso temporal de lectura del ZIP que no debe almacenarse en
+     * caché.
+     *
+     * @param url Enlace temporal de lectura que el navegador puede abrir sin otra petición a Core.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Descargas
+     */
     public record DownloadFileLink(String url) {}
 
     /**
-     * Ejecuta la operación {@code requestOwner}.
+     * Resuelve el UUID de una cuenta reconocida; para el resto deriva los hashes de cookie y
+     * dirección remota.
      *
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @param browserToken Valor de {@code browserToken} utilizado por la operación.
-     * @param servletRequest Valor de {@code servletRequest} utilizado por la operación.
-     * @return Resultado producido por {@code requestOwner}.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @param browserToken Token opaco de la cookie del navegador; vacío o null significa que
+     *     todavía no existe.
+     * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
+     *     cuotas.
+     * @return identidad utilizada para propiedad y cuotas del trabajo.
      */
     private RequestOwner requestOwner(
             Authentication authentication, String browserToken, HttpServletRequest servletRequest) {
@@ -267,6 +332,16 @@ public class DownloadJobController {
         return owners.resolve(null, browserToken, servletRequest.getRemoteAddr());
     }
 
+    /**
+     * Obtiene las aplicaciones del bundle bajo los permisos del propietario, administrador o
+     * visitante.
+     *
+     * @param bundleId Identificador del bundle cuya selección exige comprobar visibilidad y
+     *     propietario.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @return selección accesible del bundle antes de aplicar la admisión.
+     */
     private List<UUID> bundleAppIds(String bundleId, Authentication authentication) {
         if (isSignedIn(authentication)
                 && authentication.getPrincipal() instanceof AccountPrincipal account) {
@@ -276,10 +351,10 @@ public class DownloadJobController {
     }
 
     /**
-     * Ejecuta la operación {@code distinctAppIds}.
+     * Retira UUID nulos y repetidos conservando la primera aparición de cada aplicación.
      *
-     * @param appIds Colección de identificadores de {@code app}.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param appIds Selección de UUID de aplicaciones en el orden solicitado.
+     * @return lista inmutable; vacía si la entrada es null.
      */
     private List<UUID> distinctAppIds(List<UUID> appIds) {
         return appIds == null
@@ -291,12 +366,14 @@ public class DownloadJobController {
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizedOperatingSystems}.
+     * Recorta y normaliza plataformas sin duplicados; representar todas mediante una lista vacía
+     * mantiene el contrato de selección automática.
      *
-     * @param values Valor de {@code values} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param values Plataformas recibidas; null o una lista vacía permiten todas las plataformas
+     *     soportadas.
+     * @return plataformas conocidas en minúsculas o lista vacía para todas.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si hay plataformas desconocidas o
+     *     una lista explícita solo contiene valores vacíos.
      */
     private List<String> normalizedOperatingSystems(List<String> values) {
         if (values == null || values.isEmpty()) {
@@ -314,11 +391,13 @@ public class DownloadJobController {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateSource}.
+     * Exige exactamente aplicaciones o bundle y permite fuente exacta solo para una única
+     * aplicación explícita.
      *
-     * @param request Solicitud recibida por la operación.
-     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param request Selección validada de aplicaciones o bundle, fuente exacta y destino Linux
+     *     opcionales.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si la selección es ambigua, vacía o
+     *     incompatible con una fuente exacta.
      */
     private void validateSource(CreateDownloadJobRequest request) {
         boolean hasApps = request.appIds() != null;
@@ -339,10 +418,11 @@ public class DownloadJobController {
     }
 
     /**
-     * Ejecuta la operación {@code ensureBrowserToken}.
+     * Conserva el token existente o genera 32 bytes aleatorios codificados como Base64 URL sin
+     * relleno.
      *
-     * @param token Token utilizado para autorizar o correlacionar la operación.
-     * @return Resultado producido por {@code ensureBrowserToken}.
+     * @param token Token opaco de la cookie; null o blanco provoca la creación de uno nuevo.
+     * @return identificador opaco del navegador que Core almacenará únicamente como HMAC.
      */
     private String ensureBrowserToken(String token) {
         if (token != null && !token.isBlank()) {
@@ -354,10 +434,11 @@ public class DownloadJobController {
     }
 
     /**
-     * Ejecuta la operación {@code ownerCookie}.
+     * Construye la cookie de propiedad anónima con HttpOnly, SameSite Lax, ruta raíz y vigencia de
+     * 24 horas.
      *
-     * @param token Token utilizado para autorizar o correlacionar la operación.
-     * @return Resultado producido por {@code ownerCookie}.
+     * @param token Token opaco generado para este navegador.
+     * @return cookie con Secure conforme a la configuración del despliegue.
      */
     private ResponseCookie ownerCookie(String token) {
         return ResponseCookie.from(OWNER_COOKIE, token)
@@ -370,20 +451,22 @@ public class DownloadJobController {
     }
 
     /**
-     * Ejecuta la operación {@code actor}.
+     * Obtiene el nombre de la sesión únicamente cuando está autenticada y no es anónima.
      *
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @return Resultado producido por {@code actor}.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @return nombre de sesión o null.
      */
     private String actor(Authentication authentication) {
         return isSignedIn(authentication) ? authentication.getName() : null;
     }
 
     /**
-     * Indica si se cumple la condición mediante {@code isAdmin}.
+     * Comprueba el rol ROLE_ADMIN dentro de una sesión autenticada no anónima.
      *
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @return true si la sesión tiene autoridad administrativa.
      */
     private boolean isAdmin(Authentication authentication) {
         return isSignedIn(authentication) && authentication.getAuthorities().stream()
@@ -391,10 +474,11 @@ public class DownloadJobController {
     }
 
     /**
-     * Indica si se cumple la condición mediante {@code isSignedIn}.
+     * Distingue una sesión autenticada de una autenticación ausente o anónima de Spring.
      *
-     * @param authentication Valor de {@code authentication} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
+     *     autenticada.
+     * @return true únicamente para sesiones autenticadas no anónimas.
      */
     private boolean isSignedIn(Authentication authentication) {
         return authentication != null
@@ -403,14 +487,24 @@ public class DownloadJobController {
     }
 
     /**
-     * Representa los datos inmutables de {@code CreateDownloadJobRequest}.
+     * Describe una selección explícita o un bundle, plataformas y preferencias opcionales; la
+     * validación cruzada impide mezclarlos y restringe la fuente exacta.
      *
-     * @param appIds Valor de {@code appIds} incluido en el record.
-     * @param bundleId Valor de {@code bundleId} incluido en el record.
-     * @param operatingSystems Valor de {@code operatingSystems} incluido en el record.
-     * @param sourceRef Fuente resuelta concreta elegida para una descarga individual.
-     * @param notifyWhenReady Valor de {@code notifyWhenReady} incluido en el record.
+     * @param appIds Selección de UUID de aplicaciones en el orden solicitado.
+     * @param bundleId Identificador del bundle cuya selección exige comprobar visibilidad y
+     *     propietario.
+     * @param operatingSystems Plataformas admitidas con semántica OR; la consulta conserva su
+     *     política de selección.
+     * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
+     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
+     *     solo para cuentas autenticadas.
+     * @param linuxTarget Gestor Linux opcional; junto con arquitectura define un destino explícito.
+     * @param targetArchitecture Arquitectura Linux opcional que acompaña al gestor explícito.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Descargas
      */
     record CreateDownloadJobRequest(
             @Size(max = 100) List<UUID> appIds,

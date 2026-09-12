@@ -2,23 +2,14 @@ package es.ubu.batchdownloader.downloads.application;
 
 import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
-import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.RateLimitException;
 import es.ubu.batchdownloader.common.ServiceUnavailableException;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup;
-import es.ubu.batchdownloader.downloads.application.port.DownloadArtifactCleaner;
 import es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher;
-import es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
-import es.ubu.batchdownloader.downloads.application.port.ZipUriSigner;
-import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
-import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
-import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
-import es.ubu.batchdownloader.identity.domain.UserAccount;
-import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,112 +18,132 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Coordina las operaciones de negocio de {@code DownloadJobService}.
+ * Admite selecciones de descarga bajo cuotas y conserva fuente exacta y dependencias Linux al
+ * guardar trabajo, elementos y outbox.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.DownloadSelection
+ * @see es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobAccessService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Service
+@org.springframework.boot.context.properties.EnableConfigurationProperties(DownloadLimits.class)
 public class DownloadJobService {
     /**
-     * Constante que define {@code LOGGER}.
-     */
-    private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobService.class);
-    /**
-     * Constante que define {@code MAX_METADATA_ITEMS}.
-     */
-    private static final int MAX_METADATA_ITEMS = 100;
-    /**
-     * Estado {@code jobs} mantenido por {@code DownloadJobService}.
+     * Persistencia de trabajos, elementos, contexto Linux y reservas de admisión.
      */
     private final DownloadJobStore jobs;
     /**
-     * Estado {@code sources} mantenido por {@code DownloadJobService}.
+     * Consulta del catálogo que conserva fuentes exactas, compatibilidad y dependencias Linux.
      */
     private final CatalogSourceLookup sources;
     /**
-     * Estado {@code users} mantenido por {@code DownloadJobService}.
-     */
-    private final UserAccountStore users;
-    /**
-     * Estado {@code events} mantenido por {@code DownloadJobService}.
+     * Publicador de solicitudes durables mediante el outbox de la transacción actual.
      */
     private final DownloadEventPublisher events;
     /**
-     * Estado {@code notifier} mantenido por {@code DownloadJobService}.
-     */
-    private final DownloadJobNotifier notifier;
-    /**
-     * Estado {@code artifacts} mantenido por {@code DownloadJobService}.
-     */
-    private final DownloadArtifactCleaner artifacts;
-    /**
-     * Estado {@code zipUris} mantenido por {@code DownloadJobService}.
-     */
-    private final ZipUriSigner zipUris;
-    /**
-     * Estado {@code clock} mantenido por {@code DownloadJobService}.
+     * Reloj que determina cuotas, cambios de estado y vencimientos.
      */
     private final Clock clock;
     /**
-     * Estado {@code maxApps} mantenido por {@code DownloadJobService}.
+     * Cuotas de admisión y duraciones de conservación y firma del ZIP.
      */
-    private final int maxApps;
-    /**
-     * Estado {@code retention} mantenido por {@code DownloadJobService}.
-     */
-    private final Duration retention;
-    /**
-     * Estado {@code signedUrlTtl} mantenido por {@code DownloadJobService}.
-     */
-    private final Duration signedUrlTtl;
-    /**
-     * Estado {@code anonymousMaxActiveJobs} mantenido por {@code DownloadJobService}.
-     */
-    private final int anonymousMaxActiveJobs;
-    /**
-     * Estado {@code anonymousMaxCreatesPerHour} mantenido por {@code DownloadJobService}.
-     */
-    private final int anonymousMaxCreatesPerHour;
-    /**
-     * Estado {@code anonymousMaxCreatesPerIpHour} mantenido por {@code DownloadJobService}.
-     */
-    private final int anonymousMaxCreatesPerIpHour;
-    /** Máximo de trabajos no terminales por cuenta autenticada. */
-    private final int authenticatedMaxActiveJobs;
-    /** Máximo global de trabajos que pueden permanecer pendientes. */
-    private final int globalMaxPendingJobs;
-    /** Ejecuta la fase corta de expiración dentro de MySQL. */
-    private final TransactionTemplate transactions;
+    private final DownloadLimits limits;
 
+    /**
+     * Conecta selección de fuentes, persistencia, publicación durable y límites de admisión.
+     *
+     * @param jobs Persistencia de trabajos, elementos, contexto Linux y reservas de admisión.
+     * @param sources Consulta del catálogo que conserva fuentes exactas, compatibilidad y
+     *     dependencias Linux.
+     *
+     * @param events Publicador de solicitudes durables mediante el outbox de la transacción actual.
+     * @param clock Reloj que determina cuotas, cambios de estado y vencimientos.
+     * @param limits Cuotas de admisión y duraciones de conservación y firma del ZIP.
+     */
+    public DownloadJobService(DownloadJobStore jobs, CatalogSourceLookup sources, DownloadEventPublisher events, Clock clock, DownloadLimits limits) {
+        this.jobs = jobs;
+        this.sources = sources;
+        this.events = events;
+        this.clock = clock;
+        this.limits = limits;
+    }
+
+    /**
+     * Resume compatibilidad e instalación manual de una selección Linux expandida con sus
+     * dependencias.
+     *
+     * @param target Gestor Linux seleccionado o contexto validado del destino según la firma.
+     * @param architecture Arquitectura del destino: x86_64, x86 o aarch64.
+     * @param totalCount Total de aplicaciones evaluadas, incluidas dependencias.
+     * @param automaticCount Aplicaciones con instalación automática compatible con el destino.
+     * @param manualCount Aplicaciones que conservan una alternativa manual.
+     * @param omittedCount Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
+     * @param items Elementos en orden de admisión; el agregado conserva una copia de la lista.
+     * @see
+     *     DownloadJobService#previewLinux(es.ubu.batchdownloader.downloads.application.DownloadSelection)
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Descargas
+     */
     public record LinuxPreview(String target, String architecture, int totalCount,
             int automaticCount, int manualCount, int omittedCount,
             List<LinuxPreviewItem> items) {}
 
+    /**
+     * Describe la fuente elegida y si una aplicación llegó por dependencia o por selección
+     * explícita.
+     *
+     * @param appId UUID público de la aplicación del catálogo.
+     * @param name Nombre visible de la aplicación o nombre del campo requerido según el método.
+     * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
+     *
+     * @param installationSupport automatic, manual o unavailable según la capacidad de instalación
+     *     del destino.
+     *
+     * @param dependency La aplicación se añadió como dependencia y no estaba en la selección
+     *     original.
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Descargas
+     */
     public record LinuxPreviewItem(UUID appId, String name, UUID sourceRef,
             String installationSupport, boolean dependency) {}
 
+    /**
+     * Evalúa compatibilidad y dependencias sin crear trabajos ni encolar descargas; una fuente
+     * exacta incompatible se rechaza.
+     *
+     * @param selection Aplicaciones, plataformas, fuente exacta y destino Linux de la misma
+     *     solicitud.
+     *
+     * @return resumen de instaladores automáticos, alternativas manuales y omisiones.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si faltan destino o aplicaciones
+     *     válidas o la fuente exacta se aplica a varias aplicaciones.
+     *
+     * @throws es.ubu.batchdownloader.common.ConflictException si la fuente exacta no es compatible
+     *     con el destino Linux.
+     */
     @Transactional(readOnly = true)
-    public LinuxPreview previewLinux(List<UUID> requested, List<String> systems, UUID sourceRef,
-            String manager, String architecture) {
-        LinuxTarget target = LinuxTarget.optional(manager, architecture, systems);
-        if (target == null || requested == null || requested.isEmpty() || requested.size() > maxApps
-                || (sourceRef != null && requested.size() != 1)) {
+    public LinuxPreview previewLinux(DownloadSelection selection) {
+        LinuxTarget target = LinuxTarget.optional(selection.linuxTarget(), selection.targetArchitecture(), selection.operatingSystems());
+        if (target == null || selection.appIds() == null || selection.appIds().isEmpty() || selection.appIds().size() > limits.maxApps()
+                || (selection.sourceRef() != null && selection.appIds().size() != 1)) {
             throw new BadRequestException("invalid_linux_selection", "Indica un lote Linux válido.");
         }
-        List<UUID> ids = sources.expandLinuxDependencies(new LinkedHashSet<>(requested));
-        var selected = sources.findLinuxSources(ids, target, sourceRef);
-        if (sourceRef != null && !selected.containsKey(requested.getFirst())) {
+        List<UUID> ids = sources.expandLinuxDependencies(new LinkedHashSet<>(selection.appIds()));
+        var selected = sources.findLinuxSources(ids, target, selection.sourceRef());
+        if (selection.sourceRef() != null && !selected.containsKey(selection.appIds().getFirst())) {
             throw new ConflictException("linux_source_incompatible", "Esta fuente no es compatible con el destino.");
         }
         var manual = sources.findManualSources(ids);
@@ -142,7 +153,7 @@ public class DownloadJobService {
             return new LinuxPreviewItem(id, source != null ? source.appName()
                     : fallback != null ? fallback.appName() : id.toString(),
                     source == null ? null : source.sourceRef(), source != null ? source.installationSupport()
-                            : fallback != null ? "manual" : "unavailable", !requested.contains(id));
+                            : fallback != null ? "manual" : "unavailable", !selection.appIds().contains(id));
         }).toList();
         return new LinuxPreview(target.manager(), target.architecture(), ids.size(),
                 (int) items.stream().filter(i -> "automatic".equals(i.installationSupport())).count(),
@@ -151,136 +162,57 @@ public class DownloadJobService {
     }
 
     /**
-     * Inicializa una instancia de {@code DownloadJobService}.
+     * Valida y deduplica la selección, amplía dependencias y comprueba cuotas bajo el bloqueo de
+     * admisión.
+     * Guarda trabajo, elementos, contexto Linux y solicitud de procesamiento dentro de una
+     * transacción; una fuente exacta nunca se sustituye por otra.
      *
-     * @param jobs Valor de {@code jobs} utilizado por la operación.
-     * @param sources Colección de fuentes de descarga que debe procesarse.
-     * @param users Valor de {@code users} utilizado por la operación.
-     * @param events Valor de {@code events} utilizado por la operación.
-     * @param notifier Valor de {@code notifier} utilizado por la operación.
-     * @param artifacts Valor de {@code artifacts} utilizado por la operación.
-     * @param zipUris Valor de {@code zipUris} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
-     * @param maxApps Valor de {@code maxApps} utilizado por la operación.
-     * @param retention Valor de {@code retention} utilizado por la operación.
-     * @param signedUrlTtl Valor de {@code signedUrlTtl} utilizado por la operación.
-     * @param anonymousMaxActiveJobs Valor de {@code anonymousMaxActiveJobs} utilizado por la
-     *     operación.
-     * @param anonymousMaxCreatesPerHour Valor de {@code anonymousMaxCreatesPerHour} utilizado por
-     *     la operación.
-     * @param anonymousMaxCreatesPerIpHour Valor de {@code anonymousMaxCreatesPerIpHour} utilizado
-     *     por la operación.
-     * @param authenticatedMaxActiveJobs Máximo de trabajos por cuenta autenticada.
-     * @param globalMaxPendingJobs Máximo global de trabajos no terminales.
-     * @param transactions Gestor de transacciones cortas.
-     */
-    public DownloadJobService(
-            DownloadJobStore jobs,
-            CatalogSourceLookup sources,
-            UserAccountStore users,
-            DownloadEventPublisher events,
-            DownloadJobNotifier notifier,
-            DownloadArtifactCleaner artifacts,
-            ZipUriSigner zipUris,
-            Clock clock,
-            @Value("${app.download.max-apps}") int maxApps,
-            @Value("${app.download.zip-retention}") Duration retention,
-            @Value("${app.download.presigned-url-ttl}") Duration signedUrlTtl,
-            @Value("${app.download.anonymous-max-active-jobs}") int anonymousMaxActiveJobs,
-            @Value("${app.download.anonymous-max-creates-per-hour}") int anonymousMaxCreatesPerHour,
-            @Value("${app.download.anonymous-max-creates-per-ip-hour}") int anonymousMaxCreatesPerIpHour,
-            @Value("${app.download.authenticated-max-active-jobs}") int authenticatedMaxActiveJobs,
-            @Value("${app.download.global-max-pending-jobs}") int globalMaxPendingJobs,
-            TransactionTemplate transactions) {
-        this.jobs = jobs;
-        this.sources = sources;
-        this.users = users;
-        this.events = events;
-        this.notifier = notifier;
-        this.artifacts = artifacts;
-        this.zipUris = zipUris;
-        this.clock = clock;
-        this.maxApps = maxApps;
-        this.retention = retention;
-        this.signedUrlTtl = signedUrlTtl;
-        this.anonymousMaxActiveJobs = anonymousMaxActiveJobs;
-        this.anonymousMaxCreatesPerHour = anonymousMaxCreatesPerHour;
-        this.anonymousMaxCreatesPerIpHour = anonymousMaxCreatesPerIpHour;
-        this.authenticatedMaxActiveJobs = authenticatedMaxActiveJobs;
-        this.globalMaxPendingJobs = globalMaxPendingJobs;
-        this.transactions = transactions;
-    }
-
-    /**
-     * Crea el recurso solicitado mediante {@code create}.
+     * @param owner Identidad autenticada o hashes del navegador que solicita acceso o creación.
+     * @param selection Aplicaciones, plataformas, fuente exacta y destino Linux de la misma
+     *     solicitud.
      *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param requestedAppIds Colección de identificadores de {@code requestedApp}.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param notifyWhenReady Valor de {@code notifyWhenReady} utilizado por la operación.
-     * @return Resultado producido por {@code create}.
-     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
+     *     solo para cuentas autenticadas.
+     *
+     * @return vista inicial del trabajo admitido.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si la selección o el destino no son
+     *     válidos o exceden el máximo.
+     *
+     * @throws es.ubu.batchdownloader.common.RateLimitException si la cuenta, el navegador o la IP
+     *     exceden su cuota.
+     *
+     * @throws es.ubu.batchdownloader.common.ServiceUnavailableException si se alcanza el máximo
+     *     global de trabajos pendientes.
+     *
+     * @throws es.ubu.batchdownloader.common.ConflictException si la fuente exacta no está
+     *     disponible o no se admite ninguna aplicación.
      */
     @Transactional
-    public DownloadJobView create(
-            RequestOwner owner,
-            List<UUID> requestedAppIds,
-            List<String> operatingSystems,
-            boolean notifyWhenReady) {
-        return create(owner, requestedAppIds, operatingSystems, null, notifyWhenReady);
-    }
-
-    /**
-     * Crea una descarga y, cuando se indica, conserva la fuente concreta elegida por el usuario.
-     *
-     * @param owner Propietario de la solicitud.
-     * @param requestedAppIds Aplicaciones solicitadas.
-     * @param operatingSystems Sistemas operativos admitidos.
-     * @param sourceRef Fuente resuelta concreta para una descarga individual.
-     * @param notifyWhenReady Indica si debe notificarse la finalización.
-     * @return Trabajo de descarga creado.
-     */
-    @Transactional
-    public DownloadJobView create(
-            RequestOwner owner,
-            List<UUID> requestedAppIds,
-            List<String> operatingSystems,
-            UUID sourceRef,
-            boolean notifyWhenReady) {
-        return create(owner, requestedAppIds, operatingSystems, sourceRef, notifyWhenReady, null, null);
-    }
-
-    @Transactional
-    public DownloadJobView create(RequestOwner owner, List<UUID> requestedAppIds,
-            List<String> operatingSystems, UUID sourceRef, boolean notifyWhenReady,
-            String linuxTarget, String targetArchitecture) {
-        LinuxTarget target = LinuxTarget.optional(linuxTarget, targetArchitecture, operatingSystems);
-        LinkedHashSet<UUID> appIds = new LinkedHashSet<>(requestedAppIds == null ? List.of() : requestedAppIds);
+    public DownloadJobView create(RequestOwner owner, DownloadSelection selection, boolean notifyWhenReady) {
+        LinuxTarget target = LinuxTarget.optional(selection.linuxTarget(), selection.targetArchitecture(), selection.operatingSystems());
+        LinkedHashSet<UUID> appIds = new LinkedHashSet<>(selection.appIds() == null ? List.of() : selection.appIds());
         appIds.remove(null);
-        if (appIds.isEmpty() || appIds.size() > maxApps) {
-            throw new BadRequestException("invalid_job_size", "Selecciona entre 1 y " + maxApps + " aplicaciones.");
+        if (appIds.isEmpty() || appIds.size() > limits.maxApps()) {
+            throw new BadRequestException("invalid_job_size", "Selecciona entre 1 y " + limits.maxApps() + " aplicaciones.");
         }
-        if (sourceRef != null && appIds.size() != 1) {
+        if (selection.sourceRef() != null && appIds.size() != 1) {
             throw new BadRequestException(
                     "invalid_source_selection",
                     "La fuente seleccionada requiere una única aplicación.");
         }
         List<UUID> originalAppIds = List.copyOf(appIds);
         if (target != null) appIds.addAll(sources.expandLinuxDependencies(appIds));
-        if (appIds.size() > maxApps) {
+        if (appIds.size() > limits.maxApps()) {
             throw new BadRequestException("linux_dependency_limit", "El lote y sus dependencias superan el límite.");
         }
         jobs.lockAdmission();
         Instant now = clock.instant();
-        if (jobs.countNonTerminal() >= globalMaxPendingJobs) {
+        if (jobs.countNonTerminal() >= limits.globalMaxPendingJobs()) {
             throw new ServiceUnavailableException(
                     "service_busy", "La cola de descargas está llena. Inténtalo de nuevo.", 30);
         }
         if (owner.authenticated()) {
-            if (jobs.countNonTerminalByOwner(owner.userId()) >= authenticatedMaxActiveJobs) {
+            if (jobs.countNonTerminalByOwner(owner.userId()) >= limits.authenticatedMaxActiveJobs()) {
                 throw new RateLimitException(
                         "rate_limited",
                         "La cuenta ya tiene el máximo de descargas activas o pendientes.",
@@ -291,23 +223,23 @@ public class DownloadJobService {
         }
         Map<UUID, CatalogSourceLookup.VerifiedSource> selected;
         if (target != null) {
-            selected = sources.findLinuxSources(appIds, target, sourceRef);
-            if (sourceRef != null && !selected.containsKey(appIds.getFirst())) {
+            selected = sources.findLinuxSources(appIds, target, selection.sourceRef());
+            if (selection.sourceRef() != null && !selected.containsKey(appIds.getFirst())) {
                 throw new ConflictException("linux_source_incompatible",
                         "La fuente elegida no es compatible con el destino Linux.");
             }
-        } else if (sourceRef == null) {
-            selected = sources.findVerifiedSources(appIds, operatingSystems);
+        } else if (selection.sourceRef() == null) {
+            selected = sources.findVerifiedSources(appIds, selection.operatingSystems());
         } else {
             UUID appId = appIds.getFirst();
             CatalogSourceLookup.VerifiedSource exactSource = sources
-                    .findVerifiedSource(appId, sourceRef, operatingSystems)
+                    .findVerifiedSource(appId, selection.sourceRef(), selection.operatingSystems())
                     .orElseThrow(() -> new ConflictException(
                             "selected_source_unavailable",
                             "La versión seleccionada ya no está disponible para descargar."));
             selected = Map.of(appId, exactSource);
         }
-        Map<UUID, CatalogSourceLookup.ManualSource> manualSources = sourceRef == null || target != null
+        Map<UUID, CatalogSourceLookup.ManualSource> manualSources = selection.sourceRef() == null || target != null
                 ? sources.findManualSources(appIds)
                 : Map.of();
         List<DownloadJobItem> items = appIds.stream()
@@ -344,7 +276,7 @@ public class DownloadJobService {
                 omittedCount,
                 notifyWhenReady && owner.authenticated(),
                 now,
-                now.plus(retention)));
+                now.plus(limits.zipRetention())));
         events.jobRequested(job);
         if (target != null) {
             var context = new DownloadJobView.LinuxContext(target.manager(), target.architecture(),
@@ -356,335 +288,33 @@ public class DownloadJobService {
     }
 
     /**
-     * Obtiene el resultado solicitado mediante {@code get}.
+     * Aplica cuota de trabajos activos por navegador y creaciones en la última hora por navegador
+     * y, cuando existe, IP.
      *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code get}.
-     */
-    @Transactional(readOnly = true)
-    public DownloadJobView get(RequestOwner owner, UUID jobId) {
-        return DownloadJobView.from(accessibleJob(owner, jobId)).withLinuxContext(jobs.linuxContext(jobId));
-    }
-
-    /**
-     * Ejecuta la operación {@code itemMetadata}.
+     * @param owner Identidad autenticada o hashes del navegador que solicita acceso o creación.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @throws es.ubu.batchdownloader.common.RateLimitException si se agota cualquiera de las cuotas
+     *     anónimas.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param requestedItemIds Colección de identificadores de {@code requestedItem}.
-     * @return Colección de elementos obtenidos por la operación.
-     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    @Transactional(readOnly = true)
-    public List<DownloadItemMetadata> itemMetadata(UUID jobId, List<UUID> requestedItemIds) {
-        if (requestedItemIds == null
-                || requestedItemIds.isEmpty()
-                || requestedItemIds.size() > MAX_METADATA_ITEMS
-                || requestedItemIds.stream().anyMatch(Objects::isNull)
-                || new LinkedHashSet<>(requestedItemIds).size() != requestedItemIds.size()) {
-            throw new BadRequestException(
-                    "invalid_download_item_ids",
-                    "Indica entre 1 y " + MAX_METADATA_ITEMS + " identificadores de item únicos.");
-        }
-        DownloadJob job = requireJob(jobId);
-        Map<UUID, DownloadJobItem> itemsById = job.items().stream()
-                .collect(java.util.stream.Collectors.toMap(DownloadJobItem::id, item -> item));
-        if (!itemsById.keySet().containsAll(requestedItemIds)) {
-            throw new NotFoundException("download_job_not_found", "No existe el trabajo.");
-        }
-        return requestedItemIds.stream()
-                .map(itemsById::get)
-                .map(item -> new DownloadItemMetadata(
-                        item.id(),
-                        item.appId(),
-                        item.appName(),
-                        item.officialPageUrl()))
-                .toList();
-    }
-
-    /**
-     * Indica si puede realizarse la operación mediante {@code cancel}.
-     *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code cancel}.
-     */
-    @Transactional
-    public DownloadJobView cancel(RequestOwner owner, UUID jobId) {
-        DownloadJob job = accessibleJob(owner, jobId);
-        if (job.requestCancellation(clock.instant())) {
-            jobs.save(job);
-            events.cancellationRequested(job);
-        }
-        DownloadJobView view = DownloadJobView.from(job);
-        notifyAfterCommit(view);
-        return view;
-    }
-
-    /**
-     * Ejecuta la operación {@code file}.
-     *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code file}.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    public URI file(RequestOwner owner, UUID jobId) {
-        DownloadJob job = accessibleJob(owner, jobId);
-        if (!job.status().downloadable() || job.objectKey() == null || !job.expiresAt().isAfter(clock.instant())) {
-            throw new ConflictException("download_not_ready", "El ZIP no está disponible.");
-        }
-        try {
-            return zipUris.signGet(
-                    job.objectKey(), "batch-downloader-" + job.id() + ".zip", signedUrlTtl);
-        } catch (RuntimeException exception) {
-            LOGGER.warn("Could not sign download artifact for job {}", job.id(), exception);
-            throw new ServiceUnavailableException(
-                    "download_signing_unavailable",
-                    "No se pudo preparar el enlace. Inténtalo de nuevo en unos segundos.",
-                    5);
-        }
-    }
-
-    /**
-     * Ejecuta la operación {@code applyProgress}.
-     *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param itemId Identificador de {@code item} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param bytesDownloaded Valor de {@code bytesDownloaded} utilizado por la operación.
-     * @param sha256 Valor de {@code sha256} utilizado por la operación.
-     * @param errorCode Valor de {@code errorCode} utilizado por la operación.
-     */
-    @Transactional
-    public void applyProgress(
-            UUID jobId,
-            UUID itemId,
-            DownloadItemStatus status,
-            long bytesDownloaded,
-            String sha256,
-            String errorCode) {
-        DownloadJob job = jobs.applyProgress(
-                        jobId,
-                        itemId,
-                        status,
-                        bytesDownloaded,
-                        sha256,
-                        errorCode,
-                        clock.instant())
-                .orElseThrow(() -> new NotFoundException(
-                        "download_job_not_found", "No existe el trabajo."));
-        notifyAfterSave(job);
-    }
-
-    /**
-     * Ejecuta la operación {@code applyReady}.
-     *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-     * @param expiresAt Valor de {@code expiresAt} utilizado por la operación.
-     */
-    @Transactional
-    public void applyReady(UUID jobId, DownloadJobStatus status, String objectKey, Instant expiresAt) {
-        applyReady(jobId, status, objectKey, null, null, expiresAt);
-    }
-
-    /** Aplica el resultado final junto con los metadatos de integridad emitidos por el worker. */
-    @Transactional
-    public void applyReady(
-            UUID jobId,
-            DownloadJobStatus status,
-            String objectKey,
-            Long artifactSizeBytes,
-            String artifactSha256,
-            Instant expiresAt) {
-        DownloadJob job = requireJob(jobId);
-        Instant now = clock.instant();
-        Instant maximumExpiry = now.plus(retention);
-        Instant effectiveExpiry = expiresAt.isBefore(maximumExpiry) ? expiresAt : maximumExpiry;
-        job.markReady(
-                status, objectKey, artifactSizeBytes, artifactSha256, effectiveExpiry, now);
-        DownloadJob saved = jobs.save(job);
-        notifyAfterSave(saved);
-        requestTerminalNotification(saved);
-    }
-
-    /** Mantiene el trabajo en QUEUED cuando el worker no puede reservar capacidad con seguridad. */
-    @Transactional
-    public void applyDeferred(UUID jobId, String waitReason, Instant retryAt) {
-        DownloadJob job = requireJob(jobId);
-        job.defer(waitReason, retryAt, clock.instant());
-        notifyAfterSave(jobs.save(job));
-    }
-
-    /**
-     * Ejecuta la operación {@code applyFailed}.
-     *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param errorCode Valor de {@code errorCode} utilizado por la operación.
-     */
-    @Transactional
-    public void applyFailed(UUID jobId, String errorCode) {
-        DownloadJob job = requireJob(jobId);
-        job.fail(errorCode, clock.instant());
-        DownloadJob saved = jobs.save(job);
-        notifyAfterSave(saved);
-        requestTerminalNotification(saved);
-    }
-
-    /**
-     * Ejecuta la operación {@code expireReadyJobs}.
-     */
-    @Scheduled(fixedDelayString = "PT10M")
-    public void expireReadyJobs() {
-        Instant now = clock.instant();
-        List<DownloadJobView> expiredViews = transactions.execute(status ->
-                jobs.findDownloadableExpiredBefore(now).stream()
-                        .filter(job -> job.expire(now))
-                        .map(jobs::save)
-                        .map(DownloadJobView::from)
-                        .toList());
-        if (expiredViews == null) {
-            return;
-        }
-        expiredViews.forEach(view -> {
-            deleteExpiredArtifacts(view.id());
-            notifier.changed(view);
-        });
-    }
-
-    /**
-     * Reintenta la compensación fuera de MySQL; la regla de ciclo de vida de MinIO queda como
-     * respaldo si los tres intentos inmediatos fallan.
-     */
-    private void deleteExpiredArtifacts(UUID jobId) {
-        RuntimeException failure = null;
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            try {
-                artifacts.deleteJobArtifacts(jobId);
-                return;
-            } catch (RuntimeException exception) {
-                failure = exception;
-            }
-        }
-        LOGGER.warn("Could not remove expired download artifacts for job {} after 3 attempts", jobId, failure);
-    }
-
-    /**
-     * Ejecuta la operación {@code requireJob}.
-     *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code requireJob}.
-     */
-    private DownloadJob requireJob(UUID jobId) {
-        return jobs.findById(jobId)
-                .orElseThrow(() -> new NotFoundException("download_job_not_found", "No existe el trabajo."));
-    }
-
-    /**
-     * Ejecuta la operación {@code accessibleJob}.
-     *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code accessibleJob}.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     */
-    private DownloadJob accessibleJob(RequestOwner owner, UUID jobId) {
-        DownloadJob job = requireJob(jobId);
-        if (!owner.canAccess(job.ownerId(), job.anonymousOwnerHash())) {
-            throw new NotFoundException("download_job_not_found", "No existe el trabajo.");
-        }
-        return job;
-    }
-
-    /**
-     * Ejecuta la operación {@code enforceAnonymousLimits}.
-     *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @throws RateLimitException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si falta una identidad válida del
+     *     navegador.
      */
     private void enforceAnonymousLimits(RequestOwner owner, Instant now) {
         String browserHash = owner.requireAnonymousOwnerHash();
-        if (jobs.countAnonymousNonTerminal(browserHash) >= anonymousMaxActiveJobs) {
+        if (jobs.countAnonymousNonTerminal(browserHash) >= limits.anonymousMaxActiveJobs()) {
             throw new RateLimitException(
                     "anonymous_active_jobs_limit", "Este navegador ya tiene el máximo de descargas en curso.");
         }
         Instant hourAgo = now.minus(Duration.ofHours(1));
-        if (jobs.countAnonymousCreatedSince(browserHash, hourAgo) >= anonymousMaxCreatesPerHour) {
+        if (jobs.countAnonymousCreatedSince(browserHash, hourAgo) >= limits.anonymousMaxCreatesPerHour()) {
             throw new RateLimitException(
                     "anonymous_browser_rate_limit", "Has alcanzado el límite horario de descargas para este navegador.");
         }
         if (owner.anonymousIpHash() != null
-                && jobs.countAnonymousIpCreatedSince(owner.anonymousIpHash(), hourAgo) >= anonymousMaxCreatesPerIpHour) {
+                && jobs.countAnonymousIpCreatedSince(owner.anonymousIpHash(), hourAgo) >= limits.anonymousMaxCreatesPerIpHour()) {
             throw new RateLimitException(
                     "anonymous_ip_rate_limit", "La dirección de red ha alcanzado el límite horario de descargas.");
         }
     }
 
-    /**
-     * Ejecuta la operación {@code notifyAfterSave}.
-     *
-     * @param job Trabajo de descarga sobre el que se actúa.
-     */
-    private void notifyAfterSave(DownloadJob job) {
-        notifyAfterCommit(DownloadJobView.from(job));
-    }
-
-    /**
-     * Ejecuta la operación {@code notifyAfterCommit}.
-     *
-     * @param view Valor de {@code view} utilizado por la operación.
-     */
-    private void notifyAfterCommit(DownloadJobView view) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            notifier.changed(view);
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            /**
-             * Implementa {@code afterCommit} para {@code }.
-             */
-            @Override
-            public void afterCommit() {
-                notifier.changed(view);
-            }
-        });
-    }
-
-    /**
-     * Ejecuta la operación {@code requestTerminalNotification}.
-     *
-     * @param job Trabajo de descarga sobre el que se actúa.
-     */
-    private void requestTerminalNotification(DownloadJob job) {
-        if (!job.notifyWhenReady() || job.ownerId() == null) {
-            return;
-        }
-        users.findById(job.ownerId())
-                .filter(UserAccount::notifyOnJobCompletion)
-                .ifPresent(owner -> events.terminalNotificationRequested(owner, job));
-    }
-
-    /**
-     * Representa los datos inmutables de {@code DownloadItemMetadata}.
-     *
-     * @param itemId Valor de {@code itemId} incluido en el record.
-     * @param appId Valor de {@code appId} incluido en el record.
-     * @param appName Valor de {@code appName} incluido en el record.
-     * @param officialPageUrl Valor de {@code officialPageUrl} incluido en el record.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     */
-    public record DownloadItemMetadata(
-            UUID itemId,
-            UUID appId,
-            String appName,
-            String officialPageUrl) {}
 }

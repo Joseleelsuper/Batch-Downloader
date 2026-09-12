@@ -11,9 +11,15 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 /**
- * Implementa el componente {@code AdminScraperNotifier}.
+ * Publica por WebSocket el estado administrativo del scraper al conectar y cuando cambia su
+ * versión; retira conexiones cerradas o que fallan al enviar.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.admin.AdminScraperRepository
+ * @see ScraperOperationsDtos.ScraperEvent
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Operaciones administrativas
  */
 @Component
 public class AdminScraperNotifier extends TextWebSocketHandler {
@@ -35,10 +41,10 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
     private volatile String lastVersion;
 
     /**
-     * Inicializa una instancia de {@code AdminScraperNotifier}.
+     * Conecta la consulta del estado del scraper con la serialización de mensajes WebSocket.
      *
-     * @param scraper Valor de {@code scraper} utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param scraper Consulta de colas, métricas, snapshots y versión del scraper.
+     * @param objectMapper Serializador del evento WebSocket administrativo.
      */
     public AdminScraperNotifier(AdminScraperRepository scraper, ObjectMapper objectMapper) {
         this.scraper = scraper;
@@ -46,10 +52,11 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
     }
 
     /**
-     * Implementa {@code afterConnectionEstablished} para {@code AdminScraperNotifier}.
+     * Registra la conexión y le envía inmediatamente el estado actual, guardando la versión
+     * utilizada para detectar cambios posteriores.
      *
-     * @param session Valor de {@code session} utilizado por la operación.
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param session Conexión WebSocket ya aceptada por la configuración de acceso.
+     * @throws java.lang.Exception si falla la consulta, la serialización o el primer envío.
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -60,10 +67,10 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
     }
 
     /**
-     * Implementa {@code afterConnectionClosed} para {@code AdminScraperNotifier}.
+     * Retira la conexión del conjunto de destinatarios de futuras actualizaciones.
      *
-     * @param session Valor de {@code session} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param session Conexión WebSocket ya aceptada por la configuración de acceso.
+     * @param status Motivo de cierre de la conexión; no modifica el estado persistido del scraper.
      */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
@@ -71,9 +78,11 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
     }
 
     /**
-     * Publica el contenido solicitado mediante {@code publishIfChanged}.
+     * Consulta el estado solo cuando hay destinatarios, omite versiones repetidas y distribuye un
+     * único mensaje serializado; un fallo de envío retira únicamente esa conexión.
      *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * @throws java.lang.Exception si falla la consulta o serialización antes de distribuir el
+     *     evento.
      */
     @Scheduled(fixedDelayString = "${app.scraper-events.poll-ms:2000}")
     public void publishIfChanged() throws Exception {

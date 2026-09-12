@@ -13,9 +13,16 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * Implementa el componente {@code AdminBootstrap}.
+ * Crea o sincroniza la cuenta administrativa configurada al arrancar, evitando sustituir por
+ * administrador una cuenta USER que ocupe su nombre.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.domain.UserAccount
+ * @see es.ubu.batchdownloader.identity.application.PasswordPolicy
+ * @see es.ubu.batchdownloader.identity.application.port.UserAccountStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 @Component
 class AdminBootstrap implements ApplicationRunner {
@@ -42,14 +49,16 @@ class AdminBootstrap implements ApplicationRunner {
     private final PasswordEncoder passwords;
 
     /**
-     * Inicializa una instancia de {@code AdminBootstrap}.
+     * Recibe identidad administrativa opcional, persistencia, reloj y codificador configurado.
      *
-     * @param users Valor de {@code users} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param email Dirección de correo electrónico asociada a la operación.
-     * @param password Contraseña administrativa que se codificará antes de persistirla.
-     * @param passwords Codificador de contraseñas configurado por la aplicación.
+     * @param users Persistencia de cuentas y consultas de unicidad de correo y nombre normalizados.
+     * @param clock Reloj usado para creación, caducidad y consumo de tokens y cambios de cuenta.
+     * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
+     * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
+     *     normalizada.
+     * @param password Contraseña recibida; los límites se cuentan en puntos de código y bytes
+     *     UTF-8.
+     * @param passwords Codificador de Spring para comparar o renovar el hash administrativo.
      */
     AdminBootstrap(
             UserAccountStore users,
@@ -67,9 +76,15 @@ class AdminBootstrap implements ApplicationRunner {
     }
 
     /**
-     * Implementa {@code run} para {@code AdminBootstrap}.
+     * No actúa con nombre o contraseña vacíos; conserva un administrador cuya clave ya coincide y
+     * valida las reglas vigentes antes de crear o cambiar su hash.
      *
-     * @param arguments Valor de {@code arguments} utilizado por la operación.
+     * @param arguments Argumentos de arranque de Spring; la inicialización utiliza la configuración
+     *     inyectada.
+     * @throws IllegalStateException si el nombre configurado pertenece a una cuenta no
+     *     administrativa.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si una contraseña nueva incumple la
+     *     política.
      */
     @Override
     public void run(ApplicationArguments arguments) {

@@ -10,9 +10,15 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * Publica los datos gestionados por {@code DownloadOutboxPublisher}.
+ * Serializa las solicitudes de descarga, cancelación y correo en el outbox para confirmarlas junto
+ * al trabajo.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher
+ * @see es.ubu.batchdownloader.messaging.OutboxWriter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Component
 class DownloadOutboxPublisher implements DownloadEventPublisher {
@@ -22,18 +28,19 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
     private final OutboxWriter outbox;
 
     /**
-     * Inicializa una instancia de {@code DownloadOutboxPublisher}.
+     * Conecta el escritor del outbox que conserva la atomicidad entre trabajo y solicitudes.
      *
-     * @param outbox Valor de {@code outbox} utilizado por la operación.
+     * @param outbox Escritor de eventos durables que participa en la transacción actual.
      */
     DownloadOutboxPublisher(OutboxWriter outbox) {
         this.outbox = outbox;
     }
 
     /**
-     * Implementa {@code jobRequested} para {@code DownloadOutboxPublisher}.
+     * Incluye los UUID de trabajo, elementos, aplicaciones y fuentes exactas en
+     * download.job.requested.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     @Override
     public void jobRequested(DownloadJob job) {
@@ -53,9 +60,9 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
     }
 
     /**
-     * Indica si puede realizarse la operación mediante {@code cancellationRequested}.
+     * Registra download.job.cancel-requested con el UUID del trabajo para su parada cooperativa.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     @Override
     public void cancellationRequested(DownloadJob job) {
@@ -66,10 +73,11 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
     }
 
     /**
-     * Implementa {@code terminalNotificationRequested} para {@code DownloadOutboxPublisher}.
+     * Elige DOWNLOAD_READY para resultados descargables y DOWNLOAD_FAILED para fallos; conserva
+     * vencimiento o código de error seguro en los parámetros del correo.
      *
-     * @param owner Valor de {@code owner} utilizado por la operación.
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param owner Cuenta que recibirá el mensaje en su dirección de correo actual.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     @Override
     public void terminalNotificationRequested(UserAccount owner, DownloadJob job) {

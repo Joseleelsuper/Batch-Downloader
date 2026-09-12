@@ -1,7 +1,7 @@
 package es.ubu.batchdownloader.admin;
 
-import es.ubu.batchdownloader.admin.AdminDtos.CreateSoftwareRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.SoftwareRequestItem;
+import es.ubu.batchdownloader.admin.SoftwareRequestDtos.CreateSoftwareRequest;
+import es.ubu.batchdownloader.admin.SoftwareRequestDtos.SoftwareRequestItem;
 import es.ubu.batchdownloader.common.UuidBytes;
 import jakarta.validation.Valid;
 import java.time.LocalDateTime;
@@ -17,10 +17,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Expone las operaciones HTTP gestionadas por {@code SoftwareRequestController}.
+ * Recibe propuestas de aplicaciones en estado pendiente y permite a administración consultar las
+ * más recientes para revisarlas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ * @see es.ubu.batchdownloader.admin.SoftwareRequestDtos
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Administración
  */
 @RestController
 public class SoftwareRequestController {
@@ -30,19 +34,21 @@ public class SoftwareRequestController {
     private final JdbcTemplate jdbc;
 
     /**
-     * Inicializa una instancia de {@code SoftwareRequestController}.
+     * Conecta la persistencia de propuestas y su listado administrativo.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
+     * @param jdbc Acceso SQL para guardar y consultar propuestas de software.
      */
     public SoftwareRequestController(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code create}.
+     * Guarda una propuesta con UUID nuevo, estado pending y sin descripción generada, conservando
+     * los datos de contacto opcionales.
      *
-     * @param request Solicitud recibida por la operación.
-     * @return Resultado producido por {@code create}.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @return 201 con la solicitud registrada.
      */
     @PostMapping("/api/v1/software-requests")
     @ResponseStatus(HttpStatus.CREATED)
@@ -76,10 +82,11 @@ public class SoftwareRequestController {
     }
 
     /**
-     * Enumera los elementos solicitados mediante {@code list}.
+     * Consulta propuestas por fecha de creación descendente con un límite acotado a 1–200.
      *
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
+     *     consulta.
+     * @return solicitudes recientes para revisión administrativa.
      */
     @GetMapping("/api/v1/admin/requests")
     public List<SoftwareRequestItem> list(@RequestParam(defaultValue = "50") int limit) {

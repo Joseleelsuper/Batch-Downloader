@@ -6,19 +6,24 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Define la configuración utilizada por {@code MinioConfig}.
+ * Construye el cliente de acceso interno al almacén usado para limpiar artefactos de descarga.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.infrastructure.storage.MinioDownloadArtifactCleaner
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Configuration
 class MinioConfig {
     /**
-     * Ejecuta la operación {@code minioClient}.
+     * Configura el origen y las credenciales de MinIO sin realizar una operación de red.
      *
-     * @param endpoint Valor de {@code endpoint} utilizado por la operación.
-     * @param accessKey Valor de {@code accessKey} utilizado por la operación.
-     * @param secretKey Valor de {@code secretKey} utilizado por la operación.
-     * @return Resultado producido por {@code minioClient}.
+     * @param endpoint Dirección del almacén alcanzable desde Core.
+     * @param accessKey Identificador de la credencial del almacén de objetos.
+     * @param secretKey Secreto de la credencial del almacén; no debe aparecer en respuestas ni
+     *     registros.
+     * @return cliente para operaciones internas de almacenamiento.
      */
     @Bean
     MinioClient minioClient(

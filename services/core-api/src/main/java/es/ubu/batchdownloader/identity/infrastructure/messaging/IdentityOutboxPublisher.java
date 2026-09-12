@@ -9,9 +9,15 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * Publica los datos gestionados por {@code IdentityOutboxPublisher}.
+ * Solicita correo de verificación o recuperación guardando el token cifrado, nunca en claro, en el
+ * outbox de la cuenta.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher
+ * @see es.ubu.batchdownloader.messaging.OutboxWriter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 @Component
 class IdentityOutboxPublisher implements IdentityEventPublisher {
@@ -30,9 +36,11 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
     private final NotificationTokenEnvelope tokenEnvelope;
 
     /**
-     * Inicializa una instancia de {@code IdentityOutboxPublisher}.
+     * Conecta el outbox transaccional y el cifrado de los permisos enviados por correo.
      *
-     * @param outbox Valor de {@code outbox} utilizado por la operación.
+     * @param outbox Escritor durable que participa en la transacción de la cuenta y su token.
+     * @param tokenEnvelope Cifrador autenticado del token enviado por mensajería al servicio de
+     *     notificaciones.
      */
     IdentityOutboxPublisher(OutboxWriter outbox, NotificationTokenEnvelope tokenEnvelope) {
         this.outbox = outbox;
@@ -40,10 +48,12 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
     }
 
     /**
-     * Implementa {@code emailVerificationRequested} para {@code IdentityOutboxPublisher}.
+     * Registra una solicitud de plantilla EMAIL_VERIFICATION con el permiso cifrado para confirmar
+     * el correo.
      *
-     * @param user Valor de {@code user} utilizado por la operación.
-     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
+     * @param user Cuenta destinataria de la consulta, token, evento o proyección.
+     * @param rawToken Token opaco sin hash; solo debe enviarse al usuario por el canal previsto,
+     *     nunca registrarse.
      */
     @Override
     public void emailVerificationRequested(UserAccount user, String rawToken) {
@@ -51,10 +61,12 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
     }
 
     /**
-     * Implementa {@code passwordResetRequested} para {@code IdentityOutboxPublisher}.
+     * Registra una solicitud de plantilla PASSWORD_RESET con el permiso cifrado para renovar la
+     * contraseña.
      *
-     * @param user Valor de {@code user} utilizado por la operación.
-     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
+     * @param user Cuenta destinataria de la consulta, token, evento o proyección.
+     * @param rawToken Token opaco sin hash; solo debe enviarse al usuario por el canal previsto,
+     *     nunca registrarse.
      */
     @Override
     public void passwordResetRequested(UserAccount user, String rawToken) {
@@ -62,11 +74,14 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
     }
 
     /**
-     * Ejecuta la operación {@code append}.
+     * Genera correlación independiente y conserva destinatario, plantilla, nombre visible y token
+     * cifrado en notification.email.requested.
      *
-     * @param user Valor de {@code user} utilizado por la operación.
-     * @param template Valor de {@code template} utilizado por la operación.
-     * @param rawToken Valor de {@code rawToken} utilizado por la operación.
+     * @param user Cuenta destinataria de la consulta, token, evento o proyección.
+     * @param template Plantilla EMAIL_VERIFICATION o PASSWORD_RESET que recibirá el permiso
+     *     cifrado.
+     * @param rawToken Token opaco sin hash; solo debe enviarse al usuario por el canal previsto,
+     *     nunca registrarse.
      */
     private void append(UserAccount user, String template, String rawToken) {
         UUID correlationId = UUID.randomUUID();

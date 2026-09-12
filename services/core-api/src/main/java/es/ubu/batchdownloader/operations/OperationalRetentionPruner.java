@@ -15,10 +15,13 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Poda datos operativos procesados mediante lotes pequeños e idempotentes.
+ * Elimina en lotes eventos publicados, mensajes procesados y trabajos terminales fuera de
+ * retención, conservando el trabajo pendiente y registrando contadores tras confirmar.
  *
- * <p>Las filas pendientes no aparecen en ninguna sentencia y la auditoría administrativa no se
- * somete a retención.
+ * @see es.ubu.batchdownloader.messaging.OutboxEventEntity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y retención
  */
 @Component
 public class OperationalRetentionPruner {
@@ -35,7 +38,16 @@ public class OperationalRetentionPruner {
     private final Counter deletedInbox;
     private final Counter deletedJobs;
 
-    /** Inicializa el pruner con un reloj inyectable y métricas por tabla. */
+    /**
+     * Conecta tablas operativas, reloj y gestor de transacciones y registra contadores de filas por
+     * tabla y fallos.
+     *
+     * @param jdbc Acceso SQL al outbox, inbox y trabajos terminales.
+     * @param clock Reloj que fecha eventos, reservas, confirmaciones y próximos intentos.
+     * @param meterRegistry Registro de contadores de filas eliminadas y fallos de mantenimiento.
+     * @param transactionManager Gestor que permite confirmar o revertir conjuntamente una pasada
+     *     programada.
+     */
     public OperationalRetentionPruner(
             JdbcTemplate jdbc,
             Clock clock,
@@ -50,7 +62,10 @@ public class OperationalRetentionPruner {
         deletedJobs = deletedCounter(meterRegistry, "download_jobs");
     }
 
-    /** Ejecuta el mantenimiento sin convertir un fallo no crítico en un reinicio. */
+    /**
+     * Ejecuta una pasada dentro de una transacción y publica sus contadores después del commit. Los
+     * fallos de acceso a datos se cuentan y registran para permitir otra pasada.
+     */
     @Scheduled(fixedDelayString = "${app.retention.interval:PT6H}")
     public void runScheduled() {
         try {
@@ -77,7 +92,12 @@ public class OperationalRetentionPruner {
         }
     }
 
-    /** Elimina como máximo un lote por tabla dentro de una única transacción. */
+    /**
+     * Borra hasta BATCH_SIZE filas por tabla bajo los cortes de retención, empezando por las más
+     * antiguas; utiliza la transacción del llamador.
+     *
+     * @return filas eliminadas por cada tabla operativa.
+     */
     public RetentionResult prune() {
         Timestamp messageCutoff = Timestamp.from(clock.instant().minus(MESSAGE_RETENTION));
         Timestamp jobCutoff = Timestamp.from(clock.instant().minus(TERMINAL_JOB_RETENTION));
@@ -114,15 +134,38 @@ public class OperationalRetentionPruner {
         return new RetentionResult(outbox, inbox, jobs);
     }
 
+    /**
+     * Registra el contador de filas eliminadas con una etiqueta estable por tabla.
+     *
+     * @param meterRegistry Registro de contadores de filas eliminadas y fallos de mantenimiento.
+     * @param table Nombre estable de tabla usado como etiqueta de la métrica, sin identificadores
+     *     variables.
+     * @return contador asociado a esa tabla.
+     */
     private static Counter deletedCounter(MeterRegistry meterRegistry, String table) {
         return Counter.builder("operational.retention.deleted")
                 .tag("table", table)
                 .register(meterRegistry);
     }
 
-    /** Resultado inmutable de una pasada de retención. */
+    /**
+     * Conserva por tabla el resultado de una pasada para contabilizar solo eliminaciones
+     * confirmadas.
+     *
+     * @param outbox Filas de eventos publicados que se eliminaron en la pasada.
+     * @param inbox Filas de mensajes procesados que se eliminaron en la pasada.
+     * @param downloadJobs Trabajos terminales antiguos que se eliminaron en la pasada.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Mensajería y retención
+     */
     public record RetentionResult(int outbox, int inbox, int downloadJobs) {
-        /** Devuelve el total de filas podadas. */
+        /**
+         * Suma las eliminaciones de las tres tablas detectando desbordamiento entero.
+         *
+         * @return total de filas eliminadas.
+         * @throws ArithmeticException si la suma no cabe en un entero.
+         */
         public int total() {
             return Math.addExact(Math.addExact(outbox, inbox), downloadJobs);
         }

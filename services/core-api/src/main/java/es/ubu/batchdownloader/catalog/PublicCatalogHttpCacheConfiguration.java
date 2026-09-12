@@ -14,10 +14,24 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.filter.ShallowEtagHeaderFilter;
 
-/** Configura validación HTTP y caché corta para recursos públicos. */
+/**
+ * Aplica ETag y caché breve a GET públicos anónimos del catálogo y bundles, manteniendo privadas
+ * las respuestas autenticadas o fallidas.
+ *
+ * @see es.ubu.batchdownloader.catalog.CatalogController
+ * @see es.ubu.batchdownloader.bundle.BundleController
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
+ */
 @Configuration
 class PublicCatalogHttpCacheConfiguration {
-    /** Añade ETag a catálogo y bundles sin cambiar sus cuerpos JSON. */
+    /**
+     * Registra el cálculo de ETag para rutas de aplicaciones y bundles después del filtro de
+     * política de caché.
+     *
+     * @return filtro con orden veinte sobre ambas colecciones y sus recursos.
+     */
     @Bean
     FilterRegistrationBean<ShallowEtagHeaderFilter> publicEtagFilter() {
         FilterRegistrationBean<ShallowEtagHeaderFilter> registration = new FilterRegistrationBean<>();
@@ -29,10 +43,28 @@ class PublicCatalogHttpCacheConfiguration {
         return registration;
     }
 
-    /** Añade directivas de caché únicamente a las lecturas públicas correctas. */
+    /**
+     * Registra una política de caché pública de cinco segundos y revalidación de quince para GET
+     * anónimos correctos; las demás respuestas usan private, no-store.
+     *
+     * @return filtro con orden diez que conserva y copia el cuerpo de respuesta.
+     */
     @Bean
     FilterRegistrationBean<OncePerRequestFilter> publicCacheControlFilter() {
         OncePerRequestFilter filter = new OncePerRequestFilter() {
+            /**
+             * Captura la respuesta, decide caché según método, estado e identidad y copia el cuerpo
+             * al cliente después de fijar las cabeceras.
+             *
+             * @param request Solicitud HTTP cuya identidad, método y respuesta determinan si admite
+             *     caché pública.
+             * @param response Respuesta HTTP en la que se establecen caché y contenido después de
+             *     ejecutar la cadena.
+             * @param chain Resto de filtros y controlador que produce la respuesta.
+             * @throws jakarta.servlet.ServletException si falla la cadena de filtros o el
+             *     controlador.
+             * @throws java.io.IOException si falla la lectura o escritura HTTP.
+             */
             @Override
             protected void doFilterInternal(
                     HttpServletRequest request,

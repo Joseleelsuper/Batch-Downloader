@@ -23,9 +23,16 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
- * Encapsula la comunicación externa realizada por {@code SemanticSearchClient}.
+ * Obtiene candidatos de Semantic y degrada toda la petición a léxica ante fallos, truncamiento o
+ * versiones incompletas, sin propagar contenido interno al navegador.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.SemanticCandidateSet
+ * @see es.ubu.batchdownloader.catalog.CatalogController
+ * @see es.ubu.batchdownloader.common.http.InternalHttpExecutor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 @Component
 public class SemanticSearchClient {
@@ -35,7 +42,7 @@ public class SemanticSearchClient {
     private static final int FUNCTIONAL_CANDIDATE_LIMIT = 20000;
 
     /**
-     * Ejecutor HTTP interno con políticas transversales compuestas.
+     * Ejecutor de la consulta interna autenticada.
      */
     private final InternalHttpExecutor executor;
     /**
@@ -47,13 +54,14 @@ public class SemanticSearchClient {
      */
     private final String serviceUrl;
     /**
-     * Inicializa una instancia de {@code SemanticSearchClient}.
+     * Conecta serialización y transporte interno autenticado con plazo y métricas opcionales.
      *
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param serviceUrl Dirección de {@code service} que debe procesarse.
-     * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
-     * @param requestTimeout Valor de {@code requestTimeout} utilizado por la operación.
-     * @param registry Registro opcional para observar las llamadas internas.
+     * @param objectMapper Conversor JSON de eventos públicos o respuestas del servicio semántico.
+     * @param serviceUrl Origen interno de Semantic; se eliminan barras finales antes de añadir la
+     *     ruta.
+     * @param internalServiceToken Credencial de autenticación entre Core y Semantic.
+     * @param requestTimeout Tiempo máximo de conexión y ejecución de la consulta semántica.
+     * @param registry Registro de métricas opcional; null conserva la cadena sin instrumentación.
      */
     @Autowired
     public SemanticSearchClient(
@@ -69,13 +77,14 @@ public class SemanticSearchClient {
     }
 
     /**
-     * Inicializa una instancia de {@code SemanticSearchClient}.
+     * Conecta serialización y transporte interno autenticado con plazo y métricas opcionales.
      *
-     * @param httpClient Valor de {@code httpClient} utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param serviceUrl Dirección de {@code service} que debe procesarse.
-     * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
-     * @param requestTimeout Valor de {@code requestTimeout} utilizado por la operación.
+     * @param httpClient Transporte HTTP sustituible en pruebas para controlar respuestas y fallos.
+     * @param objectMapper Conversor JSON de eventos públicos o respuestas del servicio semántico.
+     * @param serviceUrl Origen interno de Semantic; se eliminan barras finales antes de añadir la
+     *     ruta.
+     * @param internalServiceToken Credencial de autenticación entre Core y Semantic.
+     * @param requestTimeout Tiempo máximo de conexión y ejecución de la consulta semántica.
      */
     SemanticSearchClient(
             HttpClient httpClient,
@@ -89,6 +98,14 @@ public class SemanticSearchClient {
                 executor(httpClient, internalServiceToken, requestTimeout));
     }
 
+    /**
+     * Conecta serialización y transporte interno autenticado con plazo y métricas opcionales.
+     *
+     * @param objectMapper Conversor JSON de eventos públicos o respuestas del servicio semántico.
+     * @param serviceUrl Origen interno de Semantic; se eliminan barras finales antes de añadir la
+     *     ruta.
+     * @param executor Cadena de transporte, token de servicio y plazo de ejecución HTTP.
+     */
     private SemanticSearchClient(
             ObjectMapper objectMapper,
             String serviceUrl,
@@ -99,11 +116,14 @@ public class SemanticSearchClient {
     }
 
     /**
-     * Resuelve el recurso solicitado mediante {@code resolve}.
+     * Evita llamadas para modo léxico o texto vacío y acepta hasta veinte mil candidatos no
+     * truncados con modelo e índice identificados; cualquier error produce un motivo seguro de
+     * degradación.
      *
-     * @param requestedMode Valor de {@code requestedMode} utilizado por la operación.
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @return Resultado producido por {@code resolve}.
+     * @param requestedMode Modo de búsqueda solicitado por el cliente.
+     * @param query Texto de búsqueda; null o blanco no impone filtro léxico ni solicita embeddings.
+     * @return conjunto completo semántico o decisión léxica que debe compartirse con total y
+     *     facetas.
      */
     public SemanticCandidateSet resolve(CatalogSearchMode requestedMode, String query) {
         if (requestedMode == CatalogSearchMode.LEXICAL) {
@@ -149,12 +169,13 @@ public class SemanticSearchClient {
     }
 
     /**
-     * Ejecuta la operación {@code request}.
+     * Prepara un POST JSON autenticable a la búsqueda interna con texto recortado y límite
+     * funcional de veinte mil candidatos.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @return Resultado producido por {@code request}.
-     * @throws JsonProcessingException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param query Texto de búsqueda; null o blanco no impone filtro léxico ni solicita embeddings.
+     * @return petición sin datos de filtros que siguen siendo autoridad de MySQL.
+     * @throws com.fasterxml.jackson.core.JsonProcessingException si no puede serializarse la
+     *     solicitud.
      */
     private InternalHttpRequest request(String query) throws JsonProcessingException {
         String body = objectMapper.writeValueAsString(
@@ -168,6 +189,14 @@ public class SemanticSearchClient {
                 .withHeader("Content-Type", "application/json");
     }
 
+    /**
+     * Compone transporte, credencial interna y plazo común de ejecución.
+     *
+     * @param client Transporte JDK al que se añaden políticas de autenticación y tiempo máximo.
+     * @param token Credencial de servicio; null se representa como cabecera vacía.
+     * @param timeout Tiempo máximo de conexión y ejecución de la petición interna.
+     * @return ejecutor de la consulta interna autenticada.
+     */
     private static InternalHttpExecutor executor(
             HttpClient client,
             String token,
@@ -178,6 +207,14 @@ public class SemanticSearchClient {
         return new TimeoutInternalHttpExecutor(result, timeout);
     }
 
+    /**
+     * Configura tiempo de conexión y añade medición de duración y resultado cuando existe registro.
+     *
+     * @param token Credencial de servicio; null se representa como cabecera vacía.
+     * @param timeout Tiempo máximo de conexión y ejecución de la petición interna.
+     * @param registry Registro de métricas opcional; null conserva la cadena sin instrumentación.
+     * @return cadena de transporte y políticas del cliente semántico.
+     */
     private static InternalHttpExecutor instrumentedExecutor(
             String token,
             Duration timeout,
@@ -188,20 +225,23 @@ public class SemanticSearchClient {
     }
 
     /**
-     * Ejecuta la operación {@code fallback}.
+     * Conserva que se solicitó modo semántico y declara que la petición completa debe resolverse
+     * léxicamente.
      *
-     * @param reason Valor de {@code reason} utilizado por la operación.
-     * @return Resultado producido por {@code fallback}.
+     * @param reason Código seguro del motivo por el que toda la búsqueda pasa a modo léxico.
+     * @return decisión de degradación con el código recibido.
      */
     private SemanticCandidateSet fallback(String reason) {
         return SemanticCandidateSet.lexical(CatalogSearchMode.SEMANTIC, reason);
     }
 
     /**
-     * Clasifica un rechazo HTTP del servicio semántico sin depender del texto localizado del error.
+     * Reconoce únicamente el código de consulta demasiado corta o su error de validación FastAPI;
+     * cualquier otro cuerpo se clasifica genéricamente.
      *
-     * @param body Cuerpo JSON devuelto por el servicio interno.
-     * @return Motivo público de degradación compatible con el catálogo.
+     * @param body Cuerpo de error del servicio semántico, usado solo para clasificar códigos
+     *     conocidos.
+     * @return semantic_query_too_short o semantic_request_rejected sin exponer el cuerpo.
      */
     private String rejectionReason(String body) {
         if (body == null || body.isBlank()) {
@@ -227,10 +267,11 @@ public class SemanticSearchClient {
     }
 
     /**
-     * Reconoce el formato de validación de FastAPI/Pydantic para el campo {@code body.query}.
+     * Exige tipo string_too_short localizado exactamente en body.query para reconocer esa causa de
+     * rechazo.
      *
-     * @param error Error individual dentro de {@code detail}.
-     * @return {@code true} cuando el error identifica una consulta semántica demasiado corta.
+     * @param error Elemento de validación de FastAPI con tipo y localización del campo rechazado.
+     * @return true si coincide el error conocido de longitud de consulta.
      */
     private static boolean isShortQueryValidation(JsonNode error) {
         JsonNode location = error.path("loc");
@@ -242,22 +283,32 @@ public class SemanticSearchClient {
     }
 
     /**
-     * Representa los datos inmutables de {@code SemanticRequest}.
+     * Transporta el texto de búsqueda y el límite funcional de candidatos del contrato interno de
+     * Semantic.
      *
-     * @param query Valor de {@code query} incluido en el record.
-     * @param limit Valor de {@code limit} incluido en el record.
+     * @param query Texto de búsqueda; null o blanco no impone filtro léxico ni solicita embeddings.
+     * @param limit Máximo funcional de veinte mil candidatos para poder aplicar filtros y
+     *     paginación completos.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     private record SemanticRequest(String query, int limit) {}
 
     /**
-     * Representa los datos inmutables de {@code SemanticResponse}.
+     * Conserva candidatos y versiones declarados por Semantic para comprobar integridad antes de
+     * aplicar sus resultados.
      *
-     * @param candidates Valor de {@code candidates} incluido en el record.
-     * @param modelVersion Valor de {@code modelVersion} incluido en el record.
-     * @param indexVersion Valor de {@code indexVersion} incluido en el record.
-     * @param truncated Valor de {@code truncated} incluido en el record.
+     * @param candidates Candidatos devueltos; una lista ausente se normaliza a vacía.
+     * @param modelVersion Modelo de embeddings usado; null cuando se aplica búsqueda léxica.
+     * @param indexVersion Versión del índice semántico usado; null cuando se aplica búsqueda
+     *     léxica.
+     * @param truncated Indica que Semantic no pudo devolver todos los candidatos del conjunto.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     private record SemanticResponse(
             List<SemanticCandidate> candidates,
@@ -265,12 +316,14 @@ public class SemanticSearchClient {
             String indexVersion,
             boolean truncated) {
         /**
-         * Inicializa una instancia de {@code SemanticResponse}.
+         * Copia la lista recibida para conservar una respuesta estable y normaliza null a lista
+         * vacía.
          *
-         * @param candidates Valor de {@code candidates} utilizado por la operación.
-         * @param modelVersion Valor de {@code modelVersion} utilizado por la operación.
-         * @param indexVersion Valor de {@code indexVersion} utilizado por la operación.
-         * @param truncated Valor de {@code truncated} utilizado por la operación.
+         * @param candidates Candidatos de la respuesta interna.
+         * @param modelVersion Modelo de embeddings usado; null cuando se aplica búsqueda léxica.
+         * @param indexVersion Versión del índice semántico usado; null cuando se aplica búsqueda
+         *     léxica.
+         * @param truncated Indica que Semantic no pudo devolver todos los candidatos del conjunto.
          */
         private SemanticResponse {
             candidates = candidates == null ? List.of() : List.copyOf(candidates);
@@ -278,12 +331,18 @@ public class SemanticSearchClient {
     }
 
     /**
-     * Representa los datos inmutables de {@code SemanticCandidate}.
+     * Relaciona una aplicación con su rango y similitud sin sustituir los filtros ni permisos de
+     * MySQL.
      *
-     * @param appId Valor de {@code appId} incluido en el record.
-     * @param rank Valor de {@code rank} incluido en el record.
-     * @param similarity Valor de {@code similarity} incluido en el record.
+     * @param appId UUID de la aplicación; las rutas textuales también admiten slug o identificador
+     *     Winstall.
+     * @param rank Posición del candidato que Core utiliza para desempatar en el modo semántico.
+     * @param similarity Similitud comunicada por Semantic; la autoridad de filtros y visibilidad
+     *     sigue siendo MySQL.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     private record SemanticCandidate(String appId, int rank, double similarity) {}
 }

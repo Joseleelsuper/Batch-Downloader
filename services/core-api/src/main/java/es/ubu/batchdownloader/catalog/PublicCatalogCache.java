@@ -12,9 +12,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Mantiene respuestas públicas breves sin convertir la caché en fuente de verdad.
+ * Reutiliza respuestas por operación, filtros normalizados y versión persistida, acotando tanto
+ * entradas como tiempo de vida.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.CatalogController
+ * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 @Component
 class PublicCatalogCache {
@@ -26,10 +32,10 @@ class PublicCatalogCache {
     private volatile long versionExpiresAt;
 
     /**
-     * Inicializa la caché acotada.
+     * Crea la caché de respuestas con tamaño acotado y caducidad desde la escritura.
      *
-     * @param maximumSize Número máximo de claves.
-     * @param ttl Vigencia máxima de una respuesta.
+     * @param maximumSize Máximo de respuestas conservadas; los valores negativos se limitan a cero.
+     * @param ttl Duración de cada respuesta en caché desde su inserción.
      */
     @Autowired
     PublicCatalogCache(
@@ -42,14 +48,18 @@ class PublicCatalogCache {
     }
 
     /**
-     * Obtiene o calcula una respuesta asociada a la versión transaccional del catálogo.
+     * Compone la clave con operación, versión y argumentos y calcula la respuesta únicamente cuando
+     * falta en caché.
      *
-     * @param namespace Familia de la consulta.
-     * @param versionSupplier Consulta ligera de versión.
-     * @param arguments Argumentos normalizados.
-     * @param loader Cálculo real.
-     * @param <T> Tipo de respuesta.
-     * @return Respuesta vigente.
+     * @param namespace Grupo de respuestas apps, facets, details o stats para impedir colisiones
+     *     entre contratos.
+     * @param versionSupplier Consulta que obtiene la versión persistida del catálogo; se reutiliza
+     *     durante un segundo.
+     * @param arguments Argumentos de la operación en orden; sus colecciones se normalizan sin
+     *     depender del orden interno.
+     * @param loader Cálculo de la respuesta no nula cuando la clave todavía no está en caché.
+     * @param <T> Tipo de respuesta asociado de forma estable al namespace.
+     * @return respuesta no nula cargada o reutilizada.
      */
     @SuppressWarnings("unchecked")
     <T> T get(
@@ -63,7 +73,13 @@ class PublicCatalogCache {
         return (T) responses.get(key, ignored -> Objects.requireNonNull(loader.get()));
     }
 
-    /** Normaliza cadenas y colecciones para que el orden irrelevante no duplique claves. */
+    /**
+     * Normaliza textos sin mayúsculas ni espacios extremos y ordena los valores de colecciones para
+     * compartir consultas equivalentes.
+     *
+     * @param value Texto que se normaliza o clasifica según el método.
+     * @return representación de clave; null se convierte en cadena vacía.
+     */
     private static String normalize(Object value) {
         if (value == null) {
             return "";
@@ -80,7 +96,13 @@ class PublicCatalogCache {
         return String.valueOf(value);
     }
 
-    /** Conserva durante un segundo la consulta de versión para evitar sustituir una carga por otra. */
+    /**
+     * Consulta la versión como máximo una vez por segundo bajo doble comprobación y bloqueo local.
+     *
+     * @param versionSupplier Consulta que obtiene la versión persistida del catálogo; se reutiliza
+     *     durante un segundo.
+     * @return versión persistida o 0 si el proveedor devuelve null.
+     */
     private String version(Supplier<String> versionSupplier) {
         long now = System.nanoTime();
         String current = cachedVersion;

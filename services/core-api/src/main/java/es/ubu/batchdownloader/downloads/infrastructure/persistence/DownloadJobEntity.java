@@ -20,9 +20,15 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Implementa el componente {@code DownloadJobEntity}.
+ * Mapea el agregado de descarga y sus elementos a JPA, conservando identidad y versión optimista al
+ * reconstruir el dominio.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJob
+ * @see es.ubu.batchdownloader.downloads.infrastructure.persistence.JpaDownloadJobStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Entity
 @Table(name = "download_jobs")
@@ -135,15 +141,15 @@ class DownloadJobEntity {
     private List<DownloadJobItemEntity> items = new ArrayList<>();
 
     /**
-     * Inicializa una instancia de {@code DownloadJobEntity}.
+     * Permite a JPA reconstruir un trabajo y su colección persistida de elementos.
      */
     protected DownloadJobEntity() {}
 
     /**
-     * Ejecuta la operación {@code from}.
+     * Crea la entidad inicial a partir del agregado, incluida su identidad y versión.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
-     * @return Resultado producido por {@code from}.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
+     * @return entidad nueva con elementos asociados.
      */
     static DownloadJobEntity from(DownloadJob job) {
         DownloadJobEntity entity = new DownloadJobEntity();
@@ -154,9 +160,10 @@ class DownloadJobEntity {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code updateFrom}.
+     * Copia el estado del agregado y sincroniza sus elementos sin sustituir la identidad ni la
+     * versión gestionada por JPA.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     void updateFrom(DownloadJob job) {
         ownerId = job.ownerId();
@@ -182,9 +189,10 @@ class DownloadJobEntity {
     }
 
     /**
-     * Ejecuta la operación {@code mergeItems}.
+     * Retira elementos ausentes, actualiza los existentes por UUID y asocia las nuevas entidades al
+     * trabajo.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     private void mergeItems(DownloadJob job) {
         items.removeIf(entity -> job.items().stream().noneMatch(item -> item.id().equals(entity.id())));
@@ -202,9 +210,9 @@ class DownloadJobEntity {
     }
 
     /**
-     * Convierte el valor recibido mediante {@code toDomain}.
+     * Rehidrata el trabajo con sus elementos y versión sin aplicar una nueva transición de estado.
      *
-     * @return Resultado producido por {@code toDomain}.
+     * @return agregado independiente que refleja la entidad persistida.
      */
     DownloadJob toDomain() {
         return DownloadJob.rehydrate(

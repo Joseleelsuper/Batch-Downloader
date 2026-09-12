@@ -5,31 +5,49 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Implementa el componente {@code CatalogDtos}.
+ * Agrupa proyecciones públicas del catálogo y sus metadatos de búsqueda, fuente seleccionable y
+ * actualización.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.CatalogController
+ * @see es.ubu.batchdownloader.catalog.CatalogProjectionRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 public class CatalogDtos {
     /**
-     * Representa los datos inmutables de {@code AppListItem}.
+     * Resume una aplicación activa para tarjetas de búsqueda y bundles sin transportar URLs de
+     * instaladores.
      *
-     * @param id Valor de {@code id} incluido en el record.
-     * @param slug Valor de {@code slug} incluido en el record.
-     * @param packageId Valor de {@code packageId} incluido en el record.
-     * @param name Valor de {@code name} incluido en el record.
-     * @param publisher Valor de {@code publisher} incluido en el record.
-     * @param description Valor de {@code description} incluido en el record.
-     * @param longDescription Valor de {@code longDescription} incluido en el record.
-     * @param tags Valor de {@code tags} incluido en el record.
-     * @param operatingSystems Valor de {@code operatingSystems} incluido en el record.
-     * @param iconUrl Valor de {@code iconUrl} incluido en el record.
-     * @param latestVersion Valor de {@code latestVersion} incluido en el record.
-     * @param sourceLabel Valor de {@code sourceLabel} incluido en el record.
-     * @param resolutionStatus Valor de {@code resolutionStatus} incluido en el record.
-     * @param validationStatus Valor de {@code validationStatus} incluido en el record.
-     * @param downloadable Valor de {@code downloadable} incluido en el record.
-     * @param updatedAt Valor de {@code updatedAt} incluido en el record.
+     * @param id UUID público de la aplicación o de la fuente exacta en una opción de descarga.
+     * @param slug Identificador legible de la aplicación en la ruta de detalle.
+     * @param packageId Identificador Winstall o manual de la aplicación, distinto de su UUID
+     *     público.
+     * @param name Nombre visible de la aplicación.
+     * @param publisher Editor singular opcional; no se descompone por comas.
+     * @param description Descripción breve del propósito de la aplicación.
+     * @param longDescription Descripción ampliada que se muestra en el detalle y participa en la
+     *     búsqueda léxica.
+     * @param tags Etiquetas que debe cumplir conjuntamente cada aplicación, sin distinguir
+     *     mayúsculas.
+     * @param operatingSystems Plataformas con semántica OR; una lista vacía representa todas las
+     *     plataformas.
+     * @param iconUrl URL del icono público de la aplicación cuando está disponible.
+     * @param latestVersion Versión vigente de la aplicación según el catálogo.
+     * @param sourceLabel Etiqueta visible que distingue sitio oficial, fallback, revisión o
+     *     ausencia.
+     * @param resolutionStatus Resultado de resolución de la fuente: directa, fallback, revisión o
+     *     ausencia.
+     * @param validationStatus Resultado de validación del instalador; unchecked representa falta de
+     *     validación vigente en la vista.
+     * @param downloadable Indica que la vista dispone de una fuente resuelta válida y
+     *     seleccionable.
+     * @param updatedAt Fecha de la última actualización de la aplicación.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record AppListItem(
             String id,
@@ -50,19 +68,27 @@ public class CatalogDtos {
             LocalDateTime updatedAt) {}
 
     /**
-     * Representa los datos inmutables de {@code AppSearchResponse}.
+     * Entrega página, total e índice alfabético junto al modo solicitado, el aplicado y el
+     * diagnóstico seguro de degradación.
      *
-     * @param data Valor de {@code data} incluido en el record.
-     * @param page Valor de {@code page} incluido en el record.
-     * @param pageSize Valor de {@code pageSize} incluido en el record.
-     * @param total Valor de {@code total} incluido en el record.
-     * @param alphabet Posiciones disponibles del índice alfabético.
-     * @param requestedMode Valor de {@code requestedMode} incluido en el record.
-     * @param appliedMode Valor de {@code appliedMode} incluido en el record.
-     * @param modelVersion Valor de {@code modelVersion} incluido en el record.
-     * @param indexVersion Valor de {@code indexVersion} incluido en el record.
-     * @param degradedReason Valor de {@code degradedReason} incluido en el record.
+     * @param data Aplicaciones de la página en el orden de búsqueda aplicado.
+     * @param page Página numerada desde uno; el controlador la limita a un mínimo de uno.
+     * @param pageSize Aplicaciones por página; el controlador limita el rango a 1–100.
+     * @param total Número de aplicaciones que cumplen el conjunto completo de filtros antes de
+     *     paginar.
+     * @param alphabet Posiciones iniciales y recuentos por letra de la misma búsqueda ordenada por
+     *     nombre.
+     * @param requestedMode Modo de búsqueda solicitado por el cliente.
+     * @param appliedMode Modo realmente aplicado a resultados, total y facetas.
+     * @param modelVersion Modelo de embeddings usado; null cuando se aplica búsqueda léxica.
+     * @param indexVersion Versión del índice semántico usado; null cuando se aplica búsqueda
+     *     léxica.
+     * @param degradedReason Código seguro de degradación a léxica o null si no hubo fallo que
+     *     comunicar.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record AppSearchResponse(
             List<AppListItem> data,
@@ -76,12 +102,14 @@ public class CatalogDtos {
             String indexVersion,
             String degradedReason) {
         /**
-         * Inicializa una instancia de {@code AppSearchResponse}.
+         * Construye una página léxica sin índice alfabético ni metadatos semánticos para
+         * consumidores del contrato abreviado.
          *
-         * @param data Valor de {@code data} utilizado por la operación.
-         * @param page Número de página solicitado.
-         * @param pageSize Número máximo de elementos incluidos en una página.
-         * @param total Valor de {@code total} utilizado por la operación.
+         * @param data Aplicaciones de la página en el orden de búsqueda aplicado.
+         * @param page Página numerada desde uno; el controlador la limita a un mínimo de uno.
+         * @param pageSize Aplicaciones por página; el controlador limita el rango a 1–100.
+         * @param total Número de aplicaciones que cumplen el conjunto completo de filtros antes de
+         *     paginar.
          */
         public AppSearchResponse(List<AppListItem> data, int page, int pageSize, long total) {
             this(data, page, pageSize, total, List.of(), "lexical", "lexical", null, null, null);
@@ -89,23 +117,32 @@ public class CatalogDtos {
     }
 
     /**
-     * Sitúa el primer resultado de una letra dentro de la paginación alfabética.
+     * Relaciona un grupo alfabético con su primera página y el número de aplicaciones del mismo
+     * conjunto filtrado.
      *
-     * @param letter Letra representada por la entrada.
-     * @param page Primera página que contiene una aplicación de esa letra.
-     * @param count Número de aplicaciones de esa letra bajo los filtros activos.
+     * @param letter Grupo alfabético A–Z o # para prefijos no latinos o numéricos.
+     * @param page Página numerada desde uno; el controlador la limita a un mínimo de uno.
+     * @param count Número de aplicaciones distintas que pertenecen a la faceta o grupo alfabético.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record CatalogAlphabetEntry(String letter, int page, long count) {}
 
     /**
-     * Representa los datos inmutables de {@code FacetItem}.
+     * Conserva etiqueta visible, valor de filtro, clave normalizada, grupo alfabético y recuento de
+     * una faceta.
      *
-     * @param label Valor de {@code label} incluido en el record.
-     * @param value Valor de {@code value} incluido en el record.
-     * @param normalizedValue Valor de {@code normalizedValue} incluido en el record.
-     * @param letter Valor de {@code letter} incluido en el record.
-     * @param count Valor de {@code count} incluido en el record.
+     * @param label Texto visible de una faceta; se usa guion cuando falta o está en blanco.
+     * @param value Texto visible que el cliente devuelve para aplicar esta faceta.
+     * @param normalizedValue Clave de comparación de la faceta; si falta se deriva de su etiqueta
+     *     visible.
+     * @param letter Grupo alfabético A–Z o # para prefijos no latinos o numéricos.
+     * @param count Número de aplicaciones distintas que pertenecen a la faceta o grupo alfabético.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record FacetItem(
             String label,
@@ -115,16 +152,21 @@ public class CatalogDtos {
             long count) {}
 
     /**
-     * Representa los datos inmutables de {@code CatalogFacetsResponse}.
+     * Entrega etiquetas y editores contados bajo los mismos filtros y modo de búsqueda.
      *
-     * @param tags Valor de {@code tags} incluido en el record.
-     * @param publishers Valor de {@code publishers} incluido en el record.
-     * @param requestedMode Valor de {@code requestedMode} incluido en el record.
-     * @param appliedMode Valor de {@code appliedMode} incluido en el record.
-     * @param modelVersion Valor de {@code modelVersion} incluido en el record.
-     * @param indexVersion Valor de {@code indexVersion} incluido en el record.
-     * @param degradedReason Valor de {@code degradedReason} incluido en el record.
+     * @param tags Facetas de etiquetas con recuentos y grupos alfabéticos.
+     * @param publishers Facetas de editores con recuentos y grupos alfabéticos.
+     * @param requestedMode Modo de búsqueda solicitado por el cliente.
+     * @param appliedMode Modo realmente aplicado a resultados, total y facetas.
+     * @param modelVersion Modelo de embeddings usado; null cuando se aplica búsqueda léxica.
+     * @param indexVersion Versión del índice semántico usado; null cuando se aplica búsqueda
+     *     léxica.
+     * @param degradedReason Código seguro de degradación a léxica o null si no hubo fallo que
+     *     comunicar.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record CatalogFacetsResponse(
             List<FacetItem> tags,
@@ -135,10 +177,10 @@ public class CatalogDtos {
             String indexVersion,
             String degradedReason) {
         /**
-         * Inicializa una instancia de {@code CatalogFacetsResponse}.
+         * Construye facetas léxicas sin metadatos de un modelo semántico.
          *
-         * @param tags Valor de {@code tags} utilizado por la operación.
-         * @param publishers Valor de {@code publishers} utilizado por la operación.
+         * @param tags Facetas de etiquetas.
+         * @param publishers Facetas de editores.
          */
         public CatalogFacetsResponse(List<FacetItem> tags, List<FacetItem> publishers) {
             this(tags, publishers, "lexical", "lexical", null, null, null);
@@ -146,21 +188,32 @@ public class CatalogDtos {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadOption}.
+     * Representa un instalador por su UUID exacto y compatibilidad para que la selección del
+     * usuario llegue intacta al worker.
      *
-     * @param id Valor de {@code id} incluido en el record.
-     * @param filename Valor de {@code filename} incluido en el record.
-     * @param extension Valor de {@code extension} incluido en el record.
-     * @param operatingSystem Valor de {@code operatingSystem} incluido en el record.
-     * @param architecture Valor de {@code architecture} incluido en el record.
-     * @param version Valor de {@code version} incluido en el record.
-     * @param isLatest Valor de {@code isLatest} incluido en el record.
-     * @param versionStatus Valor de {@code versionStatus} incluido en el record.
-     * @param sourceLabel Valor de {@code sourceLabel} incluido en el record.
-     * @param score Valor de {@code score} incluido en el record.
-     * @param finalDomain Valor de {@code finalDomain} incluido en el record.
-     * @param isPrimary Valor de {@code isPrimary} incluido en el record.
+     * @param id UUID público de la aplicación o de la fuente exacta en una opción de descarga.
+     * @param filename Nombre conocido del instalador o null si no hay una fuente resuelta
+     *     utilizable.
+     * @param extension Extensión del instalador con punto inicial, o null si no se conoce.
+     * @param operatingSystem Plataforma concreta del candidato: windows, linux o macos.
+     * @param architecture Arquitectura opcional que debe existir entre las fuentes de la
+     *     aplicación.
+     * @param version Versión del instalador, o token de cambio cuando el contrato describe un
+     *     evento de catálogo.
+     * @param isLatest El candidato corresponde a la versión más reciente reconocida.
+     * @param versionStatus Estado de correspondencia de la versión con el catálogo.
+     * @param sourceLabel Etiqueta visible que distingue sitio oficial, fallback, revisión o
+     *     ausencia.
+     * @param score Puntuación de preferencia del candidato según el resolvedor.
+     * @param finalDomain Dominio final observado, sin revelar la URL resuelta completa.
+     * @param isPrimary Se presenta como primera opción según el orden de selección de candidatos.
+     * @param installationSupport automatic, manual o not_applicable según plataforma, extensión y
+     *     perfil aprobado.
+     * @param compatibleLinuxTargets Gestores Linux compatibles con el formato del instalador.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record DownloadOption(
             String id,
@@ -177,6 +230,27 @@ public class CatalogDtos {
             boolean isPrimary,
             String installationSupport,
             List<String> compatibleLinuxTargets) {
+        /**
+         * Calcula soporte y destinos Linux solo por formato cuando no se aporta un perfil aprobado.
+         *
+         * @param id UUID público de la aplicación o de la fuente exacta en una opción de descarga.
+         * @param filename Nombre conocido del instalador o null si no hay una fuente resuelta
+         *     utilizable.
+         * @param extension Extensión del instalador con punto inicial, o null si no se conoce.
+         * @param operatingSystem Plataforma concreta del candidato: windows, linux o macos.
+         * @param architecture Arquitectura opcional que debe existir entre las fuentes de la
+         *     aplicación.
+         * @param version Versión del instalador, o token de cambio cuando el contrato describe un
+         *     evento de catálogo.
+         * @param isLatest El candidato corresponde a la versión más reciente reconocida.
+         * @param versionStatus Estado de correspondencia de la versión con el catálogo.
+         * @param sourceLabel Etiqueta visible que distingue sitio oficial, fallback, revisión o
+         *     ausencia.
+         * @param score Puntuación de preferencia del candidato según el resolvedor.
+         * @param finalDomain Dominio final observado, sin revelar la URL resuelta completa.
+         * @param isPrimary Se presenta como primera opción según el orden de selección de
+         *     candidatos.
+         */
         public DownloadOption(String id, String filename, String extension, String operatingSystem,
                 String architecture, String version, boolean isLatest, String versionStatus,
                 String sourceLabel, int score, String finalDomain, boolean isPrimary) {
@@ -188,37 +262,52 @@ public class CatalogDtos {
     }
 
     /**
-     * Representa los datos inmutables de {@code AppDetails}.
+     * Entrega descripción ampliada, procedencia pública y fuentes exactas de una aplicación sin
+     * exponer direcciones finales protegidas.
      *
-     * @param id Valor de {@code id} incluido en el record.
-     * @param slug Valor de {@code slug} incluido en el record.
-     * @param packageId Valor de {@code packageId} incluido en el record.
-     * @param name Valor de {@code name} incluido en el record.
-     * @param publisher Valor de {@code publisher} incluido en el record.
-     * @param description Valor de {@code description} incluido en el record.
-     * @param longDescription Valor de {@code longDescription} incluido en el record.
-     * @param tags Valor de {@code tags} incluido en el record.
-     * @param operatingSystems Valor de {@code operatingSystems} incluido en el record.
-     * @param iconUrl Valor de {@code iconUrl} incluido en el record.
-     * @param officialUrl Valor de {@code officialUrl} incluido en el record.
-     * @param originUrl Valor de {@code originUrl} incluido en el record.
-     * @param latestVersion Valor de {@code latestVersion} incluido en el record.
-     * @param installerFilename Valor de {@code installerFilename} incluido en el record.
-     * @param installerType Valor de {@code installerType} incluido en el record.
-     * @param contentType Valor de {@code contentType} incluido en el record.
-     * @param sizeBytes Valor de {@code sizeBytes} incluido en el record.
-     * @param finalDomain Valor de {@code finalDomain} incluido en el record.
-     * @param score Valor de {@code score} incluido en el record.
-     * @param resolutionStatus Valor de {@code resolutionStatus} incluido en el record.
-     * @param validationStatus Valor de {@code validationStatus} incluido en el record.
-     * @param downloadable Valor de {@code downloadable} incluido en el record.
-     * @param updatedAt Valor de {@code updatedAt} incluido en el record.
-     * @param sourceLabel Valor de {@code sourceLabel} incluido en el record.
-     * @param checkedAt Valor de {@code checkedAt} incluido en el record.
-     * @param expiresAt Valor de {@code expiresAt} incluido en el record.
-     * @param downloadOptions Valor de {@code downloadOptions} incluido en el record.
-     * @param notes Valor de {@code notes} incluido en el record.
+     * @param id UUID público de la aplicación o de la fuente exacta en una opción de descarga.
+     * @param slug Identificador legible de la aplicación en la ruta de detalle.
+     * @param packageId Identificador Winstall o manual de la aplicación, distinto de su UUID
+     *     público.
+     * @param name Nombre visible de la aplicación.
+     * @param publisher Editor singular opcional; no se descompone por comas.
+     * @param description Descripción breve del propósito de la aplicación.
+     * @param longDescription Descripción ampliada que se muestra en el detalle y participa en la
+     *     búsqueda léxica.
+     * @param tags Etiquetas que debe cumplir conjuntamente cada aplicación, sin distinguir
+     *     mayúsculas.
+     * @param operatingSystems Plataformas con semántica OR; una lista vacía representa todas las
+     *     plataformas.
+     * @param iconUrl URL del icono público de la aplicación cuando está disponible.
+     * @param officialUrl Página oficial pública de la aplicación; no es un instalador resuelto.
+     * @param originUrl Página de procedencia que puede mostrarse al usuario, sin revelar la URL
+     *     final protegida.
+     * @param latestVersion Versión vigente de la aplicación según el catálogo.
+     * @param installerFilename Nombre de la fuente principal del detalle, si existe.
+     * @param installerType Extensión principal sin puntos y en mayúsculas, si existe.
+     * @param contentType Tipo MIME observado para el instalador cuando está disponible.
+     * @param sizeBytes Tamaño conocido del instalador en bytes, o null si no existe medición.
+     * @param finalDomain Dominio final observado, sin revelar la URL resuelta completa.
+     * @param score Puntuación de preferencia del candidato según el resolvedor.
+     * @param resolutionStatus Resultado de resolución de la fuente: directa, fallback, revisión o
+     *     ausencia.
+     * @param validationStatus Resultado de validación del instalador; unchecked representa falta de
+     *     validación vigente en la vista.
+     * @param downloadable Indica que la vista dispone de una fuente resuelta válida y
+     *     seleccionable.
+     * @param updatedAt Fecha de la última actualización de la aplicación.
+     * @param sourceLabel Etiqueta visible que distingue sitio oficial, fallback, revisión o
+     *     ausencia.
+     * @param checkedAt Fecha de la última comprobación de la fuente, o null si no existe.
+     * @param expiresAt Fecha que activa revalidación de la fuente; por sí sola no retira un
+     *     candidato válido del catálogo.
+     * @param downloadOptions Hasta cincuenta fuentes seleccionables con identidad exacta y orden de
+     *     preferencia.
+     * @param notes Explicación visible de procedencia o necesidad de revisión del instalador.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record AppDetails(
             String id,
@@ -251,20 +340,24 @@ public class CatalogDtos {
             String notes) {}
 
     /**
-     * Representa los datos inmutables de {@code LastScrapeRun}.
+     * Resume fechas, progreso y fase de la última ejecución persistida del scraper.
      *
-     * @param status Valor de {@code status} incluido en el record.
-     * @param startedAt Valor de {@code startedAt} incluido en el record.
-     * @param heartbeatAt Valor de {@code heartbeatAt} incluido en el record.
-     * @param finishedAt Valor de {@code finishedAt} incluido en el record.
-     * @param appsDiscovered Valor de {@code appsDiscovered} incluido en el record.
-     * @param appsResolved Valor de {@code appsResolved} incluido en el record.
-     * @param appsFailed Valor de {@code appsFailed} incluido en el record.
-     * @param appsSkipped Valor de {@code appsSkipped} incluido en el record.
-     * @param currentPackageId Valor de {@code currentPackageId} incluido en el record.
-     * @param currentAppName Valor de {@code currentAppName} incluido en el record.
-     * @param currentPhase Valor de {@code currentPhase} incluido en el record.
+     * @param status Estado de ejecución del scraper; es distinto del estado público de una
+     *     aplicación.
+     * @param startedAt Fecha de inicio de la última ejecución del scraper.
+     * @param heartbeatAt Fecha de su último latido persistido.
+     * @param finishedAt Fecha de finalización o null si la ejecución todavía no ha terminado.
+     * @param appsDiscovered Aplicaciones descubiertas durante la ejecución.
+     * @param appsResolved Aplicaciones resueltas durante la ejecución.
+     * @param appsFailed Aplicaciones cuyo procesamiento terminó con error.
+     * @param appsSkipped Aplicaciones omitidas por las reglas de la ejecución.
+     * @param currentPackageId Paquete que se está procesando, o null si no hay uno activo.
+     * @param currentAppName Nombre visible de la aplicación actualmente procesada.
+     * @param currentPhase Fase actual del pipeline de scraping.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record LastScrapeRun(
             String status,
@@ -280,13 +373,18 @@ public class CatalogDtos {
             String currentPhase) {}
 
     /**
-     * Representa los datos inmutables de {@code CatalogStatsResponse}.
+     * Entrega contadores públicos por estado y la última ejecución del scraper con fecha de
+     * generación.
      *
-     * @param total Valor de {@code total} incluido en el record.
-     * @param filters Valor de {@code filters} incluido en el record.
-     * @param lastScrape Valor de {@code lastScrape} incluido en el record.
-     * @param generatedAt Valor de {@code generatedAt} incluido en el record.
+     * @param total Número de aplicaciones que cumplen el conjunto completo de filtros antes de
+     *     paginar.
+     * @param filters Totales bajo all, available, review y missing.
+     * @param lastScrape Última ejecución registrada del scraper, o null si no hay historial.
+     * @param generatedAt Instante UTC en que se construye la estadística o evento.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record CatalogStatsResponse(
             long total,
@@ -295,20 +393,27 @@ public class CatalogDtos {
             LocalDateTime generatedAt) {}
 
     /**
-     * Representa los datos inmutables de {@code DownloadZipRequest}.
+     * Transporta una selección textual de aplicaciones para consumidores del contrato de descarga.
      *
-     * @param appIds Valor de {@code appIds} incluido en el record.
+     * @param appIds UUID de las aplicaciones del lote a enriquecer o consultar.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record DownloadZipRequest(List<String> appIds) {}
 
     /**
-     * Representa los datos inmutables de {@code CatalogChangeEvent}.
+     * Notifica una versión opaca del catálogo para que los clientes invaliden sus consultas.
      *
-     * @param type Valor de {@code type} incluido en el record.
-     * @param version Valor de {@code version} incluido en el record.
-     * @param generatedAt Valor de {@code generatedAt} incluido en el record.
+     * @param type Tipo de evento catalog.changed para invalidación del cliente.
+     * @param version Versión del instalador, o token de cambio cuando el contrato describe un
+     *     evento de catálogo.
+     * @param generatedAt Instante UTC en que se construye la estadística o evento.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
      */
     public record CatalogChangeEvent(String type, String version, LocalDateTime generatedAt) {}
 }
