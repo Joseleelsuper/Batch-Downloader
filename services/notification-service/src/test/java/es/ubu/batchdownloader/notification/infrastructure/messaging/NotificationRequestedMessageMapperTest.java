@@ -12,9 +12,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Agrupa los escenarios de prueba de {@code NotificationRequestedMessageMapperTest}.
+ * Comprueba conversión y rechazo del contrato de mensajería antes de reservar o enviar un evento.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.messaging.NotificationRequestedMessageMapper
+ *
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 class NotificationRequestedMessageMapperTest {
 
@@ -37,7 +43,7 @@ class NotificationRequestedMessageMapperTest {
     private NotificationRequestedMessageMapper mapper;
 
     /**
-     * Prepara el estado necesario para los escenarios de prueba.
+     * Configura el conversor con la clave de enrutamiento canónica de la cola de correo.
      */
     @BeforeEach
     void setUp() {
@@ -52,7 +58,8 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Comprueba el escenario {@code mapsTheCanonicalDownloadReadyRequest}.
+     * Comprueba que un aviso canónico de ZIP disponible conserva identificadores y parámetros al
+     * convertirse al dominio.
      */
     @Test
     void mapsTheCanonicalDownloadReadyRequest() {
@@ -71,7 +78,8 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Comprueba el escenario {@code supportsTheIdentityTemplatesPublishedByCoreApi}.
+     * Comprueba que las plantillas de identidad publicadas por Core aceptan sus parámetros y sobres
+     * cifrados.
      */
     @Test
     void supportsTheIdentityTemplatesPublishedByCoreApi() {
@@ -86,7 +94,7 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Comprueba el escenario {@code acceptsErrorCodeAsTheFailureCodeFallback}.
+     * Comprueba la compatibilidad del alias errorCode en avisos de fallo.
      */
     @Test
     void acceptsErrorCodeAsTheFailureCodeFallback() {
@@ -104,7 +112,7 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsUnsupportedSchemaVersions}.
+     * Comprueba que una versión de sobre no soportada se rechaza antes del procesamiento.
      */
     @Test
     void rejectsUnsupportedSchemaVersions() {
@@ -126,7 +134,7 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsARoutingKeyThatDoesNotMatchTheContract}.
+     * Comprueba que una clave de enrutamiento ajena al contrato impide convertir el mensaje.
      */
     @Test
     void rejectsARoutingKeyThatDoesNotMatchTheContract() {
@@ -140,7 +148,7 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsNonScalarParameters}.
+     * Comprueba que no se admiten objetos o colecciones como parámetros de plantilla.
      */
     @Test
     void rejectsNonScalarParameters() {
@@ -153,6 +161,10 @@ class NotificationRequestedMessageMapperTest {
                 .hasMessageContaining("string, number o boolean");
     }
 
+    /**
+     * Comprueba que los tokens de identidad en texto claro se rechazan: deben llegar en el sobre
+     * cifrado.
+     */
     @Test
     void rejectsPlaintextIdentityTokens() {
         NotificationRequestedMessage message = message(
@@ -165,11 +177,11 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Ejecuta la operación {@code message}.
+     * Crea un sobre de transporte con plantilla y parámetros controlados para probar la validación.
      *
-     * @param template Valor de {@code template} utilizado por la operación.
-     * @param parameters Valor de {@code parameters} utilizado por la operación.
-     * @return Resultado producido por {@code message}.
+     * @param template Plantilla de correo elegida por el escenario.
+     * @param parameters Parámetros controlados que se validan o renderizan.
+     * @return mensaje todavía pendiente de conversión al dominio.
      */
     private NotificationRequestedMessage message(String template, Map<String, Object> parameters) {
         return new NotificationRequestedMessage(

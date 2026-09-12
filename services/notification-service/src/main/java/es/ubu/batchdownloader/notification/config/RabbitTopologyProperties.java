@@ -3,15 +3,22 @@ package es.ubu.batchdownloader.notification.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Representa los datos inmutables de {@code RabbitTopologyProperties}.
+ * Define el enrutamiento durable de solicitudes de correo y de entregas descartadas.
  *
- * @param exchange Valor de {@code exchange} incluido en el record.
- * @param routingKey Valor de {@code routingKey} incluido en el record.
- * @param queue Valor de {@code queue} incluido en el record.
- * @param deadLetterExchange Valor de {@code deadLetterExchange} incluido en el record.
- * @param deadLetterRoutingKey Valor de {@code deadLetterRoutingKey} incluido en el record.
- * @param deadLetterQueue Valor de {@code deadLetterQueue} incluido en el record.
+ * @param exchange Exchange de eventos de descarga al que se suscribe el servicio.
+ * @param routingKey Clave de enrutamiento recibida de RabbitMQ.
+ * @param queue Cola durable de solicitudes de correo.
+ * @param deadLetterExchange Exchange que recibe entregas rechazadas definitivamente.
+ * @param deadLetterRoutingKey Clave usada al enviar una entrega a la cola de descartes.
+ * @param deadLetterQueue Cola durable que conserva entregas rechazadas.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.infrastructure.messaging.RabbitTopologyConfiguration
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.messaging.NotificationRequestedMessageMapper
+ *
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @ConfigurationProperties(prefix = "notification.rabbit")
 public record RabbitTopologyProperties(
@@ -23,14 +30,15 @@ public record RabbitTopologyProperties(
         String deadLetterQueue) {
 
     /**
-     * Inicializa una instancia de {@code RabbitTopologyProperties}.
+     * Exige nombres no vacíos para exchanges, colas y claves y elimina espacios exteriores.
      *
-     * @param exchange Valor de {@code exchange} utilizado por la operación.
-     * @param routingKey Valor de {@code routingKey} utilizado por la operación.
-     * @param queue Valor de {@code queue} utilizado por la operación.
-     * @param deadLetterExchange Valor de {@code deadLetterExchange} utilizado por la operación.
-     * @param deadLetterRoutingKey Valor de {@code deadLetterRoutingKey} utilizado por la operación.
-     * @param deadLetterQueue Valor de {@code deadLetterQueue} utilizado por la operación.
+     * @param exchange Exchange de eventos de descarga al que se suscribe el servicio.
+     * @param routingKey Clave de enrutamiento recibida de RabbitMQ.
+     * @param queue Cola durable de solicitudes de correo.
+     * @param deadLetterExchange Exchange que recibe entregas rechazadas definitivamente.
+     * @param deadLetterRoutingKey Clave usada al enviar una entrega a la cola de descartes.
+     * @param deadLetterQueue Cola durable que conserva entregas rechazadas.
+     * @throws IllegalArgumentException si falta cualquiera de los nombres de la topología.
      */
     public RabbitTopologyProperties {
         exchange = requireText(exchange, "exchange");
@@ -42,13 +50,12 @@ public record RabbitTopologyProperties(
     }
 
     /**
-     * Ejecuta la operación {@code requireText}.
+     * Valida un nombre obligatorio de la topología e identifica su propiedad si falta.
      *
-     * @param value Valor que debe procesarse.
-     * @param property Valor de {@code property} utilizado por la operación.
-     * @return Resultado producido por {@code requireText}.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @param property Sufijo de la propiedad notification.rabbit que se identifica en el error.
+     * @return nombre sin espacios exteriores.
+     * @throws IllegalArgumentException si el nombre es null o está en blanco.
      */
     private static String requireText(String value, String property) {
         if (value == null || value.isBlank()) {

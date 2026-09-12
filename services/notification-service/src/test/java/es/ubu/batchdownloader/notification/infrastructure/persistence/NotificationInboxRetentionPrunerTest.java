@@ -17,9 +17,22 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Prueba la retención de idempotencias del servicio de notificaciones. */
+/**
+ * Comprueba el límite temporal de la limpieza sin perder fallos ni reservas vigentes.
+ *
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.persistence.NotificationInboxRetentionPruner
+ *
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
+ */
 class NotificationInboxRetentionPrunerTest {
 
+    /**
+     * Comprueba que solo desaparecen confirmaciones anteriores a siete días y se conservan las
+     * demás filas.
+     */
     @Test
     void prunesOnlyProcessedRowsOlderThanSevenDays() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

@@ -10,49 +10,58 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Implementa el componente {@code JdbcNotificationInbox}.
+ * Persiste reservas de eventos de correo con caducidad para coordinar consumidores concurrentes.
+ *
+ * Recupera intentos fallidos o reservas vencidas, incrementa sus intentos y confirma únicamente
+ * eventos en PROCESSING. No confirma el envío por el mero hecho de haber reservado un evento.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.application.port.NotificationInbox
+ * @see es.ubu.batchdownloader.notification.config.InboxProperties
+ * @see es.ubu.batchdownloader.notification.application.ProcessEmailNotification
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @Repository
 public class JdbcNotificationInbox implements NotificationInbox {
 
     /**
-     * Constante que define {@code STATUS_PROCESSING}.
+     * Reserva adquirida cuyo resultado aún no ha sido confirmado.
      */
     private static final String STATUS_PROCESSING = "PROCESSING";
     /**
-     * Constante que define {@code STATUS_PROCESSED}.
+     * Evento cuyo envío ya se confirmó y debe ignorarse si vuelve a llegar.
      */
     private static final String STATUS_PROCESSED = "PROCESSED";
     /**
-     * Constante que define {@code STATUS_FAILED}.
+     * Intento fallido que puede reservarse de nuevo en otra entrega.
      */
     private static final String STATUS_FAILED = "FAILED";
     /**
-     * Constante que define {@code MAX_ERROR_LENGTH}.
+     * Máximo de caracteres UTF-16 del error almacenado en el inbox.
      */
     private static final int MAX_ERROR_LENGTH = 1000;
 
     /**
-     * Estado {@code jdbcTemplate} mantenido por {@code JdbcNotificationInbox}.
+     * Acceso JDBC a la base de datos propietaria del inbox.
      */
     private final JdbcTemplate jdbcTemplate;
     /**
-     * Estado {@code properties} mantenido por {@code JdbcNotificationInbox}.
+     * Duración usada para calcular la caducidad de cada reserva.
      */
     private final InboxProperties properties;
     /**
-     * Estado {@code clock} mantenido por {@code JdbcNotificationInbox}.
+     * Reloj usado para comparar reservas y registrar instantes en milisegundos UTC.
      */
     private final Clock clock;
 
     /**
-     * Inicializa una instancia de {@code JdbcNotificationInbox}.
+     * Asocia el almacenamiento del inbox con la duración de reservas y el reloj de expiración.
      *
-     * @param jdbcTemplate Valor de {@code jdbcTemplate} utilizado por la operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param jdbcTemplate Acceso JDBC a la base de datos propietaria del inbox.
+     * @param properties Duración positiva de la reserva de procesamiento.
+     * @param clock Reloj usado para comparar reservas y registrar instantes en milisegundos UTC.
      */
     public JdbcNotificationInbox(JdbcTemplate jdbcTemplate, InboxProperties properties, Clock clock) {
         this.jdbcTemplate = jdbcTemplate;
@@ -61,11 +70,14 @@ public class JdbcNotificationInbox implements NotificationInbox {
     }
 
     /**
-     * Reserva el elemento solicitado mediante {@code claim}.
+     * Recupera de forma transaccional una reserva fallida o vencida; si es nueva, intenta
+     * insertarla.
+     * Una colisión de clave distingue un evento ya confirmado de una reserva todavía ocupada.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param eventType Valor de {@code eventType} utilizado por la operación.
-     * @return Resultado producido por {@code claim}.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @param eventType Tipo de evento almacenado junto a la reserva del inbox.
+     * @return resultado de la reserva; nunca concede permiso por una simple lectura previa.
+     * @see es.ubu.batchdownloader.notification.application.port.NotificationInbox
      */
     @Override
     @Transactional
@@ -110,9 +122,11 @@ public class JdbcNotificationInbox implements NotificationInbox {
     }
 
     /**
-     * Marca el recurso solicitado mediante {@code markProcessed}.
+     * Confirma una única reserva PROCESSING, guarda el instante del envío y elimina el error y la
+     * caducidad.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @throws IllegalStateException si no se actualiza exactamente una reserva en procesamiento.
      */
     @Override
     public void markProcessed(UUID eventId) {
@@ -131,10 +145,14 @@ public class JdbcNotificationInbox implements NotificationInbox {
     }
 
     /**
-     * Marca el recurso solicitado mediante {@code markFailed}.
+     * Marca FAILED una reserva PROCESSING, elimina su caducidad y guarda hasta 1000 caracteres del
+     * error.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param error Valor de {@code error} utilizado por la operación.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @param error Descripción del fallo persistido; puede estar vacía y se acota antes de
+     *     guardarla.
+     *
+     * @throws IllegalStateException si no se actualiza exactamente una reserva en procesamiento.
      */
     @Override
     public void markFailed(UUID eventId, String error) {
@@ -152,10 +170,10 @@ public class JdbcNotificationInbox implements NotificationInbox {
     }
 
     /**
-     * Ejecuta la operación {@code existingClaimResult}.
+     * Consulta el evento que provocó una colisión al insertar una reserva.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @return Resultado producido por {@code existingClaimResult}.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @return ALREADY_PROCESSED si está confirmado; BUSY para cualquier otro estado.
      */
     private ClaimResult existingClaimResult(UUID eventId) {
         String status = jdbcTemplate.queryForObject(
@@ -166,12 +184,14 @@ public class JdbcNotificationInbox implements NotificationInbox {
     }
 
     /**
-     * Ejecuta la operación {@code requireSingleUpdate}.
+     * Impide aceptar una confirmación o un fallo que no haya modificado la reserva esperada.
      *
-     * @param updated Valor de {@code updated} utilizado por la operación.
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param targetStatus Valor de {@code targetStatus} utilizado por la operación.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param updated Número de filas afectadas por la transición del evento.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @param targetStatus Estado final solicitado, utilizado en el diagnóstico de una transición
+     *     fallida.
+     *
+     * @throws IllegalStateException si la transición no afecta exactamente a una fila.
      */
     private void requireSingleUpdate(int updated, UUID eventId, String targetStatus) {
         if (updated != 1) {
@@ -181,10 +201,12 @@ public class JdbcNotificationInbox implements NotificationInbox {
     }
 
     /**
-     * Ejecuta la operación {@code truncate}.
+     * Adapta el error al tamaño de almacenamiento y sustituye los mensajes ausentes.
      *
-     * @param error Valor de {@code error} utilizado por la operación.
-     * @return Resultado producido por {@code truncate}.
+     * @param error Descripción del fallo persistido; puede estar vacía y se acota antes de
+     *     guardarla.
+     *
+     * @return texto de hasta 1000 caracteres; Error no especificado si falta contenido.
      */
     private String truncate(String error) {
         String safeError = error == null || error.isBlank() ? "Error no especificado" : error;

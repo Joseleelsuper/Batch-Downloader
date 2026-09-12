@@ -6,16 +6,29 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Representa los datos inmutables de {@code EmailNotification}.
+ * Transporta un correo validado desde el consumidor de eventos hasta el proveedor.
  *
- * @param eventId Valor de {@code eventId} incluido en el record.
- * @param occurredAt Valor de {@code occurredAt} incluido en el record.
- * @param correlationId Valor de {@code correlationId} incluido en el record.
- * @param causationId Valor de {@code causationId} incluido en el record.
- * @param recipient Valor de {@code recipient} incluido en el record.
- * @param template Valor de {@code template} incluido en el record.
- * @param parameters Valor de {@code parameters} incluido en el record.
+ * Conserva la identidad de la entrega para el inbox y la idempotencia del proveedor; copia los
+ * parámetros para impedir modificaciones posteriores. La validación específica de cada plantilla
+ * se realiza al convertir el mensaje de RabbitMQ.
+ *
+ * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+ * @param occurredAt Instante UTC en que el productor emitió el evento.
+ * @param correlationId Identificador de trazabilidad del flujo que solicitó el correo.
+ * @param causationId Identificador del evento causante; puede ser null.
+ * @param recipient Dirección de correo del destinatario, sin nombre visible ni lista de
+ *     direcciones.
+ *
+ * @param template Finalidad del correo, que determina sus parámetros y proveedor.
+ * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.messaging.NotificationRequestedMessageMapper
+ *
+ * @see es.ubu.batchdownloader.notification.application.port.NotificationSender
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 public record EmailNotification(
         UUID eventId,
@@ -27,24 +40,31 @@ public record EmailNotification(
         Map<String, Object> parameters) {
 
     /**
-     * Constante que define {@code EVENT_TYPE}.
+     * Tipo de evento aceptado por el consumidor y registrado en el inbox.
      */
     public static final String EVENT_TYPE = "notification.email.requested";
     /**
-     * Constante que define {@code SCHEMA_VERSION}.
+     * Versión del sobre de mensajería aceptada por el conversor de entrada.
      */
     public static final int SCHEMA_VERSION = 1;
 
     /**
-     * Inicializa una instancia de {@code EmailNotification}.
+     * Exige identidad, fecha, correlación, destinatario y plantilla; conserva una copia inmutable
+     * de los parámetros.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param occurredAt Valor de {@code occurredAt} utilizado por la operación.
-     * @param correlationId Identificador de {@code correlation} utilizado por la operación.
-     * @param causationId Identificador de {@code causation} utilizado por la operación.
-     * @param recipient Valor de {@code recipient} utilizado por la operación.
-     * @param template Valor de {@code template} utilizado por la operación.
-     * @param parameters Valor de {@code parameters} utilizado por la operación.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @param occurredAt Instante UTC en que el productor emitió el evento.
+     * @param correlationId Identificador de trazabilidad del flujo que solicitó el correo.
+     * @param causationId Identificador del evento causante; puede ser null.
+     * @param recipient Dirección de correo del destinatario, sin nombre visible ni lista de
+     *     direcciones.
+     *
+     * @param template Finalidad del correo, que determina sus parámetros y proveedor.
+     * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
+     * @throws NullPointerException si falta un valor obligatorio o el mapa contiene claves o
+     *     valores null.
+     *
+     * @throws IllegalArgumentException si correlación o destinatario están vacíos.
      */
     public EmailNotification {
         eventId = Objects.requireNonNull(eventId, "eventId no puede ser null");
@@ -56,12 +76,11 @@ public record EmailNotification(
     }
 
     /**
-     * Ejecuta la operación {@code requiredParameter}.
+     * Lee como texto un parámetro obligatorio y elimina sus espacios exteriores.
      *
-     * @param name Nombre del elemento sobre el que se actúa.
-     * @return Resultado producido por {@code requiredParameter}.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param name Nombre del parámetro obligatorio de la plantilla.
+     * @return representación textual no vacía del parámetro.
+     * @throws IllegalArgumentException si el parámetro no existe o su texto está vacío.
      */
     public String requiredParameter(String name) {
         Object value = parameters.get(name);
@@ -72,46 +91,50 @@ public record EmailNotification(
     }
 
     /**
-     * Ejecuta la operación {@code eventType}.
+     * Identifica la solicitud de correo almacenada en el inbox.
      *
-     * @return Resultado producido por {@code eventType}.
+     * @return tipo notification.email.requested compartido por productores y consumidores.
      */
     public String eventType() {
         return EVENT_TYPE;
     }
 
     /**
-     * Enumera los valores admitidos por {@code Template}.
+     * Selecciona el contenido y los parámetros requeridos: identidad en Resend o estado de descarga
+     * en SMTP.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Notificaciones
      */
     public enum Template {
         /**
-         * Constante que define {@code EMAIL_VERIFICATION}.
+         * Solicita confirmar la dirección de correo mediante un token cifrado de un solo uso.
          */
         EMAIL_VERIFICATION,
         /**
-         * Constante que define {@code PASSWORD_RESET}.
+         * Solicita restablecer la contraseña mediante un token cifrado de un solo uso.
          */
         PASSWORD_RESET,
         /**
-         * Constante que define {@code DOWNLOAD_READY}.
+         * Comunica que el ZIP está disponible y cuándo caduca.
          */
         DOWNLOAD_READY,
         /**
-         * Constante que define {@code DOWNLOAD_FAILED}.
+         * Comunica el fallo de preparación del trabajo y su código.
          */
         DOWNLOAD_FAILED
     }
 
     /**
-     * Ejecuta la operación {@code requireText}.
+     * Rechaza campos de texto obligatorios vacíos y elimina sus espacios exteriores.
      *
-     * @param value Valor que debe procesarse.
-     * @param fieldName Valor de {@code fieldName} utilizado por la operación.
-     * @return Resultado producido por {@code requireText}.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @param fieldName Nombre del campo que se incluye en el error de validación.
+     * @return texto validado y sin espacios exteriores.
+     * @throws IllegalArgumentException si el campo es null o está en blanco.
      */
     private static String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {

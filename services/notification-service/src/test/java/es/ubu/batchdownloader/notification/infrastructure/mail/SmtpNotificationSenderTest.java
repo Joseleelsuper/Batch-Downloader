@@ -22,9 +22,13 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
 /**
- * Agrupa los escenarios de prueba de {@code SmtpNotificationSenderTest}.
+ * Comprueba asuntos, cuerpos y enlaces españoles de descarga con un cliente SMTP simulado.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.infrastructure.mail.SmtpNotificationSender
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @ExtendWith(MockitoExtension.class)
 class SmtpNotificationSenderTest {
@@ -41,7 +45,7 @@ class SmtpNotificationSenderTest {
     private SmtpNotificationSender sender;
 
     /**
-     * Prepara el estado necesario para los escenarios de prueba.
+     * Prepara el emisor SMTP simulado y la base pública y zona horaria usadas por las plantillas.
      */
     @BeforeEach
     void setUp() {
@@ -54,7 +58,8 @@ class SmtpNotificationSenderTest {
     }
 
     /**
-     * Comprueba el escenario {@code rendersTheSpanishDownloadReadyTemplate}.
+     * Comprueba que el aviso de ZIP disponible contiene enlace público, trabajo y caducidad
+     * localizada.
      */
     @Test
     void rendersTheSpanishDownloadReadyTemplate() {
@@ -75,8 +80,8 @@ class SmtpNotificationSenderTest {
     }
 
     /**
-     * Comprueba el escenario {@code
-     * rendersTheSpanishDownloadFailureTemplateWithErrorCodeFallback}.
+     * Comprueba que el aviso de fallo conserva el detalle y acepta errorCode como alternativa al
+     * código actual.
      */
     @Test
     void rendersTheSpanishDownloadFailureTemplateWithErrorCodeFallback() {
@@ -98,7 +103,7 @@ class SmtpNotificationSenderTest {
     }
 
     /**
-     * Comprueba el escenario {@code rendersTheSpanishEmailVerificationTemplate}.
+     * Comprueba que SMTP rechaza las plantillas de identidad mediante un fallo permanente.
      */
     @Test
     void rejectsIdentityTemplatesThatBelongToResend() {
@@ -113,11 +118,11 @@ class SmtpNotificationSenderTest {
     }
 
     /**
-     * Ejecuta la operación {@code notification}.
+     * Construye un evento válido con la plantilla y parámetros que necesita cada escenario SMTP.
      *
-     * @param template Valor de {@code template} utilizado por la operación.
-     * @param parameters Valor de {@code parameters} utilizado por la operación.
-     * @return Resultado producido por {@code notification}.
+     * @param template Plantilla de correo elegida por el escenario.
+     * @param parameters Parámetros controlados que se validan o renderizan.
+     * @return solicitud local de prueba.
      */
     private EmailNotification notification(
             EmailNotification.Template template,
@@ -133,10 +138,10 @@ class SmtpNotificationSenderTest {
     }
 
     /**
-     * Envía el contenido solicitado mediante {@code sendAndCapture}.
+     * Invoca al emisor y captura el mensaje que recibe el cliente SMTP simulado.
      *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @return Resultado producido por {@code sendAndCapture}.
+     * @param notification Solicitud de correo preparada por el escenario de prueba.
+     * @return mensaje listo para comprobar asunto, destinatario y cuerpo.
      */
     private SimpleMailMessage sendAndCapture(EmailNotification notification) {
         sender.send(notification);

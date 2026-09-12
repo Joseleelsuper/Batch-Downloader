@@ -14,9 +14,21 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-/** Verifica la observabilidad acotada alrededor del router de correo. */
+/**
+ * Comprueba métricas de envío y propagación de fallos sin introducir etiquetas con datos de
+ * destinatarios.
+ *
+ * @see es.ubu.batchdownloader.notification.infrastructure.mail.MeteredNotificationSender
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
+ */
 class MeteredNotificationSenderTest {
 
+    /**
+     * Comprueba que el éxito queda medido por plantilla y resultado sin etiquetas de destinatario
+     * ni evento.
+     */
     @Test
     void recordsSuccessWithoutRecipientOrEventTags() {
         RoutingNotificationSender delegate = mock(RoutingNotificationSender.class);
@@ -38,6 +50,9 @@ class MeteredNotificationSenderTest {
                         || tag.getKey().equals("eventId"));
     }
 
+    /**
+     * Comprueba que la instrumentación registra el fallo y vuelve a propagar la misma excepción.
+     */
     @Test
     void preservesFailureAndRecordsIt() {
         RoutingNotificationSender delegate = mock(RoutingNotificationSender.class);
@@ -57,6 +72,11 @@ class MeteredNotificationSenderTest {
                 .count()).isEqualTo(1);
     }
 
+    /**
+     * Crea una solicitud de correo válida para medir el envío sin contactar con ningún proveedor.
+     *
+     * @return evento de prueba con destinatario y parámetros locales.
+     */
     private EmailNotification notification() {
         return new EmailNotification(
                 UUID.randomUUID(),

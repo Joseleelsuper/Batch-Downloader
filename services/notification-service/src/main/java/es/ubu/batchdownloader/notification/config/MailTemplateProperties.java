@@ -6,24 +6,34 @@ import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Representa los datos inmutables de {@code MailTemplateProperties}.
+ * Configura remitente, zona de presentación de fechas y base pública de enlaces de los correos.
  *
- * @param from Valor de {@code from} incluido en el record.
- * @param zoneId Valor de {@code zoneId} incluido en el record.
- * @param publicBaseUrl Valor de {@code publicBaseUrl} incluido en el record.
+ * @param from Remitente configurado para el proveedor de correo.
+ * @param zoneId Identificador de zona horaria usado para mostrar la caducidad en los mensajes.
+ * @param publicBaseUrl URI absoluta de la web pública desde la que se construyen enlaces al
+ *     usuario.
+ *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.infrastructure.mail.SmtpNotificationSender
+ * @see es.ubu.batchdownloader.notification.infrastructure.mail.ResendNotificationSender
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @ConfigurationProperties(prefix = "notification.mail")
 public record MailTemplateProperties(String from, String zoneId, URI publicBaseUrl) {
 
     /**
-     * Inicializa una instancia de {@code MailTemplateProperties}.
+     * Normaliza el remitente y exige zona horaria reconocida y base pública absoluta.
      *
-     * @param from Valor de {@code from} utilizado por la operación.
-     * @param zoneId Identificador de {@code zone} utilizado por la operación.
-     * @param publicBaseUrl Dirección de {@code publicBase} que debe procesarse.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param from Remitente configurado para el proveedor de correo.
+     * @param zoneId Identificador de zona horaria usado para mostrar la caducidad en los mensajes.
+     * @param publicBaseUrl URI absoluta de la web pública desde la que se construyen enlaces al
+     *     usuario.
+     *
+     * @throws IllegalArgumentException si el remitente está vacío o la URI no es absoluta.
+     * @throws java.time.DateTimeException si la zona horaria no es válida.
+     * @throws NullPointerException si falta la zona o la base pública.
      */
     public MailTemplateProperties {
         if (from == null || from.isBlank()) {
@@ -39,9 +49,9 @@ public record MailTemplateProperties(String from, String zoneId, URI publicBaseU
     }
 
     /**
-     * Resuelve el recurso solicitado mediante {@code resolvedZoneId}.
+     * Resuelve la zona usada para mostrar al destinatario los instantes de caducidad.
      *
-     * @return Resultado producido por {@code resolvedZoneId}.
+     * @return zona horaria configurada.
      */
     public ZoneId resolvedZoneId() {
         return ZoneId.of(zoneId);
