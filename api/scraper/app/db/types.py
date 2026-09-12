@@ -1,5 +1,4 @@
-"""Implementa las responsabilidades del módulo `types`.
-"""
+"""Adapta UUID Python a BINARY(16) en MySQL y a texto de 36 caracteres en otros dialectos."""
 import uuid
 from typing import Any
 
@@ -7,24 +6,28 @@ from sqlalchemy.types import BINARY, CHAR, TypeDecorator
 
 
 class GUID(TypeDecorator):
-    """Representa el componente `GUID`.
+    """Mantiene identidades UUID iguales entre la base MySQL y los dialectos de pruebas,
+    aceptando representación binaria, textual o UUID.
+
+    See Also:
+        uuid_pk: Genera los identificadores usados como valor predeterminado.
     """
 
     impl = CHAR
-    """Atributo de clase `impl` de `GUID`.
-    """
+
     cache_ok = True
-    """Atributo de clase `cache_ok` de `GUID`.
-    """
+
 
     def load_dialect_impl(self, dialect: Any) -> Any:
-        """Carga la operación `dialect_impl`.
+        """Selecciona el almacenamiento compacto de MySQL o su equivalente textual para otros
+        motores.
 
         Args:
-            dialect (Any): Valor de `dialect` utilizado por la operación.
+            dialect: Dialecto SQLAlchemy que determina la representación binaria o textual del
+                UUID.
 
         Returns:
-            Any: Resultado de `load_dialect_impl`.
+            descriptor BINARY(16) o CHAR(36), respectivamente.
         """
 
         if dialect.name == "mysql":
@@ -32,14 +35,19 @@ class GUID(TypeDecorator):
         return dialect.type_descriptor(CHAR(36))
 
     def process_bind_param(self, value: Any, dialect: Any) -> Any:
-        """Procesa la operación `bind_param`.
+        """Normaliza el UUID de entrada y obtiene bytes o texto según el dialecto; conserva None
+        para valores SQL nulos.
 
         Args:
-            value (Any): Valor que debe procesarse.
-            dialect (Any): Valor de `dialect` utilizado por la operación.
+            value: Valor que se convierte al formato del destino.
+            dialect: Dialecto SQLAlchemy que determina la representación binaria o textual del
+                UUID.
 
         Returns:
-            Any: Resultado producido por la operación.
+            16 bytes en MySQL, cadena UUID en otros motores o None.
+
+        Raises:
+            ValueError: Si el valor no representa un UUID válido.
         """
 
         if value is None:
@@ -55,14 +63,16 @@ class GUID(TypeDecorator):
         return str(value)
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
-        """Procesa la operación `result_value`.
+        """Recupera un UUID desde la representación de la base y conserva valores ya convertidos
+        o nulos.
 
         Args:
-            value (Any): Valor que debe procesarse.
-            dialect (Any): Valor de `dialect` utilizado por la operación.
+            value: Valor que se convierte al formato del destino.
+            dialect: Dialecto SQLAlchemy que determina la representación binaria o textual del
+                UUID.
 
         Returns:
-            Any: Resultado producido por la operación.
+            UUID Python o None.
         """
         if value is None:
             return None
@@ -74,10 +84,10 @@ class GUID(TypeDecorator):
 
 
 def uuid_pk() -> uuid.UUID:
-    """Ejecuta la operación `uuid_pk`.
+    """Genera una identidad aleatoria para una nueva fila antes de insertarla.
 
     Returns:
-        uuid.UUID: Resultado producido por la operación.
+        UUID de versión cuatro.
     """
 
     return uuid.uuid4()

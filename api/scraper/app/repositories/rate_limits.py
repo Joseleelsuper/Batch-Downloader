@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `rate_limits`.
+"""Coordina en la base de datos los turnos de llamadas LLM compartidos por los procesos de
+descripciones.
 """
 from __future__ import annotations
 
@@ -13,15 +14,17 @@ from app.db.models import ScraperRateLimit
 from app.db.session import AsyncSessionLocal
 
 LLM_RATE_LIMIT_KEY = "descriptor_llm"
-"""Constante que define `LLM_RATE_LIMIT_KEY`.
-"""
+
 LLM_REQUEST_INTERVAL_SECONDS = 5.0
-"""Constante que define `LLM_REQUEST_INTERVAL_SECONDS`.
-"""
+
 
 
 class DatabaseLLMRateLimiter:
-    """Representa el componente `DatabaseLLMRateLimiter`.
+    """Reserva turnos bajo bloqueo de la fila descriptor_llm y espera fuera de la transacción
+    para no retener la conexión durante la pausa.
+
+    See Also:
+        app.db.models.ScraperRateLimit: Guarda el próximo instante permitido.
     """
     def __init__(
         self,
@@ -30,28 +33,27 @@ class DatabaseLLMRateLimiter:
         now: Callable[[], datetime] = utc_now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
-        """Inicializa una instancia de `DatabaseLLMRateLimiter`.
+        """Configura la separación de solicitudes y permite sustituir reloj y espera para probar
+        reservas sin pausas reales.
 
         Args:
-            interval_seconds (float): Valor de `interval_seconds` utilizado por la operación.
-            now (Callable[[], datetime]): Valor de `now` utilizado por la operación.
-            sleep (Callable[[float], Awaitable[None]]): Valor de `sleep` utilizado por la operación.
+            interval_seconds: Separación en segundos entre turnos de solicitudes LLM.
+            now: Función que devuelve un instante UTC sin tzinfo.
+            sleep: Espera asíncrona sustituible en pruebas; recibe segundos.
         """
         self.interval_seconds = interval_seconds
-        """Estado de instancia asociado a `interval_seconds`.
-        """
+
         self.now = now
-        """Estado de instancia asociado a `now`.
-        """
+
         self.sleep = sleep
-        """Estado de instancia asociado a `sleep`.
-        """
+
 
     async def wait_for_slot(self) -> datetime:
-        """Ejecuta `wait_for_slot` dentro de `DatabaseLLMRateLimiter`.
+        """Abre una sesión independiente, reserva el siguiente turno y confirma antes de esperar
+        hasta su instante.
 
         Returns:
-            datetime: Resultado producido por la operación.
+            instante UTC reservado para la solicitud.
         """
         async with AsyncSessionLocal() as session:
             async with session.begin():

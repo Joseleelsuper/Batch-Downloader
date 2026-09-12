@@ -1,4 +1,6 @@
-"""Wrappers HTTP seguros utilizados por las operaciones de scraping."""
+"""Expone el contrato de petición, respuesta y error y el cliente compuesto para consultar
+recursos HTTPS públicos.
+"""
 
 from app.scraper.http.fetchers import HttpxPublicResourceFetcher
 from app.scraper.http.models import FetchRequest, SafeHttpError, SafeHttpResponse

@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `app_mapper`.
+"""Convierte entidades del catálogo en respuestas públicas manteniendo preferencia de
+instaladores y referencias exactas.
 """
 from app.db.enums import ResolutionStatus, ValidationStatus
 from app.db.models import ResolvedSource, SoftwareApp
@@ -6,13 +7,17 @@ from app.schemas.apps import AppDetails, AppListItem, DownloadOption
 
 
 def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
-    """Ejecuta la operación `valid_resolved_sources`.
+    """Filtra fuentes directas o fallback válidas con proyección descargable; deduplica por
+    dominio, archivo, formato, estado, plataforma y versión.
+    En cada grupo conserva la comprobación más reciente, desempata por puntuación y ordena las
+    opciones resultantes.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación con fuentes, resoluciones y etiquetas precargadas y proyección de
+            disponibilidad.
 
     Returns:
-        list[ResolvedSource]: Colección de elementos obtenidos por la operación.
+        resoluciones publicables ordenadas por preferencia; vacía si no hay opciones.
     """
     candidates = [
         resolved
@@ -47,13 +52,15 @@ def valid_resolved_sources(app: SoftwareApp) -> list[ResolvedSource]:
 
 
 def best_resolved_source(app: SoftwareApp) -> ResolvedSource | None:
-    """Ejecuta la operación `best_resolved_source`.
+    """Selecciona la primera resolución tras filtrar, deduplicar y ordenar las opciones
+    publicables.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación con fuentes, resoluciones y etiquetas precargadas y proyección de
+            disponibilidad.
 
     Returns:
-        ResolvedSource | None: Resultado producido por la operación.
+        opción preferida o None.
     """
     candidates = valid_resolved_sources(app)
     if not candidates:
@@ -62,13 +69,14 @@ def best_resolved_source(app: SoftwareApp) -> ResolvedSource | None:
 
 
 def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, int, int, object]:
-    """Ejecuta la operación `resolved_sort_key`.
+    """Prioriza origen directo, versión reciente, posición de publicación y marca principal,
+    seguidos de puntuación descendente y caducidad.
 
     Args:
-        item (ResolvedSource): Valor de `item` utilizado por la operación.
+        item: Resolución que se ordena para elegir la opción preferida.
 
     Returns:
-        tuple[int, int, int, int, int, object]: Resultado producido por la operación.
+        tupla ascendente que conserva el orden histórico de selección.
     """
     status_priority = {ResolutionStatus.DIRECT.value: 0, ResolutionStatus.FALLBACK.value: 1}
     metadata = item.metadata_json or {}
@@ -86,13 +94,16 @@ def resolved_sort_key(item: ResolvedSource) -> tuple[int, int, int, int, int, ob
 
 
 def source_status(app: SoftwareApp) -> tuple[str, str]:
-    """Ejecuta la operación `source_status`.
+    """Elige un estado representativo cuando no se ha seleccionado una resolución: revisión antes
+    que ausencia o rotura.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación con fuentes, resoluciones y etiquetas precargadas y proyección de
+            disponibilidad.
 
     Returns:
-        tuple[str, str]: Resultado producido por la operación.
+        par resolución/validación; missing y unchecked si ninguna fuente aporta un estado de
+            esos grupos.
     """
     review = next(
         (
@@ -120,13 +131,13 @@ def source_status(app: SoftwareApp) -> tuple[str, str]:
 
 
 def source_label(status: str) -> str:
-    """Ejecuta la operación `source_label`.
+    """Traduce los estados de resolución a etiquetas de origen legibles en el catálogo.
 
     Args:
-        status (str): Valor de `status` utilizado por la operación.
+        status: Estado de resolución que se presenta al usuario.
 
     Returns:
-        str: Resultado producido por la operación.
+        etiqueta de sitio oficial, fallback, revisión o no disponible.
     """
     if status == ResolutionStatus.DIRECT.value:
         return "Sitio oficial"
@@ -138,25 +149,27 @@ def source_label(status: str) -> str:
 
 
 def winstall_app_url(package_id: str) -> str:
-    """Ejecuta la operación `winstall_app_url`.
+    """Forma el enlace público de la ficha Winstall a partir del identificador del paquete.
 
     Args:
-        package_id (str): Identificador de `package` utilizado por la operación.
+        package_id: Identificador público del paquete en Winstall.
 
     Returns:
-        str: Resultado producido por la operación.
+        URL de la ficha de origen.
     """
     return f"https://winstall.app/apps/{package_id}"
 
 
 def app_origin_url(app: SoftwareApp) -> str | None:
-    """Ejecuta la operación `app_origin_url`.
+    """Usa la ficha Winstall para aplicaciones importadas y la página de inspección manual o web
+    oficial para altas manuales.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación con fuentes, resoluciones y etiquetas precargadas y proyección de
+            disponibilidad.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        página de procedencia conocida o None.
     """
     if not app.winstall_id.startswith("manual."):
         return winstall_app_url(app.winstall_id)
@@ -173,25 +186,29 @@ def app_origin_url(app: SoftwareApp) -> str | None:
 
 
 def app_tags(app: SoftwareApp) -> list[str]:
-    """Ejecuta la operación `app_tags`.
+    """Elimina etiquetas exactamente repetidas y las ordena sin distinguir mayúsculas para
+    presentar el catálogo.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación con fuentes, resoluciones y etiquetas precargadas y proyección de
+            disponibilidad.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        textos únicos ordenados por casefold.
     """
     return sorted({tag.tag for tag in app.tags}, key=str.casefold)
 
 
 def to_list_item(app: SoftwareApp) -> AppListItem:
-    """Ejecuta la operación `to_list_item`.
+    """Combina los metadatos de la aplicación con el estado de su mejor instalador o con el
+    estado representativo sin descarga.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación con fuentes, resoluciones y etiquetas precargadas y proyección de
+            disponibilidad.
 
     Returns:
-        AppListItem: Colección de elementos obtenidos por la operación.
+        elemento público del listado sin URL privada.
     """
     resolved = best_resolved_source(app)
     resolution_status, validation_status = source_status(app)
@@ -219,13 +236,15 @@ def to_list_item(app: SoftwareApp) -> AppListItem:
 
 
 def to_details(app: SoftwareApp) -> AppDetails:
-    """Ejecuta la operación `to_details`.
+    """Construye la ficha completa con todas las opciones publicables, metadatos de la principal
+    y notas sobre origen o falta de instalador.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación con fuentes, resoluciones y etiquetas precargadas y proyección de
+            disponibilidad.
 
     Returns:
-        AppDetails: Resultado producido por la operación.
+        detalle público con referencias exactas de resolución y URL de páginas de origen.
     """
     resolved_options = valid_resolved_sources(app)
     resolved = resolved_options[0] if resolved_options else None
@@ -285,14 +304,16 @@ def to_details(app: SoftwareApp) -> AppDetails:
 
 
 def to_download_option(resolved: ResolvedSource, is_primary: bool) -> DownloadOption:
-    """Ejecuta la operación `to_download_option`.
+    """Publica la identidad y metadatos de una resolución sin revelar su URL de descarga;
+    conserva la marca de preferencia recibida.
 
     Args:
-        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
-        is_primary (bool): Valor de `is_primary` utilizado por la operación.
+        resolved: Resolución publicable que conserva su identidad exacta.
+        is_primary: True marca esta opción como la preferida del detalle.
 
     Returns:
-        DownloadOption: Resultado producido por la operación.
+        opción seleccionable con plataforma Windows y arquitectura UNKNOWN si falta la
+            relación de fuente.
     """
     source = resolved.source
     return DownloadOption(

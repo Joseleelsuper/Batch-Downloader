@@ -1,17 +1,20 @@
-"""Implementa las responsabilidades del módulo `internal_routes`."""
+"""Adapta operaciones autenticadas de resolución, enriquecimiento e inspección a contratos HTTP y
+confirma sus cambios antes de responder.
+
+See Also:
+    app.api.dependencies.require_internal_service_token: Autentica a Core, worker e indexador.
+    app.application.source_resolution.resolve_source: Mantiene la política de resolución fuera
+        de la ruta HTTP.
+"""
 
 from __future__ import annotations
 
 import secrets as secrets
-from datetime import datetime
 from typing import Annotated, cast
-from urllib.parse import urlparse
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 
@@ -21,13 +24,15 @@ from app.api.dependencies import (
 from app.api.dependencies import (
     require_internal_service_token,
 )
+from app.application.source_resolution import (
+    SourceNotFoundError,
+    SourceRevalidationTransientError,
+    resolve_source,
+)
 from app.core.config import Settings, get_settings
-from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
-from app.db.enums import ResolutionStatus, ValidationStatus
-from app.db.models import ResolvedSource, SoftwareApp, SoftwareAppDependency
 from app.db.session import engine, get_session
-from app.domain.source_resolution import SourceTrustStatus, source_trust_status
+from app.domain.source_resolution import SourceTrustStatus
 from app.repositories.catalog import CatalogRepository
 from app.repositories.pipeline import (
     QUEUE_SO_FILTER_DESCRIPTOR,
@@ -49,8 +54,6 @@ from app.schemas.internal import (
     WebsiteAppDiscoveryRequest,
     WebsiteAppDiscoveryView,
 )
-from app.schemas.linux_install import default_profile
-from app.scraper.candidates import InstallerCandidate, infer_operating_system
 from app.scraper.content_workers import (
     DescriptorWorker,
     enqueue_descriptor_for_app,
@@ -60,11 +63,6 @@ from app.scraper.description_enricher import (
     build_embedding_text,
     embedding_content_hash,
 )
-from app.scraper.installer_policy import (
-    infer_validated_operating_system,
-    known_official_candidates_for_package,
-)
-from app.scraper.linux_install import bundled_signature
 from app.scraper.manual_installer import (
     ManualInstallerError,
     ManualInstallerInspectionRepository,
@@ -73,7 +71,6 @@ from app.scraper.manual_installer import (
 )
 from app.scraper.manual_installer_apply import apply_manual_installer
 from app.scraper.safe_http import SafeHttpError
-from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 from app.scraper.website_discovery import (
     WebsiteAppDiscoveryRepository,
     WebsiteDiscoveryError,
@@ -83,15 +80,23 @@ from app.scraper.website_discovery import (
 )
 
 internal_router = APIRouter(prefix="/internal/v1")
-"""Estado global asociado a `internal_router`.
-"""
+
 
 
 @internal_router.get("/metrics", response_class=PlainTextResponse, responses={401: {}})
 async def internal_metrics(
     _authorized: Annotated[None, Depends(require_internal_service_token)],
 ) -> PlainTextResponse:
-    """Expone el estado del pool en formato Prometheus sin otro contenedor."""
+    """Lee contadores del pool asíncrono y los expone como métricas gauge en formato de texto
+    Prometheus.
+
+    Args:
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+
+    Returns:
+        tamaño, conexiones ocupadas, disponibles y de desbordamiento del pool.
+    """
     pool = cast(AsyncAdaptedQueuePool, engine.pool)
     values = {
         "scraper_db_pool_size": pool.size(),
@@ -119,17 +124,21 @@ async def semantic_documents(
     ] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
 ) -> SemanticDocumentPage:
-    """Ejecuta la operación `semantic_documents`.
+    """Pagina aplicaciones activas por UUID y construye texto, huella y metadatos para que el
+    indexador reconozca cambios.
 
     Args:
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
-        after_app_id (UUID | None): Identificador de `after_app` utilizado por la operación.
-        limit (int): Número máximo de elementos que se recuperarán.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
+        after_app_id: Cursor exclusivo por UUID; None comienza desde el primer documento.
+        limit: Máximo entre uno y 500 documentos, validado por FastAPI.
 
     Returns:
-        SemanticDocumentPage: Resultado producido por la operación.
+        lote de documentos y cursor exclusivo para la siguiente página.
     """
     catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
     apps, next_after = await catalog.semantic_documents(
@@ -167,432 +176,37 @@ async def get_source_resolution(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> InternalSourceResolution | JSONResponse:
-    """Obtiene la operación `source_resolution`.
+    """Delega la resolución exacta y traduce confianza insuficiente a 409, conservando el mismo
+    cuerpo de respuesta con estado de confianza.
 
     Args:
-        source_ref (str): Valor de `source_ref` utilizado por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        source_ref: Referencia exacta de resolución que debe pertenecer a la aplicación cuando
+            la ruta la especifica.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        InternalSourceResolution | JSONResponse: Resultado de `get_source_resolution`.
+        resolución verificada con HTTP 200 o cuerpo de resolución no verificada con HTTP 409.
 
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        fastapi.HTTPException: 404 si falta la fuente; 503 si la revalidación falla
+            transitoriamente.
     """
-    catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
-    # Bloquea tanto el candidato como su fuente superior. Un sourceRef puede permanecer
-    # en cola y la fuente puede haber pasado mientras tanto a broken, review o invalid.
-    resolved = await catalog.get_resolved_source_by_ref_for_update(source_ref)
-    if resolved is None:
-        raise HTTPException(status_code=404, detail={"code": "source_not_found"})
-
-    metadata = resolved.metadata_json or {}
-    trust_status = (
-        source_trust_status(
-            validation_status=resolved.validation_status,
-            resolution_status=resolved.status,
-            expires_at=resolved.expires_at,
-            metadata=metadata,
-            now=utc_now(),
-        )
-        if _parent_source_is_available(resolved)
-        else SourceTrustStatus.UNRESOLVED
-    )
-    url = catalog.reveal_url(resolved) if trust_status == SourceTrustStatus.VERIFIED else None
-    if trust_status == SourceTrustStatus.UNRESOLVED and _can_revalidate_expired(resolved, metadata):
-        url = await _revalidate_expired_source(resolved, catalog, settings, session)
-        if url is not None:
-            metadata = resolved.metadata_json or {}
-            trust_status = SourceTrustStatus.VERIFIED
-    if trust_status == SourceTrustStatus.VERIFIED and (
-        url is None or urlparse(url).scheme != "https"
-    ):
-        url = await _invalidate_unusable_source(resolved, catalog, session)
-        if url is None:
-            metadata = resolved.metadata_json or {}
-            trust_status = SourceTrustStatus.UNRESOLVED
-    sha256 = metadata.get("sha256") or metadata.get("expected_sha256")
-    expected_sha256 = (
-        sha256.lower()
-        if isinstance(sha256, str)
-        and len(sha256) == 64
-        and all(character in "0123456789abcdefABCDEF" for character in sha256)
-        else None
-    )
-    profile = None
-    app_name = None
-    signature = None
-    if resolved.source.operating_system == "linux":
-        row = resolved.install_profile
-        profile = (
-            dict(row.profile_json)
-            if row and row.status == "approved"
-            else default_profile(resolved.extension)
-        )
-        profile["dependencies"] = [
-            str(d)
-            for d in (
-                await session.scalars(
-                    select(SoftwareAppDependency.dependency_app_id).where(
-                        SoftwareAppDependency.app_id == resolved.source.software_app_id
-                    )
-                )
-            ).all()
-        ]
-        app_name = await session.scalar(
-            select(SoftwareApp.name).where(SoftwareApp.id == resolved.source.software_app_id)
-        )
-        if trust_status == SourceTrustStatus.VERIFIED:
-            signature = await bundled_signature(profile)
-    response = InternalSourceResolution(
-        sourceRef=str(resolved.id),
-        appId=str(resolved.source.software_app_id),
-        url=url,
-        expectedFilename=resolved.filename,
-        expectedSizeBytes=resolved.size_bytes,
-        expectedSha256=expected_sha256,
-        expectedMime=resolved.content_type,
-        operatingSystem=resolved.source.operating_system,
-        architecture=resolved.source.architecture,
-        trustStatus=trust_status,
-        appName=app_name,
-        version=resolved.version,
-        extension=resolved.extension,
-        installationProfile=profile,
-        signatureBase64=signature,
-    )
-    if trust_status != SourceTrustStatus.VERIFIED:
-        await session.commit()
+    try:
+        response = await resolve_source(source_ref, session, settings)
+    except SourceNotFoundError as exception:
+        raise HTTPException(status_code=404, detail={"code": str(exception)}) from exception
+    except SourceRevalidationTransientError as exception:
+        raise HTTPException(status_code=503, detail={"code": str(exception)}) from exception
+    if response.trust_status != SourceTrustStatus.VERIFIED:
         return JSONResponse(
-            status_code=409,
-            content=response.model_dump(by_alias=True, mode="json"),
+            status_code=409, content=response.model_dump(by_alias=True, mode="json")
         )
-    await session.commit()
     return response
-
-
-def _can_revalidate_expired(resolved: ResolvedSource, metadata: dict) -> bool:
-    """Ejecuta el paso interno `_can_revalidate_expired`.
-
-    Args:
-        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
-        metadata (dict): Valor de `metadata` utilizado por la operación.
-
-    Returns:
-        bool: Indica si se cumple la condición evaluada.
-    """
-    confidence = str(metadata.get("validation_confidence") or "").lower()
-    return (
-        _parent_source_is_available(resolved)
-        and resolved.validation_status == ValidationStatus.VALID.value
-        and resolved.status in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
-        and resolved.expires_at <= utc_now()
-        and confidence in {"", "validated", "verified"}
-        and metadata.get("transport_security")
-        not in {"https_winstall_edge_attested", "http_winstall_verified"}
-    )
-
-
-def _parent_source_is_available(resolved: ResolvedSource) -> bool:
-    """Ejecuta el paso interno `_parent_source_is_available`.
-
-    Args:
-        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
-
-    Returns:
-        bool: Indica si se cumple la condición evaluada.
-    """
-    source = resolved.source
-    return (
-        source is not None
-        and source.catalog_available is True
-        and source.resolution_status
-        in {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}
-        and source.validation_status == ValidationStatus.VALID.value
-    )
-
-
-async def _revalidate_expired_source(
-    resolved: ResolvedSource,
-    catalog: CatalogRepository,
-    settings: Settings,
-    session: AsyncSession,
-) -> str | None:
-    """Ejecuta el paso interno `_revalidate_expired_source`.
-
-    Args:
-        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
-        catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
-        settings (Settings): Configuración del servicio.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-
-    Returns:
-        str | None: Resultado producido por la operación.
-
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
-    """
-    # Una lectura actual bajo bloqueo de fila evita duplicar la validación de red.
-    # ``populate_existing`` en el repositorio también observa una renovación o una
-    # invalidación terminal confirmada mientras esta solicitud esperaba.
-    locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
-    if locked is None:
-        await session.commit()
-        return None
-    resolved = locked
-    metadata = dict(resolved.metadata_json or {})
-    if not _parent_source_is_available(resolved):
-        await session.commit()
-        return None
-    trust_status = source_trust_status(
-        validation_status=resolved.validation_status,
-        resolution_status=resolved.status,
-        expires_at=resolved.expires_at,
-        metadata=metadata,
-        now=utc_now(),
-    )
-    if trust_status == SourceTrustStatus.VERIFIED:
-        url = catalog.reveal_url(resolved)
-        await session.commit()
-        return url
-    if not _can_revalidate_expired(resolved, metadata):
-        await session.commit()
-        return None
-
-    protected_url = catalog.reveal_url(resolved)
-    if protected_url is None:
-        await _expire_terminal_candidate(
-            resolved,
-            metadata,
-            "source_url_unreadable",
-            session,
-        )
-        return None
-    candidate = InstallerCandidate(
-        url=protected_url,
-        source=str(metadata.get("candidate_source") or "internal_revalidation"),
-        label=str(metadata.get("candidate_label") or "") or None,
-        asset_kind=str(metadata.get("asset_kind") or "") or None,
-        referer=resolved.source.initial_url,
-    )
-    validation_error: httpx.RequestError | None = None
-    try:
-        result = await DownloadValidator(settings).validate(candidate)
-    except httpx.RequestError as exc:
-        validation_error = exc
-        result = None
-
-    if result is None or not _is_verified_https_result(result, candidate.url):
-        official = await _validate_known_official_recovery(resolved, settings)
-        if official is not None:
-            candidate, result = official
-        elif validation_error is not None:
-            await session.commit()
-            raise HTTPException(
-                status_code=503,
-                detail={"code": "source_revalidation_transient"},
-            ) from validation_error
-
-    if result is None:
-        await session.commit()
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "source_revalidation_transient"},
-        )
-
-    now = utc_now()
-    final_url = result.final_url or candidate.url
-    if (
-        not result.ok
-        or result.confidence != ValidationConfidence.VALIDATED
-        or urlparse(final_url).scheme != "https"
-    ):
-        reason = (
-            result.reason
-            or ("source_not_https" if urlparse(final_url).scheme != "https" else None)
-            or "source_not_verified"
-        )
-        if _is_transient_revalidation_failure(result, reason):
-            await session.commit()
-            raise HTTPException(
-                status_code=503,
-                detail={"code": "source_revalidation_transient"},
-            )
-        await _expire_terminal_candidate(resolved, metadata, reason, session, now=now)
-        return None
-
-    resolved.checked_at = now
-    resolved.resolved_url_encrypted = catalog.url_protector.protect(final_url)
-    resolved.final_domain = result.final_domain or resolved.final_domain
-    resolved.filename = result.filename or resolved.filename
-    resolved.extension = result.extension or resolved.extension
-    resolved.content_type = result.content_type or resolved.content_type
-    resolved.size_bytes = (
-        result.size_bytes if result.size_bytes is not None else resolved.size_bytes
-    )
-    resolved.validation_status = ValidationStatus.VALID.value
-    resolved.expires_at = utc_after(hours=24)
-    if candidate.source == "official_known_endpoint":
-        resolved.status = ResolutionStatus.DIRECT.value
-        resolved.release_rank = 0
-        resolved.is_latest = True
-        resolved.version_status = "latest"
-    resolved.source.resolution_status = resolved.status
-    resolved.source.validation_status = ValidationStatus.VALID.value
-    metadata["candidate_source"] = candidate.source
-    if candidate.label:
-        metadata["candidate_label"] = candidate.label
-    if candidate.asset_kind:
-        metadata["asset_kind"] = candidate.asset_kind
-    metadata["validation_confidence"] = ValidationConfidence.VALIDATED.value
-    metadata.pop("last_revalidation_error", None)
-    if result.transport_security:
-        metadata["transport_security"] = result.transport_security
-    else:
-        metadata.pop("transport_security", None)
-    resolved.metadata_json = metadata
-    await session.commit()
-    return final_url
-
-
-def _is_verified_https_result(result: ValidationResult, candidate_url: str) -> bool:
-    """Ejecuta el paso interno `_is_verified_https_result`.
-
-    Args:
-        result (ValidationResult): Resultado que debe procesarse.
-        candidate_url (str): Dirección de `candidate` que debe procesarse.
-
-    Returns:
-        bool: Indica si se cumple la condición evaluada.
-    """
-    final_url = result.final_url or candidate_url
-    return (
-        result.ok
-        and result.confidence == ValidationConfidence.VALIDATED
-        and urlparse(final_url).scheme == "https"
-    )
-
-
-async def _validate_known_official_recovery(
-    resolved: ResolvedSource,
-    settings: Settings,
-) -> tuple[InstallerCandidate, ValidationResult] | None:
-    """Ejecuta el paso interno `_validate_known_official_recovery`.
-
-    Args:
-        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
-        settings (Settings): Configuración del servicio.
-
-    Returns:
-        tuple[InstallerCandidate, ValidationResult] | None: Resultado producido por la operación.
-    """
-    source = resolved.source
-    app = source.software_app if source is not None else None
-    if app is None:
-        return None
-    candidates = known_official_candidates_for_package(
-        app.winstall_id,
-        app.latest_version,
-    )
-    for candidate in candidates:
-        if infer_operating_system(candidate) != source.operating_system:
-            continue
-        try:
-            result = await DownloadValidator(settings).validate(candidate)
-        except httpx.RequestError:
-            continue
-        if not _is_verified_https_result(result, candidate.url):
-            continue
-        if infer_validated_operating_system(candidate, result) != source.operating_system:
-            continue
-        return candidate, result
-    return None
-
-
-async def _invalidate_unusable_source(
-    resolved: ResolvedSource,
-    catalog: CatalogRepository,
-    session: AsyncSession,
-) -> str | None:
-    """Ejecuta el paso interno `_invalidate_unusable_source`.
-
-    Args:
-        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
-        catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-
-    Returns:
-        str | None: Resultado producido por la operación.
-    """
-    locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
-    if locked is None:
-        await session.commit()
-        return None
-    url = catalog.reveal_url(locked)
-    if url is not None and urlparse(url).scheme == "https":
-        await session.commit()
-        return url
-    await _expire_terminal_candidate(
-        locked,
-        dict(locked.metadata_json or {}),
-        "source_url_unreadable" if url is None else "source_not_https",
-        session,
-    )
-    return None
-
-
-async def _expire_terminal_candidate(
-    resolved: ResolvedSource,
-    metadata: dict,
-    reason: str,
-    session: AsyncSession,
-    *,
-    now: datetime | None = None,
-) -> None:
-    """Ejecuta el paso interno `_expire_terminal_candidate`.
-
-    Args:
-        resolved (ResolvedSource): Valor de `resolved` utilizado por la operación.
-        metadata (dict): Valor de `metadata` utilizado por la operación.
-        reason (str): Valor de `reason` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        now (datetime | None): Valor de `now` utilizado por la operación.
-    """
-    invalidated_at = now or utc_now()
-    resolved.checked_at = invalidated_at
-    resolved.validation_status = ValidationStatus.EXPIRED.value
-    resolved.expires_at = invalidated_at
-    metadata["last_revalidation_error"] = reason
-    resolved.metadata_json = metadata
-    await session.commit()
-
-
-def _is_transient_revalidation_failure(
-    result: ValidationResult,
-    reason: str,
-) -> bool:
-    """Ejecuta el paso interno `_is_transient_revalidation_failure`.
-
-    Args:
-        result (ValidationResult): Resultado que debe procesarse.
-        reason (str): Valor de `reason` utilizado por la operación.
-
-    Returns:
-        bool: Indica si se cumple la condición evaluada.
-    """
-    if result.ok and result.confidence == ValidationConfidence.ATTESTED:
-        return True
-    if reason in {"no_response", "source_not_verified"}:
-        return True
-    if not reason.startswith("http_"):
-        return False
-    try:
-        status_code = int(reason.removeprefix("http_"))
-    except ValueError:
-        return False
-    return status_code in {408, 425, 429} or status_code >= 500
 
 
 @internal_router.post(
@@ -606,15 +220,19 @@ async def enqueue_missing_descriptions(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ContentEnqueueResult:
-    """Encola la operación `missing_descriptions`.
+    """Selecciona aplicaciones sin descripción ampliada y encola generación prioritaria solo
+    cuando no tienen tarea activa; confirma el lote.
 
     Args:
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        ContentEnqueueResult: Resultado producido por la operación.
+        cantidades encontradas, encoladas y ya activas, con HTTP 202.
     """
     catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
     pipeline = PipelineRepository(session)
@@ -658,20 +276,26 @@ async def generate_description(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> GenerateDescriptionResult:
-    """Ejecuta la operación `generate_description`.
+    """Busca una aplicación activa, fuerza una tarea prioritaria de descripción y confirma antes
+    de impulsar un consumidor en segundo plano.
 
     Args:
-        request (GenerateDescriptionRequest): Solicitud recibida por la operación.
-        background_tasks (BackgroundTasks): Valor de `background_tasks` utilizado por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        request: Cuerpo validado con los datos de la operación solicitada.
+        background_tasks: Ejecutor de tareas posterior a la respuesta para impulsar la
+            generación encolada.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        GenerateDescriptionResult: Resultado producido por la operación.
+        identidad y estado de la tarea con HTTP 202.
 
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        fastapi.HTTPException: 404 si falta la aplicación o 409 si no se crea una tarea porque
+            la descripción ya es actual.
     """
     catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
     app = await catalog.get_app_by_public_id(request.app_id)
@@ -709,17 +333,25 @@ async def create_manual_installer_inspection(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerInspectionView:
-    """Crea la operación `manual_installer_inspection`.
+    """Crea o reutiliza una inspección con sus URL por plataforma y página de origen y confirma
+    la reserva recuperable.
 
     Args:
-        app_id (UUID): Identificador de `app` utilizado por la operación.
-        request (ManualInstallerInspectionRequest): Solicitud recibida por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
+        request: Cuerpo validado con los datos de la operación solicitada.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        ManualInstallerInspectionView: Resultado de `create_manual_installer_inspection`.
+        vista de inspección con HTTP 202, sin publicar todavía fuentes.
+
+    Raises:
+        fastapi.HTTPException: Propaga el estado clasificado de la inspección o 422/503 según
+            el fallo de HTTP seguro.
     """
     repository = ManualInstallerInspectionRepository(
         session,
@@ -751,19 +383,24 @@ async def current_manual_installer_inspection(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerInspectionView:
-    """Ejecuta la operación `current_manual_installer_inspection`.
+    """Recupera la inspección actual de la aplicación y confirma posibles transiciones de
+    caducidad antes de construir su vista.
 
     Args:
-        app_id (UUID): Identificador de `app` utilizado por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        ManualInstallerInspectionView: Resultado producido por la operación.
+        inspección recuperable actual.
 
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        fastapi.HTTPException: 404 con inspection_not_found cuando no existe una inspección
+            actual.
     """
     repository = ManualInstallerInspectionRepository(
         session,
@@ -790,20 +427,25 @@ async def get_manual_installer_inspection(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerInspectionView:
-    """Obtiene la operación `manual_installer_inspection`.
+    """Recupera una inspección por sus identidades de aplicación y operación y confirma posibles
+    cambios de vigencia.
 
     Args:
-        app_id (UUID): Identificador de `app` utilizado por la operación.
-        inspection_id (UUID): Identificador de `inspection` utilizado por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
+        inspection_id: UUID de la inspección persistida dentro de esa aplicación.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        ManualInstallerInspectionView: Resultado de `get_manual_installer_inspection`.
+        vista de la inspección solicitada.
 
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        fastapi.HTTPException: 404 con inspection_not_found si no pertenece a esa aplicación o
+            no existe.
     """
     repository = ManualInstallerInspectionRepository(
         session,
@@ -831,18 +473,26 @@ async def apply_manual_installer_inspection(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerApplyResult:
-    """Ejecuta la operación `apply_manual_installer_inspection`.
+    """Delega la aplicación de valores revisados y fuentes inspeccionadas, confirma el resultado
+    y publica todas las referencias creadas.
 
     Args:
-        app_id (UUID): Identificador de `app` utilizado por la operación.
-        inspection_id (UUID): Identificador de `inspection` utilizado por la operación.
-        request (ManualInstallerApplyRequest): Solicitud recibida por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
+        inspection_id: UUID de la inspección persistida dentro de esa aplicación.
+        request: Cuerpo validado con los datos de la operación solicitada.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        ManualInstallerApplyResult: Resultado producido por la operación.
+        aplicación, nueva versión, fuente principal, fuentes completas y avisos.
+
+    Raises:
+        fastapi.HTTPException: Fallo clasificado de validación o conflicto; 503 para una
+            comprobación transitoria.
     """
     try:
         app, source_refs, warnings = await apply_manual_installer(
@@ -878,16 +528,23 @@ async def create_website_app_discovery(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WebsiteAppDiscoveryView:
-    """Crea la operación `website_app_discovery`.
+    """Crea o reutiliza un descubrimiento a partir de web oficial e instaladores aportados y
+    confirma la operación antes de devolver su estado.
 
     Args:
-        request (WebsiteAppDiscoveryRequest): Solicitud recibida por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        request: Cuerpo validado con los datos de la operación solicitada.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        WebsiteAppDiscoveryView: Resultado de `create_website_app_discovery`.
+        vista recuperable con HTTP 202.
+
+    Raises:
+        fastapi.HTTPException: Fallo clasificado de la entrada o del acceso HTTP seguro.
     """
     repository = WebsiteAppDiscoveryRepository(
         session,
@@ -917,19 +574,23 @@ async def get_website_app_discovery(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WebsiteAppDiscoveryView:
-    """Obtiene la operación `website_app_discovery`.
+    """Recupera el descubrimiento solicitado y confirma transiciones de caducidad antes de
+    serializarlo.
 
     Args:
-        discovery_id (UUID): Identificador de `discovery` utilizado por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        discovery_id: UUID de la operación de descubrimiento que se recupera o aplica.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        WebsiteAppDiscoveryView: Resultado de `get_website_app_discovery`.
+        estado, propuestas e instaladores conocidos del descubrimiento.
 
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        fastapi.HTTPException: 404 con website_discovery_not_found si la operación no existe.
     """
     repository = WebsiteAppDiscoveryRepository(
         session,
@@ -959,17 +620,26 @@ async def apply_website_app_discovery_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WebsiteAppDiscoveryApplyResult:
-    """Ejecuta la operación `apply_website_app_discovery_route`.
+    """Delega la publicación del descubrimiento, confirma la aplicación creada y comunica
+    disponibilidad e instaladores publicados.
 
     Args:
-        discovery_id (UUID): Identificador de `discovery` utilizado por la operación.
-        request (WebsiteAppDiscoveryApplyRequest): Solicitud recibida por la operación.
-        _authorized (None): Valor de `_authorized` utilizado por la operación.
-        session (AsyncSession): Sesión de base de datos utilizada por la operación.
-        settings (Settings): Configuración del servicio.
+        discovery_id: UUID de la operación de descubrimiento que se recupera o aplica.
+        request: Cuerpo validado con los datos de la operación solicitada.
+        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
+            ruta.
+        session: Sesión independiente de la petición; las escrituras se confirman antes de
+            responder.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        WebsiteAppDiscoveryApplyResult: Resultado producido por la operación.
+        identidad y versión de aplicación, estado de catálogo, número de instaladores y
+            avisos.
+
+    Raises:
+        fastapi.HTTPException: Error de validación, conflicto o ausencia clasificados; 503
+            para fallos transitorios.
     """
     try:
         app, installer_count, warnings = await apply_website_app_discovery(
@@ -997,15 +667,15 @@ async def apply_website_app_discovery_route(
 def raise_manual_installer_http_error(
     error: ManualInstallerError | ManualInstallerTransientError | SafeHttpError,
 ) -> None:
-    """Ejecuta la operación `raise_manual_installer_http_error`.
+    """Conserva estado y código de errores manuales, asigna 503 a transitorios y distingue
+    422/503 en errores de HTTP seguro.
 
     Args:
-        error (ManualInstallerError | ManualInstallerTransientError | SafeHttpError): Error que debe
-            registrarse o
-            propagarse.
+        error: Fallo clasificado del caso de uso o de la política HTTP segura.
 
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        fastapi.HTTPException: Siempre, con el código estable y causa original del fallo de
+            inspección.
     """
     if isinstance(error, ManualInstallerError):
         status_code = error.status_code
@@ -1022,17 +692,15 @@ def raise_manual_installer_http_error(
 def raise_website_discovery_http_error(
     error: WebsiteDiscoveryError | WebsiteDiscoveryTransientError | SafeHttpError,
 ) -> None:
-    """Ejecuta la operación `raise_website_discovery_http_error`.
+    """Conserva estado y código de errores del descubrimiento y traduce los fallos transitorios a
+    503 y restricciones HTTP definitivas a 422.
 
     Args:
-        error (WebsiteDiscoveryError | WebsiteDiscoveryTransientError | SafeHttpError): Error que
-            debe
-            registrarse
-            o
-            propagarse.
+        error: Fallo clasificado del caso de uso o de la política HTTP segura.
 
-    Throws:
-        HTTPException: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        fastapi.HTTPException: Siempre, manteniendo el código estable y la causa del
+            descubrimiento.
     """
     if isinstance(error, WebsiteDiscoveryError):
         status_code = error.status_code
@@ -1047,5 +715,7 @@ def raise_website_discovery_http_error(
 
 
 async def _run_descriptor_once_background() -> None:
-    """Ejecuta el paso interno `_run_descriptor_once_background`."""
+    """Crea un worker de descripciones con la configuración del proceso e intenta consumir una
+    tarea ya persistida.
+    """
     await DescriptorWorker(get_settings()).process_one()

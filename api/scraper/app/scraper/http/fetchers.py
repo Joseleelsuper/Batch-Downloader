@@ -1,4 +1,6 @@
-"""Implementaciones y wrappers del pipeline HTTP externo."""
+"""Compone validación por salto, clasificación de fallos, seguimiento de redirecciones y lectura
+acotada de recursos públicos.
+"""
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -11,23 +13,57 @@ from app.scraper.http.ports import SingleHopExchange, UrlValidator
 
 
 class HttpxSingleHopExchange:
-    """Transporte base que abre un único GET mediante HTTPX."""
+    """Adapta el streaming GET de un cliente HTTPX al contrato de intercambio de un solo destino."""
 
     def __init__(self, client: httpx.AsyncClient) -> None:
+        """Conserva el cliente externo sin abrir ni cerrar su ciclo de vida.
+
+        Args:
+            client: Cliente HTTPX cedido por el llamador; su propietario controla el cierre.
+        """
         self._client = client
 
     def stream(self, url: str) -> AbstractAsyncContextManager[httpx.Response]:
+        """Crea el contexto de un GET en streaming con el cliente configurado por el llamador.
+
+        Args:
+            url: URL completa que se solicita o valida antes de abrir la conexión.
+
+        Returns:
+            contexto HTTPX; el cliente debe tener seguimiento automático de redirecciones
+                desactivado.
+        """
         return self._client.stream("GET", url)
 
 
 class TransportErrorMappingExchange:
-    """Convierte excepciones de HTTPX al contrato estable del scraper."""
+    """Traduce excepciones de HTTPX a códigos reintentables sin modificar rechazos de política ya
+    clasificados.
+    """
 
     def __init__(self, wrapped: SingleHopExchange) -> None:
+        """Envuelve el intercambio al que se aplicará la clasificación de fallos de transporte.
+
+        Args:
+            wrapped: Intercambio de un solo salto al que se añade la política.
+        """
         self._wrapped = wrapped
 
     @asynccontextmanager
     async def stream(self, url: str):
+        """Mantiene la respuesta abierta durante el uso del contexto y traduce timeout o fallos
+        de petición de apertura, lectura o cierre.
+
+        Args:
+            url: URL completa que se solicita o valida antes de abrir la conexión.
+
+        Yields:
+            respuesta del intercambio envuelto.
+
+        Raises:
+            app.scraper.http.models.SafeHttpError: timeout o network_error recuperables, o el
+                rechazo de política original.
+        """
         try:
             async with self._wrapped.stream(url) as response:
                 yield response
@@ -40,23 +76,57 @@ class TransportErrorMappingExchange:
 
 
 class PublicHttpsExchange:
-    """Valida HTTPS, DNS público y SSRF inmediatamente antes de cada salto."""
+    """Comprueba la URL antes de cada salto para impedir que una redirección eluda la política de
+    destino público.
+    """
 
     def __init__(self, wrapped: SingleHopExchange, validator: UrlValidator) -> None:
+        """Conecta el intercambio con la validación asíncrona de URL del despliegue.
+
+        Args:
+            wrapped: Intercambio de un solo salto al que se añade la política.
+            validator: Validación asíncrona que devuelve la URL admitida o propaga su rechazo.
+        """
         self._wrapped = wrapped
         self._validator = validator
 
     @asynccontextmanager
     async def stream(self, url: str):
+        """Valida y normaliza la URL antes de delegar la apertura del intercambio.
+
+        Args:
+            url: URL completa que se solicita o valida antes de abrir la conexión.
+
+        Yields:
+            respuesta del destino admitido.
+
+        Raises:
+            app.scraper.http.models.SafeHttpError: Si la URL o su DNS incumplen la política
+                del validador.
+        """
         safe_url = await self._validator(url)
         async with self._wrapped.stream(safe_url) as response:
             yield response
 
 
 class BoundedResponseReader:
-    """Materializa el cuerpo sin superar el máximo permitido."""
+    """Limita memoria de cuerpos HTTP aunque el servidor omita o falsee Content-Length."""
 
     async def read(self, response: httpx.Response, max_bytes: int) -> bytes:
+        """Rechaza una longitud declarada excesiva y lee el cuerpo crudo por fragmentos hasta
+        detectar que supera el máximo.
+
+        Args:
+            response: Respuesta HTTP abierta cuyo cuerpo o metadatos se leen.
+            max_bytes: Máximo de bytes del cuerpo aceptado en memoria.
+
+        Returns:
+            bytes recibidos dentro del límite.
+
+        Raises:
+            app.scraper.http.models.SafeHttpError: content_too_large si la cabecera o los
+                bytes observados superan el máximo.
+        """
         declared_size = response.headers.get("content-length")
         if declared_size and declared_size.isdigit() and int(declared_size) > max_bytes:
             raise SafeHttpError("content_too_large")
@@ -72,17 +142,40 @@ class BoundedResponseReader:
 
 
 class RedirectFollowingFetcher:
-    """Resuelve redirecciones de forma explícita y conserva el límite de saltos."""
+    """Sigue redirecciones explícitas con validación por salto y rechaza resultados HTTP de error
+    antes de leer el cuerpo.
+    """
 
     def __init__(
         self,
         exchange: SingleHopExchange,
         reader: BoundedResponseReader | None = None,
     ) -> None:
+        """Conecta el intercambio con el lector acotado que procesará la respuesta final.
+
+        Args:
+            exchange: Intercambio por salto con las políticas de URL y error ya compuestas.
+            reader: Lector acotado opcional; None crea el lector predeterminado.
+        """
         self._exchange = exchange
         self._reader = reader or BoundedResponseReader()
 
     async def fetch(self, request: FetchRequest) -> SafeHttpResponse:
+        """Resuelve Location relativo, limita saltos y clasifica HTTP 408/425/429 o desde 500
+        como transitorios.
+        En éxito lee el cuerpo acotado y normaliza el MIME sin parámetros.
+
+        Args:
+            request: URL, límites de tiempo y bytes, saltos máximos y cabecera Accept de la
+                consulta.
+
+        Returns:
+            respuesta final cerrada con contenido y cabeceras.
+
+        Raises:
+            app.scraper.http.models.SafeHttpError: Si falta Location, la redirección es
+                inválida, se agotan saltos, falla HTTP o se supera el límite de bytes.
+        """
         current_url = request.url
         for _redirect in range(request.max_redirects + 1):
             async with self._exchange.stream(current_url) as response:
@@ -118,12 +211,36 @@ class RedirectFollowingFetcher:
 
 
 class HttpxPublicResourceFetcher:
-    """Fábrica por petición de la cadena segura sobre un cliente HTTPX reutilizado por saltos."""
+    """Crea un cliente por consulta y compone políticas de errores, URL, redirecciones y tamaño
+    antes de acceder al recurso.
+
+    See Also:
+        app.scraper.safe_http.validate_public_https_url: Validador habitual de sintaxis y DNS.
+    """
 
     def __init__(self, validator: UrlValidator) -> None:
+        """Conserva el validador de destino que debe aplicarse en cada salto.
+
+        Args:
+            validator: Validación asíncrona que devuelve la URL admitida o propaga su rechazo.
+        """
         self._validator = validator
 
     async def fetch(self, request: FetchRequest) -> SafeHttpResponse:
+        """Abre un cliente con timeout, Accept y User-Agent del scraper, desactiva redirecciones
+        automáticas y cierra el cliente al terminar.
+
+        Args:
+            request: URL, límites de tiempo y bytes, saltos máximos y cabecera Accept de la
+                consulta.
+
+        Returns:
+            respuesta acotada del recurso solicitado.
+
+        Raises:
+            app.scraper.http.models.SafeHttpError: Si falla el transporte o cualquiera de las
+                políticas compuestas.
+        """
         async with httpx.AsyncClient(
             timeout=request.timeout,
             follow_redirects=False,

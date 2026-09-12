@@ -1,78 +1,91 @@
-"""Implementa las responsabilidades del módulo `enums`.
+"""Define estados persistidos del catálogo y del pipeline para separar disponibilidad, validación
+y resultados de ejecución.
 """
 from enum import StrEnum
 
 
 class AppStatus(StrEnum):
-    """Enumera los valores admitidos por `AppStatus`.
+    """Determina si una aplicación sigue activa en el catálogo o ha sido deshabilitada o marcada
+    como rota.
+
+    Attributes:
+        ACTIVE: Aplicación activa candidata a publicación.
+        DISABLED: Aplicación retirada administrativamente.
+        BROKEN: Aplicación marcada con fallo persistido.
     """
     ACTIVE = "active"
-    """Constante que define `ACTIVE`.
-    """
+
     DISABLED = "disabled"
-    """Constante que define `DISABLED`.
-    """
+
     BROKEN = "broken"
-    """Constante que define `BROKEN`.
-    """
+
 
 
 class ResolutionStatus(StrEnum):
-    """Enumera los valores admitidos por `ResolutionStatus`.
+    """Distingue el origen de una resolución del motivo por el que todavía no ofrece un
+    instalador.
+
+    Attributes:
+        DIRECT: Instalador resuelto desde su origen directo.
+        FALLBACK: Instalador resuelto mediante una vía alternativa.
+        REQUIRES_MANUAL_REVIEW: Evidencia insuficiente que requiere revisión.
+        MISSING: No se obtuvo instalador.
+        BROKEN: La fuente se considera rota.
     """
     DIRECT = "direct"
-    """Constante que define `DIRECT`.
-    """
+
     FALLBACK = "fallback"
-    """Constante que define `FALLBACK`.
-    """
+
     REQUIRES_MANUAL_REVIEW = "requires_manual_review"
-    """Constante que define `REQUIRES_MANUAL_REVIEW`.
-    """
+
     MISSING = "missing"
-    """Constante que define `MISSING`.
-    """
+
     BROKEN = "broken"
-    """Constante que define `BROKEN`.
-    """
+
 
 
 class ValidationStatus(StrEnum):
-    """Enumera los valores admitidos por `ValidationStatus`.
+    """Registra qué garantía técnica conserva una fuente o resolución, independientemente de su
+    origen.
+
+    Attributes:
+        UNCHECKED: Sin comprobación terminada.
+        VALID: Validación aceptada.
+        INVALID: La comprobación rechazó la fuente.
+        EXPIRED: La comprobación dejó de ser utilizable.
     """
     UNCHECKED = "unchecked"
-    """Constante que define `UNCHECKED`.
-    """
+
     VALID = "valid"
-    """Constante que define `VALID`.
-    """
+
     INVALID = "invalid"
-    """Constante que define `INVALID`.
-    """
+
     EXPIRED = "expired"
-    """Constante que define `EXPIRED`.
-    """
+
 
 
 class ScrapeRunStatus(StrEnum):
-    """Enumera los valores admitidos por `ScrapeRunStatus`.
-    """
+    """Distingue ejecuciones activas de las terminadas correctamente, parcialmente o con fallo."""
     RUNNING = "running"
-    """Constante que define `RUNNING`.
-    """
+
     COMPLETED = "completed"
-    """Constante que define `COMPLETED`.
-    """
+
     PARTIAL = "partial"
-    """Constante que define `PARTIAL`.
-    """
+
     FAILED = "failed"
-    """Constante que define `FAILED`.
-    """
+
 
 
 class ScrapeScope(StrEnum):
-    """Define el conjunto estable que debe procesar una solicitud de scraping."""
+    """Fija el conjunto de aplicaciones que una solicitud debe procesar sin cambiarlo durante su
+    ejecución.
+
+    Attributes:
+        INCREMENTAL: Busca cambios del catálogo proveedor.
+        UNRESOLVED: Selecciona aplicaciones sin resolución suficiente.
+        SELECTED: Procesa los UUID explícitos de la solicitud.
+        FULL: Recorre el conjunto completo solicitado al proveedor.
+    """
 
     INCREMENTAL = "incremental"
     UNRESOLVED = "unresolved"
@@ -81,7 +94,9 @@ class ScrapeScope(StrEnum):
 
 
 class ScrapeOutcome(StrEnum):
-    """Clasifica el resultado por aplicación sin confundir ausencia y fallo temporal."""
+    """Clasifica el resultado por aplicación y distingue resolución, ausencia confirmada,
+    revisión, fallo transitorio y omisión por falta de cambios.
+    """
 
     RESOLVED = "resolved"
     CONFIRMED_MISSING = "confirmed_missing"
@@ -91,7 +106,13 @@ class ScrapeOutcome(StrEnum):
 
 
 class AbsenceVerificationStatus(StrEnum):
-    """Estados del acta durable que acredita una ausencia de instalador."""
+    """Controla la vigencia del acta que acredita una ausencia comprobada de instaladores.
+
+    Attributes:
+        ACTIVE: Acta actualmente aplicable a la evidencia capturada.
+        INVALIDATED: Acta retirada tras cambiar datos relevantes o revisarse su conclusión.
+        SUPERSEDED: Acta sustituida por otra comprobación.
+    """
 
     ACTIVE = "active"
     INVALIDATED = "invalidated"
@@ -99,17 +120,14 @@ class AbsenceVerificationStatus(StrEnum):
 
 
 class LongDescriptionStatus(StrEnum):
-    """Enumera los valores admitidos por `LongDescriptionStatus`.
+    """Distingue descripciones pendientes, completadas, fallidas y omitidas por el proceso de
+    enriquecimiento.
     """
     PENDING = "pending"
-    """Constante que define `PENDING`.
-    """
+
     COMPLETED = "completed"
-    """Constante que define `COMPLETED`.
-    """
+
     FAILED = "failed"
-    """Constante que define `FAILED`.
-    """
+
     SKIPPED = "skipped"
-    """Constante que define `SKIPPED`.
-    """
+

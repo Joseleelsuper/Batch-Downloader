@@ -1,8 +1,5 @@
-"""Poda acotada de datos operativos del scraper.
-
-Las filas reclamables o todavía arrendadas no forman parte de ninguna política de
-retención. Cada ejecución elimina como máximo un lote por tabla para que el
-mantenimiento no monopolice el pool de dos conexiones del scheduler.
+"""Elimina por lotes datos operativos antiguos y conserva trabajo activo o ejecuciones todavía
+referenciadas.
 """
 from __future__ import annotations
 
@@ -37,7 +34,14 @@ DEFAULT_RETENTION_BATCH_SIZE = 500
 
 @dataclass(frozen=True, slots=True)
 class RetentionResult:
-    """Resume una pasada idempotente de retención."""
+    """Desglosa las filas retiradas de cada categoría durante una pasada de retención.
+
+    Attributes:
+        work_items, metric_snapshots, worker_snapshots: Tareas terminales e instantáneas
+            operativas eliminadas.
+        resolver_logs, commands, runs: Registros, comandos terminales y ejecuciones históricas
+            retirados.
+    """
 
     work_items: int = 0
     metric_snapshots: int = 0
@@ -48,7 +52,11 @@ class RetentionResult:
 
     @property
     def total(self) -> int:
-        """Devuelve el número total de filas eliminadas."""
+        """Suma las filas afectadas en todas las categorías de la pasada.
+
+        Returns:
+            cantidad total de registros eliminados.
+        """
         return sum(
             (
                 self.work_items,
@@ -62,9 +70,20 @@ class RetentionResult:
 
 
 class RetentionRepository:
-    """Aplica las ventanas de retención sin tocar trabajo pendiente o arrendado."""
+    """Aplica retención de 30 días a datos operativos y de 90 días a logs, comandos y
+    ejecuciones, sin confirmar por su cuenta.
+
+    See Also:
+        app.db.models.ScrapeRun: Se conserva si otra categoría todavía referencia la
+            ejecución.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
+        """Conserva la sesión de mantenimiento del llamador.
+
+        Args:
+            session: Sesión asíncrona del llamador; este decide cuándo confirmar los cambios.
+        """
         self.session = session
 
     async def prune(
@@ -73,7 +92,20 @@ class RetentionRepository:
         now: datetime | None = None,
         batch_size: int = DEFAULT_RETENTION_BATCH_SIZE,
     ) -> RetentionResult:
-        """Elimina un lote por tabla y conserva siempre filas activas."""
+        """Borra hasta un lote por categoría, exige tareas completadas o descartadas sin reserva
+        y conserva ejecuciones con referencias existentes.
+
+        Args:
+            now: Instante UTC sin tzinfo; None toma el reloj actual cuando se admite.
+            batch_size: Máximo de filas por categoría en una pasada; debe ser positivo.
+
+        Returns:
+            recuentos por categoría, pendientes de commit.
+
+        Raises:
+            ValueError: retention_batch_size_must_be_positive si el tamaño de lote es menor
+                que uno.
+        """
         if batch_size < 1:
             raise ValueError("retention_batch_size_must_be_positive")
         current = now or utc_now()
@@ -175,7 +207,20 @@ class RetentionRepository:
         predicates: tuple[Any, ...],
         batch_size: int,
     ) -> int:
-        """Selecciona primero identificadores para conservar un límite portable."""
+        """Selecciona primero las claves elegibles más antiguas y ejecuta una eliminación
+        limitada a ellas.
+
+        Args:
+            model: Modelo ORM cuya tabla se depura.
+            id_column: Columna de clave primaria utilizada para seleccionar y borrar.
+            order_column: Columna temporal que ordena primero las filas más antiguas.
+            predicates: Condiciones de elegibilidad para borrar datos retenidos.
+            batch_size: Máximo de filas por categoría en una pasada; debe ser positivo.
+
+        Returns:
+            filas afectadas o cantidad seleccionada si el driver no proporciona un recuento
+                válido.
+        """
         ids = list(
             await self.session.scalars(
                 select(id_column)

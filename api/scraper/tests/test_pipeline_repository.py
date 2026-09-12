@@ -1,5 +1,4 @@
-"""Contiene las pruebas de `test_pipeline_repository`.
-"""
+"""Caracteriza reservas, recuperación de colas y vistas previas sobre SQLite en memoria."""
 from datetime import timedelta
 from uuid import uuid4
 
@@ -29,10 +28,11 @@ from app.repositories.pipeline import (
 
 @pytest_asyncio.fixture
 async def db_session():
-    """Ejecuta la operación `db_session`.
+    """Crea el esquema completo en una base SQLite independiente y cede una sesión que conserva
+    entidades tras commit.
 
     Yields:
-        Any: Elemento producido por la operación.
+        sesión aislada de la prueba; el motor se cierra al terminar.
     """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
@@ -45,10 +45,11 @@ async def db_session():
 
 @pytest.mark.asyncio
 async def test_recover_stuck_requeues_expired_and_null_leases(db_session) -> None:
-    """Comprueba el escenario `recover_stuck_requeues_expired_and_null_leases`.
+    """Mezcla reservas caducadas, ausentes y vigentes y comprueba que solo las dos primeras
+    vuelven a queued.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     now = utc_now()
     db_session.add_all(
@@ -75,10 +76,11 @@ async def test_recover_stuck_requeues_expired_and_null_leases(db_session) -> Non
 
 @pytest.mark.asyncio
 async def test_recover_orphaned_run_items_releases_fresh_leases_after_restart(db_session) -> None:
-    """Comprueba el escenario `recover_orphaned_run_items_releases_fresh_leases_after_restart`.
+    """Asocia reservas vigentes a ejecuciones fallida y activa y comprueba liberación únicamente
+    de la tarea de la ejecución fallida.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     now = utc_now()
     failed_run = ScrapeRun(id=uuid4(), status="failed", worker_id="previous-scheduler")
@@ -102,10 +104,11 @@ async def test_recover_orphaned_run_items_releases_fresh_leases_after_restart(db
 
 @pytest.mark.asyncio
 async def test_retry_failed_does_not_touch_terminal_or_queued(db_session) -> None:
-    """Comprueba el escenario `retry_failed_does_not_touch_terminal_or_queued`.
+    """Mezcla tareas fallidas, completadas, descartadas y en cola y comprueba que solo se
+    recupera la fallida.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     db_session.add_all(
         [
@@ -131,10 +134,11 @@ async def test_retry_failed_does_not_touch_terminal_or_queued(db_session) -> Non
 
 @pytest.mark.asyncio
 async def test_requeue_releases_lease_and_delays_next_attempt(db_session) -> None:
-    """Comprueba el escenario `requeue_releases_lease_and_delays_next_attempt`.
+    """Reencola una tarea reservada y comprueba liberación, motivo de reintento y disponibilidad
+    aplazada.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     item = work_item("Vendor.Locked", STATUS_IN_PROGRESS, utc_now() + timedelta(minutes=1))
     item.lease_owner = "worker-1"
@@ -154,10 +158,11 @@ async def test_requeue_releases_lease_and_delays_next_attempt(db_session) -> Non
 
 @pytest.mark.asyncio
 async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session) -> None:
-    """Comprueba el escenario `completed_catalog_stages_requeue_for_a_new_scrape_run`.
+    """Completa tareas de las tres etapas de catálogo y comprueba que una ejecución distinta las
+    reabre con su identidad e intentos reiniciados.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     repository = PipelineRepository(db_session)
     previous_run = uuid4()
@@ -190,10 +195,11 @@ async def test_completed_catalog_stages_requeue_for_a_new_scrape_run(db_session)
 
 @pytest.mark.asyncio
 async def test_queue_states_expose_so_filter_pipeline_tail(db_session) -> None:
-    """Comprueba el escenario `queue_states_expose_so_filter_pipeline_tail`.
+    """Añade trabajo de plataformas y descripción y comprueba que las cuatro colas aparecen en
+    orden con recuentos y estados por paquete correctos.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     repository = PipelineRepository(db_session)
     await repository.enqueue(
@@ -230,10 +236,11 @@ async def test_queue_states_expose_so_filter_pipeline_tail(db_session) -> None:
 
 @pytest.mark.asyncio
 async def test_so_filter_backfill_does_not_mask_a_later_scrape_result(db_session) -> None:
-    """Comprueba el escenario `so_filter_backfill_does_not_mask_a_later_scrape_result`.
+    """Completa una tarea independiente de plataformas y comprueba que una ejecución posterior
+    con otra huella vuelve a encolarla.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     repository = PipelineRepository(db_session)
     item = await repository.enqueue(
@@ -261,10 +268,11 @@ async def test_so_filter_backfill_does_not_mask_a_later_scrape_result(db_session
 
 @pytest.mark.asyncio
 async def test_active_package_ids_detects_only_live_upstream_work(db_session) -> None:
-    """Comprueba el escenario `active_package_ids_detects_only_live_upstream_work`.
+    """Mezcla paquetes activos en varias colas, completados y ausentes y comprueba que la
+    consulta devuelve solo el activo y sin duplicados.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     repository = PipelineRepository(db_session)
     active = await repository.enqueue(
@@ -300,7 +308,8 @@ async def test_active_package_ids_detects_only_live_upstream_work(db_session) ->
 
 
 def test_snapshot_html_is_bounded_before_sanitizing_large_pages() -> None:
-    """Comprueba el escenario `snapshot_html_is_bounded_before_sanitizing_large_pages`.
+    """Aporta HTML grande con script y texto multibyte y comprueba límite de muestra, eliminación
+    del script y marca de truncamiento.
     """
     html = "<html><script>" + ("a" * 100_000) + "</script>" + ("\u00f1" * 100_000) + "</html>"
 
@@ -317,10 +326,11 @@ def test_snapshot_html_is_bounded_before_sanitizing_large_pages() -> None:
 
 @pytest.mark.asyncio
 async def test_snapshot_insert_does_not_prune_or_lock_the_active_run(db_session) -> None:
-    """Comprueba el escenario `snapshot_insert_does_not_prune_or_lock_the_active_run`.
+    """Guarda una muestra junto a otra caducada y comprueba que insertar no poda ni asocia
+    run_id; la poda explícita elimina después la caducada.
 
     Args:
-        db_session (Any): Valor de `db_session` utilizado por la operación.
+        db_session: Sesión SQLite aislada de la prueba.
     """
     expired = ScraperWorkerSnapshot(
         worker_id="previous-worker",
@@ -355,12 +365,16 @@ async def test_snapshot_insert_does_not_prune_or_lock_the_active_run(db_session)
 
 
 def work_item(package_id: str, status: str, lease_expires_at):
-    """Ejecuta la operación `work_item`.
+    """Prepara una tarea con estado, propietario y error coherentes para los escenarios de
+    recuperación.
 
     Args:
-        package_id (str): Identificador de `package` utilizado por la operación.
-        status (str): Valor de `status` utilizado por la operación.
-        lease_expires_at (Any): Instante asociado a `lease_expires`.
+        package_id: Identidad controlada del paquete de prueba.
+        status: Estado inicial de la tarea.
+        lease_expires_at: Vencimiento de reserva, o None para probar una reserva ausente.
+
+    Returns:
+        entidad sin persistir cuyo paquete determina la cola de prueba.
     """
     return ScraperWorkItem(
         queue=QUEUE_SEARCHER_FILTER if package_id != "Vendor.Failed" else QUEUE_FILTER_SCRAPER,

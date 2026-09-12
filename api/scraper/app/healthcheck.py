@@ -1,4 +1,6 @@
-"""Ejecuta comprobaciones internas para procesos del scraper sin servidor HTTP."""
+"""Implementa la sonda de contenedores para base de datos y frescura del scheduler con código de
+salida del proceso.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +13,12 @@ from app.core.config import get_settings
 
 
 async def database_ready() -> bool:
-    """Comprueba que MySQL acepta autenticación y una consulta del scraper."""
+    """Abre una conexión MySQL breve, ejecuta SELECT 1 y cierra la conexión incluso cuando la
+    comprobación falla.
+
+    Returns:
+        True solo si la consulta devuelve (1,); cualquier excepción produce False.
+    """
     settings = get_settings()
     connection = None
     try:
@@ -38,7 +45,19 @@ async def worker_ready(
     max_age_seconds: float,
     failure_threshold: int,
 ) -> bool:
-    """Comprueba antigüedad y fallos persistentes del scheduler."""
+    """Consulta el último latido del rol y exige frescura y fallos consecutivos inferiores al
+    umbral; cierra su conexión independiente.
+
+    Args:
+        role: Rol persistido del proceso, normalizado a minúsculas y guiones.
+        max_age_seconds: Edad máxima admitida del último latido, en segundos.
+        failure_threshold: Número de fallos consecutivos a partir del cual el worker deja de
+            estar disponible.
+
+    Returns:
+        False si no hay latido, está degradado o falla la consulta; True cuando supera ambos
+            controles.
+    """
     settings = get_settings()
     connection = None
     try:
@@ -75,7 +94,9 @@ async def worker_ready(
 
 
 def main() -> None:
-    """Termina con código distinto de cero cuando MySQL no está listo."""
+    """Lee las opciones de la sonda y termina con código cero si la base y el worker solicitado
+    están disponibles; en caso contrario termina con uno.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--worker", choices=("scheduler",))
     parser.add_argument("--max-age", type=float)
@@ -84,6 +105,12 @@ def main() -> None:
     settings = get_settings()
 
     async def ready() -> bool:
+        """Comprueba primero la base y solo consulta el latido si está disponible y se ha
+        solicitado un worker.
+
+        Returns:
+            resultado conjunto de las comprobaciones seleccionadas por la línea de comandos.
+        """
         database = await database_ready()
         if not database or not arguments.worker:
             return database

@@ -1,5 +1,4 @@
-"""Implementa las responsabilidades del módulo `config`.
-"""
+"""Carga configuración SCRAPER_ y proporciona una instancia validada compartida por el proceso."""
 import os
 from enum import StrEnum
 from functools import lru_cache
@@ -11,46 +10,115 @@ from sqlalchemy import URL, make_url
 
 
 class GroqDescriptionModel(StrEnum):
-    """Enumera los valores admitidos por `GroqDescriptionModel`.
+    """Restringe los identificadores de modelos alternativos admitidos para enriquecer
+    descripciones con Groq.
     """
     
     GPT_OSS_120B = "openai/gpt-oss-120b"
-    """Constante que define `GPT_OSS_120B`.
-    """
+
     QWEN_3_32B = "qwen/qwen3-32b"
-    """Constante que define `QWEN_3_32B`.
-    """
+
     QWEN_3_6_27B = "qwen/qwen3.6-27b"
-    """Constante que define `QWEN_3_6_27B`.
-    """
+
     QWEN_3_8_27B = "qwen/qwen3.8-27b"
-    """Constante que define `QWEN_3_8_27B`.
-    """
+
     LLAMA_4_SCOUT = "meta-llama/llama-4-scout-17b-16e-instruct"
-    """Constante que define `LLAMA_4_SCOUT`.
-    """
+
     LLAMA_3_1_8B = "llama-3.1-8b-instant"
-    """Constante que define `LLAMA_3_1_8B`.
-    """
+
 
 
 DEFAULT_GROQ_DESCRIPTION_FALLBACKS = (
     GroqDescriptionModel.QWEN_3_8_27B,
 )
-"""Constante que define `DEFAULT_GROQ_DESCRIPTION_FALLBACKS`.
-"""
+
 
 
 class Settings(BaseSettings):
-    """Agrupa las opciones de configuración de `Settings`.
+    """Enlaza variables SCRAPER_ y el archivo .env con límites, proveedores y persistencia del
+    scraper.
+    Rechaza el prefijo histórico SCRAPPER_ para evitar que una configuración antigua active
+    valores predeterminados silenciosamente.
+
+    Attributes:
+        app_name: Título de FastAPI e identificación del servicio en salud.
+        database_host, database_port, database_name: Destino MySQL y nombre del esquema; el
+            puerto predeterminado es 3306.
+        database_username, database_password: Identidad y secreto de conexión, con contraseña
+            protegida por SecretStr.
+        database_pool_max, database_max_overflow: Conexiones persistentes y margen de
+            conexiones temporales por proceso.
+        database_pool_timeout_seconds, database_pool_recycle_seconds: Espera de adquisición y
+            antigüedad de reciclado de conexiones, en segundos.
+        database_url_override: URL completa reservada a pruebas; si está presente sustituye
+            los componentes de conexión.
+        winstall_base_url, winstall_api_base_url: Bases de navegación y API del proveedor de
+            catálogo Winstall.
+        request_timeout_seconds, max_redirects: Timeout HTTP en segundos y máximo de saltos
+            permitidos por las consultas externas.
+        max_download_size_bytes, icon_max_bytes, manual_page_max_bytes: Límites de bytes para
+            instalador, icono y HTML de inspección, respectivamente.
+        manual_inspection_ttl_hours, manual_inspection_max_attempts: Vigencia de inspecciones
+            en horas y máximo de intentos persistidos.
+        so_filter_concurrency, so_filter_max_attempts: Paralelismo del filtro de plataformas y
+            máximo de intentos de sus tareas.
+        scrape_concurrency, scrape_app_timeout_seconds: Concurrencia del pipeline y tiempo
+            máximo por aplicación, en segundos.
+        scrape_max_apps: Máximo de aplicaciones por ejecución; cero no aplica este límite.
+        scrape_searcher_backpressure_limit, scrape_searcher_backpressure_sleep_seconds: Umbral
+            de trabajo pendiente y pausa en segundos antes de seguir descubriendo
+            aplicaciones.
+        cpu_thread_workers: Tamaño solicitado para el pool de cálculo; su construcción
+            garantiza al menos un hilo.
+        scheduler_timezone, scheduler_hour, scheduler_minute: Zona IANA y hora local de la
+            ejecución diaria.
+        run_on_startup: Activa una ejecución al iniciar el scheduler cuando es true.
+        worker_heartbeat_interval_seconds, worker_heartbeat_stale_seconds: Cadencia del latido
+            y máxima antigüedad aceptada, en segundos.
+        worker_failure_threshold: Fallos consecutivos que hacen que salud considere degradado
+            al worker.
+        url_protection_secret: Secreto estable del despliegue para cifrar y recuperar URL
+            privadas de fuentes.
+        allowed_download_schemes: Esquemas admitidos al validar candidatos; el valor
+            predeterminado solo permite HTTPS.
+        playwright_timeout_ms: Tiempo máximo de navegación del respaldo con navegador, en
+            milisegundos.
+        internal_service_token: Secreto de las rutas internas; vacío nunca autoriza
+            peticiones.
+        llm_groq_api_key, llm_deepseek_api_key: Credenciales opcionales de los proveedores de
+            descripciones.
+        llm_groq_base_url, llm_deepseek_base_url: Bases de las API compatibles con chat
+            completions.
+        llm_groq_model, llm_groq_fallback_models, llm_deepseek_model: Modelos principal,
+            alternativos de Groq y de DeepSeek utilizados por el enriquecimiento.
+        llm_max_concurrency, llm_max_apps_per_run: Paralelismo de enriquecimiento y máximo por
+            ejecución; cero en el segundo no limita aplicaciones.
+        llm_request_timeout_seconds: Espera máxima de respuesta del proveedor, en segundos.
+        llm_rate_limit_cooldown_seconds, llm_transient_cooldown_seconds,
+            llm_model_error_cooldown_seconds: Pausas en segundos tras cuota agotada, fallo
+            transitorio y error de modelo, respectivamente.
+
+    See Also:
+        app.db.session: Construye el pool por proceso con esta configuración.
+        app.worker: Programa las ejecuciones y publica latidos.
+        app.scraper.description_enricher: Consume límites y proveedores de generación de
+            descripciones.
     """
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="SCRAPER_", extra="ignore")
-    """Campo declarado `model_config` de `Settings`.
-    """
+
 
     def model_post_init(self, __context: object) -> None:
-        """Rechaza el prefijo retirado antes de usar valores por defecto."""
+        """Detecta variables con el prefijo retirado y detiene la configuración antes de arrancar
+        el servicio.
+
+        Args:
+            __context: Contexto de inicialización de Pydantic, sin uso en la validación del
+                prefijo.
+
+        Raises:
+            ValueError: Si existe alguna variable de entorno SCRAPPER_.
+        """
         legacy_names = sorted(name for name in os.environ if name.startswith("SCRAPPER_"))
         if legacy_names:
             joined = ", ".join(legacy_names)
@@ -63,23 +131,17 @@ class Settings(BaseSettings):
         default="Batch Downloader Scraper",
         description="FastAPI title and health service name.",
     )
-    """Campo declarado `app_name` de `Settings`.
-    """
+
     database_host: str = "localhost"
-    """Campo declarado `database_host` de `Settings`.
-    """
+
     database_port: int = 3306
-    """Campo declarado `database_port` de `Settings`.
-    """
+
     database_name: str = "batch_downloader"
-    """Campo declarado `database_name` de `Settings`.
-    """
+
     database_username: str = "batch_downloader"
-    """Campo declarado `database_username` de `Settings`.
-    """
+
     database_password: SecretStr = SecretStr("batch_downloader")
-    """Campo declarado `database_password` de `Settings`.
-    """
+
     database_pool_max: int = Field(default=8, ge=1)
     """Conexiones persistentes para workers concurrentes y consultas de API."""
     database_max_overflow: int = Field(default=4, ge=0)
@@ -93,71 +155,49 @@ class Settings(BaseSettings):
         description="Test-only full URL override; runtime configuration uses database components.",
         exclude=True,
     )
-    """Campo declarado `database_url_override` de `Settings`.
-    """
+
     winstall_base_url: str = "https://winstall.app"
-    """Campo declarado `winstall_base_url` de `Settings`.
-    """
+
     winstall_api_base_url: str = "https://winstall.app/api/winstall"
-    """Campo declarado `winstall_api_base_url` de `Settings`.
-    """
+
     request_timeout_seconds: float = 20
-    """Campo declarado `request_timeout_seconds` de `Settings`.
-    """
+
     max_redirects: int = 5
-    """Campo declarado `max_redirects` de `Settings`.
-    """
+
     max_download_size_bytes: int = 4_000_000_000
-    """Campo declarado `max_download_size_bytes` de `Settings`.
-    """
+
     icon_max_bytes: int = 5_000_000
-    """Campo declarado `icon_max_bytes` de `Settings`.
-    """
+
     manual_inspection_ttl_hours: int = 24
-    """Campo declarado `manual_inspection_ttl_hours` de `Settings`.
-    """
+
     manual_inspection_max_attempts: int = 4
-    """Campo declarado `manual_inspection_max_attempts` de `Settings`.
-    """
+
     manual_page_max_bytes: int = 1_000_000
-    """Campo declarado `manual_page_max_bytes` de `Settings`.
-    """
+
     so_filter_concurrency: int = 2
-    """Campo declarado `so_filter_concurrency` de `Settings`.
-    """
+
     so_filter_max_attempts: int = 4
-    """Campo declarado `so_filter_max_attempts` de `Settings`.
-    """
+
     scrape_concurrency: int = 6
-    """Campo declarado `scrape_concurrency` de `Settings`.
-    """
+
     scrape_max_apps: int = 0
-    """Campo declarado `scrape_max_apps` de `Settings`.
-    """
+
     scrape_app_timeout_seconds: float = 90
-    """Campo declarado `scrape_app_timeout_seconds` de `Settings`.
-    """
+
     scrape_searcher_backpressure_limit: int = 250
-    """Campo declarado `scrape_searcher_backpressure_limit` de `Settings`.
-    """
+
     scrape_searcher_backpressure_sleep_seconds: float = 2
-    """Campo declarado `scrape_searcher_backpressure_sleep_seconds` de `Settings`.
-    """
+
     cpu_thread_workers: int = 4
-    """Campo declarado `cpu_thread_workers` de `Settings`.
-    """
+
     scheduler_timezone: str = "Europe/Madrid"
-    """Campo declarado `scheduler_timezone` de `Settings`.
-    """
+
     scheduler_hour: int = 3
-    """Campo declarado `scheduler_hour` de `Settings`.
-    """
+
     scheduler_minute: int = 0
-    """Campo declarado `scheduler_minute` de `Settings`.
-    """
+
     run_on_startup: bool = False
-    """Campo declarado `run_on_startup` de `Settings`.
-    """
+
     worker_heartbeat_interval_seconds: float = Field(default=10.0, ge=1.0)
     """Cadencia de la señal persistente del scheduler."""
     worker_heartbeat_stale_seconds: float = Field(default=45.0, ge=5.0)
@@ -165,74 +205,62 @@ class Settings(BaseSettings):
     worker_failure_threshold: int = Field(default=3, ge=1)
     """Fallos consecutivos necesarios para declarar degradación."""
     url_protection_secret: str = "replace-with-a-long-random-secret"
-    """Campo declarado `url_protection_secret` de `Settings`.
-    """
+
     allowed_download_schemes: tuple[str, ...] = ("https",)
-    """Campo declarado `allowed_download_schemes` de `Settings`.
-    """
+
     playwright_timeout_ms: int = 15000
-    """Campo declarado `playwright_timeout_ms` de `Settings`.
-    """
+
     internal_service_token: SecretStr = SecretStr("")
-    """Campo declarado `internal_service_token` de `Settings`.
-    """
+
     llm_groq_api_key: str = ""
-    """Campo declarado `llm_groq_api_key` de `Settings`.
-    """
+
     llm_groq_base_url: str = "https://api.groq.com/openai/v1"
-    """Campo declarado `llm_groq_base_url` de `Settings`.
-    """
+
     llm_groq_model: str = "qwen/qwen3.6-27b"
-    """Campo declarado `llm_groq_model` de `Settings`.
-    """
+
     llm_groq_fallback_models: tuple[GroqDescriptionModel, ...] = (
         DEFAULT_GROQ_DESCRIPTION_FALLBACKS
     )
-    """Campo declarado `llm_groq_fallback_models` de `Settings`.
-    """
+
     llm_deepseek_api_key: str = ""
-    """Campo declarado `llm_deepseek_api_key` de `Settings`.
-    """
+
     llm_deepseek_base_url: str = "https://api.deepseek.com"
-    """Campo declarado `llm_deepseek_base_url` de `Settings`.
-    """
+
     llm_deepseek_model: str = "deepseek-v4-flash"
-    """Campo declarado `llm_deepseek_model` de `Settings`.
-    """
+
     llm_max_concurrency: int = 2
-    """Campo declarado `llm_max_concurrency` de `Settings`.
-    """
+
     llm_max_apps_per_run: int = 0
-    """Campo declarado `llm_max_apps_per_run` de `Settings`.
-    """
+
     llm_request_timeout_seconds: float = 45
-    """Campo declarado `llm_request_timeout_seconds` de `Settings`.
-    """
+
     llm_rate_limit_cooldown_seconds: float = 3600
-    """Campo declarado `llm_rate_limit_cooldown_seconds` de `Settings`.
-    """
+
     llm_transient_cooldown_seconds: float = 30
-    """Campo declarado `llm_transient_cooldown_seconds` de `Settings`.
-    """
+
     llm_model_error_cooldown_seconds: float = 86400
-    """Campo declarado `llm_model_error_cooldown_seconds` de `Settings`.
-    """
+
 
     @property
     def scheduler_zoneinfo(self) -> ZoneInfo:
-        """Ejecuta `scheduler_zoneinfo` dentro de `Settings`.
+        """Resuelve la zona IANA utilizada para interpretar la hora diaria del scheduler.
 
         Returns:
-            ZoneInfo: Resultado producido por la operación.
+            zona horaria configurada.
+
+        Raises:
+            zoneinfo.ZoneInfoNotFoundError: Si no existe la zona solicitada en los datos
+                horarios disponibles.
         """
         return ZoneInfo(self.scheduler_timezone)
 
     @property
     def database_url(self) -> URL:
-        """Ejecuta `database_url` dentro de `Settings`.
+        """Construye una URL SQLAlchemy sin concatenar credenciales y permite sustituirla por la
+        URL explícita de pruebas.
 
         Returns:
-            URL: Resultado producido por la operación.
+            URL del driver mysql+aiomysql, o la URL de sustitución indicada.
         """
         if self.database_url_override:
             return make_url(self.database_url_override)
@@ -248,9 +276,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Obtiene la operación `settings`.
+    """Carga y valida la configuración en el primer acceso y reutiliza la instancia mediante
+    caché del proceso.
 
     Returns:
-        Settings: Resultado de `get_settings`.
+        configuración compartida hasta que se invalide la caché.
     """
     return Settings()
