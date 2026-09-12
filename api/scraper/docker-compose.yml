@@ -1,0 +1,126 @@
+services:
+  scraper-api:
+    build:
+      context: .
+    env_file:
+      - path: ./.env.example
+      - path: ./.env
+        required: false
+    environment:
+      SCRAPER_DATABASE_HOST: mysql
+      SCRAPER_DATABASE_PORT: 3306
+      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
+      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
+      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
+      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
+      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
+      SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+    cpu_shares: 512
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  scraper-scheduler:
+    build:
+      context: .
+    command: ["scheduler"]
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      SCRAPER_DATABASE_HOST: mysql
+      SCRAPER_DATABASE_PORT: 3306
+      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
+      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
+      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
+      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
+      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
+    cpu_shares: 256
+    restart: unless-stopped
+    depends_on:
+      scraper-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "scheduler"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  scraper-python314t-benchmark:
+    profiles: ["benchmark"]
+    restart: "no"
+    build:
+      context: .
+    entrypoint: ["python", "/app/scripts/benchmark_free_threading.py"]
+    command:
+      [
+        "--repetitions",
+        "5",
+        "--html",
+        "/app/scripts/fixtures/benchmark_catalog.html",
+        "--output",
+        "/reports/python314t.json",
+      ]
+    volumes:
+      - semantic_reports:/reports
+
+  scraper-python314-control:
+    profiles: ["benchmark"]
+    restart: "no"
+    build:
+      context: .
+      dockerfile: Dockerfile.python314-standard
+    command:
+      [
+        "--repetitions",
+        "5",
+        "--html",
+        "/app/scripts/fixtures/benchmark_catalog.html",
+        "--output",
+        "/reports/python314-standard.json",
+      ]
+    volumes:
+      - semantic_reports:/reports
+
+  scraper-python314-benchmark-report:
+    profiles: ["benchmark"]
+    restart: "no"
+    build:
+      context: .
+      dockerfile: Dockerfile.python314-standard
+    entrypoint: ["python", "/app/scripts/compare_threading_benchmarks.py"]
+    command:
+      [
+        "--standard",
+        "/reports/python314-standard.json",
+        "--free-threaded",
+        "/reports/python314t.json",
+        "--output-dir",
+        "/reports",
+      ]
+    depends_on:
+      scraper-python314t-benchmark:
+        condition: service_completed_successfully
+      scraper-python314-control:
+        condition: service_completed_successfully
+    volumes:
+      - semantic_reports:/reports
+
+volumes:
+  semantic_reports:
