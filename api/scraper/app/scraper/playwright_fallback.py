@@ -1,4 +1,6 @@
-"""Implementa las responsabilidades del módulo `playwright_fallback`."""
+"""Descubre URLs que solo aparecen tras ejecutar JavaScript o activar controles de descarga
+visibles.
+"""
 
 from __future__ import annotations
 
@@ -14,37 +16,37 @@ DOWNLOAD_CONTROL_PATTERN = re.compile(
     "\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9",
     re.I,
 )
-"""Constante que define `DOWNLOAD_CONTROL_PATTERN`.
-"""
+
 WINDOWS_DESKTOP_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-"""Constante que define `WINDOWS_DESKTOP_USER_AGENT`.
-"""
+
 
 
 class PlaywrightCandidateCollector:
-    """Representa el componente `PlaywrightCandidateCollector`."""
+    """Usa Chromium headless con User-Agent Windows y captura requests, downloads, atributos
+    dinámicos y controles de página.
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Inicializa una instancia de `PlaywrightCandidateCollector`.
+        """Conserva límites de Playwright y timeout de navegación.
 
         Args:
-            settings (Settings): Configuración del servicio.
+            settings: Configuración de timeouts, redirecciones y límites.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
 
     async def collect(self, url: str) -> list[InstallerCandidate]:
-        """Ejecuta `collect` dentro de `PlaywrightCandidateCollector`.
+        """Abre una página, recoge URLs dinámicas y cierra browser/context incluso cuando la
+        navegación falla.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
+            url: URL que se clasifica como icono.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos únicos o lista vacía si Playwright no está instalado o falla.
         """
         try:
             from playwright.async_api import async_playwright
@@ -107,13 +109,14 @@ class PlaywrightCandidateCollector:
 
 
 async def control_fingerprint(handle) -> str:
-    """Ejecuta la operación `control_fingerprint`.
+    """Calcula una huella estable de etiqueta, texto, href, onclick y clase para no hacer clic
+    dos veces.
 
     Args:
-        handle (Any): Valor de `handle` utilizado por la operación.
+        handle: Elemento Playwright que se examina o pulsa.
 
     Returns:
-        str: Resultado producido por la operación.
+        huella textual.
     """
     return await handle.evaluate(
         """element => [
@@ -133,25 +136,26 @@ def collect_url(
     *,
     referer: str | None = None,
 ) -> None:
-    """Ejecuta la operación `collect_url`.
+    """Añade una URL cuando parece descarga por extensión o ruta de download/installer/setup y
+    conserva el Referer.
 
     Args:
-        collected (dict[str, InstallerCandidate]): Valor de `collected` utilizado por la operación.
-        url (str): URL del recurso que debe procesarse.
-        source (str): Fuente de descarga sobre la que se actúa.
-        referer (str | None): Valor de `referer` utilizado por la operación.
+        collected: Mapa mutable de candidatos indexados por URL.
+        url: URL que se clasifica como icono.
+        source: Procedencia que se conserva en IconResult.
+        referer: Página que originó la petición o descarga.
     """
     if URL_PATTERN.search(url) or re.search(r"/(?:download|installer|setup)(?:[/?]|$)", url, re.I):
         collected.setdefault(url, InstallerCandidate(url=url, source=source, referer=referer))
 
 
 async def collect_page_candidates(collected, page, base_url: str) -> None:
-    """Ejecuta la operación `collect_page_candidates`.
+    """Captura data-release-url firmado de SourceForge y combina extracción HTML genérica.
 
     Args:
-        collected (Any): Valor de `collected` utilizado por la operación.
-        page (Any): Número de página solicitado.
-        base_url (str): Dirección de `base` que debe procesarse.
+        collected: Mapa mutable de candidatos indexados por URL.
+        page: Página Playwright cuyo DOM se analiza.
+        base_url: URL base para resolver referencias relativas.
     """
     # SourceForge expone el mirror actual mediante una URL firmada y efímera en
     # ``data-release-url``. No aparece como ``href`` y, por tanto, el extractor
@@ -179,8 +183,12 @@ async def collect_page_candidates(collected, page, base_url: str) -> None:
 
 
 async def explore_download_controls(page, collected: dict[str, InstallerCandidate]) -> None:
-    """Explora hasta tres niveles y cuatro controles visibles por nivel hasta hallar un
-    artefacto.
+    """Activa hasta tres niveles y cuatro controles por nivel, reextrayendo tras cada clic hasta
+    hallar un artefacto.
+
+    Args:
+        page: Página Playwright cuyo DOM se analiza.
+        collected: Mapa mutable de candidatos indexados por URL.
     """
     seen_controls: set[str] = set()
     for _depth in range(3):

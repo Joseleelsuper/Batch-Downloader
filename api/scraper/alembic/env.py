@@ -12,23 +12,19 @@ from app.db import models  # noqa: F401
 from app.db.base import Base
 
 config = context.config
-"""Estado global asociado a `config`.
-"""
+
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 settings = get_settings()
-"""Estado global asociado a `settings`.
-"""
+
 target_metadata = Base.metadata
-"""Estado global asociado a `target_metadata`.
-"""
+
 
 
 def run_migrations_offline() -> None:
-    """Ejecuta la operación `migrations_offline`.
-    """
+    """Conserva el valor de configuración `run_migrations_offline` que utiliza esta revisión."""
     context.configure(
         url=settings.database_url,
         target_metadata=target_metadata,
@@ -41,10 +37,10 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    """Ejecuta la operación `do_run_migrations`.
+    """Ejecuta el contexto Alembic configurado para aplicar la migración solicitada.
 
     Args:
-        connection (Any): Conexión de base de datos utilizada por la operación.
+        connection: Valor de `connection` utilizado por la configuración de la migración.
     """
     context.configure(connection=connection, target_metadata=target_metadata)
 
@@ -53,8 +49,7 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    """Ejecuta la operación `migrations_online`.
-    """
+    """Conserva el valor de configuración `run_migrations_online` que utiliza esta revisión."""
     connectable = create_async_engine(settings.database_url, poolclass=pool.NullPool)
 
     async with connectable.connect() as connection:

@@ -162,13 +162,12 @@ def test_score_prefers_geogebra_matching_variant() -> None:
     ]
 
     def best_url(app_name: str) -> str:
-        """Ejecuta la operación `best_url`.
+        """Prepara el recurso `test_score_prefers_geogebra_matching_variant.best_url` usado por
+        las pruebas para aislar el escenario `test score prefers geogebra matching
+        variant.best url` y conservar sus datos de entrada.
 
         Args:
-            app_name (str): Valor de `app_name` utilizado por la operación.
-
-        Returns:
-            str: Resultado producido por la operación.
+            app_name: Entrada `app_name` del escenario que se mantiene estable para la prueba.
         """
         scored = [
             score_candidate(

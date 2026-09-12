@@ -46,23 +46,31 @@ async def test_resolver_registry_selects_first_supporting_strategy() -> None:
     calls: list[str] = []
 
     async def github_callback(_source_id, _url, _app):
-        """Ejecuta la operación `github_callback`.
+        """Prepara el recurso
+        `test_resolver_registry_selects_first_supporting_strategy.github_callback` usado por
+        las pruebas para aislar el escenario `test resolver registry selects first supporting
+        strategy.github callback` y conservar sus datos de entrada.
 
         Args:
-            _source_id (Any): Identificador de `_source` utilizado por la operación.
-            _url (Any): Dirección de `` que debe procesarse.
-            _app (Any): Valor de `_app` utilizado por la operación.
+            _source_id: Entrada `_source_id` del escenario que se mantiene estable para la
+                prueba.
+            _url: Entrada `_url` del escenario que se mantiene estable para la prueba.
+            _app: Entrada `_app` del escenario que se mantiene estable para la prueba.
         """
         calls.append("github")
         return ResolutionStatus.DIRECT
 
     async def generic_callback(_source_id, _url, _app):
-        """Ejecuta la operación `generic_callback`.
+        """Prepara el recurso
+        `test_resolver_registry_selects_first_supporting_strategy.generic_callback` usado por
+        las pruebas para aislar el escenario `test resolver registry selects first supporting
+        strategy.generic callback` y conservar sus datos de entrada.
 
         Args:
-            _source_id (Any): Identificador de `_source` utilizado por la operación.
-            _url (Any): Dirección de `` que debe procesarse.
-            _app (Any): Valor de `_app` utilizado por la operación.
+            _source_id: Entrada `_source_id` del escenario que se mantiene estable para la
+                prueba.
+            _url: Entrada `_url` del escenario que se mantiene estable para la prueba.
+            _app: Entrada `_app` del escenario que se mantiene estable para la prueba.
         """
         calls.append("generic")
         return ResolutionStatus.REQUIRES_MANUAL_REVIEW
@@ -124,12 +132,15 @@ async def test_platform_worker_uses_injected_candidate_resolver_strategy() -> No
     )
 
     async def collect(_runtime, _app, _url):
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso
+        `test_platform_worker_uses_injected_candidate_resolver_strategy.collect` usado por las
+        pruebas para aislar el escenario `test platform worker uses injected candidate
+        resolver strategy.collect` y conservar sus datos de entrada.
 
         Args:
-            _runtime (Any): Valor de `_runtime` utilizado por la operación.
-            _app (Any): Valor de `_app` utilizado por la operación.
-            _url (Any): Dirección de `` que debe procesarse.
+            _runtime: Entrada `_runtime` del escenario que se mantiene estable para la prueba.
+            _app: Entrada `_app` del escenario que se mantiene estable para la prueba.
+            _url: Entrada `_url` del escenario que se mantiene estable para la prueba.
         """
         return [collected]
 

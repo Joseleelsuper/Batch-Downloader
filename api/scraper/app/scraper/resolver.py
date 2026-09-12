@@ -1,4 +1,10 @@
-"""Implementa las responsabilidades del módulo `resolver`."""
+"""Resuelve fuentes del catálogo con estrategias oficiales, releases GitHub y fallback Winstall;
+valida y persiste hasta cinco resultados puntuados.
+
+See Also:
+    app.scraper.github: Obtiene assets de releases.
+    app.scraper.installer_policy: Comparte deduplicación y metadatos de publicación.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +33,9 @@ from app.scraper.winstall import WinstallApp, WinstallClient
 
 
 class InstallerResolver:
-    """Representa el componente `InstallerResolver`."""
+    """Orquesta una resolución aislada por fuente y conserva estados y logs cuando no hay un
+    instalador seguro.
+    """
 
     def __init__(
         self,
@@ -37,34 +45,28 @@ class InstallerResolver:
         validator: DownloadValidator,
         strategies: ResolverStrategyRegistry | None = None,
     ) -> None:
-        """Inicializa una instancia de `InstallerResolver`.
+        """Inyecta repositorios, validador y registro de estrategias y prepara fallbacks
+        GitHub/Playwright.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
-            logs (ResolverLogRepository): Valor de `logs` utilizado por la operación.
-            validator (DownloadValidator): Valor de `validator` utilizado por la operación.
-            strategies (ResolverStrategyRegistry | None): Valor de `strategies` utilizado por la
-                operación.
+            settings: Configuración de red y límites del servicio.
+            catalog: Repositorio que persiste fuentes y resoluciones.
+            logs: Repositorio de trazas de resolución.
+            validator: Validador de descargas y firmas.
+            strategies: Registro ordenado de estrategias por proveedor.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.catalog = catalog
-        """Estado de instancia asociado a `catalog`.
-        """
+
         self.logs = logs
-        """Estado de instancia asociado a `logs`.
-        """
+
         self.validator = validator
-        """Estado de instancia asociado a `validator`.
-        """
+
         self.playwright = PlaywrightCandidateCollector(settings)
-        """Estado de instancia asociado a `playwright`.
-        """
+
         self.github = GitHubReleaseResolver(settings)
-        """Estado de instancia asociado a `github`.
-        """
+
         self.strategies = strategies or ResolverStrategyRegistry(
             (
                 CallbackResolverStrategy(
@@ -79,18 +81,18 @@ class InstallerResolver:
                 ),
             )
         )
-        """Estado de instancia asociado a `strategies`.
-        """
+
 
     async def resolve(self, source: DownloadSource, app: WinstallApp) -> ResolutionStatus:
-        """Ejecuta `resolve` dentro de `InstallerResolver`.
+        """Expira resoluciones previas, prueba estrategia oficial, usa Winstall como fallback y
+        marca missing o manual review cuando no existe evidencia.
 
         Args:
-            source (DownloadSource): Fuente de descarga sobre la que se actúa.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            source: Fuente de descarga que se va a resolver.
+            app: Aplicación Winstall con identidad y versiones.
 
         Returns:
-            ResolutionStatus: Resultado producido por la operación.
+            estado persistido de resolución.
         """
         official_url = source.initial_url or app.homepage
         await self.catalog.sources.expire_valid_resolved_sources(source.id)
@@ -131,15 +133,16 @@ class InstallerResolver:
         official_url: str,
         app: WinstallApp,
     ) -> ResolutionStatus:
-        """Ejecuta el paso interno `_resolve_official_page`.
+        """Extrae HTML y Playwright de la página oficial, valida candidatos directos y registra
+        cada fase.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            official_url (str): Dirección de `official` que debe procesarse.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            source_id: UUID de la fuente que se actualiza.
+            official_url: URL oficial usada como origen de candidatos.
+            app: Aplicación Winstall con identidad y versiones.
 
         Returns:
-            ResolutionStatus: Resultado producido por la operación.
+            DIRECT si hay un candidato válido; REQUIRES_MANUAL_REVIEW en caso contrario.
         """
         try:
             html = await self._fetch_html(official_url)
@@ -206,15 +209,15 @@ class InstallerResolver:
         official_url: str,
         app: WinstallApp,
     ) -> ResolutionStatus:
-        """Ejecuta el paso interno `_resolve_github_releases`.
+        """Recopila assets de releases GitHub y los valida como resolución directa.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            official_url (str): Dirección de `official` que debe procesarse.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            source_id: UUID de la fuente que se actualiza.
+            official_url: URL oficial usada como origen de candidatos.
+            app: Aplicación Winstall con identidad y versiones.
 
         Returns:
-            ResolutionStatus: Resultado producido por la operación.
+            DIRECT si se guardó algún asset; revisión si no.
         """
         if not parse_github_repo(official_url):
             return ResolutionStatus.REQUIRES_MANUAL_REVIEW
@@ -250,14 +253,15 @@ class InstallerResolver:
         source_id: uuid.UUID,
         app: WinstallApp,
     ) -> ResolutionStatus:
-        """Ejecuta el paso interno `_resolve_winstall_fallback`.
+        """Construye candidatos desde API y página Winstall, añade releases GitHub recientes y
+        los valida como fallback.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            source_id: UUID de la fuente que se actualiza.
+            app: Aplicación Winstall con identidad y versiones.
 
         Returns:
-            ResolutionStatus: Resultado producido por la operación.
+            FALLBACK si se guardó algún instalador; revisión si no.
         """
         fallback_candidates = []
         for version in app.versions:
@@ -316,14 +320,15 @@ class InstallerResolver:
         source_id: uuid.UUID,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        """Ejecuta el paso interno `_latest_github_candidates_from_winstall`.
+        """Agrupa repositorios GitHub mencionados por Winstall y obtiene assets latest sin
+        duplicar repositorios.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+            source_id: UUID de la fuente que se actualiza.
+            candidates: Candidatos que se puntúan y validan.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos GitHub contextualizados.
         """
         repos = {}
         for candidate in candidates:
@@ -373,16 +378,17 @@ class InstallerResolver:
         status: ResolutionStatus,
         app: WinstallApp,
     ) -> bool:
-        """Ejecuta el paso interno `_validate_candidates`.
+        """Expande y puntúa candidatos, valida hasta 24 y guarda cinco resultados aceptados como
+        máximo.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
-            status (ResolutionStatus): Valor de `status` utilizado por la operación.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            source_id: UUID de la fuente que se actualiza.
+            candidates: Candidatos que se puntúan y validan.
+            status: Vía de resolución que se persiste.
+            app: Aplicación Winstall con identidad y versiones.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si al menos un resultado fue válido.
         """
         scored = await run_cpu_bound(
             score_and_dedupe_candidates,
@@ -448,15 +454,16 @@ class InstallerResolver:
         version: str | None,
         is_primary: bool,
     ) -> None:
-        """Ejecuta el paso interno `_save_valid_candidate`.
+        """Persiste resolución, dominio, formato, confianza y trazas sin sustituir la identidad
+        de la fuente.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-            result (ValidationResult): Resultado que debe procesarse.
-            status (ResolutionStatus): Valor de `status` utilizado por la operación.
-            version (str | None): Valor de `version` utilizado por la operación.
-            is_primary (bool): Valor de `is_primary` utilizado por la operación.
+            source_id: UUID de la fuente que se actualiza.
+            candidate: Candidato con URL, origen y puntuación.
+            result: Resultado de validar un candidato.
+            status: Vía de resolución que se persiste.
+            version: Versión esperada para la puntuación.
+            is_primary: Indica si el resultado ocupa la posición principal.
         """
         await self.catalog.sources.save_resolved_source(
             ResolvedSourceCreate(
@@ -492,13 +499,14 @@ class InstallerResolver:
         )
 
     async def _fetch_html(self, url: str) -> str:
-        """Ejecuta el paso interno `_fetch_html`.
+        """Descarga HTML con timeout, redirecciones y User-Agent y descarta respuestas que no
+        sean HTML.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
+            url: URL HTML que se descarga.
 
         Returns:
-            str: Resultado producido por la operación.
+            HTML o cadena vacía.
         """
         async with httpx.AsyncClient(
             timeout=self.settings.request_timeout_seconds,
@@ -520,17 +528,18 @@ def score_and_dedupe_candidates(
     publisher: str | None,
     version: str | None,
 ) -> list[InstallerCandidate]:
-    """Ejecuta la operación `score_and_dedupe_candidates`.
+    """Puntúa candidatos por identidad, formato y versión y conserva la primera URL de cada
+    recurso en orden de puntuación.
 
     Args:
-        candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
-        app_name (str | None): Valor de `app_name` utilizado por la operación.
-        package_id (str | None): Identificador de `package` utilizado por la operación.
-        publisher (str | None): Valor de `publisher` utilizado por la operación.
-        version (str | None): Valor de `version` utilizado por la operación.
+        candidates: Candidatos que se puntúan y validan.
+        app_name: Nombre visible usado para puntuar candidatos.
+        package_id: Identificador de paquete usado para puntuar identidad.
+        publisher: Editor usado para puntuar identidad.
+        version: Versión esperada para la puntuación.
 
     Returns:
-        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        candidatos deduplicados y ordenados.
     """
     deduped = {candidate.url: candidate for candidate in candidates if candidate.url}
     return sorted(
@@ -554,15 +563,16 @@ def resolved_metadata(
     result: ValidationResult,
     is_primary: bool,
 ) -> dict:
-    """Ejecuta la operación `resolved_metadata`.
+    """Construye metadatos persistibles de procedencia, score, formato y confianza de un
+    resultado validado.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-        result (ValidationResult): Resultado que debe procesarse.
-        is_primary (bool): Valor de `is_primary` utilizado por la operación.
+        candidate: Candidato con URL, origen y puntuación.
+        result: Resultado de validar un candidato.
+        is_primary: Indica si el resultado ocupa la posición principal.
 
     Returns:
-        dict: Mapa con los datos producidos por la operación.
+        diccionario de catálogo.
     """
     metadata = {
         "candidate_source": candidate.source,

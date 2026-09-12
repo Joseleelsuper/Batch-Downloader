@@ -16,10 +16,8 @@ from app.repositories.runs import RUN_LOCK_STALE_MINUTES, ScrapeRunRepository
 
 @pytest_asyncio.fixture
 async def session_factory():
-    """Ejecuta la operación `session_factory`.
-
-    Yields:
-        Any: Elemento producido por la operación.
+    """Prepara el recurso `session_factory` usado por las pruebas para aislar el escenario
+    `session factory` y conservar sus datos de entrada.
     """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:

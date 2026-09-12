@@ -1,4 +1,10 @@
-"""Implementa las responsabilidades del módulo `github`."""
+"""Consulta releases de GitHub por API y HTML y convierte únicamente assets de instalación en
+candidatos ordenados.
+
+See Also:
+    app.scraper.candidates: Define extracción y clasificación de assets.
+    app.scraper.installer_policy: Puntúa y filtra los candidatos antes de validarlos.
+"""
 
 from __future__ import annotations
 
@@ -22,42 +28,57 @@ from app.scraper.candidates import (
 
 @dataclass(frozen=True)
 class GitHubRepo:
-    """Representa el componente `GitHubRepo`."""
+    """Identifica un repositorio GitHub con las partes que forman sus URLs de API y releases.
+
+    Attributes:
+        owner: Cuenta u organización propietaria del repositorio.
+        name: Nombre del repositorio sin la ruta de la página.
+    """
 
     owner: str
-    """Atributo de clase `owner` de `GitHubRepo`.
-    """
+
     name: str
-    """Atributo de clase `name` de `GitHubRepo`.
-    """
+
 
 
 class GitHubReleaseResolver:
-    """Representa el componente `GitHubReleaseResolver`."""
+    """Coordina la obtención de instaladores de un repositorio usando primero la API y después
+    las vistas HTML de releases.
+
+    See Also:
+        collect: Expone la operación de recopilación y gestiona el ciclo de vida del cliente
+            HTTP.
+    """
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
-        """Inicializa una instancia de `GitHubReleaseResolver`.
+        """Conserva la configuración y permite inyectar un cliente HTTP para reutilizar sesión o
+        pruebas.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            client (httpx.AsyncClient | None): Cliente utilizado para ejecutar el escenario.
+            settings: Configuración de red y límites del servicio.
+            client: Cliente HTTP reutilizable; None permite crear uno gestionado por el
+                contexto.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.client = client
-        """Estado de instancia asociado a `client`.
-        """
+
 
     async def collect(self, url: str, version: str | None = None) -> list[InstallerCandidate]:
-        """Ejecuta `collect` dentro de `GitHubReleaseResolver`.
+        """Resuelve un repositorio, prueba las etiquetas solicitadas y recoge assets de release
+        por API; si la API no ofrece candidatos, usa HTML expandido y páginas de release.
+        Cierra el cliente únicamente cuando fue creado por esta operación.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-            version (str | None): Valor de `version` utilizado por la operación.
+            url: URL de entrada o destino que se analiza.
+            version: Versión solicitada o declarada por el proveedor.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos únicos de instalador en el orden de la fuente consultada.
+
+        See Also:
+            _collect_from_api: Primera vía, basada en endpoints JSON de releases.
+            _collect_from_html: Fallback para páginas o assets que la API no expone.
         """
         repo = parse_github_repo(url)
         if not repo:
@@ -85,15 +106,18 @@ class GitHubReleaseResolver:
         repo: GitHubRepo,
         tags: list[str],
     ) -> list[InstallerCandidate]:
-        """Ejecuta el paso interno `_collect_from_api`.
+        """Consulta releases por etiqueta y después latest, deteniéndose al primer endpoint que
+        aporta assets permitidos.
 
         Args:
-            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
-            repo (GitHubRepo): Valor de `repo` utilizado por la operación.
-            tags (list[str]): Valor de `tags` utilizado por la operación.
+            client: Cliente HTTP reutilizable; None permite crear uno gestionado por el
+                contexto.
+            repo: Repositorio GitHub ya separado en propietario y nombre.
+            tags: Etiquetas de release que deben probarse en orden de prioridad.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos indexados por URL, o lista vacía si todos los endpoints fallan o no
+                tienen instaladores.
         """
         endpoints = [
             *[
@@ -120,13 +144,14 @@ class GitHubReleaseResolver:
         self,
         release: dict,
     ) -> dict[str, InstallerCandidate]:
-        """Ejecuta el paso interno `_candidates_from_api_release`.
+        """Convierte los assets publicados de una release no borrador en candidatos y descarta
+        código fuente, extensiones desconocidas y URLs no pertenecientes a una release.
 
         Args:
-            release (dict): Valor de `release` utilizado por la operación.
+            release: Payload JSON de una release de GitHub.
 
         Returns:
-            dict[str, InstallerCandidate]: Mapa con los datos producidos por la operación.
+            mapa URL-candidato conservando la primera aparición de cada asset.
         """
         candidates: dict[str, InstallerCandidate] = {}
         if release.get("draft"):
@@ -161,15 +186,18 @@ class GitHubReleaseResolver:
         repo: GitHubRepo,
         tags: list[str],
     ) -> list[InstallerCandidate]:
-        """Ejecuta el paso interno `_collect_from_html`.
+        """Explora primero las etiquetas conocidas, después la página latest y finalmente repite
+        las etiquetas descubiertas para cubrir releases que solo aparecen en HTML.
 
         Args:
-            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
-            repo (GitHubRepo): Valor de `repo` utilizado por la operación.
-            tags (list[str]): Valor de `tags` utilizado por la operación.
+            client: Cliente HTTP reutilizable; None permite crear uno gestionado por el
+                contexto.
+            repo: Repositorio GitHub ya separado en propietario y nombre.
+            tags: Etiquetas de release que deben probarse en orden de prioridad.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos de release HTML en prioridad de etiqueta y sin resultados si no hay
+                assets utilizables.
         """
         discovered_tags = list(tags)
         candidates = await self._collect_known_tags(client, repo, discovered_tags)
@@ -197,7 +225,18 @@ class GitHubReleaseResolver:
     async def _collect_known_tags(
         self, client: httpx.AsyncClient, repo: GitHubRepo, discovered_tags: list[str]
     ) -> list[InstallerCandidate]:
-        """Prueba activos expandidos y después HTML de cada tag, respetando su prioridad."""
+        """Prueba para cada etiqueta los assets expandidos y, si no existen, la página completa
+        de la release; conserva el orden de las etiquetas.
+
+        Args:
+            client: Cliente HTTP reutilizable; None permite crear uno gestionado por el
+                contexto.
+            repo: Repositorio GitHub ya separado en propietario y nombre.
+            discovered_tags: Etiquetas acumuladas durante las consultas HTML.
+
+        Returns:
+            primer conjunto no vacío de candidatos o lista vacía.
+        """
         for tag in discovered_tags:
             candidates = await self._collect_from_expanded_assets(client, repo, tag)
             if candidates:
@@ -226,15 +265,18 @@ class GitHubReleaseResolver:
         repo: GitHubRepo,
         tag: str,
     ) -> list[InstallerCandidate]:
-        """Ejecuta el paso interno `_collect_from_expanded_assets`.
+        """Lee el fragmento expanded_assets de una etiqueta y lo interpreta como HTML de assets
+        de release.
 
         Args:
-            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
-            repo (GitHubRepo): Valor de `repo` utilizado por la operación.
-            tag (str): Valor de `tag` utilizado por la operación.
+            client: Cliente HTTP reutilizable; None permite crear uno gestionado por el
+                contexto.
+            repo: Repositorio GitHub ya separado en propietario y nombre.
+            tag: Etiqueta concreta de release que se consulta.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos permitidos de esa etiqueta, o lista vacía ante una respuesta no
+                satisfactoria.
         """
         response = await client.get(
             f"https://github.com/{repo.owner}/{repo.name}/releases/expanded_assets/"
@@ -256,16 +298,17 @@ class GitHubReleaseResolver:
         source: str,
         release_tag: str | None = None,
     ) -> list[InstallerCandidate]:
-        """Ejecuta el paso interno `_candidates_from_html`.
+        """Extrae enlaces del HTML y los limita a assets de release GitHub, añadiendo la etiqueta
+        y la clase de artefacto al contexto.
 
         Args:
-            html (str): Valor de `html` utilizado por la operación.
-            base_url (str): Dirección de `base` que debe procesarse.
-            source (str): Fuente de descarga sobre la que se actúa.
-            release_tag (str | None): Valor de `release_tag` utilizado por la operación.
+            html: Documento HTML del que se extraen enlaces de descarga.
+            base_url: Página base usada para resolver enlaces relativos.
+            source: Procedencia estable que se guardará junto al candidato.
+            release_tag: Etiqueta de release asociada a los enlaces encontrados, si se conoce.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos de instalador con su procedencia HTML y orden de descubrimiento.
         """
         candidates = extract_candidates(html, base_url)
         return [
@@ -282,13 +325,14 @@ class GitHubReleaseResolver:
 
 
 def parse_github_repo(url: str) -> GitHubRepo | None:
-    """Analiza la operación `github_repo`.
+    """Valida que una URL pertenece a github.com y separa propietario y repositorio, excluyendo
+    rutas globales que no identifican un repositorio.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL de entrada o destino que se analiza.
 
     Returns:
-        GitHubRepo | None: Resultado producido por la operación.
+        GitHubRepo o None para dominios, rutas o páginas no válidas.
     """
     parsed = urlparse(url)
     if parsed.netloc.lower() not in {"github.com", "www.github.com"}:
@@ -302,13 +346,13 @@ def parse_github_repo(url: str) -> GitHubRepo | None:
 
 
 def release_tag_from_url(url: str) -> str | None:
-    """Libera la operación `tag_from_url`.
+    """Obtiene la etiqueta posterior a /tag/ en una URL de release.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL de entrada o destino que se analiza.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        etiqueta sin decodificar o None cuando la ruta no contiene una etiqueta completa.
     """
     parts = [part for part in urlparse(url).path.split("/") if part]
     try:
@@ -321,14 +365,15 @@ def release_tag_from_url(url: str) -> str | None:
 
 
 def release_tags_from_url_or_version(url: str, version: str | None) -> list[str]:
-    """Libera la operación `tags_from_url_or_version`.
+    """Construye la prioridad de etiquetas combinando la URL de release y la versión indicada,
+    añade la variante con v y elimina duplicados conservando orden.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
-        version (str | None): Valor de `version` utilizado por la operación.
+        url: URL de entrada o destino que se analiza.
+        version: Versión solicitada o declarada por el proveedor.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        lista de etiquetas que deben probarse.
     """
     tags: list[str] = []
     url_tag = release_tag_from_url(url)
@@ -344,13 +389,14 @@ def release_tags_from_url_or_version(url: str, version: str | None) -> list[str]
 
 
 def is_allowed_github_asset(url: str) -> bool:
-    """Indica si se cumple la operación `allowed_github_asset`.
+    """Acepta solo assets descargables de una release GitHub: excluye archivos fuente, exige ruta
+    releases/download y limita el formato a instaladores o ZIP/TAR de release.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL de entrada o destino que se analiza.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True cuando la URL puede publicarse como candidato de release.
     """
     if is_github_source_archive(url):
         return False
@@ -365,26 +411,28 @@ def is_allowed_github_asset(url: str) -> bool:
 
 
 def asset_kind_for_github_asset(url: str) -> str:
-    """Ejecuta la operación `asset_kind_for_github_asset`.
+    """Clasifica un asset ZIP como release_zip y el resto como instalador para las reglas de
+    puntuación y publicación.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL de entrada o destino que se analiza.
 
     Returns:
-        str: Resultado producido por la operación.
+        release_zip o installer.
     """
     return "release_zip" if detect_extension(url) == ".zip" else "installer"
 
 
 def github_candidate_context(existing_context: str | None, release_tag: str | None) -> str | None:
-    """Ejecuta la operación `github_candidate_context`.
+    """Combina el contexto extraído del enlace con la etiqueta de release sin crear separadores
+    innecesarios.
 
     Args:
-        existing_context (str | None): Valor de `existing_context` utilizado por la operación.
-        release_tag (str | None): Valor de `release_tag` utilizado por la operación.
+        existing_context: Contexto textual ya extraído del candidato.
+        release_tag: Etiqueta de release asociada a los enlaces encontrados, si se conoce.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        contexto combinado, contexto existente o etiqueta; None si no hay evidencia.
     """
     if existing_context and release_tag:
         return f"{existing_context} {release_tag}"

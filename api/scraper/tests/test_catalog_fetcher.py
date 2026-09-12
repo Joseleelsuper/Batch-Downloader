@@ -811,10 +811,14 @@ async def test_platform_worker_includes_parent_index_fallback(monkeypatch) -> No
     )
 
     async def collect_parent(_candidates):
-        """Ejecuta la operación `collect_parent`.
+        """Prepara el recurso
+        `test_platform_worker_includes_parent_index_fallback.collect_parent` usado por las
+        pruebas para aislar el escenario `test platform worker includes parent index
+        fallback.collect parent` y conservar sus datos de entrada.
 
         Args:
-            _candidates (Any): Valor de `_candidates` utilizado por la operación.
+            _candidates: Entrada `_candidates` del escenario que se mantiene estable para la
+                prueba.
         """
         return [current]
 
@@ -1184,14 +1188,13 @@ async def test_winstall_github_asset_refreshes_from_release_api() -> None:
     )
 
     async def collect(url: str, version: str | None) -> list[InstallerCandidate]:
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso `test_winstall_github_asset_refreshes_from_release_api.collect`
+        usado por las pruebas para aislar el escenario `test winstall github asset refreshes
+        from release api.collect` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-            version (str | None): Valor de `version` utilizado por la operación.
-
-        Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
+            version: Entrada `version` del escenario que se mantiene estable para la prueba.
         """
         assert url == stale.url
         assert version == "40"
@@ -1225,14 +1228,13 @@ async def test_winstall_github_refresh_queries_each_repository_once() -> None:
     worker = PlatformScraperWorker(Settings())
 
     async def collect(url: str, version: str | None) -> list[InstallerCandidate]:
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso `test_winstall_github_refresh_queries_each_repository_once.collect`
+        usado por las pruebas para aislar el escenario `test winstall github refresh queries
+        each repository once.collect` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-            version (str | None): Valor de `version` utilizado por la operación.
-
-        Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
+            version: Entrada `version` del escenario que se mantiene estable para la prueba.
         """
         calls.append((url, version))
         return []
@@ -1274,14 +1276,14 @@ async def test_filter_validates_current_winstall_asset_before_refreshing_github(
             return ValidationResult(ok=candidate.url == current, url=candidate.url)
 
     async def unexpected_refresh(*_args, **_kwargs):
-        """Ejecuta la operación `unexpected_refresh`.
+        """Prepara el recurso
+        `test_filter_validates_current_winstall_asset_before_refreshing_github.unexpected_refresh`
+        usado por las pruebas para aislar el escenario `test filter validates current winstall
+        asset before refreshing github.unexpected refresh` y conservar sus datos de entrada.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
-
-        Throws:
-            AssertionError: Si no puede completarse la operación bajo las condiciones requeridas.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         raise AssertionError("A valid Winstall asset must not trigger a GitHub refresh")
 
@@ -1309,14 +1311,14 @@ async def test_filter_uses_refreshed_winstall_github_release_before_discarding()
     worker = FilterWorker(Settings())
 
     async def collect(_url: str, _version: str | None) -> list[InstallerCandidate]:
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso
+        `test_filter_uses_refreshed_winstall_github_release_before_discarding.collect` usado
+        por las pruebas para aislar el escenario `test filter uses refreshed winstall github
+        release before discarding.collect` y conservar sus datos de entrada.
 
         Args:
-            _url (str): Dirección de `` que debe procesarse.
-            _version (str | None): Valor de `_version` utilizado por la operación.
-
-        Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            _url: Entrada `_url` del escenario que se mantiene estable para la prueba.
+            _version: Entrada `_version` del escenario que se mantiene estable para la prueba.
         """
         return [
             InstallerCandidate(
@@ -1419,22 +1421,30 @@ async def test_searcher_backpressure_waits_until_queue_depth_drops(monkeypatch) 
             return None
 
     async def fake_set_current(_settings, _run_id, _package_id, _app_name, phase):
-        """Ejecuta la operación `fake_set_current`.
+        """Prepara el doble
+        `test_searcher_backpressure_waits_until_queue_depth_drops.fake_set_current` para
+        aislar el escenario `test searcher backpressure waits until queue depth drops.fake set
+        current` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            _settings (Any): Valor de `_settings` utilizado por la operación.
-            _run_id (Any): Identificador de `_run` utilizado por la operación.
-            _package_id (Any): Identificador de `_package` utilizado por la operación.
-            _app_name (Any): Valor de `_app_name` utilizado por la operación.
-            phase (Any): Valor de `phase` utilizado por la operación.
+            _settings: Entrada `_settings` del escenario que se mantiene estable para la
+                prueba.
+            _run_id: Entrada `_run_id` del escenario que se mantiene estable para la prueba.
+            _package_id: Entrada `_package_id` del escenario que se mantiene estable para la
+                prueba.
+            _app_name: Entrada `_app_name` del escenario que se mantiene estable para la
+                prueba.
+            phase: Entrada `phase` del escenario que se mantiene estable para la prueba.
         """
         phases.append(phase)
 
     async def fake_sleep(_seconds):
-        """Ejecuta la operación `fake_sleep`.
+        """Prepara el doble `test_searcher_backpressure_waits_until_queue_depth_drops.fake_sleep`
+        para aislar el escenario `test searcher backpressure waits until queue depth
+        drops.fake sleep` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            _seconds (Any): Valor de `_seconds` utilizado por la operación.
+            _seconds: Entrada `_seconds` del escenario que se mantiene estable para la prueba.
         """
         return None
 
@@ -1473,8 +1483,7 @@ async def test_catalog_fetcher_starts_configured_scraper_workers(monkeypatch) ->
                 _settings (Any): Valor de `_settings` utilizado por la operación.
             """
             self.index = len(started)
-            """Estado de instancia asociado a `index`.
-            """
+
             started.append(self.index)
 
         async def run(self, _runtime) -> None:
@@ -1506,14 +1515,13 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
     calls = 0
 
     async def fake_claim(*_args, **_kwargs):
-        """Ejecuta la operación `fake_claim`.
+        """Prepara el doble `test_platform_worker_retries_transient_claim_failure.fake_claim`
+        para aislar el escenario `test platform worker retries transient claim failure.fake
+        claim` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
-
-        Throws:
-            OperationalError: Si no puede completarse la operación bajo las condiciones requeridas.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         nonlocal calls
         calls += 1
@@ -1522,10 +1530,12 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
         return None
 
     async def fake_sleep(_seconds):
-        """Ejecuta la operación `fake_sleep`.
+        """Prepara el doble `test_platform_worker_retries_transient_claim_failure.fake_sleep`
+        para aislar el escenario `test platform worker retries transient claim failure.fake
+        sleep` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            _seconds (Any): Valor de `_seconds` utilizado por la operación.
+            _seconds: Entrada `_seconds` del escenario que se mantiene estable para la prueba.
         """
         return None
 
@@ -1744,18 +1754,19 @@ def valid(
     confidence: ValidationConfidence = ValidationConfidence.UNVERIFIED,
     transport_security: str | None = None,
 ) -> ValidInstaller:
-    """Ejecuta la operación `valid`.
+    """Prepara el recurso `valid` usado por las pruebas para aislar el escenario `valid` y
+    conservar sus datos de entrada.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
-        os (str): Valor de `os` utilizado por la operación.
-        arch (str): Valor de `arch` utilizado por la operación.
-        version (str): Valor de `version` utilizado por la operación.
-        score (int): Valor de `score` utilizado por la operación.
-        status (ResolutionStatus): Valor de `status` utilizado por la operación.
-
-    Returns:
-        ValidInstaller: Resultado producido por la operación.
+        url: Entrada `url` del escenario que se mantiene estable para la prueba.
+        os: Entrada `os` del escenario que se mantiene estable para la prueba.
+        arch: Entrada `arch` del escenario que se mantiene estable para la prueba.
+        version: Entrada `version` del escenario que se mantiene estable para la prueba.
+        score: Entrada `score` del escenario que se mantiene estable para la prueba.
+        status: Entrada `status` del escenario que se mantiene estable para la prueba.
+        confidence: Entrada `confidence` del escenario que se mantiene estable para la prueba.
+        transport_security: Entrada `transport_security` del escenario que se mantiene estable
+            para la prueba.
     """
     candidate = InstallerCandidate(url=url, source="href", score=score, asset_kind="installer")
     return ValidInstaller(

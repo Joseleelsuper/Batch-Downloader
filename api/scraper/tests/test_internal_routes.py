@@ -34,11 +34,9 @@ from app.scraper.manual_installer import ValidatedManualInstaller
 from app.scraper.validator import ValidationConfidence, ValidationResult
 
 INTERNAL_TOKEN = "worker-test-token"
-"""Constante que define `INTERNAL_TOKEN`.
-"""
+
 URL_SECRET = "internal-route-test-secret"
-"""Constante que define `URL_SECRET`.
-"""
+
 
 
 @dataclass
@@ -46,11 +44,9 @@ class InternalApiFixture:
     """Agrupa los escenarios de prueba de `InternalApiFixture`.
     """
     client: httpx.AsyncClient
-    """Atributo de clase `client` de `InternalApiFixture`.
-    """
+
     session: AsyncSession
-    """Atributo de clase `session` de `InternalApiFixture`.
-    """
+
 
     async def add_source(
         self,
@@ -136,10 +132,8 @@ class InternalApiFixture:
 
 @pytest_asyncio.fixture
 async def internal_api() -> InternalApiFixture:
-    """Ejecuta la operación `internal_api`.
-
-    Yields:
-        InternalApiFixture: Elemento producido por la operación.
+    """Prepara el recurso `internal_api` usado por las pruebas para aislar el escenario `internal
+    api` y conservar sus datos de entrada.
     """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
@@ -157,10 +151,9 @@ async def internal_api() -> InternalApiFixture:
         application.dependency_overrides[get_settings] = lambda: settings
 
         async def override_session():
-            """Ejecuta la operación `override_session`.
-
-            Yields:
-                Any: Elemento producido por la operación.
+            """Prepara el doble `internal_api.override_session` para aislar el escenario
+            `internal api.override session` y permitir que la prueba observe la garantía que
+            le corresponde.
             """
             yield session
 
@@ -185,14 +178,14 @@ async def test_internal_resolution_requires_constant_time_service_token(
     comparisons: list[tuple[str, str]] = []
 
     def compare_digest(provided: str, expected: str) -> bool:
-        """Ejecuta la operación `compare_digest`.
+        """Prepara el recurso
+        `test_internal_resolution_requires_constant_time_service_token.compare_digest` usado
+        por las pruebas para aislar el escenario `test internal resolution requires constant
+        time service token.compare digest` y conservar sus datos de entrada.
 
         Args:
-            provided (str): Valor de `provided` utilizado por la operación.
-            expected (str): Valor de `expected` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            provided: Entrada `provided` del escenario que se mantiene estable para la prueba.
+            expected: Entrada `expected` del escenario que se mantiene estable para la prueba.
         """
         comparisons.append((provided, expected))
         return provided == expected
@@ -228,13 +221,13 @@ async def test_manual_inspection_is_idempotent_encrypted_and_never_echoes_instal
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
-        """Ejecuta la operación `public_url`.
+        """Prepara el recurso
+        `test_manual_inspection_is_idempotent_encrypted_and_never_echoes_installer_url.public_url`
+        usado por las pruebas para aislar el escenario `test manual inspection is idempotent
+        encrypted and never echoes installer url.public url` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
         """
         return url
 
@@ -304,13 +297,13 @@ async def test_manual_inspection_requires_fresh_analysis_after_the_app_changes(
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
-        """Ejecuta la operación `public_url`.
+        """Prepara el recurso
+        `test_manual_inspection_requires_fresh_analysis_after_the_app_changes.public_url`
+        usado por las pruebas para aislar el escenario `test manual inspection requires fresh
+        analysis after the app changes.public url` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
         """
         return url
 
@@ -359,13 +352,13 @@ async def test_manual_inspection_encrypts_optional_platform_urls_and_requires_on
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
-        """Ejecuta la operación `public_url`.
+        """Prepara el recurso
+        `test_manual_inspection_encrypts_optional_platform_urls_and_requires_one.public_url`
+        usado por las pruebas para aislar el escenario `test manual inspection encrypts
+        optional platform urls and requires one.public url` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
         """
         return url
 
@@ -430,13 +423,13 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
     source_page_url = "https://example.test/download"
 
     async def public_url(url: str) -> str:
-        """Ejecuta la operación `public_url`.
+        """Prepara el recurso
+        `test_manual_apply_revalidates_and_persists_multiple_encrypted_candidates.public_url`
+        usado por las pruebas para aislar el escenario `test manual apply revalidates and
+        persists multiple encrypted candidates.public url` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
         """
         return url
 
@@ -665,13 +658,13 @@ async def test_website_discovery_is_idempotent_encrypted_and_url_free(
     windows_installer_url = "https://downloads.example.test/Product.exe"
 
     async def public_url(url: str) -> str:
-        """Ejecuta la operación `public_url`.
+        """Prepara el recurso
+        `test_website_discovery_is_idempotent_encrypted_and_url_free.public_url` usado por las
+        pruebas para aislar el escenario `test website discovery is idempotent encrypted and
+        url free.public url` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
         """
         return url
 
@@ -748,13 +741,13 @@ async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_i
     official_url = "https://example.test/product"
 
     async def public_url(url: str) -> str:
-        """Ejecuta la operación `public_url`.
+        """Prepara el recurso
+        `test_website_discovery_apply_creates_a_missing_app_when_no_installer_is_valid.public_url`
+        usado por las pruebas para aislar el escenario `test website discovery apply creates a
+        missing app when no installer is valid.public url` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
         """
         return url
 
@@ -853,13 +846,14 @@ async def test_website_discovery_apply_revalidates_and_encrypts_found_installers
     validation_calls = 0
 
     async def public_url(url: str) -> str:
-        """Ejecuta la operación `public_url`.
+        """Prepara el recurso
+        `test_website_discovery_apply_revalidates_and_encrypts_found_installers.public_url`
+        usado por las pruebas para aislar el escenario `test website discovery apply
+        revalidates and encrypts found installers.public url` y conservar sus datos de
+        entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-
-        Returns:
-            str: Resultado producido por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
         """
         return url
 
@@ -1072,11 +1066,16 @@ async def test_internal_resolution_revalidates_expired_candidate_before_revealin
     )
 
     async def validate(_validator, candidate):
-        """Ejecuta la operación `validate`.
+        """Prepara el recurso
+        `test_internal_resolution_revalidates_expired_candidate_before_revealing_url.validate`
+        usado por las pruebas para aislar el escenario `test internal resolution revalidates
+        expired candidate before revealing url.validate` y conservar sus datos de entrada.
 
         Args:
-            _validator (Any): Valor de `_validator` utilizado por la operación.
-            candidate (Any): Valor de `candidate` utilizado por la operación.
+            _validator: Entrada `_validator` del escenario que se mantiene estable para la
+                prueba.
+            candidate: Entrada `candidate` del escenario que se mantiene estable para la
+                prueba.
         """
         assert candidate.url == download_url
         return ValidationResult(
@@ -1123,11 +1122,16 @@ async def test_internal_resolution_keeps_failed_revalidation_secret(
     )
 
     async def validate(_validator, candidate):
-        """Ejecuta la operación `validate`.
+        """Prepara el recurso
+        `test_internal_resolution_keeps_failed_revalidation_secret.validate` usado por las
+        pruebas para aislar el escenario `test internal resolution keeps failed revalidation
+        secret.validate` y conservar sus datos de entrada.
 
         Args:
-            _validator (Any): Valor de `_validator` utilizado por la operación.
-            candidate (Any): Valor de `candidate` utilizado por la operación.
+            _validator: Entrada `_validator` del escenario que se mantiene estable para la
+                prueba.
+            candidate: Entrada `candidate` del escenario que se mantiene estable para la
+                prueba.
         """
         return ValidationResult(ok=False, url=candidate.url, reason="http_404")
 
@@ -1165,11 +1169,17 @@ async def test_internal_resolution_does_not_invalidate_on_transient_revalidation
     previous_metadata = dict(resolved.metadata_json or {})
 
     async def validate(_validator, candidate):
-        """Ejecuta la operación `validate`.
+        """Prepara el recurso
+        `test_internal_resolution_does_not_invalidate_on_transient_revalidation_failure.validate`
+        usado por las pruebas para aislar el escenario `test internal resolution does not
+        invalidate on transient revalidation failure.validate` y conservar sus datos de
+        entrada.
 
         Args:
-            _validator (Any): Valor de `_validator` utilizado por la operación.
-            candidate (Any): Valor de `candidate` utilizado por la operación.
+            _validator: Entrada `_validator` del escenario que se mantiene estable para la
+                prueba.
+            candidate: Entrada `candidate` del escenario que se mantiene estable para la
+                prueba.
         """
         return ValidationResult(ok=False, url=candidate.url, reason="http_503")
 
@@ -1210,11 +1220,16 @@ async def test_internal_resolution_recovers_itch_from_official_windows_endpoint(
     await internal_api.session.commit()
 
     async def validate(_validator, candidate):
-        """Ejecuta la operación `validate`.
+        """Prepara el recurso
+        `test_internal_resolution_recovers_itch_from_official_windows_endpoint.validate` usado
+        por las pruebas para aislar el escenario `test internal resolution recovers itch from
+        official windows endpoint.validate` y conservar sus datos de entrada.
 
         Args:
-            _validator (Any): Valor de `_validator` utilizado por la operación.
-            candidate (Any): Valor de `candidate` utilizado por la operación.
+            _validator: Entrada `_validator` del escenario que se mantiene estable para la
+                prueba.
+            candidate: Entrada `candidate` del escenario que se mantiene estable para la
+                prueba.
         """
         validation_urls.append(candidate.url)
         if candidate.url == stale_url:
@@ -1271,24 +1286,32 @@ async def test_internal_resolution_rechecks_candidate_after_acquiring_lock(
     )
 
     async def lock_after_other_request_renewed(_catalog, _source_ref):
-        """Ejecuta la operación `lock_after_other_request_renewed`.
+        """Prepara el recurso
+        `test_internal_resolution_rechecks_candidate_after_acquiring_lock.lock_after_other_request_renewed`
+        usado por las pruebas para aislar el escenario `test internal resolution rechecks
+        candidate after acquiring lock.lock after other request renewed` y conservar sus datos
+        de entrada.
 
         Args:
-            _catalog (Any): Valor de `_catalog` utilizado por la operación.
-            _source_ref (Any): Valor de `_source_ref` utilizado por la operación.
+            _catalog: Entrada `_catalog` del escenario que se mantiene estable para la prueba.
+            _source_ref: Entrada `_source_ref` del escenario que se mantiene estable para la
+                prueba.
         """
         resolved.expires_at = utc_after(hours=1)
         return resolved
 
     async def validation_must_not_run(_validator, _candidate):
-        """Ejecuta la operación `validation_must_not_run`.
+        """Prepara el recurso
+        `test_internal_resolution_rechecks_candidate_after_acquiring_lock.validation_must_not_run`
+        usado por las pruebas para aislar el escenario `test internal resolution rechecks
+        candidate after acquiring lock.validation must not run` y conservar sus datos de
+        entrada.
 
         Args:
-            _validator (Any): Valor de `_validator` utilizado por la operación.
-            _candidate (Any): Valor de `_candidate` utilizado por la operación.
-
-        Throws:
-            AssertionError: Si no puede completarse la operación bajo las condiciones requeridas.
+            _validator: Entrada `_validator` del escenario que se mantiene estable para la
+                prueba.
+            _candidate: Entrada `_candidate` del escenario que se mantiene estable para la
+                prueba.
         """
         raise AssertionError("the refreshed candidate must be reused")
 

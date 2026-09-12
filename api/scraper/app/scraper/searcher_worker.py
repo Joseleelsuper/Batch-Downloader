@@ -1,4 +1,6 @@
-"""Descubrimiento y selección del catálogo de entrada de Winstall."""
+"""Selecciona objetivos desde snapshots Winstall estables, evita trabajo incremental sin cambios
+y publica payloads para el filtro.
+"""
 
 from __future__ import annotations
 
@@ -43,31 +45,31 @@ from app.scraper.winstall import (
 )
 
 logger = get_logger(__name__)
-"""Estado global asociado a `logger`.
-"""
+
 
 
 class SearcherWorker:
-    """Ejecuta el procesamiento en segundo plano de `Searcher`."""
+    """Worker de entrada que reconcilia catálogo remoto y aplicaciones locales antes de encolar
+    detalles completos.
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Inicializa una instancia de `SearcherWorker`.
+        """Configura la identidad del consumidor.
 
         Args:
-            settings (Settings): Configuración del servicio.
+            settings: Configuración del proveedor y límites de backpressure.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.worker_id = f"searcher:{worker_id()}"
-        """Estado de instancia asociado a `worker_id`.
-        """
+
 
     async def run(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta `run` dentro de `SearcherWorker`.
+        """Estabiliza o selecciona el catálogo, guarda manifest, registra ausencias y encola
+        aplicaciones respetando backpressure.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido de la ejecución.
         """
         try:
             async with WinstallClient(self.settings) as winstall:
@@ -158,8 +160,13 @@ class SearcherWorker:
     async def _load_complete_app(
         self, winstall: WinstallClient, runtime: PipelineRuntime, lightweight_app: WinstallApp
     ) -> WinstallApp | None:
-        """Recupera detalle o usa una instantánea completa; registra fallos de proveedor sin
-        publicarlos.
+        """Solicita detalle completo y usa el resumen cacheado solo cuando contiene installers
+        completos.
+
+        Args:
+            winstall: Cliente Winstall con la sesión abierta.
+            runtime: Estado compartido de la ejecución.
+            lightweight_app: Resumen de aplicación obtenido del catálogo estable.
         """
         try:
             return await winstall.get_app(lightweight_app.package_id)
@@ -184,7 +191,11 @@ class SearcherWorker:
         self,
         runtime: PipelineRuntime,
     ) -> tuple[list[WinstallApp], list[str], list[str], list[str], int]:
-        """Resuelve un scope seleccionado sin descargar el catálogo remoto completo."""
+        """Resuelve el alcance selected desde la base local sin descargar catálogo remoto.
+
+        Args:
+            runtime: Estado compartido de la ejecución.
+        """
         async with async_session_local()() as session:
             catalog = CatalogRepository(
                 session,
@@ -207,7 +218,12 @@ class SearcherWorker:
 
     @staticmethod
     def _cached_winstall_app(app: SoftwareApp) -> WinstallApp:
-        """Reconstruye el último detalle completo sin inventar campos ausentes."""
+        """Reconstruye el detalle Winstall guardado sin inventar versiones o instaladores
+        ausentes.
+
+        Args:
+            app: Aplicación Winstall normalizada.
+        """
         metadata = app.metadata_json if isinstance(app.metadata_json, dict) else {}
         if metadata:
             try:
@@ -235,7 +251,13 @@ class SearcherWorker:
         runtime: PipelineRuntime,
         remote_apps: list[WinstallApp],
     ) -> tuple[list[WinstallApp], list[str], list[str], list[str], int]:
-        """Materializa un manifest local/remote antes de solicitar ningún detalle."""
+        """Calcula objetivos para unresolved, selected, full o incremental comparando
+        fingerprints y estados locales.
+
+        Args:
+            runtime: Estado compartido de la ejecución.
+            remote_apps: Instantánea completa del catálogo remoto.
+        """
         remote_by_id = {app.package_id: app for app in remote_apps}
         async with async_session_local()() as session:
             catalog = CatalogRepository(
@@ -307,6 +329,14 @@ class SearcherWorker:
         app_ids: list[str],
         winstall_ids: list[str],
     ) -> None:
+        """Persiste en el run las aplicaciones que forman el alcance antes de iniciar el
+        procesamiento.
+
+        Args:
+            runtime: Estado compartido de la ejecución.
+            app_ids: Identificadores locales incluidos en el manifest.
+            winstall_ids: Identificadores de proveedor incluidos en el manifest.
+        """
         async def persist() -> None:
             async with async_session_local()() as session:
                 runs = ScrapeRunRepository(session, self.settings)
@@ -329,7 +359,13 @@ class SearcherWorker:
         app: WinstallApp,
         payload: dict[str, Any],
     ) -> int:
-        """Persiste un elemento sin convertir la contención del pool en fallo del run."""
+        """Encola el payload, guarda snapshot y devuelve profundidad con reintentos de pool.
+
+        Args:
+            runtime: Estado compartido de la ejecución.
+            app: Aplicación Winstall normalizada.
+            payload: Evidencia serializable que se encola para el siguiente worker.
+        """
 
         async def persist() -> int:
             async with async_session_local()() as session:
@@ -370,6 +406,13 @@ class SearcherWorker:
         package_id: str,
         reason: str,
     ) -> None:
+        """Cuenta un fallo transitorio de detalle sin clasificarlo como ausencia permanente.
+
+        Args:
+            runtime: Estado compartido de la ejecución.
+            package_id: Identificador de paquete Winstall.
+            reason: Código seguro de ausencia o fallo del proveedor.
+        """
         await runtime.increment("apps_failed")
         await runtime.increment("apps_transient_failed")
         logger.warning(
@@ -384,7 +427,13 @@ class SearcherWorker:
         runtime: PipelineRuntime,
         package_id: str,
     ) -> None:
-        """Clasifica una ausencia en el snapshot estable sin inventar un fallo transitorio."""
+        """Registra ausencia en snapshot estable y diferencia missing confirmado de revisión
+        manual según evidencia local.
+
+        Args:
+            runtime: Estado compartido de la ejecución.
+            package_id: Identificador de paquete Winstall.
+        """
         has_verification = False
         async with async_session_local()() as session:
             catalog = CatalogRepository(
@@ -427,13 +476,14 @@ class SearcherWorker:
         )
 
     async def _wait_for_backpressure(self, runtime: PipelineRuntime) -> bool:
-        """Ejecuta el paso interno `_wait_for_backpressure`.
+        """Espera hasta que la cola de filtro quede por debajo del límite configurado o se
+        solicite parada.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido de la ejecución.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si puede continuar; False al detenerse.
         """
         limit = self.settings.scrape_searcher_backpressure_limit
         if limit <= 0:
@@ -473,7 +523,16 @@ class SearcherWorker:
         return False
 
     def _queue_payload(self, runtime: PipelineRuntime, app: WinstallApp) -> dict[str, Any]:
-        """Construye evidencia de cola eligiendo la versión preferida de cada URL de instalador."""
+        """Construye evidencia de cola con URLs, fingerprints y la versión preferida de cada
+        instalador.
+
+        Args:
+            runtime: Estado compartido de la ejecución.
+            app: Aplicación Winstall normalizada.
+
+        Returns:
+            payload JSON para FilterWorker.
+        """
         download_versions: dict[str, str | None] = {}
         for version in app.versions:
             for url in version.installers:

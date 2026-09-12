@@ -1,4 +1,10 @@
-"""Implementa las responsabilidades del módulo `manual_installer`."""
+"""Gestiona inspecciones manuales de instaladores: reserva transaccional, validación HTTPS,
+lectura segura de la web oficial y sugerencias de catálogo.
+
+See Also:
+    app.scraper.inspection_lifecycle: Coordina fases, leases y estados de la inspección.
+    app.scraper.validator: Comprueba el binario y su firma antes de crear sugerencias.
+"""
 
 from __future__ import annotations
 
@@ -56,28 +62,23 @@ from app.scraper.validator import (
 )
 
 INSPECTION_ACTIVE_STATUSES = ("queued", "running", "ready")
-"""Constante que define `INSPECTION_ACTIVE_STATUSES`.
-"""
+
 INSPECTION_VISIBLE_STATUSES = ("queued", "running", "ready", "failed")
-"""Constante que define `INSPECTION_VISIBLE_STATUSES`.
-"""
+
 MANUAL_INSTALLER_PLATFORMS = ("windows", "macos", "linux")
-"""Constante que define `MANUAL_INSTALLER_PLATFORMS`.
-"""
+
 MANUAL_INSTALLER_URL_COLUMNS = {
     "windows": "windows_installer_url_encrypted",
     "macos": "macos_installer_url_encrypted",
     "linux": "linux_installer_url_encrypted",
 }
-"""Constante que define `MANUAL_INSTALLER_URL_COLUMNS`.
-"""
+
 TRANSIENT_VALIDATION_REASONS = {
     "no_response",
     "source_not_verified",
     "timeout",
 }
-"""Constante que define `TRANSIENT_VALIDATION_REASONS`.
-"""
+
 SAFE_PAGE_FIELDS = {
     "name",
     "publisher",
@@ -86,73 +87,80 @@ SAFE_PAGE_FIELDS = {
     "canonical",
     "icon",
 }
-"""Constante que define `SAFE_PAGE_FIELDS`.
-"""
+
 PhaseCallback = Callable[[str], Awaitable[None]]
-"""Estado global asociado a `PhaseCallback`.
-"""
+
 logger = get_logger(__name__)
-"""Estado global asociado a `logger`.
-"""
+
 
 
 class ManualInstallerError(Exception):
-    """Representa un error relacionado con `ManualInstaller`."""
+    """Fallo permanente de una inspección manual que puede exponerse como código HTTP estable.
+
+    Attributes:
+        code: Código de dominio que explica el rechazo.
+        status_code: Estado HTTP asociado al rechazo.
+    """
 
     def __init__(self, code: str, status_code: int) -> None:
-        """Inicializa una instancia de `ManualInstallerError`.
+        """Conserva el código y estado HTTP que la API debe comunicar al administrador.
 
         Args:
-            code (str): Valor de `code` utilizado por la operación.
-            status_code (int): Valor de `status_code` utilizado por la operación.
+            code: Código estable que identifica el fallo al consumidor de la API.
+            status_code: Código HTTP que debe devolver la ruta ante el fallo.
         """
         super().__init__(code)
         self.code = code
-        """Estado de instancia asociado a `code`.
-        """
+
         self.status_code = status_code
-        """Estado de instancia asociado a `status_code`.
-        """
+
 
 
 class ManualInstallerTransientError(Exception):
-    """Representa un error relacionado con `ManualInstallerTransient`."""
+    """Fallo recuperable de una inspección manual; el worker debe reencolarla sin marcarla como
+    inválida.
+    """
 
     def __init__(self, code: str) -> None:
-        """Inicializa una instancia de `ManualInstallerTransientError`.
+        """Crea un fallo recuperable con su código de reintento.
 
         Args:
-            code (str): Valor de `code` utilizado por la operación.
+            code: Código estable que identifica el fallo al consumidor de la API.
         """
         super().__init__(code)
         self.code = code
-        """Estado de instancia asociado a `code`.
-        """
+
 
 
 @dataclass(frozen=True)
 class ValidatedManualInstaller:
-    """Representa el componente `ValidatedManualInstaller`."""
+    """Reúne la evidencia técnica aceptada y los metadatos derivados de un instalador introducido
+    manualmente.
+
+    Attributes:
+        result: Resultado de DownloadValidator con confianza VALIDATED.
+        final_url: Destino HTTPS después de redirecciones.
+        version: Versión extraída del nombre o URL.
+        operating_system: Plataforma única del formato o la esperada por el administrador.
+        architecture: Arquitectura inferida por el registro de formatos.
+    """
 
     result: ValidationResult
-    """Atributo de clase `result` de `ValidatedManualInstaller`.
-    """
+
     final_url: str
-    """Atributo de clase `final_url` de `ValidatedManualInstaller`.
-    """
+
     version: str | None
-    """Atributo de clase `version` de `ValidatedManualInstaller`.
-    """
+
     operating_system: str | None
-    """Atributo de clase `operating_system` de `ValidatedManualInstaller`.
-    """
+
     architecture: str
-    """Atributo de clase `architecture` de `ValidatedManualInstaller`.
-    """
+
 
 
 class ManualInstallerInspectionRepository:
-    """Gestiona la persistencia y consulta de `ManualInstallerInspection`."""
+    """Reserva, reutiliza, caduca y bloquea inspecciones manuales manteniendo la aplicación y sus
+    URLs protegidas en la misma sesión.
+    """
 
     def __init__(
         self,
@@ -160,22 +168,20 @@ class ManualInstallerInspectionRepository:
         protector: UrlProtector,
         settings: Settings,
     ) -> None:
-        """Inicializa una instancia de `ManualInstallerInspectionRepository`.
+        """Inyecta la sesión, protección de URLs y configuración necesarias para persistir una
+        inspección.
 
         Args:
-            session (AsyncSession): Sesión de base de datos utilizada por la operación.
-            protector (UrlProtector): Valor de `protector` utilizado por la operación.
-            settings (Settings): Configuración del servicio.
+            session: Sesión SQLAlchemy de la operación actual.
+            protector: Protector usado para cifrar y revelar URLs persistidas.
+            settings: Configuración de límites, secretos y endpoints.
         """
         self.session = session
-        """Estado de instancia asociado a `session`.
-        """
+
         self.protector = protector
-        """Estado de instancia asociado a `protector`.
-        """
+
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
 
     async def create_or_reuse(
         self,
@@ -184,21 +190,21 @@ class ManualInstallerInspectionRepository:
         source_page_url: str,
         installer_urls: dict[str, str | None] | None = None,
     ) -> tuple[ManualInstallerInspection, bool]:
-        """Crea la operación `or_reuse`.
+        """Valida URLs públicas, bloquea la aplicación, reutiliza una inspección idéntica o crea
+        una nueva y encola su procesamiento con una instantánea de versión.
 
         Args:
-            app_id (uuid.UUID): Identificador de `app` utilizado por la operación.
-            installer_url (str | None): Dirección de `installer` que debe procesarse.
-            source_page_url (str): Dirección de `source_page` que debe procesarse.
-            installer_urls (dict[str, str | None] | None): Valor de `installer_urls` utilizado por
-                la operación.
+            app_id: UUID de la aplicación cuya inspección se reserva.
+            installer_url: URL general del instalador proporcionada por administración.
+            source_page_url: Página oficial que aporta el contexto de la inspección.
+            installer_urls: URLs opcionales separadas por plataforma.
 
         Returns:
-            tuple[ManualInstallerInspection, bool]: Resultado de `create_or_reuse`.
+            inspección y True cuando se creó una reserva nueva; False cuando se reutilizó.
 
-        Throws:
-            ManualInstallerError: Si no puede completarse la operación bajo las condiciones
-                requeridas.
+        Raises:
+            ManualInstallerError: Si faltan URLs, la aplicación no es inspeccionable o ya
+                existe otra entrada activa incompatible.
         """
         installer_url = clean_optional(installer_url)
         if installer_url:
@@ -293,13 +299,11 @@ class ManualInstallerInspectionRepository:
         return inspection, True
 
     async def current(self, app_id: uuid.UUID) -> ManualInstallerInspection | None:
-        """Ejecuta `current` dentro de `ManualInstallerInspectionRepository`.
+        """Caduca entradas vencidas o asociadas a una versión antigua y devuelve la inspección
+        visible más reciente.
 
         Args:
-            app_id (uuid.UUID): Identificador de `app` utilizado por la operación.
-
-        Returns:
-            ManualInstallerInspection | None: Resultado producido por la operación.
+            app_id: UUID de la aplicación cuya inspección se reserva.
         """
         await self._expire_stale(app_id)
         inspection = await self.session.scalar(
@@ -319,15 +323,16 @@ class ManualInstallerInspectionRepository:
         *,
         for_update: bool = False,
     ) -> ManualInstallerInspection | None:
-        """Ejecuta `get` dentro de `ManualInstallerInspectionRepository`.
+        """Busca una inspección por aplicación e ID, opcionalmente bloquea su fila y actualiza
+        expiración antes de devolverla.
 
         Args:
-            app_id (uuid.UUID): Identificador de `app` utilizado por la operación.
-            inspection_id (uuid.UUID): Identificador de `inspection` utilizado por la operación.
-            for_update (bool): Valor de `for_update` utilizado por la operación.
+            app_id: UUID de la aplicación cuya inspección se reserva.
+            inspection_id: UUID de la inspección solicitada.
+            for_update: Indica si la lectura debe bloquear la fila para modificarla.
 
-        Returns:
-            ManualInstallerInspection | None: Resultado producido por la operación.
+        Raises:
+            ManualInstallerError: No se propaga; la ausencia se expresa como None.
         """
         statement = (
             select(ManualInstallerInspection)
@@ -351,10 +356,10 @@ class ManualInstallerInspectionRepository:
         return inspection
 
     async def _expire_stale(self, app_id: uuid.UUID) -> None:
-        """Ejecuta el paso interno `_expire_stale`.
+        """Marca como expired las inspecciones visibles cuyo TTL ya terminó.
 
         Args:
-            app_id (uuid.UUID): Identificador de `app` utilizado por la operación.
+            app_id: UUID de la aplicación cuya inspección se reserva.
         """
         inspections = await self.session.scalars(
             select(ManualInstallerInspection)
@@ -372,11 +377,11 @@ class ManualInstallerInspectionRepository:
         self,
         inspection: ManualInstallerInspection | None,
     ) -> None:
-        """Ejecuta el paso interno `_expire_if_app_changed`.
+        """Invalida una inspección cuando la aplicación cambia de versión, estado activo o estado
+        de catálogo.
 
         Args:
-            inspection (ManualInstallerInspection | None): Valor de `inspection` utilizado por la
-                operación.
+            inspection: Inspección persistida que se consulta o actualiza.
         """
         if inspection is None or inspection.status in {"applied", "expired"}:
             return
@@ -394,8 +399,18 @@ class ManualInstallerInspectionRepository:
         inspection.updated_at = utc_now()
 
     async def _lock_inspectable_app(self, app_id: uuid.UUID) -> SoftwareApp:
-        """Bloquea una aplicación activa y pendiente de resolución antes de reservar su
-        inspección.
+        """Bloquea la aplicación y comprueba que permanece activa y pendiente de resolución
+        manual.
+
+        Args:
+            app_id: UUID de la aplicación cuya inspección se reserva.
+
+        Returns:
+            aplicación bloqueada para la reserva.
+
+        Raises:
+            ManualInstallerError: Cuando no existe, no está activa o ya no necesita
+                inspección.
         """
         app = await self.session.scalar(
             select(SoftwareApp).where(SoftwareApp.id == app_id).with_for_update()
@@ -410,23 +425,23 @@ class ManualInstallerInspectionRepository:
 
 
 class ManualInstallerInspector:
-    """Representa el componente `ManualInstallerInspector`."""
+    """Valida instaladores manuales y combina su evidencia técnica con metadatos de la página y,
+    si está configurada, una descripción de IA.
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Inicializa una instancia de `ManualInstallerInspector`.
+        """Prepara el validador binario y el cliente de descripción usando la configuración
+        actual.
 
         Args:
-            settings (Settings): Configuración del servicio.
+            settings: Configuración de límites, secretos y endpoints.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.validator = DownloadValidator(settings)
-        """Estado de instancia asociado a `validator`.
-        """
+
         self.llm = AppDescriptionLLMClient(settings)
-        """Estado de instancia asociado a `llm`.
-        """
+
 
     async def validate_installer(
         self,
@@ -434,21 +449,20 @@ class ManualInstallerInspector:
         source_page_url: str,
         expected_operating_system: str | None = None,
     ) -> ValidatedManualInstaller:
-        """Valida la operación `installer`.
+        """Valida un binario con firma obligatoria, exige HTTPS y formato conocido y comprueba la
+        plataforma esperada.
 
         Args:
-            installer_url (str): Dirección de `installer` que debe procesarse.
-            source_page_url (str): Dirección de `source_page` que debe procesarse.
-            expected_operating_system (str | None): Valor esperado de `operating_system`.
+            installer_url: URL general del instalador proporcionada por administración.
+            source_page_url: Página oficial que aporta el contexto de la inspección.
+            expected_operating_system: Plataforma que el administrador asoció a la URL.
 
         Returns:
-            ValidatedManualInstaller: Resultado producido por la operación.
+            instalador validado con URL final, versión, sistema y arquitectura.
 
-        Throws:
-            ManualInstallerError: Si no puede completarse la operación bajo las condiciones
-                requeridas.
-            ManualInstallerTransientError: Si no puede completarse la operación bajo las condiciones
-                requeridas.
+        Raises:
+            ManualInstallerError: Si el binario no es seguro, compatible o soportado.
+            ManualInstallerTransientError: Si la red o el proveedor permiten reintentar.
         """
         candidate = InstallerCandidate(
             url=installer_url,
@@ -512,17 +526,21 @@ class ManualInstallerInspector:
         *,
         set_phase: PhaseCallback,
     ) -> tuple[dict, list[str]]:
-        """Ejecuta `inspect` dentro de `ManualInstallerInspector`.
+        """Valida todos los instaladores, lee metadatos de la página oficial y genera sugerencias
+        priorizando valores actuales; la IA solo completa una descripción ausente.
 
         Args:
-            app (SoftwareApp): Aplicación sobre la que se realiza la operación.
-            installer_inputs (list[tuple[str | None, str]]): Valor de `installer_inputs` utilizado
-                por la operación.
-            source_page_url (str): Dirección de `source_page` que debe procesarse.
-            set_phase (PhaseCallback): Valor de `set_phase` utilizado por la operación.
+            app: Aplicación que debe conservar la misma versión durante la inspección.
+            installer_inputs: Pares plataforma-URL que se validarán.
+            source_page_url: Página oficial que aporta el contexto de la inspección.
+            set_phase: Callback asíncrono que registra la fase visible del procesamiento.
 
         Returns:
-            tuple[dict, list[str]]: Colección de elementos obtenidos por la operación.
+            JSON seguro de sugerencias e instaladores técnicos y lista de advertencias.
+
+        Raises:
+            ManualInstallerError: Si no se puede aceptar algún instalador.
+            ManualInstallerTransientError: Si la validación debe reintentarse.
         """
         await set_phase("validating_installer")
         validated_installers = [
@@ -665,27 +683,28 @@ class ManualInstallerInspector:
 
 
 class ManualInstallerWorker:
-    """Ejecuta el procesamiento en segundo plano de `ManualInstaller`."""
+    """Consume la cola de inspecciones manuales con sesiones independientes y confirma éxito,
+    expiración, fallo o reintento mediante InspectionProgress.
+    """
 
     def __init__(self, settings: Settings, worker_id: str = "manual-installer-1") -> None:
-        """Inicializa una instancia de `ManualInstallerWorker`.
+        """Configura límites y la identidad usada para reservar mensajes.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            worker_id (str): Identificador de `worker` utilizado por la operación.
+            settings: Configuración de límites, secretos y endpoints.
+            worker_id: Identidad del worker que reserva el trabajo.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.worker_id = worker_id
-        """Estado de instancia asociado a `worker_id`.
-        """
+
 
     async def process_one(self) -> bool:
-        """Reserva una inspección y publica sus sugerencias si la aplicación sigue vigente.
+        """Reserva una inspección, verifica que la aplicación y URLs siguen vigentes, ejecuta el
+        inspector y confirma el resultado en una única sesión de trabajo.
 
-        Devuelve False cuando la cola está vacía. Los rechazos, reintentos y resultados
-        se confirman antes de devolver True; ninguna sesión se comparte con otro worker.
+        Returns:
+            False si la cola está vacía; True si se procesó o descartó un mensaje.
         """
         async with AsyncSessionLocal() as session:
             pipeline = PipelineRepository(session)
@@ -749,13 +768,14 @@ class ManualInstallerWorker:
 
 
 def inspection_view(inspection: ManualInstallerInspection) -> dict:
-    """Ejecuta la operación `inspection_view`.
+    """Convierte una inspección persistida en el DTO visible para administración, incluyendo
+    fases, sugerencias, advertencias, AI y expiración.
 
     Args:
-        inspection (ManualInstallerInspection): Valor de `inspection` utilizado por la operación.
+        inspection: Inspección persistida que se consulta o actualiza.
 
     Returns:
-        dict: Mapa con los datos producidos por la operación.
+        diccionario JSON compatible con la API administrativa.
     """
     result = inspection.result_json or {}
     installers = result.get("installers") or (
@@ -781,15 +801,18 @@ def inspection_view(inspection: ManualInstallerInspection) -> dict:
 
 
 async def fetch_page_evidence(source_page_url: str, settings: Settings) -> dict[str, str]:
-    """Recupera la operación `page_evidence`.
+    """Descarga una página pública limitada a HTML y transforma su contenido en evidencia
+    estructurada.
 
     Args:
-        source_page_url (str): Dirección de `source_page` que debe procesarse.
-        settings (Settings): Configuración del servicio.
+        source_page_url: Página oficial que aporta el contexto de la inspección.
+        settings: Configuración de límites, secretos y endpoints.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        campos seguros de la página.
 
+    Raises:
+        SafeHttpError: Si el destino no es público, HTTPS o HTML.
     """
     response = await fetch_public_resource(
         source_page_url,
@@ -807,14 +830,15 @@ async def fetch_page_evidence(source_page_url: str, settings: Settings) -> dict[
 
 
 def parse_page_evidence(content: bytes, page_url: str) -> dict[str, str]:
-    """Analiza la operación `page_evidence`.
+    """Extrae SoftwareApplication JSON-LD, metadatos Open Graph/Twitter, icono y canonical,
+    manteniendo la procedencia de cada valor.
 
     Args:
-        content (bytes): Contenido que debe procesarse.
-        page_url (str): Dirección de `page` que debe procesarse.
+        content: Bytes HTML de la página de procedencia.
+        page_url: URL final de la página cuyo HTML se analiza.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        mapa de evidencia no vacío y limitado por campo.
     """
     html = content.decode("utf-8", errors="replace")
     parser = HTMLParser(html)
@@ -851,13 +875,13 @@ def parse_page_evidence(content: bytes, page_url: str) -> dict[str, str]:
 
 
 def first_software_application(parser: HTMLParser) -> dict | None:
-    """Ejecuta la operación `first_software_application`.
+    """Busca en los primeros bloques JSON-LD la primera entidad SoftwareApplication válida.
 
     Args:
-        parser (HTMLParser): Valor de `parser` utilizado por la operación.
+        parser: Árbol HTML ya construido por selectolax.
 
     Returns:
-        dict | None: Mapa con los datos producidos por la operación.
+        entidad JSON-LD o None.
     """
     for node in parser.css('script[type="application/ld+json"]')[:20]:
         raw = (node.text() or "")[:100_000]
@@ -874,13 +898,13 @@ def first_software_application(parser: HTMLParser) -> dict | None:
 
 
 def json_ld_items(payload: object) -> list[dict]:
-    """Ejecuta la operación `json_ld_items`.
+    """Aplana objetos, listas y @graph de JSON-LD sin procesar más de cien elementos.
 
     Args:
-        payload (object): Carga de datos recibida por la operación.
+        payload: Objeto JSON-LD o mapa recibido del documento.
 
     Returns:
-        list[dict]: Colección de elementos obtenidos por la operación.
+        lista de mapas JSON-LD.
     """
     if isinstance(payload, list):
         return [item for value in payload for item in json_ld_items(value)]
@@ -894,13 +918,14 @@ def json_ld_items(payload: object) -> list[dict]:
 
 
 def meta_values(parser: HTMLParser) -> dict[str, str]:
-    """Ejecuta la operación `meta_values`.
+    """Lee una allowlist de meta tags y limita cada valor para evitar importar contenido
+    arbitrario.
 
     Args:
-        parser (HTMLParser): Valor de `parser` utilizado por la operación.
+        parser: Árbol HTML ya construido por selectolax.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        mapa de metadatos normalizados.
     """
     allowlist = {
         "description",
@@ -925,14 +950,15 @@ def meta_values(parser: HTMLParser) -> dict[str, str]:
 
 
 def page_icon_url(parser: HTMLParser, page_url: str) -> str | None:
-    """Ejecuta la operación `page_icon_url`.
+    """Encuentra un link icon o apple-touch-icon, lo resuelve contra la página y exige sintaxis
+    HTTPS pública.
 
     Args:
-        parser (HTMLParser): Valor de `parser` utilizado por la operación.
-        page_url (str): Dirección de `page` que debe procesarse.
+        parser: Árbol HTML ya construido por selectolax.
+        page_url: URL final de la página cuyo HTML se analiza.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        URL de icono segura o None.
     """
     for node in parser.css("link")[:100]:
         rel = (node.attributes.get("rel") or "").casefold().split()
@@ -948,14 +974,15 @@ def page_icon_url(parser: HTMLParser, page_url: str) -> str | None:
 
 
 def canonical_url(parser: HTMLParser, page_url: str) -> str | None:
-    """Ejecuta la operación `canonical_url`.
+    """Obtiene canonical solo si conserva el dominio registrado, no lleva credenciales y pasa la
+    validación HTTPS.
 
     Args:
-        parser (HTMLParser): Valor de `parser` utilizado por la operación.
-        page_url (str): Dirección de `page` que debe procesarse.
+        parser: Árbol HTML ya construido por selectolax.
+        page_url: URL final de la página cuyo HTML se analiza.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        URL canónica segura o None.
     """
     page_domain = registered_domain(page_url)
     for node in parser.css("link")[:100]:
@@ -977,17 +1004,18 @@ def canonical_url(parser: HTMLParser, page_url: str) -> str | None:
 
 
 async def validate_icon(icon_url: str, settings: Settings) -> tuple[str | None, str | None]:
-    """Valida la operación `icon`.
+    """Descarga un icono público con límite de tamaño y acepta únicamente content types image/*
+    sin credenciales en la URL final.
 
     Args:
-        icon_url (str): Dirección de `icon` que debe procesarse.
-        settings (Settings): Configuración del servicio.
+        icon_url: URL candidata del icono de la aplicación.
+        settings: Configuración de límites, secretos y endpoints.
 
     Returns:
-        tuple[str | None, str | None]: Resultado producido por la operación.
+        URL final y None, o None y advertencia.
 
-    Throws:
-        SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        SafeHttpError: Se captura y se convierte en advertencia de campo.
     """
     try:
         icon_url = validate_public_https_syntax(icon_url)
@@ -1015,17 +1043,17 @@ def inspection_input_hash(
     secret: str,
     installer_urls: dict[str, str] | None = None,
 ) -> str:
-    """Ejecuta la operación `inspection_input_hash`.
+    """Calcula HMAC-SHA256 estable de la página y de las URLs generales y por plataforma para
+    detectar reservas equivalentes.
 
     Args:
-        installer_url (str | None): Dirección de `installer` que debe procesarse.
-        source_page_url (str): Dirección de `source_page` que debe procesarse.
-        secret (str): Valor de `secret` utilizado por la operación.
-        installer_urls (dict[str, str] | None): Valor de `installer_urls` utilizado por la
-            operación.
+        installer_url: URL general del instalador proporcionada por administración.
+        source_page_url: Página oficial que aporta el contexto de la inspección.
+        secret: Secreto usado como clave HMAC de la huella de entrada.
+        installer_urls: URLs opcionales separadas por plataforma.
 
     Returns:
-        str: Resultado producido por la operación.
+        huella hexadecimal de la entrada.
     """
     raw = "\n".join(
         [
@@ -1047,14 +1075,17 @@ def inspection_input_hash(
 async def validate_manual_installer_urls(
     installer_urls: dict[str, str | None],
 ) -> dict[str, str]:
-    """Valida la operación `manual_installer_urls`.
+    """Limpia y valida de forma independiente las URLs por plataforma, conservando solo las
+    presentes y públicas.
 
     Args:
-        installer_urls (dict[str, str | None]): Valor de `installer_urls` utilizado por la
-            operación.
+        installer_urls: URLs opcionales separadas por plataforma.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        mapa de URLs HTTPS validadas.
+
+    Raises:
+        SafeHttpError: Si una URL no cumple la política pública.
     """
     validated: dict[str, str] = {}
     for operating_system in MANUAL_INSTALLER_PLATFORMS:
@@ -1068,14 +1099,11 @@ def protect_optional_url(
     protector: UrlProtector,
     value: str | None,
 ) -> str | None:
-    """Ejecuta la operación `protect_optional_url`.
+    """Protege una URL cuando existe y devuelve None para valores ausentes.
 
     Args:
-        protector (UrlProtector): Valor de `protector` utilizado por la operación.
-        value (str | None): Valor que debe procesarse.
-
-    Returns:
-        str | None: Resultado producido por la operación.
+        protector: Protector usado para cifrar y revelar URLs persistidas.
+        value: Valor opcional que se limpia o protege.
     """
     return protector.protect(value) if value else None
 
@@ -1084,14 +1112,14 @@ def reveal_manual_installer_inputs(
     inspection: ManualInstallerInspection,
     protector: UrlProtector,
 ) -> list[tuple[str | None, str]] | None:
-    """Ejecuta la operación `reveal_manual_installer_inputs`.
+    """Revela la URL general y las URLs específicas por plataforma en el orden de persistencia.
 
     Args:
-        inspection (ManualInstallerInspection): Valor de `inspection` utilizado por la operación.
-        protector (UrlProtector): Valor de `protector` utilizado por la operación.
+        inspection: Inspección persistida que se consulta o actualiza.
+        protector: Protector usado para cifrar y revelar URLs persistidas.
 
     Returns:
-        list[tuple[str | None, str]] | None: Colección de elementos obtenidos por la operación.
+        pares plataforma-URL o None si una URL cifrada no puede revelarse.
     """
     installer_inputs: list[tuple[str | None, str]] = []
     if inspection.installer_url_encrypted:
@@ -1111,13 +1139,14 @@ def reveal_manual_installer_inputs(
 
 
 def validation_failure_is_transient(reason: str) -> bool:
-    """Ejecuta la operación `validation_failure_is_transient`.
+    """Clasifica ausencia de respuesta, falta de verificación y HTTP 408/425/429/5xx como causas
+    reintentables.
 
     Args:
-        reason (str): Valor de `reason` utilizado por la operación.
+        reason: Código de rechazo devuelto por la validación.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si el worker debe reencolar.
     """
     if reason in TRANSIENT_VALIDATION_REASONS:
         return True
@@ -1131,14 +1160,15 @@ def validation_failure_is_transient(reason: str) -> bool:
 
 
 def field_suggestion(value: str | None, source: str | None) -> dict[str, str | None]:
-    """Ejecuta la operación `field_suggestion`.
+    """Empaqueta un valor limpio con una procedencia allowlisted, sustituyendo procedencias
+    desconocidas por unavailable.
 
     Args:
-        value (str | None): Valor que debe procesarse.
-        source (str | None): Fuente de descarga sobre la que se actúa.
+        value: Valor opcional que se limpia o protege.
+        source: Procedencia declarada de una sugerencia editorial.
 
     Returns:
-        dict[str, str | None]: Mapa con los datos producidos por la operación.
+        DTO value/source.
     """
     safe_source = (
         source
@@ -1160,14 +1190,13 @@ def field_suggestion(value: str | None, source: str | None) -> dict[str, str | N
 
 
 def first_non_empty(*candidates: tuple[str | None, str | None]) -> tuple[str | None, str]:
-    """Ejecuta la operación `first_non_empty`.
+    """Elige el primer valor no vacío y conserva la procedencia que lo produjo.
 
     Args:
-        *candidates (tuple[str | None, str | None]): Valor de `candidates` utilizado por la
-            operación.
+        candidates: Pares valor-procedencia que se prueban en orden.
 
     Returns:
-        tuple[str | None, str]: Resultado producido por la operación.
+        valor y fuente, o None/unavailable.
     """
     for value, source in candidates:
         cleaned = clean_optional(value)
@@ -1181,15 +1210,16 @@ def suggested_version(
     page: str | None,
     filename: str | None,
 ) -> tuple[str | None, str]:
-    """Ejecuta la operación `suggested_version`.
+    """Compara versión actual, JSON-LD y nombre de archivo y propone solo una versión observada
+    que sea más nueva.
 
     Args:
-        current (str | None): Valor de `current` utilizado por la operación.
-        page (str | None): Número de página solicitado.
-        filename (str | None): Valor de `filename` utilizado por la operación.
+        current: Valor actualmente almacenado en la aplicación.
+        page: Versión observada en la página de origen.
+        filename: Nombre de archivo del instalador validado.
 
     Returns:
-        tuple[str | None, str]: Resultado producido por la operación.
+        versión y procedencia.
     """
     current_clean = clean_optional(current)
     current_key = version_key(current_clean)
@@ -1206,13 +1236,14 @@ def suggested_version(
 
 
 def version_key(value: str | None) -> tuple[int, ...] | None:
-    """Ejecuta la operación `version_key`.
+    """Parsea hasta seis componentes numéricos con prefijo v opcional para compararlos de forma
+    determinista.
 
     Args:
-        value (str | None): Valor que debe procesarse.
+        value: Valor opcional que se limpia o protege.
 
     Returns:
-        tuple[int, ...] | None: Resultado producido por la operación.
+        tupla de enteros o None.
     """
     if not value:
         return None
@@ -1226,14 +1257,15 @@ def same_installer_evidence(
     technical: dict,
     validated: ValidatedManualInstaller,
 ) -> bool:
-    """Ejecuta la operación `same_installer_evidence`.
+    """Compara dominio, nombre, extensión y tamaño de un instalador revisado con la validación
+    actual.
 
     Args:
-        technical (dict): Valor de `technical` utilizado por la operación.
-        validated (ValidatedManualInstaller): Valor de `validated` utilizado por la operación.
+        technical: Metadatos técnicos publicados previamente.
+        validated: Instalador manual validado en la inspección actual.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si representan el mismo binario.
     """
     result = validated.result
     expected = (
@@ -1256,15 +1288,16 @@ def description_provenance(
     generated: object,
     ai_state: dict,
 ) -> tuple[str, str | None, str | None]:
-    """Ejecuta la operación `description_provenance`.
+    """Determina si la descripción revisada sigue siendo generada por IA o fue modificada
+    manualmente.
 
     Args:
-        reviewed (str | None): Valor de `reviewed` utilizado por la operación.
-        generated (object): Valor de `generated` utilizado por la operación.
-        ai_state (dict): Valor de `ai_state` utilizado por la operación.
+        reviewed: Valor confirmado por la persona administradora.
+        generated: Descripción generada anteriormente por IA.
+        ai_state: Estado y proveedor de la generación automática.
 
     Returns:
-        tuple[str, str | None, str | None]: Resultado producido por la operación.
+        estado, proveedor y modelo de la descripción.
     """
     reviewed_clean = clean_optional(reviewed)
     if not reviewed_clean:
@@ -1282,14 +1315,15 @@ def reviewed_field_sources(
     suggestions: dict,
     reviewed: dict[str, object],
 ) -> dict[str, str]:
-    """Ejecuta la operación `reviewed_field_sources`.
+    """Asigna procedencia automática a los valores revisados que coinciden con sugerencias y
+    manual al resto.
 
     Args:
-        suggestions (dict): Valor de `suggestions` utilizado por la operación.
-        reviewed (dict[str, object]): Valor de `reviewed` utilizado por la operación.
+        suggestions: Mapa de sugerencias producidas durante la inspección.
+        reviewed: Valor confirmado por la persona administradora.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        mapa campo-procedencia.
     """
     sources: dict[str, str] = {}
     for key, reviewed_value in reviewed.items():
@@ -1306,13 +1340,14 @@ def reviewed_field_sources(
 
 
 def name_from_filename(filename: str | None) -> str | None:
-    """Ejecuta la operación `name_from_filename`.
+    """Deriva un nombre legible eliminando extensión y sufijos setup/installer/install del nombre
+    de archivo.
 
     Args:
-        filename (str | None): Valor de `filename` utilizado por la operación.
+        filename: Nombre de archivo del instalador validado.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        nombre acotado o None.
     """
     if not filename:
         return None
@@ -1332,13 +1367,13 @@ def name_from_filename(filename: str | None) -> str | None:
 
 
 def nested_name(value: object) -> str | None:
-    """Ejecuta la operación `nested_name`.
+    """Lee un nombre desde una cadena o desde la propiedad name de un objeto JSON-LD.
 
     Args:
-        value (object): Valor que debe procesarse.
+        value: Valor opcional que se limpia o protege.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        nombre o None.
     """
     if isinstance(value, str):
         return value
@@ -1349,13 +1384,13 @@ def nested_name(value: object) -> str | None:
 
 
 def nested_url(value: object) -> str | None:
-    """Ejecuta la operación `nested_url`.
+    """Busca URL o contentUrl de forma recursiva en cadenas, listas y objetos JSON-LD.
 
     Args:
-        value (object): Valor que debe procesarse.
+        value: Valor opcional que se limpia o protege.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        URL o None.
     """
     if isinstance(value, str):
         return value
@@ -1374,14 +1409,15 @@ def nested_url(value: object) -> str | None:
 
 
 def safe_join(base_url: str, value: str) -> str:
-    """Ejecuta la operación `safe_join`.
+    """Resuelve una referencia relativa y limita el resultado a 2048 caracteres, devolviendo
+    vacío ante sintaxis inválida.
 
     Args:
-        base_url (str): Dirección de `base` que debe procesarse.
-        value (str): Valor que debe procesarse.
+        base_url: URL base usada para resolver una referencia relativa.
+        value: Valor opcional que se limpia o protege.
 
     Returns:
-        str: Resultado producido por la operación.
+        URL resuelta o cadena vacía.
     """
     try:
         return urljoin(base_url, value.strip())[:2048]
@@ -1390,14 +1426,14 @@ def safe_join(base_url: str, value: str) -> str:
 
 
 def safe_value(value: object, max_length: int) -> str:
-    """Ejecuta la operación `safe_value`.
+    """Acepta solo texto, normaliza espacios y lo corta al máximo indicado.
 
     Args:
-        value (object): Valor que debe procesarse.
-        max_length (int): Valor de `max_length` utilizado por la operación.
+        value: Valor opcional que se limpia o protege.
+        max_length: Límite de caracteres que se conservará.
 
     Returns:
-        str: Resultado producido por la operación.
+        texto seguro o cadena vacía.
     """
     if not isinstance(value, str):
         return ""
@@ -1405,13 +1441,13 @@ def safe_value(value: object, max_length: int) -> str:
 
 
 def clean_optional(value: object) -> str | None:
-    """Ejecuta la operación `clean_optional`.
+    """Normaliza espacios de un texto opcional y convierte valores no textuales o vacíos en None.
 
     Args:
-        value (object): Valor que debe procesarse.
+        value: Valor opcional que se limpia o protege.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        texto limpio o None.
     """
     if not isinstance(value, str):
         return None
@@ -1420,7 +1456,16 @@ def clean_optional(value: object) -> str | None:
 
 
 def inspection_app_is_current(app: SoftwareApp, inspection: ManualInstallerInspection) -> bool:
-    """Exige la misma revisión activa y pendiente de catálogo antes de aceptar sugerencias."""
+    """Comprueba que la inspección conserva la versión capturada y que la aplicación sigue activa
+    y pendiente.
+
+    Args:
+        app: Aplicación que debe conservar la misma versión durante la inspección.
+        inspection: Inspección persistida que se consulta o actualiza.
+
+    Returns:
+        True si aún se pueden aplicar sus sugerencias.
+    """
     return (
         app.version == inspection.captured_app_version
         and app.app_status == AppStatus.ACTIVE.value
@@ -1429,7 +1474,14 @@ def inspection_app_is_current(app: SoftwareApp, inspection: ManualInstallerInspe
 
 
 def _add_structured_evidence(parser: HTMLParser, page_url: str, evidence: dict[str, str]) -> None:
-    """Prioriza los campos permitidos de SoftwareApplication y conserva su procedencia."""
+    """Añade al mapa la entidad SoftwareApplication JSON-LD y sus campos de editor, versión,
+    descripción e icono.
+
+    Args:
+        parser: Árbol HTML ya construido por selectolax.
+        page_url: URL final de la página cuyo HTML se analiza.
+        evidence: Mapa mutable donde se acumula evidencia segura.
+    """
     json_ld = first_software_application(parser)
     if json_ld:
         evidence["name"] = safe_value(json_ld.get("name"), 180)
@@ -1456,7 +1508,14 @@ def _add_structured_evidence(parser: HTMLParser, page_url: str, evidence: dict[s
 def _add_icon_evidence(
     parser: HTMLParser, page_url: str, metadata: dict[str, str], evidence: dict[str, str]
 ) -> None:
-    """Completa un icono ausente con Open Graph, Twitter o el enlace declarado por la página."""
+    """Completa el icono ausente con Open Graph, Twitter o links icon de la página, en ese orden.
+
+    Args:
+        parser: Árbol HTML ya construido por selectolax.
+        page_url: URL final de la página cuyo HTML se analiza.
+        metadata: Metadatos de la página usados como fallback para el icono.
+        evidence: Mapa mutable donde se acumula evidencia segura.
+    """
     if not evidence.get("icon"):
         icon = metadata.get("og:image") or metadata.get("twitter:image")
         if icon:

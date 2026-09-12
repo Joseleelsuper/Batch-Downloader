@@ -1,4 +1,6 @@
-"""Operaciones auxiliares compartidas por los workers del pipeline."""
+"""Centraliza reserva, finalización, estado actual y normalización segura de errores del
+pipeline.
+"""
 
 from __future__ import annotations
 
@@ -32,15 +34,17 @@ async def claim_item(
     *,
     run_id: uuid.UUID | None = None,
 ) -> ScraperWorkItem | None:
-    """Reserva la operación `item`.
+    """Reserva el siguiente mensaje con reintentos de pool y bloqueos MySQL y registra
+    profundidad y attempts.
 
     Args:
-        settings (Settings): Configuración del servicio.
-        queue (str): Valor de `queue` utilizado por la operación.
-        worker_id_value (str): Valor de `worker_id_value` utilizado por la operación.
+        settings: Configuración del servicio y sus límites.
+        queue: Nombre de la cola de trabajo.
+        worker_id_value: Identidad que reserva el mensaje.
+        run_id: UUID de ejecución al que se atribuye el trabajo.
 
     Returns:
-        ScraperWorkItem | None: Resultado producido por la operación.
+        ScraperWorkItem o None.
     """
 
     async def claim() -> ScraperWorkItem | None:
@@ -77,7 +81,17 @@ async def queue_has_active_work(
     queue: str,
     run_id: uuid.UUID,
 ) -> bool:
-    """Comprueba trabajo queued/in_progress aunque aún no sea reclamable."""
+    """Comprueba si una cola aún conserva trabajo queued o in_progress para decidir cuándo drenar
+    workers.
+
+    Args:
+        settings: Configuración del servicio y sus límites.
+        queue: Nombre de la cola de trabajo.
+        run_id: UUID de ejecución al que se atribuye el trabajo.
+
+    Returns:
+        True si hay trabajo.
+    """
 
     async def check() -> bool:
         async with async_session_local()() as session:
@@ -99,14 +113,15 @@ async def finish_item(
     *,
     delay_seconds: int = 2,
 ) -> None:
-    """Ejecuta la operación `finish_item`.
+    """Aplica complete, discard, requeue o fail en una sesión independiente y conserva
+    profundidad y motivo.
 
     Args:
-        settings (Settings): Configuración del servicio.
-        item (ScraperWorkItem): Valor de `item` utilizado por la operación.
-        action (str): Valor de `action` utilizado por la operación.
-        message (str | None): Mensaje que debe procesarse.
-        delay_seconds (int): Valor de `delay_seconds` utilizado por la operación.
+        settings: Configuración del servicio y sus límites.
+        item: Mensaje de pipeline reservado.
+        action: Transición solicitada: complete, discard, requeue o fail.
+        message: Código o detalle seguro de la transición.
+        delay_seconds: Retraso antes de hacer visible un reintento.
     """
 
     async def finish() -> None:
@@ -152,14 +167,14 @@ async def set_current(
     app_name: str | None,
     phase: str,
 ) -> None:
-    """Establece la operación `current`.
+    """Persiste la aplicación y fase actuales del run con reintentos de base de datos.
 
     Args:
-        settings (Settings): Configuración del servicio.
-        run_id (uuid.UUID): Identificador de `run` utilizado por la operación.
-        package_id (str | None): Identificador de `package` utilizado por la operación.
-        app_name (str | None): Valor de `app_name` utilizado por la operación.
-        phase (str): Valor de `phase` utilizado por la operación.
+        settings: Configuración del servicio y sus límites.
+        run_id: UUID de ejecución al que se atribuye el trabajo.
+        package_id: Identificador de paquete de la aplicación.
+        app_name: Nombre visible de la aplicación.
+        phase: Fase visible del procesamiento.
     """
 
     async def persist() -> None:
@@ -176,14 +191,15 @@ async def set_current(
 
 
 def parse_payload_app(payload: dict[str, Any], fallback_package_id: str) -> WinstallApp:
-    """Analiza la operación `payload_app`.
+    """Normaliza la aplicación incluida en el payload o crea un detalle mínimo con el package ID
+    de reserva.
 
     Args:
-        payload (dict[str, Any]): Carga de datos recibida por la operación.
-        fallback_package_id (str): Identificador de `fallback_package` utilizado por la operación.
+        payload: Payload JSON asociado al trabajo.
+        fallback_package_id: Identificador usado si falta el objeto app.
 
     Returns:
-        WinstallApp: Resultado producido por la operación.
+        WinstallApp.
     """
     raw = payload.get("app")
     if isinstance(raw, dict):
@@ -192,14 +208,14 @@ def parse_payload_app(payload: dict[str, Any], fallback_package_id: str) -> Wins
 
 
 def payload_package_id(payload: dict[str, Any], item: ScraperWorkItem) -> str:
-    """Ejecuta la operación `payload_package_id`.
+    """Elige package_id del payload y usa el identificador de la fila como fallback.
 
     Args:
-        payload (dict[str, Any]): Carga de datos recibida por la operación.
-        item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+        payload: Payload JSON asociado al trabajo.
+        item: Mensaje de pipeline reservado.
 
     Returns:
-        str: Resultado producido por la operación.
+        identificador textual.
     """
     value = payload.get("package_id") or item.package_id
     return str(value)
@@ -208,21 +224,28 @@ def payload_package_id(payload: dict[str, Any], item: ScraperWorkItem) -> str:
 def provider_snapshot_absence_outcome(
     has_active_verification: bool,
 ) -> ScrapeOutcome:
-    """Distingue una ausencia acreditada de un caso que aún requiere revisión."""
+    """Distingue ausencia confirmada de necesidad de revisión según exista verificación activa.
+
+    Args:
+        has_active_verification: Indica si existe evidencia activa que confirme una ausencia.
+
+    Returns:
+        ScrapeOutcome correspondiente.
+    """
     return (
         ScrapeOutcome.CONFIRMED_MISSING if has_active_verification else ScrapeOutcome.NEEDS_REVIEW
     )
 
 
 def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
-    """Indica si se cumple la operación `stale_control_command`.
+    """Reconoce comandos de control creados antes del inicio del run actual.
 
     Args:
-        command (Any): Comando que debe procesarse.
-        run_started_at (datetime): Instante asociado a `run_started`.
+        command: Comando administrativo pendiente.
+        run_started_at: Instante en que arrancó la ejecución actual.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si deben rechazarse.
     """
     return (
         command.command in {"pause", "resume", "stop", "force_stop"}
@@ -231,13 +254,13 @@ def is_stale_control_command(command: Any, run_started_at: datetime) -> bool:
 
 
 def first_task_failure(error: BaseException) -> BaseException:
-    """Ejecuta la operación `first_task_failure`.
+    """Desenvuelve ExceptionGroup y devuelve la primera causa no cancelada.
 
     Args:
-        error (BaseException): Error que debe registrarse o propagarse.
+        error: Error de tarea cuya causa raíz se desea extraer.
 
     Returns:
-        BaseException: Resultado producido por la operación.
+        excepción raíz.
     """
 
     if isinstance(error, BaseExceptionGroup):
@@ -249,14 +272,15 @@ def first_task_failure(error: BaseException) -> BaseException:
 
 
 def scrape_app_failure_metadata(exc: Exception, winstall_id: str) -> dict:
-    """Ejecuta la operación `scrape_app_failure_metadata`.
+    """Construye metadatos JSON seguros de un fallo de aplicación y limita statement y params
+    SQL.
 
     Args:
-        exc (Exception): Valor de `exc` utilizado por la operación.
-        winstall_id (str): Identificador de `winstall` utilizado por la operación.
+        exc: Excepción SQL o de tarea que se clasifica.
+        winstall_id: Identificador Winstall del elemento fallido.
 
     Returns:
-        dict: Mapa con los datos producidos por la operación.
+        mapa de diagnóstico.
     """
     metadata: dict[str, object] = {
         "winstall_id": winstall_id,
@@ -270,13 +294,13 @@ def scrape_app_failure_metadata(exc: Exception, winstall_id: str) -> dict:
 
 
 def exception_detail(exc: Exception) -> str:
-    """Ejecuta la operación `exception_detail`.
+    """Obtiene detalle acotado de la causa original de una excepción SQL o general.
 
     Args:
-        exc (Exception): Valor de `exc` utilizado por la operación.
+        exc: Excepción SQL o de tarea que se clasifica.
 
     Returns:
-        str: Resultado producido por la operación.
+        texto limitado.
     """
     if isinstance(exc, StatementError) and exc.orig is not None:
         return truncate_text(f"{exc.orig.__class__.__name__}: {exc.orig}", 1200) or ""
@@ -284,14 +308,14 @@ def exception_detail(exc: Exception) -> str:
 
 
 def truncate_text(value: object, max_length: int) -> str | None:
-    """Ejecuta la operación `truncate_text`.
+    """Convierte un objeto a texto y lo corta al límite indicado.
 
     Args:
-        value (object): Valor que debe procesarse.
-        max_length (int): Valor de `max_length` utilizado por la operación.
+        value: Objeto que se convierte y limita a texto.
+        max_length: Límite de caracteres del texto resultante.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        texto, None si el valor era None.
     """
     if value is None:
         return None

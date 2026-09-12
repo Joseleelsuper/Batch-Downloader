@@ -1,4 +1,4 @@
-"""Encolado y workers de enriquecimiento de sistema y descripción."""
+"""Encola y ejecuta los workers de filtro de sistemas operativos y generación de descripciones."""
 
 from __future__ import annotations
 
@@ -39,8 +39,7 @@ from app.scraper.pipeline_support import (
 )
 
 logger = get_logger(__name__)
-"""Estado global asociado a `logger`.
-"""
+
 
 
 async def enqueue_descriptor_for_app(
@@ -52,18 +51,19 @@ async def enqueue_descriptor_for_app(
     force: bool,
     priority: int = 0,
 ) -> ScraperWorkItem | None:
-    """Encola la operación `descriptor_for_app`.
+    """Calcula la huella de descripción, evita duplicar un resultado vigente y encola el
+    descriptor cuando falta o se fuerza.
 
     Args:
-        catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
-        pipeline (PipelineRepository): Valor de `pipeline` utilizado por la operación.
-        run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
-        software_app (Any): Valor de `software_app` utilizado por la operación.
-        force (bool): Valor de `force` utilizado por la operación.
-        priority (int): Valor de `priority` utilizado por la operación.
+        catalog: Repositorio que lee y actualiza aplicaciones.
+        pipeline: Repositorio que encola trabajos.
+        run_id: UUID de ejecución al que se atribuye el trabajo.
+        software_app: Aplicación que se coloca en una cola derivada.
+        force: Indica si se debe ignorar un resultado completado.
+        priority: Prioridad numérica de la entrada en la cola.
 
     Returns:
-        ScraperWorkItem | None: Resultado producido por la operación.
+        trabajo encolado o None si la descripción ya está vigente.
     """
     apps = await catalog.apps_for_description_enrichment(
         [software_app.id],
@@ -104,17 +104,18 @@ async def enqueue_so_filter_for_app(
     force: bool = False,
     priority: int = 0,
 ) -> ScraperWorkItem:
-    """Encola la operación `so_filter_for_app`.
+    """Encola el filtro de sistemas operativos con la versión de la aplicación como huella de
+    entrada.
 
     Args:
-        pipeline (PipelineRepository): Valor de `pipeline` utilizado por la operación.
-        run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
-        software_app (Any): Valor de `software_app` utilizado por la operación.
-        force (bool): Valor de `force` utilizado por la operación.
-        priority (int): Valor de `priority` utilizado por la operación.
+        pipeline: Repositorio que encola trabajos.
+        run_id: UUID de ejecución al que se atribuye el trabajo.
+        software_app: Aplicación que se coloca en una cola derivada.
+        force: Indica si se debe ignorar un resultado completado.
+        priority: Prioridad numérica de la entrada en la cola.
 
     Returns:
-        ScraperWorkItem: Resultado producido por la operación.
+        trabajo de filtro encolado.
     """
     return await pipeline.enqueue(
         QUEUE_SCRAPER_SO_FILTER,
@@ -133,29 +134,28 @@ async def enqueue_so_filter_for_app(
 
 
 class DescriptorWorker:
-    """Ejecuta el procesamiento en segundo plano de `Descriptor`."""
+    """Consume la cola de descripciones con concurrencia acotada y libera el presupuesto por
+    aplicación.
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Inicializa una instancia de `DescriptorWorker`.
+        """Configura identidad y cliente LLM del worker de descripciones.
 
         Args:
-            settings (Settings): Configuración del servicio.
+            settings: Configuración del servicio y sus límites.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.worker_id = f"descriptor:{worker_id()}"
-        """Estado de instancia asociado a `worker_id`.
-        """
+
         self.llm = AppDescriptionLLMClient(settings)
-        """Estado de instancia asociado a `llm`.
-        """
+
 
     async def run(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta `run` dentro de `DescriptorWorker`.
+        """Arranca consumidores hasta parada cooperativa y marca descriptor_done al finalizar.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         if not self.llm.has_provider():
             logger.warning("descriptor_worker_idle", reason="llm_provider_not_configured")
@@ -171,10 +171,10 @@ class DescriptorWorker:
             runtime.descriptor_done.set()
 
     async def process_one(self) -> bool:
-        """Procesa la operación `one`.
+        """Procesa un único mensaje para pruebas o ejecución puntual.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            False si el proveedor no existe o la cola está vacía.
         """
         if not self.llm.has_provider():
             logger.warning("descriptor_process_one_skipped", reason="llm_provider_not_configured")
@@ -185,10 +185,11 @@ class DescriptorWorker:
         return await self._process_claimed_item(None, item)
 
     async def _consume(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta el paso interno `_consume`.
+        """Reserva presupuesto y mensajes y espera a que termine la fase SO filter antes de
+        salir.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
@@ -215,14 +216,15 @@ class DescriptorWorker:
         runtime: PipelineRuntime | None,
         item: ScraperWorkItem,
     ) -> bool:
-        """Ejecuta el paso interno `_process_claimed_item`.
+        """Carga la aplicación, genera o reutiliza su descripción, guarda snapshot y completa,
+        descarta o falla el mensaje.
 
         Args:
-            runtime (PipelineRuntime | None): Valor de `runtime` utilizado por la operación.
-            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
+            item: Mensaje de pipeline reservado.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si se aceptó el resultado.
         """
         payload = item.payload_json or {}
         software_app_id = payload.get("software_app_id")
@@ -292,26 +294,24 @@ class DescriptorWorker:
 
 
 class SOFilterWorker:
-    """Ejecuta el procesamiento en segundo plano de `SOFilter`."""
+    """Actualiza plataformas verificadas y dispara la generación de descripción posterior."""
 
     def __init__(self, settings: Settings) -> None:
-        """Inicializa una instancia de `SOFilterWorker`.
+        """Configura identidad del worker de filtro.
 
         Args:
-            settings (Settings): Configuración del servicio.
+            settings: Configuración del servicio y sus límites.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.worker_id = f"so-filter:{worker_id()}"
-        """Estado de instancia asociado a `worker_id`.
-        """
+
 
     async def run(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta `run` dentro de `SOFilterWorker`.
+        """Consume filtro hasta que no queden trabajos activos después del scraper.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
@@ -327,13 +327,13 @@ class SOFilterWorker:
                 await asyncio.sleep(1)
 
     async def process_one(self, runtime: PipelineRuntime | None = None) -> bool:
-        """Procesa la operación `one`.
+        """Reserva y procesa un mensaje de filtro.
 
         Args:
-            runtime (PipelineRuntime | None): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            False si no existe trabajo.
         """
         item = await claim_item(
             self.settings,
@@ -350,14 +350,15 @@ class SOFilterWorker:
         item: ScraperWorkItem,
         runtime: PipelineRuntime | None,
     ) -> bool:
-        """Ejecuta el paso interno `_process_claimed_item`.
+        """Recalcula plataformas, guarda snapshot, encola descriptor y reintenta fallos según el
+        límite configurado.
 
         Args:
-            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
-            runtime (PipelineRuntime | None): Valor de `runtime` utilizado por la operación.
+            item: Mensaje de pipeline reservado.
+            runtime: Estado compartido del pipeline.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True cuando el mensaje se completa o descarta.
         """
         software_app_id = (item.payload_json or {}).get("software_app_id")
         if not software_app_id:

@@ -19,10 +19,12 @@ from app.scraper.website_discovery import (
 
 @pytest.fixture(autouse=True)
 def disable_description_provider(monkeypatch) -> None:
-    """Ejecuta la operación `disable_description_provider`.
+    """Prepara el recurso `disable_description_provider` usado por las pruebas para aislar el
+    escenario `disable description provider` y conservar sus datos de entrada.
 
     Args:
-        monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
+        monkeypatch: Entrada `monkeypatch` del escenario que se mantiene estable para la
+            prueba.
     """
     monkeypatch.setattr(
         "app.scraper.website_discovery.AppDescriptionLLMClient.has_provider",
@@ -52,13 +54,13 @@ def test_best_installer_version_ignores_nulls_and_normalizes_once() -> None:
     """Comprueba el escenario `best_installer_version_ignores_nulls_and_normalizes_once`.
     """
     def installer(version: str | None) -> DiscoveredInstaller:
-        """Ejecuta la operación `installer`.
+        """Prepara el recurso
+        `test_best_installer_version_ignores_nulls_and_normalizes_once.installer` usado por
+        las pruebas para aislar el escenario `test best installer version ignores nulls and
+        normalizes once.installer` y conservar sus datos de entrada.
 
         Args:
-            version (str | None): Valor de `version` utilizado por la operación.
-
-        Returns:
-            DiscoveredInstaller: Resultado producido por la operación.
+            version: Entrada `version` del escenario que se mantiene estable para la prueba.
         """
         return DiscoveredInstaller(
             url="https://downloads.example.com/app.exe",

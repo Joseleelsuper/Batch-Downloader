@@ -9,13 +9,13 @@ from pathlib import Path
 
 
 def rows_by_key(report: dict) -> dict[tuple[str, int], dict]:
-    """Ejecuta la operación `rows_by_key`.
+    """Indexa las mediciones por carga e hilos para comparar dos ejecuciones.
 
     Args:
-        report (dict): Valor de `report` utilizado por la operación.
+        report (dict): Informe que contiene la lista ``measurements``.
 
     Returns:
-        dict[tuple[str, int], dict]: Mapa con los datos producidos por la operación.
+        dict[tuple[str, int], dict]: Filas accesibles por ``(workload, threads)``.
     """
     return {
         (row["workload"], int(row["threads"])): row
@@ -24,10 +24,10 @@ def rows_by_key(report: dict) -> dict[tuple[str, int], dict]:
 
 
 def main() -> None:
-    """Ejecuta el punto de entrada del módulo.
+    """Valida dos informes de hilos y escribe sus comparaciones en JSON, CSV y Markdown.
 
     Throws:
-        RuntimeError: Si el estado de ejecución impide completar la operación.
+        RuntimeError: Si los runtimes, drivers, cargas o sumas de comprobación no coinciden.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--standard", type=Path, required=True)

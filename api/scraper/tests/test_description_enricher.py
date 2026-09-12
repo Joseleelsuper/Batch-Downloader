@@ -40,8 +40,7 @@ class FakeClock:
         """Inicializa una instancia de `FakeClock`.
         """
         self.now = 0.0
-        """Estado de instancia asociado a `now`.
-        """
+
 
     def __call__(self) -> float:
         """Ejecuta la instancia como una operación invocable.
@@ -358,10 +357,10 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
         """Agrupa los escenarios de prueba de `BadLLM`.
         """
         def has_provider(self) -> bool:
-            """Indica si existe la operación `provider`.
-
-            Returns:
-                bool: Indica si se cumple la condición evaluada.
+            """Prepara el recurso
+            `test_enricher_marks_invalid_llm_response_as_failed.BadLLM.has_provider` usado por
+            las pruebas para aislar el escenario `test enricher marks invalid llm response as
+            failed.BadLLM.has provider` y conservar sus datos de entrada.
             """
             return True
 
@@ -384,11 +383,9 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
             """Inicializa una instancia de `FakeCatalog`.
             """
             self.app = make_app(official_url=None)
-            """Estado de instancia asociado a `app`.
-            """
+
             self.failed = []
-            """Estado de instancia asociado a `failed`.
-            """
+
 
         async def apps_for_description_enrichment(self, _software_app_ids=None):
             """Ejecuta `apps_for_description_enrichment` dentro de `FakeCatalog`.
@@ -425,8 +422,7 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
             """Inicializa una instancia de `FakeLogs`.
             """
             self.entries = []
-            """Estado de instancia asociado a `entries`.
-            """
+
 
         async def add(self, **kwargs):
             """Ejecuta `add` dentro de `FakeLogs`.
@@ -458,10 +454,10 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
         """Agrupa los escenarios de prueba de `GoodLLM`.
         """
         def has_provider(self) -> bool:
-            """Indica si existe la operación `provider`.
-
-            Returns:
-                bool: Indica si se cumple la condición evaluada.
+            """Prepara el recurso
+            `test_enricher_treats_zero_max_apps_as_unlimited.GoodLLM.has_provider` usado por
+            las pruebas para aislar el escenario `test enricher treats zero max apps as
+            unlimited.GoodLLM.has provider` y conservar sus datos de entrada.
             """
             return True
 
@@ -488,11 +484,9 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
                 make_app(winstall_id=f"Vendor.App{i}", name=f"Vendor App {i}", official_url=None)
                 for i in range(3)
             ]
-            """Estado de instancia asociado a `apps`.
-            """
+
             self.saved = []
-            """Estado de instancia asociado a `saved`.
-            """
+
 
         async def apps_for_description_enrichment(self, _software_app_ids=None):
             """Ejecuta `apps_for_description_enrichment` dentro de `FakeCatalog`.

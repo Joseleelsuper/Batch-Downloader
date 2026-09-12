@@ -20,7 +20,9 @@ async def test_startup_scrape_repairs_known_apps_before_catalog(monkeypatch) -> 
     calls: list[object] = []
 
     async def repair() -> None:
-        """Ejecuta la operación `repair`.
+        """Prepara el recurso `test_startup_scrape_repairs_known_apps_before_catalog.repair`
+        usado por las pruebas para aislar el escenario `test startup scrape repairs known apps
+        before catalog.repair` y conservar sus datos de entrada.
         """
         calls.append("repair")
 
@@ -49,10 +51,9 @@ async def test_startup_scrape_continues_when_known_app_repair_fails(monkeypatch)
     calls: list[object] = []
 
     async def repair() -> None:
-        """Ejecuta la operación `repair`.
-
-        Throws:
-            RuntimeError: Si el estado de ejecución impide completar la operación.
+        """Prepara el recurso `test_startup_scrape_continues_when_known_app_repair_fails.repair`
+        usado por las pruebas para aislar el escenario `test startup scrape continues when
+        known app repair fails.repair` y conservar sus datos de entrada.
         """
         calls.append("repair")
         raise RuntimeError("temporary provider failure")

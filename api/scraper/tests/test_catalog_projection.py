@@ -10,8 +10,7 @@ MIGRATION = (
     / "versions"
     / "20260718_0011_catalog_projection.py"
 )
-"""Constante que define `MIGRATION`.
-"""
+
 
 
 def make_report(**overrides) -> CatalogProjectionReport:

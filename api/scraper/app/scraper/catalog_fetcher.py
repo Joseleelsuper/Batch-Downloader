@@ -1,4 +1,4 @@
-"""Implementa las responsabilidades del módulo `catalog_fetcher`."""
+"""Coordina una ejecución completa del pipeline y sus monitores de comandos y heartbeat."""
 
 from __future__ import annotations
 
@@ -35,35 +35,31 @@ from app.scraper.platform_worker import PlatformScraperWorker
 from app.scraper.searcher_worker import SearcherWorker
 
 logger = get_logger(__name__)
-"""Estado global asociado a `logger`.
-"""
+
 
 
 class CatalogFetcher:
-    """Representa el componente `CatalogFetcher`."""
+    """Adquiere ejecuciones, levanta workers y termina el run con estado y contadores
+    persistidos.
+    """
 
     def __init__(self, settings: Settings, session: AsyncSession) -> None:
-        """Inicializa una instancia de `CatalogFetcher`.
+        """Configura repositorios y protección de URLs para la sesión llamadora.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+            settings: Configuración del servicio y sus límites.
+            session: Sesión SQLAlchemy del caso de uso.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.session = session
-        """Estado de instancia asociado a `session`.
-        """
+
         self.url_protector = UrlProtector(settings.url_protection_secret)
-        """Estado de instancia asociado a `url_protector`.
-        """
+
         self.catalog = CatalogRepository(session, self.url_protector)
-        """Estado de instancia asociado a `catalog`.
-        """
+
         self.runs = ScrapeRunRepository(session, settings)
-        """Estado de instancia asociado a `runs`.
-        """
+
 
     async def scrape_once(
         self,
@@ -73,16 +69,21 @@ class CatalogFetcher:
         selected_app_ids: list[uuid.UUID] | None = None,
         request_id: uuid.UUID | None = None,
     ) -> ScrapeCounters:
-        """Ejecuta `scrape_once` dentro de `CatalogFetcher`.
+        """Valida alcance, adquiere una ejecución, recupera leases huérfanos, ejecuta los cuatro
+        grupos de workers y persiste estado final.
 
         Args:
-            recover_running (bool): Valor de `recover_running` utilizado por la operación.
+            recover_running: Indica si deben recuperarse ejecuciones antiguas.
+            scope: Alcance incremental, completo o selected de la ejecución.
+            selected_app_ids: UUID locales seleccionados para el alcance selected.
+            request_id: Solicitud durable que originó la ejecución.
 
         Returns:
-            ScrapeCounters: Resultado producido por la operación.
+            contadores de la ejecución.
 
-        Throws:
-            worker_error: Si no puede completarse la operación bajo las condiciones requeridas.
+        Raises:
+            ValueError: Si el alcance selected no tiene IDs o supera el límite.
+            BaseException: Si falla un worker.
         """
         selected_app_ids = selected_app_ids or []
         await self._prepare_run_request(recover_running, scope, selected_app_ids)
@@ -187,10 +188,11 @@ class CatalogFetcher:
         return runtime.counters
 
     async def _command_monitor(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta el paso interno `_command_monitor`.
+        """Consume comandos pause/resume/stop/run_once, ignora comandos antiguos y actualiza el
+        estado visible del run.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         while not runtime.all_workers_done.is_set():
             async with async_session_local()() as session:
@@ -233,10 +235,10 @@ class CatalogFetcher:
             await asyncio.sleep(2)
 
     async def _heartbeat(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta el paso interno `_heartbeat`.
+        """Guarda heartbeat y snapshots métricos mientras los workers siguen activos.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         while not runtime.all_workers_done.is_set():
             async with async_session_local()() as session:
@@ -248,10 +250,11 @@ class CatalogFetcher:
             await asyncio.sleep(5)
 
     async def _run_scraper_workers(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta el paso interno `_run_scraper_workers`.
+        """Lanza la concurrencia configurada de PlatformScraperWorker y marca scraper_done al
+        cerrar.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         workers = [
             PlatformScraperWorker(self.settings)
@@ -263,10 +266,10 @@ class CatalogFetcher:
             runtime.scraper_done.set()
 
     async def _run_so_filter_workers(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta el paso interno `_run_so_filter_workers`.
+        """Lanza la concurrencia configurada de SOFilterWorker y marca so_filter_done al cerrar.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         workers = [
             SOFilterWorker(self.settings)
@@ -280,8 +283,12 @@ class CatalogFetcher:
     async def _prepare_run_request(
         self, recover_running: bool, scope: ScrapeScope, selected_app_ids: list[uuid.UUID]
     ) -> None:
-        """Recupera reservas del scheduler anterior y valida el alcance antes de adquirir una
-        ejecución.
+        """Recupera ejecuciones anteriores y aplica límites y coherencia del alcance solicitado.
+
+        Args:
+            recover_running: Indica si deben recuperarse ejecuciones antiguas.
+            scope: Alcance incremental, completo o selected de la ejecución.
+            selected_app_ids: UUID locales seleccionados para el alcance selected.
         """
         if recover_running:
             recovered = await self.runs.recover_running(
@@ -300,7 +307,12 @@ class CatalogFetcher:
             raise ValueError("selected_scope_limit_exceeded")
 
     async def _recover_pipeline(self) -> bool:
-        """Recupera leases y trabajos huérfanos y poda instantáneas en una sesión independiente."""
+        """Restablece leases expirados, recupera trabajos huérfanos y poda snapshots en una
+        sesión independiente.
+
+        Returns:
+            True si queda trabajo pendiente.
+        """
         async with async_session_local()() as session:
             pipeline = PipelineRepository(session)
             recovered_items = await pipeline.reset_expired_leases()

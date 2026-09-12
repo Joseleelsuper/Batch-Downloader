@@ -850,16 +850,16 @@ def software_app(
     long_description_status: str,
     long_description: str | None,
 ) -> SoftwareApp:
-    """Ejecuta la operación `software_app`.
+    """Prepara el recurso `software_app` usado por las pruebas para aislar el escenario `software
+    app` y conservar sus datos de entrada.
 
     Args:
-        winstall_id (str): Identificador de `winstall` utilizado por la operación.
-        long_description_status (str): Valor de `long_description_status` utilizado por la
-            operación.
-        long_description (str | None): Valor de `long_description` utilizado por la operación.
-
-    Returns:
-        SoftwareApp: Resultado producido por la operación.
+        winstall_id: Entrada `winstall_id` del escenario que se mantiene estable para la
+            prueba.
+        long_description_status: Entrada `long_description_status` del escenario que se
+            mantiene estable para la prueba.
+        long_description: Entrada `long_description` del escenario que se mantiene estable
+            para la prueba.
     """
     now = utc_now()
     return SoftwareApp(
@@ -883,16 +883,16 @@ def source_with_resolved_app(
     expires_in_hours: int,
     metadata: dict[str, str],
 ) -> DownloadSource:
-    """Ejecuta la operación `source_with_resolved_app`.
+    """Prepara el recurso `source_with_resolved_app` usado por las pruebas para aislar el
+    escenario `source with resolved app` y conservar sus datos de entrada.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
-        operating_system (str): Valor de `operating_system` utilizado por la operación.
-        expires_in_hours (int): Valor de `expires_in_hours` utilizado por la operación.
-        metadata (dict[str, str]): Valor de `metadata` utilizado por la operación.
-
-    Returns:
-        DownloadSource: Resultado producido por la operación.
+        app: Entrada `app` del escenario que se mantiene estable para la prueba.
+        operating_system: Entrada `operating_system` del escenario que se mantiene estable
+            para la prueba.
+        expires_in_hours: Entrada `expires_in_hours` del escenario que se mantiene estable
+            para la prueba.
+        metadata: Entrada `metadata` del escenario que se mantiene estable para la prueba.
     """
     now = utc_now()
     source = DownloadSource(
