@@ -1,0 +1,19 @@
+services:
+  translation-service:
+    build:
+      context: ../..
+      dockerfile: services/translation-service/Dockerfile
+    env_file:
+      - path: ./.env.example
+      - path: ./.env
+        required: false
+    cpu_shares: 128
+    restart: unless-stopped
+    ports:
+      - "${TRANSLATION_SERVICE_HOST_PORT}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
