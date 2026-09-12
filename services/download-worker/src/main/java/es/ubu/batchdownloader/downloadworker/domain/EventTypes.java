@@ -1,55 +1,65 @@
 package es.ubu.batchdownloader.downloadworker.domain;
 
 /**
- * Implementa el componente {@code EventTypes}.
+ * Centraliza nombres de contratos y claves de enrutamiento de los eventos de descarga para que
+ * productores y consumidores utilicen la misma versión.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.domain.DownloadEvents
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadEventEmitter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Contratos de descarga
  */
 public final class EventTypes {
     /**
-     * Constante que define {@code CURRENT_VERSION}.
+     * Versión del esquema de eventos que el worker acepta y produce.
      */
     public static final int CURRENT_VERSION = 1;
     /**
-     * Constante que define {@code JOB_REQUESTED}.
+     * Solicitud de procesamiento de un trabajo admitido por Core.
      */
     public static final String JOB_REQUESTED = "download.job.requested";
     /**
-     * Constante que define {@code JOB_CANCEL_REQUESTED}.
+     * Solicitud de parada cooperativa de un trabajo.
      */
     public static final String JOB_CANCEL_REQUESTED = "download.job.cancel-requested";
     /**
-     * Constante que define {@code JOB_PROGRESSED}.
+     * Transición de estado, bytes o integridad de un elemento.
      */
     public static final String JOB_PROGRESSED = "download.job.progressed";
     /**
-     * Constante que define {@code JOB_READY}.
+     * Disponibilidad del ZIP confirmado con su integridad y vigencia.
      */
     public static final String JOB_READY = "download.job.ready";
-    /** Constante que define una espera no terminal por capacidad. */
+    /**
+     * Aplazamiento no terminal del trabajo por capacidad.
+     */
     public static final String JOB_DEFERRED = "download.job.deferred";
     /**
-     * Constante que define {@code JOB_FAILED}.
+     * Resultado terminal sin contenido entregable del trabajo.
      */
     public static final String JOB_FAILED = "download.job.failed";
 
     /**
-     * Constante que define {@code JOB_PROGRESSED_ROUTING_KEY}.
+     * Clave AMQP para publicar: transición de estado, bytes o integridad de un elemento.
      */
     public static final String JOB_PROGRESSED_ROUTING_KEY = "download.job.progressed";
     /**
-     * Constante que define {@code JOB_READY_ROUTING_KEY}.
+     * Clave AMQP para publicar: disponibilidad del ZIP confirmado con su integridad y vigencia.
      */
     public static final String JOB_READY_ROUTING_KEY = "download.job.ready";
-    /** Clave de enrutado para una espera no terminal por capacidad. */
+    /**
+     * Clave AMQP para publicar: aplazamiento no terminal del trabajo por capacidad.
+     */
     public static final String JOB_DEFERRED_ROUTING_KEY = "download.job.deferred";
     /**
-     * Constante que define {@code JOB_FAILED_ROUTING_KEY}.
+     * Clave AMQP para publicar: resultado terminal sin contenido entregable del trabajo.
      */
     public static final String JOB_FAILED_ROUTING_KEY = "download.job.failed";
 
     /**
-     * Inicializa una instancia de {@code EventTypes}.
+     * Impide instanciar el catálogo estático de tipos y claves de eventos.
      */
     private EventTypes() {
     }

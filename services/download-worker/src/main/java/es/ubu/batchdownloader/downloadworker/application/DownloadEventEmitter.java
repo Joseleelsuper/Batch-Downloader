@@ -20,18 +20,48 @@ import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Publica los eventos del trabajo con identificadores deterministas. */
-final class DownloadEventEmitter {
+/**
+ * Publica sobres de progreso, disponibilidad, fallo y espera con UUID deterministas para que Core
+ * pueda deduplicar entregas repetidas sin perder la correlación del trabajo.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.ports.EventPublisher
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Resultados y empaquetado
+ */
+public final class DownloadEventEmitter {
     private final EventPublisher publisher;
     private final StorageProperties storage;
     private final Clock clock;
 
-    DownloadEventEmitter(EventPublisher publisher, StorageProperties storage, Clock clock) {
+    /**
+     * Conecta publicación, vigencia de resultados y reloj de eventos.
+     *
+     * @param publisher Transporte que publica los sobres de progreso y resultado para Core.
+     * @param storage Configuración de vigencia de resultados en almacenamiento.
+     * @param clock Reloj para fechar el progreso y las decisiones del coordinador.
+     */
+    public DownloadEventEmitter(EventPublisher publisher, StorageProperties storage, Clock clock) {
         this.publisher = publisher;
         this.storage = storage;
         this.clock = clock;
     }
 
+    /**
+     * Publica el resultado entregable con clave, integridad y recuentos; acota la vigencia
+     * configurada a un máximo de siete días.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param status Resultado conjunto READY, PARTIAL o MANUAL_ONLY que se incluirá en el
+     *     manifiesto.
+     * @param successfulItems Cantidad de instaladores descargados incluidos en el ZIP.
+     * @param failedItems Cantidad de elementos fallidos; la excepción de fallo total la acota a un
+     *     mínimo de uno.
+     * @param zip Tamaño y SHA-256 calculados al almacenar el ZIP completo.
+     * @param zipObjectKey Clave del ZIP confirmado dentro del almacén del worker.
+     */
     void ready(
             DownloadJobRequestedEvent event,
             String status,
@@ -62,6 +92,22 @@ final class DownloadEventEmitter {
                 payload));
     }
 
+    /**
+     * Publica la transición de un elemento con identidad derivada del trabajo, elemento y estado,
+     * conservando bytes e integridad disponibles.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param occurredAt Instante de la transición individual que se publica.
+     * @param itemId UUID del elemento que cambió de estado.
+     * @param status Resultado conjunto READY, PARTIAL o MANUAL_ONLY que se incluirá en el
+     *     manifiesto.
+     * @param bytesDownloaded Bytes transferidos del elemento en esta actualización.
+     * @param sizeBytes Tamaño esperado o final del elemento, en bytes; null si se desconoce.
+     * @param sha256 Huella del instalador completado; null antes de verificarlo.
+     * @param errorCode Código seguro del fallo individual; null si no se está comunicando un
+     *     rechazo.
+     */
     void progress(
             DownloadJobRequestedEvent event,
             Instant occurredAt,
@@ -86,6 +132,16 @@ final class DownloadEventEmitter {
                 payload));
     }
 
+    /**
+     * Publica el fallo terminal del trabajo con recuento de al menos un elemento y UUID derivado de
+     * su código de fallo.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param code Código estable del rechazo que puede incluirse en el resultado individual.
+     * @param failedItems Cantidad de elementos fallidos; la excepción de fallo total la acota a un
+     *     mínimo de uno.
+     */
     void failed(DownloadJobRequestedEvent event, String code, int failedItems) {
         DownloadFailedPayload payload = new DownloadFailedPayload(
                 event.payload().jobId(), code, Math.max(1, failedItems));
@@ -99,7 +155,15 @@ final class DownloadEventEmitter {
                 payload));
     }
 
-    /** Publica una espera temporal que mantiene el estado QUEUED en Core. */
+    /**
+     * Publica una espera no terminal con motivo y próximo intento; distingue reprogramaciones
+     * mediante el segundo de retryAt.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param reason Motivo estable de aplazamiento, utilizado por Core para explicar la espera.
+     * @param retryAt Instante a partir del cual se prevé volver a intentar el trabajo.
+     */
     void deferred(DownloadJobRequestedEvent event, String reason, Instant retryAt) {
         Instant occurredAt = clock.instant();
         DownloadDeferredPayload payload = new DownloadDeferredPayload(
@@ -117,6 +181,14 @@ final class DownloadEventEmitter {
                 payload));
     }
 
+    /**
+     * Deriva un UUID reproducible del trabajo, tipo y discriminador codificados en UTF-8.
+     *
+     * @param jobId UUID del trabajo cuya cancelación se comprueba durante la espera.
+     * @param type Tipo de evento del contrato de descargas.
+     * @param discriminator Dato estable que distingue transiciones del mismo trabajo y tipo.
+     * @return misma identidad para la misma transición lógica entre reintentos.
+     */
     private UUID eventId(UUID jobId, String type, String discriminator) {
         return UUID.nameUUIDFromBytes(
                 (jobId + ":" + type + ":" + discriminator).getBytes(StandardCharsets.UTF_8));

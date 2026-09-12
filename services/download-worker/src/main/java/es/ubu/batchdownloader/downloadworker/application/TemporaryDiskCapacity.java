@@ -8,19 +8,35 @@ import java.nio.file.Path;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-/** Reserva de forma atómica el espacio declarado de los temporales en vuelo. */
+/**
+ * Reserva bajo un mismo cerrojo los bytes de descargas en vuelo y exige un margen libre en el
+ * volumen temporal antes y después de materializar archivos.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadPipeline
+ * @see es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Capacidad y coordinación de descargas
+ */
 @Component
 public final class TemporaryDiskCapacity {
     /** Espacio que nunca puede consumirse. */
     private final long minimumFreeBytes;
     /** Reserva defensiva para una fuente sin tamaño declarado. */
     private final long unknownDownloadBytes;
-    /** Bytes prometidos por descargas que todavía están escribiéndose. */
+    /**
+     * Bytes reservados para la métrica de capacidad.
+     */
     private long reservedBytes;
     /** Ruta observada por las métricas de disco. */
     private final Path monitoredDirectory;
 
-    /** Inicializa la reserva a partir de los límites del worker. */
+    /**
+     * Obtiene margen libre, reserva defensiva y volumen temporal de la configuración del worker.
+     *
+     * @param properties Límites de almacenamiento o descarga de los que se obtiene la capacidad de
+     *     este componente.
+     */
     public TemporaryDiskCapacity(DownloadProperties properties) {
         this(
                 properties.minFreeSpace().toBytes(),
@@ -28,7 +44,13 @@ public final class TemporaryDiskCapacity {
                 Path.of(properties.tempDirectory()));
     }
 
-    /** Inicializa además los medidores Prometheus del único SSD. */
+    /**
+     * Configura las reservas y registra métricas de espacio prometido, utilizable y mínimo libre.
+     *
+     * @param properties Límites de almacenamiento o descarga de los que se obtiene la capacidad de
+     *     este componente.
+     * @param registry Registro de ocupación, espera y resultados del worker.
+     */
     @Autowired
     public TemporaryDiskCapacity(DownloadProperties properties, MeterRegistry registry) {
         this(properties);
@@ -46,12 +68,28 @@ public final class TemporaryDiskCapacity {
                 capacity -> capacity.minimumFreeBytes);
     }
 
-    /** Constructor acotado para pruebas unitarias sin depender del tamaño del host. */
+    /**
+     * Permite verificar reservas con límites explícitos y el volumen del directorio actual.
+     *
+     * @param minimumFreeBytes Margen mínimo que debe continuar libre en el volumen temporal, en
+     *     bytes.
+     * @param unknownDownloadBytes Reserva defensiva en bytes cuando no se conoce el tamaño de
+     *     descarga.
+     */
     TemporaryDiskCapacity(long minimumFreeBytes, long unknownDownloadBytes) {
         this(minimumFreeBytes, unknownDownloadBytes, Path.of("."));
     }
 
-    /** Inicializador común de los contadores. */
+    /**
+     * Inicializa los límites y el directorio de observación sin reservar espacio todavía.
+     *
+     * @param minimumFreeBytes Margen mínimo que debe continuar libre en el volumen temporal, en
+     *     bytes.
+     * @param unknownDownloadBytes Reserva defensiva en bytes cuando no se conoce el tamaño de
+     *     descarga.
+     * @param monitoredDirectory Directorio cuyo volumen se consulta al publicar la métrica de
+     *     espacio utilizable.
+     */
     private TemporaryDiskCapacity(
             long minimumFreeBytes,
             long unknownDownloadBytes,
@@ -62,10 +100,12 @@ public final class TemporaryDiskCapacity {
     }
 
     /**
-     * Comprueba la reserva mínima y todas las promesas activas sin consumir una plaza.
-     * La usa la admisión HTTP de Core antes de crear un trabajo.
+     * Crea el directorio si falta y comprueba que caben las reservas activas y otra descarga de
+     * tamaño desconocido sin consumir una reserva.
      *
-     * @param directory Directorio temporal del worker.
+     * @param directory Directorio del volumen donde se escribirán los temporales del trabajo.
+     * @throws es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException si falla
+     *     el acceso al volumen o no puede conservarse el margen libre.
      */
     public synchronized void requireAvailable(Path directory) {
         try {
@@ -76,7 +116,16 @@ public final class TemporaryDiskCapacity {
         }
     }
 
-    /** Reserva el tamaño declarado o el máximo defensivo si se desconoce. */
+    /**
+     * Comprueba el margen y añade atómicamente la reserva anunciada o defensiva de una descarga.
+     *
+     * @param directory Directorio del volumen donde se escribirán los temporales del trabajo.
+     * @param declaredBytes Tamaño anunciado de la descarga en bytes; null usa la reserva defensiva
+     *     y negativos se acotan a cero.
+     * @return reserva que debe completarse al materializar el archivo o cerrarse al abortar.
+     * @throws es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException si no
+     *     cabe la reserva o no puede comprobarse el volumen.
+     */
     public synchronized Lease reserve(Path directory, Long declaredBytes) {
         long bytes = declaredBytes == null
                 ? unknownDownloadBytes
@@ -90,12 +139,27 @@ public final class TemporaryDiskCapacity {
         }
     }
 
-    /** Construye el fallo reintentable que mantiene el mensaje en RabbitMQ. */
+    /**
+     * Clasifica un fallo de reserva temporal como condición aplazable del trabajo.
+     *
+     * @param cause Fallo original conservado para diagnóstico y política de reintentos.
+     * @return fallo con motivo temporary_storage_busy y causa original.
+     */
     private static CapacityDeferredException busy(Exception cause) {
         return new CapacityDeferredException("temporary_storage_busy", cause);
     }
 
-    /** Verifica una reserva adicional manteniendo el cerrojo del contador. */
+    /**
+     * Suma margen mínimo, reservas en vuelo y bytes propuestos y los compara con el espacio
+     * utilizable del volumen.
+     *
+     * @param directory Directorio del volumen donde se escribirán los temporales del trabajo.
+     * @param additionalBytes Bytes adicionales que se comprueban junto a la ocupación y reservas
+     *     existentes.
+     * @throws java.io.IOException si no se puede consultar el volumen o queda menos espacio del
+     *     requerido.
+     * @throws ArithmeticException si desborda la suma de bytes requerida.
+     */
     private void requireAvailable(Path directory, long additionalBytes) throws IOException {
         long required = Math.addExact(
                 minimumFreeBytes,
@@ -105,12 +169,21 @@ public final class TemporaryDiskCapacity {
         }
     }
 
-    /** @return Bytes prometidos por descargas todavía en vuelo. */
+    /**
+     * Lee el contador protegido de espacio prometido a descargas en vuelo.
+     *
+     * @return bytes reservados para la métrica de capacidad.
+     */
     private synchronized double reservedBytes() {
         return reservedBytes;
     }
 
-    /** @return Espacio utilizable del volumen temporal, o cero si no puede consultarse. */
+    /**
+     * Consulta el espacio utilizable del volumen supervisado, creando su directorio si es
+     * necesario.
+     *
+     * @return bytes utilizables; cero si falla la consulta de E/S.
+     */
     private double usableBytes() {
         try {
             Files.createDirectories(monitoredDirectory);
@@ -120,7 +193,14 @@ public final class TemporaryDiskCapacity {
         }
     }
 
-    /** Reserva liberable de una descarga. */
+    /**
+     * Conserva la promesa de bytes de una descarga hasta que el archivo está materializado o se
+     * aborta la transferencia.
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Capacidad y coordinación de descargas
+     */
     public final class Lease implements AutoCloseable {
         /** Bytes prometidos por esta descarga. */
         private final long bytes;
@@ -129,15 +209,24 @@ public final class TemporaryDiskCapacity {
         /** Impide descontar dos veces. */
         private boolean closed;
 
-        /** Inicializa una reserva activa. */
+        /**
+         * Asocia bytes ya reservados al volumen que se volverá a comprobar al completar la
+         * descarga.
+         *
+         * @param bytes Cantidad de bytes que se reserva, contabiliza o consume según la operación.
+         * @param directory Directorio del volumen donde se escribirán los temporales del trabajo.
+         */
         private Lease(long bytes, Path directory) {
             this.bytes = bytes;
             this.directory = directory;
         }
 
         /**
-         * Convierte la reserva en espacio ya reflejado por el sistema de archivos y verifica
-         * que las demás promesas siguen dejando el margen mínimo.
+         * Retira la promesa porque el archivo ya ocupa espacio real y comprueba que sigue habiendo
+         * margen para las demás reservas.
+         *
+         * @throws es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException si el
+         *     espacio restante ya no cubre el margen y las demás reservas, o no puede comprobarse.
          */
         public void completed() {
             synchronized (TemporaryDiskCapacity.this) {
@@ -153,7 +242,10 @@ public final class TemporaryDiskCapacity {
             }
         }
 
-        /** Libera una reserva que no llegó a convertirse en temporal. */
+        /**
+         * Libera la promesa pendiente al salir del ámbito de la descarga; no elimina el archivo
+         * local.
+         */
         @Override
         public void close() {
             synchronized (TemporaryDiskCapacity.this) {
@@ -161,7 +253,10 @@ public final class TemporaryDiskCapacity {
             }
         }
 
-        /** Descuenta la reserva una sola vez. */
+        /**
+         * Descuenta los bytes reservados una sola vez; el llamador mantiene el cerrojo del
+         * componente.
+         */
         private void release() {
             if (!closed) {
                 closed = true;

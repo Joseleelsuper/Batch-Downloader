@@ -12,15 +12,14 @@ from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import re
-import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import uuid
 
-from data import (ID, atomic_json, check_hash, child, detect, elf_arch,
-                  extract, inspect, read_json, require, validate_component)
+from data import (ID, atomic_json, check_hash, child, detect, inspect, read_json, require, validate_component)
+from portable import prepare_portable
 from updates import update_candidate, verify_gpg
 
 RUNTIME = Path(__file__).resolve().parent.parent
@@ -194,28 +193,8 @@ class Installer:
         if not destination.exists():
             stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=app_dir))
             try:
-                target = stage / "payload"
-                strategy = c["profile"]["strategy"]
-                if strategy == "tarball":
-                    target.mkdir()
-                    extract(payload, target)
-                    entry = child(target, c["profile"]["entrypoint"])
-                    require(entry.is_file(), "recipe_entrypoint_missing")
-                    if arch := elf_arch(entry):
-                        require(arch == self.machine["architecture"], "binary_architecture_mismatch")
-                    entry.chmod(entry.stat().st_mode | 0o100)
-                    command = [str(destination / "payload" / c["profile"]["entrypoint"])]
-                else:
-                    shutil.copyfile(payload, target)
-                    target.chmod(0o700 if strategy == "appimage" else 0o600)
-                    if strategy == "appimage":
-                        require(elf_arch(target) == self.machine["architecture"], "binary_architecture_mismatch")
-                        command = [str(destination / "payload")]
-                    else:
-                        require(shutil.which("java"), "java_required")
-                        command = ["java", "-jar", str(destination / "payload")]
-                (stage / "launch").write_text("#!/usr/bin/env bash\nexec " + shlex.join(command) + ' "$@"\n', encoding="utf-8")
-                (stage / "launch").chmod(0o700)
+                prepare_portable(c, payload, stage, destination, 0o700,
+                                 self.machine["architecture"], "utf-8")
                 shutil.copyfile(payload, stage / "original")
                 atomic_json(stage / "component.json", c)
                 os.replace(stage, destination)
@@ -266,8 +245,7 @@ class Installer:
         journal = read_json(self.journal)
         self.bundle = journal["bundle"]
         before = journal["before"]
-        system = next((c for c in journal["touched"] if self.scope(c) == "system"
-                       or c["profile"].get("systemPackages", {}).get(self.machine["manager"])), None)
+        system = self.system_component(journal["touched"])
         if journal.get("phase") == "committed":
             if system:
                 self.native("commit", system, tx=journal["transaction"])
@@ -354,25 +332,8 @@ class Installer:
             for identifier, bundle in self.state["bundles"].items(): print(identifier, len(bundle["components"]))
             return
         root = RUNTIME
-        if self.args.action == "install":
-            self.bundle, self.components = load_bundle(root)
-        else:
-            identifier = self.args.bundle
-            if not identifier and (root / "config/bundle.json").exists():
-                identifier = read_json(root / "config/bundle.json")["id"]
-            if self.args.action == "rollback" and self.journal.exists():
-                journal = read_json(self.journal)
-                self.bundle = journal["bundle"]
-                if self.args.dry_run:
-                    print("rollback", self.bundle["id"]); return
-                confirm(self.args, "rollback " + self.bundle["id"])
-                self.mutable()
-                self.recover()
-                return
-            require(identifier in self.state["bundles"], "bundle_not_installed_use_list")
-            self.bundle = self.state["bundles"][identifier]
-            self.components = {key: self.state["apps"][c["appId"]]["current"]["component"]
-                               for key, c in self.bundle["components"].items()}
+        if self.load_action_bundle(root):
+            return
         selection = self.args.components.split(",") if self.args.components else None
         sequence = ordered(self.components, selection)
         if self.args.action in ("uninstall", "rollback"): sequence.reverse()
@@ -393,6 +354,123 @@ class Installer:
         confirm(self.args, self.args.action + "\n" + summary)
         self.mutable()
         require(not self.journal.exists(), "unfinished_transaction_run_rollback")
+        selected, payloads = self.prepare_installation(root, sequence)
+        if self.args.action == "install" and not selected:
+            return
+        with tempfile.TemporaryDirectory(prefix="batch-linux-") as temporary:
+            work = Path(temporary)
+            if self.args.action == "update":
+                selected = self.prepare_updates(selected, payloads, work)
+            elif self.args.action == "install":
+                self.verify_signatures(selected, payloads, root, work)
+            self.transact(selected, payloads)
+        atomic_json(self.state_root / "last-result.json",
+                    {"bundleId": self.bundle["id"], "action": self.args.action,
+                     "status": "completed", "components": list(selected)})
+        print(text("Completado. Bundle: ", "Completed. Bundle: ") + self.bundle["id"])
+        print(str(self.home / ".local/bin/batch-linux-installer") + " uninstall " + self.bundle["id"])
+        if self.args.purge and self.args.action == "uninstall" and not self.state["bundles"]:
+            launcher = self.home / ".local/bin/batch-linux-installer"
+            if launcher.is_symlink() and launcher.readlink() == self.state_root / "runtime/bin/batch-linux-installer": launcher.unlink()
+            logging.shutdown()
+            require(self.state_root.name == "batch-linux-installer", "purge_escape")
+            shutil.rmtree(self.state_root)
+
+    def transact(self, selected, payloads):
+        """Aplica el lote bajo diario recuperable y confirma el sistema antes de podar el historial."""
+        self.begin()
+        try:
+            for index, (identifier, c) in enumerate(selected.items(), 1):
+                print(f'[{index}/{len(selected)}] {c.get("name", identifier)}')
+                self.logger.info("%s %s", self.args.action, identifier)
+                self.apply_action(c, payloads.get(identifier))
+            if self.args.action == "uninstall":
+                kept = {k: c for k, c in self.components.items() if k not in selected}
+                if kept: self.state["bundles"][self.bundle["id"]]["components"] = kept
+                else: self.state["bundles"].pop(self.bundle["id"], None)
+            else:
+                bundle = copy.deepcopy(self.bundle)
+                bundle["components"] = {**self.components, **selected}
+                if self.args.action == "install":
+                    prior = self.state["bundles"].get(bundle["id"], {}).get("components", {})
+                    bundle["components"] = {**prior, **selected}
+                if self.args.action == "rollback":
+                    bundle["components"] = {key: self.state["apps"][c["appId"]]["current"]["component"]
+                                            for key, c in bundle["components"].items()}
+                self.state["bundles"][bundle["id"]] = bundle
+                self.persist_runtime()
+            atomic_json(self.state_file, self.state)
+        except BaseException:
+            self.logger.error("transaction_failed %s", self.tx)
+            self.recover()
+            raise
+        committed = read_json(self.journal)
+        committed["phase"] = "committed"
+        atomic_json(self.journal, committed)
+        system = self.system_component(committed["touched"])
+        if system:
+            self.native("commit", system)
+        self.journal.unlink()
+        self.prune()
+        atomic_json(self.state_file, self.state)
+
+    def prepare_updates(self, selected, payloads, work):
+        """Descarga actualizaciones en paralelo y acepta solo artefactos inspeccionados con una ruta local."""
+        def prepare(item):
+            key, component = item
+            directory = work / key
+            directory.mkdir()
+            if not component["profile"].get("update"):
+                print("MANUAL:", key, text("Descarga un ZIP nuevo.", "Download a new ZIP."))
+                return key, None
+            return key, update_candidate(component, directory)
+        with ThreadPoolExecutor(max_workers=int(self.config["PARALLEL_DOWNLOADS"])) as pool:
+            for identifier, result in pool.map(prepare, selected.items()):
+                if result:
+                    selected[identifier], payloads[identifier] = result
+                    inspect(selected[identifier]["profile"]["strategy"], result[1])
+        selected = {k: v for k, v in selected.items() if k in payloads}
+        return selected
+
+    def verify_signatures(self, selected, payloads, root, work):
+        """Verifica las firmas incluidas del editor antes de crear el diario o modificar aplicaciones."""
+        for identifier, c in selected.items():
+            verification = c["profile"].get("verification")
+            if verification:
+                directory = work / identifier
+                directory.mkdir()
+                require(c.get("signatureFile"), "publisher_signature_not_bundled")
+                verify_gpg(payloads[identifier], child(root, c["signatureFile"]), verification, directory)
+
+    def apply_action(self, c, payload):
+        """Aplica instalación, retirada o rollback de un componente ya reservado en el diario."""
+        if self.args.action in ("install", "update"):
+            self.apply(c, payload)
+        elif self.args.action == "uninstall":
+            self.touch(c)
+            app = self.state["apps"].get(c["appId"])
+            if app:
+                remaining = set(app["bundles"]) - {self.bundle["id"]}
+                if app["current"]["scope"] == "system" or c["profile"].get("systemPackages"):
+                    self.native("remove", c)
+                if remaining: app["bundles"] = sorted(remaining)
+                else:
+                    if app["current"]["scope"] == "user": self.remove_portable(c["appId"])
+                    del self.state["apps"][c["appId"]]
+        else:
+            app = self.state["apps"].get(c["appId"])
+            require(app and app["history"], "rollback_version_unavailable")
+            self.touch(c)
+            previous = app["history"].pop(0)
+            if previous["scope"] == "system": self.native("rollback", previous["component"])
+            else:
+                require(Path(previous["directory"]).is_dir(), "rollback_version_unavailable")
+                self.activate(c["appId"], previous)
+            app["history"].insert(0, app["current"])
+            app["current"] = previous
+
+    def prepare_installation(self, root, sequence):
+        """Comprueba hash, formato y dependencias; conserva las aplicaciones independientes instalables."""
         payloads, selected = {}, {}
         for identifier in sequence:
             c = self.components[identifier]
@@ -417,102 +495,37 @@ class Installer:
             if not selected:
                 print(text("No hay componentes instalables para este equipo.",
                            "No components can be installed on this machine."))
-                return
-        with tempfile.TemporaryDirectory(prefix="batch-linux-") as temporary:
-            work = Path(temporary)
-            if self.args.action == "update":
-                def prepare(item):
-                    key, component = item
-                    directory = work / key
-                    directory.mkdir()
-                    if not component["profile"].get("update"):
-                        print("MANUAL:", key, text("Descarga un ZIP nuevo.", "Download a new ZIP."))
-                        return key, None
-                    return key, update_candidate(component, directory)
-                with ThreadPoolExecutor(max_workers=int(self.config["PARALLEL_DOWNLOADS"])) as pool:
-                    for identifier, result in pool.map(prepare, selected.items()):
-                        if result:
-                            selected[identifier], payloads[identifier] = result
-                            inspect(selected[identifier]["profile"]["strategy"], result[1])
-                selected = {k: v for k, v in selected.items() if k in payloads}
-            elif self.args.action == "install":
-                for identifier, c in selected.items():
-                    verification = c["profile"].get("verification")
-                    if verification:
-                        directory = work / identifier
-                        directory.mkdir()
-                        require(c.get("signatureFile"), "publisher_signature_not_bundled")
-                        verify_gpg(payloads[identifier], child(root, c["signatureFile"]), verification, directory)
-            self.begin()
-            try:
-                for index, (identifier, c) in enumerate(selected.items(), 1):
-                    print(f'[{index}/{len(selected)}] {c.get("name", identifier)}')
-                    self.logger.info("%s %s", self.args.action, identifier)
-                    if self.args.action in ("install", "update"):
-                        self.apply(c, payloads[identifier])
-                    elif self.args.action == "uninstall":
-                        self.touch(c)
-                        app = self.state["apps"].get(c["appId"])
-                        if app:
-                            remaining = set(app["bundles"]) - {self.bundle["id"]}
-                            if app["current"]["scope"] == "system" or c["profile"].get("systemPackages"):
-                                self.native("remove", c)
-                            if remaining: app["bundles"] = sorted(remaining)
-                            else:
-                                if app["current"]["scope"] == "user": self.remove_portable(c["appId"])
-                                del self.state["apps"][c["appId"]]
-                    else:
-                        app = self.state["apps"].get(c["appId"])
-                        require(app and app["history"], "rollback_version_unavailable")
-                        self.touch(c)
-                        previous = app["history"].pop(0)
-                        if previous["scope"] == "system": self.native("rollback", previous["component"])
-                        else:
-                            require(Path(previous["directory"]).is_dir(), "rollback_version_unavailable")
-                            self.activate(c["appId"], previous)
-                        app["history"].insert(0, app["current"])
-                        app["current"] = previous
-                if self.args.action == "uninstall":
-                    kept = {k: c for k, c in self.components.items() if k not in selected}
-                    if kept: self.state["bundles"][self.bundle["id"]]["components"] = kept
-                    else: self.state["bundles"].pop(self.bundle["id"], None)
-                else:
-                    bundle = copy.deepcopy(self.bundle)
-                    bundle["components"] = {**self.components, **selected}
-                    if self.args.action == "install":
-                        prior = self.state["bundles"].get(bundle["id"], {}).get("components", {})
-                        bundle["components"] = {**prior, **selected}
-                    if self.args.action == "rollback":
-                        bundle["components"] = {key: self.state["apps"][c["appId"]]["current"]["component"]
-                                                for key, c in bundle["components"].items()}
-                    self.state["bundles"][bundle["id"]] = bundle
-                    self.persist_runtime()
-                atomic_json(self.state_file, self.state)
-            except BaseException:
-                self.logger.error("transaction_failed %s", self.tx)
+                return selected, payloads
+        return selected, payloads
+
+    def load_action_bundle(self, root):
+        """Carga el bundle vigente o recupera un diario interrumpido; indica si esa recuperación terminó."""
+        if self.args.action == "install":
+            self.bundle, self.components = load_bundle(root)
+        else:
+            identifier = self.args.bundle
+            if not identifier and (root / "config/bundle.json").exists():
+                identifier = read_json(root / "config/bundle.json")["id"]
+            if self.args.action == "rollback" and self.journal.exists():
+                journal = read_json(self.journal)
+                self.bundle = journal["bundle"]
+                if self.args.dry_run:
+                    print("rollback", self.bundle["id"]); return True
+                confirm(self.args, "rollback " + self.bundle["id"])
+                self.mutable()
                 self.recover()
-                raise
-            committed = read_json(self.journal)
-            committed["phase"] = "committed"
-            atomic_json(self.journal, committed)
-            system = next((c for c in committed["touched"] if self.scope(c) == "system"
-                           or c["profile"].get("systemPackages", {}).get(self.machine["manager"])), None)
-            if system:
-                self.native("commit", system)
-            self.journal.unlink()
-            self.prune()
-            atomic_json(self.state_file, self.state)
-        atomic_json(self.state_root / "last-result.json",
-                    {"bundleId": self.bundle["id"], "action": self.args.action,
-                     "status": "completed", "components": list(selected)})
-        print(text("Completado. Bundle: ", "Completed. Bundle: ") + self.bundle["id"])
-        print(str(self.home / ".local/bin/batch-linux-installer") + " uninstall " + self.bundle["id"])
-        if self.args.purge and self.args.action == "uninstall" and not self.state["bundles"]:
-            launcher = self.home / ".local/bin/batch-linux-installer"
-            if launcher.is_symlink() and launcher.readlink() == self.state_root / "runtime/bin/batch-linux-installer": launcher.unlink()
-            logging.shutdown()
-            require(self.state_root.name == "batch-linux-installer", "purge_escape")
-            shutil.rmtree(self.state_root)
+                return True
+            require(identifier in self.state["bundles"], "bundle_not_installed_use_list")
+            self.bundle = self.state["bundles"][identifier]
+            self.components = {key: self.state["apps"][c["appId"]]["current"]["component"]
+                               for key, c in self.bundle["components"].items()}
+        return False
+
+    def system_component(self, touched):
+        """Encuentra un participante que exige confirmar o restaurar estado con privilegios."""
+        return next((c for c in touched if self.scope(c) == "system"
+                     or c["profile"].get("systemPackages", {}).get(self.machine["manager"])), None)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Batch Linux Installer")

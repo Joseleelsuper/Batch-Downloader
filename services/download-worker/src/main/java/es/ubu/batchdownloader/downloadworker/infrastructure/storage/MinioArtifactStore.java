@@ -25,9 +25,15 @@ import java.util.HexFormat;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Implementa el componente {@code MinioArtifactStore}.
+ * Persiste artefactos en MinIO y transmite ZIP mediante una tubería acotada entre productor y
+ * subida multipart, calculando longitud y huella sin crear otro ZIP temporal.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.ArtifactStore
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Adaptadores y persistencia del worker
  */
 @SuppressWarnings("java:S2221") // MinIO's public operations declare a heterogeneous checked Exception set.
 public class MinioArtifactStore implements ArtifactStore {
@@ -45,10 +51,12 @@ public class MinioArtifactStore implements ArtifactStore {
     private volatile boolean bucketReady;
 
     /**
-     * Inicializa una instancia de {@code MinioArtifactStore}.
+     * Conecta el cliente y bucket configurados, aplazando su comprobación hasta la primera
+     * operación.
      *
-     * @param client Valor de {@code client} utilizado por la operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @param client Cliente del servicio remoto, configurado antes de componer el adaptador.
+     * @param properties Configuración específica del adaptador: destino, credencial y límites de
+     *     acceso.
      */
     public MinioArtifactStore(MinioClient client, StorageProperties properties) {
         this.client = client;
@@ -56,13 +64,13 @@ public class MinioArtifactStore implements ArtifactStore {
     }
 
     /**
-     * Implementa {@code put} para {@code MinioArtifactStore}.
+     * Comprueba el bucket y sube un archivo local con la clave y tipo MIME indicados.
      *
-     * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-     * @param source Fuente de descarga sobre la que se actúa.
-     * @param contentType Valor de {@code contentType} utilizado por la operación.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param objectKey Clave del objeto que se almacena o elimina dentro del bucket configurado.
+     * @param source Ruta local del archivo completo que debe subirse.
+     * @param contentType Tipo MIME persistido como metadato del objeto.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falla la
+     *     preparación del bucket o la subida del archivo.
      */
     @Override
     public void put(String objectKey, Path source, String contentType) {
@@ -80,13 +88,19 @@ public class MinioArtifactStore implements ArtifactStore {
     }
 
     /**
-     * Sube el objeto a medida que se produce y calcula sus metadatos sin releerlo.
+     * Genera y calcula la integridad del contenido mientras un hilo virtual lo sube por multipart.
+     * Espera ambos lados y evita aceptar un EOF causado por fallo del productor; intenta retirar el
+     * objeto al fallar.
      *
-     * @param objectKey Clave del objeto.
-     * @param contentType Tipo MIME.
-     * @param partSize Tamaño de cada parte multipart.
-     * @param writer Productor del contenido.
-     * @return Tamaño y SHA-256 calculados en línea.
+     * @param objectKey Clave del objeto que se almacena o elimina dentro del bucket configurado.
+     * @param contentType Tipo MIME persistido como metadato del objeto.
+     * @param partSize Tamaño multipart solicitado en bytes; el búfer de enlace se acota entre 64
+     *     KiB y 16 MiB.
+     * @param writer Productor que escribe al flujo contado y calculado mientras el hilo de subida
+     *     consume sus bytes.
+     * @return tamaño y SHA-256 tras completar producción y subida.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falla el
+     *     bucket, multipart, la espera o la producción con una causa no RuntimeException.
      */
     @Override
     public StoredArtifact putStreaming(
@@ -166,11 +180,11 @@ public class MinioArtifactStore implements ArtifactStore {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code delete}.
+     * Comprueba el bucket y solicita eliminar el objeto indicado.
      *
-     * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param objectKey Clave del objeto que se almacena o elimina dentro del bucket configurado.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no puede
+     *     preparar el bucket o retirar el objeto.
      */
     @Override
     public void delete(String objectKey) {
@@ -185,7 +199,14 @@ public class MinioArtifactStore implements ArtifactStore {
         }
     }
 
-    /** Cuenta por separado los objetos persistidos; las reservas en vuelo viven en ArtifactCapacity. */
+    /**
+     * Recorre los objetos bajo jobs/ y suma sus tamaños con detección de desbordamiento para
+     * aplicar la cuota del worker.
+     *
+     * @return bytes persistidos de trabajos en el bucket.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falla el
+     *     listado, la lectura de un objeto o la suma de tamaños.
+     */
     @Override
     public long usageBytes() {
         ensureBucket();
@@ -206,10 +227,11 @@ public class MinioArtifactStore implements ArtifactStore {
     }
 
     /**
-     * Ejecuta la operación {@code ensureBucket}.
+     * Comprueba o crea el bucket una sola vez por instancia bajo un cerrojo y conserva la
+     * inicialización satisfactoria.
      *
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no puede
+     *     comprobar o crear el bucket.
      */
     private void ensureBucket() {
         if (bucketReady) {
@@ -232,7 +254,12 @@ public class MinioArtifactStore implements ArtifactStore {
         }
     }
 
-    /** Propaga las excepciones de negocio producidas por el generador del objeto. */
+    /**
+     * Propaga sin cambiar una RuntimeException del productor y envuelve otras causas como
+     * minio_stream_writer_failed.
+     *
+     * @param failure Fallo original del productor del contenido.
+     */
     private void rethrowWriterFailure(Throwable failure) {
         if (failure instanceof RuntimeException runtime) {
             throw runtime;
@@ -240,7 +267,12 @@ public class MinioArtifactStore implements ArtifactStore {
         throw new InfrastructureException("minio_stream_writer_failed", failure);
     }
 
-    /** Elimina cualquier objeto parcial visible después de un error. */
+    /**
+     * Intenta retirar el objeto incompleto después de un fallo de streaming sin sustituir la
+     * excepción que provocó la compensación.
+     *
+     * @param objectKey Clave del objeto que se almacena o elimina dentro del bucket configurado.
+     */
     private void deleteQuietly(String objectKey) {
         try {
             client.removeObject(RemoveObjectArgs.builder()
@@ -253,14 +285,24 @@ public class MinioArtifactStore implements ArtifactStore {
     }
 
     /**
-     * Convierte el cierre anticipado del productor en un error de lectura. De este modo el SDK
-     * aborta la subida multipart en vez de interpretar el cierre como un objeto completo.
+     * Impide que el consumidor multipart interprete como archivo completo un fin de flujo producido
+     * por un fallo del escritor.
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Adaptadores y persistencia del worker
      */
     private static final class ProducerAwareInputStream extends FilterInputStream {
         /** Fallo original del productor, si lo hubo. */
         private final AtomicReference<Throwable> producerFailure;
 
-        /** Inicializa la vista de lectura sobre la tubería. */
+        /**
+         * Conecta la tubería y la referencia al fallo de producción compartida con el escritor.
+         *
+         * @param input Flujo de lectura conectado al productor mediante una tubería acotada.
+         * @param producerFailure Referencia compartida al fallo de producción que impide aceptar
+         *     EOF como éxito.
+         */
         private ProducerAwareInputStream(
                 InputStream input,
                 AtomicReference<Throwable> producerFailure) {
@@ -268,7 +310,12 @@ public class MinioArtifactStore implements ArtifactStore {
             this.producerFailure = producerFailure;
         }
 
-        /** {@inheritDoc} */
+        /**
+         * Lee un byte y comprueba que un fin de flujo no oculte un fallo del productor.
+         *
+         * @return byte leído o -1 al terminar correctamente.
+         * @throws java.io.IOException si falla la lectura o terminó el productor con error.
+         */
         @Override
         public int read() throws IOException {
             int value = super.read();
@@ -276,7 +323,15 @@ public class MinioArtifactStore implements ArtifactStore {
             return value;
         }
 
-        /** {@inheritDoc} */
+        /**
+         * Lee un tramo y comprueba la causa de un posible fin de flujo antes de devolverlo a MinIO.
+         *
+         * @param bytes Búfer de destino de la lectura del multipart.
+         * @param offset Índice inicial del tramo del búfer, en bytes.
+         * @param length Máximo de bytes que se solicita leer.
+         * @return cantidad leída o -1 al terminar correctamente.
+         * @throws java.io.IOException si falla la lectura o el productor terminó con error.
+         */
         @Override
         public int read(byte[] bytes, int offset, int length) throws IOException {
             int read = super.read(bytes, offset, length);
@@ -284,7 +339,12 @@ public class MinioArtifactStore implements ArtifactStore {
             return read;
         }
 
-        /** Lanza la causa original cuando el productor no terminó correctamente. */
+        /**
+         * Consulta la causa compartida cuando la lectura señala EOF y la propaga como fallo de E/S.
+         *
+         * @param read Resultado de la lectura; un valor negativo indica fin de flujo.
+         * @throws java.io.IOException si el escritor había fallado antes de cerrar la tubería.
+         */
         private void failOnPrematureEnd(int read) throws IOException {
             Throwable failure = producerFailure.get();
             if (read < 0 && failure != null) {

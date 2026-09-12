@@ -10,15 +10,31 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Gestiona temporales y compensaciones de almacenamiento de un trabajo. */
-final class DownloadJobFiles {
+/**
+ * Gestiona directorios temporales y compensación de objetos de un trabajo, registrando los fallos
+ * de limpieza sin sustituir el resultado principal del procesamiento.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @see es.ubu.batchdownloader.downloadworker.ports.ArtifactStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Resultados y empaquetado
+ */
+public final class DownloadJobFiles {
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobFiles.class);
 
     private final ArtifactStore artifactStore;
     private final DownloadWorkerMetrics metrics;
     private final DownloadProperties properties;
 
-    DownloadJobFiles(
+    /**
+     * Conecta el almacén, las métricas de temporales y su directorio base.
+     *
+     * @param artifactStore Almacenamiento de ZIP y manifiesto con integridad de los bytes escritos.
+     * @param metrics Contadores y temporizadores de actividad, temporales y empaquetado.
+     * @param properties Límites de cantidad, concurrencia, bytes y empaquetado del worker.
+     */
+    public DownloadJobFiles(
             ArtifactStore artifactStore,
             DownloadWorkerMetrics metrics,
             DownloadProperties properties) {
@@ -27,6 +43,15 @@ final class DownloadJobFiles {
         this.properties = properties;
     }
 
+    /**
+     * Crea un directorio único bajo la base configurada con el UUID del trabajo como prefijo y sin
+     * reutilizar una ejecución anterior.
+     *
+     * @param jobId UUID del trabajo cuya cancelación se comprueba durante la espera.
+     * @return nuevo directorio temporal del trabajo.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no se
+     *     puede crear la base o el directorio de ejecución.
+     */
     Path createDirectory(UUID jobId) {
         try {
             Path base = Path.of(properties.tempDirectory());
@@ -37,6 +62,12 @@ final class DownloadJobFiles {
         }
     }
 
+    /**
+     * Intenta borrar un archivo si existe; registra los fallos de E/S sin interrumpir la
+     * compensación del trabajo.
+     *
+     * @param path Ruta local del archivo temporal que se intenta eliminar.
+     */
     void deleteTemporary(Path path) {
         try {
             Files.deleteIfExists(path);
@@ -45,6 +76,12 @@ final class DownloadJobFiles {
         }
     }
 
+    /**
+     * Intenta retirar un objeto incompleto; registra los fallos del almacén y permite continuar la
+     * limpieza restante.
+     *
+     * @param objectKey Clave del objeto incompleto que se intenta retirar del almacén.
+     */
     void deleteStored(String objectKey) {
         try {
             artifactStore.delete(objectKey);
@@ -53,11 +90,26 @@ final class DownloadJobFiles {
         }
     }
 
+    /**
+     * Descuenta de la métrica el tamaño legible del directorio e intenta eliminar recursivamente su
+     * contenido.
+     *
+     * @param root Directorio temporal exclusivo del trabajo; null o inexistente no requiere
+     *     limpieza.
+     */
     void removeDirectory(Path root) {
         metrics.temporaryRemoved(size(root));
         deleteRecursively(root);
     }
 
+    /**
+     * Suma tamaños de archivos regulares para compensar la métrica de temporales; ignora archivos o
+     * recorridos que no pueden leerse.
+     *
+     * @param root Directorio temporal exclusivo del trabajo; null o inexistente no requiere
+     *     limpieza.
+     * @return bytes que se pudieron medir; cero para ausencia o fallo del recorrido.
+     */
     private long size(Path root) {
         if (root == null || !Files.exists(root)) {
             return 0;
@@ -75,6 +127,13 @@ final class DownloadJobFiles {
         }
     }
 
+    /**
+     * Recorre el directorio y elimina primero sus descendientes; registra fallos de recorrido o
+     * borrado y continúa donde puede.
+     *
+     * @param root Directorio temporal exclusivo del trabajo; null o inexistente no requiere
+     *     limpieza.
+     */
     private void deleteRecursively(Path root) {
         if (root == null || !Files.exists(root)) {
             return;

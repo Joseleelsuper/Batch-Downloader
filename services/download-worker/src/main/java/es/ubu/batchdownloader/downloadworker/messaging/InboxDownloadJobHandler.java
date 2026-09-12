@@ -7,14 +7,30 @@ import es.ubu.batchdownloader.downloadworker.ports.InboxRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Aplica idempotencia con lease alrededor del procesamiento del evento. */
+/**
+ * Envuelve el procesamiento con una reserva de inbox para omitir entregas ya atendidas o reservadas
+ * y permitir reintento de ejecuciones que fallan.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler
+ * @see es.ubu.batchdownloader.downloadworker.ports.InboxRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y operación del worker
+ */
 public final class InboxDownloadJobHandler implements DownloadJobHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger(InboxDownloadJobHandler.class);
     private final InboxRepository inbox;
     private final DownloadProperties properties;
     private final DownloadJobHandler delegate;
 
-    /** Inicializa el wrapper de idempotencia. */
+    /**
+     * Conecta reserva, duración del arrendamiento y siguiente etapa de procesamiento.
+     *
+     * @param inbox Reserva y deduplicación de los eventos recibidos.
+     * @param properties Configuración que aporta la duración de reserva del inbox.
+     * @param delegate Siguiente etapa de la cadena, que solo recibe eventos admitidos por esta
+     *     política.
+     */
     public InboxDownloadJobHandler(
             InboxRepository inbox,
             DownloadProperties properties,
@@ -24,7 +40,12 @@ public final class InboxDownloadJobHandler implements DownloadJobHandler {
         this.delegate = delegate;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Omite eventos que no puede reservar; confirma los atendidos y libera la reserva antes de
+     * propagar una RuntimeException de la etapa siguiente.
+     *
+     * @param event Sobre recibido con identidad y carga del trabajo solicitado o cancelado.
+     */
     @Override
     public void handle(DownloadJobRequestedEvent event) {
         if (!inbox.tryStart(event.eventId(), properties.inboxLease())) {

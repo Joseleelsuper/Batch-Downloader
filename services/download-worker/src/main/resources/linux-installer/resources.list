@@ -27,6 +27,7 @@ lib/data.py
 lib/updates.py
 lib/runtime.py
 lib/system.py
+lib/portable.py
 plugins/package-managers/apt.sh
 plugins/package-managers/dnf.sh
 plugins/package-managers/pacman.sh

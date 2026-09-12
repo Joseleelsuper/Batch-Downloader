@@ -10,15 +10,28 @@ import java.net.http.HttpClient;
 import java.nio.file.Path;
 
 /**
- * Fachada compatible que compone la descarga JDK con seguridad, integridad y cleanup.
+ * Ofrece una composición de transporte JDK con validación pública de URI, límites, integridad y
+ * limpieza de archivos fallidos.
  *
- * <p>Se conserva el nombre público para no romper consumidores ni pruebas existentes. La
- * configuración de producción puede envolver esta fachada con observabilidad adicional.</p>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsRemoteExchange
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.DefaultRemoteDownloader
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.IntegrityCheckingRemoteDownloader
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Transporte de descargas
  */
 public class JdkHttpsRemoteDownloader implements RemoteDownloader {
     private final RemoteDownloader delegate;
 
-    /** Inicializa la composición HTTP segura sobre el cliente JDK. */
+    /**
+     * Compone las políticas HTTP, integridad y limpieza para el cliente y los límites recibidos.
+     *
+     * @param client Cliente HTTP JDK que proporciona conexiones y respuestas con cuerpo en
+     *     streaming.
+     * @param uriPolicy Política que comprueba HTTPS, credenciales y direcciones de cada destino.
+     * @param properties Límites de tamaño, tiempo y redirecciones configurados para la
+     *     transferencia.
+     */
     public JdkHttpsRemoteDownloader(
             HttpClient client,
             PublicHttpsUriPolicy uriPolicy,
@@ -31,7 +44,18 @@ public class JdkHttpsRemoteDownloader implements RemoteDownloader {
                         new DefaultRemoteDownloader(exchange, properties)));
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Delega la transferencia en la cadena configurada de validación, límites, integridad y
+     * limpieza.
+     *
+     * @param item Elemento admitido o resuelto cuya fuente exacta se procesa.
+     * @param filename Nombre seguro y deduplicado asignado al instalador descargado.
+     * @param target Ruta local de destino del instalador.
+     * @param totalBudget Presupuesto compartido de bytes del trabajo, consumido durante la
+     *     transferencia.
+     * @param maxFileBytes Límite máximo permitido para este archivo, en bytes.
+     * @return artefacto local completo que superó sus políticas.
+     */
     @Override
     public DownloadedArtifact download(
             ResolvedDownloadItem item,

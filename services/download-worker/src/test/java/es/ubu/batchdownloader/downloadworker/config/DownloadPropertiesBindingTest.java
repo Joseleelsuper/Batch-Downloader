@@ -8,8 +8,22 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+/**
+ * Verifica que Spring enlaza los constructores canónicos de configuración aunque se conserven
+ * sobrecargas abreviadas.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.config.DownloadProperties
+ * @see es.ubu.batchdownloader.downloadworker.config.StorageProperties
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de procesamiento y capacidad
+ */
 class DownloadPropertiesBindingTest {
 
+    /**
+     * Enlaza configuración completa de MinIO y comprueba destino, identidad de acceso, bucket,
+     * vigencia y cuota del record.
+     */
     @Test
     void bindsStorageCanonicalConstructorWhenCompatibilityConstructorAlsoExists() {
         MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.ofEntries(
@@ -31,6 +45,10 @@ class DownloadPropertiesBindingTest {
         assertThat(properties.quota().toGigabytes()).isEqualTo(120);
     }
 
+    /**
+     * Enlaza todas las propiedades de descarga y comprueba concurrencias, nivel ZIP, margen de
+     * disco y tamaño multipart explícitos.
+     */
     @Test
     void bindsCanonicalConstructorWhenCompatibilityConstructorAlsoExists() {
         MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.ofEntries(

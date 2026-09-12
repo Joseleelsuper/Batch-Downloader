@@ -10,8 +10,19 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-/** Verifica el reparto ponderado y justo de trabajos. */
+/**
+ * Comprueba reservas ponderadas y espera de trabajos normales y exclusivos sobre el semáforo justo.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.JobCapacity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de procesamiento y capacidad
+ */
 class JobCapacityTest {
+    /**
+     * Reserva las dos plazas, comprueba que el semáforo es justo y no quedan permisos y verifica su
+     * devolución al salir del ámbito.
+     */
     @Test
     void reservesBothPermitsForAnExclusiveJobAndReturnsThemOnce() {
         JobCapacity capacity = new JobCapacity(2, new SimpleMeterRegistry());
@@ -23,6 +34,10 @@ class JobCapacityTest {
         assertThat(capacity.availablePermits()).isEqualTo(2);
     }
 
+    /**
+     * Ocupa ocho permisos y comprueba que el noveno trabajo espera hasta liberar uno; al cerrar
+     * todas las reservas vuelve a haber ocho plazas.
+     */
     @Test
     void keepsTheNinthNormalJobWaitingUntilOneOfEightFinishes() throws Exception {
         JobCapacity capacity = new JobCapacity(8, new SimpleMeterRegistry());
@@ -49,6 +64,10 @@ class JobCapacityTest {
         assertThat(capacity.availablePermits()).isEqualTo(8);
     }
 
+    /**
+     * Mantiene un trabajo normal activo y comprueba que otro de peso ocho espera hasta que se
+     * devuelve ese permiso y luego ocupa toda la capacidad.
+     */
     @Test
     void waitsForAllEightPermitsBeforeStartingAnExclusiveJob() throws Exception {
         JobCapacity capacity = new JobCapacity(8, new SimpleMeterRegistry());

@@ -14,18 +14,50 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Serializa el manifiesto estable incluido en el ZIP y publicado en almacenamiento. */
-final class DownloadManifestWriter {
+/**
+ * Genera el manifiesto del ZIP con resultados individuales en el orden original de admisión y
+ * referencias exactas, sin exponer las URI finales de los proveedores.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadManifest
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Resultados y empaquetado
+ */
+public final class DownloadManifestWriter {
     private static final int MANIFEST_VERSION = 3;
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
-    DownloadManifestWriter(ObjectMapper objectMapper, Clock clock) {
+    /**
+     * Conecta serialización y reloj del manifiesto entregable.
+     *
+     * @param objectMapper Serializador del manifiesto JSON del trabajo.
+     * @param clock Reloj para fechar el progreso y las decisiones del coordinador.
+     */
+    public DownloadManifestWriter(ObjectMapper objectMapper, Clock clock) {
         this.objectMapper = objectMapper;
         this.clock = clock;
     }
 
+    /**
+     * Combina instaladores íntegros, rechazos y rutas manuales por elemento y reconstruye el orden
+     * de la solicitud antes de serializar.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param status Resultado conjunto READY, PARTIAL o MANUAL_ONLY que se incluirá en el
+     *     manifiesto.
+     * @param downloaded Instaladores descargados y verificados que se copiarán al ZIP.
+     * @param failed Elementos que no terminaron con un instalador descargado.
+     * @param failedMetadata Nombre y página oficial de elementos que fallaron, por UUID de
+     *     elemento.
+     * @param manualShortcutPaths Ubicación de las entradas manuales por UUID de elemento.
+     * @return manifiesto JSON formateado en bytes.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no puede
+     *     serializarse el manifiesto.
+     */
     byte[] write(
             DownloadJobRequestedEvent event,
             String status,

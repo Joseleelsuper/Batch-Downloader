@@ -10,15 +10,22 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Representa los datos inmutables de {@code StorageProperties}.
+ * Agrupa acceso al almacén, vigencia de resultados y cuota lógica utilizados por la publicación y
+ * admisión de artefactos.
  *
- * @param endpoint Valor de {@code endpoint} incluido en el record.
- * @param accessKey Valor de {@code accessKey} incluido en el record.
- * @param secretKey Valor de {@code secretKey} incluido en el record.
- * @param bucket Valor de {@code bucket} incluido en el record.
- * @param presignedUrlTtl Valor de {@code presignedUrlTtl} incluido en el record.
- * @param quota Cuota lógica del bucket de ZIP y manifiestos.
+ * @param endpoint URL interna del almacenamiento compatible con S3.
+ * @param accessKey Identificador de la credencial de acceso al almacén.
+ * @param secretKey Secreto de autenticación del almacén; no debe incluirse en eventos ni
+ *     manifiestos.
+ * @param bucket Contenedor lógico de los artefactos del worker.
+ * @param presignedUrlTtl Vigencia configurada de los resultados; el emisor la acota a siete días.
+ * @param quota Límite lógico de objetos persistidos más reservas en vuelo.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.storage.MinioArtifactStore
+ * @see es.ubu.batchdownloader.downloadworker.application.ArtifactCapacity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Configuración del worker
  */
 @Validated
 @ConfigurationProperties("download-worker.storage")
@@ -30,7 +37,17 @@ public record StorageProperties(
         @DefaultValue("6h") @NotNull Duration presignedUrlTtl,
         @DefaultValue("120GB") @NotNull DataSize quota) {
 
-    /** Conserva el constructor previo para pruebas y consumidores embebidos. */
+    /**
+     * Conserva el constructor abreviado aplicando una cuota de 120 GiB.
+     *
+     * @param endpoint URL interna del almacenamiento compatible con S3.
+     * @param accessKey Identificador de la credencial de acceso al almacén.
+     * @param secretKey Secreto de autenticación del almacén; no debe incluirse en eventos ni
+     *     manifiestos.
+     * @param bucket Contenedor lógico de los artefactos del worker.
+     * @param presignedUrlTtl Vigencia configurada de los resultados; el emisor la acota a siete
+     *     días.
+     */
     public StorageProperties(
             String endpoint,
             String accessKey,
@@ -40,7 +57,18 @@ public record StorageProperties(
         this(endpoint, accessKey, secretKey, bucket, presignedUrlTtl, DataSize.ofGigabytes(120));
     }
 
-    /** Selecciona explícitamente el constructor canónico para el binding de Spring. */
+    /**
+     * Designa el constructor canónico para enlazar todas las propiedades del almacén desde Spring.
+     *
+     * @param endpoint URL interna del almacenamiento compatible con S3.
+     * @param accessKey Identificador de la credencial de acceso al almacén.
+     * @param secretKey Secreto de autenticación del almacén; no debe incluirse en eventos ni
+     *     manifiestos.
+     * @param bucket Contenedor lógico de los artefactos del worker.
+     * @param presignedUrlTtl Vigencia configurada de los resultados; el emisor la acota a siete
+     *     días.
+     * @param quota Límite lógico de objetos persistidos más reservas en vuelo.
+     */
     @ConstructorBinding
     public StorageProperties {}
 }

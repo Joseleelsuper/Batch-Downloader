@@ -7,9 +7,15 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * Implementa el componente {@code FilenamePolicy}.
+ * Produce nombres compatibles con extracción de archivos y evita colisiones con otros instaladores
+ * y con los recursos del runtime incluido en el ZIP.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadPipeline
+ * @see es.ubu.batchdownloader.downloadworker.application.ManualShortcutWriter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Resultados y empaquetado
  */
 @Component
 public class FilenamePolicy {
@@ -26,11 +32,13 @@ public class FilenamePolicy {
             "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9");
 
     /**
-     * Ejecuta la operación {@code filenameFor}.
+     * Prioriza el nombre propuesto, usa como respaldo el último segmento de la URI y sanea y
+     * reserva un nombre único.
      *
-     * @param item Elemento sobre el que se realiza la operación.
-     * @param usedNames Valor de {@code usedNames} utilizado por la operación.
-     * @return Resultado producido por {@code filenameFor}.
+     * @param item Instalador resuelto que aporta nombre, URI y UUID para los respaldos.
+     * @param usedNames Conjunto mutable de nombres ya reservados en minúsculas, compartido por las
+     *     entradas de su grupo.
+     * @return nombre seguro sin colisión en el conjunto recibido.
      */
     public String filenameFor(ResolvedDownloadItem item, Set<String> usedNames) {
         String requested = item.filename();
@@ -40,9 +48,10 @@ public class FilenamePolicy {
     }
 
     /**
-     * Ejecuta la operación {@code newNameSet}.
+     * Reserva desde el inicio los nombres del manifiesto, scripts, configuración y directorios del
+     * runtime.
      *
-     * @return Colección de elementos obtenidos por la operación.
+     * @return nuevo conjunto mutable de nombres reservados en minúsculas.
      */
     public Set<String> newNameSet() {
         return new HashSet<>(Set.of("manifest.json", "install.sh", "uninstall.sh", "update.sh",
@@ -51,11 +60,14 @@ public class FilenamePolicy {
     }
 
     /**
-     * Ejecuta la operación {@code manualShortcutFilename}.
+     * Construye un nombre .url a partir del programa y lo sanea y deduplica dentro del grupo de
+     * accesos manuales.
      *
-     * @param appName Valor de {@code appName} utilizado por la operación.
-     * @param usedNames Valor de {@code usedNames} utilizado por la operación.
-     * @return Resultado producido por {@code manualShortcutFilename}.
+     * @param appName Nombre visible del programa para generar el acceso manual; si falta se utiliza
+     *     Aplicacion.
+     * @param usedNames Conjunto mutable de nombres ya reservados en minúsculas, compartido por las
+     *     entradas de su grupo.
+     * @return nombre único del acceso manual.
      */
     public String manualShortcutFilename(String appName, Set<String> usedNames) {
         String normalizedName = appName == null || appName.isBlank() ? "Aplicacion" : appName;
@@ -63,10 +75,11 @@ public class FilenamePolicy {
     }
 
     /**
-     * Ejecuta la operación {@code sanitize}.
+     * Retira separadores, controles y caracteres incompatibles, evita nombres reservados de Windows
+     * y limita la longitud conservando la extensión.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code sanitize}.
+     * @param value Texto propuesto que se normaliza o valida antes de incluirlo en el archivo.
+     * @return nombre saneado; installer.bin si no queda un nombre significativo.
      */
     String sanitize(String value) {
         String sanitized = value == null ? "installer.bin" : value
@@ -91,10 +104,10 @@ public class FilenamePolicy {
     }
 
     /**
-     * Ejecuta la operación {@code filenameFromUrl}.
+     * Usa el último segmento no vacío de la ruta de descarga como nombre de respaldo.
      *
-     * @param item Elemento sobre el que se realiza la operación.
-     * @return Resultado producido por {@code filenameFromUrl}.
+     * @param item Instalador resuelto con URI y UUID de elemento.
+     * @return segmento de ruta o installer-UUID.bin cuando no hay nombre.
      */
     private String filenameFromUrl(ResolvedDownloadItem item) {
         String path = item.url().getPath();
@@ -109,11 +122,13 @@ public class FilenamePolicy {
     }
 
     /**
-     * Ejecuta la operación {@code unique}.
+     * Reserva el nombre sin distinguir mayúsculas y añade sufijos desde -2 antes de la extensión si
+     * ya estaba utilizado.
      *
-     * @param filename Valor de {@code filename} utilizado por la operación.
-     * @param usedNames Valor de {@code usedNames} utilizado por la operación.
-     * @return Resultado producido por {@code unique}.
+     * @param filename Nombre de archivo que se separa o deduplica conservando su extensión.
+     * @param usedNames Conjunto mutable de nombres ya reservados en minúsculas, compartido por las
+     *     entradas de su grupo.
+     * @return nombre recién incorporado al conjunto de reservas.
      */
     private String unique(String filename, Set<String> usedNames) {
         String candidate = filename;
@@ -126,10 +141,11 @@ public class FilenamePolicy {
     }
 
     /**
-     * Ejecuta la operación {@code extensionParts}.
+     * Separa el nombre conservando completas .tar.gz y .pkg.tar.zst; para otros formatos usa el
+     * último punto que no sea inicial.
      *
-     * @param filename Valor de {@code filename} utilizado por la operación.
-     * @return Resultado producido por {@code extensionParts}.
+     * @param filename Nombre de archivo que se separa o deduplica conservando su extensión.
+     * @return base y extensión, que puede ser vacía.
      */
     private ExtensionParts extensionParts(String filename) {
         String lower = filename.toLowerCase(Locale.ROOT);
@@ -148,11 +164,15 @@ public class FilenamePolicy {
     }
 
     /**
-     * Representa los datos inmutables de {@code ExtensionParts}.
+     * Permite añadir sufijos o limitar longitud sin romper extensiones compuestas reconocidas.
      *
-     * @param base Valor de {@code base} incluido en el record.
-     * @param extension Valor de {@code extension} incluido en el record.
+     * @param base Nombre del archivo sin la extensión reconocida.
+     * @param extension Extensión con punto inicial; vacía cuando el nombre no tiene una extensión
+     *     reconocida.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Resultados y empaquetado
      */
     private record ExtensionParts(String base, String extension) {
     }

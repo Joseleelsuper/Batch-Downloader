@@ -8,18 +8,40 @@ import jakarta.validation.Validator;
 import java.util.Set;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
-/** Rechaza mensajes nulos, inválidos o incompatibles antes de ejecutar el caso de uso. */
+/**
+ * Comprueba estructura, restricciones, tipo y versión del comando antes de que pueda reservarse o
+ * iniciar efectos del procesamiento.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler
+ * @see es.ubu.batchdownloader.downloadworker.messaging.InboxDownloadJobHandler
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y operación del worker
+ */
 public final class ValidatedDownloadJobHandler implements DownloadJobHandler {
     private final Validator validator;
     private final DownloadJobHandler delegate;
 
-    /** Inicializa el wrapper de validación del contrato AMQP. */
+    /**
+     * Conecta el validador declarativo y la etapa que recibirá eventos válidos.
+     *
+     * @param validator Validación declarativa del sobre y los elementos de la solicitud.
+     * @param delegate Siguiente etapa de la cadena, que solo recibe eventos admitidos por esta
+     *     política.
+     */
     public ValidatedDownloadJobHandler(Validator validator, DownloadJobHandler delegate) {
         this.validator = validator;
         this.delegate = delegate;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Rechaza mensajes null, restricciones incumplidas o contratos no soportados y delega
+     * únicamente solicitudes válidas.
+     *
+     * @param event Sobre recibido con identidad y carga del trabajo solicitado o cancelado.
+     * @throws org.springframework.amqp.AmqpRejectAndDontRequeueException si el evento es nulo,
+     *     inválido o tiene un tipo o versión incompatibles.
+     */
     @Override
     public void handle(DownloadJobRequestedEvent event) {
         if (event == null) {

@@ -3,9 +3,15 @@ package es.ubu.batchdownloader.downloadworker.application;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Implementa el componente {@code DownloadBudget}.
+ * Suma atómicamente los bytes transferidos por todas las descargas del trabajo para aplicar un
+ * límite total compartido.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadPipeline
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Capacidad y coordinación de descargas
  */
 public final class DownloadBudget {
     /**
@@ -13,16 +19,16 @@ public final class DownloadBudget {
      */
     private final long maxTotalBytes;
     /**
-     * Estado {@code consumedBytes} mantenido por {@code DownloadBudget}.
+     * Bytes contabilizados, incluidos los que causaron superar el límite.
      */
     private final AtomicLong consumedBytes = new AtomicLong();
 
     /**
-     * Inicializa una instancia de {@code DownloadBudget}.
+     * Inicializa el presupuesto compartido con consumo cero y exige un límite positivo.
      *
-     * @param maxTotalBytes Valor de {@code maxTotalBytes} utilizado por la operación.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param maxTotalBytes Máximo de bytes transferidos por el conjunto del trabajo; debe ser
+     *     positivo.
+     * @throws IllegalArgumentException si el máximo total es cero o negativo.
      */
     public DownloadBudget(long maxTotalBytes) {
         if (maxTotalBytes <= 0) {
@@ -32,13 +38,13 @@ public final class DownloadBudget {
     }
 
     /**
-     * Ejecuta la operación {@code consume}.
+     * Añade los bytes transferidos al consumo acumulado y rechaza la descarga si supera el límite;
+     * el consumo ya contabilizado no se revierte.
      *
-     * @param bytes Valor de {@code bytes} utilizado por la operación.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
-     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param bytes Cantidad de bytes que se reserva, contabiliza o consume según la operación.
+     * @throws IllegalArgumentException si la cantidad es negativa.
+     * @throws es.ubu.batchdownloader.downloadworker.application.DownloadRejectedException si el
+     *     total acumulado excede el máximo permitido.
      */
     public void consume(long bytes) {
         if (bytes < 0) {
@@ -51,9 +57,9 @@ public final class DownloadBudget {
     }
 
     /**
-     * Ejecuta la operación {@code consumedBytes}.
+     * Consulta el consumo total acumulado por todas las transferencias del trabajo.
      *
-     * @return Resultado producido por {@code consumedBytes}.
+     * @return bytes contabilizados, incluidos los que causaron superar el límite.
      */
     public long consumedBytes() {
         return consumedBytes.get();

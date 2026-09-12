@@ -6,13 +6,14 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 from data import (ARCHES, ID, PACKAGE, atomic_json, check_hash, child, detect,
-                  elf_arch, extract, inspect, read_json, require, validate_component)
+                  inspect, read_json, require, validate_component)
+
+from portable import prepare_portable
 
 ROOT = Path("/var/lib/batch-linux-installer")
 RUNTIME = Path(__file__).resolve().parent.parent
@@ -79,25 +80,7 @@ def system_portable(c, payload, owner, state):
     if not destination.exists():
         stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=base))
         try:
-            if c["profile"]["strategy"] == "tarball":
-                (stage / "payload").mkdir()
-                extract(payload, stage / "payload")
-                entry = child(stage / "payload", c["profile"]["entrypoint"])
-                require(entry.is_file(), "recipe_entrypoint_missing")
-                if arch := elf_arch(entry): require(arch == detect()["architecture"], "binary_architecture_mismatch")
-                entry.chmod(entry.stat().st_mode | 0o111)
-                command = [str(destination / "payload" / c["profile"]["entrypoint"])]
-            else:
-                shutil.copyfile(payload, stage / "payload")
-                (stage / "payload").chmod(0o755 if c["profile"]["strategy"] == "appimage" else 0o644)
-                if c["profile"]["strategy"] == "appimage":
-                    require(elf_arch(stage / "payload") == detect()["architecture"], "binary_architecture_mismatch")
-                    command = [str(destination / "payload")]
-                else:
-                    require(shutil.which("java"), "java_required")
-                    command = ["java", "-jar", str(destination / "payload")]
-            (stage / "launch").write_text("#!/usr/bin/env bash\nexec " + shlex.join(command) + ' "$@"\n')
-            (stage / "launch").chmod(0o755)
+            prepare_portable(c, payload, stage, destination, 0o755)
             stage.chmod(0o755)
             os.replace(stage, destination)
         finally:

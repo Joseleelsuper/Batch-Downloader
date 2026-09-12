@@ -10,9 +10,15 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Implementa el componente {@code DownloadCancellationRegistry}.
+ * Conecta solicitudes de cancelación por trabajo con sus tareas en vuelo y conserva temporalmente
+ * las cancelaciones que llegan antes de registrar las tareas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadPipeline
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Capacidad y coordinación de descargas
  */
 @Component
 public class DownloadCancellationRegistry {
@@ -31,9 +37,10 @@ public class DownloadCancellationRegistry {
     private final ConcurrentHashMap<UUID, List<Future<?>>> activeTasks = new ConcurrentHashMap<>();
 
     /**
-     * Indica si puede realizarse la operación mediante {@code cancel}.
+     * Registra el instante de cancelación y solicita interrupción de todos los futuros actualmente
+     * asociados al trabajo.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param jobId UUID del trabajo cuya cancelación o actividad se registra.
      */
     public void cancel(UUID jobId) {
         cancellations.put(jobId, Instant.now());
@@ -41,20 +48,21 @@ public class DownloadCancellationRegistry {
     }
 
     /**
-     * Indica si puede realizarse la operación mediante {@code cancelled}.
+     * Consulta si existe una marca de cancelación vigente para el trabajo.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param jobId UUID del trabajo cuya cancelación o actividad se registra.
+     * @return true cuando la marca todavía está registrada.
      */
     public boolean cancelled(UUID jobId) {
         return cancellations.containsKey(jobId);
     }
 
     /**
-     * Ejecuta la operación {@code track}.
+     * Sustituye la lista de tareas por una copia y las cancela inmediatamente si la solicitud llegó
+     * antes del registro.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param tasks Valor de {@code tasks} utilizado por la operación.
+     * @param jobId UUID del trabajo cuya cancelación o actividad se registra.
+     * @param tasks Futuros actuales del trabajo; se copia la lista antes de registrarla.
      */
     public void track(UUID jobId, List<? extends Future<?>> tasks) {
         List<Future<?>> copy = List.copyOf(tasks);
@@ -65,9 +73,9 @@ public class DownloadCancellationRegistry {
     }
 
     /**
-     * Ejecuta la operación {@code finish}.
+     * Retira tareas y marca de cancelación cuando el coordinador termina de gestionar el trabajo.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
+     * @param jobId UUID del trabajo cuya cancelación o actividad se registra.
      */
     public void finish(UUID jobId) {
         activeTasks.remove(jobId);
@@ -75,7 +83,8 @@ public class DownloadCancellationRegistry {
     }
 
     /**
-     * Ejecuta la operación {@code expireUnclaimedCancellations}.
+     * Retira las marcas de cancelación anteriores al corte de retención para acotar su permanencia
+     * en memoria.
      */
     @Scheduled(fixedDelay = 300_000)
     void expireUnclaimedCancellations() {

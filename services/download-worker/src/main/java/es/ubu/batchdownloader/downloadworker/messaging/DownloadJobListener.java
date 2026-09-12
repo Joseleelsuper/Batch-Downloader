@@ -12,9 +12,16 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
- * Procesa los eventos recibidos por {@code DownloadJobListener}.
+ * Conecta RabbitMQ con la cadena de procesamiento y la salud del worker, desviando falta de
+ * capacidad a una cola con espera en lugar de convertirla en resultado terminal.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler
+ * @see es.ubu.batchdownloader.downloadworker.operations.DownloadWorkerHeartbeat
+ * @see es.ubu.batchdownloader.downloadworker.messaging.DownloadJobFailureRecoverer
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y operación del worker
  */
 @Component
 public class DownloadJobListener {
@@ -24,9 +31,13 @@ public class DownloadJobListener {
     private final MessagingProperties messaging;
 
     /**
-     * Inicializa una instancia de {@code DownloadJobListener}.
+     * Configura procesamiento, salud y publicación a la cola de espera por capacidad.
      *
-     * @param handler cadena de políticas y caso de uso que procesa el evento.
+     * @param handler Cadena que valida, deduplica y procesa la solicitud.
+     * @param heartbeat Señal de salud que distingue una ejecución atendida de un fallo del
+     *     consumidor.
+     * @param rabbitTemplate Publicador que mueve solicitudes sin capacidad a la cola de espera.
+     * @param messaging Nombres y demora de las colas del worker.
      */
     @Autowired
     public DownloadJobListener(
@@ -40,15 +51,23 @@ public class DownloadJobListener {
         this.messaging = messaging;
     }
 
-    /** Conserva el constructor previo usado por consumidores embebidos. */
+    /**
+     * Compone un listener aislado que propaga los aplazamientos al no disponer de la cola de
+     * espera.
+     *
+     * @param handler Cadena que valida, deduplica y procesa la solicitud.
+     * @param heartbeat Señal de salud que distingue una ejecución atendida de un fallo del
+     *     consumidor.
+     */
     public DownloadJobListener(DownloadJobHandler handler, DownloadWorkerHeartbeat heartbeat) {
         this(handler, heartbeat, null, null);
     }
 
     /**
-     * Ejecuta la operación {@code receive}.
+     * Procesa el comando y registra éxito; si falta capacidad lo mueve a la cola de espera cuando
+     * está configurada. Otros fallos se registran en salud y se propagan al interceptor.
      *
-     * @param event Evento que debe procesarse.
+     * @param event Sobre recibido con identidad y carga del trabajo solicitado o cancelado.
      */
     @RabbitListener(
             queues = "${download-worker.messaging.input-queue}",

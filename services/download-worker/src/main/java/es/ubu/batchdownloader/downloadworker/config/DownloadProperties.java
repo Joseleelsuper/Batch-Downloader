@@ -11,25 +11,34 @@ import org.springframework.util.unit.DataSize;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Representa los datos inmutables de {@code DownloadProperties}.
+ * Centraliza límites y reservas del pipeline y valida las relaciones entre concurrencia global,
+ * ventana por trabajo y tamaño multipart.
  *
- * @param maxItems Valor de {@code maxItems} incluido en el record.
- * @param maxFileSize Valor de {@code maxFileSize} incluido en el record.
- * @param maxTotalSize Valor de {@code maxTotalSize} incluido en el record.
- * @param maxRedirects Valor de {@code maxRedirects} incluido en el record.
- * @param connectTimeout Valor de {@code connectTimeout} incluido en el record.
- * @param requestTimeout Valor de {@code requestTimeout} incluido en el record.
- * @param concurrency Valor de {@code concurrency} incluido en el record.
- * @param jobConcurrency Trabajos normales que pueden ejecutarse simultáneamente.
- * @param perJobConcurrency Descargas simultáneas máximas por trabajo.
- * @param packagingConcurrency ZIP que pueden escribirse simultáneamente.
- * @param zipLevel Nivel de compresión del ZIP.
- * @param minFreeSpace Reserva que siempre debe permanecer libre.
- * @param largeJobThreshold Tamaño declarado a partir del que el trabajo es exclusivo.
- * @param multipartPartSize Tamaño de parte para la subida multipart.
- * @param inboxLease Valor de {@code inboxLease} incluido en el record.
- * @param tempDirectory Valor de {@code tempDirectory} incluido en el record.
+ * @param maxItems Máximo positivo de elementos admitidos por trabajo.
+ * @param maxFileSize Límite de bytes de un instalador, expresado como DataSize.
+ * @param maxTotalSize Límite de bytes del conjunto de instaladores y reserva defensiva si se
+ *     desconoce su tamaño.
+ * @param maxRedirects Número máximo no negativo de redirecciones HTTP que se permite seguir.
+ * @param connectTimeout Duración máxima para abrir una conexión HTTP.
+ * @param requestTimeout Duración máxima configurada para una petición de descarga.
+ * @param concurrency Número positivo de hilos globales para resolver y transferir instaladores.
+ * @param jobConcurrency Número positivo de permisos globales y consumidores de trabajos.
+ * @param perJobConcurrency Máximo de tareas por ventana de un trabajo; no puede superar
+ *     concurrency.
+ * @param packagingConcurrency Máximo positivo de trabajos que pueden comprimir un ZIP a la vez.
+ * @param zipLevel Nivel de compresión entre cero y nueve; cero prioriza tiempo de empaquetado.
+ * @param minFreeSpace Margen de espacio que debe permanecer libre en el volumen temporal.
+ * @param largeJobThreshold Tamaño que, al superarse, hace que un trabajo consuma toda la capacidad
+ *     de trabajos.
+ * @param multipartPartSize Tamaño de cada parte de subida; debe ser al menos cinco MiB.
+ * @param inboxLease Duración de una reserva de evento antes de poder recuperar su procesamiento.
+ * @param tempDirectory Directorio base de los temporales exclusivos de cada trabajo.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.config.WorkerConfiguration
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Configuración del worker
  */
 @Validated
 @ConfigurationProperties("download-worker.download")
@@ -51,7 +60,20 @@ public record DownloadProperties(
         @DefaultValue("30m") @NotNull Duration inboxLease,
         @DefaultValue("/tmp/batch-downloader") String tempDirectory) {
     /**
-     * Conserva el constructor previo para dobles de prueba y consumidores embebidos.
+     * Conserva la construcción abreviada con dos trabajos, ventana de hasta cuatro, un ZIP
+     * simultáneo, nivel uno y margen temporal de diez GiB.
+     *
+     * @param maxItems Máximo positivo de elementos admitidos por trabajo.
+     * @param maxFileSize Límite de bytes de un instalador, expresado como DataSize.
+     * @param maxTotalSize Límite de bytes del conjunto de instaladores y reserva defensiva si se
+     *     desconoce su tamaño.
+     * @param maxRedirects Número máximo no negativo de redirecciones HTTP que se permite seguir.
+     * @param connectTimeout Duración máxima para abrir una conexión HTTP.
+     * @param requestTimeout Duración máxima configurada para una petición de descarga.
+     * @param concurrency Número positivo de hilos globales para resolver y transferir instaladores.
+     * @param inboxLease Duración de una reserva de evento antes de poder recuperar su
+     *     procesamiento.
+     * @param tempDirectory Directorio base de los temporales exclusivos de cada trabajo.
      */
     public DownloadProperties(
             int maxItems,
@@ -82,7 +104,33 @@ public record DownloadProperties(
                 tempDirectory);
     }
 
-    /** Valida relaciones que no puede expresar Bean Validation por campo. */
+    /**
+     * Enlaza la configuración completa y comprueba que la ventana cabe en el pool y que las partes
+     * multipart cumplen el mínimo.
+     *
+     * @param maxItems Máximo positivo de elementos admitidos por trabajo.
+     * @param maxFileSize Límite de bytes de un instalador, expresado como DataSize.
+     * @param maxTotalSize Límite de bytes del conjunto de instaladores y reserva defensiva si se
+     *     desconoce su tamaño.
+     * @param maxRedirects Número máximo no negativo de redirecciones HTTP que se permite seguir.
+     * @param connectTimeout Duración máxima para abrir una conexión HTTP.
+     * @param requestTimeout Duración máxima configurada para una petición de descarga.
+     * @param concurrency Número positivo de hilos globales para resolver y transferir instaladores.
+     * @param jobConcurrency Número positivo de permisos globales y consumidores de trabajos.
+     * @param perJobConcurrency Máximo de tareas por ventana de un trabajo; no puede superar
+     *     concurrency.
+     * @param packagingConcurrency Máximo positivo de trabajos que pueden comprimir un ZIP a la vez.
+     * @param zipLevel Nivel de compresión entre cero y nueve; cero prioriza tiempo de empaquetado.
+     * @param minFreeSpace Margen de espacio que debe permanecer libre en el volumen temporal.
+     * @param largeJobThreshold Tamaño que, al superarse, hace que un trabajo consuma toda la
+     *     capacidad de trabajos.
+     * @param multipartPartSize Tamaño de cada parte de subida; debe ser al menos cinco MiB.
+     * @param inboxLease Duración de una reserva de evento antes de poder recuperar su
+     *     procesamiento.
+     * @param tempDirectory Directorio base de los temporales exclusivos de cada trabajo.
+     * @throws IllegalArgumentException si la ventana supera la concurrencia global o las partes son
+     *     menores que cinco MiB.
+     */
     @ConstructorBinding
     public DownloadProperties {
         if (perJobConcurrency > concurrency) {

@@ -9,23 +9,33 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Representa los datos inmutables de {@code MessagingProperties}.
+ * Define destinos AMQP y políticas separadas de reintento y espera por capacidad para procesar
+ * descargas y cancelaciones.
  *
- * @param commandExchange Valor de {@code commandExchange} incluido en el record.
- * @param eventExchange Valor de {@code eventExchange} incluido en el record.
- * @param inputRoutingKey Valor de {@code inputRoutingKey} incluido en el record.
- * @param inputQueue Valor de {@code inputQueue} incluido en el record.
- * @param cancellationRoutingKey Valor de {@code cancellationRoutingKey} incluido en el record.
- * @param cancellationQueue Valor de {@code cancellationQueue} incluido en el record.
- * @param deadLetterExchange Valor de {@code deadLetterExchange} incluido en el record.
- * @param deadLetterQueue Valor de {@code deadLetterQueue} incluido en el record.
- * @param capacityWaitQueue Cola con TTL para esperas que no son fallos.
- * @param capacityWaitDelay Tiempo antes de devolver un trabajo aplazado a la cola principal.
- * @param retryAttempts Valor de {@code retryAttempts} incluido en el record.
- * @param retryInitialInterval Valor de {@code retryInitialInterval} incluido en el record.
- * @param retryMultiplier Valor de {@code retryMultiplier} incluido en el record.
- * @param retryMaxInterval Valor de {@code retryMaxInterval} incluido en el record.
+ * @param commandExchange Nombre del exchange topic de solicitudes de procesamiento.
+ * @param eventExchange Nombre del exchange topic de eventos que consume Core.
+ * @param inputRoutingKey Clave de las solicitudes de descarga que admite el worker.
+ * @param inputQueue Cola duradera de solicitudes de descarga.
+ * @param cancellationRoutingKey Clave de las solicitudes de cancelación de trabajos.
+ * @param cancellationQueue Cola independiente que permite cancelar mientras los consumidores de
+ *     descargas están ocupados.
+ * @param deadLetterExchange Exchange de mensajes rechazados tras agotar su política de
+ *     procesamiento.
+ * @param deadLetterQueue Cola que conserva comandos rechazados para diagnóstico.
+ * @param capacityWaitQueue Cola temporal de espera antes de devolver al procesamiento los trabajos
+ *     sin capacidad.
+ * @param capacityWaitDelay Duración del TTL de la cola de espera por capacidad.
+ * @param retryAttempts Máximo positivo de intentos del interceptor de mensajes, incluido el
+ *     inicial.
+ * @param retryInitialInterval Demora inicial antes de reintentar un fallo del consumidor.
+ * @param retryMultiplier Multiplicador de la espera entre intentos; debe ser al menos uno.
+ * @param retryMaxInterval Duración máxima de espera entre intentos del consumidor.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.config.RabbitTopologyConfiguration
+ * @see es.ubu.batchdownloader.downloadworker.messaging.DownloadJobListener
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Configuración del worker
  */
 @Validated
 @ConfigurationProperties("download-worker.messaging")

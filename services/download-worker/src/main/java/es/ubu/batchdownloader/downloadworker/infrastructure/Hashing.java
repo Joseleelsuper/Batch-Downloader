@@ -10,24 +10,29 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * Implementa el componente {@code Hashing}.
+ * Calcula integridad de archivos locales por streaming para comprobar artefactos sin cargarlos
+ * completos en memoria.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.ArtifactStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Transporte de descargas
  */
 public final class Hashing {
     /**
-     * Inicializa una instancia de {@code Hashing}.
+     * Impide instanciar la utilidad de integridad de archivos.
      */
     private Hashing() {
     }
 
     /**
-     * Ejecuta la operación {@code sha256}.
+     * Lee el archivo en bloques de 64 KiB y calcula su huella cerrando el flujo al terminar.
      *
-     * @param path Ruta del recurso que debe procesarse.
-     * @return Resultado producido por {@code sha256}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param path Ruta local del archivo completo cuya integridad se calcula.
+     * @return SHA-256 hexadecimal del contenido.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falla la
+     *     lectura o no se dispone de SHA-256.
      */
     public static String sha256(Path path) {
         try {
