@@ -29,11 +29,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class LocaleController {
 
     /**
-     * Constante que define {@code SPANISH_LOCALE}.
+     * Valor compartido que fija s p a n i s h  l o c a l e para el comportamiento del componente.
      */
     private static final String SPANISH_LOCALE = "es";
     /**
-     * Constante que define {@code UTF_8_JSON}.
+     * Valor compartido que fija u t f 8  j s o n para el comportamiento del componente.
      */
     private static final MediaType UTF_8_JSON = new MediaType(
             MediaType.APPLICATION_JSON, StandardCharsets.UTF_8);

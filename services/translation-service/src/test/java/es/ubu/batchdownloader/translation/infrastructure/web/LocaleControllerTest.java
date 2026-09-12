@@ -31,11 +31,11 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class LocaleControllerTest {
 
     /**
-     * Constante que define {@code ETAG}.
+     * Valor compartido que fija e t a g para el comportamiento del componente.
      */
     private static final String ETAG = "\"8d7c294d0c4f3f5a\"";
     /**
-     * Constante que define {@code CONTENT}.
+     * Valor compartido que fija c o n t e n t para el comportamiento del componente.
      */
     private static final byte[] CONTENT = "{\"greeting\":\"Hola\"}"
             .getBytes(StandardCharsets.UTF_8);

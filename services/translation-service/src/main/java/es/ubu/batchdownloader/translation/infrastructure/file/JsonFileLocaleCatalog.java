@@ -43,15 +43,15 @@ import org.springframework.stereotype.Repository;
 public class JsonFileLocaleCatalog implements LocaleCatalog {
 
     /**
-     * Constante que define {@code SPANISH_LOCALE}.
+     * Valor compartido que fija s p a n i s h  l o c a l e para el comportamiento del componente.
      */
     private static final String SPANISH_LOCALE = "es";
     /**
-     * Constante que define {@code TEMPLATE_DIRECTORY}.
+     * Referencia estable utilizada para construir o validar t e m p l a t e  d i r e c t o r y.
      */
     private static final String TEMPLATE_DIRECTORY = "template";
     /**
-     * Constante que define {@code SPANISH_DIRECTORY}.
+     * Referencia estable utilizada para construir o validar s p a n i s h  d i r e c t o r y.
      */
     private static final String SPANISH_DIRECTORY = "es";
 
