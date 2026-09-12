@@ -29,14 +29,29 @@ escenario y la garantía. Evitar repetir el identificador como explicación.
 
 ## Lotes de implementación
 
-- [ ] Inventario, contratos HTTP y comprobaciones documentales.
-- [ ] Scraper: casos de uso, repositorios, coordinación y complejidad.
-- [ ] React: listado, edición, inspección, descubrimiento y CSS.
-- [ ] Core: parámetros, proyecciones y casos de uso de descargas.
-- [ ] Worker: composición, puerto URI e instalador Linux.
-- [ ] Semantic: composición de almacenes, rutas, contexto y entrenamiento.
-- [ ] Notificaciones, traducciones y documentación transversal.
-- [ ] Validación final y balance de líneas.
+- [x] Inventario, contratos HTTP y comprobaciones documentales.
+- [x] Scraper: casos de uso, repositorios, coordinación y complejidad.
+- [x] React: listado, edición, inspección, descubrimiento y CSS.
+- [x] Core: parámetros, proyecciones y casos de uso de descargas.
+- [x] Worker: composición, puerto URI e instalador Linux.
+- [x] Semantic: composición de almacenes, rutas, contexto y entrenamiento.
+- [x] Notificaciones, traducciones y documentación transversal.
+- [x] Validación final y balance de líneas.
+
+## Resultado de la campaña
+
+Medición del árbol de trabajo del 12/09/2026 frente a `a2c32e0`:
+
+| Métrica | Base | Actual | Variación |
+|---|---:|---:|---:|
+| Código de producción y herramientas | 57.038 | 56.994 | -44 |
+| Líneas documentales de producción | 16.008 | 27.418 | +11.410 |
+| Líneas físicas de pruebas | 29.863 | 31.151 | +1.288 |
+| Líneas físicas de migraciones | 2.898 | 2.866 | -32 |
+
+Las cabeceras vacías detectadas son 0 en producción, pruebas y migraciones. Las migraciones
+Flyway históricas conservan sus hashes; el detalle reproducible se genera en
+`target/maintenance/current-progress.json`.
 
 Las pruebas integradas utilizan datos y contenedores efímeros. Esta campaña conserva los
 despliegues existentes; no requiere reiniciar el stack del usuario.
