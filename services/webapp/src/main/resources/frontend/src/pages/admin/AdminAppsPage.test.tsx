@@ -174,9 +174,7 @@ describe('AdminAppsPage', () => {
     vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockImplementation(async (id) => (
       details(id === secondApp.id ? secondApp : unresolvedApp)
     ));
-    vi.spyOn(adminAppsApi, 'fetchCurrentManualInstallerInspection').mockRejectedValue(
-      new ApiRequestError(404, 'inspection_not_found'),
-    );
+    vi.spyOn(adminAppsApi, 'fetchCurrentManualInstallerInspection').mockResolvedValue(null);
     vi.spyOn(adminAppsApi, 'fetchManualInstallerInspection').mockResolvedValue(
       inspection('ready'),
     );

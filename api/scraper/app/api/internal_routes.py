@@ -373,16 +373,16 @@ async def create_manual_installer_inspection(
 
 @internal_router.get(
     "/admin/apps/{app_id}/manual-installer-inspections/current",
-    response_model=ManualInstallerInspectionView,
+    response_model=ManualInstallerInspectionView | None,
     response_model_by_alias=True,
-    responses={401: {}, 404: {}},
+    responses={401: {}},
 )
 async def current_manual_installer_inspection(
     app_id: UUID,
     _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> ManualInstallerInspectionView:
+) -> ManualInstallerInspectionView | None:
     """Recupera la inspección actual de la aplicación y confirma posibles transiciones de
     caducidad antes de construir su vista.
 
@@ -396,11 +396,7 @@ async def current_manual_installer_inspection(
             servicio.
 
     Returns:
-        inspección recuperable actual.
-
-    Raises:
-        fastapi.HTTPException: 404 con inspection_not_found cuando no existe una inspección
-            actual.
+        inspección recuperable actual o None cuando no existe una inspección abierta.
     """
     repository = ManualInstallerInspectionRepository(
         session,
@@ -408,10 +404,12 @@ async def current_manual_installer_inspection(
         settings,
     )
     inspection = await repository.current(app_id)
-    if inspection is None:
-        raise HTTPException(status_code=404, detail={"code": "inspection_not_found"})
     await session.commit()
-    return ManualInstallerInspectionView.model_validate(inspection_view(inspection))
+    return (
+        None
+        if inspection is None
+        else ManualInstallerInspectionView.model_validate(inspection_view(inspection))
+    )
 
 
 @internal_router.get(

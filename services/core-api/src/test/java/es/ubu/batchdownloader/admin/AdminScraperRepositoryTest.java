@@ -7,17 +7,62 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 
 /** Comprueba que el mantenimiento administrativo respeta la política de retención. */
 class AdminScraperRepositoryTest {
+
+    /** La consulta de ejecución actual aprovecha los índices y evita ordenar todo el historial. */
+    @Test
+    void currentPrefersRunningWithoutSortingTheWholeHistory() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ScraperRunSummary running = mock(ScraperRunSummary.class);
+        when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<ScraperRunSummary>>any()))
+                .thenReturn(List.of(running));
+
+        ScraperRunSummary result = new AdminScraperRepository(jdbc, Clock.systemUTC()).current();
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(
+                sql.capture(),
+                org.mockito.ArgumentMatchers.<RowMapper<ScraperRunSummary>>any());
+        assertThat(result).isSameAs(running);
+        assertThat(sql.getValue())
+                .contains("WHERE status = 'running'", "ORDER BY started_at DESC", "LIMIT 1")
+                .doesNotContain("ORDER BY (status = 'running')");
+    }
+
+    /** Devuelve la ejecución más reciente cuando no hay ninguna ejecución activa. */
+    @Test
+    void currentFallsBackToTheLatestRunWhenNothingIsRunning() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        ScraperRunSummary latest = mock(ScraperRunSummary.class);
+        when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<ScraperRunSummary>>any()))
+                .thenReturn(List.of(), List.of(latest));
+
+        ScraperRunSummary result = new AdminScraperRepository(jdbc, Clock.systemUTC()).current();
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc, times(2)).query(
+                sql.capture(),
+                org.mockito.ArgumentMatchers.<RowMapper<ScraperRunSummary>>any());
+        assertThat(result).isSameAs(latest);
+        assertThat(sql.getAllValues().get(0)).contains("WHERE status = 'running'");
+        assertThat(sql.getAllValues().get(1))
+                .contains("ORDER BY started_at DESC", "LIMIT 1")
+                .doesNotContain("WHERE status = 'running'");
+    }
 
     /** La poda manual comparte límite y ventana con el pruner automático. */
     @Test

@@ -8,7 +8,6 @@ import com.sun.net.httpserver.HttpServer;
 import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspectionRequest;
 import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppInstallerUrls;
 import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryRequest;
-import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UnprocessableEntityException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -175,28 +174,23 @@ class ScraperInternalClientTest {
     }
 
     /**
-     * Comprueba el escenario {@code currentInspectionPreservesNotFoundAsATypedBoundaryError}.
+     * Comprueba el escenario {@code currentInspectionReturnsNullWhenNoInspectionIsOpen}.
      *
      * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
      */
     @Test
-    void currentInspectionPreservesNotFoundAsATypedBoundaryError() throws Exception {
+    void currentInspectionReturnsNullWhenNoInspectionIsOpen() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
-            byte[] response = """
-                    {"detail":{"code":"inspection_not_found"}}
-                    """.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(404, response.length);
+            byte[] response = "null".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
             exchange.close();
         });
         server.start();
 
-        assertThatThrownBy(() -> client().currentManualInstallerInspection(
-                        "00000000-0000-0000-0000-000000000001"))
-                .isInstanceOf(NotFoundException.class)
-                .extracting(exception -> ((NotFoundException) exception).code())
-                .isEqualTo("inspection_not_found");
+        assertThat(client().currentManualInstallerInspection(
+                "00000000-0000-0000-0000-000000000001")).isNull();
     }
 
     /**

@@ -243,8 +243,10 @@ public class ScraperInternalClient {
      * administrativo.
      *
      * @param appId UUID de la aplicación a consultar, inspeccionar o publicar.
-     * @return estado proporcionado por el scraper para la inspección actual.
+     * @return estado proporcionado por el scraper para la inspección actual, o null si no existe
+     *     una inspección abierta.
      */
+    @Nullable
     public ManualInstallerInspection currentManualInstallerInspection(String appId) {
         return get(
                 manualInspectionPath(appId) + "/current",

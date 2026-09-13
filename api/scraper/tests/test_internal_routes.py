@@ -165,6 +165,20 @@ async def internal_api() -> InternalApiFixture:
 
 
 @pytest.mark.asyncio
+async def test_current_manual_inspection_returns_null_when_none_is_open(
+    internal_api: InternalApiFixture,
+) -> None:
+    """Expone ausencia de inspección como un resultado vacío y no como un error HTTP."""
+    response = await internal_api.client.get(
+        f"/internal/v1/admin/apps/{uuid4()}/manual-installer-inspections/current",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+@pytest.mark.asyncio
 async def test_internal_resolution_requires_constant_time_service_token(
     internal_api: InternalApiFixture,
     monkeypatch,

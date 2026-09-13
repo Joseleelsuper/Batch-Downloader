@@ -90,10 +90,22 @@ public class AdminScraperRepository {
      * @return ejecución seleccionada o null si todavía no hay historial.
      */
     public ScraperRunSummary current() {
+        List<ScraperRunSummary> running = jdbc.query(
+                """
+                SELECT * FROM scrape_runs
+                WHERE status = 'running'
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                (rs, rowNum) -> run(rs));
+        if (!running.isEmpty()) {
+            return running.get(0);
+        }
+
         List<ScraperRunSummary> runs = jdbc.query(
                 """
                 SELECT * FROM scrape_runs
-                ORDER BY (status = 'running') DESC, started_at DESC
+                ORDER BY started_at DESC
                 LIMIT 1
                 """,
                 (rs, rowNum) -> run(rs));

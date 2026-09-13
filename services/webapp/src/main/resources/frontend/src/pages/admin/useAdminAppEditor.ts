@@ -10,7 +10,6 @@ import {
   fetchCurrentManualInstallerInspection
 } from '../../api/adminApps';
 import { fetchAppDetails } from '../../api/catalogApps';
-import { ApiRequestError } from '../../api/http';
 import { useTranslation } from '../../services/i18n';
 import type {
   AppDetails,
@@ -114,14 +113,7 @@ export function useAdminAppEditor(apps: CatalogApp[], activity: ReturnType<typeo
     signal: AbortSignal,
   ): Promise<ManualInstallerInspection | null> => {
     if (!isUnresolved(app)) return null;
-    try {
-      return await fetchCurrentManualInstallerInspection(app.id, signal);
-    } catch (requestError) {
-      if (requestError instanceof ApiRequestError && requestError.status === 404) {
-        return null;
-      }
-      throw requestError;
-    }
+    return fetchCurrentManualInstallerInspection(app.id, signal);
   }, []);
 
   const openApp = useCallback(async (app: CatalogApp) => {

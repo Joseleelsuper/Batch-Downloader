@@ -1564,17 +1564,17 @@ paths:
       - Apps admin
       responses:
         '200':
-          description: Inspección abierta.
+          description: Inspección abierta o null si no existe una inspección activa.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManualInstallerInspection'
+                oneOf:
+                - $ref: '#/components/schemas/ManualInstallerInspection'
+                - type: 'null'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
       x-required-roles:
       - ADMIN
       description: ''
