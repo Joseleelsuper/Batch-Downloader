@@ -350,3 +350,5 @@ dist
 # End of https://www.toptal.com/developers/gitignore/api/node
 /.impeccable/surfaces
 /PRODUCT.md
+/docs/architecture
+/docs/informes
