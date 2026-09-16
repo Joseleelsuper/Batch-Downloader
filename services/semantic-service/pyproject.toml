@@ -12,6 +12,7 @@ dependencies = [
   "torch==2.13.0",
   "transformers==5.14.1",
   "uvicorn==0.51.0",
+  "websockets==15.0.1",
 ]
 
 [tool.pytest.ini_options]
