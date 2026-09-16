@@ -2061,67 +2061,6 @@ paths:
           default: 100
       x-required-roles:
       - ADMIN
-  /software-requests:
-    post:
-      operationId: createSoftwareRequest
-      summary: Registrar una solicitud pública de incorporación de software
-      tags:
-      - Solicitudes de software
-      description: Las mutaciones desde el navegador requieren CSRF.
-      responses:
-        '201':
-          description: Registrar una solicitud pública de incorporación de software.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SoftwareRequestItem'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateSoftwareRequest'
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-  /admin/requests:
-    get:
-      operationId: listSoftwareRequests
-      summary: Consultar solicitudes de software ordenadas por creación
-      tags:
-      - Administración
-      description: Requiere sesión ADMIN.
-      responses:
-        '200':
-          description: Consultar solicitudes de software ordenadas por creación.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SoftwareRequestItem'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      parameters:
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          format: int32
-          default: 50
-      x-required-roles:
-      - ADMIN
   /admin/bundles:
     get:
       operationId: adminListAdminBundles
@@ -4203,45 +4142,6 @@ components:
         safeMetadata:
           type: string
         createdAt:
-          type: string
-          format: date-time
-    CreateSoftwareRequest:
-      type: object
-      properties:
-        requestedName:
-          type: string
-          minLength: 1
-        officialUrl:
-          type: string
-          minLength: 1
-        description:
-          type: string
-        requesterEmail:
-          type: string
-      required:
-      - requestedName
-      - officialUrl
-    SoftwareRequestItem:
-      type: object
-      properties:
-        id:
-          type: string
-        requestedName:
-          type: string
-        officialUrl:
-          type: string
-        description:
-          type: string
-        generatedDescription:
-          type: string
-        status:
-          type: string
-        requesterEmail:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
           type: string
           format: date-time
     UpsertBundleRequest:

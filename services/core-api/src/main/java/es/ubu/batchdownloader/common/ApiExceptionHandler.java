@@ -18,6 +18,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Traduce errores de aplicación y Spring a contratos HTTP seguros, conservando códigos funcionales
@@ -49,6 +50,18 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> notFound(NotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiError.of(exception.code(), exception.getMessage()));
+    }
+
+    /**
+     * Conserva el 404 estándar de Spring cuando la petición no coincide con ningún controlador.
+     *
+     * @param exception Fallo generado por el manejador de recursos ante una ruta inexistente.
+     * @return respuesta HTTP 404 con el contrato ApiError.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    ResponseEntity<ApiError> missingResource(NoResourceFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of("not_found", "El recurso solicitado no existe"));
     }
 
     /**

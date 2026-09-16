@@ -1,7 +1,6 @@
 import {
   BrainCircuit,
   Boxes,
-  ClipboardList,
   Globe2,
   Github,
   Home,
@@ -23,7 +22,6 @@ import {
   AdminAuditPage,
   AdminBundlesPage,
   AdminDashboard,
-  AdminRequestsPage,
 } from './pages/admin/AdminOverviewPages';
 import { CatalogPage, FacetDirectoryPage } from './pages/catalog/CatalogPages';
 import { BundleDetailPage } from './pages/public/BundleDetailPage';
@@ -144,7 +142,6 @@ function AppRoutes() {
           <Route path="scraper" element={<AdminScraperPage />} />
           <Route path="semantic" element={<SemanticAiPage />} />
           <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
-          <Route path="requests" element={<AdminRequestsPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -357,7 +354,6 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
           <NavLink to="/admin/bundles"><Boxes size={18} />{t('admin.layout.bundles')}</NavLink>
           <NavLink to="/admin/scraper"><Play size={18} />{t('admin.layout.scraper')}</NavLink>
           <NavLink to="/admin/semantic"><BrainCircuit size={18} />{t('admin.layout.semantic')}</NavLink>
-          <NavLink to="/admin/requests"><ClipboardList size={18} />{t('admin.layout.requests')}</NavLink>
           <NavLink to="/admin/audit"><ListFilter size={18} />{t('admin.layout.audit')}</NavLink>
         </nav>
         <button type="button" onClick={onLogout}><LogOut size={18} />{t('admin.layout.logout')}</button>

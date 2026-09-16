@@ -28,7 +28,7 @@ class CoreMySqlMigrationTest {
             .withPassword("batch-test")
             .withCommand("--log-bin-trust-function-creators=1");
 
-    /** Prepara un snapshot V11, prueba el preflight y completa las migraciones vigentes. */
+    /** Prepara un snapshot V11, prueba los preflights y completa las migraciones vigentes. */
     @BeforeAll
     static void migrateCoreSchema() throws SQLException {
         try (Connection connection = connection(); Statement statement = connection.createStatement()) {
@@ -84,6 +84,13 @@ class CoreMySqlMigrationTest {
                         MAX_INACTIVE_INTERVAL, EXPIRY_TIME, PRINCIPAL_NAME
                     ) VALUES (?, ?, 0, 0, 1800, 1800000, 'legacy-principal')
                     """, UUID.randomUUID().toString(), UUID.randomUUID().toString());
+            execute(connection, """
+                    INSERT INTO software_requests (
+                        id, requested_name, official_url, description, generated_description,
+                        status, requester_email, created_at, updated_at
+                    ) VALUES (UUID_TO_BIN(?), 'obsolete-request', 'https://example.test/app',
+                        'obsolete', NULL, 'pending', NULL, NOW(), NOW())
+                    """, UUID.randomUUID().toString());
         }
         flyway.repair();
         flyway.migrate();
@@ -114,6 +121,7 @@ class CoreMySqlMigrationTest {
             assertThat(tableExists(connection, "download_job_linux_context")).isTrue();
             assertThat(tableExists(connection, "catalog_source_projections")).isFalse();
             assertThat(tableExists(connection, "catalog_app_projections")).isFalse();
+            assertThat(tableExists(connection, "software_requests")).isFalse();
             assertThat(columnNullable(connection, "download_job_linux_context", "linux_target"))
                     .isFalse();
             assertThat(columnNullable(connection, "download_job_linux_context", "architecture"))
@@ -156,7 +164,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("17");
+            assertThat(flywayVersion(connection)).isEqualTo("18");
         }
     }
 

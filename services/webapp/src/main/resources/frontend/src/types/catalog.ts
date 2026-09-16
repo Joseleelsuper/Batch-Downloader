@@ -490,18 +490,6 @@ export interface CatalogChangeEvent {
   generatedAt: string;
 }
 
-export interface SoftwareRequestItem {
-  id: string;
-  requestedName: string;
-  officialUrl: string;
-  description?: string | null;
-  generatedDescription?: string | null;
-  status: string;
-  requesterEmail?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface AuditItem {
   actor: string;
   action: string;

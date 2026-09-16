@@ -19,7 +19,7 @@ import {
   generateAdminDescription,
   patchAdminApp,
 } from './adminApps';
-import { fetchAdminAudit, fetchAdminRequests } from './adminMeta';
+import { fetchAdminAudit } from './adminMeta';
 import {
   createAdminBundle,
   fetchBundle,
@@ -480,7 +480,6 @@ describe('current identity', () => {
     await pruneTerminalScraperQueueItems();
     await enqueueMissingScraperDescriptions();
     await sendScraperCommand('pause');
-    await fetchAdminRequests();
     await fetchAdminAudit();
 
     const paths = fetcher.mock.calls.map((call) => String(call[0]));

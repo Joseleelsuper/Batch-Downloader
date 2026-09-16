@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, Boxes, Plus, Save, X } from 'lucide-react';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { fetchAdminApps } from '../../api/adminApps';
-import { fetchAdminAudit, fetchAdminRequests } from '../../api/adminMeta';
+import { fetchAdminAudit } from '../../api/adminMeta';
 import {
   createAdminBundle,
   fetchBundle,
@@ -20,7 +20,6 @@ import type {
   CatalogApp,
   CatalogStats,
   ScraperRunSummary,
-  SoftwareRequestItem,
 } from '../../types/catalog';
 import { formatDate } from '../../utils/date';
 
@@ -249,20 +248,6 @@ export function AdminBundlesPage() {
           {selected ? t('common.saveChanges') : t('admin.bundle.create')}
         </button>
       </form>
-    </section>
-  );
-}
-
-export function AdminRequestsPage() {
-  const t = useTranslation();
-  const [requests, setRequests] = useState<SoftwareRequestItem[]>([]);
-  useEffect(() => {
-    fetchAdminRequests().then(setRequests).catch(() => setRequests([]));
-  }, []);
-  return (
-    <section className="admin-panel">
-      <h2>{t('admin.request.title')}</h2>
-      <AdminTable title={t('admin.request.pending')} rows={requests.map((request) => [request.requestedName, request.officialUrl, request.status])} />
     </section>
   );
 }

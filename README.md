@@ -106,7 +106,6 @@ Permisos: **Público** no requiere sesión; **Propietario** exige la sesión `US
 | `GET` | `/api/v1/apps`, `/api/v1/apps/stats`, `/api/v1/apps/facets` | Público | Busca aplicaciones y obtiene estadísticas o facetas. |
 | `GET` | `/api/v1/apps/{appId}` | Público | Obtiene el detalle de una aplicación. |
 | `GET` | `/api/v1/bundles`, `/api/v1/bundles/{bundleId}` | Público | Lista bundles visibles u obtiene uno visible/propio. |
-| `POST` | `/api/v1/software-requests` | Público | Solicita que se añada una aplicación. |
 | `POST` | `/api/v1/download-jobs` | Público | Crea un trabajo y asigna su propietario. |
 | `GET`, `DELETE` | `/api/v1/download-jobs/{jobId}` | Propietario | Consulta o cancela un trabajo. |
 | `GET` | `/api/v1/download-jobs/{jobId}/events` | Propietario | Emite el progreso por SSE. |
@@ -126,7 +125,6 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- | --- | --- |
 | `POST` | `/api/v1/admin/auth/login` | Público | Abre una sesión administrativa. |
 | `GET`, `POST` | `/api/v1/admin/auth/me`, `/api/v1/admin/auth/logout` | `ADMIN` | Consulta o cierra la sesión administrativa. |
-| `GET` | `/api/v1/admin/requests` | `ADMIN` | Lista solicitudes de software. |
 | `GET`, `POST` | `/api/v1/admin/bundles` | `ADMIN` | Lista o crea bundles administrados. |
 | `PATCH`, `DELETE` | `/api/v1/admin/bundles/{bundleId}` | `ADMIN` | Actualiza o elimina un bundle administrado. |
 | `GET`, `POST`, `DELETE` | `/api/v1/admin/apps` | `ADMIN` | Lista, crea o elimina todo el catálogo de aplicaciones. |
@@ -191,11 +189,14 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 
 Durante la refactorización del MySQL compartido los objetivos quedan fijados en la fase expansiva
 (`SCRAPER_ALEMBIC_TARGET=20260914_0021` y `CORE_API_FLYWAY_TARGET=16`). Tras una copia restaurable,
-un scrape completo y 24 horas sin regresiones, promueve ambos valores (`head` y `17`) y recrea los
-servicios para ejecutar la fase contractiva.
+un scrape completo y 24 horas sin regresiones, promueve ambos valores (`head` y `18`) y recrea los
+servicios para ejecutar la fase contractiva: `V17` retira las proyecciones obsoletas y `V18` elimina
+permanentemente la tabla de solicitudes públicas de software.
 Si `V17` aborta porque una proyección contiene filas, conserva el backup, corrige el consumidor o
-vacía la tabla tras validarlo, ejecuta `flyway repair` y vuelve a promover a `17`; la migración no
-borra datos de forma silenciosa.
+vacía la tabla tras validarlo, ejecuta `flyway repair` y vuelve a promover a `18`; la migración no
+borra proyecciones de forma silenciosa. La eliminación de solicitudes en `V18` es intencionada y
+permanente, por lo que la recuperación requiere restaurar la copia de MySQL y desplegar la versión
+anterior.
 
 <details>
 <summary><strong>Globales</strong> — <code>.env.example</code></summary>
@@ -204,7 +205,7 @@ borra datos de forma silenciosa.
 | --- | --- |
 | `GHCR_REGISTRY`, `GHCR_OWNER`, `GHCR_IMAGE_PREFIX`, `GHCR_IMAGE_TAG` | Nombre y etiqueta de las imágenes publicadas. |
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST_PORT` | Credenciales, base y puerto host de MySQL. |
-| `SCRAPER_ALEMBIC_TARGET`, `CORE_API_FLYWAY_TARGET` | Puertas de migración del esquema compartido: `20260914_0021`/`16` durante compatibilidad; `head`/`17` tras aprobar la fase contractiva. |
+| `SCRAPER_ALEMBIC_TARGET`, `CORE_API_FLYWAY_TARGET` | Puertas de migración del esquema compartido: `20260914_0021`/`16` durante compatibilidad; `head`/`18` tras aprobar las fases contractivas `V17` y `V18`. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST_PORT` | Credenciales, base y puerto host de PostgreSQL/pgvector. |
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
@@ -240,7 +241,7 @@ borra datos de forma silenciosa.
 | --- | --- |
 | `CORE_API_SERVER_PORT`, `CORE_API_SCRAPER_API_URL`, `CORE_API_SEMANTIC_SERVICE_URL`, `CORE_API_DOWNLOAD_WORKER_URL`, `CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT`, `CORE_API_SEMANTIC_REQUEST_TIMEOUT`, `CORE_API_SEMANTIC_ADMIN_REQUEST_TIMEOUT` | Puerto, servicios internos y timeouts HTTP. |
 | `CORE_API_BCRYPT_STRENGTH`, `CORE_API_DB_POOL_MIN`, `CORE_API_DB_POOL_MAX`, `CORE_API_DB_POOL_TIMEOUT`, `CORE_API_AUTH_HASH_CONCURRENCY`, `CORE_API_AUTH_HASH_QUEUE`, `CORE_API_AUTH_HASH_WAIT` | Coste de hash, pool MySQL (2–5) y admisión de autenticación. |
-| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `16` durante compatibilidad; usar `17` tras aprobar la retirada de proyecciones. |
+| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `16` durante compatibilidad; usar `18` tras aprobar `V17` y la retirada permanente de solicitudes en `V18`. |
 | `CORE_API_AUTH_LOGIN_MAX_PER_MINUTE`, `CORE_API_AUTH_REGISTER_MAX_PER_HOUR`, `CORE_API_AUTH_RESET_MAX_PER_HOUR`, `CORE_API_AUTH_VERIFICATION_RESEND_MAX_PER_HOUR`, `CORE_API_SESSION_TIMEOUT`, `CORE_API_VERIFICATION_TTL`, `CORE_API_PASSWORD_RESET_TTL` | Rate limits y caducidad de sesiones/tokens. |
 | `CORE_API_OUTBOX_DELAY`, `CORE_API_OUTBOX_CLAIM_LEASE`, `CORE_API_OUTBOX_CONFIRM_TIMEOUT`, `CORE_API_RETENTION_INTERVAL`, `CORE_API_REQUIRE_HTTPS`, `CORE_API_COOKIE_SECURE` | Outbox, retención y seguridad HTTP/cookies. |
 | `DOWNLOAD_MAX_APPS`, `DOWNLOAD_ZIP_RETENTION`, `DOWNLOAD_PRESIGNED_URL_TTL`, `DOWNLOAD_ANONYMOUS_MAX_ACTIVE_JOBS`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR`, `DOWNLOAD_AUTHENTICATED_MAX_ACTIVE_JOBS`, `DOWNLOAD_GLOBAL_MAX_PENDING_JOBS`, `DOWNLOAD_SSE_HEARTBEAT` | Cuotas, retención y eventos de trabajos de descarga. |

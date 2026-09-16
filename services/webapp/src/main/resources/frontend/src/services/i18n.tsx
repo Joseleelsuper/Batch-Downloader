@@ -16,7 +16,6 @@ import adminAudit from '@batch-locales/es/admin-audit.json';
 import adminBundles from '@batch-locales/es/admin-bundles.json';
 import adminDashboard from '@batch-locales/es/admin-dashboard.json';
 import adminLayout from '@batch-locales/es/admin-layout.json';
-import adminRequests from '@batch-locales/es/admin-requests.json';
 import adminScraper from '@batch-locales/es/admin-scraper.json';
 import adminSemantic from '@batch-locales/es/admin-semantic.json';
 import adminShared from '@batch-locales/es/admin-shared.json';
@@ -62,7 +61,6 @@ const bundledMessages = {
   ...adminBundles,
   ...adminScraper,
   ...adminSemantic,
-  ...adminRequests,
   ...adminAudit,
   ...adminShared,
 } as const;
