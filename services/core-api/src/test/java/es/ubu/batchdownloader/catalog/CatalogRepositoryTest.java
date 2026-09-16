@@ -382,7 +382,7 @@ class CatalogRepositoryTest {
     }
 
     /**
-     * Comprueba el escenario {@code statsReadsTheSingletonProjectionByPrimaryKey}.
+     * Comprueba el escenario {@code statsReadsTheSingletonCounterByPrimaryKey}.
      *
      * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
      */
@@ -393,10 +393,10 @@ class CatalogRepositoryTest {
             @SuppressWarnings("unchecked")
             RowMapper<Object> mapper = invocation.getArgument(1);
             ResultSet rs = org.mockito.Mockito.mock(ResultSet.class);
-            when(rs.getLong("total_apps")).thenReturn(10L);
-            when(rs.getLong("available_apps")).thenReturn(4L);
-            when(rs.getLong("review_apps")).thenReturn(2L);
-            when(rs.getLong("missing_installer_apps")).thenReturn(4L);
+            when(rs.getLong("total_count")).thenReturn(10L);
+            when(rs.getLong("available_count")).thenReturn(4L);
+            when(rs.getLong("review_count")).thenReturn(2L);
+            when(rs.getLong("missing_count")).thenReturn(4L);
             return mapper.mapRow(rs, 0);
         });
         when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of());
@@ -412,7 +412,8 @@ class CatalogRepositoryTest {
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).queryForObject(sql.capture(), any(RowMapper.class));
-        assertThat(sql.getValue()).contains("FROM application_totals");
+        assertThat(sql.getValue()).contains("FROM catalog_counters");
+        assertThat(sql.getValue()).contains("WHERE id = 1");
         assertThat(sql.getValue()).doesNotContain("COUNT(", "SUM(", " JOIN ", "software_apps", "pending");
     }
 

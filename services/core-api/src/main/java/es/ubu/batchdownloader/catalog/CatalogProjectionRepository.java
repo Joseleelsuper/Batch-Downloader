@@ -32,6 +32,10 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public class CatalogProjectionRepository {
+    private static final String APP_BASICS_COLUMNS = "id, winstall_id, slug, name, publisher, "
+            + "description, long_description, icon_url, official_url, latest_version, "
+            + "catalog_status, updated_at";
+
     private final JdbcTemplate jdbc;
 
     /**
@@ -78,11 +82,11 @@ public class CatalogProjectionRepository {
         UUID id = softwareAppId(publicId);
         List<AppDetails> matches = jdbc.query(
                 """
-                SELECT a.*
+                SELECT %s
                 FROM software_apps a
                 WHERE a.app_status = 'active' AND a.id = ?
                 LIMIT 1
-                """,
+                """.formatted(APP_BASICS_COLUMNS),
                 (rs, rowNum) -> mapDetails(rs),
                 UuidBytes.fromUuid(id));
         if (matches.isEmpty()) {
@@ -109,12 +113,12 @@ public class CatalogProjectionRepository {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        StringBuilder sql = new StringBuilder("""
-                SELECT a.*
+        StringBuilder sql = new StringBuilder(("""
+                SELECT %s
                 FROM software_apps a
                 WHERE a.app_status = 'active'
                   AND a.id IN (
-                """);
+                """).formatted(APP_BASICS_COLUMNS));
         CatalogSql.appendPlaceholders(sql, ids.size());
         sql.append(")");
         List<AppBasics> apps = jdbc.query(

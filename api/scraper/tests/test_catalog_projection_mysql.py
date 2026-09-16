@@ -611,8 +611,8 @@ async def assert_counters(
     totals = (
         await session.execute(
             text(
-                "SELECT total_apps, available_apps, review_apps, missing_installer_apps "
-                "FROM application_totals"
+                "SELECT total_count, available_count, review_count, missing_count "
+                "FROM catalog_counters WHERE id = 1"
             )
         )
     ).one()

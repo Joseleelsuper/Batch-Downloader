@@ -42,19 +42,20 @@ public class CatalogStatisticsRepository {
     }
 
     /**
-     * Lee los totales proyectados por estado y añade última ejecución y fecha UTC de consulta.
+     * Lee el singleton de contadores canónicos y añade última ejecución y fecha UTC de consulta.
      *
      * @return estadísticas públicas sin contar de nuevo cada aplicación.
      */
     public CatalogStatsResponse stats() {
         StatsSnapshot snapshot = jdbc.queryForObject("""
-                SELECT total_apps, available_apps, review_apps, missing_installer_apps
-                FROM application_totals
+                SELECT total_count, available_count, review_count, missing_count
+                FROM catalog_counters
+                WHERE id = 1
                 """, (rs, rowNum) -> new StatsSnapshot(
-                        rs.getLong("total_apps"),
-                        rs.getLong("available_apps"),
-                        rs.getLong("review_apps"),
-                        rs.getLong("missing_installer_apps")));
+                        rs.getLong("total_count"),
+                        rs.getLong("available_count"),
+                        rs.getLong("review_count"),
+                        rs.getLong("missing_count")));
         Map<String, Long> filters = new LinkedHashMap<>();
         filters.put("all", snapshot.total());
         filters.put("available", snapshot.available());
@@ -133,7 +134,10 @@ public class CatalogStatisticsRepository {
     private LastScrapeRun latestRun() {
         List<LastScrapeRun> runs = jdbc.query(
                 """
-                SELECT * FROM scrape_runs ORDER BY started_at DESC LIMIT 1
+                SELECT status, started_at, heartbeat_at, finished_at,
+                       apps_discovered, apps_resolved, apps_failed, apps_skipped,
+                       current_package_id, current_app_name, current_phase
+                FROM scrape_runs ORDER BY started_at DESC LIMIT 1
                 """,
                 (rs, rowNum) -> new LastScrapeRun(
                         rs.getString("status"),
@@ -173,7 +177,7 @@ public class CatalogStatisticsRepository {
     }
 
     /**
-     * Recoge los cuatro contadores de la proyección application_totals en una sola lectura.
+     * Recoge los cuatro contadores del singleton catalog_counters en una sola lectura.
      *
      * @param total Número de aplicaciones que cumplen el conjunto completo de filtros antes de
      *     paginar.

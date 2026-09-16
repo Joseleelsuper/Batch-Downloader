@@ -142,7 +142,7 @@ function AppRoutes() {
           <Route path="apps" element={<AdminAppsWorkbenchPage />} />
           <Route path="bundles" element={<AdminBundlesPage />} />
           <Route path="scraper" element={<AdminScraperPage />} />
-          <Route path="semantic" element={<Navigate to="/admin/semantic/models" replace />} />
+          <Route path="semantic" element={<SemanticAiPage />} />
           <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
           <Route path="requests" element={<AdminRequestsPage />} />
           <Route path="audit" element={<AdminAuditPage />} />

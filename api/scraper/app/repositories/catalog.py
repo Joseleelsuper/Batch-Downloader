@@ -6,7 +6,7 @@ import uuid
 
 from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
@@ -120,7 +120,10 @@ class CatalogRepository:
                         SoftwareApp.operating_systems_updated_at < utc_after(hours=-24),
                     )
                 )
-                .order_by(SoftwareApp.updated_at.asc())
+                .order_by(
+                    SoftwareApp.operating_systems_updated_at.asc(),
+                    SoftwareApp.id.asc(),
+                )
                 .limit(max(1, limit))
             )
         )
@@ -128,7 +131,16 @@ class CatalogRepository:
             return []
 
         result = await self.session.scalars(
-            select(SoftwareApp).where(SoftwareApp.id.in_(candidate_ids))
+            select(SoftwareApp)
+            .options(
+                load_only(
+                    SoftwareApp.id,
+                    SoftwareApp.winstall_id,
+                    SoftwareApp.name,
+                    SoftwareApp.version,
+                )
+            )
+            .where(SoftwareApp.id.in_(candidate_ids))
         )
         apps_by_id = {app.id: app for app in result}
         return [apps_by_id[app_id] for app_id in candidate_ids if app_id in apps_by_id]
@@ -214,6 +226,7 @@ class CatalogRepository:
         """
         stmt = (
             select(SoftwareApp)
+            .with_hint(SoftwareApp, "FORCE INDEX (PRIMARY)", dialect_name="mysql")
             .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
             .options(
                 selectinload(SoftwareApp.tags),

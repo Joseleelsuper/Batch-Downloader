@@ -149,13 +149,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `POST` | `/api/v1/admin/scraper/commands` | `ADMIN` | Envía un comando durable al scraper. |
 | `POST` | `/api/v1/admin/scraper/descriptions/enqueue-missing` | `ADMIN` | Encola descripciones ausentes. |
 | `GET` | `/api/v1/admin/audit` | `ADMIN` | Consulta la auditoría administrativa. |
-| `GET` | `/api/v1/admin/semantic/overview` | `ADMIN` | Resume salud, cobertura, disco y operaciones. |
-| `GET` | `/api/v1/admin/semantic/models`, `/api/v1/admin/semantic/models/{modelId}` | `ADMIN` | Lista o consulta modelos. |
-| `POST` | `/api/v1/admin/semantic/models/{modelId}/prepare`, `/api/v1/admin/semantic/models/{modelId}/activate` | `ADMIN` | Prepara o activa un modelo. |
-| `DELETE` | `/api/v1/admin/semantic/models/{modelId}` | `ADMIN` | Encola la eliminación de un modelo inactivo. |
-| `GET`, `POST` | `/api/v1/admin/semantic/benchmarks` | `ADMIN` | Lista o crea benchmarks. |
-| `GET` | `/api/v1/admin/semantic/operations`, `/api/v1/admin/semantic/operations/{operationId}` | `ADMIN` | Lista o consulta operaciones duraderas. |
-| `DELETE`, `POST` | `/api/v1/admin/semantic/operations/{operationId}`, `/api/v1/admin/semantic/operations/{operationId}/retry` | `ADMIN` | Cancela o reintenta una operación. |
+| `GET` | `/api/v1/admin/semantic/overview` | `ADMIN` | Consulta salud, modelo aprovisionado, cobertura e indexador. |
 | `WS` | `/api/v1/admin/scraper/ws` | `ADMIN` | Notifica cambios del scraper. |
 
 </details>
@@ -181,14 +175,6 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Semántico | `GET /semantic/health`, `/semantic/health/live`, `/semantic/health/ready` | Operativo | Salud general, liveness y readiness. |
 | Semántico | `GET /internal/v1/metrics` | Interno | Expone métricas Prometheus. |
 | Semántico | `POST /internal/v1/semantic/search` | Interno | Ejecuta la búsqueda semántica. |
-| Semántico | `GET /internal/v1/admin/semantic/overview` | Interno | Obtiene el resumen administrativo. |
-| Semántico | `GET /internal/v1/admin/semantic/models`, `/internal/v1/admin/semantic/models/{modelId}` | Interno | Lista o consulta modelos. |
-| Semántico | `POST /internal/v1/admin/semantic/models/{modelId}/prepare`, `/internal/v1/admin/semantic/models/{modelId}/activate`, `/internal/v1/admin/semantic/models/{modelId}/warm` | Interno | Prepara, activa o calienta un modelo. |
-| Semántico | `DELETE /internal/v1/admin/semantic/models/{modelId}` | Interno | Encola la eliminación de un modelo. |
-| Semántico | `GET, POST /internal/v1/admin/semantic/benchmarks` | Interno | Lista o crea benchmarks. |
-| Semántico | `GET /internal/v1/admin/semantic/operations`, `/internal/v1/admin/semantic/operations/{operationId}` | Interno | Lista o consulta operaciones. |
-| Semántico | `DELETE /internal/v1/admin/semantic/operations/{operationId}` | Interno | Solicita la cancelación. |
-| Semántico | `POST /internal/v1/admin/semantic/operations/{operationId}/retry` | Interno | Reintenta una operación. |
 | Webapp | `GET /healthz` | Público | Comprueba Nginx y el frontend. |
 | Java | `GET /actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/info`, `/actuator/prometheus` | Operativo | Salud, información y métricas de Core, Worker, Notification y Translation. |
 | Documentación | `GET /v3/api-docs`, `/swagger-ui/index.html` | Público en Core | OpenAPI y Swagger UI de Core. |
@@ -203,6 +189,14 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 
 `.env.example` contiene valores compartidos, puertos y secretos; los `.env.example` de cada servicio contienen ajustes no sensibles.
 
+Durante la refactorización del MySQL compartido los objetivos quedan fijados en la fase expansiva
+(`SCRAPER_ALEMBIC_TARGET=20260914_0021` y `CORE_API_FLYWAY_TARGET=16`). Tras una copia restaurable,
+un scrape completo y 24 horas sin regresiones, promueve ambos valores (`head` y `17`) y recrea los
+servicios para ejecutar la fase contractiva.
+Si `V17` aborta porque una proyección contiene filas, conserva el backup, corrige el consumidor o
+vacía la tabla tras validarlo, ejecuta `flyway repair` y vuelve a promover a `17`; la migración no
+borra datos de forma silenciosa.
+
 <details>
 <summary><strong>Globales</strong> — <code>.env.example</code></summary>
 
@@ -210,6 +204,7 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 | --- | --- |
 | `GHCR_REGISTRY`, `GHCR_OWNER`, `GHCR_IMAGE_PREFIX`, `GHCR_IMAGE_TAG` | Nombre y etiqueta de las imágenes publicadas. |
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST_PORT` | Credenciales, base y puerto host de MySQL. |
+| `SCRAPER_ALEMBIC_TARGET`, `CORE_API_FLYWAY_TARGET` | Puertas de migración del esquema compartido: `20260914_0021`/`16` durante compatibilidad; `head`/`17` tras aprobar la fase contractiva. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST_PORT` | Credenciales, base y puerto host de PostgreSQL/pgvector. |
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
@@ -233,7 +228,8 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 | `SCRAPER_SCRAPE_CONCURRENCY`, `SCRAPER_CPU_THREAD_WORKERS`, `SCRAPER_SCHEDULER_TIMEZONE`, `SCRAPER_SCHEDULER_HOUR`, `SCRAPER_SCHEDULER_MINUTE`, `SCRAPER_RUN_ON_STARTUP`, `SCRAPER_SCRAPE_MAX_APPS`, `SCRAPER_SCRAPE_APP_TIMEOUT_SECONDS` | Workers, horario y alcance de cada barrido. |
 | `SCRAPER_WORKER_HEARTBEAT_INTERVAL_SECONDS`, `SCRAPER_WORKER_HEARTBEAT_STALE_SECONDS`, `SCRAPER_WORKER_FAILURE_THRESHOLD` | Salud de scheduler y workers. |
 | `SCRAPER_LLM_GROQ_BASE_URL`, `SCRAPER_LLM_GROQ_MODEL`, `SCRAPER_LLM_GROQ_FALLBACK_MODELS`, `SCRAPER_LLM_DEEPSEEK_BASE_URL`, `SCRAPER_LLM_DEEPSEEK_MODEL`, `SCRAPER_LLM_MAX_CONCURRENCY`, `SCRAPER_LLM_MAX_APPS_PER_RUN`, `SCRAPER_LLM_REQUEST_TIMEOUT_SECONDS` | Proveedores, modelos y límites de generación. |
-| `SCRAPER_DATABASE_POOL_MAX`, `SCRAPER_DATABASE_MAX_OVERFLOW`, `SCRAPER_DATABASE_POOL_TIMEOUT_SECONDS`, `SCRAPER_DATABASE_POOL_RECYCLE_SECONDS` | Pool MySQL. La variante scheduler usa un timeout propio. |
+| `SCRAPER_DATABASE_POOL_MAX`, `SCRAPER_DATABASE_MAX_OVERFLOW`, `SCRAPER_DATABASE_POOL_TIMEOUT_SECONDS`, `SCRAPER_DATABASE_POOL_RECYCLE_SECONDS` | Pool MySQL: `scraper-api` 4+2 y `scraper-scheduler` 8+4 en Compose. |
+| `SCRAPER_ALEMBIC_TARGET` | Objetivo de migración: `20260914_0021` durante compatibilidad; usar `head` sólo tras aprobar la fase contractiva. |
 
 </details>
 
@@ -243,7 +239,8 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 | Variables | Uso |
 | --- | --- |
 | `CORE_API_SERVER_PORT`, `CORE_API_SCRAPER_API_URL`, `CORE_API_SEMANTIC_SERVICE_URL`, `CORE_API_DOWNLOAD_WORKER_URL`, `CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT`, `CORE_API_SEMANTIC_REQUEST_TIMEOUT`, `CORE_API_SEMANTIC_ADMIN_REQUEST_TIMEOUT` | Puerto, servicios internos y timeouts HTTP. |
-| `CORE_API_BCRYPT_STRENGTH`, `CORE_API_DB_POOL_MIN`, `CORE_API_DB_POOL_MAX`, `CORE_API_DB_POOL_TIMEOUT`, `CORE_API_AUTH_HASH_CONCURRENCY`, `CORE_API_AUTH_HASH_QUEUE`, `CORE_API_AUTH_HASH_WAIT` | Coste de hash, pool MySQL y admisión de autenticación. |
+| `CORE_API_BCRYPT_STRENGTH`, `CORE_API_DB_POOL_MIN`, `CORE_API_DB_POOL_MAX`, `CORE_API_DB_POOL_TIMEOUT`, `CORE_API_AUTH_HASH_CONCURRENCY`, `CORE_API_AUTH_HASH_QUEUE`, `CORE_API_AUTH_HASH_WAIT` | Coste de hash, pool MySQL (2–5) y admisión de autenticación. |
+| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `16` durante compatibilidad; usar `17` tras aprobar la retirada de proyecciones. |
 | `CORE_API_AUTH_LOGIN_MAX_PER_MINUTE`, `CORE_API_AUTH_REGISTER_MAX_PER_HOUR`, `CORE_API_AUTH_RESET_MAX_PER_HOUR`, `CORE_API_AUTH_VERIFICATION_RESEND_MAX_PER_HOUR`, `CORE_API_SESSION_TIMEOUT`, `CORE_API_VERIFICATION_TTL`, `CORE_API_PASSWORD_RESET_TTL` | Rate limits y caducidad de sesiones/tokens. |
 | `CORE_API_OUTBOX_DELAY`, `CORE_API_OUTBOX_CLAIM_LEASE`, `CORE_API_OUTBOX_CONFIRM_TIMEOUT`, `CORE_API_RETENTION_INTERVAL`, `CORE_API_REQUIRE_HTTPS`, `CORE_API_COOKIE_SECURE` | Outbox, retención y seguridad HTTP/cookies. |
 | `DOWNLOAD_MAX_APPS`, `DOWNLOAD_ZIP_RETENTION`, `DOWNLOAD_PRESIGNED_URL_TTL`, `DOWNLOAD_ANONYMOUS_MAX_ACTIVE_JOBS`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR`, `DOWNLOAD_AUTHENTICATED_MAX_ACTIVE_JOBS`, `DOWNLOAD_GLOBAL_MAX_PENDING_JOBS`, `DOWNLOAD_SSE_HEARTBEAT` | Cuotas, retención y eventos de trabajos de descarga. |
@@ -284,12 +281,12 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 
 | Variables | Uso |
 | --- | --- |
-| `SEMANTIC_DEVICE`, `SEMANTIC_INITIAL_MODEL_VERSION`, `SEMANTIC_CANDIDATE_LIMIT`, `SEMANTIC_MINIMUM_SIMILARITY`, `SEMANTIC_INDEX_BATCH_SIZE`, `SEMANTIC_INDEX_INTERVAL_SECONDS`, `SEMANTIC_INDEX_LEASE_SECONDS`, `SEMANTIC_SEARCH_TIMEOUT_SECONDS` | Modelo, búsqueda e indexación. |
-| `SEMANTIC_API_DB_POOL_MIN`, `SEMANTIC_API_DB_POOL_MAX`, `SEMANTIC_INDEXER_DB_POOL_MIN`, `SEMANTIC_INDEXER_DB_POOL_MAX`, `SEMANTIC_MODEL_WORKER_DB_POOL_MIN`, `SEMANTIC_MODEL_WORKER_DB_POOL_MAX`, `SEMANTIC_DB_POOL_TIMEOUT_SECONDS`, `SEMANTIC_DB_POOL_MAX_LIFETIME_SECONDS` | Pools PostgreSQL por proceso. |
-| `SEMANTIC_SEARCH_CONCURRENCY`, `SEMANTIC_SEARCH_CAPACITY_WAIT_SECONDS`, `SEMANTIC_BACKGROUND_TIMEZONE`, `SEMANTIC_BACKGROUND_START_HOUR`, `SEMANTIC_BACKGROUND_END_HOUR`, `SEMANTIC_OPERATION_POLL_SECONDS`, `SEMANTIC_OPERATION_LEASE_SECONDS`, `SEMANTIC_RETENTION_INTERVAL_SECONDS` | Admisión, ventana de fondo, operaciones y limpieza. |
-| `SEMANTIC_WORKER_HEARTBEAT_INTERVAL_SECONDS`, `SEMANTIC_WORKER_HEARTBEAT_STALE_SECONDS`, `SEMANTIC_WORKER_FAILURE_THRESHOLD`, `SEMANTIC_MODEL_MAX_BYTES`, `SEMANTIC_MODEL_MIN_FREE_BYTES` | Salud y cuotas de modelos. |
-| `SEMANTIC_TRAINER_SEED`, `SEMANTIC_TRAINER_EPOCHS`, `SEMANTIC_TRAINER_BATCH_SIZE`, `SEMANTIC_TRAINER_MAX_STEPS`, `SEMANTIC_TRAINER_MODELS` | Reproducibilidad y alcance del entrenamiento. |
-| `SEMANTIC_DATABASE_ROLE` | Rol de base de datos: `api`, `indexer` o `model_worker`. |
+| `SEMANTIC_MODEL_DIR`, `SEMANTIC_MODEL_RUNTIME_CACHE_DIR`, `SEMANTIC_MODEL_MANIFEST_NAME`, `SEMANTIC_DEVICE` | Ranura local, caché de inferencia y contrato del modelo aprovisionado. |
+| `SEMANTIC_CANDIDATE_LIMIT`, `SEMANTIC_INDEX_BATCH_SIZE`, `SEMANTIC_INDEX_INTERVAL_SECONDS`, `SEMANTIC_INDEX_LEASE_SECONDS`, `SEMANTIC_SEARCH_TIMEOUT_SECONDS` | Búsqueda e indexación. |
+| `SEMANTIC_API_DB_POOL_MIN`, `SEMANTIC_API_DB_POOL_MAX`, `SEMANTIC_INDEXER_DB_POOL_MIN`, `SEMANTIC_INDEXER_DB_POOL_MAX`, `SEMANTIC_DB_POOL_TIMEOUT_SECONDS`, `SEMANTIC_DB_POOL_MAX_LIFETIME_SECONDS` | Pools PostgreSQL por proceso. |
+| `SEMANTIC_SEARCH_CONCURRENCY`, `SEMANTIC_SEARCH_CAPACITY_WAIT_SECONDS`, `SEMANTIC_BACKGROUND_TIMEZONE`, `SEMANTIC_BACKGROUND_START_HOUR`, `SEMANTIC_BACKGROUND_END_HOUR` | Admisión y ventana de fondo. |
+| `SEMANTIC_WORKER_HEARTBEAT_INTERVAL_SECONDS`, `SEMANTIC_WORKER_HEARTBEAT_STALE_SECONDS`, `SEMANTIC_WORKER_FAILURE_THRESHOLD` | Salud del indexador. |
+| `SEMANTIC_DATABASE_ROLE` | Rol del proceso: `api` o `indexer`. |
 
 </details>
 

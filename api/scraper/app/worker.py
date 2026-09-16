@@ -211,7 +211,7 @@ class ContentEnrichmentSupervisor:
                 continue
             if index == 0:
                 try:
-                    await self._enqueue_pending_so_filters()
+                    enqueued = await self._enqueue_pending_so_filters() or 0
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - mantiene activo el supervisor
@@ -221,13 +221,18 @@ class ContentEnrichmentSupervisor:
                     )
                     await asyncio.sleep(5)
                     continue
+            else:
+                enqueued = 0
             processed = await worker.process_one()
             if not processed:
-                await asyncio.sleep(1)
+                await asyncio.sleep(60 if index == 0 and enqueued == 0 else 1)
 
-    async def _enqueue_pending_so_filters(self) -> None:
+    async def _enqueue_pending_so_filters(self) -> int:
         """Busca aplicaciones sin plataformas verificadas y las encola cuando no hay trabajo
         aguas arriba activo.
+
+        Returns:
+            número de aplicaciones que se han encolado en esta pasada.
         """
         async with AsyncSessionLocal() as session:
             catalog = CatalogRepository(
@@ -245,6 +250,7 @@ class ContentEnrichmentSupervisor:
                 (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER),
                 package_ids,
             )
+            enqueued = 0
             for app in apps:
                 if app.winstall_id in upstream_active:
                     continue
@@ -257,7 +263,9 @@ class ContentEnrichmentSupervisor:
                     app,
                     force=True,
                 )
+                enqueued += 1
             await session.commit()
+            return enqueued
 
     async def _paused_or_stopping(self) -> bool:
         """Consulta el run activo para saber si una pausa o parada administrativa debe detener
@@ -621,6 +629,7 @@ async def prune_retained_records() -> None:
             resolver_logs=result.resolver_logs,
             commands=result.commands,
             runs=result.runs,
+            compacted_payloads=result.compacted_payloads,
         )
 
 

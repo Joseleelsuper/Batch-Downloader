@@ -109,6 +109,6 @@ async def test_durable_run_request_is_not_consumed_as_control_command(session_fa
         await session.commit()
 
         assert request.status == "running"
-        assert request.run_id == run.id
+        assert run.request_id == request.id
         assert run.scope == ScrapeScope.SELECTED.value
         assert run.target_count == 1

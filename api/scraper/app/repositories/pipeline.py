@@ -536,7 +536,9 @@ class PipelineRepository:
 
     async def _finish(self, item: ScraperWorkItem, status: str, message: str | None) -> None:
         """Aplica un resultado terminal, trunca el mensaje, limpia propietario y vencimiento y
-        hace flush.
+        hace flush. Las dos primeras etapas producen payloads grandes que sólo son necesarios
+        durante la ejecución; al terminar correctamente o descartar una tarea se libera ese JSON,
+        mientras que los fallos lo conservan para permitir un reintento fiel.
 
         Args:
             item: Tarea de la sesión actual cuyo estado se modifica.
@@ -547,6 +549,11 @@ class PipelineRepository:
         item.last_error = truncate(message, 1000)
         item.lease_owner = None
         item.lease_expires_at = None
+        if status in {STATUS_COMPLETED, STATUS_DISCARDED} and item.queue in {
+            QUEUE_SEARCHER_FILTER,
+            QUEUE_FILTER_SCRAPER,
+        }:
+            item.payload_json = None
         item.updated_at = utc_now()
         await self.session.flush()
 

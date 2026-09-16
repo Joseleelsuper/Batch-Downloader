@@ -303,14 +303,16 @@ class ScrapeRunRepository:
         request: ScraperCommand,
         run_id: uuid.UUID,
     ) -> None:
-        """Asocia el comando a la ejecución iniciada, marca running y limpia su mensaje anterior.
+        """Marca running el comando asociado a la ejecución y limpia su mensaje anterior.
+
+        La asociación canónica vive en ``scrape_runs.request_id``; el campo histórico
+        ``scraper_commands.run_id`` ya no se lee ni se escribe.
 
         Args:
             request: Comando persistido que se asocia a la ejecución iniciada.
             run_id: UUID de la ejecución que se consulta o actualiza.
         """
         request.status = "running"
-        request.run_id = run_id
         request.started_at = utc_now()
         request.message = None
 

@@ -8,9 +8,11 @@ See Also:
     app.repositories.catalog.CatalogRepository: Compone las operaciones del catálogo.
     app.repositories.pipeline.PipelineRepository: Reserva y finaliza trabajo persistente.
 """
+import hashlib
+import json
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import (
     JSON,
@@ -54,6 +56,39 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now, nullable=False
     )
+
+
+def _fallback_artifact_fingerprint(context: Any) -> str:
+    """Calcula una huella estable cuando un consumidor ORM antiguo no la proporciona.
+
+    Las rutas de resolución actuales calculan la huella completa antes de persistirla. Este
+    valor de respaldo solo evita insertar una fila nula durante la transición; usa los campos
+    persistidos que definen la identidad del artefacto y excluye la URL cifrada, que puede
+    cambiar al renovar credenciales.
+    """
+    params = context.get_current_parameters()
+    metadata = params.get("metadata_json")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    payload = {
+        "source": str(params.get("download_source_id") or ""),
+        "domain": str(params.get("final_domain") or "").lower(),
+        "filename": str(params.get("filename") or "").lower(),
+        "extension": str(params.get("extension") or "").lower(),
+        "size": params.get("size_bytes"),
+        "version": params.get("version"),
+        "sha256": metadata.get("sha256") or metadata.get("expected_sha256"),
+        "operating_system": metadata.get("operating_system"),
+        "architecture": metadata.get("architecture"),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 
@@ -207,7 +242,15 @@ class SoftwareApp(Base, TimestampMixin):
     )
 
 
-    __table_args__ = (Index("ix_software_apps_status_name", "app_status", "normalized_name"),)
+    __table_args__ = (
+        Index("ix_software_apps_status_name", "app_status", "normalized_name"),
+        Index(
+            "ix_software_apps_os_refresh",
+            "app_status",
+            "operating_systems_updated_at",
+            "id",
+        ),
+    )
 
 
 
@@ -445,8 +488,10 @@ class ResolvedSource(Base):
 
     metadata_json: Mapped[dict | None] = mapped_column(JSON)
 
-    artifact_fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
-    """Huella estable del artefacto para evitar duplicados entre revalidaciones."""
+    artifact_fingerprint: Mapped[str] = mapped_column(
+        String(64), index=True, nullable=False, default=_fallback_artifact_fingerprint
+    )
+    """Huella estable y obligatoria del artefacto para evitar duplicados entre revalidaciones."""
     # Alembic 0010 es responsable de la columna física generada. Mapearla únicamente
     # como expresión de consulta mantiene intacto el esquema de pruebas de SQLite.
     catalog_downloadable: Mapped[bool | None] = query_expression()
@@ -458,6 +503,11 @@ class ResolvedSource(Base):
     __table_args__ = (
         Index("ix_resolved_sources_source_expiry", "download_source_id", "expires_at"),
         Index("ix_resolved_sources_status_expiry", "status", "expires_at"),
+        UniqueConstraint(
+            "download_source_id",
+            "artifact_fingerprint",
+            name="uq_resolved_sources_source_fingerprint",
+        ),
     )
 
 
@@ -578,7 +628,11 @@ class ScrapeRun(Base):
         String(32), default=ScrapeScope.INCREMENTAL.value, index=True, nullable=False
     )
     """Scope solicitado para esta ejecución."""
-    request_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True)
+    request_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(),
+        ForeignKey("scraper_commands.id", ondelete="SET NULL"),
+        unique=True,
+    )
     """Solicitud durable que originó la ejecución."""
     target_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     """Número de aplicaciones de la instantánea objetivo."""
@@ -636,7 +690,7 @@ class ScraperCommand(Base):
 
     Attributes:
         id, command, scope: Identidad, acción solicitada y alcance opcional.
-        app_ids_json, run_id: Aplicaciones elegidas y ejecución afectada o creada.
+        app_ids_json: Aplicaciones elegidas para la ejecución solicitada.
         status, message: Estado del comando y explicación de su resultado.
         created_by, created_at, consumed_at, started_at: Actor, creación, consumo e inicio
             opcionales.
@@ -652,8 +706,6 @@ class ScraperCommand(Base):
     """Scope de una solicitud ``run_once``; nulo para controles históricos."""
     app_ids_json: Mapped[list[str] | None] = mapped_column(JSON)
     """Selección explícita, limitada y validada por la API administrativa."""
-    run_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True)
-    """Ejecución reclamada por el scheduler."""
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True, nullable=False)
 
     message: Mapped[str | None] = mapped_column(String(1000))
@@ -957,7 +1009,7 @@ class ScraperWorkItem(Base, TimestampMixin):
 
     app_name: Mapped[str | None] = mapped_column(String(180))
 
-    payload_json: Mapped[dict | None] = mapped_column(JSON)
+    payload_json: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
 
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
@@ -1114,4 +1166,3 @@ class ScraperRateLimit(Base):
     next_allowed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
-

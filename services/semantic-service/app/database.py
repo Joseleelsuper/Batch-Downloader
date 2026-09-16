@@ -1,6 +1,4 @@
-"""Controla el pool PostgreSQL, la integridad de migraciones y la exclusión de operaciones
-semánticas de fondo.
-"""
+"""Controla el pool PostgreSQL, las migraciones y la exclusion de indexacion."""
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
@@ -35,7 +33,7 @@ class Database:
 
     See Also:
         app.http_context.lifespan: Abre y verifica el pool del API.
-        app.model_worker.SemanticModelWorker: Coordina trabajo de modelos sobre el almacén.
+        app.indexer.SemanticIndexer: Coordina el trabajo de indexacion.
     """
     def __init__(self, settings: Settings) -> None:
         """Crea un pool cerrado con filas de diccionario y prepara la exclusión de la conexión de

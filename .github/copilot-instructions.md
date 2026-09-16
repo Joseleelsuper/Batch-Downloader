@@ -21,7 +21,7 @@
 - No registres URLs resueltas/firmadas, cookies, tokens, prompts/respuestas LLM ni contenido de instaladores. La cookie anónima `BATCH_DOWNLOAD_OWNER` es HttpOnly y las mutaciones de navegador requieren CSRF.
 - Añade configuración compartida/secreta a `.env.example`, ajustes no sensibles al `.env.example` del servicio y cableado a ambos Compose. Regenera `.env` ignorados con `scripts/sync-service-env-files.ps1`; no añadas DSN completos como `SCRAPER_DATABASE_URL`.
 - Java requiere 25 (Maven 3.9); los módulos con Mockito declaran su propio `mockito.javaagent` en su `pom.xml`. El scraper de producción compila CPython 3.14t con `--disable-gil` y SQLAlchemy sin C extensions; no compartas sesiones/clientes/locks mutables entre hilos.
-- Semantic trabaja offline (`local_files_only`, `trust_remote_code=False`, `safetensors`); `semantic-model-worker` es dueño de preparación/benchmark/activación. No descargues o entrenes modelos durante el arranque.
+- Semantic trabaja offline (`local_files_only`, `trust_remote_code=False`, `safetensors`); el indexador valida y publica el único modelo aprovisionado en `/models/current`. El manifiesto `batch-model.json` es obligatorio y cambiarlo requiere reiniciar los servicios semánticos.
 
 ## Verificación focalizada
 ```powershell

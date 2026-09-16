@@ -1,4 +1,4 @@
-"""Huella de documentos activos para comparar índices y benchmarks en la misma transacción."""
+"""Calcula la cobertura del índice sobre el catálogo activo."""
 
 from typing import Any
 
@@ -23,20 +23,7 @@ WITH catalog AS (
 
 
 def model_catalog_coverage(connection: Any, model_version: str) -> dict[str, Any]:
-    """Obtiene cobertura y huella del catálogo con la misma vista transaccional.
-
-    Args:
-        connection: Conexión del llamador; la consulta no abre ni confirma otra transacción.
-        model_version: Modelo cuyos vectores deben coincidir con el hash de cada documento.
-
-    Returns:
-        expected e indexed cuentan documentos activos; snapshot_hash identifica su contenido
-        en orden de app_id, incluso para un catálogo vacío.
-
-    See Also:
-        app.store.SemanticStore.coverage_and_promote: Actualiza el estado de construcción.
-        app.store.SemanticStore.activate_complete_model: Exige cobertura completa antes de activar.
-    """
+    """Devuelve documentos activos, vectores coincidentes y la huella del catálogo."""
     return dict(connection.execute(
         CATALOG_SNAPSHOT_CTE + """
         SELECT COUNT(*) FILTER (WHERE d.active) AS expected,

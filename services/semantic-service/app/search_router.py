@@ -60,8 +60,8 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
             detail={"code": "semantic_index_not_ready"},
         )
     model, index_version = active
-    runtime = runtime_for(model)
     try:
+        runtime = runtime_for(model)
         vector = await asyncio.wait_for(
             asyncio.to_thread(runtime.encode_query, request.query.strip()),
             timeout=settings.search_timeout_seconds,
@@ -83,6 +83,11 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
             status_code=503,
             detail={"code": "semantic_search_timeout"},
         ) from exception
+    except RuntimeError as exception:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "semantic_index_not_ready"},
+        ) from exception
     truncated = len(rows) > functional_limit
     return SemanticSearchResponse(
         candidates=[
@@ -93,5 +98,4 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
         indexVersion=index_version,
         truncated=truncated,
     )
-
 

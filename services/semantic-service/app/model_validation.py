@@ -1,59 +1,136 @@
-"""Valida modelos locales en un proceso aislado sin descargas ni ejecución de código remoto."""
+"""Valida el modelo intercambiable de ``/models/current`` sin descargar nada."""
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import math
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import psutil
+
+MANIFEST_NAME = "batch-model.json"
+FORBIDDEN_SUFFIXES = (".bin", ".pkl", ".pickle", ".pt", ".pth", ".py")
 
 
-def validate_model(
+@dataclass(frozen=True)
+class ModelDescriptor:
+    """Identidad y parametros necesarios para reproducir los embeddings."""
+
+    model_version: str
+    dimensions: int
+    query_prefix: str
+    passage_prefix: str
+    minimum_similarity: float
+
+    @classmethod
+    def from_manifest(cls, payload: object) -> ModelDescriptor:
+        if not isinstance(payload, dict):
+            raise RuntimeError("semantic_model_manifest_object_required")
+        required = {
+            "modelVersion",
+            "dimensions",
+            "queryPrefix",
+            "passagePrefix",
+            "minimumSimilarity",
+        }
+        if set(payload) != required:
+            raise RuntimeError("semantic_model_manifest_fields_invalid")
+        version = payload["modelVersion"]
+        dimensions = payload["dimensions"]
+        query_prefix = payload["queryPrefix"]
+        passage_prefix = payload["passagePrefix"]
+        minimum_similarity = payload["minimumSimilarity"]
+        if not isinstance(version, str) or not version.strip() or len(version) > 200:
+            raise RuntimeError("semantic_model_manifest_version_invalid")
+        if any(char in version for char in "\r\n\x00"):
+            raise RuntimeError("semantic_model_manifest_version_invalid")
+        if (
+            not isinstance(dimensions, int)
+            or isinstance(dimensions, bool)
+            or not 1 <= dimensions <= 2000
+        ):
+            raise RuntimeError("semantic_model_manifest_dimensions_invalid")
+        if not isinstance(query_prefix, str) or not isinstance(passage_prefix, str):
+            raise RuntimeError("semantic_model_manifest_prefix_invalid")
+        if len(query_prefix) > 1000 or len(passage_prefix) > 1000:
+            raise RuntimeError("semantic_model_manifest_prefix_invalid")
+        if not isinstance(minimum_similarity, (int, float)) or isinstance(minimum_similarity, bool):
+            raise RuntimeError("semantic_model_manifest_similarity_invalid")
+        minimum_similarity = float(minimum_similarity)
+        if not math.isfinite(minimum_similarity) or not -1 <= minimum_similarity <= 1:
+            raise RuntimeError("semantic_model_manifest_similarity_invalid")
+        return cls(
+            model_version=version.strip(),
+            dimensions=dimensions,
+            query_prefix=query_prefix,
+            passage_prefix=passage_prefix,
+            minimum_similarity=minimum_similarity,
+        )
+
+
+def load_model_manifest(path: Path, *, manifest_name: str = MANIFEST_NAME) -> ModelDescriptor:
+    """Lee y valida el manifiesto sin cargar los pesos."""
+    directory = path.resolve()
+    manifest = directory / manifest_name
+    if not directory.is_dir() or not manifest.is_file():
+        raise RuntimeError("semantic_model_manifest_missing")
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exception:
+        raise RuntimeError("semantic_model_manifest_invalid") from exception
+    return ModelDescriptor.from_manifest(payload)
+
+
+def _model_files(path: Path) -> list[Path]:
+    return [
+        item
+        for item in path.rglob("*")
+        if item.is_file() and ".cache" not in item.parts
+    ]
+
+
+def model_directory_ready(path: Path, *, manifest_name: str = MANIFEST_NAME) -> bool:
+    """Comprueba manifiesto y formato de pesos, sin inicializar PyTorch."""
+    try:
+        load_model_manifest(path, manifest_name=manifest_name)
+        files = _model_files(path)
+        has_weights = any(item.suffix.lower() == ".safetensors" for item in files)
+        has_forbidden = any(item.suffix.lower() in FORBIDDEN_SUFFIXES for item in files)
+        return bool(files) and has_weights and not has_forbidden
+    except (OSError, RuntimeError):
+        return False
+
+
+def validate_model_directory(
     path: Path,
     *,
-    query_prefix: str,
-    passage_prefix: str,
     device: str,
-) -> dict[str, object]:
-    """Carga el artefacto offline y codifica cuatro textos de prueba para comprobar dimensiones,
-    forma estable y componentes finitas.
-
-    Args:
-        path: Directorio de pesos locales previamente inspeccionado contra su manifiesto.
-        query_prefix: Texto antepuesto a las dos consultas de prueba.
-        passage_prefix: Texto antepuesto a los dos documentos de prueba.
-        device: Dispositivo de inferencia local, cpu por defecto.
-
-    Returns:
-        dimensiones, número de pruebas, tiempo de carga y codificación en ms y memoria RSS en
-            bytes.
-
-    Raises:
-        RuntimeError: Si las dimensiones no admiten HNSW, la forma cambia o aparecen NaN o
-            infinitos.
-    """
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    manifest_name: str = MANIFEST_NAME,
+) -> tuple[ModelDescriptor, dict[str, object]]:
+    """Carga el modelo local y verifica dimensiones, forma y valores finitos."""
+    descriptor = load_model_manifest(path, manifest_name=manifest_name)
+    files = _model_files(path)
+    if not any(item.suffix.lower() == ".safetensors" for item in files):
+        raise RuntimeError("semantic_model_incompatible_safetensors_required")
+    if any(item.suffix.lower() in FORBIDDEN_SUFFIXES for item in files):
+        raise RuntimeError("semantic_model_incompatible_unsafe_file")
     from sentence_transformers import SentenceTransformer
 
     started = time.perf_counter()
     model = SentenceTransformer(
-        str(path),
+        str(path.resolve()),
         device=device,
         trust_remote_code=False,
         local_files_only=True,
     )
-    dimensions = int(model.get_embedding_dimension())
-    if not 1 <= dimensions <= 2000:
-        raise RuntimeError(f"unsupported_hnsw_dimensions:{dimensions}")
+    actual = int(model.get_embedding_dimension())
+    if actual != descriptor.dimensions:
+        raise RuntimeError("semantic_model_dimension_mismatch")
     probes = [
-        query_prefix + "gestor de contraseñas para Linux",
-        query_prefix + "open source code editor",
-        passage_prefix + "Aplicación para gestionar contraseñas de forma segura.",
-        passage_prefix + "A fast and extensible source code editor.",
+        descriptor.query_prefix + "gestor de contrasenas para Linux",
+        descriptor.passage_prefix + "Aplicacion para gestionar contrasenas.",
     ]
     encoded = np.asarray(
         model.encode(
@@ -64,47 +141,30 @@ def validate_model(
         ),
         dtype=np.float32,
     )
-    if encoded.shape != (len(probes), dimensions):
-        raise RuntimeError("embedding_shape_is_not_stable")
+    if encoded.shape != (len(probes), descriptor.dimensions):
+        raise RuntimeError("semantic_model_embedding_shape_invalid")
     if not np.isfinite(encoded).all():
-        raise RuntimeError("embedding_contains_non_finite_values")
-    return {
-        "dimensions": dimensions,
+        raise RuntimeError("semantic_model_embedding_non_finite")
+    return descriptor, {
+        "dimensions": descriptor.dimensions,
         "probeCount": len(probes),
         "warmupMs": (time.perf_counter() - started) * 1000,
-        "rssBytes": psutil.Process(os.getpid()).memory_info().rss,
     }
 
 
 def main() -> None:
-    """Lee ruta, prefijos y dispositivo; imprime un resultado JSON o un código seguro de
-    incompatibilidad y termina con salida 2.
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--path", required=True)
-    parser.add_argument("--query-prefix", default="")
-    parser.add_argument("--passage-prefix", default="")
+    parser = argparse.ArgumentParser(description="Valida el modelo semantico local")
+    parser.add_argument("--path", default="/models/current")
     parser.add_argument("--device", default="cpu")
     arguments = parser.parse_args()
     try:
-        result = validate_model(
-            Path(arguments.path),
-            query_prefix=arguments.query_prefix,
-            passage_prefix=arguments.passage_prefix,
-            device=arguments.device,
-        )
-        print(json.dumps(result, sort_keys=True))
+        descriptor, result = validate_model_directory(Path(arguments.path), device=arguments.device)
+        print(json.dumps({"modelVersion": descriptor.model_version, **result}, sort_keys=True))
     except Exception as exception:
-        reason = "".join(
-            char if char.isalnum() or char == "_" else "_"
-            for char in str(exception).split(":", 1)[0].lower()
-        ).strip("_")
-        print(json.dumps({
-            "errorCode": (
-                "semantic_model_incompatible_"
-                + (reason[:70] or "validation_failed")
-            )
-        }))
+        reason = str(exception).split(":", 1)[0].lower()
+        reason = "".join(char if char.isalnum() or char == "_" else "_" for char in reason)
+        error_code = "semantic_model_incompatible_" + (reason[:70] or "validation_failed")
+        print(json.dumps({"errorCode": error_code}))
         raise SystemExit(2) from None
 
 

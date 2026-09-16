@@ -1028,12 +1028,12 @@ paths:
   /admin/semantic/overview:
     get:
       operationId: getSemanticAdminOverview
-      summary: Consultar salud, modelo activo, cobertura, disco y operaciones semanticas
+      summary: Consultar salud, modelo local, cobertura e indexador semanticos
       tags:
       - Semantic admin
       responses:
         '200':
-          description: Resumen operativo del servicio semantico.
+          description: Estado operativo del servicio semantico y del indice reconstruible.
           content:
             application/json:
               schema:
@@ -1043,240 +1043,6 @@ paths:
       x-required-roles:
       - ADMIN
       description: ''
-  /admin/semantic/models:
-    get:
-      operationId: listSemanticModels
-      summary: Listar el inventario de modelos semanticos
-      tags:
-      - Semantic admin
-      responses:
-        '200':
-          description: Modelos descargados y reconciliados.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SemanticModel'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-      x-required-roles:
-      - ADMIN
-      description: ''
-  /admin/semantic/models/{modelId}:
-    parameters:
-    - $ref: '#/components/parameters/SemanticModelId'
-    get:
-      operationId: getSemanticModel
-      summary: Consultar un modelo semantico
-      tags:
-      - Semantic admin
-      responses:
-        '200':
-          description: Modelo solicitado.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SemanticModel'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      x-required-roles:
-      - ADMIN
-      description: ''
-    delete:
-      operationId: deleteSemanticModel
-      summary: Encolar la eliminacion de pesos e indice de un modelo inactivo
-      tags:
-      - Semantic admin
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      x-required-roles:
-      - ADMIN
-  /admin/semantic/models/{modelId}/prepare:
-    post:
-      operationId: prepareSemanticModel
-      summary: Preparar embeddings e indice sin cambiar el modelo activo
-      tags:
-      - Semantic admin
-      parameters:
-      - $ref: '#/components/parameters/SemanticModelId'
-      - $ref: '#/components/parameters/CsrfToken'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      x-required-roles:
-      - ADMIN
-  /admin/semantic/models/{modelId}/activate:
-    post:
-      operationId: activateSemanticModel
-      summary: Calentar y activar atomicamente el modelo, indice y umbral
-      tags:
-      - Semantic admin
-      parameters:
-      - $ref: '#/components/parameters/SemanticModelId'
-      - $ref: '#/components/parameters/CsrfToken'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ActivateSemanticModelRequest'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      x-required-roles:
-      - ADMIN
-  /admin/semantic/benchmarks:
-    get:
-      operationId: listSemanticBenchmarks
-      summary: Listar benchmarks y su elegibilidad
-      tags:
-      - Semantic admin
-      responses:
-        '200':
-          description: Ejecuciones conservadas, incluidas las diagnosticas.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SemanticBenchmarkRun'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-      x-required-roles:
-      - ADMIN
-      description: ''
-    post:
-      operationId: benchmarkSemanticModels
-      summary: Encolar un benchmark comparable de dos a cuatro modelos
-      tags:
-      - Semantic admin
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - modelIds
-              properties:
-                modelIds:
-                  type: array
-                  minItems: 2
-                  maxItems: 4
-                  uniqueItems: true
-                  items:
-                    type: string
-                    format: uuid
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      x-required-roles:
-      - ADMIN
-  /admin/semantic/operations:
-    get:
-      operationId: listSemanticOperations
-      summary: Listar operaciones duraderas
-      tags:
-      - Semantic admin
-      responses:
-        '200':
-          description: Operaciones recientes y recuperables.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SemanticOperation'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-      x-required-roles:
-      - ADMIN
-      description: ''
-  /admin/semantic/operations/{operationId}:
-    parameters:
-    - $ref: '#/components/parameters/SemanticOperationId'
-    get:
-      operationId: getSemanticOperation
-      summary: Consultar una operacion duradera
-      tags:
-      - Semantic admin
-      responses:
-        '200':
-          description: Estado y progreso de la operacion.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SemanticOperation'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      x-required-roles:
-      - ADMIN
-      description: ''
-    delete:
-      operationId: cancelSemanticOperation
-      summary: Solicitar cancelacion cooperativa
-      tags:
-      - Semantic admin
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-      responses:
-        '200':
-          description: Cancelacion solicitada o estado terminal actual.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SemanticOperation'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      x-required-roles:
-      - ADMIN
-  /admin/semantic/operations/{operationId}/retry:
-    post:
-      operationId: retrySemanticOperation
-      summary: Reintentar una operacion fallida o cancelada
-      tags:
-      - Semantic admin
-      parameters:
-      - $ref: '#/components/parameters/SemanticOperationId'
-      - $ref: '#/components/parameters/CsrfToken'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      x-required-roles:
-      - ADMIN
   /locales/es:
     get:
       operationId: getSpanishLocale
@@ -2590,20 +2356,6 @@ components:
       schema:
         type: string
         format: uuid
-    SemanticModelId:
-      name: modelId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    SemanticOperationId:
-      name: operationId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
     InspectionId:
       name: inspectionId
       in: path
@@ -2693,12 +2445,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-    SemanticOperationAccepted:
-      description: Trabajo asincrono aceptado o deduplicado.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/SemanticOperationAccepted'
   schemas:
     ScraperRunRequest:
       type: object
@@ -4105,25 +3851,12 @@ components:
           maxItems: 6
           items:
             $ref: '#/components/schemas/OwnBundleSummary'
-    SemanticArtifactState:
-      type: string
-      enum: [ready, incompatible, failed, deleted]
-    SemanticDeploymentState:
-      type: string
-      enum: [not_prepared, preparing, ready, active, stale, failed]
-    SemanticOperationKind:
-      type: string
-      enum: [benchmark, prepare, activate, delete]
-    SemanticOperationStatus:
-      type: string
-      enum: [queued, running, cancel_requested, cancelled, succeeded, failed]
     SemanticIndexState:
       type: object
+      additionalProperties: false
       required: [expected, indexed, complete]
       properties:
         indexVersion:
-          type: [string, 'null']
-        snapshotHash:
           type: [string, 'null']
         expected:
           type: integer
@@ -4136,401 +3869,64 @@ components:
         builtAt:
           type: [string, 'null']
           format: date-time
-    SemanticBenchmarkMetric:
+    SemanticWorkerState:
       type: object
-      required:
-        - modelId
-        - modelKey
-        - modelVersion
-        - repository
-        - variant
-        - stage
-        - scope
-        - eligible
-        - ndcgAt10
-        - mrrAt10
-        - mapAt10
-        - recallAt10
-        - recallAt20
-        - exactMrrAt1
-        - p50Ms
-        - p95Ms
-        - p99Ms
-        - throughputQps
-        - embeddingBuildMs
-        - hnswBuildMs
-        - indexBuildMs
-        - hnswRecallAt20
-        - vectorBytes
-        - hnswIndexBytes
-        - indexBytes
-        - rssBytes
-        - vramBytes
-        - totalScore
-        - minimumSimilarity
+      additionalProperties: false
+      required: [present, healthy, reason, consecutiveFailures]
       properties:
-        modelId:
-          type: string
-          format: uuid
-        modelKey:
-          type: string
-        modelVersion:
-          type: string
-        repository:
-          type: string
-        variant:
-          type: string
-        stage:
-          type: string
-        scope:
-          type: string
-          enum: [historical, smoke, full]
-        eligible:
+        present:
           type: boolean
-        recommended:
+        healthy:
           type: boolean
-        ndcgAt10:
-          type: number
-        mrrAt10:
-          type: number
-        mapAt10:
-          type: number
-        recallAt10:
-          type: number
-        recallAt20:
-          type: number
-        exactMrrAt1:
-          type: number
-        p50Ms:
-          type: number
-        p95Ms:
-          type: number
-        p99Ms:
-          type: number
-        throughputQps:
-          type: number
-        embeddingBuildMs:
-          type: number
-        hnswBuildMs:
-          type: number
-        indexBuildMs:
-          type: number
-        hnswRecallAt20:
-          type: number
-        vectorBytes:
-          type: integer
-          format: int64
-        hnswIndexBytes:
-          type: integer
-          format: int64
-        indexBytes:
-          type: integer
-          format: int64
-        rssBytes:
-          type: integer
-          format: int64
-        vramBytes:
-          type: integer
-          format: int64
-        totalScore:
-          type: number
-        minimumSimilarity:
-          type: number
-        loadMs:
-          type: number
-        warmupMs:
-          type: number
-        dimensions:
-          type: integer
-          minimum: 1
-          maximum: 2000
-        artifactBytes:
-          type: integer
-          format: int64
-    SemanticBenchmarkRun:
-      type: object
-      required:
-        - id
-        - datasetHash
-        - seed
-        - configuration
-        - metrics
-        - modelIds
-        - scope
-        - documentCount
-        - queryCount
-        - metricsSchemaVersion
-        - createdAt
-      properties:
-        id:
+        reason:
           type: string
-          format: uuid
-        datasetHash:
-          type: string
-        seed:
-          type: integer
-        configuration:
-          type: object
-          additionalProperties: true
-        metrics:
-          type: array
-          items:
-            $ref: '#/components/schemas/SemanticBenchmarkMetric'
-        selectedModelVersion:
+        ageSeconds:
+          type: [number, 'null']
+          minimum: 0
+        lastSuccessAgeSeconds:
+          type: [number, 'null']
+          minimum: 0
+        lastErrorAgeSeconds:
+          type: [number, 'null']
+          minimum: 0
+        lastErrorCode:
           type: [string, 'null']
-        modelIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-        scope:
-          type: string
-          enum: [historical, smoke, full]
-        hardwareFingerprint:
-          type: [string, 'null']
-        documentCount:
+        consecutiveFailures:
           type: integer
           minimum: 0
-        queryCount:
-          type: integer
-          minimum: 0
-        metricsSchemaVersion:
-          type: integer
-          minimum: 1
-        createdAt:
-          type: string
-          format: date-time
-    SemanticModel:
-      type: object
-      required:
-        - id
-        - displayName
-        - repository
-        - revision
-        - artifactState
-        - deploymentState
-        - artifactBytes
-        - queryPrefix
-        - passagePrefix
-        - minimumSimilarity
-        - metadata
-        - active
-        - createdAt
-        - index
-      properties:
-        id:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-        repository:
-          type: string
-        revision:
-          type: string
-        artifactState:
-          $ref: '#/components/schemas/SemanticArtifactState'
-        deploymentState:
-          $ref: '#/components/schemas/SemanticDeploymentState'
-        artifactBytes:
-          type: integer
-          format: int64
-          minimum: 0
-        dimensions:
-          type: [integer, 'null']
-          minimum: 1
-          maximum: 2000
-        queryPrefix:
-          type: string
-        passagePrefix:
-          type: string
-        minimumSimilarity:
-          type: number
-          minimum: -1
-          maximum: 1
-        metadata:
-          type: object
-          additionalProperties: true
-        validationMessage:
-          type: [string, 'null']
-        modelVersion:
-          type: [string, 'null']
-        active:
-          type: boolean
-        createdAt:
-          type: string
-          format: date-time
-        downloadedAt:
-          type: [string, 'null']
-          format: date-time
-        validatedAt:
-          type: [string, 'null']
-          format: date-time
-        activatedAt:
-          type: [string, 'null']
-          format: date-time
-        index:
-          $ref: '#/components/schemas/SemanticIndexState'
-        lastBenchmark:
-          oneOf:
-            - type: 'null'
-            - type: object
-              required: [id, datasetHash, scope, current, createdAt]
-              properties:
-                id:
-                  type: string
-                  format: uuid
-                datasetHash:
-                  type: string
-                scope:
-                  type: string
-                  enum: [historical, smoke, full]
-                hardwareFingerprint:
-                  type: [string, 'null']
-                metric:
-                  oneOf:
-                    - type: 'null'
-                    - $ref: '#/components/schemas/SemanticBenchmarkMetric'
-                current:
-                  type: boolean
-                createdAt:
-                  type: string
-                  format: date-time
     SemanticOverview:
       type: object
-      required: [service, searchReady, disk, activeOperations]
+      additionalProperties: false
+      required: [service, status, database, searchReady, model, index, indexer]
       properties:
         service:
           type: string
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: boolean
         searchReady:
           type: boolean
-        activeModel:
+        model:
           oneOf:
             - type: 'null'
-            - $ref: '#/components/schemas/SemanticModel'
-        disk:
-          type: object
-          required:
-            [modelBytes, freeBytes, totalBytes, reservedBytes, maximumModelBytes]
-          properties:
-            modelBytes:
-              type: integer
-              format: int64
-            freeBytes:
-              type: integer
-              format: int64
-            totalBytes:
-              type: integer
-              format: int64
-            reservedBytes:
-              type: integer
-              format: int64
-            maximumModelBytes:
-              type: integer
-              format: int64
-        activeOperations:
-          type: integer
-          minimum: 0
-    SemanticOperation:
-      type: object
-      required:
-        - id
-        - kind
-        - status
-        - phase
-        - progress
-        - result
-        - actor
-        - attempts
-        - createdAt
-        - updatedAt
-      properties:
-        id:
-          type: string
-          format: uuid
-        kind:
-          $ref: '#/components/schemas/SemanticOperationKind'
-        status:
-          $ref: '#/components/schemas/SemanticOperationStatus'
-        phase:
-          type: string
-        modelId:
-          type: [string, 'null']
-          format: uuid
-        modelIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-        modelVersion:
-          type: [string, 'null']
-        repository:
-          type: [string, 'null']
-        revision:
-          type: [string, 'null']
-        progress:
-          type: object
-          required: [current, total, unit]
-          properties:
-            current:
-              type: number
-            total:
-              type: number
-            unit:
-              type: string
-        message:
-          type: [string, 'null']
-        errorCode:
-          type: [string, 'null']
-        result:
-          type: object
-          additionalProperties: true
-        actor:
-          type: string
-        attempts:
-          type: integer
-          minimum: 0
-        leaseOwner:
-          type: [string, 'null']
-        leaseUntil:
-          type: [string, 'null']
-          format: date-time
-        createdAt:
-          type: string
-          format: date-time
-        startedAt:
-          type: [string, 'null']
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        finishedAt:
-          type: [string, 'null']
-          format: date-time
-    SemanticOperationAccepted:
-      type: object
-      required: [operationId, status]
-      properties:
-        operationId:
-          type: string
-          format: uuid
-        status:
-          $ref: '#/components/schemas/SemanticOperationStatus'
-        modelId:
-          type: string
-          format: uuid
-    ActivateSemanticModelRequest:
-      type: object
-      required: [benchmarkRunId]
-      properties:
-        benchmarkRunId:
-          type: string
-          format: uuid
-        expectedCurrentModelId:
-          type: [string, 'null']
-          format: uuid
-        confirmRegression:
-          type: boolean
-          default: false
+            - type: object
+              additionalProperties: false
+              required: [version, dimensions, artifactReady]
+              properties:
+                version:
+                  type: [string, 'null']
+                dimensions:
+                  type: [integer, 'null']
+                  minimum: 1
+                  maximum: 2000
+                artifactReady:
+                  type: boolean
+        index:
+          $ref: '#/components/schemas/SemanticIndexState'
+        indexer:
+          $ref: '#/components/schemas/SemanticWorkerState'
     Problem:
       type: object
       additionalProperties: false

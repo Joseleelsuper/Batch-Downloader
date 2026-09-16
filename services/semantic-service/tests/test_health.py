@@ -1,6 +1,4 @@
-"""Comprueba separación entre presencia del API y disponibilidad de PostgreSQL y caché de
-modelos.
-"""
+"""Comprueba separacion entre presencia del API y disponibilidad del modelo local."""
 
 import json
 
@@ -19,6 +17,30 @@ async def test_health_liveness_does_not_require_database() -> None:
 
 
 @pytest.mark.asyncio
+async def test_health_keeps_index_contract_when_database_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El diagnóstico conserva campos mínimos aunque PostgreSQL no responda."""
+    monkeypatch.setattr(main.database, "healthy", lambda: False)
+    monkeypatch.setattr(
+        main,
+        "current_model_manifest",
+        lambda: (_ for _ in ()).throw(RuntimeError("missing")),
+    )
+
+    payload = await main.health()
+
+    assert payload["index"] == {
+        "indexVersion": None,
+        "expected": 0,
+        "indexed": 0,
+        "complete": False,
+        "builtAt": None,
+    }
+    assert payload["indexer"]["reason"] == "database_unavailable"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("ready", "status"), ((True, 200), (False, 503)))
 async def test_health_readiness_reflects_database(
     monkeypatch: pytest.MonkeyPatch,
@@ -34,7 +56,7 @@ async def test_health_readiness_reflects_database(
         status: Código HTTP esperado para la disponibilidad simulada.
     """
     monkeypatch.setattr(main.database, "healthy", lambda: ready)
-    monkeypatch.setattr(main, "directory_writable", lambda _path: True)
+    monkeypatch.setattr(main, "model_directory_ready", lambda *_args, **_kwargs: True)
 
     response = await main.health_ready()
 
@@ -54,9 +76,9 @@ async def test_health_readiness_requires_writable_model_cache(
             restaura después de la prueba.
     """
     monkeypatch.setattr(main.database, "healthy", lambda: True)
-    monkeypatch.setattr(main, "directory_writable", lambda _path: False)
+    monkeypatch.setattr(main, "model_directory_ready", lambda *_args, **_kwargs: False)
 
     response = await main.health_ready()
 
     assert response.status_code == 503
-    assert json.loads(response.body)["modelCacheWritable"] is False
+    assert json.loads(response.body)["modelReady"] is False

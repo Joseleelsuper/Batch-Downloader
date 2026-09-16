@@ -14,8 +14,9 @@ services:
       SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
       SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
+      SEMANTIC_MODEL_DIR: /models/current
+      SEMANTIC_MODEL_RUNTIME_CACHE_DIR: /models/runtime-cache
+      SEMANTIC_MODEL_MANIFEST_NAME: batch-model.json
     cpu_shares: 512
     restart: unless-stopped
     ports:
@@ -25,7 +26,6 @@ services:
         condition: service_healthy
     volumes:
       - semantic_models:/models
-      - semantic_reports:/reports
     healthcheck:
       test:
         [
@@ -55,8 +55,9 @@ services:
       SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
       SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
+      SEMANTIC_MODEL_DIR: /models/current
+      SEMANTIC_MODEL_RUNTIME_CACHE_DIR: /models/runtime-cache
+      SEMANTIC_MODEL_MANIFEST_NAME: batch-model.json
     cpu_shares: 128
     depends_on:
       semantic-service:
@@ -65,78 +66,13 @@ services:
         condition: service_healthy
     volumes:
       - semantic_models:/models
-      - semantic_reports:/reports
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "indexer", "--writable", "/models", "--writable", "/reports"]
+      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "indexer", "--writable", "/models"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 120s
-
-  semantic-model-worker:
-    build:
-      context: .
-    command: ["python", "-m", "app.model_worker"]
-    env_file:
-      - path: ./.env.model-worker.example
-      - path: ./.env.model-worker
-        required: false
-    environment:
-      SEMANTIC_DATABASE_HOST: postgres
-      SEMANTIC_DATABASE_PORT: 5432
-      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
-      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
-      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
-      SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
-      SEMANTIC_SERVICE_URL: http://semantic-service:8000
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
-    cpu_shares: 128
-    depends_on:
-      semantic-service:
-        condition: service_healthy
-      scraper-api:
-        condition: service_healthy
-    volumes:
-      - semantic_models:/models
-      - semantic_reports:/reports
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "model-worker", "--writable", "/models", "--writable", "/reports"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 120s
-
-  semantic-trainer:
-    profiles: ["training"]
-    restart: "no"
-    build:
-      context: .
-    command: ["python", "-m", "app.trainer"]
-    env_file:
-      - path: ./.env.trainer.example
-      - path: ./.env.trainer
-        required: false
-    environment:
-      SEMANTIC_DATABASE_HOST: postgres
-      SEMANTIC_DATABASE_PORT: 5432
-      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
-      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
-      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
-    cpu_shares: 128
-    depends_on:
-      semantic-service:
-        condition: service_healthy
-    volumes:
-      - semantic_models:/models
-      - semantic_reports:/reports
 
 volumes:
   semantic_models:
-  semantic_reports:

@@ -436,8 +436,8 @@ public class AdminScraperRepository {
                 """
                 INSERT INTO scraper_commands
                 (id, command, scope, app_ids_json, status, message, created_by,
-                 created_at, consumed_at, started_at, run_id)
-                VALUES (?, 'run_once', ?, ?, 'pending', NULL, ?, ?, NULL, NULL, NULL)
+                 created_at, consumed_at, started_at)
+                VALUES (?, 'run_once', ?, ?, 'pending', NULL, ?, ?, NULL, NULL)
                 """,
                 UuidBytes.fromUuid(requestId),
                 scope,

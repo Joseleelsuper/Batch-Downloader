@@ -133,6 +133,48 @@ async def test_retry_failed_does_not_touch_terminal_or_queued(db_session) -> Non
 
 
 @pytest.mark.asyncio
+async def test_terminal_filter_payloads_are_cleared_but_failures_keep_retry_input(
+    db_session,
+) -> None:
+    """Libera los payloads grandes sólo al cerrar las dos etapas voluminosas."""
+    repository = PipelineRepository(db_session)
+    completed = await repository.enqueue(
+        QUEUE_SEARCHER_FILTER,
+        "Vendor.CompletedPayload",
+        "Completed payload",
+        {"html": "completed"},
+        uuid4(),
+    )
+    discarded = await repository.enqueue(
+        QUEUE_FILTER_SCRAPER,
+        "Vendor.DiscardedPayload",
+        "Discarded payload",
+        {"html": "discarded"},
+        uuid4(),
+    )
+    failed = await repository.enqueue(
+        QUEUE_FILTER_SCRAPER,
+        "Vendor.FailedPayload",
+        "Failed payload",
+        {"html": "retry"},
+        uuid4(),
+    )
+
+    await repository.complete(completed)
+    await repository.discard(discarded, "not_applicable")
+    await repository.fail(failed, "temporary_failure")
+    await db_session.commit()
+
+    rows = {
+        item.package_id: item.payload_json
+        for item in await db_session.scalars(select(ScraperWorkItem))
+    }
+    assert rows["Vendor.CompletedPayload"] is None
+    assert rows["Vendor.DiscardedPayload"] is None
+    assert rows["Vendor.FailedPayload"] == {"html": "retry"}
+
+
+@pytest.mark.asyncio
 async def test_requeue_releases_lease_and_delays_next_attempt(db_session) -> None:
     """Reencola una tarea reservada y comprueba liberación, motivo de reintento y disponibilidad
     aplazada.

@@ -35,7 +35,6 @@ DAEMONS = frozenset(
         "core-api",
         "semantic-service",
         "semantic-indexer",
-        "semantic-model-worker",
         "mailpit",
         "notification-service",
         "download-worker",
@@ -45,7 +44,6 @@ DAEMONS = frozenset(
 JOBS = frozenset(
     {
         "minio-init",
-        "semantic-trainer",
         "scraper-python314t-benchmark",
         "scraper-python314-control",
         "scraper-python314-benchmark-report",
@@ -82,13 +80,6 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
         "semantic-service": "service_healthy",
         "scraper-api": "service_healthy",
     },
-    "semantic-model-worker": {
-        "semantic-service": "service_healthy",
-        "scraper-api": "service_healthy",
-    },
-    "semantic-trainer": {
-        "semantic-service": "service_healthy",
-    },
     "scraper-python314t-benchmark": {},
     "scraper-python314-control": {},
     "scraper-python314-benchmark-report": {
@@ -120,7 +111,6 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
         "scraper-api",
         "semantic-service",
         "semantic-indexer",
-        "semantic-model-worker",
     ),
     "notifications": ("rabbitmq", "mailpit", "notification-service"),
     "translations": ("translation-service",),
@@ -129,7 +119,6 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
         "semantic-service",
         "scraper-scheduler",
         "semantic-indexer",
-        "semantic-model-worker",
     ),
 }
 SERVICE_PRIORITY = {
@@ -148,7 +137,6 @@ SERVICE_PRIORITY = {
     "notification-service": 3,
     "scraper-scheduler": 3,
     "semantic-indexer": 3,
-    "semantic-model-worker": 3,
 }
 SENSITIVE_NAME = re.compile(
     r"(?i)(PASSWORD|PASS|SECRET|TOKEN|API_KEY|ACCESS_KEY|PRIVATE_KEY|SIGNING_KEY)"
