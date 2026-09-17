@@ -70,7 +70,11 @@ class EmbeddingRuntime:
                 trust_remote_code=False,
                 local_files_only=True,
             )
-            actual = int(self._model.get_embedding_dimension())
+            dimension = self._model.get_embedding_dimension()
+            if not isinstance(dimension, int):
+                self._model = None
+                raise RuntimeError("embedding_dimension_invalid")
+            actual = dimension
             if actual != self.registered.dimensions:
                 self._model = None
                 raise RuntimeError(

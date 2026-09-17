@@ -154,7 +154,7 @@ def test_mysql_projection_backfill_triggers_rollback_and_repair(
                 await assert_counters(session, 1, 0, 0, 1)
 
                 first = stale_candidate(source)
-                second = stale_candidate(source)
+                second = stale_candidate(source, filename="setup-second.exe")
                 session.add_all((first, second))
                 await session.commit()
                 await assert_counters(session, 1, 1, 0, 0)
@@ -556,18 +556,19 @@ async def invoke_terminal_resolution(engine, candidate_id: UUID):
         )
 
 
-def stale_candidate(source: DownloadSource) -> ResolvedSource:
+def stale_candidate(source: DownloadSource, *, filename: str = "setup.exe") -> ResolvedSource:
     """Prepara el recurso `stale_candidate` usado por las pruebas para aislar el escenario `stale
     candidate` y conservar sus datos de entrada.
 
     Args:
         source: Entrada `source` del escenario que se mantiene estable para la prueba.
+        filename: Nombre que distingue el artefacto cuando la prueba crea varias resoluciones.
     """
     return ResolvedSource(
         download_source_id=source.id,
         resolved_url_encrypted="encrypted",
         final_domain="example.test",
-        filename="setup.exe",
+        filename=filename,
         extension=".exe",
         content_type="application/octet-stream",
         size_bytes=4096,
