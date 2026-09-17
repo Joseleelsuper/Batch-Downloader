@@ -1,2 +1,6 @@
 #!/usr/bin/env bash
-bd_progress() { printf '\r[%s/%s] %s\n' "$1" "$2" "$3"; }
+bd_progress() {
+  local current=$1 total=$2 message=$3
+  printf '\r[%s/%s] %s\n' "$current" "$total" "$message"
+  return $?
+}

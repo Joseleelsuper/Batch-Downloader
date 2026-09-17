@@ -6,9 +6,11 @@ RUN if command -v apt-get; then apt-get update && apt-get install -y --no-instal
     elif command -v pacman; then pacman -Syu --noconfirm bash python sudo shellcheck bats gnupg tar gzip base-devel; \
     else zypper --non-interactive install bash python3 sudo ShellCheck bats gpg2 tar gzip rpm-build; fi
 RUN useradd --create-home --uid 2000 installer
-COPY scripts/linux-installer/sudoers.test /etc/sudoers.d/installer-tests
-RUN chmod 0440 /etc/sudoers.d/installer-tests
 WORKDIR /workspace
+COPY scripts/linux-installer/sudoers.test /etc/sudoers.d/installer-tests
+COPY scripts/linux-installer scripts/linux-installer
+COPY services/download-worker/src/main/resources/linux-installer services/download-worker/src/main/resources/linux-installer
+RUN chmod 0440 /etc/sudoers.d/installer-tests
 USER installer
 ENV PYTHONDONTWRITEBYTECODE=1
 CMD ["bash", "scripts/linux-installer/verify.sh"]

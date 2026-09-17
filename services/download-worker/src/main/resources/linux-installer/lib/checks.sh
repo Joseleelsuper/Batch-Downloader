@@ -4,5 +4,10 @@ bd_pre_checks() {
   python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 2)' || {
     printf '%s\n' 'Se necesita Python 3.10 o posterior.' >&2; exit 2;
   }
+  return 0
 }
-bd_post_check() { test -e "$1"; }
+bd_post_check() {
+  local path=$1
+  [[ -e "$path" ]]
+  return $?
+}

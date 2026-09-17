@@ -112,23 +112,36 @@ def validate_profile(p):
         relative(p["entrypoint"])
     if p["strategy"] in ("tarball", "jar"):
         require(bool(p.get("entrypoint")), "recipe_entrypoint_required")
+    validate_dependencies(p)
+    validate_system_packages(p)
+    validate_linux_targets(p)
+    title = p.get("desktopName", "")
+    require(isinstance(title, str) and len(title) <= 200
+            and not any(ord(c) < 32 for c in title), "invalid_desktop_name")
+    validate_update(p.get("update"))
+    validate_verification(p.get("verification"), p.get("update"))
+    return p
+
+def validate_dependencies(p):
     require(isinstance(p.get("dependencies", []), list), "invalid_dependencies")
-    require(isinstance(p.get("systemPackages", {}), dict), "invalid_system_packages")
-    require(isinstance(p.get("linuxTargets", []), list), "invalid_linux_targets")
     for dep in p.get("dependencies", []):
         require(isinstance(dep, str) and ID.fullmatch(dep), "invalid_dependency")
     require(len(p.get("dependencies", [])) <= 100, "too_many_dependencies")
+
+def validate_system_packages(p):
+    require(isinstance(p.get("systemPackages", {}), dict), "invalid_system_packages")
     for manager, packages in p.get("systemPackages", {}).items():
         require(manager in TARGETS and isinstance(packages, list) and len(packages) <= 50,
                 "invalid_system_packages")
         for pkg in packages:
             require(isinstance(pkg, str) and PACKAGE.fullmatch(pkg), "invalid_package")
+
+def validate_linux_targets(p):
+    require(isinstance(p.get("linuxTargets", []), list), "invalid_linux_targets")
     for target in p.get("linuxTargets", []):
         require(target in TARGETS, "invalid_linux_target")
-    title = p.get("desktopName", "")
-    require(isinstance(title, str) and len(title) <= 200
-            and not any(ord(c) < 32 for c in title), "invalid_desktop_name")
-    update = p.get("update")
+
+def validate_update(update):
     if update:
         require(set(update) <= {"provider", "url", "repository", "assetPattern",
                                 "checksumPattern", "signaturePattern", "allowedHosts"},
@@ -146,7 +159,8 @@ def validate_profile(p):
                     "github_asset_required")
         else:
             validate_url(update.get("url", ""), hosts)
-    verification = p.get("verification")
+
+def validate_verification(verification, update):
     if verification:
         require(set(verification) <= {"fingerprint", "publicKey", "signatureUrl"},
                 "unknown_verification_field")
@@ -158,7 +172,6 @@ def validate_profile(p):
         if verification.get("signatureUrl"):
             require(update, "signature_hosts_required")
             validate_url(verification["signatureUrl"], update["allowedHosts"])
-    return p
 
 def validate_component(c):
     require(isinstance(c, dict) and c.get("schemaVersion") == 1, "invalid_component_schema")
@@ -246,12 +259,54 @@ def validate_url(url, hosts):
 
 class PinnedConnection(http.client.HTTPSConnection):
     def __init__(self, hostname, address):
-        super().__init__(hostname, timeout=30, context=ssl.create_default_context())
+        super().__init__(hostname, timeout=30, context=tls_context())
         self.address = address
 
     def connect(self):
         sock = socket.create_connection((self.address, 443), timeout=self.timeout)
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+def tls_context():
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_default_certs()
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+def public_address(hostname):
+    addresses = {entry[4][0] for entry in socket.getaddrinfo(
+        hostname, 443, type=socket.SOCK_STREAM)}
+    require(addresses and all(ipaddress.ip_address(address).is_global for address in addresses),
+            "non_public_update_address")
+    return min(addresses)
+
+def write_response(response, partial, max_bytes):
+    size = 0
+    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        while block := response.read(1024 * 1024):
+            size += len(block)
+            require(size <= max_bytes, "update_too_large")
+            stream.write(block)
+
+def fetch_redirect_or_file(current, hosts, partial, output, max_bytes):
+    parsed = validate_url(current, hosts)
+    conn = PinnedConnection(parsed.hostname, public_address(parsed.hostname))
+    try:
+        conn.request("GET", parsed.path + ("?" + parsed.query if parsed.query else ""),
+                     headers={"User-Agent": "BatchLinuxInstaller/1.0", "Accept": "*/*"})
+        response = conn.getresponse()
+        if response.status in (301, 302, 303, 307, 308):
+            return urljoin(current, response.getheader("Location", ""))
+        if response.status == 429 or response.status >= 500:
+            raise OSError("update_source_unavailable")
+        require(response.status == 200, "update_download_failed")
+        write_response(response, partial, max_bytes)
+        os.replace(partial, output)
+        return None
+    finally:
+        conn.close()
 
 def fetch(url, hosts, output, max_bytes=2 * 1024 ** 3):
     """Conecta a una IP pública ya validada; comprueba cada redirect."""
@@ -262,33 +317,10 @@ def fetch(url, hosts, output, max_bytes=2 * 1024 ** 3):
         current = url
         try:
             for _ in range(6):
-                parsed = validate_url(current, hosts)
-                addresses = {entry[4][0] for entry in socket.getaddrinfo(parsed.hostname, 443,
-                                                                         type=socket.SOCK_STREAM)}
-                require(addresses and all(ipaddress.ip_address(a).is_global for a in addresses),
-                        "non_public_update_address")
-                conn = PinnedConnection(parsed.hostname, sorted(addresses)[0])
-                try:
-                    conn.request("GET", parsed.path + ("?" + parsed.query if parsed.query else ""),
-                                 headers={"User-Agent": "BatchLinuxInstaller/1.0", "Accept": "*/*"})
-                    response = conn.getresponse()
-                    if response.status in (301, 302, 303, 307, 308):
-                        current = urljoin(current, response.getheader("Location", ""))
-                        continue
-                    if response.status == 429 or response.status >= 500:
-                        raise OSError("update_source_unavailable")
-                    require(response.status == 200, "update_download_failed")
-                    size = 0
-                    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-                    with os.fdopen(fd, "wb") as stream:
-                        while block := response.read(1024 * 1024):
-                            size += len(block)
-                            require(size <= max_bytes, "update_too_large")
-                            stream.write(block)
-                    os.replace(partial, output)
+                redirect = fetch_redirect_or_file(current, hosts, partial, output, max_bytes)
+                if redirect is None:
                     return output
-                finally:
-                    conn.close()
+                current = redirect
             raise ValueError("too_many_redirects")
         except OSError:
             partial.unlink(missing_ok=True)

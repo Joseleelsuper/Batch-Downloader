@@ -1,2 +1,6 @@
 #!/usr/bin/env bash
-bd_log() { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$1" "$2" >&2; }
+bd_log() {
+  local level=$1 message=$2
+  printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$level" "$message" >&2
+  return $?
+}

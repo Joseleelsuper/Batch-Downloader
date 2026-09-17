@@ -10,4 +10,5 @@ bd_main() {
   bd_parse_args "$@"
   bd_pre_checks
   PYTHONDONTWRITEBYTECODE=1 python3 -B "$BD_RUNTIME/lib/runtime.py" "$@"
+  return $?
 }

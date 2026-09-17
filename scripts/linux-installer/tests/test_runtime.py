@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -76,6 +77,22 @@ class DataTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 data.fetch("https://allowed.example/file", ["allowed.example"], Path(tmp) / "payload")
             self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_tls_context_requires_hostname_and_modern_protocol(self):
+        context = data.tls_context()
+
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertGreaterEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_checksum_parser_accepts_fixed_width_records_only(self):
+        digest = "a" * 64
+
+        self.assertTrue(updates.checksum_matches(digest + "  package.deb", "package.deb"))
+        self.assertTrue(updates.checksum_matches(digest + " *package.deb", "package.deb"))
+        self.assertFalse(updates.checksum_matches("z" * 64 + "  package.deb", "package.deb"))
+        self.assertFalse(updates.checksum_matches(digest + "  other.deb", "package.deb"))
+        self.assertFalse(updates.checksum_matches(digest + " package.deb", "package.deb"))
 
     def test_checksum_and_duplicate_json(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -3,10 +3,9 @@ from __future__ import annotations
 import copy
 import fnmatch
 from pathlib import Path
-import re
 import shutil
 import subprocess
-from data import check_hash, digest, fetch, read_json, require
+from data import SHA, check_hash, digest, fetch, read_json, require
 
 def run(argv):
     return subprocess.run(argv, check=True, text=True, capture_output=True)
@@ -32,27 +31,8 @@ def update_candidate(c, work):
     update = c["profile"].get("update")
     require(update, "update_requires_new_bundle")
     hosts = update["allowedHosts"]
-    if update["provider"] == "github":
-        url = "https://api.github.com/repos/" + update["repository"] + "/releases/latest"
-        release = read_json(fetch(url, hosts, work / "release.json", 2 * 1024 ** 2))
-        require(not release.get("draft") and not release.get("prerelease"), "unstable_release")
-        assets = release.get("assets", [])
-        def asset(pattern, required=False):
-            matches = [a for a in assets if pattern and fnmatch.fnmatchcase(a.get("name", ""), pattern)]
-            require(len(matches) <= 1 and (not required or len(matches) == 1), "ambiguous_release_asset")
-            return matches[0] if matches else {}
-        selected = asset(update["assetPattern"], True)
-        checksum = asset(update.get("checksumPattern"))
-        signature = asset(update.get("signaturePattern"))
-        info = {"version": release["tag_name"], "url": selected["browser_download_url"],
-                "filename": selected["name"], "checksumUrl": checksum.get("browser_download_url"),
-                "signatureUrl": signature.get("browser_download_url")}
-        github_digest = selected.get("digest") or ""
-        if github_digest.startswith("sha256:"): info["sha256"] = github_digest[7:]
-    else:
-        info = read_json(fetch(update["url"], hosts, work / "release.json", 2 * 1024 ** 2))
-        require(set(info) <= {"version", "url", "filename", "sha256", "signatureUrl", "checksumUrl"},
-                "invalid_official_manifest")
+    info = github_candidate(update, hosts, work) if update["provider"] == "github" \
+        else official_candidate(update, hosts, work)
     require(isinstance(info.get("version"), str) and len(info["version"]) <= 100,
             "invalid_update_version")
     name = info.get("filename", Path(c["filename"]).name)
@@ -61,8 +41,7 @@ def update_candidate(c, work):
     expected = info.get("sha256")
     if info.get("checksumUrl"):
         checksums = fetch(info["checksumUrl"], hosts, work / "SHA256SUMS", 1024 ** 2).read_text()
-        matches = [m.group(1) for line in checksums.splitlines()
-                   if (m := re.fullmatch(r"([a-fA-F0-9]{64})\s+\*?(.+)", line)) and m.group(2) == name]
+        matches = [line[:64] for line in checksums.splitlines() if checksum_matches(line, name)]
         require(len(matches) == 1, "checksum_asset_missing")
         expected = matches[0]
     verification = c["profile"].get("verification")
@@ -78,3 +57,36 @@ def update_candidate(c, work):
     updated = copy.deepcopy(c)
     updated.update(filename=name, sha256=digest(payload), version=info["version"])
     return updated, payload
+
+def github_candidate(update, hosts, work):
+    url = "https://api.github.com/repos/" + update["repository"] + "/releases/latest"
+    release = read_json(fetch(url, hosts, work / "release.json", 2 * 1024 ** 2))
+    require(not release.get("draft") and not release.get("prerelease"), "unstable_release")
+    assets = release.get("assets", [])
+    selected = release_asset(assets, update["assetPattern"], True)
+    checksum = release_asset(assets, update.get("checksumPattern"))
+    signature = release_asset(assets, update.get("signaturePattern"))
+    info = {"version": release["tag_name"], "url": selected["browser_download_url"],
+            "filename": selected["name"], "checksumUrl": checksum.get("browser_download_url"),
+            "signatureUrl": signature.get("browser_download_url")}
+    github_digest = selected.get("digest") or ""
+    if github_digest.startswith("sha256:"):
+        info["sha256"] = github_digest[7:]
+    return info
+
+def release_asset(assets, pattern, required=False):
+    matches = [asset for asset in assets
+               if pattern and fnmatch.fnmatchcase(asset.get("name", ""), pattern)]
+    require(len(matches) <= 1 and (not required or len(matches) == 1), "ambiguous_release_asset")
+    return matches[0] if matches else {}
+
+def official_candidate(update, hosts, work):
+    info = read_json(fetch(update["url"], hosts, work / "release.json", 2 * 1024 ** 2))
+    require(set(info) <= {"version", "url", "filename", "sha256", "signatureUrl", "checksumUrl"},
+            "invalid_official_manifest")
+    return info
+
+def checksum_matches(line, name):
+    if len(line) < 66 or not SHA.fullmatch(line[:64]):
+        return False
+    return line[64:66] in ("  ", " *") and line[66:] == name

@@ -25,6 +25,11 @@ from updates import update_candidate, verify_gpg
 RUNTIME = Path(__file__).resolve().parent.parent
 DEFAULTS = {"LOG_LEVEL": "INFO", "PARALLEL_DOWNLOADS": "4",
             "ROLLBACK_VERSIONS": "2", "ROLLBACK_MAX_BYTES": "2147483648"}
+BUNDLE_CONFIG = "config/bundle.json"
+DATA_HOME_SUFFIX = ".local/share"
+APPS_PATH = "apps/"
+INSTALLER_PATH = ".local/bin/batch-linux-installer"
+MANUAL_LABEL = "MANUAL:"
 
 def text(es, en):
     return es if os.environ.get("LANG", "es").lower().startswith("es") else en
@@ -56,7 +61,7 @@ def configuration():
     return result
 
 def load_bundle(root):
-    metadata = read_json(root / "config/bundle.json")
+    metadata = read_json(root / BUNDLE_CONFIG)
     require(metadata.get("schemaVersion") == 1 and ID.fullmatch(metadata.get("id", "")),
             "invalid_bundle")
     components = {}
@@ -119,7 +124,7 @@ class Installer:
         self.machine = detect()
         self.home = Path.home()
         self.state_root = Path(os.environ.get("XDG_STATE_HOME", self.home / ".local/state")) / "batch-linux-installer"
-        self.data_root = Path(os.environ.get("XDG_DATA_HOME", self.home / ".local/share")) / "batch-linux-installer"
+        self.data_root = Path(os.environ.get("XDG_DATA_HOME", self.home / DATA_HOME_SUFFIX)) / "batch-linux-installer"
         self.state_file = self.state_root / "state.json"
         self.journal = self.state_root / "journal.json"
         self.state = read_json(self.state_file) if self.state_file.exists() else {"schemaVersion": 1, "bundles": {}, "apps": {}}
@@ -160,10 +165,10 @@ class Installer:
         return "system" if (self.args.scope or c["profile"].get("scope", "auto")) == "system" else "user"
 
     def app_dir(self, c):
-        return child(self.data_root, "apps/" + c["appId"])
+        return child(self.data_root, APPS_PATH + c["appId"])
 
     def activate(self, app_id, record):
-        destination = child(self.data_root, "apps/" + app_id)
+        destination = child(self.data_root, APPS_PATH + app_id)
         destination.mkdir(parents=True, exist_ok=True, mode=0o700)
         link = destination / "current"
         require(not link.exists() or link.is_symlink(), "unmanaged_current_path")
@@ -178,7 +183,7 @@ class Installer:
                 "unmanaged_launcher")
         if not launch.is_symlink():
             launch.symlink_to(expected)
-        desktop = Path(os.environ.get("XDG_DATA_HOME", self.home / ".local/share")) / "applications" / ("batch-" + app_id + ".desktop")
+        desktop = Path(os.environ.get("XDG_DATA_HOME", self.home / DATA_HOME_SUFFIX)) / "applications" / ("batch-" + app_id + ".desktop")
         desktop.parent.mkdir(parents=True, exist_ok=True)
         require(not desktop.is_symlink(), "desktop_symlink")
         title = record["component"]["profile"].get("desktopName") or record["component"].get("name", app_id)
@@ -223,7 +228,7 @@ class Installer:
         os.replace(stage, target)
         executable = target / "bin/batch-linux-installer"
         executable.chmod(0o700)
-        launcher = self.home / ".local/bin/batch-linux-installer"
+        launcher = self.home / INSTALLER_PATH
         launcher.parent.mkdir(parents=True, exist_ok=True)
         require(not launcher.exists() or launcher.is_symlink(), "unmanaged_installer_launcher")
         if launcher.is_symlink(): launcher.unlink()
@@ -269,11 +274,11 @@ class Installer:
         self.journal.unlink()
 
     def remove_portable(self, app_id):
-        directory = child(self.data_root, "apps/" + app_id)
+        directory = child(self.data_root, APPS_PATH + app_id)
         launch = self.home / ".local/bin" / ("batch-app-" + app_id)
         if launch.is_symlink() and launch.readlink() == directory / "current/launch":
             launch.unlink()
-        desktop = Path(os.environ.get("XDG_DATA_HOME", self.home / ".local/share")) / "applications" / ("batch-" + app_id + ".desktop")
+        desktop = Path(os.environ.get("XDG_DATA_HOME", self.home / DATA_HOME_SUFFIX)) / "applications" / ("batch-" + app_id + ".desktop")
         require(not desktop.is_symlink(), "desktop_symlink")
         desktop.unlink(missing_ok=True)
         # Los payloads quedan hasta confirmar el diario para poder recuperar la desinstalación.
@@ -306,21 +311,37 @@ class Installer:
     def prune(self):
         budget, keep = int(self.config["ROLLBACK_MAX_BYTES"]), int(self.config["ROLLBACK_VERSIONS"])
         for app in self.state["apps"].values():
-            retained = []
-            for old in app["history"]:
-                if old["scope"] == "system":
-                    if len(retained) < keep: retained.append(old)
-                    continue
-                directory = Path(old["directory"])
-                size = sum(p.stat().st_size for p in directory.rglob("*") if p.is_file() and not p.is_symlink()) if directory.exists() else 0
-                if len(retained) < keep and size <= budget:
+            budget = self.prune_history(app, budget, keep)
+        self.remove_orphan_apps()
+
+    def prune_history(self, app, budget, keep):
+        retained = []
+        for old in app["history"]:
+            if old["scope"] == "system":
+                if len(retained) < keep:
                     retained.append(old)
-                    budget -= size
-                elif directory.exists() and directory != Path(app["current"].get("directory", "")):
-                    require(directory.resolve().is_relative_to(self.data_root / "apps"), "prune_escape")
-                    shutil.rmtree(directory)
-            app["history"] = retained
-        apps_dir = self.data_root / "apps"
+                continue
+            directory = Path(old["directory"])
+            size = self.directory_size(directory)
+            if len(retained) < keep and size <= budget:
+                retained.append(old)
+                budget -= size
+            elif directory.exists() and directory != Path(app["current"].get("directory", "")):
+                require(directory.resolve().is_relative_to(self.data_root / APPS_PATH.rstrip("/")),
+                        "prune_escape")
+                shutil.rmtree(directory)
+        app["history"] = retained
+        return budget
+
+    @staticmethod
+    def directory_size(directory):
+        if not directory.exists():
+            return 0
+        return sum(path.stat().st_size for path in directory.rglob("*")
+                   if path.is_file() and not path.is_symlink())
+
+    def remove_orphan_apps(self):
+        apps_dir = self.data_root / APPS_PATH.rstrip("/")
         if apps_dir.exists():
             for directory in apps_dir.iterdir():
                 if directory.is_dir() and not directory.is_symlink() and directory.name not in self.state["apps"]:
@@ -329,34 +350,58 @@ class Installer:
     def execute(self):
         require(os.name == "posix" and sys.platform.startswith("linux"), "linux_required")
         if self.args.action == "list":
-            for identifier, bundle in self.state["bundles"].items(): print(identifier, len(bundle["components"]))
+            self.list_bundles()
             return
         root = RUNTIME
         if self.load_action_bundle(root):
             return
-        selection = self.args.components.split(",") if self.args.components else None
-        sequence = ordered(self.components, selection)
-        if self.args.action in ("uninstall", "rollback"): sequence.reverse()
-        if self.args.action == "uninstall" and selection:
-            for key, c in self.components.items():
-                require(key in sequence or not set(c["profile"].get("dependencies", [])) & set(sequence),
-                        "component_still_required")
+        sequence = self.execution_sequence()
         summary = "\n".join(f'{c}: {self.components[c].get("name", c)} [{self.components[c]["profile"]["strategy"]}, {self.scope(self.components[c])}]' for c in sequence)
         if self.args.dry_run:
-            print(self.machine["name"], self.machine["architecture"])
-            print(self.args.action + "\n" + summary)
-            for identifier in sequence:
-                c = self.components[identifier]
-                if not compatible(c, self.machine): print("MANUAL:", identifier)
-                elif self.args.action == "install": check_hash(child(root, c["filename"]), c["sha256"])
+            self.dry_run(root, sequence, summary)
             return
+        selected = self.run_mutating(root, sequence, summary)
+        if selected is None:
+            return
+        self.finish(selected)
+
+    def list_bundles(self):
+        for identifier, bundle in self.state["bundles"].items():
+            print(identifier, len(bundle["components"]))
+
+    def execution_sequence(self):
+        selection = self.args.components.split(",") if self.args.components else None
+        sequence = ordered(self.components, selection)
+        if self.args.action in ("uninstall", "rollback"):
+            sequence.reverse()
+        if self.args.action == "uninstall" and selection:
+            self.validate_uninstall_selection(sequence)
+        return sequence
+
+    def validate_uninstall_selection(self, sequence):
+        selected = set(sequence)
+        for key, component in self.components.items():
+            dependencies = set(component["profile"].get("dependencies", []))
+            require(key in selected or not dependencies & selected, "component_still_required")
+
+    def dry_run(self, root, sequence, summary):
+        print(self.machine["name"], self.machine["architecture"])
+        print(self.args.action + "\n" + summary)
+        for identifier in sequence:
+            component = self.components[identifier]
+            if not compatible(component, self.machine):
+                print(MANUAL_LABEL, identifier)
+            elif self.args.action == "install":
+                check_hash(child(root, component["filename"]), component["sha256"])
+
+    def run_mutating(self, root, sequence, summary):
         require(os.geteuid() != 0, "run_as_user_sudo_requested_when_needed")
         confirm(self.args, self.args.action + "\n" + summary)
         self.mutable()
         require(not self.journal.exists(), "unfinished_transaction_run_rollback")
         selected, payloads = self.prepare_installation(root, sequence)
         if self.args.action == "install" and not selected:
-            return
+            return None
         with tempfile.TemporaryDirectory(prefix="batch-linux-") as temporary:
             work = Path(temporary)
             if self.args.action == "update":
@@ -364,13 +409,16 @@ class Installer:
             elif self.args.action == "install":
                 self.verify_signatures(selected, payloads, root, work)
             self.transact(selected, payloads)
+        return selected
+
+    def finish(self, selected):
         atomic_json(self.state_root / "last-result.json",
                     {"bundleId": self.bundle["id"], "action": self.args.action,
                      "status": "completed", "components": list(selected)})
         print(text("Completado. Bundle: ", "Completed. Bundle: ") + self.bundle["id"])
-        print(str(self.home / ".local/bin/batch-linux-installer") + " uninstall " + self.bundle["id"])
+        print(str(self.home / INSTALLER_PATH) + " uninstall " + self.bundle["id"])
         if self.args.purge and self.args.action == "uninstall" and not self.state["bundles"]:
-            launcher = self.home / ".local/bin/batch-linux-installer"
+            launcher = self.home / INSTALLER_PATH
             if launcher.is_symlink() and launcher.readlink() == self.state_root / "runtime/bin/batch-linux-installer": launcher.unlink()
             logging.shutdown()
             require(self.state_root.name == "batch-linux-installer", "purge_escape")
@@ -421,7 +469,7 @@ class Installer:
             directory = work / key
             directory.mkdir()
             if not component["profile"].get("update"):
-                print("MANUAL:", key, text("Descarga un ZIP nuevo.", "Download a new ZIP."))
+                print(MANUAL_LABEL, key, text("Descarga un ZIP nuevo.", "Download a new ZIP."))
                 return key, None
             return key, update_candidate(component, directory)
         with ThreadPoolExecutor(max_workers=int(self.config["PARALLEL_DOWNLOADS"])) as pool:
@@ -447,56 +495,73 @@ class Installer:
         if self.args.action in ("install", "update"):
             self.apply(c, payload)
         elif self.args.action == "uninstall":
-            self.touch(c)
-            app = self.state["apps"].get(c["appId"])
-            if app:
-                remaining = set(app["bundles"]) - {self.bundle["id"]}
-                if app["current"]["scope"] == "system" or c["profile"].get("systemPackages"):
-                    self.native("remove", c)
-                if remaining: app["bundles"] = sorted(remaining)
-                else:
-                    if app["current"]["scope"] == "user": self.remove_portable(c["appId"])
-                    del self.state["apps"][c["appId"]]
+            self.uninstall_component(c)
         else:
-            app = self.state["apps"].get(c["appId"])
-            require(app and app["history"], "rollback_version_unavailable")
-            self.touch(c)
-            previous = app["history"].pop(0)
-            if previous["scope"] == "system": self.native("rollback", previous["component"])
-            else:
-                require(Path(previous["directory"]).is_dir(), "rollback_version_unavailable")
-                self.activate(c["appId"], previous)
-            app["history"].insert(0, app["current"])
-            app["current"] = previous
+            self.rollback_component(c)
+
+    def uninstall_component(self, c):
+        self.touch(c)
+        app = self.state["apps"].get(c["appId"])
+        if not app:
+            return
+        remaining = set(app["bundles"]) - {self.bundle["id"]}
+        if app["current"]["scope"] == "system" or c["profile"].get("systemPackages"):
+            self.native("remove", c)
+        if remaining:
+            app["bundles"] = sorted(remaining)
+            return
+        if app["current"]["scope"] == "user":
+            self.remove_portable(c["appId"])
+        del self.state["apps"][c["appId"]]
+
+    def rollback_component(self, c):
+        app = self.state["apps"].get(c["appId"])
+        require(app and app["history"], "rollback_version_unavailable")
+        self.touch(c)
+        previous = app["history"].pop(0)
+        if previous["scope"] == "system":
+            self.native("rollback", previous["component"])
+        else:
+            require(Path(previous["directory"]).is_dir(), "rollback_version_unavailable")
+            self.activate(c["appId"], previous)
+        app["history"].insert(0, app["current"])
+        app["current"] = previous
 
     def prepare_installation(self, root, sequence):
         """Comprueba hash, formato y dependencias; conserva las aplicaciones independientes instalables."""
+        if self.args.action != "install":
+            return {identifier: self.components[identifier] for identifier in sequence}, {}
+        payloads, selected = self.select_installable(root, sequence)
+        self.remove_blocked(selected)
+        if not selected:
+            print(text("No hay componentes instalables para este equipo.",
+                       "No components can be installed on this machine."))
+        return selected, payloads
+
+    def select_installable(self, root, sequence):
         payloads, selected = {}, {}
         for identifier in sequence:
             c = self.components[identifier]
-            if self.args.action == "install":
-                if not compatible(c, self.machine):
-                    print("MANUAL:", c.get("name", identifier)); continue
-                payload = child(root, c["filename"])
-                check_hash(payload, c["sha256"])
-                inspect(c["profile"]["strategy"], payload)
-                selected[identifier], payloads[identifier] = c, payload
-            else: selected[identifier] = c
-        if self.args.action == "install":
-            # Propaga la indisponibilidad de una dependencia sin impedir las apps independientes.
-            while True:
-                blocked = [key for key, c in selected.items()
-                           if any(d not in selected for d in c["profile"].get("dependencies", []))]
-                if not blocked:
-                    break
-                for key in blocked:
-                    print("MANUAL:", key, "dependency_not_installable")
-                    del selected[key]
-            if not selected:
-                print(text("No hay componentes instalables para este equipo.",
-                           "No components can be installed on this machine."))
-                return selected, payloads
-        return selected, payloads
+            if not compatible(c, self.machine):
+                print(MANUAL_LABEL, c.get("name", identifier))
+                continue
+            payload = child(root, c["filename"])
+            check_hash(payload, c["sha256"])
+            inspect(c["profile"]["strategy"], payload)
+            selected[identifier], payloads[identifier] = c, payload
+        return payloads, selected
+
+    def remove_blocked(self, selected):
+        # Propaga la indisponibilidad de una dependencia sin impedir las apps independientes.
+        while True:
+            blocked = [key for key, component in selected.items()
+                       if any(dependency not in selected
+                              for dependency in component["profile"].get("dependencies", []))]
+            if not blocked:
+                return
+            for key in blocked:
+                print(MANUAL_LABEL, key, "dependency_not_installable")
+                del selected[key]
 
     def load_action_bundle(self, root):
         """Carga el bundle vigente o recupera un diario interrumpido; indica si esa recuperación terminó."""
@@ -504,8 +569,8 @@ class Installer:
             self.bundle, self.components = load_bundle(root)
         else:
             identifier = self.args.bundle
-            if not identifier and (root / "config/bundle.json").exists():
-                identifier = read_json(root / "config/bundle.json")["id"]
+            if not identifier and (root / BUNDLE_CONFIG).exists():
+                identifier = read_json(root / BUNDLE_CONFIG)["id"]
             if self.args.action == "rollback" and self.journal.exists():
                 journal = read_json(self.journal)
                 self.bundle = journal["bundle"]
