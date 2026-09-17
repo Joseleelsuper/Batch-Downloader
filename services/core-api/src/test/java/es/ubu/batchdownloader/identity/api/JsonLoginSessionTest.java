@@ -3,6 +3,7 @@ package es.ubu.batchdownloader.identity.api;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,7 +18,6 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.Authentication;
@@ -28,13 +28,13 @@ import org.springframework.security.web.context.SecurityContextRepository;
 class JsonLoginSessionTest {
     @Test
     void rotatesTheSessionAndPersistsTheSecurityContextAfterUserLogin() {
-        IdentityService identities = Mockito.mock(IdentityService.class);
-        AccountAuthenticator authenticator = Mockito.mock(AccountAuthenticator.class);
-        CurrentAccount currentAccount = Mockito.mock(CurrentAccount.class);
-        SecurityContextRepository contexts = Mockito.mock(SecurityContextRepository.class);
-        SessionAuthenticationStrategy sessions = Mockito.mock(SessionAuthenticationStrategy.class);
-        Authentication authentication = Mockito.mock(Authentication.class);
-        UserAccount user = Mockito.mock(UserAccount.class);
+        IdentityService identities = mock(IdentityService.class);
+        AccountAuthenticator authenticator = mock(AccountAuthenticator.class);
+        CurrentAccount currentAccount = mock(CurrentAccount.class);
+        SecurityContextRepository contexts = mock(SecurityContextRepository.class);
+        SessionAuthenticationStrategy sessions = mock(SessionAuthenticationStrategy.class);
+        Authentication authentication = mock(Authentication.class);
+        UserAccount user = mock(UserAccount.class);
         UUID userId = UUID.randomUUID();
         IdentityView view = new IdentityView(
                 userId, "person", "person@example.com", true, UserRole.USER, true,
@@ -63,15 +63,15 @@ class JsonLoginSessionTest {
 
     @Test
     void requestsAnotherVerificationEmailAfterAValidLoginForAnUnverifiedAccount() {
-        IdentityService identities = Mockito.mock(IdentityService.class);
-        AccountAuthenticator authenticator = Mockito.mock(AccountAuthenticator.class);
+        IdentityService identities = mock(IdentityService.class);
+        AccountAuthenticator authenticator = mock(AccountAuthenticator.class);
         ForbiddenException notVerified = new ForbiddenException(
                 "email_not_verified", "Debes verificar tu correo antes de iniciar sesión.");
         when(authenticator.authenticateUser("person@example.com", "correct-password"))
                 .thenThrow(notVerified);
         IdentityController controller = new IdentityController(
-                identities, authenticator, Mockito.mock(CurrentAccount.class),
-                Mockito.mock(SecurityContextRepository.class), Mockito.mock(SessionAuthenticationStrategy.class),
+                identities, authenticator, mock(CurrentAccount.class),
+                mock(SecurityContextRepository.class), mock(SessionAuthenticationStrategy.class),
                 new AuthRateLimiter(100, 100, 100));
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRemoteAddr("127.0.0.1");

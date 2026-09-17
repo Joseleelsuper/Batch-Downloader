@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/admin/apps/{appId}/linux")
 public class LinuxInstallAdminController {
+    private static final String VERSION_FIELD = "version";
+
     private final ScraperInternalClient scraper;
     private final AdminAuditService audit;
 
@@ -70,7 +72,7 @@ public class LinuxInstallAdminController {
             @RequestBody JsonNode body, @AuthenticationPrincipal AccountPrincipal principal) {
         JsonNode result = scraper.writeLinuxProfile(appId, sourceRef, body);
         audit.record(principal.getUsername(), "app.linux.profile", "source", sourceRef.toString(),
-                Map.of("appId", appId.toString(), "version", result.path("version").asLong()));
+                Map.of("appId", appId.toString(), VERSION_FIELD, result.path(VERSION_FIELD).asLong()));
         return result;
     }
 
@@ -102,7 +104,7 @@ public class LinuxInstallAdminController {
             @AuthenticationPrincipal AccountPrincipal principal) {
         JsonNode result = scraper.writeLinuxDependencies(appId, body);
         audit.record(principal.getUsername(), "app.linux.dependencies", "app", appId.toString(),
-                Map.of("version", result.path("version").asLong()));
+                Map.of(VERSION_FIELD, result.path(VERSION_FIELD).asLong()));
         return result;
     }
 }

@@ -545,9 +545,10 @@ class DownloadJobProcessorTest {
         FilenamePolicy filenames = new FilenamePolicy();
         DownloadEventEmitter events = new DownloadEventEmitter(publisher, storage, clock);
         DownloadJobFiles files = new DownloadJobFiles(store, metrics, downloadProperties);
+        DownloadPipeline.Dependencies dependencies = new DownloadPipeline.Dependencies(
+                executor, downloader, filenames, downloadProperties, cancellations, metrics, events, clock, files);
         DownloadPipelineFactory pipelines = (event, items, directory, window) -> new DownloadPipeline(
-                event, items, directory, window, executor, downloader, filenames, downloadProperties,
-                cancellations, metrics, events, clock, files);
+                event, items, directory, window, dependencies);
         return new DownloadJobProcessor(pipelines, store, new ZipArchiveBuilder(), downloadProperties, clock,
                 cancellations, new JobCapacity(downloadProperties.jobConcurrency(), registry), packagingSemaphore,
                 metrics, new TemporaryDiskCapacity(downloadProperties), null, events, files,

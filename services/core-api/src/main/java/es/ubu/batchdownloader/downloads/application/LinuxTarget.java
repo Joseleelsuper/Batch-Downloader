@@ -17,6 +17,9 @@ import java.util.Set;
  * @category Descargas
  */
 public record LinuxTarget(String manager, String architecture) {
+    private static final String APPIMAGE = ".appimage";
+    private static final String TAR_GZ = ".tar.gz";
+
     /**
      * Rechaza gestores y arquitecturas fuera de los conjuntos soportados.
      *
@@ -59,10 +62,10 @@ public record LinuxTarget(String manager, String architecture) {
      */
     public List<String> extensions() {
         return switch (manager) {
-            case "apt" -> List.of(".deb", ".appimage", ".tar.gz", ".jar");
-            case "dnf", "zypper" -> List.of(".rpm", ".appimage", ".tar.gz", ".jar");
-            case "pacman" -> List.of(".pkg.tar.zst", ".appimage", ".tar.gz", ".jar");
-            default -> List.of(".appimage", ".tar.gz", ".jar");
+            case "apt" -> List.of(".deb", APPIMAGE, TAR_GZ, ".jar");
+            case "dnf", "zypper" -> List.of(".rpm", APPIMAGE, TAR_GZ, ".jar");
+            case "pacman" -> List.of(".pkg.tar.zst", APPIMAGE, TAR_GZ, ".jar");
+            default -> List.of(APPIMAGE, TAR_GZ, ".jar");
         };
     }
 }

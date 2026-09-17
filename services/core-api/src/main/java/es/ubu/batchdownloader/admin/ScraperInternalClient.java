@@ -48,6 +48,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ScraperInternalClient {
+    private static final String APPS_PATH = "/apps/";
+
     /**
      * Consulta por GET el perfil Linux de un instalador exacto de la aplicación.
      *
@@ -56,7 +58,7 @@ public class ScraperInternalClient {
      * @return JSON del perfil o del estado de aprobación que expone el scraper.
      */
     public JsonNode readLinuxProfile(UUID appId, UUID sourceRef) {
-        return readLinux("/apps/" + appId + "/sources/" + sourceRef + "/profile");
+        return readLinux(APPS_PATH + appId + "/sources/" + sourceRef + "/profile");
     }
 
     /**
@@ -68,7 +70,7 @@ public class ScraperInternalClient {
      * @return JSON resultante de la validación y persistencia remotas.
      */
     public JsonNode writeLinuxProfile(UUID appId, UUID sourceRef, JsonNode body) {
-        return writeLinux("/apps/" + appId + "/sources/" + sourceRef + "/profile", body);
+        return writeLinux(APPS_PATH + appId + "/sources/" + sourceRef + "/profile", body);
     }
 
     /**
@@ -78,7 +80,7 @@ public class ScraperInternalClient {
      * @return JSON de dependencias proporcionado por el scraper.
      */
     public JsonNode readLinuxDependencies(UUID appId) {
-        return readLinux("/apps/" + appId + "/dependencies");
+        return readLinux(APPS_PATH + appId + "/dependencies");
     }
 
     /**
@@ -89,7 +91,7 @@ public class ScraperInternalClient {
      * @return JSON de dependencias posterior a la escritura.
      */
     public JsonNode writeLinuxDependencies(UUID appId, JsonNode body) {
-        return writeLinux("/apps/" + appId + "/dependencies", body);
+        return writeLinux(APPS_PATH + appId + "/dependencies", body);
     }
 
     /**

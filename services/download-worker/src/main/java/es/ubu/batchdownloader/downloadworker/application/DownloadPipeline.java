@@ -59,24 +59,36 @@ public final class DownloadPipeline {
      * @param items Fuentes resueltas que conservan los identificadores de los elementos admitidos.
      * @param jobDirectory Directorio temporal exclusivo de esta ejecución del trabajo.
      * @param window Máximo de tareas simultáneas, acotado por el número de elementos.
-     * @param executor Ejecutor compartido que ejecuta las tareas sin crear un pool por trabajo.
-     * @param remoteDownloader Cadena de políticas de descarga, integridad, límites, reintentos y
-     *     limpieza.
-     * @param filenamePolicy Asigna nombres seguros y únicos dentro del archivo del trabajo.
-     * @param properties Límites de cantidad, concurrencia, bytes y empaquetado del worker.
-     * @param cancellations Registro que conecta las solicitudes de cancelación con los futuros del
-     *     trabajo.
-     * @param metrics Contadores y temporizadores de actividad, temporales y empaquetado.
-     * @param events Publicador de progreso y resultados que conserva identidad determinista de
-     *     eventos.
-     * @param clock Reloj para fechar el progreso y las decisiones del coordinador.
-     * @param files Creación y limpieza de temporales y compensación de objetos incompletos.
+     * @param dependencies Colaboradores compartidos del worker usados por el pipeline.
      */
     public DownloadPipeline(
             DownloadJobRequestedEvent event,
             List<ResolvedDownloadItem> items,
             Path jobDirectory,
             int window,
+            Dependencies dependencies) {
+        this.event = event;
+        this.items = items;
+        this.jobDirectory = jobDirectory;
+        this.window = Math.min(window, items.size());
+        this.remoteDownloader = dependencies.remoteDownloader();
+        this.filenamePolicy = dependencies.filenamePolicy();
+        this.properties = dependencies.properties();
+        this.cancellations = dependencies.cancellations();
+        this.metrics = dependencies.metrics();
+        this.events = dependencies.events();
+        this.clock = dependencies.clock();
+        this.files = dependencies.files();
+        this.completions = new ExecutorCompletionService<>(dependencies.executor());
+        this.budget = new DownloadBudget(dependencies.properties().maxTotalSize().toBytes());
+        this.usedNames = dependencies.filenamePolicy().newNameSet();
+        while (submitted < this.window) {
+            submitNext();
+        }
+    }
+
+    /** Colaboradores inmutables compartidos por todos los pipelines del worker. */
+    public record Dependencies(
             ExecutorService executor,
             RemoteDownloader remoteDownloader,
             FilenamePolicy filenamePolicy,
@@ -85,26 +97,7 @@ public final class DownloadPipeline {
             DownloadWorkerMetrics metrics,
             DownloadEventEmitter events,
             Clock clock,
-            DownloadJobFiles files) {
-        this.event = event;
-        this.items = items;
-        this.jobDirectory = jobDirectory;
-        this.window = Math.min(window, items.size());
-        this.remoteDownloader = remoteDownloader;
-        this.filenamePolicy = filenamePolicy;
-        this.properties = properties;
-        this.cancellations = cancellations;
-        this.metrics = metrics;
-        this.events = events;
-        this.clock = clock;
-        this.files = files;
-        this.completions = new ExecutorCompletionService<>(executor);
-        this.budget = new DownloadBudget(properties.maxTotalSize().toBytes());
-        this.usedNames = filenamePolicy.newNameSet();
-        while (submitted < this.window) {
-            submitNext();
-        }
-    }
+            DownloadJobFiles files) {}
 
     /**
      * Indica si quedan resultados por recoger de la selección resuelta.

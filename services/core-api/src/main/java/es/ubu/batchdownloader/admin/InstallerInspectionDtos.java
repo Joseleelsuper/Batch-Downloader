@@ -343,9 +343,11 @@ public final class InstallerInspectionDtos {
          *     después de aplicar.
          */
         public ManualInstallerApplyResult {
-            sourceRefs = sourceRefs == null
-                    ? (sourceRef == null ? List.of() : List.of(sourceRef))
-                    : List.copyOf(sourceRefs);
+            if (sourceRefs == null) {
+                sourceRefs = sourceRef == null ? List.of() : List.of(sourceRef);
+            } else {
+                sourceRefs = List.copyOf(sourceRefs);
+            }
             warnings = warnings == null ? List.of() : List.copyOf(warnings);
         }
     }

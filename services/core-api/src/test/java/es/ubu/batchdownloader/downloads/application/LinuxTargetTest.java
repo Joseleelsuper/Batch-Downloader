@@ -29,15 +29,17 @@ class LinuxTargetTest {
 
     @Test
     void rejectsPartialInvalidOrNonLinuxTargets() {
-        assertThatThrownBy(() -> LinuxTarget.optional("apt", null, List.of("linux")))
+        List<String> linux = List.of("linux");
+        List<String> mixed = List.of("linux", "windows");
+        assertThatThrownBy(() -> LinuxTarget.optional("apt", null, linux))
                 .isInstanceOf(BadRequestException.class)
                 .extracting("code")
                 .isEqualTo("invalid_linux_target");
-        assertThatThrownBy(() -> LinuxTarget.optional("apk", "x86_64", List.of("linux")))
+        assertThatThrownBy(() -> LinuxTarget.optional("apk", "x86_64", linux))
                 .isInstanceOf(BadRequestException.class)
                 .extracting("code")
                 .isEqualTo("invalid_linux_target");
-        assertThatThrownBy(() -> LinuxTarget.optional("apt", "x86_64", List.of("linux", "windows")))
+        assertThatThrownBy(() -> LinuxTarget.optional("apt", "x86_64", mixed))
                 .isInstanceOf(BadRequestException.class)
                 .extracting("code")
                 .isEqualTo("linux_target_requires_linux");

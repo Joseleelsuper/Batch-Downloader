@@ -322,8 +322,7 @@ public class UserBundleRepository {
     }
 
     /**
-     * Inserta etiquetas ya validadas con su clave en minúsculas y una fecha compartida para todo el
-     * lote.
+     * Inserta etiquetas ya validadas con su clave en minúsculas y una fecha compartida para el lote.
      *
      * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
      *     pública.

@@ -47,8 +47,9 @@ class SemanticStatusClientTest {
     @Test
     void sanitizesInternalAuthorizationFailure() {
         server = createServer(401);
+        SemanticStatusClient semanticClient = client();
 
-        assertThatThrownBy(() -> client().get())
+        assertThatThrownBy(semanticClient::get)
                 .isInstanceOf(ConflictException.class)
                 .extracting(exception -> ((ConflictException) exception).code())
                 .isEqualTo("semantic_status_internal_unauthorized");

@@ -23,7 +23,7 @@ import org.springframework.jdbc.core.RowMapper;
 /** Comprueba que el mantenimiento administrativo respeta la política de retención. */
 class AdminScraperRepositoryTest {
 
-    /** La consulta de ejecución actual aprovecha los índices y evita ordenar todo el historial. */
+    /** La consulta de ejecución actual aprovecha los índices y evita ordenar el historial completo. */
     @Test
     void currentPrefersRunningWithoutSortingTheWholeHistory() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

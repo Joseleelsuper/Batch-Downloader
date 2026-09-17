@@ -210,10 +210,13 @@ class DownloadJobServiceTest {
     void rejectsAnUnavailableExplicitSource() {
         UUID appId = UUID.randomUUID();
         UUID sourceRef = UUID.randomUUID();
+        RequestOwner owner = new RequestOwner(null, "browser-hash", "ip-hash");
+        DownloadSelection selection = new DownloadSelection(
+                List.of(appId), List.of("windows"), sourceRef, null, null);
         when(sources.findVerifiedSource(appId, sourceRef, List.of("windows")))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(appId), List.of("windows"), sourceRef, null, null), false))
+        assertThatThrownBy(() -> service.create(owner, selection, false))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("versión seleccionada");
 
@@ -223,7 +226,11 @@ class DownloadJobServiceTest {
     /** Comprueba que una fuente concreta no pueda aplicarse a varias aplicaciones. */
     @Test
     void rejectsAnExplicitSourceForMultipleApplications() {
-        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(UUID.randomUUID(), UUID.randomUUID()), List.of("windows"), UUID.randomUUID(), null, null), false))
+        List<UUID> appIds = List.of(UUID.randomUUID(), UUID.randomUUID());
+        DownloadSelection selection = new DownloadSelection(appIds, List.of("windows"), UUID.randomUUID(), null, null);
+        RequestOwner owner = new RequestOwner(null, "browser-hash", "ip-hash");
+
+        assertThatThrownBy(() -> service.create(owner, selection, false))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("única aplicación");
 
@@ -247,7 +254,7 @@ class DownloadJobServiceTest {
                         "Aplicación",
                         "https://example.com/app",
                         "automatic")));
-        when(sources.findManualSources(eq(expanded))).thenReturn(Map.of(
+        when(sources.findManualSources(expanded)).thenReturn(Map.of(
                 manualDependency,
                 new CatalogSourceLookup.ManualSource(
                         manualDependency, "Dependencia manual", "https://example.com/dependency")));
@@ -288,7 +295,7 @@ class DownloadJobServiceTest {
         assertThat(view.linux().target()).isEqualTo("apt");
         assertThat(view.linux().architecture()).isEqualTo("aarch64");
         assertThat(view.linux().addedDependencyAppIds()).containsExactly(dependency);
-        verify(jobs).saveLinuxContext(eq(view.id()), eq(view.linux()));
+        verify(jobs).saveLinuxContext(view.id(), view.linux());
         verify(events).jobRequested(any(DownloadJob.class));
     }
 
@@ -298,8 +305,11 @@ class DownloadJobServiceTest {
     @Test
     void rejectsAnonymousCreationWhenItsActiveJobQuotaIsExhausted() {
         when(jobs.countAnonymousNonTerminal("browser-hash")).thenReturn(2L);
+        UUID appId = UUID.randomUUID();
+        DownloadSelection selection = new DownloadSelection(List.of(appId), List.of(), null, null, null);
+        RequestOwner owner = new RequestOwner(null, "browser-hash", "ip-hash");
 
-        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(UUID.randomUUID()), List.of(), null, null, null), false))
+        assertThatThrownBy(() -> service.create(owner, selection, false))
                 .isInstanceOf(RateLimitException.class)
                 .hasMessageContaining("m\u00e1ximo");
 
@@ -412,7 +422,9 @@ class DownloadJobServiceTest {
                 .containsExactly("Segunda", "Primera");
 
         UUID foreignItem = UUID.randomUUID();
-        assertThatThrownBy(() -> access.itemMetadata(job.id(), List.of(firstId, foreignItem)))
+        UUID jobId = job.id();
+        List<UUID> requestedItems = List.of(firstId, foreignItem);
+        assertThatThrownBy(() -> access.itemMetadata(jobId, requestedItems))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessage("No existe el trabajo.");
     }

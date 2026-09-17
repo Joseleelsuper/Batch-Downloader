@@ -32,6 +32,8 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public class CatalogProjectionRepository {
+    private static final String EXTENSION_COLUMN = "extension";
+    private static final String OPERATING_SYSTEM_COLUMN = "operating_system";
     private static final String APP_BASICS_COLUMNS = "id, winstall_id, slug, name, publisher, "
             + "description, long_description, icon_url, official_url, latest_version, "
             + "catalog_status, updated_at";
@@ -397,7 +399,7 @@ public class CatalogProjectionRepository {
                 sourceLabel(resolution),
                 rs.getString("initial_url"),
                 rs.getString("filename"),
-                rs.getString("extension"),
+                rs.getString(EXTENSION_COLUMN),
                 rs.getString("content_type"),
                 nullableLong(rs, "size_bytes"),
                 rs.getString("final_domain"),
@@ -436,8 +438,8 @@ public class CatalogProjectionRepository {
                 (rs, rowNum) -> new DownloadOption(
                         UuidBytes.toUuid(rs.getBytes("id")).toString(),
                         rs.getString("filename"),
-                        rs.getString("extension"),
-                        rs.getString("operating_system"),
+                        rs.getString(EXTENSION_COLUMN),
+                        rs.getString(OPERATING_SYSTEM_COLUMN),
                         rs.getString("architecture"),
                         rs.getString("version"),
                         rs.getBoolean("is_latest"),
@@ -446,10 +448,10 @@ public class CatalogProjectionRepository {
                         rs.getInt("score"),
                         rs.getString("final_domain"),
                         rowNum == 0,
-                        LinuxInstallationSupport.support(rs.getString("operating_system"),
-                                rs.getString("extension"), rs.getString("linux_strategy")),
-                        "linux".equals(rs.getString("operating_system"))
-                                ? LinuxInstallationSupport.targets(rs.getString("extension")) : List.of()),
+                        LinuxInstallationSupport.support(rs.getString(OPERATING_SYSTEM_COLUMN),
+                                rs.getString(EXTENSION_COLUMN), rs.getString("linux_strategy")),
+                        "linux".equals(rs.getString(OPERATING_SYSTEM_COLUMN))
+                                ? LinuxInstallationSupport.targets(rs.getString(EXTENSION_COLUMN)) : List.of()),
                 UuidBytes.fromUuid(appId));
     }
 
@@ -483,7 +485,7 @@ public class CatalogProjectionRepository {
         Map<UUID, List<String>> result = new HashMap<>();
         jdbc.query(sql.toString(), row -> {
             UUID appId = UuidBytes.toUuid(row.getBytes("software_app_id"));
-            result.computeIfAbsent(appId, ignored -> new ArrayList<>()).add(row.getString("operating_system"));
+            result.computeIfAbsent(appId, ignored -> new ArrayList<>()).add(row.getString(OPERATING_SYSTEM_COLUMN));
         }, ids.stream().map(UuidBytes::fromUuid).toArray());
         result.replaceAll((id, systems) -> systems.stream().distinct().toList());
         return result;

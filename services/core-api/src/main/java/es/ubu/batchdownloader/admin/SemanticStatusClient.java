@@ -60,7 +60,7 @@ public class SemanticStatusClient {
             InternalHttpExecutor executor) {
         this.executor = executor;
         this.objectMapper = objectMapper;
-        this.serviceUrl = serviceUrl.replaceAll("/+$", "");
+        this.serviceUrl = trimTrailingSlashes(serviceUrl);
     }
 
     public Result get() {
@@ -83,9 +83,17 @@ public class SemanticStatusClient {
             throw unavailable(exception.interrupted()
                     ? "semantic_status_interrupted"
                     : "semantic_status_unavailable");
-        } catch (IOException | IllegalArgumentException exception) {
+        } catch (IOException | IllegalArgumentException _) {
             throw unavailable("semantic_status_unavailable");
         }
+    }
+
+    private static String trimTrailingSlashes(String value) {
+        int end = value.length();
+        while (end > 0 && value.charAt(end - 1) == '/') {
+            end--;
+        }
+        return value.substring(0, end);
     }
 
     private static InternalHttpExecutor executor(

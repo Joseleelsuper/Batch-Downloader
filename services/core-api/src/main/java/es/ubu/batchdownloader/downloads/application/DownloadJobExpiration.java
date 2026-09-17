@@ -3,7 +3,6 @@ package es.ubu.batchdownloader.downloads.application;
 import es.ubu.batchdownloader.downloads.application.port.DownloadArtifactCleaner;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
-import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;

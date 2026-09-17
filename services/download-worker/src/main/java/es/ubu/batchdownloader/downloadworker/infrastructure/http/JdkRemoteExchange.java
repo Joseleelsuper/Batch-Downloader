@@ -43,7 +43,7 @@ public final class JdkRemoteExchange implements RemoteExchange {
      * para su cierre.
      *
      * @param uri URI de destino que debe superar la política de acceso a recursos públicos.
-     * @return respuesta adaptada sin materializar todo el cuerpo.
+     * @return respuesta adaptada sin materializar el cuerpo completo.
      * @throws es.ubu.batchdownloader.downloadworker.application.DownloadRejectedException si se
      *     interrumpe la petición, expira el timeout o falla la E/S remota.
      */

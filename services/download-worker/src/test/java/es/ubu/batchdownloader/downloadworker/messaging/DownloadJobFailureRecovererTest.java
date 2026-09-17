@@ -55,7 +55,7 @@ class DownloadJobFailureRecovererTest {
      * rechazo sin reencolado con el mismo código.
      */
     @Test
-    void publishesATerminalFailureBeforeRejectingTheCommandToItsDlq() throws Exception {
+    void publishesATerminalFailureBeforeRejectingTheCommandToItsDlq() {
         UUID jobId = UUID.randomUUID();
         DownloadJobRequestedEvent requested = new DownloadJobRequestedEvent(
                 UUID.randomUUID(),
@@ -94,7 +94,7 @@ class DownloadJobFailureRecovererTest {
      * inmediatamente.
      */
     @Test
-    void requeuesInsteadOfDeadLetteringWhenTheTerminalFailureCannotBePublished() throws Exception {
+    void requeuesInsteadOfDeadLetteringWhenTheTerminalFailureCannotBePublished() {
         DownloadJobRequestedEvent requested = new DownloadJobRequestedEvent(
                 UUID.randomUUID(),
                 EventTypes.JOB_REQUESTED,

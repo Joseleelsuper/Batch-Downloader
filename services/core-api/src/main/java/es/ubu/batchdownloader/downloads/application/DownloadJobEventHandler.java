@@ -109,7 +109,7 @@ public class DownloadJobEventHandler {
      */
     @Transactional
     public void applyReady(UUID jobId, DownloadJobStatus status, String objectKey, Instant expiresAt) {
-        applyReady(jobId, status, objectKey, null, null, expiresAt);
+        applyReadyInternal(jobId, status, objectKey, null, null, expiresAt);
     }
 
     /**
@@ -128,6 +128,16 @@ public class DownloadJobEventHandler {
      */
     @Transactional
     public void applyReady(
+            UUID jobId,
+            DownloadJobStatus status,
+            String objectKey,
+            Long artifactSizeBytes,
+            String artifactSha256,
+            Instant expiresAt) {
+        applyReadyInternal(jobId, status, objectKey, artifactSizeBytes, artifactSha256, expiresAt);
+    }
+
+    private void applyReadyInternal(
             UUID jobId,
             DownloadJobStatus status,
             String objectKey,

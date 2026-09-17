@@ -30,6 +30,10 @@ import java.util.HexFormat;
 public final class LinuxInstallerBundleWriter {
     private final ObjectMapper mapper;
     private static final String ROOT = "/linux-installer/";
+    private static final String MANUAL = "manual";
+    private static final String SCHEMA_VERSION = "schemaVersion";
+    private static final String STRATEGY = "strategy";
+    private static final int MAX_SIGNATURE_BYTES = 1024 * 1024;
     private static final Set<String> AUTOMATIC = Set.of("deb", "rpm", "arch", "appimage", "tarball", "jar");
 
     /**
@@ -56,9 +60,9 @@ public final class LinuxInstallerBundleWriter {
             case ".rpm" -> "rpm";
             case ".pkg.tar.zst" -> "arch";
             case ".appimage" -> "appimage";
-            default -> "manual";
+            default -> MANUAL;
         };
-        return new LinkedHashMap<>(Map.of("schemaVersion", 1, "strategy", strategy, "scope", "auto"));
+        return new LinkedHashMap<>(Map.of(SCHEMA_VERSION, 1, STRATEGY, strategy, "scope", "auto"));
     }
 
     /**
@@ -73,7 +77,7 @@ public final class LinuxInstallerBundleWriter {
         if (!"linux".equalsIgnoreCase(metadata.operatingSystem())) return "not_applicable";
         Map<String, Object> profile = profile(metadata);
         boolean signatureAvailable = !profile.containsKey("verification") || metadata.signatureBase64() != null;
-        return AUTOMATIC.contains(profile.get("strategy")) && signatureAvailable ? "automatic" : "manual";
+        return AUTOMATIC.contains(profile.get(STRATEGY)) && signatureAvailable ? "automatic" : MANUAL;
     }
 
     /**
@@ -99,50 +103,111 @@ public final class LinuxInstallerBundleWriter {
             linux.forEach(a -> available.put(a.appId().toString(), a));
             List<String> components = new ArrayList<>();
             for (DownloadedArtifact artifact : linux) {
-                var metadata = artifact.installation();
-                Map<String, Object> profile = profile(metadata);
-                List<String> dependencies = profile.get("dependencies") instanceof List<?> values
-                        ? values.stream().map(Object::toString).toList() : List.of();
-                boolean missingDependency = dependencies.stream().anyMatch(d -> !available.containsKey(d));
-                profile.put("dependencies", dependencies.stream().filter(available::containsKey).toList());
-                String reason = missingDependency ? "dependency_not_downloaded"
-                        : "automatic".equals(support(metadata)) ? null : "recipe_or_signature_required";
-                if (reason != null) profile.put("strategy", "manual");
-                String identifier = artifact.appId().toString();
-                Map<String, Object> component = new LinkedHashMap<>();
-                component.put("schemaVersion", 1);
-                component.put("id", identifier);
-                component.put("appId", identifier);
-                component.put("sourceRef", artifact.sourceRef().toString());
-                component.put("name", safeText(metadata.appName() == null ? identifier : metadata.appName()));
-                component.put("version", safeText(metadata.version() == null ? "unknown" : metadata.version()));
-                component.put("architecture", metadata.architecture());
-                component.put("filename", artifact.filename());
-                component.put("sha256", artifact.sha256());
-                component.put("sizeBytes", artifact.sizeBytes());
-                component.put("profile", profile);
-                if (reason != null) component.put("manualReason", reason);
-                if (metadata.signatureBase64() != null) {
-                    byte[] signature = Base64.getDecoder().decode(metadata.signatureBase64());
-                    if (signature.length > 1024 * 1024) throw new IOException("signature_too_large");
-                    String signaturePath = "signatures/" + identifier + ".asc";
-                    entries.put(signaturePath, signature);
-                    component.put("signatureFile", signaturePath);
-                }
-                entries.put("config/components/" + identifier + ".json", json(component));
-                components.add(identifier);
+                components.add(writeComponent(artifact, available, entries));
             }
-            entries.put("config/packages.conf", bytes("# schemaVersion=1\n" + String.join("\n", components) + "\n"));
-            entries.put("config/bundle.json", json(Map.of("schemaVersion", 1, "id", jobId.toString())));
-            StringBuilder checksums = new StringBuilder();
-            for (var entry : entries.entrySet()) checksum(checksums, entry.getKey(), sha256(entry.getValue()));
-            for (var artifact : artifacts) checksum(checksums, artifact.filename(), artifact.sha256());
-            checksum(checksums, "manifest.json", sha256(manifest));
-            entries.put("checksums.sha256", bytes(checksums.toString()));
+            writeBundleEntries(entries, jobId, components, artifacts, manifest);
             return entries;
         } catch (IOException | IllegalArgumentException exception) {
             throw new InfrastructureException("linux_installer_creation_failed", exception);
         }
+    }
+
+    private String writeComponent(
+            DownloadedArtifact artifact,
+            Map<String, DownloadedArtifact> available,
+            Map<String, byte[]> entries) throws IOException {
+        InstallationMetadata metadata = artifact.installation();
+        Map<String, Object> profile = profile(metadata);
+        List<String> dependencies = dependencies(profile);
+        boolean missingDependency = dependencies.stream().anyMatch(d -> !available.containsKey(d));
+        profile.put("dependencies", dependencies.stream().filter(available::containsKey).toList());
+        String reason = manualReason(metadata, missingDependency);
+        if (reason != null) {
+            profile.put(STRATEGY, MANUAL);
+        }
+        String identifier = artifact.appId().toString();
+        Map<String, Object> component = component(artifact, metadata, identifier, profile, reason);
+        writeSignature(metadata, identifier, entries, component);
+        entries.put("config/components/" + identifier + ".json", json(component));
+        return identifier;
+    }
+
+    private static List<String> dependencies(Map<String, Object> profile) {
+        Object value = profile.get("dependencies");
+        if (!(value instanceof List<?> values)) {
+            return List.of();
+        }
+        return values.stream().map(Object::toString).toList();
+    }
+
+    private static String manualReason(InstallationMetadata metadata, boolean missingDependency) {
+        if (missingDependency) {
+            return "dependency_not_downloaded";
+        }
+        if ("automatic".equals(support(metadata))) {
+            return null;
+        }
+        return "recipe_or_signature_required";
+    }
+
+    private static Map<String, Object> component(
+            DownloadedArtifact artifact,
+            InstallationMetadata metadata,
+            String identifier,
+            Map<String, Object> profile,
+            String reason) {
+        Map<String, Object> component = new LinkedHashMap<>();
+        component.put(SCHEMA_VERSION, 1);
+        component.put("id", identifier);
+        component.put("appId", identifier);
+        component.put("sourceRef", artifact.sourceRef().toString());
+        component.put("name", safeText(valueOrDefault(metadata.appName(), identifier)));
+        component.put("version", safeText(valueOrDefault(metadata.version(), "unknown")));
+        component.put("architecture", metadata.architecture());
+        component.put("filename", artifact.filename());
+        component.put("sha256", artifact.sha256());
+        component.put("sizeBytes", artifact.sizeBytes());
+        component.put("profile", profile);
+        if (reason != null) {
+            component.put("manualReason", reason);
+        }
+        return component;
+    }
+
+    private static String valueOrDefault(String value, String defaultValue) {
+        return value == null ? defaultValue : value;
+    }
+
+    private static void writeSignature(
+            InstallationMetadata metadata,
+            String identifier,
+            Map<String, byte[]> entries,
+            Map<String, Object> component) throws IOException {
+        if (metadata.signatureBase64() == null) {
+            return;
+        }
+        byte[] signature = Base64.getDecoder().decode(metadata.signatureBase64());
+        if (signature.length > MAX_SIGNATURE_BYTES) {
+            throw new IOException("signature_too_large");
+        }
+        String signaturePath = "signatures/" + identifier + ".asc";
+        entries.put(signaturePath, signature);
+        component.put("signatureFile", signaturePath);
+    }
+
+    private void writeBundleEntries(
+            Map<String, byte[]> entries,
+            UUID jobId,
+            List<String> components,
+            List<DownloadedArtifact> artifacts,
+            byte[] manifest) throws IOException {
+        entries.put("config/packages.conf", bytes("# schemaVersion=1\n" + String.join("\n", components) + "\n"));
+        entries.put("config/bundle.json", json(Map.of(SCHEMA_VERSION, 1, "id", jobId.toString())));
+        StringBuilder checksums = new StringBuilder();
+        for (var entry : entries.entrySet()) checksum(checksums, entry.getKey(), sha256(entry.getValue()));
+        for (var artifact : artifacts) checksum(checksums, artifact.filename(), artifact.sha256());
+        checksum(checksums, "manifest.json", sha256(manifest));
+        entries.put("checksums.sha256", bytes(checksums.toString()));
     }
 
     /**

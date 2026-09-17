@@ -137,24 +137,16 @@ public class DownloadJobService {
     @Transactional(readOnly = true)
     public LinuxPreview previewLinux(DownloadSelection selection) {
         LinuxTarget target = LinuxTarget.optional(selection.linuxTarget(), selection.targetArchitecture(), selection.operatingSystems());
-        if (target == null || selection.appIds() == null || selection.appIds().isEmpty() || selection.appIds().size() > limits.maxApps()
-                || (selection.sourceRef() != null && selection.appIds().size() != 1)) {
-            throw new BadRequestException("invalid_linux_selection", "Indica un lote Linux válido.");
-        }
+        validatePreviewSelection(selection, target);
         List<UUID> ids = sources.expandLinuxDependencies(new LinkedHashSet<>(selection.appIds()));
         var selected = sources.findLinuxSources(ids, target, selection.sourceRef());
         if (selection.sourceRef() != null && !selected.containsKey(selection.appIds().getFirst())) {
             throw new ConflictException("linux_source_incompatible", "Esta fuente no es compatible con el destino.");
         }
         var manual = sources.findManualSources(ids);
-        List<LinuxPreviewItem> items = ids.stream().map(id -> {
-            var source = selected.get(id);
-            var fallback = manual.get(id);
-            return new LinuxPreviewItem(id, source != null ? source.appName()
-                    : fallback != null ? fallback.appName() : id.toString(),
-                    source == null ? null : source.sourceRef(), source != null ? source.installationSupport()
-                            : fallback != null ? "manual" : "unavailable", !selection.appIds().contains(id));
-        }).toList();
+        List<LinuxPreviewItem> items = ids.stream()
+                .map(id -> previewItem(id, selected, manual, selection.appIds()))
+                .toList();
         return new LinuxPreview(target.manager(), target.architecture(), ids.size(),
                 (int) items.stream().filter(i -> "automatic".equals(i.installationSupport())).count(),
                 (int) items.stream().filter(i -> "manual".equals(i.installationSupport())).count(),
@@ -190,83 +182,170 @@ public class DownloadJobService {
     @Transactional
     public DownloadJobView create(RequestOwner owner, DownloadSelection selection, boolean notifyWhenReady) {
         LinuxTarget target = LinuxTarget.optional(selection.linuxTarget(), selection.targetArchitecture(), selection.operatingSystems());
-        LinkedHashSet<UUID> appIds = new LinkedHashSet<>(selection.appIds() == null ? List.of() : selection.appIds());
-        appIds.remove(null);
-        if (appIds.isEmpty() || appIds.size() > limits.maxApps()) {
-            throw new BadRequestException("invalid_job_size", "Selecciona entre 1 y " + limits.maxApps() + " aplicaciones.");
-        }
-        if (selection.sourceRef() != null && appIds.size() != 1) {
-            throw new BadRequestException(
-                    "invalid_source_selection",
-                    "La fuente seleccionada requiere una única aplicación.");
-        }
+        LinkedHashSet<UUID> appIds = normalizedAppIds(selection);
+        validateAppSelection(appIds, selection);
         List<UUID> originalAppIds = List.copyOf(appIds);
         if (target != null) appIds.addAll(sources.expandLinuxDependencies(appIds));
-        if (appIds.size() > limits.maxApps()) {
-            throw new BadRequestException("linux_dependency_limit", "El lote y sus dependencias superan el límite.");
-        }
+        validateDependencyLimit(appIds);
         jobs.lockAdmission();
         Instant now = clock.instant();
-        if (jobs.countNonTerminal() >= limits.globalMaxPendingJobs()) {
-            throw new ServiceUnavailableException(
-                    "service_busy", "La cola de descargas está llena. Inténtalo de nuevo.", 30);
-        }
-        if (owner.authenticated()) {
-            if (jobs.countNonTerminalByOwner(owner.userId()) >= limits.authenticatedMaxActiveJobs()) {
-                throw new RateLimitException(
-                        "rate_limited",
-                        "La cuenta ya tiene el máximo de descargas activas o pendientes.",
-                        60);
-            }
-        } else {
-            enforceAnonymousLimits(owner, now);
-        }
-        Map<UUID, CatalogSourceLookup.VerifiedSource> selected;
-        if (target != null) {
-            selected = sources.findLinuxSources(appIds, target, selection.sourceRef());
-            if (selection.sourceRef() != null && !selected.containsKey(appIds.getFirst())) {
-                throw new ConflictException("linux_source_incompatible",
-                        "La fuente elegida no es compatible con el destino Linux.");
-            }
-        } else if (selection.sourceRef() == null) {
-            selected = sources.findVerifiedSources(appIds, selection.operatingSystems());
-        } else {
-            UUID appId = appIds.getFirst();
-            CatalogSourceLookup.VerifiedSource exactSource = sources
-                    .findVerifiedSource(appId, selection.sourceRef(), selection.operatingSystems())
-                    .orElseThrow(() -> new ConflictException(
-                            "selected_source_unavailable",
-                            "La versión seleccionada ya no está disponible para descargar."));
-            selected = Map.of(appId, exactSource);
-        }
-        Map<UUID, CatalogSourceLookup.ManualSource> manualSources = selection.sourceRef() == null || target != null
-                ? sources.findManualSources(appIds)
-                : Map.of();
-        List<DownloadJobItem> items = appIds.stream()
-                .map(appId -> {
-                    CatalogSourceLookup.VerifiedSource source = selected.get(appId);
-                    if (source != null) {
-                        return DownloadJobItem.queued(
-                                source.appId(),
-                                source.sourceRef(),
-                                source.appName(),
-                                source.officialPageUrl(),
-                                now);
-                    }
-                    CatalogSourceLookup.ManualSource manual = manualSources.get(appId);
-                    return manual == null
-                            ? null
-                            : DownloadJobItem.manual(
-                                    manual.appId(), manual.appName(), manual.officialPageUrl(), now);
-                })
-                .filter(Objects::nonNull)
-                .toList();
+        enforceAdmission(owner, now);
+        Map<UUID, CatalogSourceLookup.VerifiedSource> selected = selectSources(appIds, target, selection);
+        Map<UUID, CatalogSourceLookup.ManualSource> manualSources = manualSources(appIds, target, selection);
+        List<DownloadJobItem> items = buildItems(appIds, selected, manualSources, now);
         int omittedCount = appIds.size() - items.size();
         if (items.isEmpty()) {
             throw new ConflictException(
                     "no_downloadable_apps",
                     "Ninguna de las aplicaciones seleccionadas tiene un instalador o una página oficial segura.");
         }
+        return persistJob(owner, items, appIds, originalAppIds, omittedCount, notifyWhenReady, now, target);
+    }
+
+    private void validatePreviewSelection(DownloadSelection selection, LinuxTarget target) {
+        if (target == null || selection.appIds() == null || selection.appIds().isEmpty()
+                || selection.appIds().size() > limits.maxApps()
+                || (selection.sourceRef() != null && selection.appIds().size() != 1)) {
+            throw new BadRequestException("invalid_linux_selection", "Indica un lote Linux válido.");
+        }
+    }
+
+    private static LinuxPreviewItem previewItem(
+            UUID id,
+            Map<UUID, CatalogSourceLookup.VerifiedSource> selected,
+            Map<UUID, CatalogSourceLookup.ManualSource> manual,
+            List<UUID> requested) {
+        CatalogSourceLookup.VerifiedSource source = selected.get(id);
+        CatalogSourceLookup.ManualSource fallback = manual.get(id);
+        String name = id.toString();
+        String support = "unavailable";
+        UUID sourceRef = null;
+        if (source != null) {
+            name = source.appName();
+            sourceRef = source.sourceRef();
+            support = source.installationSupport();
+        } else if (fallback != null) {
+            name = fallback.appName();
+            support = "manual";
+        }
+        return new LinuxPreviewItem(id, name, sourceRef, support, !requested.contains(id));
+    }
+
+    private LinkedHashSet<UUID> normalizedAppIds(DownloadSelection selection) {
+        LinkedHashSet<UUID> appIds = new LinkedHashSet<>(
+                selection.appIds() == null ? List.of() : selection.appIds());
+        appIds.remove(null);
+        return appIds;
+    }
+
+    private void validateAppSelection(LinkedHashSet<UUID> appIds, DownloadSelection selection) {
+        if (appIds.isEmpty() || appIds.size() > limits.maxApps()) {
+            throw new BadRequestException(
+                    "invalid_job_size", "Selecciona entre 1 y " + limits.maxApps() + " aplicaciones.");
+        }
+        if (selection.sourceRef() != null && appIds.size() != 1) {
+            throw new BadRequestException(
+                    "invalid_source_selection",
+                    "La fuente seleccionada requiere una única aplicación.");
+        }
+    }
+
+    private void validateDependencyLimit(LinkedHashSet<UUID> appIds) {
+        if (appIds.size() > limits.maxApps()) {
+            throw new BadRequestException(
+                    "linux_dependency_limit", "El lote y sus dependencias superan el límite.");
+        }
+    }
+
+    private void enforceAdmission(RequestOwner owner, Instant now) {
+        if (jobs.countNonTerminal() >= limits.globalMaxPendingJobs()) {
+            throw new ServiceUnavailableException(
+                    "service_busy", "La cola de descargas está llena. Inténtalo de nuevo.", 30);
+        }
+        if (owner.authenticated()) {
+            enforceAuthenticatedLimit(owner);
+            return;
+        }
+        enforceAnonymousLimits(owner, now);
+    }
+
+    private void enforceAuthenticatedLimit(RequestOwner owner) {
+        if (jobs.countNonTerminalByOwner(owner.userId()) >= limits.authenticatedMaxActiveJobs()) {
+            throw new RateLimitException(
+                    "rate_limited",
+                    "La cuenta ya tiene el máximo de descargas activas o pendientes.",
+                    60);
+        }
+    }
+
+    private Map<UUID, CatalogSourceLookup.VerifiedSource> selectSources(
+            LinkedHashSet<UUID> appIds, LinuxTarget target, DownloadSelection selection) {
+        if (target != null) {
+            Map<UUID, CatalogSourceLookup.VerifiedSource> result =
+                    sources.findLinuxSources(appIds, target, selection.sourceRef());
+            if (selection.sourceRef() != null && !result.containsKey(appIds.getFirst())) {
+                throw new ConflictException(
+                        "linux_source_incompatible", "La fuente elegida no es compatible con el destino Linux.");
+            }
+            return result;
+        }
+        if (selection.sourceRef() == null) {
+            return sources.findVerifiedSources(appIds, selection.operatingSystems());
+        }
+        UUID appId = appIds.getFirst();
+        CatalogSourceLookup.VerifiedSource exactSource = sources
+                .findVerifiedSource(appId, selection.sourceRef(), selection.operatingSystems())
+                .orElseThrow(() -> new ConflictException(
+                        "selected_source_unavailable",
+                        "La versión seleccionada ya no está disponible para descargar."));
+        return Map.of(appId, exactSource);
+    }
+
+    private Map<UUID, CatalogSourceLookup.ManualSource> manualSources(
+            LinkedHashSet<UUID> appIds, LinuxTarget target, DownloadSelection selection) {
+        if (selection.sourceRef() != null && target == null) {
+            return Map.of();
+        }
+        return sources.findManualSources(appIds);
+    }
+
+    private static List<DownloadJobItem> buildItems(
+            LinkedHashSet<UUID> appIds,
+            Map<UUID, CatalogSourceLookup.VerifiedSource> selected,
+            Map<UUID, CatalogSourceLookup.ManualSource> manualSources,
+            Instant now) {
+        return appIds.stream()
+                .map(appId -> itemFor(appId, selected, manualSources, now))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private static DownloadJobItem itemFor(
+            UUID appId,
+            Map<UUID, CatalogSourceLookup.VerifiedSource> selected,
+            Map<UUID, CatalogSourceLookup.ManualSource> manualSources,
+            Instant now) {
+        CatalogSourceLookup.VerifiedSource source = selected.get(appId);
+        if (source != null) {
+            return DownloadJobItem.queued(
+                    source.appId(), source.sourceRef(), source.appName(), source.officialPageUrl(), now);
+        }
+        CatalogSourceLookup.ManualSource manual = manualSources.get(appId);
+        if (manual == null) {
+            return null;
+        }
+        return DownloadJobItem.manual(manual.appId(), manual.appName(), manual.officialPageUrl(), now);
+    }
+
+    private DownloadJobView persistJob(
+            RequestOwner owner,
+            List<DownloadJobItem> items,
+            LinkedHashSet<UUID> appIds,
+            List<UUID> originalAppIds,
+            int omittedCount,
+            boolean notifyWhenReady,
+            Instant now,
+            LinuxTarget target) {
         DownloadJob job = jobs.save(DownloadJob.queue(
                 owner.authenticated() ? owner.userId() : null,
                 owner.authenticated() ? null : owner.requireAnonymousOwnerHash(),
@@ -278,13 +357,13 @@ public class DownloadJobService {
                 now,
                 now.plus(limits.zipRetention())));
         events.jobRequested(job);
-        if (target != null) {
-            var context = new DownloadJobView.LinuxContext(target.manager(), target.architecture(),
-                    appIds.stream().filter(id -> !originalAppIds.contains(id)).toList());
-            jobs.saveLinuxContext(job.id(), context);
-            return DownloadJobView.from(job).withLinuxContext(context);
+        if (target == null) {
+            return DownloadJobView.from(job);
         }
-        return DownloadJobView.from(job);
+        var context = new DownloadJobView.LinuxContext(target.manager(), target.architecture(),
+                appIds.stream().filter(id -> !originalAppIds.contains(id)).toList());
+        jobs.saveLinuxContext(job.id(), context);
+        return DownloadJobView.from(job).withLinuxContext(context);
     }
 
     /**

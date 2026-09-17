@@ -14,6 +14,8 @@ import java.util.Locale;
  * @category Catálogo
  */
 public final class LinuxInstallationSupport {
+    private static final String MANUAL = "manual";
+
     /**
      * Impide instancias de la clasificación estática de formatos Linux.
      */
@@ -49,10 +51,10 @@ public final class LinuxInstallationSupport {
      */
     public static String support(String os, String extension, String approvedStrategy) {
         if (!"linux".equals(os)) return "not_applicable";
-        if (approvedStrategy != null) return "manual".equals(approvedStrategy) ? "manual" : "automatic";
+        if (approvedStrategy != null) return MANUAL.equals(approvedStrategy) ? MANUAL : "automatic";
         return switch (extension == null ? "" : extension.toLowerCase(Locale.ROOT)) {
             case ".deb", ".rpm", ".pkg.tar.zst", ".appimage" -> "automatic";
-            default -> "manual";
+            default -> MANUAL;
         };
     }
 }

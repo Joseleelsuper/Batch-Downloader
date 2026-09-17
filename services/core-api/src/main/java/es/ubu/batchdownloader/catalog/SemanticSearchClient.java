@@ -36,6 +36,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class SemanticSearchClient {
+    private static final String SEMANTIC_QUERY_TOO_SHORT = "semantic_query_too_short";
+
     /**
      * Valor compartido que fija f u n c t i o n a l  c a n d i d a t e  l i m i t para el
      * comportamiento del componente.
@@ -251,17 +253,17 @@ public class SemanticSearchClient {
         try {
             JsonNode detail = objectMapper.readTree(body).path("detail");
             if (detail.isObject()
-                    && "semantic_query_too_short".equals(detail.path("code").asText())) {
-                return "semantic_query_too_short";
+                    && SEMANTIC_QUERY_TOO_SHORT.equals(detail.path("code").asText())) {
+                return SEMANTIC_QUERY_TOO_SHORT;
             }
             if (detail.isArray()) {
                 for (JsonNode error : detail) {
                     if (isShortQueryValidation(error)) {
-                        return "semantic_query_too_short";
+                        return SEMANTIC_QUERY_TOO_SHORT;
                     }
                 }
             }
-        } catch (JsonProcessingException exception) {
+        } catch (JsonProcessingException _) {
             // Un cuerpo no JSON sigue siendo un rechazo genérico, sin revelar su contenido.
         }
         return "semantic_request_rejected";

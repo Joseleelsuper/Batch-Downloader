@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.downloads.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import es.ubu.batchdownloader.downloads.application.LinuxTarget;
@@ -23,7 +24,7 @@ class JpaCatalogSourceLookupTest {
     /** Comprueba que revisión y ausencia puedan usar la página oficial como alternativa. */
     @Test
     void selectsOfficialPagesWithoutRequiringCatalogAvailability() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
 
         assertThat(lookup.findManualSources(List.of(UUID.randomUUID()))).isEmpty();
@@ -41,7 +42,7 @@ class JpaCatalogSourceLookupTest {
      */
     @Test
     void selectsStaleValidSourcesAndOrdersPlatformsCanonically() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
 
         assertThat(lookup.findVerifiedSources(List.of(UUID.randomUUID()), List.of("linux", "windows")))
@@ -71,7 +72,7 @@ class JpaCatalogSourceLookupTest {
     /** Comprueba que una fuente concreta se limite a su aplicación y siga validándose. */
     @Test
     void selectsAnExplicitSourceOnlyWhenItRemainsCatalogDownloadable() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
 
         assertThat(lookup.findVerifiedSource(
@@ -92,7 +93,7 @@ class JpaCatalogSourceLookupTest {
 
     @Test
     void constrainsLinuxSelectionByManagerArchitectureRecipeAndExactSource() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
 
         assertThat(lookup.findLinuxSources(

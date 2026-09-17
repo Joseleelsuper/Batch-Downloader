@@ -2,7 +2,6 @@ package es.ubu.batchdownloader.downloads.application;
 
 import es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier;
-import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserAccount;

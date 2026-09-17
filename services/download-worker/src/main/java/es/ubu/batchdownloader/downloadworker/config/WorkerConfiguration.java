@@ -99,8 +99,10 @@ public class WorkerConfiguration {
     DownloadPipelineFactory downloadPipelines(ExecutorService executor, RemoteDownloader downloader,
             FilenamePolicy filenames, DownloadProperties properties, DownloadCancellationRegistry cancellations,
             DownloadWorkerMetrics metrics, DownloadEventEmitter events, Clock clock, DownloadJobFiles files) {
-        return (event, items, directory, window) -> new DownloadPipeline(event, items, directory, window,
+        DownloadPipeline.Dependencies dependencies = new DownloadPipeline.Dependencies(
                 executor, downloader, filenames, properties, cancellations, metrics, events, clock, files);
+        return (event, items, directory, window) -> new DownloadPipeline(
+                event, items, directory, window, dependencies);
     }
 
     /**

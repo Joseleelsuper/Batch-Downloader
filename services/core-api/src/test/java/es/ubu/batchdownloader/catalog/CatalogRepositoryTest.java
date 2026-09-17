@@ -351,10 +351,7 @@ class CatalogRepositoryTest {
      */
     @Test
     void pendingFilterIsRejectedAsAnInvalidPublicStatus() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
-        CatalogRepository repository = repository(jdbc);
-
-        assertThatThrownBy(() -> repository.search(new CatalogQuery("", "pending", null, null, List.of(), List.of()), "updated", 1, 12, SemanticCandidateSet.lexical()))
+        assertThatThrownBy(() -> new CatalogQuery("", "pending", null, null, List.of(), List.of()))
                 .isInstanceOf(BadRequestException.class)
                 .extracting(exception -> ((BadRequestException) exception).code())
                 .isEqualTo("invalid_catalog_status");

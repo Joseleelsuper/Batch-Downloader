@@ -107,7 +107,7 @@ public interface DownloadJobStore {
      */
     long countNonTerminalByOwner(UUID ownerId);
     /**
-     * Actualiza el elemento y recalcula el progreso del trabajo sin reescribir todo el agregado ni
+     * Actualiza el elemento y recalcula el progreso del trabajo sin reescribir el agregado completo ni
      * reabrir estados terminales.
      *
      * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.

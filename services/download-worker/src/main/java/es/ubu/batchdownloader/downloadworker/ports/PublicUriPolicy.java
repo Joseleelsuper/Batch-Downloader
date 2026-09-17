@@ -1,6 +1,5 @@
 package es.ubu.batchdownloader.downloadworker.ports;
 
-import es.ubu.batchdownloader.downloadworker.application.DownloadRejectedException;
 import java.net.URI;
 
 /**

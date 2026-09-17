@@ -56,7 +56,7 @@ class PublicHttpsUriPolicyTest {
      * clasifican como públicas.
      */
     @Test
-    void classifiesReservedRangesAsNonPublic() throws Exception {
+    void classifiesReservedRangesAsNonPublic() {
         assertThatCode(() -> {
             if (PublicHttpsUriPolicy.isPublic(InetAddress.getByName("192.0.2.1"))) {
                 throw new AssertionError("documentation address was accepted");
