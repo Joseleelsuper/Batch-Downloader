@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `logging`.
+"""Unifica logs de aplicación como JSON en stdout con contexto, instante UTC y excepciones
+estructuradas.
 """
 import logging
 import sys
@@ -7,7 +8,8 @@ import structlog
 
 
 def configure_logging() -> None:
-    """Ejecuta la operación `configure_logging`.
+    """Configura logging y structlog a nivel INFO, añade contexto y trazas estructuradas y reduce
+    httpx/httpcore a WARNING.
     """
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -27,9 +29,12 @@ def configure_logging() -> None:
 
 
 def get_logger(name: str):
-    """Obtiene la operación `logger`.
+    """Obtiene el logger de structlog para vincular eventos al módulo indicado.
 
     Args:
-        name (str): Nombre del elemento sobre el que se actúa.
+        name: Nombre del módulo o colaborador que identifica el logger.
+
+    Returns:
+        logger que utiliza la configuración global de procesadores.
     """
     return structlog.get_logger(name)

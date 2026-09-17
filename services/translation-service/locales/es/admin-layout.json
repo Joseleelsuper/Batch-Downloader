@@ -4,7 +4,6 @@
   "admin.layout.bundles": "Bundles",
   "admin.layout.dashboard": "Panel",
   "admin.layout.logout": "Salir",
-  "admin.layout.requests": "Solicitudes",
   "admin.layout.scraper": "Scraper",
   "admin.layout.semantic": "IA semántica"
 }

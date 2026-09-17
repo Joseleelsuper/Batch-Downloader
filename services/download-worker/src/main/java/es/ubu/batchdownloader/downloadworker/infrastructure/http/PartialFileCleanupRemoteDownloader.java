@@ -10,18 +10,42 @@ import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Elimina el fichero parcial cuando cualquier capa interna rechaza o falla la descarga. */
+/**
+ * Compensa transferencias fallidas intentando borrar el destino parcial sin ocultar el fallo que
+ * causó la descarga.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.IntegrityCheckingRemoteDownloader
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Transporte de descargas
+ */
 public final class PartialFileCleanupRemoteDownloader implements RemoteDownloader {
     private static final Logger LOGGER = LoggerFactory.getLogger(
             PartialFileCleanupRemoteDownloader.class);
     private final RemoteDownloader delegate;
 
-    /** Inicializa el wrapper de cleanup. */
+    /**
+     * Conecta las políticas cuyo fallo requiere limpiar el archivo local.
+     *
+     * @param delegate Siguiente política o transporte de la cadena de descarga.
+     */
     public PartialFileCleanupRemoteDownloader(RemoteDownloader delegate) {
         this.delegate = delegate;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Delega y conserva archivos satisfactorios; ante RuntimeException intenta borrar el destino y
+     * añade cualquier fallo de limpieza como causa suprimida.
+     *
+     * @param item Elemento admitido o resuelto cuya fuente exacta se procesa.
+     * @param filename Nombre seguro y deduplicado asignado al instalador descargado.
+     * @param target Ruta local de destino del instalador.
+     * @param totalBudget Presupuesto compartido de bytes del trabajo, consumido durante la
+     *     transferencia.
+     * @param maxFileBytes Límite máximo permitido para este archivo, en bytes.
+     * @return artefacto terminado de la siguiente política.
+     */
     @Override
     public DownloadedArtifact download(
             ResolvedDownloadItem item,

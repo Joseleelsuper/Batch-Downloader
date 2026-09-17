@@ -83,6 +83,8 @@ export interface CatalogStats {
 }
 
 export interface DownloadOption {
+  installationSupport?: 'automatic' | 'manual' | 'not_applicable';
+  compatibleLinuxTargets?: string[];
   id: string;
   filename?: string | null;
   extension?: string | null;
@@ -129,6 +131,7 @@ export interface DownloadJobItem {
 }
 
 export interface DownloadJob {
+  linux?: { target: string; architecture: string; addedDependencyAppIds: string[] } | null;
   id: string;
   status: DownloadJobStatus;
   failureCode: string | null;
@@ -341,7 +344,6 @@ export interface AuthUser {
   role: 'USER' | 'ADMIN';
   notifyOnJobCompletion: boolean;
   createdAt: string;
-  authenticationMethods: Array<'LOCAL' | 'GOOGLE'>;
 }
 
 export interface ScraperRunSummary {
@@ -486,18 +488,6 @@ export interface CatalogChangeEvent {
   type: 'catalog.changed';
   version: string;
   generatedAt: string;
-}
-
-export interface SoftwareRequestItem {
-  id: string;
-  requestedName: string;
-  officialUrl: string;
-  description?: string | null;
-  generatedDescription?: string | null;
-  status: string;
-  requesterEmail?: string | null;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface AuditItem {

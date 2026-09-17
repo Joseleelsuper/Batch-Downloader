@@ -19,7 +19,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** Expone a Core una comprobación interna y rápida de la reserva del SSD. */
+/**
+ * Expone a Core una comprobación autenticada de espacio temporal y cuota de objetos para evitar
+ * admitir trabajos sin una reserva segura.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.TemporaryDiskCapacity
+ * @see es.ubu.batchdownloader.downloadworker.application.ArtifactCapacity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Transporte de descargas
+ */
 @RestController
 @RequestMapping("/internal/v1/capacity")
 final class WorkerCapacityController {
@@ -32,7 +41,15 @@ final class WorkerCapacityController {
     /** Credencial compartida de servicios internos. */
     private final String serviceToken;
 
-    /** Inicializa la comprobación de capacidad. */
+    /**
+     * Conecta ambas comprobaciones de capacidad y la credencial interna usada por Core.
+     *
+     * @param capacity Comprobación de espacio seguro en el volumen temporal.
+     * @param downloadProperties Configuración que determina el directorio temporal supervisado.
+     * @param coreApiProperties Configuración que aporta el token de comunicación con Core.
+     * @param artifacts Comprobación opcional de cuota de objetos; null se utiliza en la composición
+     *     abreviada.
+     */
     @Autowired
     WorkerCapacityController(
             TemporaryDiskCapacity capacity,
@@ -45,7 +62,13 @@ final class WorkerCapacityController {
         this.serviceToken = coreApiProperties.serviceToken();
     }
 
-    /** Conserva el constructor anterior para pruebas focalizadas del disco. */
+    /**
+     * Compone una comprobación de disco sin cuota de objetos para pruebas aisladas.
+     *
+     * @param capacity Comprobación de espacio seguro en el volumen temporal.
+     * @param downloadProperties Configuración que determina el directorio temporal supervisado.
+     * @param coreApiProperties Configuración que aporta el token de comunicación con Core.
+     */
     WorkerCapacityController(
             TemporaryDiskCapacity capacity,
             DownloadProperties downloadProperties,
@@ -54,10 +77,13 @@ final class WorkerCapacityController {
     }
 
     /**
-     * Rechaza una nueva admisión si el margen configurado de 30 GB o las reservas activas no caben.
+     * Autentica la petición y comprueba disco y cuota sin mantener una reserva; diferencia
+     * credencial inválida de capacidad temporalmente insuficiente.
      *
-     * @param providedToken Credencial enviada por Core.
-     * @return Respuesta interna sin cuerpo o error temporal estable.
+     * @param providedToken Credencial interna recibida; null o un valor no coincidente impide la
+     *     comprobación.
+     * @return 204 con margen, 401 con token inválido o 503 con Retry-After de treinta segundos si
+     *     falta capacidad.
      */
     @PostMapping("/check")
     ResponseEntity<?> check(
@@ -81,6 +107,11 @@ final class WorkerCapacityController {
         }
     }
 
+    /**
+     * Construye la respuesta de capacidad insuficiente con código y demora estables para Core.
+     *
+     * @return 503 storage_busy con Retry-After: 30.
+     */
     private ResponseEntity<Map<String, String>> busy() {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, "30")
@@ -89,7 +120,14 @@ final class WorkerCapacityController {
                         "message", "No existe una reserva segura de almacenamiento para otro ZIP."));
     }
 
-    /** Compara la credencial sin filtraciones temporales triviales. */
+    /**
+     * Rechaza configuración vacía o ausencia de token y compara los bytes UTF-8 con
+     * MessageDigest.isEqual.
+     *
+     * @param providedToken Credencial interna recibida; null o un valor no coincidente impide la
+     *     comprobación.
+     * @return true si la credencial recibida coincide con la configurada.
+     */
     private boolean validToken(String providedToken) {
         if (serviceToken == null || serviceToken.isBlank() || providedToken == null) return false;
         return MessageDigest.isEqual(

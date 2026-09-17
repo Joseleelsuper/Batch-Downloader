@@ -2,8 +2,10 @@ package es.ubu.batchdownloader.downloads.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import es.ubu.batchdownloader.downloads.application.LinuxTarget;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -22,7 +24,7 @@ class JpaCatalogSourceLookupTest {
     /** Comprueba que revisión y ausencia puedan usar la página oficial como alternativa. */
     @Test
     void selectsOfficialPagesWithoutRequiringCatalogAvailability() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
 
         assertThat(lookup.findManualSources(List.of(UUID.randomUUID()))).isEmpty();
@@ -40,7 +42,7 @@ class JpaCatalogSourceLookupTest {
      */
     @Test
     void selectsStaleValidSourcesAndOrdersPlatformsCanonically() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
 
         assertThat(lookup.findVerifiedSources(List.of(UUID.randomUUID()), List.of("linux", "windows")))
@@ -70,7 +72,7 @@ class JpaCatalogSourceLookupTest {
     /** Comprueba que una fuente concreta se limite a su aplicación y siga validándose. */
     @Test
     void selectsAnExplicitSourceOnlyWhenItRemainsCatalogDownloadable() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
         JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
 
         assertThat(lookup.findVerifiedSource(
@@ -87,5 +89,34 @@ class JpaCatalogSourceLookupTest {
         assertThat(sql.getValue()).contains("LIMIT 1");
         assertThat(parameters.getValue()).hasSize(3);
         assertThat(parameters.getValue()[2]).isEqualTo("windows");
+    }
+
+    @Test
+    void constrainsLinuxSelectionByManagerArchitectureRecipeAndExactSource() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        JpaCatalogSourceLookup lookup = new JpaCatalogSourceLookup(jdbc);
+
+        assertThat(lookup.findLinuxSources(
+                List.of(UUID.randomUUID()), new LinuxTarget("pacman", "aarch64"), UUID.randomUUID()))
+                .isEmpty();
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowCallbackHandler.class), parameters.capture());
+        assertThat(sql.getValue())
+                .contains("ds.operating_system = 'linux'")
+                .contains("LOWER(rs.extension) IN")
+                .contains("ds.architecture IN (?, 'any', 'all', 'noarch', 'universal', 'unknown')")
+                .contains("lip.status = 'approved'")
+                .contains("JSON_CONTAINS")
+                .contains("rs.id = ?")
+                .contains("'.pkg.tar.zst'");
+        assertThat(Arrays.stream(parameters.getValue())
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .toList())
+                .containsExactly(
+                        ".pkg.tar.zst", ".appimage", ".tar.gz", ".jar",
+                        "aarch64", "pacman", "aarch64");
     }
 }

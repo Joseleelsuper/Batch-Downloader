@@ -3,23 +3,29 @@ package es.ubu.batchdownloader.translation.domain;
 import java.util.Objects;
 
 /**
- * Representa los datos inmutables de {@code LocaleDocument}.
+ * Conserva una representación JSON de un idioma con el ETag que permite revalidarla por HTTP.
+ * Copia el array de entrada y el devuelto por content para impedir cambios externos del documento.
  *
- * @param locale Valor de {@code locale} incluido en el record.
- * @param content Valor de {@code content} incluido en el record.
- * @param etag Valor de {@code etag} incluido en el record.
+ * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+ * @param content Bytes UTF-8 del catálogo JSON completo.
+ * @param etag Validador HTTP del contenido, con comillas y basado en su SHA-256.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.translation.application.port.LocaleCatalog
+ * @see es.ubu.batchdownloader.translation.infrastructure.web.LocaleController
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Traducciones
  */
 public record LocaleDocument(String locale, byte[] content, String etag) {
 
     /**
-     * Inicializa una instancia de {@code LocaleDocument}.
+     * Exige código de idioma y ETag no vacíos y conserva una copia independiente de los bytes.
      *
-     * @param locale Valor de {@code locale} utilizado por la operación.
-     * @param content Contenido que debe procesarse.
-     * @param etag Valor de {@code etag} utilizado por la operación.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+     * @param content Bytes UTF-8 del catálogo JSON completo.
+     * @param etag Validador HTTP del contenido, con comillas y basado en su SHA-256.
+     * @throws IllegalArgumentException si idioma o ETag están vacíos.
+     * @throws NullPointerException si falta el contenido.
      */
     public LocaleDocument {
         if (locale == null || locale.isBlank()) {
@@ -33,9 +39,9 @@ public record LocaleDocument(String locale, byte[] content, String etag) {
     }
 
     /**
-     * Implementa {@code content} para {@code LocaleDocument}.
+     * Devuelve una copia del JSON para que el llamador no modifique el documento almacenado.
      *
-     * @return Resultado producido por {@code content}.
+     * @return copia independiente de los bytes UTF-8.
      */
     @Override
     public byte[] content() {

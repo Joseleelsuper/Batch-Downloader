@@ -7,18 +7,24 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Resuelve los recursos gestionados por {@code DnsHostResolver}.
+ * Consulta las direcciones del host mediante el resolutor del JDK y traduce un nombre desconocido a
+ * rechazo de descarga.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.HostResolver
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Transporte de descargas
  */
 public class DnsHostResolver implements HostResolver {
     /**
-     * Resuelve el recurso solicitado mediante {@code resolve}.
+     * Resuelve todas las direcciones que devuelve InetAddress para el nombre indicado.
      *
-     * @param hostname Valor de {@code hostname} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param hostname Nombre DNS que se resuelve para validar todas sus direcciones.
+     * @return direcciones que deben superar la política pública.
+     * @throws es.ubu.batchdownloader.downloadworker.application.DownloadRejectedException si el
+     *     host no puede resolverse, con código dns_resolution_failed.
      */
     @Override
     public List<InetAddress> resolve(String hostname) {

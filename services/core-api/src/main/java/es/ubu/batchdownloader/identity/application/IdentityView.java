@@ -3,20 +3,25 @@ package es.ubu.batchdownloader.identity.application;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
- * Representa los datos inmutables de {@code IdentityView}.
+ * Expone identidad, correo, rol y preferencias de una cuenta sin transportar contraseña ni su hash.
  *
- * @param id Valor de {@code id} incluido en el record.
- * @param username Valor de {@code username} incluido en el record.
- * @param email Valor de {@code email} incluido en el record.
- * @param emailVerified Valor de {@code emailVerified} incluido en el record.
- * @param role Valor de {@code role} incluido en el record.
- * @param notifyOnJobCompletion Valor de {@code notifyOnJobCompletion} incluido en el record.
+ * @param id UUID estable del agregado que se consulta o reconstruye.
+ * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
+ * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
+ *     normalizada.
+ * @param emailVerified Indica que se ha confirmado el control del correo de la cuenta.
+ * @param role Rol USER o ADMIN que determina el acceso permitido.
+ * @param notifyOnJobCompletion Preferencia vigente de recibir correo cuando termina una descarga.
+ * @param createdAt Instante de creación original del agregado.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.domain.UserAccount
+ * @see es.ubu.batchdownloader.identity.application.IdentityService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 public record IdentityView(
         UUID id,
@@ -25,30 +30,17 @@ public record IdentityView(
         boolean emailVerified,
         UserRole role,
         boolean notifyOnJobCompletion,
-        Instant createdAt,
-        List<String> authenticationMethods) {
-
-    public IdentityView {
-        authenticationMethods = List.copyOf(authenticationMethods);
-    }
+        Instant createdAt) {
 
     /**
-     * Ejecuta la operación {@code from}.
+     * Proyecta los campos de identidad y preferencias que pueden viajar en respuestas de cuenta.
      *
-     * @param user Valor de {@code user} utilizado por la operación.
-     * @return Resultado producido por {@code from}.
+     * @param user Cuenta destinataria de la consulta, token, evento o proyección.
+     * @return vista sin credenciales del agregado.
      */
     public static IdentityView from(UserAccount user) {
-        return from(user, false);
-    }
-
-    /** Crea la vista incluyendo las identidades externas enlazadas. */
-    public static IdentityView from(UserAccount user, boolean googleLinked) {
-        List<String> methods = new ArrayList<>(2);
-        if (user.hasPassword()) methods.add("LOCAL");
-        if (googleLinked) methods.add("GOOGLE");
         return new IdentityView(
                 user.id(), user.username(), user.email(), user.emailVerified(), user.role(),
-                user.notifyOnJobCompletion(), user.createdAt(), methods);
+                user.notifyOnJobCompletion(), user.createdAt());
     }
 }

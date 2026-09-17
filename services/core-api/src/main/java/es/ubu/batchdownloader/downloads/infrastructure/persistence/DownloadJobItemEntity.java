@@ -18,15 +18,20 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Implementa el componente {@code DownloadJobItemEntity}.
+ * Persiste la fuente seleccionada y el progreso de un elemento vinculado a su trabajo mediante JPA.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJobItem
+ * @see es.ubu.batchdownloader.downloads.infrastructure.persistence.DownloadJobEntity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Entity
 @Table(name = "download_job_items")
 class DownloadJobItemEntity {
     /**
-     * Estado {@code id} mantenido por {@code DownloadJobItemEntity}.
+     * UUID estable del elemento.
      */
     @Id
     @JdbcTypeCode(SqlTypes.CHAR)
@@ -98,16 +103,16 @@ class DownloadJobItemEntity {
     private long version;
 
     /**
-     * Inicializa una instancia de {@code DownloadJobItemEntity}.
+     * Permite a JPA reconstruir un elemento de descarga desde sus columnas.
      */
     protected DownloadJobItemEntity() {}
 
     /**
-     * Ejecuta la operación {@code from}.
+     * Asocia una nueva entidad de elemento al trabajo y conserva su identidad y versión.
      *
-     * @param item Elemento sobre el que se realiza la operación.
-     * @param job Trabajo de descarga sobre el que se actúa.
-     * @return Resultado producido por {@code from}.
+     * @param item Elemento del dominio cuyos datos se trasladan a la entidad persistente.
+     * @param job Entidad del trabajo al que pertenece el elemento.
+     * @return entidad del elemento con su relación propietaria.
      */
     static DownloadJobItemEntity from(DownloadJobItem item, DownloadJobEntity job) {
         DownloadJobItemEntity entity = new DownloadJobItemEntity();
@@ -119,9 +124,10 @@ class DownloadJobItemEntity {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code updateFrom}.
+     * Copia selección, progreso, integridad y fechas del elemento sin cambiar identidad, trabajo ni
+     * versión JPA.
      *
-     * @param item Elemento sobre el que se realiza la operación.
+     * @param item Elemento del dominio cuyos datos se trasladan a la entidad persistente.
      */
     void updateFrom(DownloadJobItem item) {
         appId = item.appId();
@@ -137,9 +143,9 @@ class DownloadJobItemEntity {
     }
 
     /**
-     * Convierte el valor recibido mediante {@code toDomain}.
+     * Rehidrata la selección y el estado persistido del elemento sin ejecutar otra transición.
      *
-     * @return Resultado producido por {@code toDomain}.
+     * @return elemento del dominio con la versión guardada.
      */
     DownloadJobItem toDomain() {
         return DownloadJobItem.rehydrate(
@@ -148,9 +154,9 @@ class DownloadJobItemEntity {
     }
 
     /**
-     * Ejecuta la operación {@code id}.
+     * Identifica el elemento al sincronizar la colección del agregado.
      *
-     * @return Resultado producido por {@code id}.
+     * @return UUID estable del elemento.
      */
     UUID id() { return id; }
 }

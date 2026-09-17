@@ -22,14 +22,22 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.lang.Nullable;
 
 /**
- * Implementa el componente {@code SseDownloadJobNotifier}.
+ * Mantiene suscripciones SSE por trabajo, agrupa progreso durante 250 ms y entrega los estados
+ * terminales inmediatamente antes de cerrar la conexión.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobNotifications
+ * @see es.ubu.batchdownloader.downloads.infrastructure.web.DownloadJobController
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Component
 public class SseDownloadJobNotifier implements DownloadJobNotifier {
     /**
-     * Constante que define {@code SSE_TIMEOUT_MILLIS}.
+     * Valor de configuración que limita s s e  t i m e o u t  m i l l i s y evita esperas
+     * indefinidas.
      */
     private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(30).toMillis();
     /**
@@ -50,9 +58,11 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     });
 
     /**
-     * Inicializa el heartbeat del canal SSE.
+     * Configura emisores y latidos periódicos; el registro de métricas, cuando existe, observa
+     * conexiones activas.
      *
-     * @param heartbeat Intervalo entre señales de vida.
+     * @param heartbeat Intervalo entre señales SSE; se limita por abajo a un segundo.
+     * @param registry Registro opcional de métricas; null desactiva la instrumentación.
      */
     @Autowired
     public SseDownloadJobNotifier(
@@ -67,12 +77,24 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
         }
     }
 
-    /** Conserva el constructor público anterior para usos embebidos. */
+    /**
+     * Configura emisores y latidos periódicos; el registro de métricas, cuando existe, observa
+     * conexiones activas.
+     *
+     * @param heartbeat Intervalo entre señales SSE; se limita por abajo a un segundo.
+     */
     public SseDownloadJobNotifier(Duration heartbeat) {
         this(heartbeat, () -> new SseEmitter(SSE_TIMEOUT_MILLIS));
     }
 
-    /** Constructor acotado que permite observar los envíos sin abrir una conexión HTTP. */
+    /**
+     * Configura emisores y latidos periódicos; el registro de métricas, cuando existe, observa
+     * conexiones activas.
+     *
+     * @param heartbeat Intervalo entre señales SSE; se limita por abajo a un segundo.
+     * @param emitterFactory Factoría de conexiones SSE, sustituible por emisores controlados en las
+     *     pruebas.
+     */
     SseDownloadJobNotifier(Duration heartbeat, Supplier<SseEmitter> emitterFactory) {
         this.emitterFactory = emitterFactory;
         long intervalMillis = Math.max(1_000, heartbeat.toMillis());
@@ -81,10 +103,11 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     }
 
     /**
-     * Ejecuta la operación {@code subscribe}.
+     * Registra la conexión con limpieza en cierre, error o timeout y envía la vista inicial ya
+     * autorizada.
      *
-     * @param initial Valor de {@code initial} utilizado por la operación.
-     * @return Resultado producido por {@code subscribe}.
+     * @param initial Vista ya autorizada del trabajo que se envía al abrir la suscripción.
+     * @return emisor de la suscripción; un estado terminal puede completarlo inmediatamente.
      */
     public SseEmitter subscribe(DownloadJobView initial) {
         SseEmitter emitter = emitterFactory.get();
@@ -100,9 +123,10 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     }
 
     /**
-     * Implementa {@code changed} para {@code SseDownloadJobNotifier}.
+     * Sustituye el progreso pendiente por la vista más reciente; los estados terminales descartan
+     * lo pendiente y se envían inmediatamente.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     @Override
     public void changed(DownloadJobView job) {
@@ -115,14 +139,23 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
         schedule(job.id());
     }
 
-    /** Programa como máximo un envío cada 250 milisegundos por trabajo. */
+    /**
+     * Reserva como máximo un envío diferido por trabajo para agrupar cambios durante 250 ms.
+     *
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     */
     private void schedule(UUID jobId) {
         if (scheduled.add(jobId)) {
             scheduler.schedule(() -> flush(jobId), 250, TimeUnit.MILLISECONDS);
         }
     }
 
-    /** Envía el último estado acumulado y rearma si llegó otro durante el envío. */
+    /**
+     * Envía la última vista pendiente y vuelve a programar si llegó otra mientras se vaciaba el
+     * registro.
+     *
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     */
     private void flush(UUID jobId) {
         DownloadJobView job = pending.remove(jobId);
         if (job != null) {
@@ -134,13 +167,20 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
         }
     }
 
-    /** Envía un estado a todos los suscriptores del trabajo. */
+    /**
+     * Difunde la misma vista a todas las conexiones actualmente registradas para el trabajo.
+     *
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
+     */
     private void send(DownloadJobView job) {
         emitters.getOrDefault(job.id(), new CopyOnWriteArrayList<>())
                 .forEach(emitter -> send(job, emitter));
     }
 
-    /** Mantiene abiertos los proxies y permite detectar conexiones rotas. */
+    /**
+     * Envía un evento heartbeat con el instante actual a cada conexión y retira las que ya no
+     * aceptan escritura.
+     */
     private void heartbeat() {
         emitters.forEach((jobId, jobEmitters) -> jobEmitters.forEach(emitter -> {
             try {
@@ -152,10 +192,11 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     }
 
     /**
-     * Envía el contenido solicitado mediante {@code send}.
+     * Envía un evento job con identidad y vista; completa estados terminales y retira conexiones
+     * que fallan.
      *
-     * @param job Trabajo de descarga sobre el que se actúa.
-     * @param emitter Valor de {@code emitter} utilizado por la operación.
+     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
+     * @param emitter Conexión SSE que recibe la vista o debe retirarse del registro.
      */
     private void send(DownloadJobView job, SseEmitter emitter) {
         try {
@@ -169,10 +210,11 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code remove}.
+     * Retira la conexión y elimina la entrada del trabajo solo si su lista sigue siendo la misma y
+     * queda vacía.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param emitter Valor de {@code emitter} utilizado por la operación.
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param emitter Conexión SSE que recibe la vista o debe retirarse del registro.
      */
     private void remove(UUID jobId, SseEmitter emitter) {
         CopyOnWriteArrayList<SseEmitter> jobEmitters = emitters.get(jobId);
@@ -181,12 +223,18 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
         if (jobEmitters.isEmpty()) emitters.remove(jobId, jobEmitters);
     }
 
-    /** @return Número de conexiones SSE vivas, sin ocupar hilos HTTP inactivos. */
+    /**
+     * Suma las conexiones registradas para exponer la ocupación actual del servicio SSE.
+     *
+     * @return número de emisores registrados, como valor de métrica.
+     */
     private double activeConnections() {
         return emitters.values().stream().mapToInt(CopyOnWriteArrayList::size).sum();
     }
 
-    /** Detiene el programador al cerrar la aplicación. */
+    /**
+     * Detiene el planificador de latidos y envíos diferidos al destruir el componente.
+     */
     @PreDestroy
     void close() {
         scheduler.shutdownNow();

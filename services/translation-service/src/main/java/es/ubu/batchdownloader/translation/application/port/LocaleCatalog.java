@@ -4,17 +4,22 @@ import es.ubu.batchdownloader.translation.domain.LocaleDocument;
 import java.util.Optional;
 
 /**
- * Define el contrato de {@code LocaleCatalog}.
+ * Permite consultar documentos de traducción ya validados junto con su identificador de caché.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.translation.domain.LocaleDocument
+ * @see es.ubu.batchdownloader.translation.application.GetLocale
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Traducciones
  */
 public interface LocaleCatalog {
 
     /**
-     * Busca el resultado solicitado mediante {@code findByLocale}.
+     * Consulta el catálogo por su código exacto de idioma.
      *
-     * @param locale Valor de {@code locale} utilizado por la operación.
-     * @return Resultado producido por {@code findByLocale}.
+     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+     * @return documento disponible, o Optional vacío si el idioma no está publicado.
      */
     Optional<LocaleDocument> findByLocale(String locale);
 }

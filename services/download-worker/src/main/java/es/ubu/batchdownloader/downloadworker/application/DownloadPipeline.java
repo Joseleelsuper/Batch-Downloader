@@ -19,8 +19,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 
-/** Mantiene una ventana acotada de descargas y sus presupuestos de disco y tamaño. */
-final class DownloadPipeline {
+/**
+ * Mantiene una ventana acotada de transferencias y entrega sus resultados en orden de finalización,
+ * compartiendo presupuesto de bytes y nombres únicos del trabajo.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadPipelineFactory
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @see es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Procesamiento de descargas
+ */
+public final class DownloadPipeline {
     private final DownloadJobRequestedEvent event;
     private final List<ResolvedDownloadItem> items;
     private final Path jobDirectory;
@@ -40,11 +50,45 @@ final class DownloadPipeline {
     private int submitted;
     private int completed;
 
-    DownloadPipeline(
+    /**
+     * Conecta los colaboradores del trabajo, crea su presupuesto y conjunto de nombres y lanza las
+     * primeras tareas hasta llenar la ventana.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param items Fuentes resueltas que conservan los identificadores de los elementos admitidos.
+     * @param jobDirectory Directorio temporal exclusivo de esta ejecución del trabajo.
+     * @param window Máximo de tareas simultáneas, acotado por el número de elementos.
+     * @param dependencies Colaboradores compartidos del worker usados por el pipeline.
+     */
+    public DownloadPipeline(
             DownloadJobRequestedEvent event,
             List<ResolvedDownloadItem> items,
             Path jobDirectory,
             int window,
+            Dependencies dependencies) {
+        this.event = event;
+        this.items = items;
+        this.jobDirectory = jobDirectory;
+        this.window = Math.min(window, items.size());
+        this.remoteDownloader = dependencies.remoteDownloader();
+        this.filenamePolicy = dependencies.filenamePolicy();
+        this.properties = dependencies.properties();
+        this.cancellations = dependencies.cancellations();
+        this.metrics = dependencies.metrics();
+        this.events = dependencies.events();
+        this.clock = dependencies.clock();
+        this.files = dependencies.files();
+        this.completions = new ExecutorCompletionService<>(dependencies.executor());
+        this.budget = new DownloadBudget(dependencies.properties().maxTotalSize().toBytes());
+        this.usedNames = dependencies.filenamePolicy().newNameSet();
+        while (submitted < this.window) {
+            submitNext();
+        }
+    }
+
+    /** Colaboradores inmutables compartidos por todos los pipelines del worker. */
+    public record Dependencies(
             ExecutorService executor,
             RemoteDownloader remoteDownloader,
             FilenamePolicy filenamePolicy,
@@ -53,31 +97,23 @@ final class DownloadPipeline {
             DownloadWorkerMetrics metrics,
             DownloadEventEmitter events,
             Clock clock,
-            DownloadJobFiles files) {
-        this.event = event;
-        this.items = items;
-        this.jobDirectory = jobDirectory;
-        this.window = Math.min(window, items.size());
-        this.remoteDownloader = remoteDownloader;
-        this.filenamePolicy = filenamePolicy;
-        this.properties = properties;
-        this.cancellations = cancellations;
-        this.metrics = metrics;
-        this.events = events;
-        this.clock = clock;
-        this.files = files;
-        this.completions = new ExecutorCompletionService<>(executor);
-        this.budget = new DownloadBudget(properties.maxTotalSize().toBytes());
-        this.usedNames = filenamePolicy.newNameSet();
-        while (submitted < this.window) {
-            submitNext();
-        }
-    }
+            DownloadJobFiles files) {}
 
+    /**
+     * Indica si quedan resultados por recoger de la selección resuelta.
+     *
+     * @return true mientras no se haya consumido un resultado por cada fuente.
+     */
     boolean hasNext() {
         return completed < items.size();
     }
 
+    /**
+     * Espera el siguiente resultado completado y ocupa el hueco de la ventana con otra descarga
+     * pendiente antes de devolverlo.
+     *
+     * @return éxito o rechazo del próximo elemento terminado.
+     */
     Attempt next() {
         Attempt attempt = awaitCompleted();
         completed++;
@@ -87,6 +123,13 @@ final class DownloadPipeline {
         return attempt;
     }
 
+    /**
+     * Publica estado DOWNLOADING, envía una tarea al ejecutor y registra todos los futuros para
+     * cancelación.
+     *
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si el
+     *     ejecutor no admite la tarea.
+     */
     private void submitNext() {
         ResolvedDownloadItem item = items.get(submitted++);
         events.progress(
@@ -100,6 +143,16 @@ final class DownloadPipeline {
         }
     }
 
+    /**
+     * Reserva un nombre único y descarga con límites e integridad. Convierte rechazos funcionales
+     * en resultados individuales; ante otros fallos intenta limpiar el temporal y conserva la
+     * cancelación.
+     *
+     * @param resolved Instalador cuya resolución terminó correctamente.
+     * @return artefacto completo o rechazo individual.
+     * @throws java.util.concurrent.CancellationException si el trabajo se canceló al fallar la
+     *     transferencia.
+     */
     private Attempt downloadOne(ResolvedDownloadItem resolved) {
         String filename;
         synchronized (usedNames) {
@@ -132,6 +185,13 @@ final class DownloadPipeline {
         }
     }
 
+    /**
+     * Espera una finalización de la cola de tareas sin imponer el orden de entrada.
+     *
+     * @return resultado de la siguiente transferencia terminada.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
+     *     interrumpe la espera; conserva la interrupción del hilo.
+     */
     private Attempt awaitCompleted() {
         try {
             return await(completions.take());
@@ -141,6 +201,15 @@ final class DownloadPipeline {
         }
     }
 
+    /**
+     * Recupera el resultado y propaga directamente fallos RuntimeException de la tarea; envuelve
+     * otros fallos y conserva interrupciones.
+     *
+     * @param future Tarea cuyo resultado o fallo se recupera después de terminar.
+     * @return resultado completado de la transferencia.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
+     *     interrumpe la espera o la tarea falla con una causa comprobada.
+     */
     private Attempt await(Future<Attempt> future) {
         try {
             return future.get();
@@ -156,11 +225,33 @@ final class DownloadPipeline {
         }
     }
 
+    /**
+     * Representa éxito o rechazo individual conservando solo uno de los dos resultados en las
+     * factorías del pipeline.
+     *
+     * @param artifact Instalador descargado e íntegro; null en un intento fallido.
+     * @param failure Rechazo individual del instalador; null en un intento satisfactorio.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Procesamiento de descargas
+     */
     record Attempt(DownloadedArtifact artifact, FailedDownload failure) {
+        /**
+         * Construye el resultado de una transferencia completa sin rechazo asociado.
+         *
+         * @param artifact Instalador descargado e íntegro; null en un intento fallido.
+         * @return intento con artefacto y fallo null.
+         */
         private static Attempt success(DownloadedArtifact artifact) {
             return new Attempt(artifact, null);
         }
 
+        /**
+         * Construye el resultado individual de un instalador rechazado.
+         *
+         * @param failure Rechazo individual del instalador; null en un intento satisfactorio.
+         * @return intento con fallo y artefacto null.
+         */
         private static Attempt failure(FailedDownload failure) {
             return new Attempt(null, failure);
         }

@@ -1143,7 +1143,8 @@
   color: #0b766f;
 }
 
-.website-installer-evidence {
+.website-installer-evidence,
+.installer-evidence {
   display: grid;
   gap: 10px;
   padding-top: 4px;
@@ -1167,7 +1168,8 @@
   font-size: 13px;
 }
 
-.website-installer-evidence > div > span {
+.website-installer-evidence > div > span,
+.installer-evidence > div:first-child > span {
   color: #075f59;
   font-size: 11px;
   font-weight: 720;
@@ -1266,12 +1268,6 @@
   padding-left: 18px;
 }
 
-.installer-evidence {
-  display: grid;
-  gap: 10px;
-  padding-top: 4px;
-  border-top: 1px solid #c3e1de;
-}
 
 .installer-evidence > div:first-child {
   display: flex;
@@ -1286,11 +1282,6 @@
   font-size: 13px;
 }
 
-.installer-evidence > div:first-child > span {
-  color: #075f59;
-  font-size: 11px;
-  font-weight: 720;
-}
 
 .installer-evidence dl {
   display: grid;

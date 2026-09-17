@@ -28,7 +28,7 @@ class CoreMySqlMigrationTest {
             .withPassword("batch-test")
             .withCommand("--log-bin-trust-function-creators=1");
 
-    /** Prepara un snapshot V11, prueba el preflight y completa las migraciones vigentes. */
+    /** Prepara un snapshot V11, prueba los preflights y completa las migraciones vigentes. */
     @BeforeAll
     static void migrateCoreSchema() throws SQLException {
         try (Connection connection = connection(); Statement statement = connection.createStatement()) {
@@ -37,6 +37,10 @@ class CoreMySqlMigrationTest {
                         id BINARY(16) NOT NULL,
                         app_status VARCHAR(32) NOT NULL,
                         catalog_status VARCHAR(16) NULL,
+                        catalog_review_priority TINYINT(1)
+                            GENERATED ALWAYS AS (
+                                CASE WHEN catalog_status = 'review' THEN 1 ELSE 0 END
+                            ) STORED,
                         catalog_review_source_count INT UNSIGNED NOT NULL DEFAULT 0,
                         normalized_name VARCHAR(180) NOT NULL,
                         PRIMARY KEY (id)
@@ -80,6 +84,13 @@ class CoreMySqlMigrationTest {
                         MAX_INACTIVE_INTERVAL, EXPIRY_TIME, PRINCIPAL_NAME
                     ) VALUES (?, ?, 0, 0, 1800, 1800000, 'legacy-principal')
                     """, UUID.randomUUID().toString(), UUID.randomUUID().toString());
+            execute(connection, """
+                    INSERT INTO software_requests (
+                        id, requested_name, official_url, description, generated_description,
+                        status, requester_email, created_at, updated_at
+                    ) VALUES (UUID_TO_BIN(?), 'obsolete-request', 'https://example.test/app',
+                        'obsolete', NULL, 'pending', NULL, NOW(), NOW())
+                    """, UUID.randomUUID().toString());
         }
         flyway.repair();
         flyway.migrate();
@@ -107,6 +118,18 @@ class CoreMySqlMigrationTest {
             assertThat(columnNullable(connection, "download_jobs", "artifact_sha256")).isTrue();
             assertThat(columnNullable(connection, "download_jobs", "wait_reason")).isTrue();
             assertThat(columnNullable(connection, "download_jobs", "retry_at")).isTrue();
+            assertThat(tableExists(connection, "download_job_linux_context")).isTrue();
+            assertThat(tableExists(connection, "catalog_source_projections")).isFalse();
+            assertThat(tableExists(connection, "catalog_app_projections")).isFalse();
+            assertThat(tableExists(connection, "software_requests")).isFalse();
+            assertThat(columnNullable(connection, "download_job_linux_context", "linux_target"))
+                    .isFalse();
+            assertThat(columnNullable(connection, "download_job_linux_context", "architecture"))
+                    .isFalse();
+            assertThat(columnNullable(connection, "download_job_linux_context", "dependencies"))
+                    .isFalse();
+            assertThat(tableExists(connection, "oauth_identities")).isFalse();
+            assertThat(columnNullable(connection, "core_users", "password_hash")).isFalse();
             execute(connection, """
                     INSERT INTO admin_audit_logs (
                         id, actor, action, target_type, target_id, safe_metadata, created_at
@@ -141,7 +164,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("14");
+            assertThat(flywayVersion(connection)).isEqualTo("18");
         }
     }
 
@@ -163,7 +186,7 @@ class CoreMySqlMigrationTest {
                     id, username, normalized_username, email, normalized_email, password_hash,
                     email_verified, role, enabled, created_at, updated_at
                 ) VALUES (?, 'migration-user', 'migration-user', 'migration@example.test',
-                    'migration@example.test', NULL, TRUE, 'USER', TRUE, NOW(6), NOW(6))
+                    'migration@example.test', 'migration-password-hash', TRUE, 'USER', TRUE, NOW(6), NOW(6))
                 """, userId);
     }
 
@@ -265,6 +288,20 @@ class CoreMySqlMigrationTest {
             try (ResultSet result = statement.executeQuery()) {
                 assertThat(result.next()).isTrue();
                 return "YES".equals(result.getString(1));
+            }
+        }
+    }
+
+    private static boolean tableExists(Connection connection, String table) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = DATABASE() AND table_name = ?
+                """)) {
+            statement.setString(1, table);
+            try (ResultSet result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                return result.getLong(1) == 1L;
             }
         }
     }

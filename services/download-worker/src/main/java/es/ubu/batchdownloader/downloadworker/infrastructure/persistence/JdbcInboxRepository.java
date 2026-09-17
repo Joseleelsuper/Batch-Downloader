@@ -11,9 +11,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Gestiona la persistencia y consulta de {@code JdbcInboxRepository}.
+ * Deduplica eventos con una fila por UUID y recupera reservas PROCESSING vencidas mediante una
+ * actualización condicional.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.InboxRepository
+ * @see
+ *     es.ubu.batchdownloader.downloadworker.infrastructure.persistence.DownloadInboxRetentionPruner
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Adaptadores y persistencia del worker
  */
 public class JdbcInboxRepository implements InboxRepository {
     /**
@@ -26,10 +33,10 @@ public class JdbcInboxRepository implements InboxRepository {
     private final Clock clock;
 
     /**
-     * Inicializa una instancia de {@code JdbcInboxRepository}.
+     * Conecta las transiciones del inbox con el reloj de reservas.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param jdbc Acceso SQL al inbox local del worker.
+     * @param clock Reloj para reservas, confirmaciones y cortes de retención.
      */
     public JdbcInboxRepository(JdbcTemplate jdbc, Clock clock) {
         this.jdbc = jdbc;
@@ -37,11 +44,12 @@ public class JdbcInboxRepository implements InboxRepository {
     }
 
     /**
-     * Implementa {@code tryStart} para {@code JdbcInboxRepository}.
+     * Inserta una reserva nueva o, ante UUID duplicado, intenta recuperar únicamente una reserva
+     * PROCESSING anterior al corte del arrendamiento.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param lease Valor de {@code lease} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param eventId UUID estable del evento de entrada que se deduplica.
+     * @param lease Duración máxima desde started_at antes de recuperar una reserva abandonada.
+     * @return true si insertó o recuperó la reserva; false si ya terminó o sigue vigente.
      */
     @Override
     @Transactional
@@ -69,9 +77,9 @@ public class JdbcInboxRepository implements InboxRepository {
     }
 
     /**
-     * Implementa {@code complete} para {@code JdbcInboxRepository}.
+     * Marca completado el evento y fecha su confirmación dentro de una transacción.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @param eventId UUID estable del evento de entrada que se deduplica.
      */
     @Override
     @Transactional
@@ -83,9 +91,9 @@ public class JdbcInboxRepository implements InboxRepository {
     }
 
     /**
-     * Libera el recurso solicitado mediante {@code release}.
+     * Borra la fila solo si permanece PROCESSING para permitir otra entrega tras un fallo.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @param eventId UUID estable del evento de entrada que se deduplica.
      */
     @Override
     @Transactional

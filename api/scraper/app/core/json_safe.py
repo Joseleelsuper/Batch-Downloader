@@ -1,5 +1,4 @@
-"""Implementa las responsabilidades del módulo `json_safe`.
-"""
+"""Convierte valores de persistencia y diagnóstico en estructuras aptas para serialización JSON."""
 from __future__ import annotations
 
 import uuid
@@ -10,13 +9,17 @@ from typing import Any
 
 
 def json_safe(value: Any) -> Any:
-    """Ejecuta la operación `json_safe`.
+    """Normaliza recursivamente mapas y colecciones, representa bytes como hexadecimal y
+    convierte fechas, UUID y decimales en texto.
+    Conserva valores primitivos, usa el valor de las enumeraciones y convierte otros objetos
+    con str.
 
     Args:
-        value (Any): Valor que debe procesarse.
+        value: Valor que se convierte al formato del destino.
 
     Returns:
-        Any: Resultado producido por la operación.
+        valor JSON compatible; las claves de mapas son cadenas y las colecciones se convierten
+            en listas.
     """
     if value is None or isinstance(value, (str, int, float, bool)):
         return value

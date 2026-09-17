@@ -8,9 +8,21 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 
-/** Prueba el umbral de degradación sin depender del reloj del sistema. */
+/**
+ * Comprueba degradación por fallos consecutivos y recuperación sin usar servicios ni esperas
+ * reales.
+ *
+ * @see es.ubu.batchdownloader.contracts.operations.WorkerHeartbeatState
+ * @since 0.2.0-SNAPSHOT
+ * @version 0.2.0-SNAPSHOT
+ * @category Contratos compartidos
+ */
 class WorkerHeartbeatStateTest {
 
+    /**
+     * Comprueba que una racha de tres fallos degrada el estado y que un éxito reinicia la racha
+     * conservando el tipo del último error.
+     */
     @Test
     void transientFailureDoesNotDegradeButPersistentFailuresDo() {
         WorkerHeartbeatState state = new WorkerHeartbeatState(

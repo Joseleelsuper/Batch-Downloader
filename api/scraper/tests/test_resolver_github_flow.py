@@ -19,8 +19,9 @@ class FakeCatalog:
         """Inicializa una instancia de `FakeCatalog`.
         """
         self.saved = []
-        """Estado de instancia asociado a `saved`.
-        """
+
+        self.winstall = self
+        self.sources = self
 
     async def expire_valid_resolved_sources(self, _source_id):
         """Ejecuta `expire_valid_resolved_sources` dentro de `FakeCatalog`.
@@ -102,32 +103,38 @@ async def test_github_official_url_does_not_fall_back_to_generic_page_parser(mon
     )
 
     async def github_releases(*_args, **_kwargs):
-        """Ejecuta la operación `github_releases`.
+        """Prepara el recurso
+        `test_github_official_url_does_not_fall_back_to_generic_page_parser.github_releases`
+        usado por las pruebas para aislar el escenario `test github official url does not fall
+        back to generic page parser.github releases` y conservar sus datos de entrada.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         return ResolutionStatus.REQUIRES_MANUAL_REVIEW
 
     async def generic_page(*_args, **_kwargs):
-        """Ejecuta la operación `generic_page`.
+        """Prepara el recurso
+        `test_github_official_url_does_not_fall_back_to_generic_page_parser.generic_page`
+        usado por las pruebas para aislar el escenario `test github official url does not fall
+        back to generic page parser.generic page` y conservar sus datos de entrada.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
-
-        Throws:
-            AssertionError: Si no puede completarse la operación bajo las condiciones requeridas.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         raise AssertionError("GitHub repo pages must not use the generic resolver")
 
     async def winstall_fallback(*_args, **_kwargs):
-        """Ejecuta la operación `winstall_fallback`.
+        """Prepara el recurso
+        `test_github_official_url_does_not_fall_back_to_generic_page_parser.winstall_fallback`
+        usado por las pruebas para aislar el escenario `test github official url does not fall
+        back to generic page parser.winstall fallback` y conservar sus datos de entrada.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         return ResolutionStatus.REQUIRES_MANUAL_REVIEW
 
@@ -192,18 +199,26 @@ async def test_winstall_github_asset_404_retries_latest_release(monkeypatch) -> 
             return None
 
         async def get_downloads(self, _package_id):
-            """Obtiene la operación `downloads`.
+            """Prepara el recurso
+            `test_winstall_github_asset_404_retries_latest_release.FakeWinstallClient.get_downloads`
+            usado por las pruebas para aislar el escenario `test winstall github asset 404
+            retries latest release.FakeWinstallClient.get downloads` y conservar sus datos de
+            entrada.
 
             Args:
-                _package_id (Any): Identificador de `_package` utilizado por la operación.
+                _package_id: Entrada `_package_id` del escenario que se mantiene estable para
+                    la prueba.
             """
             return []
 
     async def collect_latest(_url):
-        """Ejecuta la operación `collect_latest`.
+        """Prepara el recurso
+        `test_winstall_github_asset_404_retries_latest_release.collect_latest` usado por las
+        pruebas para aislar el escenario `test winstall github asset 404 retries latest
+        release.collect latest` y conservar sus datos de entrada.
 
         Args:
-            _url (Any): Dirección de `` que debe procesarse.
+            _url: Entrada `_url` del escenario que se mantiene estable para la prueba.
         """
         return [
             InstallerCandidate(
@@ -248,13 +263,12 @@ async def test_official_page_playwright_error_does_not_fail_app(monkeypatch) -> 
         return ""
 
     async def collect(_url):
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso `test_official_page_playwright_error_does_not_fail_app.collect`
+        usado por las pruebas para aislar el escenario `test official page playwright error
+        does not fail app.collect` y conservar sus datos de entrada.
 
         Args:
-            _url (Any): Dirección de `` que debe procesarse.
-
-        Throws:
-            RuntimeError: Si el estado de ejecución impide completar la operación.
+            _url: Entrada `_url` del escenario que se mantiene estable para la prueba.
         """
         raise RuntimeError("browser failed")
 

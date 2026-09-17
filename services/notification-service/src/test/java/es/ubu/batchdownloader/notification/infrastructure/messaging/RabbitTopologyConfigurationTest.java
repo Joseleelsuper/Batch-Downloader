@@ -11,9 +11,13 @@ import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
 
 /**
- * Agrupa los escenarios de prueba de {@code RabbitTopologyConfigurationTest}.
+ * Comprueba colas, enlaces y configuración de descartes de la topología de correo.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.infrastructure.messaging.RabbitTopologyConfiguration
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 class RabbitTopologyConfigurationTest {
 
@@ -27,7 +31,7 @@ class RabbitTopologyConfigurationTest {
     private RabbitTopologyProperties properties;
 
     /**
-     * Prepara el estado necesario para los escenarios de prueba.
+     * Construye nombres de exchanges y colas aislados para comprobar sus declaraciones.
      */
     @BeforeEach
     void setUp() {
@@ -42,7 +46,8 @@ class RabbitTopologyConfigurationTest {
     }
 
     /**
-     * Comprueba el escenario {@code configuresRetryExhaustionToReachTheDeadLetterQueue}.
+     * Comprueba que la cola de entrada declara el exchange y clave necesarios para conservar
+     * entregas rechazadas.
      */
     @Test
     void configuresRetryExhaustionToReachTheDeadLetterQueue() {
@@ -57,7 +62,7 @@ class RabbitTopologyConfigurationTest {
     }
 
     /**
-     * Comprueba el escenario {@code bindsTheCanonicalCommandAndTheDeadLetterQueue}.
+     * Comprueba los enlaces de la solicitud canónica y de su cola de descartes.
      */
     @Test
     void bindsTheCanonicalCommandAndTheDeadLetterQueue() {

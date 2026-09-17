@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as adminAppsApi from '../../api/adminApps';
 import * as catalogAppsApi from '../../api/catalogApps';
@@ -174,9 +174,7 @@ describe('AdminAppsPage', () => {
     vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockImplementation(async (id) => (
       details(id === secondApp.id ? secondApp : unresolvedApp)
     ));
-    vi.spyOn(adminAppsApi, 'fetchCurrentManualInstallerInspection').mockRejectedValue(
-      new ApiRequestError(404, 'inspection_not_found'),
-    );
+    vi.spyOn(adminAppsApi, 'fetchCurrentManualInstallerInspection').mockResolvedValue(null);
     vi.spyOn(adminAppsApi, 'fetchManualInstallerInspection').mockResolvedValue(
       inspection('ready'),
     );
@@ -543,6 +541,42 @@ describe('AdminAppsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
     await waitFor(() => expect(row).toHaveFocus());
+  });
+
+  it('cancela el detalle anterior y conserva la selección recorrida con el teclado', async () => {
+    let complete: (value: AppDetails) => void = () => undefined;
+    vi.mocked(catalogAppsApi.fetchAppDetails).mockImplementationOnce(() => new Promise((resolve) => {
+      complete = resolve;
+    }));
+    render(<AdminAppsPage />);
+    const first = await screen.findByRole('option', { name: /Example App/ });
+    fireEvent.click(first);
+    const previousSignal = vi.mocked(catalogAppsApi.fetchAppDetails).mock.calls[0][1];
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(await screen.findByDisplayValue('Second App')).toBeInTheDocument();
+    expect(previousSignal?.aborted).toBe(true);
+    await act(async () => complete(details(unresolvedApp)));
+    expect(screen.getByLabelText(/^Nombre/)).toHaveValue('Second App');
+    fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: /Second App/ })).toHaveFocus());
+  });
+
+  it('descarta una inspección que termina después de seleccionar otra aplicación', async () => {
+    let complete: (value: ManualInstallerInspection) => void = () => undefined;
+    vi.mocked(adminAppsApi.createManualInstallerInspection).mockImplementationOnce(() => new Promise((resolve) => {
+      complete = resolve;
+    }));
+    render(<AdminAppsPage />);
+    fireEvent.click(await screen.findByRole('option', { name: /Example App/ }));
+    fireEvent.change(await screen.findByLabelText(/^Página de origen/), {
+      target: { value: 'https://example.com/downloads' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Analizar instaladores' }));
+    fireEvent.click(screen.getByRole('option', { name: /Second App/ }));
+    expect(await screen.findByDisplayValue('Second App')).toBeInTheDocument();
+    await act(async () => complete(inspection('ready')));
+    expect(screen.queryByText('Example-1.2.0.exe')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Nombre/)).toHaveValue('Second App');
   });
 
   it('ignores a stale list response after the administrator changes filters', async () => {

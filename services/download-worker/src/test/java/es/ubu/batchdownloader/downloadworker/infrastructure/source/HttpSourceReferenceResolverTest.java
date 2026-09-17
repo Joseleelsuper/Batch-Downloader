@@ -14,16 +14,20 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * Agrupa los escenarios de prueba de {@code HttpSourceReferenceResolverTest}.
+ * Comprueba la clasificación de indisponibilidad HTTP del scraper durante la resolución de una
+ * fuente.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpSourceReferenceResolver
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
  */
 class HttpSourceReferenceResolverTest {
 
     /**
-     * Comprueba el escenario {@code treatsResolverServerErrorsAsAnItemFailure}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Responde 503 desde la ruta de resolución local y exige un rechazo del elemento con
+     * source_resolver_unavailable.
      */
     @Test
     void treatsResolverServerErrorsAsAnItemFailure() throws Exception {

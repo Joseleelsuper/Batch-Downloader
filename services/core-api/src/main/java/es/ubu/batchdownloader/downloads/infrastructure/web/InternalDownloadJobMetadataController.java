@@ -1,7 +1,7 @@
 package es.ubu.batchdownloader.downloads.infrastructure.web;
 
-import es.ubu.batchdownloader.downloads.application.DownloadJobService;
-import es.ubu.batchdownloader.downloads.application.DownloadJobService.DownloadItemMetadata;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService.DownloadItemMetadata;
 import es.ubu.batchdownloader.common.UnauthorizedException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
@@ -20,10 +20,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Expone las operaciones HTTP gestionadas por {@code InternalDownloadJobMetadataController}.
+ * Entrega al worker metadatos de elementos admitidos mediante una ruta interna protegida con
+ * credencial de servicio.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobAccessService
+ * @see DownloadJobAccessService.DownloadItemMetadata
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @RestController
 @RequestMapping("/internal/v1/download-jobs")
@@ -31,32 +36,33 @@ public class InternalDownloadJobMetadataController {
     /**
      * Estado {@code jobs} mantenido por {@code InternalDownloadJobMetadataController}.
      */
-    private final DownloadJobService jobs;
+    private final DownloadJobAccessService jobs;
     /**
      * Estado {@code expectedToken} mantenido por {@code InternalDownloadJobMetadataController}.
      */
     private final byte[] expectedToken;
 
     /**
-     * Inicializa una instancia de {@code InternalDownloadJobMetadataController}.
+     * Conecta la consulta de metadatos y conserva en UTF-8 la credencial interna esperada.
      *
-     * @param jobs Valor de {@code jobs} utilizado por la operación.
-     * @param internalServiceToken Valor de {@code internalServiceToken} utilizado por la operación.
+     * @param jobs Caso de uso que comprueba pertenencia de los elementos al trabajo.
+     * @param internalServiceToken Credencial interna esperada, convertida a bytes UTF-8 para su
+     *     comparación.
      */
     public InternalDownloadJobMetadataController(
-            DownloadJobService jobs,
+            DownloadJobAccessService jobs,
             @Value("${app.scraper-internal-service-token}") String internalServiceToken) {
         this.jobs = jobs;
         this.expectedToken = internalServiceToken.getBytes(StandardCharsets.UTF_8);
     }
 
     /**
-     * Ejecuta la operación {@code itemMetadata}.
+     * Valida la credencial interna antes de resolver los elementos solicitados dentro del trabajo.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param suppliedToken Valor de {@code suppliedToken} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @param request Entre 1 y 100 UUID de elementos del mismo trabajo.
+     * @param suppliedToken Credencial recibida en X-Internal-Service-Token; null se rechaza.
+     * @return metadatos en el orden solicitado, sin URLs resueltas ni enlaces firmados.
      */
     @PostMapping("/{jobId}/item-metadata")
     List<DownloadItemMetadata> itemMetadata(
@@ -68,11 +74,12 @@ public class InternalDownloadJobMetadataController {
     }
 
     /**
-     * Ejecuta la operación {@code requireInternalToken}.
+     * Rechaza configuración vacía y credenciales ausentes o distintas mediante comparación de bytes
+     * con MessageDigest.isEqual.
      *
-     * @param suppliedToken Valor de {@code suppliedToken} utilizado por la operación.
-     * @throws UnauthorizedException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param suppliedToken Credencial recibida en X-Internal-Service-Token; null se rechaza.
+     * @throws es.ubu.batchdownloader.common.UnauthorizedException si no se ha configurado una
+     *     credencial válida o la recibida no coincide.
      */
     private void requireInternalToken(String suppliedToken) {
         byte[] supplied = suppliedToken == null
@@ -87,10 +94,14 @@ public class InternalDownloadJobMetadataController {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadItemMetadataRequest}.
+     * Acota la consulta interna a UUID no nulos del mismo trabajo; la aplicación comprueba
+     * duplicados y pertenencia.
      *
-     * @param itemIds Valor de {@code itemIds} incluido en el record.
+     * @param itemIds Entre 1 y 100 UUID no nulos de elementos del mismo trabajo, sin duplicados.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Descargas
      */
     record DownloadItemMetadataRequest(
             @NotEmpty @Size(max = 100) List<@NotNull UUID> itemIds) {}

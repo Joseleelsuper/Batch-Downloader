@@ -8,8 +8,19 @@ import java.util.List;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Verifica el formato de timeout que Hikari puede enlazar desde las propiedades del worker.
+ *
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de procesamiento y capacidad
+ */
 class HikariConfigurationTest {
 
+    /**
+     * Carga las propiedades reales y exige números de milisegundos para timeout de conexión y
+     * validación del pool.
+     */
     @Test
     void hikariTimeoutsUseNumericMilliseconds() throws IOException {
         Properties properties = new Properties();

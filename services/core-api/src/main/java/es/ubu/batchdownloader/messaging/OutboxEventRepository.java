@@ -9,12 +9,23 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /**
- * Define el contrato de {@code OutboxEventRepository}.
+ * Persiste el outbox y proporciona consultas de bloqueo y propiedad de reservas que permiten varios
+ * publicadores sin esperar unos por otros.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.messaging.OutboxEventEntity
+ * @see es.ubu.batchdownloader.messaging.OutboxDispatcher
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y retención
  */
 interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, UUID> {
-    /** Bloquea los eventos de identidad pendientes que deben superar el corte enc:v1. */
+    /**
+     * Bloquea todas las solicitudes de correo no publicadas para completar la migración inicial de
+     * sus tokens.
+     *
+     * @return solicitudes pendientes en orden de creación.
+     */
     @Query(value = """
             SELECT *
             FROM core_outbox_events
@@ -26,11 +37,12 @@ interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, UUID> {
     List<OutboxEventEntity> findPendingNotificationRequestsForUpdate();
 
     /**
-     * Bloquea y devuelve eventos disponibles sin esperar por filas reclamadas por otro proceso.
+     * Bloquea hasta cincuenta eventos disponibles con reserva ausente o vencida, omitiendo filas
+     * bloqueadas por otros publicadores.
      *
-     * @param now Instante máximo de próximo intento.
-     * @param expiredBefore Límite para recuperar reclamaciones abandonadas.
-     * @return Colección de eventos que puede reclamar la transacción actual.
+     * @param now Instante del cambio o corte de disponibilidad que se aplica.
+     * @param expiredBefore Corte exclusivo de reservas vencidas que se permite reclamar otra vez.
+     * @return eventos reclamables en orden de creación; requiere una transacción activa.
      */
     @Query(value = """
             SELECT *
@@ -46,6 +58,13 @@ interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, UUID> {
             @Param("now") Instant now,
             @Param("expiredBefore") Instant expiredBefore);
 
-    /** Recupera únicamente una reclamación todavía propiedad del publicador actual. */
+    /**
+     * Comprueba que un evento siga asociado al token del publicador antes de registrar su
+     * resultado.
+     *
+     * @param id UUID estable del evento, conservado entre los reintentos.
+     * @param claimToken UUID que acredita que el evento sigue reservado por este publicador.
+     * @return evento si conserva esa reserva; vacío si otro publicador la sustituyó.
+     */
     Optional<OutboxEventEntity> findByIdAndClaimToken(UUID id, UUID claimToken);
 }

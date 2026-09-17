@@ -1,5 +1,11 @@
-"""Implementa las responsabilidades del módulo `winstall`.
+"""Integra el catálogo y los detalles de Winstall con comprobaciones de integridad, estabilidad y
+procedencia de instaladores.
+
+See Also:
+    app.scraper.installer_policy: Decide cuándo los datos Winstall sustituyen o complementan
+        la exploración oficial.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -21,95 +27,109 @@ from app.scraper.text import normalize_text
 
 @dataclass(frozen=True)
 class WinstallVersion:
-    """Representa el componente `WinstallVersion`.
+    """Agrupa la versión anunciada por Winstall con su tipo y las URLs de instaladores
+    declaradas.
+
+    Attributes:
+        version: Etiqueta de versión del grupo, si el proveedor la anuncia.
+        installer_type: Tipo de instalador indicado por Winstall.
+        installers: URLs asociadas a esa versión; una lista vacía expresa que faltan datos.
     """
+
     version: str | None
-    """Atributo de clase `version` de `WinstallVersion`.
-    """
+
     installer_type: str | None
-    """Atributo de clase `installer_type` de `WinstallVersion`.
-    """
+
     installers: list[str] = field(default_factory=list)
-    """Atributo de clase `installers` de `WinstallVersion`.
-    """
+
 
 
 @dataclass(frozen=True)
 class WinstallDownload:
-    """Representa el componente `WinstallDownload`.
+    """Conserva un enlace de descarga extraído de la página pública de Winstall y la evidencia
+    que lo acompaña.
+
+    Attributes:
+        url: Destino absoluto o resuelto del enlace.
+        label: Texto visible del enlace, si existe.
+        context: Fragmento HTML limitado usado como evidencia de procedencia.
     """
+
     url: str
-    """Atributo de clase `url` de `WinstallDownload`.
-    """
+
     label: str | None = None
-    """Atributo de clase `label` de `WinstallDownload`.
-    """
+
     context: str | None = None
-    """Atributo de clase `context` de `WinstallDownload`.
-    """
+
 
 
 @dataclass(frozen=True)
 class WinstallPageLinks:
-    """Representa el componente `WinstallPageLinks`.
+    """Resultado de analizar una ficha HTML de Winstall separando enlaces oficiales, código
+    fuente y descargas.
+
+    Attributes:
+        official_url: Página oficial declarada por el proveedor.
+        source_code_url: Repositorio o código fuente enlazado.
+        downloads: Descargas deduplicadas en el orden de aparición.
     """
+
     official_url: str | None
-    """Atributo de clase `official_url` de `WinstallPageLinks`.
-    """
+
     source_code_url: str | None
-    """Atributo de clase `source_code_url` de `WinstallPageLinks`.
-    """
+
     downloads: list[WinstallDownload]
-    """Atributo de clase `downloads` de `WinstallPageLinks`.
-    """
+
 
 
 @dataclass(frozen=True)
 class WinstallApp:
-    """Representa el componente `WinstallApp`.
+    """Modelo normalizado de una aplicación Winstall, incluyendo versiones, metadatos y el
+    payload original.
+
+    Attributes:
+        package_id: Identidad canónica usada para solicitar el detalle exacto.
+        versions: Versiones y sus instaladores declarados.
+        raw: Payload original para campos que el modelo no proyecta.
+        installer_data_complete: Indica si todas las versiones aportaron una lista installers
+            explícita.
+
+    See Also:
+        installer_urls: Aplana las URLs de todas las versiones.
     """
+
     package_id: str
-    """Atributo de clase `package_id` de `WinstallApp`.
-    """
+
     name: str
-    """Atributo de clase `name` de `WinstallApp`.
-    """
+
     description: str | None
-    """Atributo de clase `description` de `WinstallApp`.
-    """
+
     publisher: str | None
-    """Atributo de clase `publisher` de `WinstallApp`.
-    """
+
     homepage: str | None
-    """Atributo de clase `homepage` de `WinstallApp`.
-    """
+
     icon: str | None
-    """Atributo de clase `icon` de `WinstallApp`.
-    """
+
     icon_url: str | None
-    """Atributo de clase `icon_url` de `WinstallApp`.
-    """
+
     latest_version: str | None
-    """Atributo de clase `latest_version` de `WinstallApp`.
-    """
+
     tags: list[str]
-    """Atributo de clase `tags` de `WinstallApp`.
-    """
+
     versions: list[WinstallVersion]
-    """Atributo de clase `versions` de `WinstallApp`.
-    """
+
     raw: dict[str, Any]
-    """Atributo de clase `raw` de `WinstallApp`.
-    """
+
     installer_data_complete: bool = False
     """Indica si el proveedor entregó explícitamente las listas de instaladores."""
 
     @property
     def installer_urls(self) -> list[str]:
-        """Ejecuta `installer_urls` dentro de `WinstallApp`.
+        """Aplana las URLs de instaladores de las versiones y elimina duplicados conservando
+        orden.
 
         Returns:
-            list[str]: Colección de elementos obtenidos por la operación.
+            lista de URLs declaradas por Winstall.
         """
         urls: list[str] = []
         for version in self.versions:
@@ -120,8 +140,7 @@ class WinstallApp:
 # La API acepta lotes amplios. Reducir los viajes de red hace que las dos lecturas
 # necesarias para estabilizar el conjunto no prolonguen innecesariamente cada run.
 WINSTALL_CATALOG_PAGE_SIZE = 500
-"""Constante que define `WINSTALL_CATALOG_PAGE_SIZE`.
-"""
+
 WINSTALL_CATALOG_STABILITY_PASSES = 2
 """Número de instantáneas idénticas exigidas antes de procesar el catálogo."""
 WINSTALL_CATALOG_MAX_ATTEMPTS = 3
@@ -129,47 +148,56 @@ WINSTALL_CATALOG_MAX_ATTEMPTS = 3
 
 
 class WinstallProviderError(RuntimeError):
-    """Representa un fallo recuperable o incompleto del proveedor Winstall."""
+    """Base de los fallos que impiden confiar en una lectura de Winstall como completa o
+    utilizable.
+    """
 
 
 class WinstallCatalogIncompleteError(WinstallProviderError):
-    """Indica que una pasada del catálogo no coincide con el total anunciado."""
+    """Indica que una página del catálogo carece de total, datos, offsets o identificadores
+    consistentes.
+    """
 
 
 class WinstallCatalogUnstableError(WinstallProviderError):
-    """Indica que no fue posible obtener dos instantáneas consecutivas idénticas."""
+    """Indica que el conjunto de identificadores del catálogo cambió antes de alcanzar las
+    pasadas estables exigidas.
+    """
 
 
 class WinstallDetailIncompleteError(WinstallProviderError):
-    """Indica que no se obtuvo un detalle con campos de instaladores autoritativos."""
+    """Indica que el detalle encontrado no contiene instaladores autoritativos para el package ID
+    solicitado.
+    """
 
 
 class WinstallClient:
-    """Encapsula la comunicación con `Winstall`.
+    """Gestiona las peticiones asíncronas a Winstall y transforma respuestas parciales en modelos
+    verificables.
     """
+
     provider_name = "winstall"
-    """Atributo de clase `provider_name` de `WinstallClient`.
-    """
+
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
-        """Inicializa una instancia de `WinstallClient`.
+        """Configura el cliente con los endpoints y timeout del servicio y permite inyectar una
+        sesión HTTP.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            client (httpx.AsyncClient | None): Cliente utilizado para ejecutar el escenario.
+            settings: Configuración de red y límites del servicio.
+            client: Cliente HTTP reutilizable; None permite crear uno gestionado por el
+                contexto.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self._client = client
-        """Estado de instancia asociado a `_client`.
-        """
+
 
     async def __aenter__(self) -> WinstallClient:
-        """Abre el contexto asíncrono y devuelve la instancia preparada.
+        """Abre o reutiliza la sesión HTTP y devuelve el cliente listo para consultar Winstall.
 
         Returns:
-            WinstallClient: Resultado producido por la operación.
+            esta instancia con una sesión activa.
         """
         if self._client is None:
             self._client = httpx.AsyncClient(
@@ -180,20 +208,22 @@ class WinstallClient:
         return self
 
     async def __aexit__(self, *args) -> None:
-        """Cierra el contexto asíncrono y libera sus recursos.
+        """Cierra la sesión HTTP creada o inyectada y elimina la referencia para impedir su
+        reutilización accidental.
 
         Args:
-            *args (Any): Valor de `args` utilizado por la operación.
+            args: Argumentos del contexto asíncrono de salida, ignorados por la
+                implementación.
         """
         if self._client:
             await self._client.aclose()
             self._client = None
 
     async def iter_apps(self) -> AsyncIterator[WinstallApp]:
-        """Ejecuta `iter_apps` dentro de `WinstallClient`.
+        """Itera las aplicaciones de una instantánea completa y estable del catálogo.
 
         Yields:
-            AsyncIterator[WinstallApp]: Elemento producido por la operación.
+            cada WinstallApp aceptada por catalog_snapshot.
         """
         for app in await self.catalog_snapshot():
             yield app
@@ -204,11 +234,23 @@ class WinstallClient:
         stability_passes: int = WINSTALL_CATALOG_STABILITY_PASSES,
         max_attempts: int = WINSTALL_CATALOG_MAX_ATTEMPTS,
     ) -> list[WinstallApp]:
-        """Obtiene un conjunto completo y estable de aplicaciones de Winstall.
+        """Obtiene páginas completas del catálogo y solo devuelve una pasada cuando el conjunto
+        de package IDs permanece igual durante las pasadas requeridas.
+        Los fallos o cambios reinician la estabilidad y se convierten en
+        WinstallCatalogUnstableError tras agotar intentos.
 
-        La API usa paginación por desplazamiento y no ofrece un cursor de snapshot. Para
-        evitar omisiones silenciosas mientras cambia el catálogo, se exigen pasadas
-        consecutivas idénticas antes de entregar trabajo al pipeline.
+        Args:
+            stability_passes: Número de pasadas consecutivas con el mismo conjunto de
+                paquetes.
+            max_attempts: Máximo de pasadas completas antes de declarar inestable el catálogo.
+
+        Returns:
+            aplicaciones normalizadas de una instantánea estable.
+
+        Raises:
+            ValueError: Si los límites de estabilidad no son positivos o no caben en los
+                intentos.
+            WinstallCatalogUnstableError: Si no se obtiene una instantánea estable.
         """
         if stability_passes < 1:
             raise ValueError("stability_passes_must_be_positive")
@@ -244,7 +286,16 @@ class WinstallClient:
         )
 
     async def _fetch_complete_catalog_once(self) -> list[dict[str, Any]]:
-        """Recupera una pasada completa y valida totales, offsets e identificadores."""
+        """Recorre todas las páginas anunciadas, valida total y offset y rechaza filas sin
+        package ID o duplicadas.
+
+        Returns:
+            payloads de aplicación completos en orden de catálogo.
+
+        Raises:
+            WinstallCatalogIncompleteError: Si el proveedor omite o contradice datos
+                necesarios.
+        """
         offset = 0
         announced_total: int | None = None
         rows: list[dict[str, Any]] = []
@@ -253,50 +304,9 @@ class WinstallClient:
             if payload is None and offset == 0:
                 payload = await self._fetch_catalog_from_next_data()
             if not isinstance(payload, dict):
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_page_unavailable offset={offset}"
-                )
+                raise WinstallCatalogIncompleteError(f"catalog_page_unavailable offset={offset}")
 
-            try:
-                page_total = int(payload["total"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_total_invalid offset={offset}"
-                ) from exc
-            if page_total < 0:
-                raise WinstallCatalogIncompleteError("catalog_total_negative")
-            if announced_total is None:
-                announced_total = page_total
-            elif page_total != announced_total:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_total_changed expected={announced_total} actual={page_total}"
-                )
-
-            payload_offset = payload.get("offset", offset)
-            try:
-                normalized_offset = int(payload_offset)
-            except (TypeError, ValueError) as exc:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_offset_invalid expected={offset}"
-                ) from exc
-            if normalized_offset != offset:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_offset_mismatch expected={offset} actual={normalized_offset}"
-                )
-
-            data = payload.get("data")
-            if not isinstance(data, list):
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_data_invalid offset={offset}"
-                )
-            if not data and offset < announced_total:
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_ended_early offset={offset} total={announced_total}"
-                )
-            if any(not isinstance(item, dict) for item in data):
-                raise WinstallCatalogIncompleteError(
-                    f"catalog_item_invalid offset={offset}"
-                )
+            announced_total, data = validate_catalog_page(payload, offset, announced_total)
             rows.extend(data)
             offset += len(data)
 
@@ -315,16 +325,17 @@ class WinstallClient:
         return rows
 
     async def get_app(self, package_id: str) -> WinstallApp:
-        """Obtiene la operación `app`.
+        """Solicita el detalle exacto por API y búsqueda, exige coincidencia de package ID y solo
+        acepta versiones con installers completos; la página HTML se usa como diagnóstico.
 
         Args:
-            package_id (str): Identificador de `package` utilizado por la operación.
+            package_id: Identificador exacto del paquete en Winstall.
 
         Returns:
-            WinstallApp: Resultado de `get_app`.
+            WinstallApp con datos de instaladores autoritativos.
 
-        Throws:
-            LookupError: Si no existe el elemento solicitado.
+        Raises:
+            WinstallDetailIncompleteError: Si ninguna vía ofrece un detalle completo.
         """
         diagnostics: list[str] = []
         for loader in (self._fetch_app, self._fetch_app_from_search):
@@ -359,25 +370,26 @@ class WinstallClient:
         )
 
     async def get_downloads(self, package_id: str) -> list[WinstallDownload]:
-        """Obtiene la operación `downloads`.
+        """Obtiene los enlaces de descarga de la página pública del paquete.
 
         Args:
-            package_id (str): Identificador de `package` utilizado por la operación.
+            package_id: Identificador exacto del paquete en Winstall.
 
         Returns:
-            list[WinstallDownload]: Colección de elementos obtenidos por la operación.
+            descargas extraídas y deduplicadas.
         """
         links = await self.get_page_links(package_id)
         return links.downloads
 
     async def get_page_links(self, package_id: str) -> WinstallPageLinks:
-        """Obtiene la operación `page_links`.
+        """Descarga la ficha HTML del paquete y delega el análisis CPU-bound; una respuesta no
+        satisfactoria produce enlaces vacíos.
 
         Args:
-            package_id (str): Identificador de `package` utilizado por la operación.
+            package_id: Identificador exacto del paquete en Winstall.
 
         Returns:
-            WinstallPageLinks: Resultado de `get_page_links`.
+            enlaces oficiales, código fuente y descargas de la ficha.
         """
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
@@ -391,14 +403,15 @@ class WinstallClient:
 
     @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
     async def _fetch_catalog_page(self, offset: int, limit: int) -> dict[str, Any] | None:
-        """Ejecuta el paso interno `_fetch_catalog_page`.
+        """Solicita una página JSON del catálogo y reintenta respuestas transitorias; los errores
+        no recuperables devuelven None.
 
         Args:
-            offset (int): Valor de `offset` utilizado por la operación.
-            limit (int): Número máximo de elementos que se recuperarán.
+            offset: Desplazamiento de la página dentro del catálogo.
+            limit: Número máximo de elementos que se solicita al proveedor.
 
         Returns:
-            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+            payload JSON o None.
         """
         assert self._client is not None
         url = f"{self.settings.winstall_api_base_url}/apps"
@@ -411,13 +424,14 @@ class WinstallClient:
 
     @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
     async def _fetch_app(self, package_id: str) -> dict[str, Any] | None:
-        """Ejecuta el paso interno `_fetch_app`.
+        """Solicita el detalle JSON exacto de un paquete y reintenta límites o errores de
+        servidor.
 
         Args:
-            package_id (str): Identificador de `package` utilizado por la operación.
+            package_id: Identificador exacto del paquete en Winstall.
 
         Returns:
-            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+            payload de aplicación o None.
         """
         assert self._client is not None
         response = await self._client.get(
@@ -431,7 +445,15 @@ class WinstallClient:
 
     @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=4), stop=stop_after_attempt(3))
     async def _fetch_app_from_search(self, package_id: str) -> dict[str, Any] | None:
-        """Busca un detalle completo y exige coincidencia exacta de package ID."""
+        """Busca el paquete y devuelve únicamente la fila cuyo identificador coincide
+        exactamente.
+
+        Args:
+            package_id: Identificador exacto del paquete en Winstall.
+
+        Returns:
+            payload coincidente o None.
+        """
         assert self._client is not None
         response = await self._client.get(
             f"{self.settings.winstall_api_base_url}/apps/search",
@@ -453,10 +475,11 @@ class WinstallClient:
         return None
 
     async def _fetch_catalog_from_next_data(self) -> dict[str, Any] | None:
-        """Ejecuta el paso interno `_fetch_catalog_from_next_data`.
+        """Usa el bloque __NEXT_DATA__ de la página de catálogo como fallback cuando la API no
+        devuelve la primera página.
 
         Returns:
-            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+            payload de catálogo o None.
         """
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps")
@@ -465,13 +488,14 @@ class WinstallClient:
         return await run_cpu_bound(extract_next_data, response.text, "data")
 
     async def _fetch_app_from_page(self, package_id: str) -> dict[str, Any] | None:
-        """Ejecuta el paso interno `_fetch_app_from_page`.
+        """Lee el bloque __NEXT_DATA__ de la ficha HTML para diagnosticar si existe una
+        aplicación aunque falten instaladores.
 
         Args:
-            package_id (str): Identificador de `package` utilizado por la operación.
+            package_id: Identificador exacto del paquete en Winstall.
 
         Returns:
-            dict[str, Any] | None: Mapa con los datos producidos por la operación.
+            payload de detalle o None.
         """
         assert self._client is not None
         response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
@@ -481,14 +505,15 @@ class WinstallClient:
 
 
 def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
-    """Ejecuta la operación `extract_next_data`.
+    """Parsea __NEXT_DATA__ y devuelve una propiedad de pageProps solo cuando su valor es un
+    mapa.
 
     Args:
-        html (str): Valor de `html` utilizado por la operación.
-        key (str): Valor de `key` utilizado por la operación.
+        html: Documento HTML del que se extraen enlaces de descarga.
+        key: Nombre de la propiedad dentro de pageProps.
 
     Returns:
-        dict[str, Any] | None: Mapa con los datos producidos por la operación.
+        diccionario solicitado o None ante HTML, JSON o estructura inválidos.
     """
     parser = HTMLParser(html)
     node = parser.css_first("script#__NEXT_DATA__")
@@ -504,27 +529,28 @@ def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
 
 
 def extract_winstall_downloads(html: str, base_url: str) -> list[WinstallDownload]:
-    """Ejecuta la operación `extract_winstall_downloads`.
+    """Extrae únicamente la lista de descargas de una ficha Winstall.
 
     Args:
-        html (str): Valor de `html` utilizado por la operación.
-        base_url (str): Dirección de `base` que debe procesarse.
+        html: Documento HTML del que se extraen enlaces de descarga.
+        base_url: Página base usada para resolver enlaces relativos.
 
     Returns:
-        list[WinstallDownload]: Colección de elementos obtenidos por la operación.
+        descargas deduplicadas de extract_winstall_page_links.
     """
     return extract_winstall_page_links(html, base_url).downloads
 
 
 def extract_winstall_page_links(html: str, base_url: str) -> WinstallPageLinks:
-    """Ejecuta la operación `extract_winstall_page_links`.
+    """Recorre anchors, identifica sitio oficial y código fuente y conserva enlaces con intención
+    de descarga o extensión conocida; excluye navegación interna y deduplica por URL.
 
     Args:
-        html (str): Valor de `html` utilizado por la operación.
-        base_url (str): Dirección de `base` que debe procesarse.
+        html: Documento HTML del que se extraen enlaces de descarga.
+        base_url: Página base usada para resolver enlaces relativos.
 
     Returns:
-        WinstallPageLinks: Resultado producido por la operación.
+        WinstallPageLinks con el orden visible del HTML.
     """
     parser = HTMLParser(html)
     downloads: dict[str, WinstallDownload] = {}
@@ -574,22 +600,21 @@ def extract_winstall_page_links(html: str, base_url: str) -> WinstallPageLinks:
 
 
 def parse_winstall_app(payload: dict[str, Any]) -> WinstallApp:
-    """Analiza la operación `winstall_app`.
+    """Convierte un payload Winstall en el modelo normalizado y marca incompleto el detalle que
+    no aporta installers como listas explícitas.
 
     Args:
-        payload (dict[str, Any]): Carga de datos recibida por la operación.
+        payload: Mapa recibido del proveedor.
 
     Returns:
-        WinstallApp: Resultado producido por la operación.
+        WinstallApp normalizada.
 
-    Throws:
-        ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+    Raises:
+        ValueError: Si falta el identificador de paquete.
     """
     raw_versions = payload.get("versions")
     installer_data_complete = isinstance(raw_versions, list) and all(
-        isinstance(item, dict)
-        and "installers" in item
-        and isinstance(item.get("installers"), list)
+        isinstance(item, dict) and "installers" in item and isinstance(item.get("installers"), list)
         for item in raw_versions
     )
     versions = [
@@ -621,13 +646,28 @@ def parse_winstall_app(payload: dict[str, Any]) -> WinstallApp:
 
 
 def package_id_from_payload(payload: dict[str, Any]) -> str | None:
-    """Extrae el identificador canónico admitido por las variantes del API."""
+    """Lee el identificador canónico probando _id, id y packageIdentifier.
+
+    Args:
+        payload: Mapa recibido del proveedor.
+
+    Returns:
+        identificador como texto o None.
+    """
     value = payload.get("_id") or payload.get("id") or payload.get("packageIdentifier")
     return str(value) if value else None
 
 
 def winstall_summary_fingerprint(app: WinstallApp) -> str:
-    """Calcula una huella estable de los campos ligeros que anuncian cambios."""
+    """Calcula una huella estable de identidad, última versión y fecha de actualización para
+    detectar cambios ligeros.
+
+    Args:
+        app: Aplicación Winstall normalizada.
+
+    Returns:
+        SHA-256 hexadecimal.
+    """
     payload = {
         "package_id": app.package_id,
         "latest_version": app.latest_version,
@@ -637,7 +677,14 @@ def winstall_summary_fingerprint(app: WinstallApp) -> str:
 
 
 def winstall_detail_fingerprint(app: WinstallApp) -> str:
-    """Calcula una huella estable del detalle y sus URLs de instalador."""
+    """Calcula una huella estable del detalle, versiones, tipos y URLs de instalador.
+
+    Args:
+        app: Aplicación Winstall normalizada.
+
+    Returns:
+        SHA-256 hexadecimal.
+    """
     payload = {
         "package_id": app.package_id,
         "latest_version": app.latest_version,
@@ -656,6 +703,15 @@ def winstall_detail_fingerprint(app: WinstallApp) -> str:
 
 
 def _winstall_fingerprint(payload: dict[str, Any]) -> str:
+    """Serializa un mapa ordenado y calcula su SHA-256 UTF-8 para comparar snapshots
+    reproducibles.
+
+    Args:
+        payload: Mapa recibido del proveedor.
+
+    Returns:
+        huella hexadecimal.
+    """
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -663,3 +719,56 @@ def _winstall_fingerprint(payload: dict[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_catalog_page(
+    payload: dict[str, Any], offset: int, announced_total: int | None
+) -> tuple[int, list[dict[str, Any]]]:
+    """Comprueba que total, offset y data de una página siguen el contrato y que el catálogo no
+    termina antes de lo anunciado.
+
+    Args:
+        payload: Mapa recibido del proveedor.
+        offset: Desplazamiento de la página dentro del catálogo.
+        announced_total: Total anunciado por una página anterior, o None en la primera página.
+
+    Returns:
+        total anunciado y filas de aplicación.
+
+    Raises:
+        WinstallCatalogIncompleteError: Ante total inválido, cambio de total, offset
+            incorrecto, datos vacíos o filas no objeto.
+    """
+    try:
+        page_total = int(payload["total"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WinstallCatalogIncompleteError(f"catalog_total_invalid offset={offset}") from exc
+    if page_total < 0:
+        raise WinstallCatalogIncompleteError("catalog_total_negative")
+    if announced_total is None:
+        announced_total = page_total
+    elif page_total != announced_total:
+        raise WinstallCatalogIncompleteError(
+            f"catalog_total_changed expected={announced_total} actual={page_total}"
+        )
+
+    payload_offset = payload.get("offset", offset)
+    try:
+        normalized_offset = int(payload_offset)
+    except (TypeError, ValueError) as exc:
+        raise WinstallCatalogIncompleteError(f"catalog_offset_invalid expected={offset}") from exc
+    if normalized_offset != offset:
+        raise WinstallCatalogIncompleteError(
+            f"catalog_offset_mismatch expected={offset} actual={normalized_offset}"
+        )
+
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise WinstallCatalogIncompleteError(f"catalog_data_invalid offset={offset}")
+    if not data and offset < announced_total:
+        raise WinstallCatalogIncompleteError(
+            f"catalog_ended_early offset={offset} total={announced_total}"
+        )
+    if any(not isinstance(item, dict) for item in data):
+        raise WinstallCatalogIncompleteError(f"catalog_item_invalid offset={offset}")
+    return announced_total, data

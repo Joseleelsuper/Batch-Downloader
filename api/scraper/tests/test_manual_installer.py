@@ -190,11 +190,14 @@ async def test_manual_installer_rejects_a_deterministic_platform_mismatch(
     inspector = ManualInstallerInspector(Settings(_env_file=None))
 
     async def validate(*_args, **_kwargs):
-        """Ejecuta la operación `validate`.
+        """Prepara el recurso
+        `test_manual_installer_rejects_a_deterministic_platform_mismatch.validate` usado por
+        las pruebas para aislar el escenario `test manual installer rejects a deterministic
+        platform mismatch.validate` y conservar sus datos de entrada.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         return ValidationResult(
             ok=True,
@@ -231,11 +234,14 @@ async def test_manual_installer_assigns_an_explicit_slot_to_a_neutral_archive(
     inspector = ManualInstallerInspector(Settings(_env_file=None))
 
     async def validate(*_args, **_kwargs):
-        """Ejecuta la operación `validate`.
+        """Prepara el recurso
+        `test_manual_installer_assigns_an_explicit_slot_to_a_neutral_archive.validate` usado
+        por las pruebas para aislar el escenario `test manual installer assigns an explicit
+        slot to a neutral archive.validate` y conservar sus datos de entrada.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         return ValidationResult(
             ok=True,

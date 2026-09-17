@@ -6,8 +6,8 @@ import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogAlphabetEntry;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
-import es.ubu.batchdownloader.catalog.CatalogProjectionRepository.AppBasics;
 import es.ubu.batchdownloader.common.BadRequestException;
+import es.ubu.batchdownloader.common.UuidBytes;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -21,19 +21,27 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Gestiona la persistencia y consulta de {@code CatalogRepository}.
+ * Coordina búsqueda léxica o por candidatos semánticos, filtros MySQL y enriquecimiento por lotes
+ * conservando el orden y los estados públicos.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.CatalogQuery
+ * @see es.ubu.batchdownloader.catalog.CatalogProjectionRepository
+ * @see es.ubu.batchdownloader.catalog.CatalogFacetRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 @Repository
 public class CatalogRepository {
     /**
-     * Constante que define {@code REVIEW_LAST_ORDER}.
+     * Valor compartido que fija r e v i e w  l a s t  o r d e r para el comportamiento del
+     * componente.
      */
     private static final String REVIEW_LAST_ORDER =
-            "CASE WHEN a.catalog_status = 'review' THEN 1 ELSE 0 END ASC";
+            "a.catalog_review_priority ASC";
     /**
-     * Constante que define {@code CATALOG_STATUSES}.
+     * Valor compartido que representa c a t a l o g  s t a t u s e s en el contrato del módulo.
      */
     private static final Set<String> CATALOG_STATUSES =
             Set.of("all", "available", "review", "missing", "unresolved");
@@ -47,12 +55,15 @@ public class CatalogRepository {
     private final CatalogFacetRepository facetRepository;
 
     /**
-     * Inicializa una instancia de {@code CatalogRepository}.
+     * Compone SQL de búsqueda, proyecciones, facetas y estadísticas sin duplicar el enriquecimiento
+     * de aplicaciones.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
-     * @param statistics lecturas cohesionadas de contadores y versiones
-     * @param projections proyecciones enriquecidas de filas y detalles
-     * @param facetRepository índice alfabético y facetas compatibles
+     * @param jdbc Acceso SQL a catálogo, fuentes y proyecciones persistidas en MySQL.
+     * @param statistics Consulta de contadores y versiones de invalidación del catálogo.
+     * @param projections Enriquecimiento común por lotes de aplicaciones, fuentes, etiquetas y
+     *     plataformas.
+     * @param facetRepository Consultas de etiquetas, editores e índice alfabético bajo los mismos
+     *     filtros.
      */
     public CatalogRepository(
             JdbcTemplate jdbc,
@@ -66,299 +77,276 @@ public class CatalogRepository {
     }
 
     /**
-     * Busca los elementos solicitados mediante {@code search}.
+     * Selecciona una página léxica o semántica según el modo ya resuelto y enriquece sus UUID
+     * conservando el orden SQL.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @param page Número de página solicitado.
-     * @param pageSize Número máximo de elementos incluidos en una página.
-     * @param candidates Valor de {@code candidates} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param sort name ordena por nombre; updated y downloads priorizan su fecha o contador antes
+     *     del desempate de relevancia.
+     * @param page Página numerada desde uno; el controlador la limita a un mínimo de uno.
+     * @param pageSize Aplicaciones por página; el controlador limita el rango a 1–100.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return aplicaciones activas de la página; omite las que desaparecieron durante el
+     *     enriquecimiento.
      */
-    public List<AppListItem> search(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            String sort,
-            int page,
-            int pageSize,
-            SemanticCandidateSet candidates) {
+    public List<AppListItem> search(CatalogQuery filters, String sort, int page, int pageSize, SemanticCandidateSet candidates) {
         if (candidates.semantic()) {
-            return semanticSearch(
-                    query,
-                    status,
-                    operatingSystems,
-                    architecture,
-                    tags,
-                    publishers,
-                    sort,
-                    page,
-                    pageSize,
-                    candidates);
+            return semanticSearch(filters, sort, page, pageSize, candidates);
         }
-        status = normalizeCatalogStatus(status);
-        SearchRanking ranking = SearchRanking.from(query);
-        String innerOrderBy = orderBy(sort, ranking.innerPrefix());
-        String outerOrderBy = orderBy(sort, ranking.outerPrefix());
-        StringBuilder sql = new StringBuilder("""
-                SELECT a.*
-                FROM software_apps a
-                JOIN (
-                    SELECT a.id
-                """);
+        SearchRanking ranking = SearchRanking.from(filters.query());
+        StringBuilder sql = new StringBuilder("SELECT a.id");
         List<Object> params = new ArrayList<>();
         if (ranking.active()) {
-            sql.append(", ").append(ranking.scoreSql()).append(" AS search_score\n");
+            sql.append(", ").append(ranking.scoreSql()).append(" AS search_score");
             params.addAll(ranking.params());
         }
         sql.append("""
-                    FROM software_apps a
-                    WHERE a.app_status = 'active'
+
+                FROM software_apps a
+                WHERE a.app_status = 'active'
                 """);
-        CatalogFilterSql.appendAll(
-                sql, params, query, status, operatingSystems, architecture, tags, publishers);
-        sql.append(" ORDER BY ").append(innerOrderBy);
-        sql.append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ").append(outerOrderBy);
+        CatalogFilterSql.appendAll(sql, params, filters);
+        sql.append(" ORDER BY ").append(orderBy(sort, ranking.innerPrefix()));
+        sql.append(" LIMIT ? OFFSET ?");
         params.add(pageSize);
         params.add((page - 1) * pageSize);
-        List<AppBasics> apps = jdbc.query(
-                sql.toString(), (rs, rowNum) -> projections.readBasics(rs), params.toArray());
-        return projections.enrich(apps);
+        List<UUID> appIds = jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                params.toArray());
+        return loadPage(appIds);
     }
 
     /**
-     * Ejecuta la operación {@code count}.
+     * Cuenta el mismo conjunto filtrado de la búsqueda sin paginación y respeta el modo aplicado.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
-     * @param candidates Valor de {@code candidates} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return total de aplicaciones activas coincidentes.
      */
-    public long count(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            SemanticCandidateSet candidates) {
+    public long count(CatalogQuery filters, SemanticCandidateSet candidates) {
         if (candidates.semantic()) {
-            return semanticCount(
-                    query,
-                    status,
-                    operatingSystems,
-                    architecture,
-                    tags,
-                    publishers,
-                    candidates);
+            return semanticCount(filters, candidates);
         }
-        status = normalizeCatalogStatus(status);
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*)
                 FROM software_apps a
                 WHERE a.app_status = 'active'
                 """);
         List<Object> params = new ArrayList<>();
-        CatalogFilterSql.appendAll(
-                sql, params, query, status, operatingSystems, architecture, tags, publishers);
+        CatalogFilterSql.appendAll(sql, params, filters);
         Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return count == null ? 0 : count;
     }
 
     /**
-     * Calcula la primera página de cada letra sin ordenar ni materializar el catálogo completo.
+     * Delega el índice alfabético conservando filtros, tamaño de página y candidatos de la misma
+     * búsqueda.
      *
-     * @param query Texto de búsqueda activo.
-     * @param status Estado público activo.
-     * @param operatingSystems Sistemas operativos activos.
-     * @param architecture Arquitectura activa.
-     * @param tags Tags activas.
-     * @param publishers Editores activos.
-     * @param pageSize Tamaño de página actual.
-     * @param candidates Candidatos semánticos o degradación literal de la misma petición.
-     * @return Entradas disponibles del índice alfabético.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param pageSize Aplicaciones por página; el controlador limita el rango a 1–100.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return grupos alfabéticos con primera página y recuento.
      */
-    public List<CatalogAlphabetEntry> alphabet(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            int pageSize,
-            SemanticCandidateSet candidates) {
-        return facetRepository.alphabet(
-                query, status, operatingSystems, architecture, tags, publishers, pageSize, candidates);
-    }
-
-    /** Devuelve tags y editores compatibles con los filtros activos. */
-    public CatalogFacetsResponse facets(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            SemanticCandidateSet candidates) {
-        return facetRepository.facets(
-                query, status, operatingSystems, architecture, tags, publishers, candidates);
-    }
-    private List<AppListItem> semanticSearch(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            String sort,
-            int page,
-            int pageSize,
-            SemanticCandidateSet candidates) {
-        status = normalizeCatalogStatus(status);
-        List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(SemanticCandidateSql.cte(query, candidates, params));
-        sql.append("""
-                SELECT a.*
-                FROM software_apps a
-                JOIN (
-                    SELECT a.id, ranked.semantic_rank
-                    FROM software_apps a
-                    JOIN semantic_candidates ranked ON ranked.id = a.id
-                    WHERE a.app_status = 'active'
-                """);
-        CatalogFilterSql.appendStructured(
-                sql,
-                params,
-                status,
-                operatingSystems,
-                architecture,
-                tags,
-                publishers);
-        sql.append(" ORDER BY ")
-                .append(orderBy(sort, "ranked.semantic_rank ASC, "))
-                .append(" LIMIT ? OFFSET ?) page ON page.id = a.id ORDER BY ")
-                .append(orderBy(sort, "page.semantic_rank ASC, "));
-        params.add(pageSize);
-        params.add((page - 1) * pageSize);
-        List<AppBasics> apps = jdbc.query(
-                sql.toString(),
-                (rs, rowNum) -> projections.readBasics(rs),
-                params.toArray());
-        return projections.enrich(apps);
+    public List<CatalogAlphabetEntry> alphabet(CatalogQuery filters, int pageSize, SemanticCandidateSet candidates) {
+        return facetRepository.alphabet(filters, pageSize, candidates);
     }
 
     /**
-     * Ejecuta la operación {@code semanticCount}.
+     * Delega el cálculo de facetas con los mismos filtros y candidatos que producen los resultados.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystems Valor de {@code operatingSystems} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param publishers Valor de {@code publishers} utilizado por la operación.
-     * @param candidates Valor de {@code candidates} utilizado por la operación.
-     * @return Resultado producido por {@code semanticCount}.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return etiquetas y editores con sus recuentos.
      */
-    private long semanticCount(
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers,
-            SemanticCandidateSet candidates) {
-        status = normalizeCatalogStatus(status);
+    public CatalogFacetsResponse facets(CatalogQuery filters, SemanticCandidateSet candidates) {
+        return facetRepository.facets(filters, candidates);
+    }
+    /**
+     * Cruza únicamente los candidatos de embeddings con aplicaciones activas y aplica filtros
+     * estructurados y orden solicitado sin añadir candidatos léxicos.
+     *
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param sort name ordena por nombre; updated y downloads priorizan su fecha o contador antes
+     *     del desempate de relevancia.
+     * @param page Página numerada desde uno; el controlador la limita a un mínimo de uno.
+     * @param pageSize Aplicaciones por página; el controlador limita el rango a 1–100.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return página enriquecida del conjunto semántico filtrado.
+     */
+    private List<AppListItem> semanticSearch(CatalogQuery filters, String sort, int page, int pageSize, SemanticCandidateSet candidates) {
         List<Object> params = new ArrayList<>();
-        StringBuilder sql = new StringBuilder(SemanticCandidateSql.cte(query, candidates, params));
+        StringBuilder sql = new StringBuilder(SemanticCandidateSql.cte(filters.query(), candidates, params));
+        sql.append("""
+                SELECT a.id, ranked.semantic_rank
+                FROM software_apps a
+                JOIN semantic_candidates ranked ON ranked.id = a.id
+                WHERE a.app_status = 'active'
+                """);
+        CatalogFilterSql.appendStructured(sql, params, filters);
+        sql.append(" ORDER BY ")
+                .append(orderBy(sort, "ranked.semantic_rank ASC, "))
+                .append(" LIMIT ? OFFSET ?");
+        params.add(pageSize);
+        params.add((page - 1) * pageSize);
+        List<UUID> appIds = jdbc.query(
+                sql.toString(),
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                params.toArray());
+        return loadPage(appIds);
+    }
+
+    /**
+     * Enriquece la página en lote y reconstruye su orden a partir de los UUID de la búsqueda.
+     *
+     * @param orderedIds UUID de la página en el orden determinado por la consulta de búsqueda.
+     * @return proyecciones disponibles en el orden original.
+     */
+    private List<AppListItem> loadPage(List<UUID> orderedIds) {
+        Map<UUID, AppListItem> itemsById = projections.listItems(orderedIds);
+        return orderedIds.stream()
+                .map(itemsById::get)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * Cuenta candidatos semánticos que siguen activos y cumplen todos los filtros estructurados.
+     *
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     * @param candidates Resultado de la resolución semántica; el modo aplicado decide si se filtra
+     *     por sus UUID.
+     * @return total semántico filtrado antes de paginar.
+     */
+    private long semanticCount(CatalogQuery filters, SemanticCandidateSet candidates) {
+        List<Object> params = new ArrayList<>();
+        StringBuilder sql = new StringBuilder(SemanticCandidateSql.cte(filters.query(), candidates, params));
         sql.append("""
                 SELECT COUNT(*)
                 FROM software_apps a
                 JOIN semantic_candidates ranked ON ranked.id = a.id
                 WHERE a.app_status = 'active'
                 """);
-        CatalogFilterSql.appendStructured(
-                sql,
-                params,
-                status,
-                operatingSystems,
-                architecture,
-                tags,
-                publishers);
+        CatalogFilterSql.appendStructured(sql, params, filters);
         Long count = jdbc.queryForObject(sql.toString(), Long.class, params.toArray());
         return count == null ? 0 : count;
     }
 
     /**
-     * Ejecuta la operación {@code details}.
+     * Resuelve UUID, slug o paquete y exige que la aplicación esté activa antes de construir el
+     * detalle.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @return Resultado producido por {@code details}.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param publicId UUID textual, slug o identificador Winstall de la aplicación.
+     * @return vista pública con fuentes exactas y procedencia.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si no se encuentra la identidad o la
+     *     aplicación no está activa.
+     * @see es.ubu.batchdownloader.catalog.CatalogProjectionRepository
      */
     public AppDetails details(String publicId) {
         return projections.details(publicId);
     }
 
-    /** Devuelve proyecciones en el mismo orden lógico de los identificadores solicitados. */
+    /**
+     * Deduplica UUID y carga metadatos y enriquecimiento con hasta cuatro consultas por lote,
+     * independientemente del número solicitado.
+     *
+     * @param requestedIds UUID solicitados; null, listas vacías y entradas nulas se omiten.
+     * @return mapa inmutable de aplicaciones activas por UUID; omite nulos y ausentes.
+     * @see es.ubu.batchdownloader.catalog.CatalogProjectionRepository
+     */
     public Map<UUID, AppListItem> listItems(Collection<UUID> requestedIds) {
         return projections.listItems(requestedIds);
     }
 
-    /** Resuelve un identificador público o interno de una aplicación activa. */
+    /**
+     * Resuelve UUID textual, slug o identificador Winstall sin exigir que la aplicación esté
+     * activa.
+     *
+     * @param publicId UUID textual, slug o identificador Winstall de la aplicación.
+     * @return UUID persistido de la aplicación.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si ninguna identidad coincide.
+     * @see es.ubu.batchdownloader.catalog.CatalogProjectionRepository
+     */
     public UUID softwareAppId(String publicId) {
         return projections.softwareAppId(publicId);
     }
 
-    /** Resuelve exclusivamente un UUID público de una aplicación activa. */
+    /**
+     * Resuelve una identidad de aplicación únicamente dentro del catálogo activo que puede
+     * seleccionar un usuario.
+     *
+     * @param publicId UUID textual, slug o identificador Winstall de la aplicación.
+     * @return UUID de una aplicación activa.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si la identidad no existe o la
+     *     aplicación está inactiva.
+     * @see es.ubu.batchdownloader.catalog.CatalogProjectionRepository
+     */
     public UUID publicSoftwareAppId(String publicId) {
         return projections.publicSoftwareAppId(publicId);
     }
+    /**
+     * Lee los totales proyectados por estado y añade última ejecución y fecha UTC de consulta.
+     *
+     * @return estadísticas públicas sin contar de nuevo cada aplicación.
+     * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
+     */
     public CatalogStatsResponse stats() {
         return statistics.stats();
     }
 
     /**
-     * Obtiene la versión barata que invalida las respuestas públicas almacenadas localmente.
+     * Combina la versión persistida de catalog_counters con sus cuatro recuentos para invalidar
+     * respuestas del catálogo.
      *
-     * @return Versión y contadores autoritativos de MySQL.
+     * @return token textual de versión y cantidades.
+     * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
      */
     public String cacheVersion() {
         return statistics.cacheVersion();
     }
 
     /**
-     * Ejecuta la operación {@code changeEvent}.
+     * Construye un evento catalog.changed con versión compuesta y fecha UTC actual.
      *
-     * @return Resultado producido por {@code changeEvent}.
+     * @return evento para invalidar las consultas del cliente.
+     * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
      */
     public CatalogChangeEvent changeEvent() {
         return statistics.changeEvent();
     }
 
     /**
-     * Ejecuta la operación {@code changeVersion}.
+     * Combina cantidad y actualización de aplicaciones activas, contadores de catálogo y progreso
+     * de la última ejecución en un hash textual.
      *
-     * @return Resultado producido por {@code changeVersion}.
+     * @return token opaco de cambio; no es una huella criptográfica.
+     * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
      */
     public String changeVersion() {
         return statistics.changeVersion();
     }
 
+    /**
+     * Da prioridad al orden solicitado y utiliza relevancia y UUID para desempatar; salvo en orden
+     * name coloca revisión al final.
+     *
+     * @param sort name ordena por nombre; updated y downloads priorizan su fecha o contador antes
+     *     del desempate de relevancia.
+     * @param relevancePrefix Fragmento de orden de relevancia ya construido por código, nunca
+     *     recibido del cliente.
+     * @return fragmento ORDER BY construido solo con alternativas controladas.
+     */
     private String orderBy(String sort, String relevancePrefix) {
         String relevanceOrder =
                 relevancePrefix == null || relevancePrefix.isBlank() ? "" : relevancePrefix;
@@ -373,19 +361,20 @@ public class CatalogRepository {
     }
 
     /**
-     * Ejecuta la operación {@code reviewLastOrder}.
+     * Proporciona la expresión común que pospone aplicaciones pendientes de revisión.
      *
-     * @return Resultado producido por {@code reviewLastOrder}.
+     * @return expresión SQL constante de orden por estado.
      */
     private String reviewLastOrder() {
         return REVIEW_LAST_ORDER;
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizeSearchQuery}.
+     * Retira diacríticos, convierte a minúsculas y agrupa espacios para comparar nombres y
+     * etiquetas.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code normalizeSearchQuery}.
+     * @param value Texto que se normaliza o clasifica según el método.
+     * @return consulta normalizada o cadena vacía para ausencia.
      */
     static String normalizeSearchQuery(String value) {
         if (value == null || value.isBlank()) {
@@ -399,12 +388,13 @@ public class CatalogRepository {
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizeCatalogStatus}.
+     * Normaliza los estados conocidos y permite unresolved como agrupación administrativa de review
+     * y missing.
      *
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @return Resultado producido por {@code normalizeCatalogStatus}.
-     * @throws BadRequestException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param status Estado del catálogo; all no filtra y available, review o missing seleccionan su
+     *     estado público.
+     * @return estado validado; all cuando no se proporciona.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si no se reconoce el estado.
      */
     static String normalizeCatalogStatus(String status) {
         String normalized = status == null || status.isBlank()
@@ -419,33 +409,35 @@ public class CatalogRepository {
     }
 
     /**
-     * Ejecuta la operación {@code compactSearchQuery}.
+     * Elimina todos los grupos de espacios de una consulta ya normalizada.
      *
-     * @param normalized Valor de {@code normalized} utilizado por la operación.
-     * @return Resultado producido por {@code compactSearchQuery}.
+     * @param normalized Consulta sin diacríticos, recortada y en minúsculas.
+     * @return texto compacto o cadena vacía para null.
      */
     static String compactSearchQuery(String normalized) {
         return normalized == null ? "" : normalized.replaceAll("\\s+", "");
     }
 
-    /** Agrupa una etiqueta de faceta por su primera letra visible. */
-    static String facetLetter(String value) {
-        return CatalogFacetRepository.facetLetter(value);
-    }
-    /** Elige la URL de origen pública sin exponer endpoints de artefactos directos. */
-    static String originUrl(
-            String winstallId,
-            String officialUrl,
-            String resolvedOriginUrl) {
-        return CatalogProjectionRepository.originUrl(
-                winstallId, officialUrl, resolvedOriginUrl);
-    }
+    /**
+     * Conserva la expresión de puntuación léxica y sus parámetros en orden, o representa una
+     * búsqueda sin texto.
+     *
+     * @param active La búsqueda contiene texto no vacío y debe calcular puntuación léxica.
+     * @param scoreSql Expresión SQL parametrizada que combina coincidencia exacta, prefijos,
+     *     contenido y tokens.
+     * @param params Valores enlazados en el mismo orden que los marcadores añadidos a SQL.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Catálogo
+     */
     record SearchRanking(boolean active, String scoreSql, List<Object> params) {
         /**
-         * Ejecuta la operación {@code from}.
+         * Puntúa coincidencias exactas, prefijos y contenido de nombre, editor, paquete y
+         * etiquetas; añade hasta seis tokens y pesos menores para descripciones.
          *
-         * @param query Valor de {@code query} utilizado por la operación.
-         * @return Resultado producido por {@code from}.
+         * @param query Texto de búsqueda; null o blanco no impone filtro léxico ni solicita
+         *     embeddings.
+         * @return ranking activo parametrizado o ranking vacío si no hay texto.
          */
         static SearchRanking from(String query) {
             String normalized = normalizeSearchQuery(query);
@@ -486,19 +478,9 @@ public class CatalogRepository {
                       + CASE WHEN LOWER(COALESCE(a.description, '')) LIKE ? THEN 250 ELSE 0 END
                       + CASE WHEN LOWER(COALESCE(a.long_description, '')) LIKE ? THEN 150 ELSE 0 END
                     """);
-            params.add(normalized);
-            params.add(normalizedPrefix);
-            params.add(normalizedContains);
-            params.add(compact);
-            params.add(compactPrefix);
-            params.add(lowerRaw);
-            params.add(rawPrefix);
-            params.add(rawContains);
-            params.add(compactContains);
-            params.add(normalized);
-            params.add(normalizedContains);
-            params.add(rawContains);
-            params.add(rawContains);
+            params.addAll(List.of(normalized, normalizedPrefix, normalizedContains,
+                    compact, compactPrefix, lowerRaw, rawPrefix, rawContains,
+                    compactContains, normalized, normalizedContains, rawContains, rawContains));
 
             for (String token : searchTokens(normalized)) {
                 sql.append("""
@@ -514,29 +496,21 @@ public class CatalogRepository {
         }
 
         /**
-         * Ejecuta la operación {@code innerPrefix}.
+         * Activa el desempate por puntuación solo cuando existe una consulta textual.
          *
-         * @return Resultado producido por {@code innerPrefix}.
+         * @return search_score DESC seguido de coma, o cadena vacía.
          */
         String innerPrefix() {
             return active ? "search_score DESC, " : "";
         }
 
-        /**
-         * Ejecuta la operación {@code outerPrefix}.
-         *
-         * @return Resultado producido por {@code outerPrefix}.
-         */
-        String outerPrefix() {
-            return active ? "page.search_score DESC, " : "";
-        }
     }
 
     /**
-     * Busca los elementos solicitados mediante {@code searchTokens}.
+     * Conserva hasta seis tokens distintos de al menos dos caracteres en el orden de la consulta.
      *
-     * @param normalized Valor de {@code normalized} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param normalized Consulta sin diacríticos, recortada y en minúsculas.
+     * @return tokens usados para los pesos parciales del ranking.
      */
     private static List<String> searchTokens(String normalized) {
         if (normalized == null || normalized.isBlank()) {

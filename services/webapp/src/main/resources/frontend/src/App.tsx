@@ -1,7 +1,6 @@
 import {
   BrainCircuit,
   Boxes,
-  ClipboardList,
   Globe2,
   Github,
   Home,
@@ -13,7 +12,7 @@ import {
   UserCircle,
 } from 'lucide-react';
 import { Suspense } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
 import { AuthProvider, useAuth } from './auth/AuthContext';
@@ -23,7 +22,6 @@ import {
   AdminAuditPage,
   AdminBundlesPage,
   AdminDashboard,
-  AdminRequestsPage,
 } from './pages/admin/AdminOverviewPages';
 import { CatalogPage, FacetDirectoryPage } from './pages/catalog/CatalogPages';
 import { BundleDetailPage } from './pages/public/BundleDetailPage';
@@ -142,9 +140,8 @@ function AppRoutes() {
           <Route path="apps" element={<AdminAppsWorkbenchPage />} />
           <Route path="bundles" element={<AdminBundlesPage />} />
           <Route path="scraper" element={<AdminScraperPage />} />
-          <Route path="semantic" element={<Navigate to="/admin/semantic/models" replace />} />
+          <Route path="semantic" element={<SemanticAiPage />} />
           <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
-          <Route path="requests" element={<AdminRequestsPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -246,7 +243,7 @@ function Footer() {
         <section className="site-footer-column" aria-labelledby="footer-project-title">
           <h2 id="footer-project-title">{t('footer.project')}</h2>
           <a href="https://joseleelportfolio.vercel.app/" target="_blank" rel="noreferrer">
-            <img className="site-footer-icon" src="/assets/google-material-language.svg" alt="" aria-hidden="true" />
+            <Globe2 aria-hidden="true" />
             <span>{t('footer.portfolio')}</span>
           </a>
           <a href="https://github.com/Joseleelsuper/Batch-Downloader" target="_blank" rel="noreferrer">
@@ -262,15 +259,11 @@ function Footer() {
 
 function PublicErrorPage() {
   const t = useTranslation();
-  const [search] = useSearchParams();
-  const code = search.get('code');
-  const knownError = code === 'google_oauth_not_configured' || code === 'oauth_failed' ? code : 'unexpected_error';
-  const status = knownError === 'google_oauth_not_configured' ? '503' : knownError === 'oauth_failed' ? '401' : null;
+  const knownError = 'unexpected_error';
 
   return (
     <main className="content-page public-message-page">
       <section className="public-message-card" role="alert">
-        {status ? <span className="public-message-status">{t('error.status', { status })}</span> : null}
         <h2>{t(`error.${knownError}.title`)}</h2>
         <p>{t(`error.${knownError}.body`)}</p>
         <div className="public-message-actions">
@@ -361,7 +354,6 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
           <NavLink to="/admin/bundles"><Boxes size={18} />{t('admin.layout.bundles')}</NavLink>
           <NavLink to="/admin/scraper"><Play size={18} />{t('admin.layout.scraper')}</NavLink>
           <NavLink to="/admin/semantic"><BrainCircuit size={18} />{t('admin.layout.semantic')}</NavLink>
-          <NavLink to="/admin/requests"><ClipboardList size={18} />{t('admin.layout.requests')}</NavLink>
           <NavLink to="/admin/audit"><ListFilter size={18} />{t('admin.layout.audit')}</NavLink>
         </nav>
         <button type="button" onClick={onLogout}><LogOut size={18} />{t('admin.layout.logout')}</button>

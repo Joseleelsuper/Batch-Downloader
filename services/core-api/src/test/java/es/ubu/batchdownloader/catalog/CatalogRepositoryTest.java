@@ -67,17 +67,17 @@ class CatalogRepositoryTest {
      */
     @Test
     void manualAppsExposeTheirSourcePageInsteadOfAFakeWinstallUrl() {
-        assertThat(CatalogRepository.originUrl(
+        assertThat(CatalogProjectionRepository.originUrl(
                         "manual.example-app",
                         "https://example.com",
                         "https://example.com/download"))
                 .isEqualTo("https://example.com/download");
-        assertThat(CatalogRepository.originUrl(
+        assertThat(CatalogProjectionRepository.originUrl(
                         "manual.example-app",
                         "https://example.com",
                         null))
                 .isEqualTo("https://example.com");
-        assertThat(CatalogRepository.originUrl(
+        assertThat(CatalogProjectionRepository.originUrl(
                         "Valve.Steam",
                         "https://store.steampowered.com/about/",
                         "https://cdn.example.com/steam"))
@@ -89,10 +89,10 @@ class CatalogRepositoryTest {
      */
     @Test
     void facetLetterGroupsLatinLettersAndNonLatinPrefixes() {
-        assertThat(CatalogRepository.facetLetter(".NET")).isEqualTo("N");
-        assertThat(CatalogRepository.facetLetter("Álvaro Tools")).isEqualTo("A");
-        assertThat(CatalogRepository.facetLetter("4t Niagara Software")).isEqualTo("#");
-        assertThat(CatalogRepository.facetLetter("東Vendor")).isEqualTo("#");
+        assertThat(CatalogFacetRepository.facetLetter(".NET")).isEqualTo("N");
+        assertThat(CatalogFacetRepository.facetLetter("Álvaro Tools")).isEqualTo("A");
+        assertThat(CatalogFacetRepository.facetLetter("4t Niagara Software")).isEqualTo("#");
+        assertThat(CatalogFacetRepository.facetLetter("東Vendor")).isEqualTo("#");
     }
 
     /**
@@ -104,28 +104,17 @@ class CatalogRepositoryTest {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.search(
-                "Epic Games",
-                "all",
-                null,
-                null,
-                List.of(),
-                List.of(),
-                "updated",
-                1,
-                12,
-                SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("Epic Games", "all", null, null, List.of(), List.of()), "updated", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
         assertThat(sql.getValue()).contains("AS search_score");
-        assertThat(sql.getValue()).contains("CASE WHEN a.catalog_status = 'review'");
-        assertThat(sql.getValue()).contains("ORDER BY CASE WHEN a.catalog_status");
         assertThat(sql.getValue()).contains(
-                "END ASC, a.updated_at DESC, search_score DESC, a.normalized_name ASC");
-        assertThat(sql.getValue()).contains(
-                "END ASC, a.updated_at DESC, page.search_score DESC, a.normalized_name ASC");
+                "ORDER BY a.catalog_review_priority ASC, a.updated_at DESC, "
+                        + "search_score DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).doesNotContain(
+                "CASE WHEN a.catalog_status", "SELECT a.*", "JOIN (", "page.search_score");
         assertThat(params.getValue()[0]).isEqualTo("epic games");
         assertThat(params.getValue()).contains("epic games%");
     }
@@ -148,17 +137,7 @@ class CatalogRepositoryTest {
                 "index-v1",
                 null);
 
-        repository.search(
-                "editor de código",
-                "available",
-                List.of("windows"),
-                "x86_64",
-                List.of("desarrollo"),
-                List.of("Vendor"),
-                "updated",
-                1,
-                12,
-                candidates);
+        repository.search(new CatalogQuery("editor de c\u00f3digo", "available", List.of("windows"), "x86_64", List.of("desarrollo"), List.of("Vendor")), "updated", 1, 12, candidates);
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -168,9 +147,9 @@ class CatalogRepositoryTest {
                 .doesNotContain("lexical_ranked", "search_score", "rrf")
                 .contains("a.catalog_status = ?", "JSON_CONTAINS")
                 .contains(
-                        "END ASC, a.updated_at DESC, ranked.semantic_rank ASC, a.normalized_name ASC")
-                .contains(
-                        "END ASC, a.updated_at DESC, page.semantic_rank ASC, a.normalized_name ASC");
+                        "a.catalog_review_priority ASC, a.updated_at DESC, "
+                                + "ranked.semantic_rank ASC, a.normalized_name ASC")
+                .doesNotContain("SELECT a.*", "JOIN (", "page.semantic_rank");
         assertThat(params.getValue()[0]).isEqualTo(candidates.candidatesJson());
         assertThat(params.getValue()).contains("available", "windows", "x86_64");
     }
@@ -185,14 +164,7 @@ class CatalogRepositoryTest {
                 .thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.facets(
-                "editor",
-                "available",
-                List.of("windows"),
-                "x64",
-                List.of("automation", "cli"),
-                List.of("ACME"),
-                SemanticCandidateSet.lexical());
+        repository.facets(new CatalogQuery("editor", "available", List.of("windows"), "x64", List.of("automation", "cli"), List.of("ACME")), SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -224,14 +196,7 @@ class CatalogRepositoryTest {
                 "index-v1",
                 null);
 
-        repository.facets(
-                "automatización",
-                "all",
-                List.of(),
-                null,
-                List.of("automation"),
-                List.of("ACME"),
-                candidates);
+        repository.facets(new CatalogQuery("automatizaci\u00f3n", "all", List.of(), null, List.of("automation"), List.of("ACME")), candidates);
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc, org.mockito.Mockito.times(2))
@@ -251,41 +216,24 @@ class CatalogRepositoryTest {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.search(
-                "",
-                "all",
-                null,
-                null,
-                List.of(),
-                List.of(),
-                "updated",
-                1,
-                12,
-                SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("", "all", null, null, List.of(), List.of()), "updated", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sql.getValue()).doesNotContain("search_score");
-        assertThat(sql.getValue()).contains("ORDER BY CASE WHEN a.catalog_status");
-        assertThat(sql.getValue()).contains("END ASC, a.updated_at DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).contains(
+                "ORDER BY a.catalog_review_priority ASC, a.updated_at DESC, "
+                        + "a.normalized_name ASC");
+        assertThat(sql.getValue()).doesNotContain(
+                "CASE WHEN a.catalog_status", "SELECT a.*", "JOIN (");
 
-        repository.search(
-                "",
-                "all",
-                null,
-                null,
-                List.of(),
-                List.of(),
-                "name",
-                1,
-                12,
-                SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("", "all", null, null, List.of(), List.of()), "name", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sortedSql = ArgumentCaptor.forClass(String.class);
         verify(jdbc, org.mockito.Mockito.times(2)).query(sortedSql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sortedSql.getAllValues().get(1))
                 .contains("ORDER BY a.normalized_name ASC, a.id ASC")
-                .doesNotContain("CASE WHEN a.catalog_status");
+                .doesNotContain("catalog_review_priority", "CASE WHEN a.catalog_status");
     }
 
     /** Comprueba que el índice alfabético calcula páginas sin ordenar filas. */
@@ -308,9 +256,7 @@ class CatalogRepositoryTest {
         });
         CatalogRepository repository = repository(jdbc);
 
-        assertThat(repository.alphabet(
-                        "", "all", null, null, List.of(), List.of(), 12,
-                        SemanticCandidateSet.lexical()))
+        assertThat(repository.alphabet(new CatalogQuery("", "all", null, null, List.of(), List.of()), 12, SemanticCandidateSet.lexical()))
                 .containsExactly(
                         new CatalogDtos.CatalogAlphabetEntry("#", 1, 2),
                         new CatalogDtos.CatalogAlphabetEntry("A", 1, 5),
@@ -332,17 +278,7 @@ class CatalogRepositoryTest {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.search(
-                "",
-                "available",
-                null,
-                null,
-                List.of(),
-                List.of(),
-                "downloads",
-                1,
-                12,
-                SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("", "available", null, null, List.of(), List.of()), "downloads", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
@@ -360,24 +296,14 @@ class CatalogRepositoryTest {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.search(
-                "launcher",
-                "available",
-                null,
-                null,
-                List.of(),
-                List.of(),
-                "downloads",
-                1,
-                12,
-                SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("launcher", "available", null, null, List.of(), List.of()), "downloads", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
         assertThat(sql.getValue()).contains(
-                "END ASC, a.download_count DESC, search_score DESC, a.normalized_name ASC");
-        assertThat(sql.getValue()).contains(
-                "END ASC, a.download_count DESC, page.search_score DESC, a.normalized_name ASC");
+                "a.catalog_review_priority ASC, a.download_count DESC, "
+                        + "search_score DESC, a.normalized_name ASC");
+        assertThat(sql.getValue()).doesNotContain("SELECT a.*", "JOIN (", "page.search_score");
     }
 
     /**
@@ -389,17 +315,7 @@ class CatalogRepositoryTest {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.search(
-                "",
-                "review",
-                null,
-                null,
-                List.of(),
-                List.of(),
-                "updated",
-                1,
-                12,
-                SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("", "review", null, null, List.of(), List.of()), "updated", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
@@ -417,17 +333,7 @@ class CatalogRepositoryTest {
                 .thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.search(
-                "",
-                "unresolved",
-                null,
-                null,
-                List.of(),
-                List.of(),
-                "updated",
-                1,
-                12,
-                SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("", "unresolved", null, null, List.of(), List.of()), "updated", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -445,12 +351,7 @@ class CatalogRepositoryTest {
      */
     @Test
     void pendingFilterIsRejectedAsAnInvalidPublicStatus() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
-        CatalogRepository repository = repository(jdbc);
-
-        assertThatThrownBy(() -> repository.search(
-                "", "pending", null, null, List.of(), List.of(), "updated", 1, 12,
-                SemanticCandidateSet.lexical()))
+        assertThatThrownBy(() -> new CatalogQuery("", "pending", null, null, List.of(), List.of()))
                 .isInstanceOf(BadRequestException.class)
                 .extracting(exception -> ((BadRequestException) exception).code())
                 .isEqualTo("invalid_catalog_status");
@@ -465,9 +366,7 @@ class CatalogRepositoryTest {
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
         CatalogRepository repository = repository(jdbc);
 
-        repository.search(
-                "", "available", List.of("windows"), null, List.of(), List.of(),
-                "updated", 1, 12, SemanticCandidateSet.lexical());
+        repository.search(new CatalogQuery("", "available", List.of("windows"), null, List.of(), List.of()), "updated", 1, 12, SemanticCandidateSet.lexical());
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
@@ -480,7 +379,7 @@ class CatalogRepositoryTest {
     }
 
     /**
-     * Comprueba el escenario {@code statsReadsTheSingletonProjectionByPrimaryKey}.
+     * Comprueba el escenario {@code statsReadsTheSingletonCounterByPrimaryKey}.
      *
      * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
      */
@@ -491,10 +390,10 @@ class CatalogRepositoryTest {
             @SuppressWarnings("unchecked")
             RowMapper<Object> mapper = invocation.getArgument(1);
             ResultSet rs = org.mockito.Mockito.mock(ResultSet.class);
-            when(rs.getLong("total_apps")).thenReturn(10L);
-            when(rs.getLong("available_apps")).thenReturn(4L);
-            when(rs.getLong("review_apps")).thenReturn(2L);
-            when(rs.getLong("missing_installer_apps")).thenReturn(4L);
+            when(rs.getLong("total_count")).thenReturn(10L);
+            when(rs.getLong("available_count")).thenReturn(4L);
+            when(rs.getLong("review_count")).thenReturn(2L);
+            when(rs.getLong("missing_count")).thenReturn(4L);
             return mapper.mapRow(rs, 0);
         });
         when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of());
@@ -510,7 +409,8 @@ class CatalogRepositoryTest {
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).queryForObject(sql.capture(), any(RowMapper.class));
-        assertThat(sql.getValue()).contains("FROM application_totals");
+        assertThat(sql.getValue()).contains("FROM catalog_counters");
+        assertThat(sql.getValue()).contains("WHERE id = 1");
         assertThat(sql.getValue()).doesNotContain("COUNT(", "SUM(", " JOIN ", "software_apps", "pending");
     }
 
@@ -552,10 +452,9 @@ class CatalogRepositoryTest {
     }
 
     /**
-     * Ejecuta la operación {@code repository}.
+     * Ejecuta repository y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
-     * @return Resultado producido por {@code repository}.
+     * @param jdbc Valor de `jdbc` utilizado por el escenario.
      */
     private static CatalogRepository repository(JdbcTemplate jdbc) {
         Clock clock = Clock.fixed(Instant.parse("2026-08-23T01:00:00Z"), ZoneOffset.UTC);

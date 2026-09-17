@@ -3,15 +3,23 @@ package es.ubu.batchdownloader.catalog;
 import java.util.Objects;
 
 /**
- * Representa los datos inmutables de {@code SemanticCandidateSet}.
+ * Conserva el modo solicitado y el realmente aplicado para que página, recuentos y facetas
+ * compartan candidatos o la misma degradación léxica.
  *
- * @param requestedMode Valor de {@code requestedMode} incluido en el record.
- * @param appliedMode Valor de {@code appliedMode} incluido en el record.
- * @param candidatesJson Valor de {@code candidatesJson} incluido en el record.
- * @param modelVersion Valor de {@code modelVersion} incluido en el record.
- * @param indexVersion Valor de {@code indexVersion} incluido en el record.
- * @param degradedReason Valor de {@code degradedReason} incluido en el record.
+ * @param requestedMode Modo de búsqueda solicitado por el cliente.
+ * @param appliedMode Modo realmente aplicado a resultados, total y facetas.
+ * @param candidatesJson Array JSON de UUID, rango y similitud de los candidatos; [] representa
+ *     ausencia.
+ * @param modelVersion Modelo de embeddings usado; null cuando se aplica búsqueda léxica.
+ * @param indexVersion Versión del índice semántico usado; null cuando se aplica búsqueda léxica.
+ * @param degradedReason Código seguro de degradación a léxica o null si no hubo fallo que
+ *     comunicar.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.SemanticSearchClient
+ * @see es.ubu.batchdownloader.catalog.CatalogRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 public record SemanticCandidateSet(
         CatalogSearchMode requestedMode,
@@ -22,14 +30,17 @@ public record SemanticCandidateSet(
         String degradedReason) {
 
     /**
-     * Inicializa una instancia de {@code SemanticCandidateSet}.
+     * Exige ambos modos y representa un cuerpo de candidatos ausente mediante un array JSON vacío.
      *
-     * @param requestedMode Valor de {@code requestedMode} utilizado por la operación.
-     * @param appliedMode Valor de {@code appliedMode} utilizado por la operación.
-     * @param candidatesJson Valor de {@code candidatesJson} utilizado por la operación.
-     * @param modelVersion Valor de {@code modelVersion} utilizado por la operación.
-     * @param indexVersion Valor de {@code indexVersion} utilizado por la operación.
-     * @param degradedReason Valor de {@code degradedReason} utilizado por la operación.
+     * @param requestedMode Modo de búsqueda solicitado por el cliente.
+     * @param appliedMode Modo realmente aplicado a resultados, total y facetas.
+     * @param candidatesJson Array JSON de UUID, rango y similitud de los candidatos; [] representa
+     *     ausencia.
+     * @param modelVersion Modelo de embeddings usado; null cuando se aplica búsqueda léxica.
+     * @param indexVersion Versión del índice semántico usado; null cuando se aplica búsqueda
+     *     léxica.
+     * @param degradedReason Código seguro de degradación a léxica o null si no hubo fallo que
+     *     comunicar.
      */
     public SemanticCandidateSet {
         Objects.requireNonNull(requestedMode);
@@ -38,11 +49,13 @@ public record SemanticCandidateSet(
     }
 
     /**
-     * Ejecuta la operación {@code lexical}.
+     * Representa una búsqueda aplicada como léxica, conservando la intención original y el
+     * diagnóstico de degradación.
      *
-     * @param requestedMode Valor de {@code requestedMode} utilizado por la operación.
-     * @param degradedReason Valor de {@code degradedReason} utilizado por la operación.
-     * @return Resultado producido por {@code lexical}.
+     * @param requestedMode Modo de búsqueda solicitado por el cliente.
+     * @param degradedReason Código seguro de degradación a léxica o null si no hubo fallo que
+     *     comunicar.
+     * @return conjunto sin candidatos ni versiones semánticas.
      */
     public static SemanticCandidateSet lexical(CatalogSearchMode requestedMode, String degradedReason) {
         return new SemanticCandidateSet(
@@ -55,18 +68,18 @@ public record SemanticCandidateSet(
     }
 
     /**
-     * Ejecuta la operación {@code lexical}.
+     * Representa una búsqueda solicitada y aplicada como léxica sin motivo de degradación.
      *
-     * @return Resultado producido por {@code lexical}.
+     * @return conjunto léxico vacío.
      */
     public static SemanticCandidateSet lexical() {
         return lexical(CatalogSearchMode.LEXICAL, null);
     }
 
     /**
-     * Ejecuta la operación {@code semantic}.
+     * Consulta el modo aplicado, sin confundirlo con la intención original del cliente.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return true únicamente si deben utilizarse candidatos semánticos.
      */
     public boolean semantic() {
         return appliedMode == CatalogSearchMode.SEMANTIC;

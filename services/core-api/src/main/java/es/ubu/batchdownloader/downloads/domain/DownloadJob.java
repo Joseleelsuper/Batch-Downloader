@@ -6,116 +6,152 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Implementa el componente {@code DownloadJob}.
+ * Mantiene las invariantes del lote, su único propietario y el avance de sus elementos hasta
+ * publicar o retirar el ZIP.
+ * Las transiciones conservan resultados terminales, integridad del artefacto y contadores
+ * coherentes; los casos de uso se encargan de persistirlas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJobItem
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJobStatus
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 public final class DownloadJob {
     /**
-     * Estado {@code id} mantenido por {@code DownloadJob}.
+     * UUID estable del trabajo o elemento representado.
      */
     private final UUID id;
     /**
-     * Estado {@code ownerId} mantenido por {@code DownloadJob}.
+     * UUID de la cuenta propietaria o null para un trabajo anónimo.
      */
     private final UUID ownerId;
     /**
-     * Estado {@code anonymousOwnerHash} mantenido por {@code DownloadJob}.
+     * HMAC de la cookie anónima; null para trabajos de una cuenta.
      */
     private final String anonymousOwnerHash;
     /**
-     * Estado {@code anonymousIpHash} mantenido por {@code DownloadJob}.
+     * HMAC de la dirección IP para cuotas; null si no se dispone de ella.
      */
     private final String anonymousIpHash;
     /**
-     * Estado {@code status} mantenido por {@code DownloadJob}.
+     * Estado del trabajo o elemento correspondiente al evento o proyección.
      */
     private DownloadJobStatus status;
     /**
-     * Estado {@code progress} mantenido por {@code DownloadJob}.
+     * Porcentaje entre 0 y 100; el empaquetado completa el tramo final del trabajo.
      */
     private int progress;
     /**
-     * Estado {@code objectKey} mantenido por {@code DownloadJob}.
+     * Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
      */
     private String objectKey;
-    /** Tamaño persistido del ZIP publicado, en bytes. */
+    /**
+     * Tamaño del ZIP en bytes o null en eventos sin metadatos de integridad.
+     */
     private Long artifactSizeBytes;
-    /** SHA-256 hexadecimal del ZIP publicado. */
+    /**
+     * SHA-256 hexadecimal del ZIP o null si el productor no lo proporciona.
+     */
     private String artifactSha256;
-    /** Motivo temporal por el que el trabajo continúa en cola. */
+    /**
+     * Código seguro del motivo temporal de espera, o null cuando no hay aplazamiento.
+     */
     private String waitReason;
-    /** Instante a partir del cual el worker puede volver a intentar el trabajo. */
+    /**
+     * Instante previsto del siguiente intento por capacidad, o null cuando no corresponde.
+     */
     private Instant retryAt;
     /**
-     * Estado {@code failureCode} mantenido por {@code DownloadJob}.
+     * Código seguro del fallo global o null si no existe.
      */
     private String failureCode;
     /**
-     * Estado {@code cancellationRequested} mantenido por {@code DownloadJob}.
+     * Se ha solicitado cancelar y el agregado ya no admite progreso posterior.
      */
     private boolean cancellationRequested;
     /**
-     * Estado {@code notifyWhenReady} mantenido por {@code DownloadJob}.
+     * El propietario solicita aviso al terminar; la admisión lo habilita solo para cuentas
+     * autenticadas.
      */
     private final boolean notifyWhenReady;
     /**
-     * Estado {@code requestedCount} mantenido por {@code DownloadJob}.
+     * Cantidad seleccionada, incluidas dependencias Linux añadidas.
      */
     private final int requestedCount;
     /**
-     * Estado {@code acceptedCount} mantenido por {@code DownloadJob}.
+     * Número de elementos realmente incluidos; coincide con el tamaño de items.
      */
     private final int acceptedCount;
     /**
-     * Estado {@code omittedCount} mantenido por {@code DownloadJob}.
+     * Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
      */
     private final int omittedCount;
     /**
-     * Estado {@code createdAt} mantenido por {@code DownloadJob}.
+     * Instante de creación del registro.
      */
     private final Instant createdAt;
     /**
-     * Estado {@code updatedAt} mantenido por {@code DownloadJob}.
+     * Instante del último cambio de estado guardado.
      */
     private Instant updatedAt;
     /**
-     * Estado {@code expiresAt} mantenido por {@code DownloadJob}.
+     * Instante límite de disponibilidad del ZIP.
      */
     private Instant expiresAt;
     /**
-     * Estado {@code items} mantenido por {@code DownloadJob}.
+     * Elementos en orden de admisión; el agregado conserva una copia de la lista.
      */
     private final List<DownloadJobItem> items;
     /**
-     * Estado {@code version} mantenido por {@code DownloadJob}.
+     * Versión persistida para concurrencia optimista.
      */
     private long version;
 
     /**
-     * Inicializa una instancia de {@code DownloadJob}.
+     * Construye el agregado con una copia de la lista, porcentaje acotado y exactamente un
+     * propietario autenticado o anónimo.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param ownerId Identificador de {@code owner} utilizado por la operación.
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} utilizado por la operación.
-     * @param anonymousIpHash Valor de {@code anonymousIpHash} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param progress Valor de {@code progress} utilizado por la operación.
-     * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-     * @param failureCode Valor de {@code failureCode} utilizado por la operación.
-     * @param cancellationRequested Valor de {@code cancellationRequested} utilizado por la
-     *     operación.
-     * @param notifyWhenReady Valor de {@code notifyWhenReady} utilizado por la operación.
-     * @param requestedCount Valor de {@code requestedCount} utilizado por la operación.
-     * @param acceptedCount Valor de {@code acceptedCount} utilizado por la operación.
-     * @param omittedCount Valor de {@code omittedCount} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @param updatedAt Valor de {@code updatedAt} utilizado por la operación.
-     * @param expiresAt Valor de {@code expiresAt} utilizado por la operación.
-     * @param items Colección de elementos que debe procesarse.
-     * @param version Valor de {@code version} utilizado por la operación.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param id UUID estable del trabajo o elemento representado.
+     * @param ownerId UUID de la cuenta propietaria o null para un trabajo anónimo.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param anonymousIpHash HMAC de la dirección IP para cuotas; null si no se dispone de ella.
+     * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
+     * @param progress Porcentaje entre 0 y 100; el empaquetado completa el tramo final del trabajo.
+     * @param objectKey Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
+     * @param artifactSizeBytes Tamaño del ZIP en bytes o null en eventos sin metadatos de
+     *     integridad.
+     *
+     * @param artifactSha256 SHA-256 hexadecimal del ZIP o null si el productor no lo proporciona.
+     * @param waitReason Código seguro del motivo temporal de espera, o null cuando no hay
+     *     aplazamiento.
+     *
+     * @param retryAt Instante previsto del siguiente intento por capacidad, o null cuando no
+     *     corresponde.
+     *
+     * @param failureCode Código seguro del fallo global o null si no existe.
+     * @param cancellationRequested Se ha solicitado cancelar y el agregado ya no admite progreso
+     *     posterior.
+     *
+     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
+     *     solo para cuentas autenticadas.
+     *
+     * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
+     * @param acceptedCount Número de elementos realmente incluidos; coincide con el tamaño de
+     *     items.
+     *
+     * @param omittedCount Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
+     * @param createdAt Instante de creación del registro.
+     * @param updatedAt Instante del último cambio de estado guardado.
+     * @param expiresAt Instante límite de disponibilidad del ZIP.
+     * @param items Elementos en orden de admisión; el agregado conserva una copia de la lista.
+     * @param version Versión persistida para concurrencia optimista.
+     * @throws IllegalArgumentException si no hay un único propietario, faltan elementos o los
+     *     contadores no cuadran.
+     *
+     * @throws NullPointerException si faltan identidad, estado, fechas o lista requeridos.
      */
     private DownloadJob(
             UUID id,
@@ -173,18 +209,21 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code queue}.
+     * Crea un lote QUEUED con nueva identidad, progreso cero y versión inicial para los elementos
+     * ya seleccionados.
      *
-     * @param ownerId Identificador de {@code owner} utilizado por la operación.
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} utilizado por la operación.
-     * @param anonymousIpHash Valor de {@code anonymousIpHash} utilizado por la operación.
-     * @param items Colección de elementos que debe procesarse.
-     * @param requestedCount Valor de {@code requestedCount} utilizado por la operación.
-     * @param omittedCount Valor de {@code omittedCount} utilizado por la operación.
-     * @param notifyWhenReady Valor de {@code notifyWhenReady} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @param expiresAt Valor de {@code expiresAt} utilizado por la operación.
-     * @return Resultado producido por {@code queue}.
+     * @param ownerId UUID de la cuenta propietaria o null para un trabajo anónimo.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param anonymousIpHash HMAC de la dirección IP para cuotas; null si no se dispone de ella.
+     * @param items Elementos en orden de admisión; el agregado conserva una copia de la lista.
+     * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
+     * @param omittedCount Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
+     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
+     *     solo para cuentas autenticadas.
+     *
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @param expiresAt Instante límite de disponibilidad del ZIP.
+     * @return nuevo agregado todavía no persistido.
      */
     public static DownloadJob queue(
             UUID ownerId,
@@ -204,28 +243,34 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code rehydrate}.
+     * Restaura el estado persistido aplicando las mismas invariantes de propiedad, elementos y
+     * contadores que una creación.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param ownerId Identificador de {@code owner} utilizado por la operación.
-     * @param anonymousOwnerHash Valor de {@code anonymousOwnerHash} utilizado por la operación.
-     * @param anonymousIpHash Valor de {@code anonymousIpHash} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param progress Valor de {@code progress} utilizado por la operación.
-     * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-     * @param failureCode Valor de {@code failureCode} utilizado por la operación.
-     * @param cancellationRequested Valor de {@code cancellationRequested} utilizado por la
-     *     operación.
-     * @param notifyWhenReady Valor de {@code notifyWhenReady} utilizado por la operación.
-     * @param requestedCount Valor de {@code requestedCount} utilizado por la operación.
-     * @param acceptedCount Valor de {@code acceptedCount} utilizado por la operación.
-     * @param omittedCount Valor de {@code omittedCount} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @param updatedAt Valor de {@code updatedAt} utilizado por la operación.
-     * @param expiresAt Valor de {@code expiresAt} utilizado por la operación.
-     * @param items Colección de elementos que debe procesarse.
-     * @param version Valor de {@code version} utilizado por la operación.
-     * @return Resultado producido por {@code rehydrate}.
+     * @param id UUID estable del trabajo o elemento representado.
+     * @param ownerId UUID de la cuenta propietaria o null para un trabajo anónimo.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param anonymousIpHash HMAC de la dirección IP para cuotas; null si no se dispone de ella.
+     * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
+     * @param progress Porcentaje entre 0 y 100; el empaquetado completa el tramo final del trabajo.
+     * @param objectKey Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
+     * @param failureCode Código seguro del fallo global o null si no existe.
+     * @param cancellationRequested Se ha solicitado cancelar y el agregado ya no admite progreso
+     *     posterior.
+     *
+     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
+     *     solo para cuentas autenticadas.
+     *
+     * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
+     * @param acceptedCount Número de elementos realmente incluidos; coincide con el tamaño de
+     *     items.
+     *
+     * @param omittedCount Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
+     * @param createdAt Instante de creación del registro.
+     * @param updatedAt Instante del último cambio de estado guardado.
+     * @param expiresAt Instante límite de disponibilidad del ZIP.
+     * @param items Elementos en orden de admisión; el agregado conserva una copia de la lista.
+     * @param version Versión persistida para concurrencia optimista.
+     * @return agregado rehidratado; la variante histórica deja integridad y espera sin informar.
      */
     public static DownloadJob rehydrate(
             UUID id, UUID ownerId, String anonymousOwnerHash, String anonymousIpHash,
@@ -240,7 +285,46 @@ public final class DownloadJob {
                 createdAt, updatedAt, expiresAt, items, version);
     }
 
-    /** Rehidrata también los metadatos aditivos del artefacto y de espera. */
+    /**
+     * Restaura el estado persistido aplicando las mismas invariantes de propiedad, elementos y
+     * contadores que una creación.
+     *
+     * @param id UUID estable del trabajo o elemento representado.
+     * @param ownerId UUID de la cuenta propietaria o null para un trabajo anónimo.
+     * @param anonymousOwnerHash HMAC de la cookie anónima; null para trabajos de una cuenta.
+     * @param anonymousIpHash HMAC de la dirección IP para cuotas; null si no se dispone de ella.
+     * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
+     * @param progress Porcentaje entre 0 y 100; el empaquetado completa el tramo final del trabajo.
+     * @param objectKey Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
+     * @param artifactSizeBytes Tamaño del ZIP en bytes o null en eventos sin metadatos de
+     *     integridad.
+     *
+     * @param artifactSha256 SHA-256 hexadecimal del ZIP o null si el productor no lo proporciona.
+     * @param waitReason Código seguro del motivo temporal de espera, o null cuando no hay
+     *     aplazamiento.
+     *
+     * @param retryAt Instante previsto del siguiente intento por capacidad, o null cuando no
+     *     corresponde.
+     *
+     * @param failureCode Código seguro del fallo global o null si no existe.
+     * @param cancellationRequested Se ha solicitado cancelar y el agregado ya no admite progreso
+     *     posterior.
+     *
+     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
+     *     solo para cuentas autenticadas.
+     *
+     * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
+     * @param acceptedCount Número de elementos realmente incluidos; coincide con el tamaño de
+     *     items.
+     *
+     * @param omittedCount Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
+     * @param createdAt Instante de creación del registro.
+     * @param updatedAt Instante del último cambio de estado guardado.
+     * @param expiresAt Instante límite de disponibilidad del ZIP.
+     * @param items Elementos en orden de admisión; el agregado conserva una copia de la lista.
+     * @param version Versión persistida para concurrencia optimista.
+     * @return agregado rehidratado; la variante histórica deja integridad y espera sin informar.
+     */
     public static DownloadJob rehydrate(
             UUID id, UUID ownerId, String anonymousOwnerHash, String anonymousIpHash,
             DownloadJobStatus status, int progress, String objectKey,
@@ -257,14 +341,23 @@ public final class DownloadJob {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code updateItem}.
+     * Aplica progreso a un elemento de un trabajo no terminal y avanza el lote sin retroceder de
+     * fase.
+     * Los elementos terminales aportan hasta el 90% y al terminar todos comienza PACKAGING.
      *
-     * @param itemId Identificador de {@code item} utilizado por la operación.
-     * @param itemStatus Valor de {@code itemStatus} utilizado por la operación.
-     * @param bytesDownloaded Valor de {@code bytesDownloaded} utilizado por la operación.
-     * @param sha256 Valor de {@code sha256} utilizado por la operación.
-     * @param errorCode Valor de {@code errorCode} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param itemId UUID de un elemento perteneciente al trabajo indicado.
+     * @param itemStatus Estado del elemento comunicado por el worker.
+     * @param bytesDownloaded Bytes transferidos del instalador; el dominio conserva el máximo
+     *     recibido.
+     *
+     * @param sha256 SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está
+     *     disponible.
+     *
+     * @param errorCode Código seguro del fallo del elemento o null si no hay un fallo que
+     *     comunicar.
+     *
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @throws IllegalArgumentException si el UUID del elemento no pertenece al trabajo.
      */
     public void updateItem(
             UUID itemId, DownloadItemStatus itemStatus, long bytesDownloaded, String sha256,
@@ -287,20 +380,37 @@ public final class DownloadJob {
     }
 
     /**
-     * Marca el recurso solicitado mediante {@code markReady}.
+     * Publica un resultado descargable con progreso completo, clave e integridad del ZIP y borra el
+     * aplazamiento.
+     * Una cancelación o expiración previa impide reabrir el trabajo.
      *
-     * @param result Resultado que debe procesarse.
-     * @param key Valor de {@code key} utilizado por la operación.
-     * @param workerExpiry Valor de {@code workerExpiry} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param result Estado final descargable: READY, PARTIAL o MANUAL_ONLY.
+     * @param key Clave no vacía del ZIP publicado en el almacén.
+     * @param workerExpiry Vencimiento efectivo acordado con el worker y limitado por la aplicación.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @throws IllegalArgumentException si el resultado no es descargable, la clave está vacía, el
+     *     tamaño es negativo o el SHA-256 es inválido.
      */
     public void markReady(DownloadJobStatus result, String key, Instant workerExpiry, Instant now) {
         markReady(result, key, null, null, workerExpiry, now);
     }
 
-    /** Marca el trabajo como descargable y conserva la integridad publicada por el worker. */
+    /**
+     * Publica un resultado descargable con progreso completo, clave e integridad del ZIP y borra el
+     * aplazamiento.
+     * Una cancelación o expiración previa impide reabrir el trabajo.
+     *
+     * @param result Estado final descargable: READY, PARTIAL o MANUAL_ONLY.
+     * @param key Clave no vacía del ZIP publicado en el almacén.
+     * @param sizeBytes Tamaño no negativo del ZIP o null si no se conoce.
+     * @param sha256 SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está
+     *     disponible.
+     *
+     * @param workerExpiry Vencimiento efectivo acordado con el worker y limitado por la aplicación.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @throws IllegalArgumentException si el resultado no es descargable, la clave está vacía, el
+     *     tamaño es negativo o el SHA-256 es inválido.
+     */
     public void markReady(
             DownloadJobStatus result,
             String key,
@@ -325,7 +435,14 @@ public final class DownloadJob {
         updatedAt = now;
     }
 
-    /** Mantiene el trabajo en cola cuando la capacidad es temporalmente insuficiente. */
+    /**
+     * Reinicia a QUEUED un trabajo no terminal, reencola sus elementos y conserva motivo y fecha
+     * para el siguiente intento por capacidad.
+     *
+     * @param reason Código no vacío de la falta temporal de capacidad.
+     * @param nextAttempt Instante no nulo del siguiente intento solicitado por el worker.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     */
     public void defer(String reason, Instant nextAttempt, Instant now) {
         if (status.terminal()) return;
         waitReason = requireText(reason, "waitReason");
@@ -337,10 +454,11 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code fail}.
+     * Marca FAILED un trabajo no terminal con un código seguro no vacío; los resultados ya
+     * terminales se conservan.
      *
-     * @param code Valor de {@code code} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param code Código no vacío del fallo global del trabajo.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
      */
     public void fail(String code, Instant now) {
         if (status.terminal()) return;
@@ -350,10 +468,11 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code requestCancellation}.
+     * Marca el lote CANCELLED y cancela sus elementos todavía activos conservando los resultados
+     * individuales ya terminales.
      *
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @return true solo si se aplicó una cancelación nueva.
      */
     public boolean requestCancellation(Instant now) {
         if (status.terminal()) return false;
@@ -365,10 +484,11 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code expire}.
+     * Retira la clave del ZIP al vencer un resultado descargable, conservando el historial del
+     * trabajo.
      *
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @return true si el estado cambia a EXPIRED; false si no ha vencido o no era descargable.
      */
     public boolean expire(Instant now) {
         if (!expiresAt.isAfter(now) && status.downloadable()) {
@@ -381,10 +501,11 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code deriveActiveStatus}.
+     * Traduce la fase del elemento al avance global antes de que todos terminen y comience el
+     * empaquetado.
      *
-     * @param itemStatus Valor de {@code itemStatus} utilizado por la operación.
-     * @return Resultado producido por {@code deriveActiveStatus}.
+     * @param itemStatus Estado del elemento comunicado por el worker.
+     * @return QUEUED, RESOLVING o DOWNLOADING según el estado recibido.
      */
     private static DownloadJobStatus deriveActiveStatus(DownloadItemStatus itemStatus) {
         return switch (itemStatus) {
@@ -395,10 +516,10 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code activeStage}.
+     * Asigna un orden de avance a las fases del lote para impedir retrocesos por eventos tardíos.
      *
-     * @param candidate Valor de {@code candidate} utilizado por la operación.
-     * @return Resultado producido por {@code activeStage}.
+     * @param candidate Estado cuyo orden de avance se necesita comparar.
+     * @return ordinal funcional entre cero y cuatro, con el mismo nivel para resultados terminales.
      */
     private static int activeStage(DownloadJobStatus candidate) {
         return switch (candidate) {
@@ -411,20 +532,19 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code clampProgress}.
+     * Acota el porcentaje rehidratado al intervalo visible del progreso.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code clampProgress}.
+     * @param value Porcentaje recibido o persistido antes de normalizar.
+     * @return valor entre 0 y 100.
      */
     private static int clampProgress(int value) { return Math.max(0, Math.min(100, value)); }
     /**
-     * Ejecuta la operación {@code requireText}.
+     * Exige texto no vacío en claves y códigos del estado sin modificar su contenido.
      *
-     * @param value Valor que debe procesarse.
-     * @param name Nombre del elemento sobre el que se actúa.
-     * @return Resultado producido por {@code requireText}.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param value Texto o número que se normaliza según el contrato del método.
+     * @param name Nombre del campo que se incluye en el error de validación.
+     * @return texto original.
+     * @throws IllegalArgumentException si es null o contiene solo espacios.
      */
     private static String requireText(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required");
@@ -432,119 +552,137 @@ public final class DownloadJob {
     }
 
     /**
-     * Ejecuta la operación {@code id}.
+     * UUID estable del trabajo o elemento representado.
      *
-     * @return Resultado producido por {@code id}.
+     * @return UUID estable del trabajo o elemento representado.
      */
     public UUID id() { return id; }
     /**
-     * Ejecuta la operación {@code ownerId}.
+     * UUID de la cuenta propietaria o null para un trabajo anónimo.
      *
-     * @return Resultado producido por {@code ownerId}.
+     * @return UUID de la cuenta propietaria o null para un trabajo anónimo.
      */
     public UUID ownerId() { return ownerId; }
     /**
-     * Ejecuta la operación {@code anonymousOwnerHash}.
+     * HMAC de la cookie anónima; null para trabajos de una cuenta.
      *
-     * @return Resultado producido por {@code anonymousOwnerHash}.
+     * @return HMAC de la cookie anónima; null para trabajos de una cuenta.
      */
     public String anonymousOwnerHash() { return anonymousOwnerHash; }
     /**
-     * Ejecuta la operación {@code anonymousIpHash}.
+     * HMAC de la dirección IP para cuotas; null si no se dispone de ella.
      *
-     * @return Resultado producido por {@code anonymousIpHash}.
+     * @return HMAC de la dirección IP para cuotas; null si no se dispone de ella.
      */
     public String anonymousIpHash() { return anonymousIpHash; }
     /**
-     * Ejecuta la operación {@code status}.
+     * Estado del trabajo o elemento correspondiente al evento o proyección.
      *
-     * @return Resultado producido por {@code status}.
+     * @return Estado del trabajo o elemento correspondiente al evento o proyección.
      */
     public DownloadJobStatus status() { return status; }
     /**
-     * Ejecuta la operación {@code progress}.
+     * Porcentaje entre 0 y 100; el empaquetado completa el tramo final del trabajo.
      *
-     * @return Resultado producido por {@code progress}.
+     * @return Porcentaje entre 0 y 100; el empaquetado completa el tramo final del trabajo.
      */
     public int progress() { return progress; }
     /**
-     * Ejecuta la operación {@code objectKey}.
+     * Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
      *
-     * @return Resultado producido por {@code objectKey}.
+     * @return Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
      */
     public String objectKey() { return objectKey; }
-    /** @return Tamaño del ZIP publicado, o {@code null} si todavía no existe. */
+    /**
+     * Tamaño del ZIP en bytes o null en eventos sin metadatos de integridad.
+     *
+     * @return Tamaño del ZIP en bytes o null en eventos sin metadatos de integridad.
+     */
     public Long artifactSizeBytes() { return artifactSizeBytes; }
-    /** @return SHA-256 del ZIP publicado, o {@code null} si todavía no existe. */
+    /**
+     * SHA-256 hexadecimal del ZIP o null si el productor no lo proporciona.
+     *
+     * @return SHA-256 hexadecimal del ZIP o null si el productor no lo proporciona.
+     */
     public String artifactSha256() { return artifactSha256; }
-    /** @return Motivo temporal de espera, o {@code null}. */
+    /**
+     * Código seguro del motivo temporal de espera, o null cuando no hay aplazamiento.
+     *
+     * @return Código seguro del motivo temporal de espera, o null cuando no hay aplazamiento.
+     */
     public String waitReason() { return waitReason; }
-    /** @return Próximo instante de reintento por capacidad, o {@code null}. */
+    /**
+     * Instante previsto del siguiente intento por capacidad, o null cuando no corresponde.
+     *
+     * @return Instante previsto del siguiente intento por capacidad, o null cuando no corresponde.
+     */
     public Instant retryAt() { return retryAt; }
     /**
-     * Ejecuta la operación {@code failureCode}.
+     * Código seguro del fallo global o null si no existe.
      *
-     * @return Resultado producido por {@code failureCode}.
+     * @return Código seguro del fallo global o null si no existe.
      */
     public String failureCode() { return failureCode; }
     /**
-     * Indica si puede realizarse la operación mediante {@code cancellationRequested}.
+     * Se ha solicitado cancelar y el agregado ya no admite progreso posterior.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return Se ha solicitado cancelar y el agregado ya no admite progreso posterior.
      */
     public boolean cancellationRequested() { return cancellationRequested; }
     /**
-     * Ejecuta la operación {@code notifyWhenReady}.
+     * El propietario solicita aviso al terminar; la admisión lo habilita solo para cuentas
+     * autenticadas.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return El propietario solicita aviso al terminar; la admisión lo habilita solo para cuentas
+     *     autenticadas.
      */
     public boolean notifyWhenReady() { return notifyWhenReady; }
     /**
-     * Ejecuta la operación {@code requestedCount}.
+     * Cantidad seleccionada, incluidas dependencias Linux añadidas.
      *
-     * @return Resultado producido por {@code requestedCount}.
+     * @return Cantidad seleccionada, incluidas dependencias Linux añadidas.
      */
     public int requestedCount() { return requestedCount; }
     /**
-     * Ejecuta la operación {@code acceptedCount}.
+     * Número de elementos realmente incluidos; coincide con el tamaño de items.
      *
-     * @return Resultado producido por {@code acceptedCount}.
+     * @return Número de elementos realmente incluidos; coincide con el tamaño de items.
      */
     public int acceptedCount() { return acceptedCount; }
     /**
-     * Ejecuta la operación {@code omittedCount}.
+     * Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
      *
-     * @return Resultado producido por {@code omittedCount}.
+     * @return Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
      */
     public int omittedCount() { return omittedCount; }
     /**
-     * Crea el recurso solicitado mediante {@code createdAt}.
+     * Instante de creación del registro.
      *
-     * @return Resultado producido por {@code createdAt}.
+     * @return Instante de creación del registro.
      */
     public Instant createdAt() { return createdAt; }
     /**
-     * Actualiza el recurso solicitado mediante {@code updatedAt}.
+     * Instante del último cambio de estado guardado.
      *
-     * @return Resultado producido por {@code updatedAt}.
+     * @return Instante del último cambio de estado guardado.
      */
     public Instant updatedAt() { return updatedAt; }
     /**
-     * Ejecuta la operación {@code expiresAt}.
+     * Instante límite de disponibilidad del ZIP.
      *
-     * @return Resultado producido por {@code expiresAt}.
+     * @return Instante límite de disponibilidad del ZIP.
      */
     public Instant expiresAt() { return expiresAt; }
     /**
-     * Ejecuta la operación {@code items}.
+     * Elementos en orden de admisión; el agregado conserva una copia de la lista.
      *
-     * @return Colección de elementos obtenidos por la operación.
+     * @return Elementos en orden de admisión; el agregado conserva una copia de la lista.
      */
     public List<DownloadJobItem> items() { return items; }
     /**
-     * Ejecuta la operación {@code version}.
+     * Versión persistida para concurrencia optimista.
      *
-     * @return Resultado producido por {@code version}.
+     * @return Versión persistida para concurrencia optimista.
      */
     public long version() { return version; }
 }

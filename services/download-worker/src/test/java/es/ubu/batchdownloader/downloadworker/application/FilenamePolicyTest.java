@@ -9,9 +9,14 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
- * Agrupa los escenarios de prueba de {@code FilenamePolicyTest}.
+ * Comprueba compatibilidad de nombres, protección frente a rutas y colisiones sin distinguir
+ * mayúsculas, conservando extensiones compuestas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.application.FilenamePolicy
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de procesamiento y capacidad
  */
 class FilenamePolicyTest {
     /**
@@ -20,7 +25,8 @@ class FilenamePolicyTest {
     private final FilenamePolicy policy = new FilenamePolicy();
 
     /**
-     * Comprueba el escenario {@code sanitizesTraversalAndDeduplicatesCaseInsensitively}.
+     * Propone una ruta con ../ y otro nombre equivalente en minúsculas y comprueba que se elimina
+     * el recorrido y se añade -2 al duplicado.
      */
     @Test
     void sanitizesTraversalAndDeduplicatesCaseInsensitively() {
@@ -33,7 +39,8 @@ class FilenamePolicyTest {
     }
 
     /**
-     * Comprueba el escenario {@code preservesCompoundTarGzExtensionWhenAddingSuffix}.
+     * Propone dos nombres tar.gz iguales y comprueba que el sufijo de deduplicación se añade antes
+     * de la extensión completa.
      */
     @Test
     void preservesCompoundTarGzExtensionWhenAddingSuffix() {
@@ -43,7 +50,8 @@ class FilenamePolicyTest {
     }
 
     /**
-     * Comprueba el escenario {@code sanitizesAndDeduplicatesManualShortcutNames}.
+     * Comprueba el prefijo de nombres reservados de Windows, la retirada de separadores y la
+     * deduplicación de accesos .url.
      */
     @Test
     void sanitizesAndDeduplicatesManualShortcutNames() {
@@ -55,11 +63,12 @@ class FilenamePolicyTest {
     }
 
     /**
-     * Ejecuta la operación {@code item}.
+     * Construye una fuente de prueba con nombre propuesto e identidades derivadas de la semilla.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param filename Valor de {@code filename} utilizado por la operación.
-     * @return Resultado producido por {@code item}.
+     * @param id Texto de fixture del que se derivan UUID estables de elemento, aplicación y fuente.
+     * @param filename Nombre propuesto que se conserva para probar saneamiento o configuración del
+     *     instalador.
+     * @return resolución Windows cuyos nombres puede sanear la política.
      */
     private ResolvedDownloadItem item(String id, String filename) {
         return new ResolvedDownloadItem(

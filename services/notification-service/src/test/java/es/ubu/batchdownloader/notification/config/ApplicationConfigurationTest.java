@@ -8,10 +8,22 @@ import java.time.ZoneOffset;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
 
-/** Verifica los adaptadores compartidos creados por la configuración de notificaciones. */
+/**
+ * Comprueba que el reloj y el sobre cifrado creados por Spring son compatibles con el contrato
+ * compartido.
+ *
+ * @see es.ubu.batchdownloader.notification.config.ApplicationConfiguration
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
+ */
 class ApplicationConfigurationTest {
     private final ApplicationConfiguration configuration = new ApplicationConfiguration();
 
+    /**
+     * Comprueba la zona UTC del reloj y el intercambio de tokens con un sobre construido con la
+     * misma clave.
+     */
     @Test
     void providesUtcClockAndCompatibleEncryptedEnvelope() {
         String key = Base64.getEncoder().encodeToString(

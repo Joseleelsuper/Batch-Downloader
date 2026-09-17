@@ -1,11 +1,6 @@
 {
   "error.backToHome": "Volver al inicio",
   "error.backToLogin": "Volver al login",
-  "error.google_oauth_not_configured.body": "El acceso con Google no está configurado en este entorno. Puedes iniciar sesión con correo y contraseña o intentarlo más tarde.",
-  "error.google_oauth_not_configured.title": "Google no está disponible",
-  "error.oauth_failed.body": "Google no pudo completar la autenticación. Vuelve al login e inténtalo de nuevo.",
-  "error.oauth_failed.title": "No se pudo iniciar sesión con Google",
-  "error.status": "Error {status}",
   "error.unexpected_error.body": "No se pudo completar la solicitud. Regresa a una página segura y vuelve a intentarlo.",
   "error.unexpected_error.title": "Ha ocurrido un error"
 }

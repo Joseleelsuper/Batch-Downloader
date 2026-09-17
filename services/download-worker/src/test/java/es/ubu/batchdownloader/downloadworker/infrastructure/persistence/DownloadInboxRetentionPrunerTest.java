@@ -18,9 +18,22 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Prueba la retención de idempotencias del worker de descarga. */
+/**
+ * Comprueba selección y eliminación acotada de reservas completadas del inbox, conservando las que
+ * siguen en procesamiento.
+ *
+ * @see
+ *     es.ubu.batchdownloader.downloadworker.infrastructure.persistence.DownloadInboxRetentionPruner
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
+ */
 class DownloadInboxRetentionPrunerTest {
 
+    /**
+     * Fija el reloj y comprueba corte de siete días, selección de hasta 500 reservas completadas y
+     * dos eliminaciones que vuelven a exigir estado COMPLETED.
+     */
     @Test
     void prunesOnlyCompletedRowsOlderThanSevenDays() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

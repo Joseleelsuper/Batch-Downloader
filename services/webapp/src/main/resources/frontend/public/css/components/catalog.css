@@ -40,7 +40,8 @@
   box-shadow: 4px 4px 12px rgba(15, 118, 110, 0.1);
 }
 
-.filter-bookmark:focus-visible {
+.filter-bookmark:focus-visible,
+.selection-app-button:focus-visible {
   outline: 3px solid #0284c7;
   outline-offset: 2px;
 }
@@ -223,10 +224,6 @@
   box-shadow: 0 2px 6px rgba(15, 118, 110, 0.2);
 }
 
-.selection-app-button:focus-visible {
-  outline: 3px solid #0284c7;
-  outline-offset: 2px;
-}
 
 .selection-app-button:disabled {
   cursor: wait;
@@ -438,7 +435,8 @@
   border-radius: 5px;
 }
 
-.download-job-failure > div {
+.download-job-failure > div,
+.download-job-manual > div {
   display: grid;
   gap: 2px;
 }
@@ -541,10 +539,6 @@
   color: #0c4a6e;
 }
 
-.download-job-manual > div {
-  display: grid;
-  gap: 2px;
-}
 
 .download-job-manual > div p {
   color: #475569;

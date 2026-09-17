@@ -137,14 +137,11 @@ function Save-OrCheckFile {
 
 $targets = @(
     [pscustomobject]@{ Name = "Scraper API"; ExamplePath = "api/scraper/.env.example"; OutputPath = "api/scraper/.env" },
-    [pscustomobject]@{ Name = "Scraper Scheduler"; ExamplePath = "api/scraper/.env.scheduler.example"; OutputPath = "api/scraper/.env.scheduler" },
     [pscustomobject]@{ Name = "Core API"; ExamplePath = "services/core-api/.env.example"; OutputPath = "services/core-api/.env" },
     [pscustomobject]@{ Name = "Download Worker"; ExamplePath = "services/download-worker/.env.example"; OutputPath = "services/download-worker/.env" },
     [pscustomobject]@{ Name = "Notification Service"; ExamplePath = "services/notification-service/.env.example"; OutputPath = "services/notification-service/.env" },
     [pscustomobject]@{ Name = "Semantic API"; ExamplePath = "services/semantic-service/.env.example"; OutputPath = "services/semantic-service/.env" },
     [pscustomobject]@{ Name = "Semantic Indexer"; ExamplePath = "services/semantic-service/.env.indexer.example"; OutputPath = "services/semantic-service/.env.indexer" },
-    [pscustomobject]@{ Name = "Semantic Model Worker"; ExamplePath = "services/semantic-service/.env.model-worker.example"; OutputPath = "services/semantic-service/.env.model-worker" },
-    [pscustomobject]@{ Name = "Semantic Trainer"; ExamplePath = "services/semantic-service/.env.trainer.example"; OutputPath = "services/semantic-service/.env.trainer" },
     [pscustomobject]@{ Name = "Translation Service"; ExamplePath = "services/translation-service/.env.example"; OutputPath = "services/translation-service/.env" },
     [pscustomobject]@{ Name = "Webapp Frontend"; ExamplePath = "services/webapp/src/main/resources/frontend/.env.example"; OutputPath = "services/webapp/src/main/resources/frontend/.env" }
 )

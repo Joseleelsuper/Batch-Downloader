@@ -1,34 +1,42 @@
 package es.ubu.batchdownloader.common;
 
 /**
- * Implementa el componente {@code ServiceUnavailableException}.
+ * Representa falta temporal de capacidad o disponibilidad de un colaborador y conserva un plazo
+ * seguro de reintento.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.common.ApiExceptionHandler
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Infraestructura de Core
  */
 public class ServiceUnavailableException extends RuntimeException {
     /**
-     * Estado {@code code} mantenido por {@code ServiceUnavailableException}.
+     * Código estable y seguro que permite al cliente identificar el fallo.
      */
     private final String code;
-    /** Segundos que debe esperar el cliente antes de reintentar. */
+    /**
+     * Segundos antes del siguiente intento; se limita por abajo a uno.
+     */
     private final int retryAfterSeconds;
 
     /**
-     * Inicializa una instancia de {@code ServiceUnavailableException}.
+     * Conserva el fallo temporal con una espera predeterminada de un segundo.
      *
-     * @param code Valor de {@code code} utilizado por la operación.
-     * @param message Mensaje que debe procesarse.
+     * @param code Código estable y seguro que permite al cliente identificar el fallo.
+     * @param message Explicación del fallo apta para mostrarse al usuario, sin detalles sensibles.
      */
     public ServiceUnavailableException(String code, String message) {
         this(code, message, 1);
     }
 
     /**
-     * Inicializa una indisponibilidad temporal con una espera explícita.
+     * Conserva el código funcional y el mensaje seguro del fallo y acota el plazo de reintento a un
+     * mínimo de un segundo.
      *
-     * @param code Código estable de la respuesta.
-     * @param message Mensaje seguro para el cliente.
-     * @param retryAfterSeconds Segundos mínimos antes del reintento.
+     * @param code Código estable y seguro que permite al cliente identificar el fallo.
+     * @param message Explicación del fallo apta para mostrarse al usuario, sin detalles sensibles.
+     * @param retryAfterSeconds Segundos antes del siguiente intento; se limita por abajo a uno.
      */
     public ServiceUnavailableException(String code, String message, int retryAfterSeconds) {
         super(message);
@@ -37,18 +45,18 @@ public class ServiceUnavailableException extends RuntimeException {
     }
 
     /**
-     * Ejecuta la operación {@code code}.
+     * Identifica el fallo para que el cliente decida cómo presentarlo o recuperarse.
      *
-     * @return Resultado producido por {@code code}.
+     * @return código funcional estable.
      */
     public String code() {
         return code;
     }
 
     /**
-     * Obtiene el valor de la cabecera {@code Retry-After}.
+     * Expone el plazo que se enviará en Retry-After.
      *
-     * @return Segundos mínimos antes del reintento.
+     * @return segundos de espera, siempre al menos uno.
      */
     public int retryAfterSeconds() {
         return retryAfterSeconds;

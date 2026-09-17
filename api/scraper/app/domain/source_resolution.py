@@ -1,5 +1,4 @@
-"""Implementa las responsabilidades del módulo `source_resolution`.
-"""
+"""Clasifica la confianza que puede comunicar la resolución interna de una fuente al worker."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -8,17 +7,26 @@ from enum import StrEnum
 
 
 class SourceTrustStatus(StrEnum):
-    """Enumera los valores admitidos por `SourceTrustStatus`.
+    """Distingue validación vigente, evidencia atestiguada y ausencia de garantías suficientes
+    para la descarga.
+
+    Attributes:
+        VERIFIED: Validación válida y vigente por una vía direct o fallback, sin confianza
+            incompatible.
+        ATTESTED: Metadatos que atestiguan el origen Winstall; esta marca tiene prioridad en
+            la clasificación.
+        UNRESOLVED: Falta una validación o vía admisible, la resolución caducó o la confianza
+            explícita no es reconocida.
+
+    See Also:
+        source_trust_status: Aplica el orden de decisión de estas garantías.
     """
     VERIFIED = "VERIFIED"
-    """Constante que define `VERIFIED`.
-    """
+
     ATTESTED = "ATTESTED"
-    """Constante que define `ATTESTED`.
-    """
+
     UNRESOLVED = "UNRESOLVED"
-    """Constante que define `UNRESOLVED`.
-    """
+
 
 
 def source_trust_status(
@@ -29,17 +37,20 @@ def source_trust_status(
     metadata: Mapping[str, object],
     now: datetime,
 ) -> SourceTrustStatus:
-    """Ejecuta la operación `source_trust_status`.
+    """Prioriza evidencia atestiguada y, en su ausencia, exige validación válida, resolución
+    directa o fallback y fecha futura.
+    Una confianza explícita distinta de validated o verified impide clasificarla como
+    verificada.
 
     Args:
-        validation_status (str): Valor de `validation_status` utilizado por la operación.
-        resolution_status (str): Valor de `resolution_status` utilizado por la operación.
-        expires_at (datetime): Instante asociado a `expires`.
-        metadata (Mapping[str, object]): Valor de `metadata` utilizado por la operación.
-        now (datetime): Valor de `now` utilizado por la operación.
+        validation_status: Resultado persistido de validación de la fuente.
+        resolution_status: Vía persistida de resolución, como direct o fallback.
+        expires_at: Caducidad UTC sin tzinfo de la resolución.
+        metadata: Evidencias de confianza y transporte guardadas con el artefacto.
+        now: Instante UTC sin tzinfo contra el que se comprueba vigencia.
 
     Returns:
-        SourceTrustStatus: Resultado producido por la operación.
+        categoría de confianza que corresponde a las evidencias recibidas.
     """
     confidence = str(metadata.get("validation_confidence") or "").lower()
     if confidence == "attested" or metadata.get("transport_security") in {

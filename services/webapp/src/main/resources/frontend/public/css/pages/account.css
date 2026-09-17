@@ -57,20 +57,6 @@
   border-top: 1px solid var(--border);
 }
 
-.google-auth-button {
-  background: #ffffff;
-  border-color: #747775;
-  color: #1f1f1f;
-}
-
-.google-auth-icon {
-  display: block;
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  object-fit: contain;
-}
-
 .account-shell {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);

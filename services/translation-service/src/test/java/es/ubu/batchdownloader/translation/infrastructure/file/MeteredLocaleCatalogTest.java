@@ -10,9 +10,21 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
-/** Verifica que la métrica no cambia la semántica exacta del catálogo. */
+/**
+ * Comprueba que las métricas distinguen consultas resueltas y ausencias sin modificar sus
+ * resultados.
+ *
+ * @see es.ubu.batchdownloader.translation.infrastructure.file.MeteredLocaleCatalog
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Traducciones
+ */
 class MeteredLocaleCatalogTest {
 
+    /**
+     * Comprueba contadores hit y miss sin usar el idioma solicitado como etiqueta de cardinalidad
+     * abierta.
+     */
     @Test
     void recordsHitsAndMissesWithoutUsingLocaleAsATag() {
         JsonFileLocaleCatalog delegate = mock(JsonFileLocaleCatalog.class);

@@ -11,28 +11,41 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Implementa el componente {@code DownloadEvents}.
+ * Agrupa los sobres y cargas que conectan admisión en Core, procesamiento del worker y
+ * actualización de resultados, conservando selección exacta y correlación.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.domain.EventTypes
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadEventEmitter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Contratos de descarga
  */
 public final class DownloadEvents {
     /**
-     * Inicializa una instancia de {@code DownloadEvents}.
+     * Impide instanciar el contenedor de contratos de eventos de descarga.
      */
     private DownloadEvents() {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadJobRequestedEvent}.
+     * Transporta una solicitud de procesamiento con restricciones declarativas que se comprueban
+     * antes de reservar su evento en el inbox.
      *
-     * @param eventId Valor de {@code eventId} incluido en el record.
-     * @param type Valor de {@code type} incluido en el record.
-     * @param schemaVersion Valor de {@code schemaVersion} incluido en el record.
-     * @param occurredAt Valor de {@code occurredAt} incluido en el record.
-     * @param correlationId Valor de {@code correlationId} incluido en el record.
-     * @param causationId Valor de {@code causationId} incluido en el record.
-     * @param payload Valor de {@code payload} incluido en el record.
+     * @param eventId UUID estable del evento para deduplicar entregas repetidas.
+     * @param type Tipo del evento que determina el contrato de su carga.
+     * @param schemaVersion Versión del esquema del evento, independiente de la versión del
+     *     servicio.
+     * @param occurredAt Instante de creación o transición comunicado por el productor.
+     * @param correlationId Identificador compartido por los eventos del mismo flujo de descarga.
+     * @param causationId Identificador del evento causante; puede faltar para una solicitud
+     *     inicial.
+     * @param payload Carga tipada con el trabajo y los datos específicos de la transición.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadJobRequestedEvent(
             @NotNull UUID eventId,
@@ -45,11 +58,15 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadJobPayload}.
+     * Conserva el trabajo ya admitido y su selección ordenada de elementos para que el worker
+     * procese exactamente ese conjunto.
      *
-     * @param jobId Valor de {@code jobId} incluido en el record.
-     * @param items Valor de {@code items} incluido en el record.
+     * @param jobId UUID del trabajo persistido por Core antes de publicar la solicitud.
+     * @param items Selección no vacía de hasta cien elementos; conserva su orden original.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadJobPayload(
             @NotNull UUID jobId,
@@ -57,12 +74,17 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadItemRequest}.
+     * Distingue un instalador exacto de una alternativa manual mediante la presencia de sourceRef,
+     * sin transportar la URI final privada.
      *
-     * @param itemId Valor de {@code itemId} incluido en el record.
-     * @param appId Valor de {@code appId} incluido en el record.
-     * @param sourceRef Valor de {@code sourceRef} incluido en el record.
+     * @param itemId UUID del elemento dentro del trabajo que se procesa.
+     * @param appId UUID de la aplicación a la que pertenece el elemento.
+     * @param sourceRef UUID exacto del instalador seleccionado; null representa un elemento
+     *     exclusivamente manual.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadItemRequest(
             @NotNull UUID itemId,
@@ -71,16 +93,22 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadJobProgressedEvent}.
+     * Notifica una transición individual de descarga con identidad deduplicable y vínculo al
+     * comando que la causó.
      *
-     * @param eventId Valor de {@code eventId} incluido en el record.
-     * @param type Valor de {@code type} incluido en el record.
-     * @param schemaVersion Valor de {@code schemaVersion} incluido en el record.
-     * @param occurredAt Valor de {@code occurredAt} incluido en el record.
-     * @param correlationId Valor de {@code correlationId} incluido en el record.
-     * @param causationId Valor de {@code causationId} incluido en el record.
-     * @param payload Valor de {@code payload} incluido en el record.
+     * @param eventId UUID estable del evento para deduplicar entregas repetidas.
+     * @param type Tipo del evento que determina el contrato de su carga.
+     * @param schemaVersion Versión del esquema del evento, independiente de la versión del
+     *     servicio.
+     * @param occurredAt Instante de creación o transición comunicado por el productor.
+     * @param correlationId Identificador compartido por los eventos del mismo flujo de descarga.
+     * @param causationId Identificador del evento causante; puede faltar para una solicitud
+     *     inicial.
+     * @param payload Carga tipada con el trabajo y los datos específicos de la transición.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadJobProgressedEvent(
             UUID eventId,
@@ -93,16 +121,22 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadProgressPayload}.
+     * Actualiza estado y bytes de un elemento sin exigir que hayan terminado los demás instaladores
+     * del trabajo.
      *
-     * @param jobId Valor de {@code jobId} incluido en el record.
-     * @param itemId Valor de {@code itemId} incluido en el record.
-     * @param status Valor de {@code status} incluido en el record.
-     * @param bytesDownloaded Valor de {@code bytesDownloaded} incluido en el record.
-     * @param sizeBytes Valor de {@code sizeBytes} incluido en el record.
-     * @param sha256 Valor de {@code sha256} incluido en el record.
-     * @param errorCode Valor de {@code errorCode} incluido en el record.
+     * @param jobId UUID del trabajo persistido por Core antes de publicar la solicitud.
+     * @param itemId UUID del elemento dentro del trabajo que se procesa.
+     * @param status Estado del elemento o resultado conjunto descrito por la carga concreta.
+     * @param bytesDownloaded Cantidad de bytes transferidos del elemento.
+     * @param sizeBytes Tamaño esperado o final en bytes; puede ser null en progreso si se
+     *     desconoce.
+     * @param sha256 SHA-256 hexadecimal del contenido verificado, o null antes de completarlo.
+     * @param errorCode Código seguro del fallo, sin incluir URLs privadas ni contenido del
+     *     proveedor.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadProgressPayload(
             UUID jobId,
@@ -115,16 +149,22 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadJobReadyEvent}.
+     * Notifica que ZIP y manifiesto están almacenados y que Core puede ofrecer el resultado al
+     * propietario.
      *
-     * @param eventId Valor de {@code eventId} incluido en el record.
-     * @param type Valor de {@code type} incluido en el record.
-     * @param schemaVersion Valor de {@code schemaVersion} incluido en el record.
-     * @param occurredAt Valor de {@code occurredAt} incluido en el record.
-     * @param correlationId Valor de {@code correlationId} incluido en el record.
-     * @param causationId Valor de {@code causationId} incluido en el record.
-     * @param payload Valor de {@code payload} incluido en el record.
+     * @param eventId UUID estable del evento para deduplicar entregas repetidas.
+     * @param type Tipo del evento que determina el contrato de su carga.
+     * @param schemaVersion Versión del esquema del evento, independiente de la versión del
+     *     servicio.
+     * @param occurredAt Instante de creación o transición comunicado por el productor.
+     * @param correlationId Identificador compartido por los eventos del mismo flujo de descarga.
+     * @param causationId Identificador del evento causante; puede faltar para una solicitud
+     *     inicial.
+     * @param payload Carga tipada con el trabajo y los datos específicos de la transición.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadJobReadyEvent(
             UUID eventId,
@@ -136,7 +176,23 @@ public final class DownloadEvents {
             DownloadReadyPayload payload) {
     }
 
-    /** Evento no terminal emitido al devolver un trabajo a la cola de capacidad. */
+    /**
+     * Comunica falta temporal de capacidad conservando el trabajo pendiente y una previsión de
+     * reintento.
+     *
+     * @param eventId UUID estable del evento para deduplicar entregas repetidas.
+     * @param type Tipo del evento que determina el contrato de su carga.
+     * @param schemaVersion Versión del esquema del evento, independiente de la versión del
+     *     servicio.
+     * @param occurredAt Instante de creación o transición comunicado por el productor.
+     * @param correlationId Identificador compartido por los eventos del mismo flujo de descarga.
+     * @param causationId Identificador del evento causante; puede faltar para una solicitud
+     *     inicial.
+     * @param payload Carga tipada con el trabajo y los datos específicos de la transición.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
+     */
     public record DownloadJobDeferredEvent(
             UUID eventId,
             String type,
@@ -147,7 +203,16 @@ public final class DownloadEvents {
             DownloadDeferredPayload payload) {
     }
 
-    /** Datos públicos de la espera temporal de capacidad. */
+    /**
+     * Explica una espera de capacidad sin convertirla en fallo terminal del trabajo.
+     *
+     * @param jobId UUID del trabajo persistido por Core antes de publicar la solicitud.
+     * @param waitReason Código que explica por qué se aplaza el trabajo sin declararlo fallido.
+     * @param retryAt Instante previsto para volver a intentar el trabajo aplazado.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
+     */
     public record DownloadDeferredPayload(
             UUID jobId,
             String waitReason,
@@ -155,17 +220,22 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadReadyPayload}.
+     * Conserva ubicación privada del ZIP, integridad, recuentos y vigencia para que Core gestione
+     * su disponibilidad pública.
      *
-     * @param jobId Valor de {@code jobId} incluido en el record.
-     * @param status Valor de {@code status} incluido en el record.
-     * @param objectKey Valor de {@code objectKey} incluido en el record.
-     * @param sizeBytes Valor de {@code sizeBytes} incluido en el record.
-     * @param sha256 Valor de {@code sha256} incluido en el record.
-     * @param successfulItems Valor de {@code successfulItems} incluido en el record.
-     * @param failedItems Valor de {@code failedItems} incluido en el record.
-     * @param expiresAt Valor de {@code expiresAt} incluido en el record.
+     * @param jobId UUID del trabajo persistido por Core antes de publicar la solicitud.
+     * @param status READY, PARTIAL o MANUAL_ONLY según el contenido entregable.
+     * @param objectKey Clave del ZIP confirmado en almacenamiento; Core genera el acceso temporal.
+     * @param sizeBytes Longitud del ZIP completo confirmado, en bytes.
+     * @param sha256 SHA-256 hexadecimal calculado durante la escritura del ZIP.
+     * @param successfulItems Cantidad de instaladores completos incluidos en el ZIP.
+     * @param failedItems Cantidad de elementos sin instalador completado, incluidos los que ofrecen
+     *     alternativa manual.
+     * @param expiresAt Instante hasta el que se declara disponible el resultado entregable.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadReadyPayload(
             UUID jobId,
@@ -179,16 +249,22 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadJobFailedEvent}.
+     * Comunica que no puede entregarse un resultado útil del trabajo y permite a Core registrar su
+     * fallo terminal.
      *
-     * @param eventId Valor de {@code eventId} incluido en el record.
-     * @param type Valor de {@code type} incluido en el record.
-     * @param schemaVersion Valor de {@code schemaVersion} incluido en el record.
-     * @param occurredAt Valor de {@code occurredAt} incluido en el record.
-     * @param correlationId Valor de {@code correlationId} incluido en el record.
-     * @param causationId Valor de {@code causationId} incluido en el record.
-     * @param payload Valor de {@code payload} incluido en el record.
+     * @param eventId UUID estable del evento para deduplicar entregas repetidas.
+     * @param type Tipo del evento que determina el contrato de su carga.
+     * @param schemaVersion Versión del esquema del evento, independiente de la versión del
+     *     servicio.
+     * @param occurredAt Instante de creación o transición comunicado por el productor.
+     * @param correlationId Identificador compartido por los eventos del mismo flujo de descarga.
+     * @param causationId Identificador del evento causante; puede faltar para una solicitud
+     *     inicial.
+     * @param payload Carga tipada con el trabajo y los datos específicos de la transición.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadJobFailedEvent(
             UUID eventId,
@@ -201,12 +277,18 @@ public final class DownloadEvents {
     }
 
     /**
-     * Representa los datos inmutables de {@code DownloadFailedPayload}.
+     * Identifica el trabajo fallido y el motivo seguro que se mostrará junto a su recuento de
+     * elementos.
      *
-     * @param jobId Valor de {@code jobId} incluido en el record.
-     * @param errorCode Valor de {@code errorCode} incluido en el record.
-     * @param failedItems Valor de {@code failedItems} incluido en el record.
+     * @param jobId UUID del trabajo persistido por Core antes de publicar la solicitud.
+     * @param errorCode Código seguro del fallo, sin incluir URLs privadas ni contenido del
+     *     proveedor.
+     * @param failedItems Cantidad de elementos sin instalador completado, incluidos los que ofrecen
+     *     alternativa manual.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Contratos de descarga
      */
     public record DownloadFailedPayload(UUID jobId, String errorCode, int failedItems) {
     }

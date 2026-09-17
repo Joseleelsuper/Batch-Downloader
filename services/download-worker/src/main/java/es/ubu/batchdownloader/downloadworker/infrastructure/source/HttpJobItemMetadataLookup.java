@@ -19,9 +19,15 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Implementa el componente {@code HttpJobItemMetadataLookup}.
+ * Consulta a Core en lote los nombres y páginas oficiales del trabajo y exige correspondencia
+ * exacta de elementos y aplicaciones antes de construir accesos manuales.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup
+ * @see es.ubu.batchdownloader.downloadworker.application.ManualShortcutWriter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Adaptadores y persistencia del worker
  */
 public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     /**
@@ -42,11 +48,12 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     private final String baseUrl;
 
     /**
-     * Inicializa una instancia de {@code HttpJobItemMetadataLookup}.
+     * Conecta cliente, JSON y configuración interna y retira barras finales de la URL base de Core.
      *
-     * @param client Valor de {@code client} utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @param client Cliente del servicio remoto, configurado antes de componer el adaptador.
+     * @param objectMapper Serializador de contratos JSON entre servicios.
+     * @param properties Configuración específica del adaptador: destino, credencial y límites de
+     *     acceso.
      */
     public HttpJobItemMetadataLookup(
             HttpClient client,
@@ -59,13 +66,15 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code find}.
+     * Evita una petición para selecciones vacías; en otro caso envía los UUID al endpoint interno
+     * autenticado del trabajo y valida una respuesta 200 completa.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @param requestedItems Valor de {@code requestedItems} utilizado por la operación.
-     * @return Mapa con los datos producidos por la operación.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param jobId UUID del trabajo al que pertenecen todas las entradas del manifiesto.
+     * @param requestedItems Elementos admitidos para los que debe recibirse exactamente un metadato
+     *     consistente.
+     * @return metadatos inmutables por UUID de elemento.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falla el
+     *     transporte, Core no devuelve 200 o el contenido es inconsistente.
      */
     @Override
     public Map<UUID, DownloadItemMetadata> find(
@@ -98,12 +107,12 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     }
 
     /**
-     * Ejecuta la operación {@code serialize}.
+     * Serializa únicamente los UUID de elemento para que Core compruebe su pertenencia al trabajo.
      *
-     * @param items Colección de elementos que debe procesarse.
-     * @return Resultado producido por {@code serialize}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param items Elementos cuyos UUID se incluyen en la petición de metadatos.
+     * @return JSON de la solicitud de metadatos.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no puede
+     *     serializarse la solicitud.
      */
     private String serialize(List<DownloadItemRequest> items) {
         try {
@@ -115,12 +124,13 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     }
 
     /**
-     * Envía el contenido solicitado mediante {@code send}.
+     * Envía la petición interna de metadatos y obtiene el cuerpo textual conservando la
+     * interrupción del hilo.
      *
-     * @param request Solicitud recibida por la operación.
-     * @return Resultado producido por {@code send}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param request Petición interna ya construida con token y timeout.
+     * @return respuesta HTTP sin interpretar todavía su estado.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falla la
+     *     E/S o se interrumpe la petición.
      */
     private HttpResponse<String> send(HttpRequest request) {
         try {
@@ -134,12 +144,13 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     }
 
     /**
-     * Ejecuta la operación {@code deserialize}.
+     * Interpreta el JSON como lista de metadatos antes de comprobar su correspondencia con la
+     * solicitud.
      *
-     * @param body Cuerpo recibido por la solicitud.
-     * @return Colección de elementos obtenidos por la operación.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param body Cuerpo JSON recibido del servicio interno; se valida antes de utilizarlo.
+     * @return lista deserializada del servicio Core.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si el
+     *     cuerpo no puede interpretarse como el contrato esperado.
      */
     private List<MetadataItem> deserialize(String body) {
         try {
@@ -150,11 +161,16 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validate}.
+     * Exige UUID únicos, nombres no blancos, aplicaciones coincidentes y exactamente el conjunto
+     * solicitado, rechazando tanto omisiones como elementos adicionales.
      *
-     * @param requestedItems Valor de {@code requestedItems} utilizado por la operación.
-     * @param response Respuesta que debe procesarse.
-     * @return Mapa con los datos producidos por la operación.
+     * @param requestedItems Elementos admitidos para los que debe recibirse exactamente un metadato
+     *     consistente.
+     * @param response Lista de metadatos recibida de Core que debe corresponder exactamente a la
+     *     selección.
+     * @return copia inmutable de los metadatos consistentes.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falta un
+     *     campo, hay duplicados o no coincide la selección.
      */
     private Map<UUID, DownloadItemMetadata> validate(
             List<DownloadItemRequest> requestedItems,
@@ -195,9 +211,9 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     }
 
     /**
-     * Ejecuta la operación {@code invalidResponse}.
+     * Construye un fallo de contrato interno sin copiar la respuesta remota.
      *
-     * @return Resultado producido por {@code invalidResponse}.
+     * @return error invalid_job_metadata_response con causa de inconsistencia.
      */
     private InfrastructureException invalidResponse() {
         return new InfrastructureException(
@@ -206,21 +222,30 @@ public class HttpJobItemMetadataLookup implements JobItemMetadataLookup {
     }
 
     /**
-     * Representa los datos inmutables de {@code MetadataRequest}.
+     * Limita la consulta de metadatos a los identificadores de elemento que Core debe comprobar
+     * dentro del trabajo.
      *
-     * @param itemIds Valor de {@code itemIds} incluido en el record.
+     * @param itemIds UUID de los elementos del trabajo cuyos metadatos públicos se solicitan.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Adaptadores y persistencia del worker
      */
     private record MetadataRequest(List<UUID> itemIds) {}
 
     /**
-     * Representa los datos inmutables de {@code MetadataItem}.
+     * Recibe la identidad y el nombre público de un elemento junto a su página oficial opcional.
      *
-     * @param itemId Valor de {@code itemId} incluido en el record.
-     * @param appId Valor de {@code appId} incluido en el record.
-     * @param appName Valor de {@code appName} incluido en el record.
-     * @param officialPageUrl Valor de {@code officialPageUrl} incluido en el record.
+     * @param itemId UUID del elemento admitido dentro del trabajo de descarga.
+     * @param appId UUID de la aplicación seleccionada en el catálogo.
+     * @param appName Nombre de la aplicación que se muestra en el manifiesto o las instrucciones
+     *     manuales.
+     * @param officialPageUrl Página oficial utilizada como alternativa manual cuando no puede
+     *     entregarse un instalador.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Adaptadores y persistencia del worker
      */
     private record MetadataItem(
             UUID itemId,

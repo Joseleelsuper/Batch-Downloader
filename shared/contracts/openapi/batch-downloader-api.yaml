@@ -37,6 +37,10 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /auth/login:
     post:
       operationId: login
@@ -71,6 +75,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /auth/logout:
     post:
       operationId: logout
@@ -80,10 +86,15 @@ paths:
           description: Sesión invalidada.
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /auth/me:
     get:
       operationId: currentUser
       summary: Consultar la sesión actual
+      security: []
       responses:
         '200':
           description: Usuario autenticado.
@@ -93,6 +104,8 @@ paths:
                 $ref: '#/components/schemas/User'
         '204':
           description: No existe una sesión autenticada.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /auth/email-verification/confirm:
     post:
       operationId: confirmEmailVerification
@@ -117,6 +130,10 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /auth/email-verification/resend:
     post:
       operationId: resendEmailVerification
@@ -137,20 +154,10 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /auth/oauth2/google:
-    get:
-      operationId: startGoogleLogin
-      summary: Iniciar Google OIDC
-      security: []
+        '403':
+          $ref: '#/components/responses/Forbidden'
       parameters:
-        - name: returnTo
-          in: query
-          schema:
-            type: string
-          description: Ruta relativa interna; los destinos externos se descartan.
-      responses:
-        '302':
-          description: Redirección al endpoint de autorización de Spring Security.
+      - $ref: '#/components/parameters/CsrfToken'
   /auth/password-reset/request:
     post:
       operationId: requestPasswordReset
@@ -162,11 +169,13 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email]
+              required:
+              - email
               properties:
                 email:
                   type: string
                   format: email
+                  maxLength: 254
       responses:
         '202':
           description: Solicitud aceptada aunque el correo no exista.
@@ -176,6 +185,10 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /auth/password-reset/confirm:
     post:
       operationId: confirmPasswordReset
@@ -187,14 +200,17 @@ paths:
           application/json:
             schema:
               type: object
-              required: [token, password]
+              required:
+              - token
+              - password
               properties:
                 token:
                   type: string
                 password:
                   type: string
-                  minLength: 12
-                  maxLength: 128
+                  minLength: 8
+                  description: Entre 8 caracteres y 72 bytes UTF-8, con mayúscula, minúscula, número y carácter
+                    especial.
       responses:
         '204':
           description: Contraseña actualizada.
@@ -208,6 +224,10 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /users/me:
     get:
       operationId: getOwnProfile
@@ -221,6 +241,8 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+      x-required-roles:
+      - USER
     patch:
       operationId: updateOwnProfile
       summary: Cambiar el username de presentación
@@ -245,6 +267,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+      x-required-roles:
+      - USER
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /users/me/dashboard:
     get:
       operationId: getOwnDashboard
@@ -260,13 +286,15 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - USER
   /users/me/downloads:
     get:
       operationId: listOwnDownloadHistory
       summary: Listar el historial registrado al alcanzar READY
       parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
           description: Historial paginado.
@@ -278,13 +306,15 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - USER
   /users/me/bundles:
     get:
       operationId: listOwnBundles
       summary: Listar bundles propios
       parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
           description: Bundles propios paginados.
@@ -296,6 +326,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - USER
     post:
       operationId: createOwnBundle
       summary: Crear un bundle USER privado
@@ -320,13 +352,17 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+      x-required-roles:
+      - USER
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /users/me/bundles/{bundleId}:
     parameters:
-      - name: bundleId
-        in: path
-        required: true
-        schema:
-          type: string
+    - name: bundleId
+      in: path
+      required: true
+      schema:
+        type: string
     get:
       operationId: getOwnBundle
       summary: Consultar un bundle editable propio
@@ -343,6 +379,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+      x-required-roles:
+      - USER
     patch:
       operationId: updateOwnBundle
       summary: Actualizar un bundle con control optimista
@@ -367,6 +405,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+      x-required-roles:
+      - USER
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
     delete:
       operationId: deleteOwnBundle
       summary: Eliminar un bundle propio
@@ -379,9 +421,11 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+      x-required-roles:
+      - USER
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /admin/auth/login:
-    servers:
-      - url: /
     post:
       operationId: adminLogin
       summary: Iniciar sesión administrativa por username
@@ -401,9 +445,11 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /admin/auth/me:
-    servers:
-      - url: /
     get:
       operationId: currentAdmin
       summary: Consultar la sesión ADMIN
@@ -418,9 +464,10 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+      description: ''
   /admin/auth/logout:
-    servers:
-      - url: /
     post:
       operationId: adminLogout
       summary: Cerrar la sesión administrativa
@@ -431,68 +478,82 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /apps:
     get:
       operationId: searchApps
       summary: Buscar aplicaciones del catálogo
       security: []
       parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - name: query
-          in: query
-          schema:
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
+      - name: query
+        in: query
+        schema:
+          type: string
+          maxLength: 180
+      - name: searchMode
+        in: query
+        description: El valor omitido conserva la búsqueda literal para clientes existentes.
+        schema:
+          $ref: '#/components/schemas/SearchMode'
+          default: lexical
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - all
+          - available
+          - review
+          - missing
+          default: all
+      - name: os
+        in: query
+        style: form
+        explode: true
+        schema:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
             type: string
-            maxLength: 180
-        - name: searchMode
-          in: query
-          description: El valor omitido conserva la búsqueda literal para clientes existentes.
-          schema:
-            $ref: '#/components/schemas/SearchMode'
-            default: lexical
-        - name: status
-          in: query
-          schema:
+            enum:
+            - windows
+            - linux
+            - macos
+      - name: architecture
+        in: query
+        schema:
+          type: string
+      - name: tag
+        in: query
+        description: Puede repetirse; la aplicación debe contener todas las tags indicadas.
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
             type: string
-            enum: [all, available, review, missing]
-            default: all
-        - name: os
-          in: query
-          style: form
-          explode: true
-          schema:
-            type: array
-            minItems: 1
-            uniqueItems: true
-            items:
-              type: string
-              enum: [windows, linux, macos]
-        - name: architecture
-          in: query
-          schema:
-            type: string
-        - name: tag
-          in: query
-          description: Puede repetirse; la aplicación debe contener todas las tags indicadas.
-          style: form
-          explode: true
-          schema:
-            type: array
-            uniqueItems: true
-            items:
-              type: string
-        - name: publisher
-          in: query
-          description: Editor único que debe coincidir con la aplicación.
-          schema:
-            type: string
-        - name: sort
-          in: query
-          description: Orden principal de presentación, también cuando query y búsqueda semántica están activos.
-          schema:
-            type: string
-            enum: [name, updated, downloads]
-            default: name
+      - name: publisher
+        in: query
+        description: Editor único que debe coincidir con la aplicación.
+        schema:
+          type: string
+      - name: sort
+        in: query
+        description: Orden principal de presentación, también cuando query y búsqueda semántica están activos.
+        schema:
+          type: string
+          enum:
+          - name
+          - updated
+          - downloads
+          default: name
       responses:
         '200':
           description: Página de aplicaciones.
@@ -508,55 +569,64 @@ paths:
       summary: Consultar facetas del catálogo filtrado
       security: []
       parameters:
-        - name: query
-          in: query
-          schema:
+      - name: query
+        in: query
+        schema:
+          type: string
+          maxLength: 180
+      - name: searchMode
+        in: query
+        description: Aplica la misma enumeración híbrida que la página de aplicaciones.
+        schema:
+          $ref: '#/components/schemas/SearchMode'
+          default: lexical
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - all
+          - available
+          - review
+          - missing
+          default: all
+      - name: os
+        in: query
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
             type: string
-            maxLength: 180
-        - name: searchMode
-          in: query
-          description: Aplica la misma enumeración híbrida que la página de aplicaciones.
-          schema:
-            $ref: '#/components/schemas/SearchMode'
-            default: lexical
-        - name: status
-          in: query
-          schema:
+            enum:
+            - windows
+            - linux
+            - macos
+      - name: architecture
+        in: query
+        schema:
+          type: string
+      - name: tag
+        in: query
+        description: Puede repetirse; las facetas se calculan sobre aplicaciones que contienen todas las
+          tags indicadas.
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
             type: string
-            enum: [all, available, review, missing]
-            default: all
-        - name: os
-          in: query
-          style: form
-          explode: true
-          schema:
-            type: array
-            uniqueItems: true
-            items:
-              type: string
-              enum: [windows, linux, macos]
-        - name: architecture
-          in: query
-          schema:
-            type: string
-        - name: tag
-          in: query
-          description: Puede repetirse; las facetas se calculan sobre aplicaciones que contienen todas las tags indicadas.
-          style: form
-          explode: true
-          schema:
-            type: array
-            uniqueItems: true
-            items:
-              type: string
-        - name: publisher
-          in: query
-          description: Editor único aplicado también al cálculo de tags y editores disponibles.
-          schema:
-            type: string
+      - name: publisher
+        in: query
+        description: Editor único aplicado también al cálculo de tags y editores disponibles.
+        schema:
+          type: string
       responses:
         '200':
-          description: Tags y editores de las aplicaciones que cumplen conjuntamente búsqueda, estado, SO, arquitectura, tags y editor.
+          description: Tags y editores de las aplicaciones que cumplen conjuntamente búsqueda, estado, SO,
+            arquitectura, tags y editor.
           content:
             application/json:
               schema:
@@ -583,7 +653,7 @@ paths:
       summary: Consultar una aplicación
       security: []
       parameters:
-        - $ref: '#/components/parameters/AppId'
+      - $ref: '#/components/parameters/AppId'
       responses:
         '200':
           description: Detalle de la aplicación.
@@ -609,7 +679,8 @@ paths:
           description: Trabajo persistido y encolado.
           headers:
             Set-Cookie:
-              description: Se emite para el primer trabajo anónimo y solo contiene un token aleatorio del navegador.
+              description: Se emite para el primer trabajo anónimo y solo contiene un token aleatorio del
+                navegador.
               schema:
                 type: string
           content:
@@ -619,7 +690,8 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
-          description: Ninguna aplicación solicitada tiene una fuente verificable o el bundle excede el límite.
+          description: Ninguna aplicación solicitada tiene una fuente verificable o el bundle excede el
+            límite.
           content:
             application/json:
               schema:
@@ -632,13 +704,159 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+  /download-jobs/linux-preview:
+    post:
+      operationId: previewLinuxDownload
+      summary: Revisar compatibilidad y dependencias sin crear una descarga
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDownloadJobRequest'
+      responses:
+        '200':
+          description: Selección Linux compatible, manual y no disponible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxDownloadPreview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/apps/{appId}/linux/sources/{sourceRef}/profile:
+    parameters:
+    - $ref: '#/components/parameters/AppId'
+    - name: sourceRef
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getLinuxInstallProfile
+      summary: Consultar una receta Linux (solo administrador)
+      responses:
+        '200':
+          description: Receta y versión actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxProfileVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      x-required-roles:
+      - ADMIN
+      description: ''
+    put:
+      operationId: saveLinuxInstallProfile
+      summary: Revisar y guardar una receta Linux sin comandos shell
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinuxProfileWrite'
+      responses:
+        '200':
+          description: Nueva versión; afecta a futuros ZIP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxProfileVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+      x-required-roles:
+      - ADMIN
+  /admin/apps/{appId}/linux/dependencies:
+    parameters:
+    - $ref: '#/components/parameters/AppId'
+    get:
+      operationId: getLinuxDependencies
+      summary: Consultar dependencias de una aplicación (solo administrador)
+      responses:
+        '200':
+          description: Dependencias y versión del grafo de esta aplicación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxDependencyVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      x-required-roles:
+      - ADMIN
+      description: ''
+    put:
+      operationId: saveLinuxDependencies
+      summary: Guardar dependencias sin ciclos y con control de concurrencia
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - expectedVersion
+              - dependencies
+              properties:
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+                dependencies:
+                  type: array
+                  maxItems: 99
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Grafo actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinuxDependencyVersion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+      x-required-roles:
+      - ADMIN
   /download-jobs/{jobId}:
     get:
       operationId: getDownloadJob
       summary: Consultar un trabajo de descarga
       security: []
       parameters:
-        - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/JobId'
       responses:
         '200':
           description: Estado global e items.
@@ -653,7 +871,8 @@ paths:
       summary: Cancelar un trabajo de descarga
       security: []
       parameters:
-        - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
         '202':
           description: Cancelación aceptada de forma idempotente.
@@ -663,13 +882,15 @@ paths:
                 $ref: '#/components/schemas/DownloadJob'
         '404':
           $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /download-jobs/{jobId}/events:
     get:
       operationId: streamDownloadJobEvents
       summary: Seguir el progreso de un trabajo
       security: []
       parameters:
-        - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/JobId'
       responses:
         '200':
           description: Flujo SSE hasta alcanzar un estado terminal.
@@ -685,7 +906,7 @@ paths:
       summary: Obtener el ZIP de un trabajo terminado
       security: []
       parameters:
-        - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/JobId'
       responses:
         '303':
           description: Redirección a una URL firmada válida durante cinco minutos.
@@ -705,7 +926,7 @@ paths:
       summary: Preparar el enlace del intento automático sin abandonar la interfaz
       security: []
       parameters:
-        - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/JobId'
       responses:
         '200':
           description: URL firmada válida durante cinco minutos y no almacenable en caché.
@@ -718,16 +939,17 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /internal/v1/download-jobs/{jobId}/item-metadata:
+    servers:
+    - url: /
     post:
       operationId: getInternalDownloadJobItemMetadata
       summary: Obtener el nombre y la página oficial de items fallidos
-      description: >-
-        Endpoint interno para el worker. Devuelve todos los items solicitados o
-        un 404 genérico, sin respuestas parciales ni URLs de instalador.
+      description: Endpoint interno para el worker. Devuelve todos los items solicitados o un 404 genérico,
+        sin respuestas parciales ni URLs de instalador.
       security:
-        - internalServiceToken: []
+      - internalServiceToken: []
       parameters:
-        - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/JobId'
       requestBody:
         required: true
         content:
@@ -757,18 +979,23 @@ paths:
       summary: Listar bundles públicos u oficiales
       security: []
       parameters:
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - name: type
-          in: query
-          schema:
-            type: string
-            enum: [official, community, user]
-        - name: sort
-          in: query
-          schema:
-            type: string
-            enum: [updated, stars]
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
+      - name: type
+        in: query
+        schema:
+          type: string
+          enum:
+          - official
+          - community
+          - user
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum:
+          - updated
+          - stars
       responses:
         '200':
           description: Página de bundles visibles públicamente.
@@ -784,11 +1011,11 @@ paths:
       summary: Consultar un bundle público, oficial o privado propio
       security: []
       parameters:
-        - name: bundleId
-          in: path
-          required: true
-          schema:
-            type: string
+      - name: bundleId
+        in: path
+        required: true
+        schema:
+          type: string
       responses:
         '200':
           description: Detalle completo del bundle.
@@ -799,230 +1026,33 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
   /admin/semantic/overview:
-    servers:
-      - url: /
     get:
       operationId: getSemanticAdminOverview
-      summary: Consultar salud, modelo activo, cobertura, disco y operaciones semanticas
-      tags: [Semantic admin]
+      summary: Consultar salud, modelo local, cobertura e indexador semanticos
+      tags:
+      - Semantic admin
       responses:
         '200':
-          description: Resumen operativo del servicio semantico.
+          description: Estado operativo del servicio semantico y del indice reconstruible.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SemanticOverview'
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /admin/semantic/models:
-    servers:
-      - url: /
-    get:
-      operationId: listSemanticModels
-      summary: Listar el inventario de modelos semanticos
-      tags: [Semantic admin]
-      responses:
-        '200':
-          description: Modelos descargados y reconciliados.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SemanticModel'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-  /admin/semantic/models/{modelId}:
-    servers:
-      - url: /
-    parameters:
-      - $ref: '#/components/parameters/SemanticModelId'
-    get:
-      operationId: getSemanticModel
-      summary: Consultar un modelo semantico
-      tags: [Semantic admin]
-      responses:
-        '200':
-          description: Modelo solicitado.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SemanticModel'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      operationId: deleteSemanticModel
-      summary: Encolar la eliminacion de pesos e indice de un modelo inactivo
-      tags: [Semantic admin]
-      parameters:
-        - $ref: '#/components/parameters/CsrfToken'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
-  /admin/semantic/models/{modelId}/prepare:
-    servers:
-      - url: /
-    post:
-      operationId: prepareSemanticModel
-      summary: Preparar embeddings e indice sin cambiar el modelo activo
-      tags: [Semantic admin]
-      parameters:
-        - $ref: '#/components/parameters/SemanticModelId'
-        - $ref: '#/components/parameters/CsrfToken'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
-  /admin/semantic/models/{modelId}/activate:
-    servers:
-      - url: /
-    post:
-      operationId: activateSemanticModel
-      summary: Calentar y activar atomicamente el modelo, indice y umbral
-      tags: [Semantic admin]
-      parameters:
-        - $ref: '#/components/parameters/SemanticModelId'
-        - $ref: '#/components/parameters/CsrfToken'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ActivateSemanticModelRequest'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
-  /admin/semantic/benchmarks:
-    servers:
-      - url: /
-    get:
-      operationId: listSemanticBenchmarks
-      summary: Listar benchmarks y su elegibilidad
-      tags: [Semantic admin]
-      responses:
-        '200':
-          description: Ejecuciones conservadas, incluidas las diagnosticas.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SemanticBenchmarkRun'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    post:
-      operationId: benchmarkSemanticModels
-      summary: Encolar un benchmark comparable de dos a cuatro modelos
-      tags: [Semantic admin]
-      parameters:
-        - $ref: '#/components/parameters/CsrfToken'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [modelIds]
-              properties:
-                modelIds:
-                  type: array
-                  minItems: 2
-                  maxItems: 4
-                  uniqueItems: true
-                  items:
-                    type: string
-                    format: uuid
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-  /admin/semantic/operations:
-    servers:
-      - url: /
-    get:
-      operationId: listSemanticOperations
-      summary: Listar operaciones duraderas
-      tags: [Semantic admin]
-      responses:
-        '200':
-          description: Operaciones recientes y recuperables.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SemanticOperation'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-  /admin/semantic/operations/{operationId}:
-    servers:
-      - url: /
-    parameters:
-      - $ref: '#/components/parameters/SemanticOperationId'
-    get:
-      operationId: getSemanticOperation
-      summary: Consultar una operacion duradera
-      tags: [Semantic admin]
-      responses:
-        '200':
-          description: Estado y progreso de la operacion.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SemanticOperation'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      operationId: cancelSemanticOperation
-      summary: Solicitar cancelacion cooperativa
-      tags: [Semantic admin]
-      parameters:
-        - $ref: '#/components/parameters/CsrfToken'
-      responses:
-        '200':
-          description: Cancelacion solicitada o estado terminal actual.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SemanticOperation'
-        '409':
-          $ref: '#/components/responses/Conflict'
-  /admin/semantic/operations/{operationId}/retry:
-    servers:
-      - url: /
-    post:
-      operationId: retrySemanticOperation
-      summary: Reintentar una operacion fallida o cancelada
-      tags: [Semantic admin]
-      parameters:
-        - $ref: '#/components/parameters/SemanticOperationId'
-        - $ref: '#/components/parameters/CsrfToken'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          $ref: '#/components/responses/SemanticOperationAccepted'
-        '409':
-          $ref: '#/components/responses/Conflict'
+      x-required-roles:
+      - ADMIN
+      description: ''
   /locales/es:
     get:
       operationId: getSpanishLocale
       summary: Obtener el catálogo de traducciones español
       security: []
       parameters:
-        - name: If-None-Match
-          in: header
-          schema:
-            type: string
+      - name: If-None-Match
+        in: header
+        schema:
+          type: string
       responses:
         '200':
           description: Catálogo español versionado.
@@ -1045,32 +1075,39 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
   /admin/apps:
-    servers:
-      - url: /
     get:
       operationId: listAdminApps
       summary: Listar aplicaciones para la mesa de administración
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       parameters:
-        - name: query
-          in: query
-          schema:
-            type: string
-        - name: status
-          in: query
-          description: unresolved se resuelve internamente como review OR missing.
-          schema:
-            type: string
-            enum: [all, unresolved, available, review, missing]
-            default: unresolved
-        - name: sort
-          in: query
-          schema:
-            type: string
-            enum: [name, updated, downloads]
-            default: updated
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
+      - name: query
+        in: query
+        schema:
+          type: string
+      - name: status
+        in: query
+        description: unresolved se resuelve internamente como review OR missing.
+        schema:
+          type: string
+          enum:
+          - all
+          - unresolved
+          - available
+          - review
+          - missing
+          default: unresolved
+      - name: sort
+        in: query
+        schema:
+          type: string
+          enum:
+          - name
+          - updated
+          - downloads
+          default: updated
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
           description: Página administrativa de aplicaciones.
@@ -1084,15 +1121,88 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+      description: ''
+    post:
+      operationId: adminCreateApp
+      summary: Crear una aplicación y registrar la acción administrativa
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '201':
+          description: Crear una aplicación y registrar la acción administrativa.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppDetails'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertAppRequest'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+    delete:
+      operationId: adminDeleteAllApps
+      summary: Eliminar el catálogo tras confirmar DELETE_ALL
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '200':
+          description: Eliminar el catálogo tras confirmar DELETE_ALL.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - deleted
+                properties:
+                  deleted:
+                    type: integer
+                    minimum: 0
+                    description: Número de aplicaciones eliminadas.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - name: confirm
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - DELETE_ALL
+        description: La ausencia o un valor diferente produce 409.
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
   /admin/app-discoveries:
-    servers:
-      - url: /
     post:
       operationId: createWebsiteAppDiscovery
       summary: Analizar una web oficial y buscar instaladores verificables
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       parameters:
-        - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
@@ -1114,15 +1224,16 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+      x-required-roles:
+      - ADMIN
   /admin/app-discoveries/{discoveryId}:
-    servers:
-      - url: /
     parameters:
-      - $ref: '#/components/parameters/WebsiteDiscoveryId'
+    - $ref: '#/components/parameters/WebsiteDiscoveryId'
     get:
       operationId: getWebsiteAppDiscovery
       summary: Consultar el progreso y la previsualización de un alta automática
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       responses:
         '200':
           description: Evidencia segura; nunca contiene las URL de los ejecutables.
@@ -1136,17 +1247,19 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+      x-required-roles:
+      - ADMIN
+      description: ''
   /admin/app-discoveries/{discoveryId}/apply:
-    servers:
-      - url: /
     parameters:
-      - $ref: '#/components/parameters/WebsiteDiscoveryId'
+    - $ref: '#/components/parameters/WebsiteDiscoveryId'
     post:
       operationId: applyWebsiteAppDiscovery
       summary: Revalidar instaladores y crear la aplicación desde la previsualización
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       parameters:
-        - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
@@ -1172,17 +1285,18 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+      x-required-roles:
+      - ADMIN
   /admin/apps/{appId}/manual-installer-inspections:
-    servers:
-      - url: /
     parameters:
-      - $ref: '#/components/parameters/AppId'
+    - $ref: '#/components/parameters/AppId'
     post:
       operationId: createManualInstallerInspection
       summary: Encolar una inspección manual de instaladores
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       parameters:
-        - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
@@ -1204,38 +1318,41 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+      x-required-roles:
+      - ADMIN
   /admin/apps/{appId}/manual-installer-inspections/current:
-    servers:
-      - url: /
     parameters:
-      - $ref: '#/components/parameters/AppId'
+    - $ref: '#/components/parameters/AppId'
     get:
       operationId: getCurrentManualInstallerInspection
       summary: Recuperar la inspección manual abierta más reciente
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       responses:
         '200':
-          description: Inspección abierta.
+          description: Inspección abierta o null si no existe una inspección activa.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManualInstallerInspection'
+                oneOf:
+                - $ref: '#/components/schemas/ManualInstallerInspection'
+                - type: 'null'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+      x-required-roles:
+      - ADMIN
+      description: ''
   /admin/apps/{appId}/manual-installer-inspections/{inspectionId}:
-    servers:
-      - url: /
     parameters:
-      - $ref: '#/components/parameters/AppId'
-      - $ref: '#/components/parameters/InspectionId'
+    - $ref: '#/components/parameters/AppId'
+    - $ref: '#/components/parameters/InspectionId'
     get:
       operationId: getManualInstallerInspection
       summary: Consultar progreso y previsualización de una inspección manual
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       responses:
         '200':
           description: Estado seguro de la inspección; nunca contiene las URL finales.
@@ -1249,18 +1366,20 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+      x-required-roles:
+      - ADMIN
+      description: ''
   /admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply:
-    servers:
-      - url: /
     parameters:
-      - $ref: '#/components/parameters/AppId'
-      - $ref: '#/components/parameters/InspectionId'
+    - $ref: '#/components/parameters/AppId'
+    - $ref: '#/components/parameters/InspectionId'
     post:
       operationId: applyManualInstallerInspection
       summary: Revalidar, guardar y publicar los instaladores de una inspección manual
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       parameters:
-        - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
@@ -1286,13 +1405,14 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+      x-required-roles:
+      - ADMIN
   /admin/scraper/runs:
-    servers:
-      - url: /
     get:
       operationId: listScraperRuns
       summary: Listar las ejecuciones recientes y sus manifests
-      tags: [Scraper admin]
+      tags:
+      - Scraper admin
       responses:
         '200':
           description: Ejecuciones recientes.
@@ -1306,12 +1426,16 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+      description: ''
     post:
       operationId: createScraperRun
       summary: Crear una solicitud durable sin solaparla con la ejecución activa
-      tags: [Scraper admin]
+      tags:
+      - Scraper admin
       parameters:
-        - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
@@ -1331,13 +1455,14 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+      x-required-roles:
+      - ADMIN
   /admin/apps/absence-verifications/summary:
-    servers:
-      - url: /
     get:
       operationId: getInstallerAbsenceVerificationSummary
       summary: Contar ausencias activas y missing sin evidencia
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       responses:
         '200':
           description: Criterio de cierre autoritativo de la campaña.
@@ -1349,15 +1474,17 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+      description: ''
   /admin/apps/{appId}/absence-verification:
-    servers:
-      - url: /
     parameters:
-      - $ref: '#/components/parameters/AppId'
+    - $ref: '#/components/parameters/AppId'
     get:
       operationId: getActiveInstallerAbsenceVerification
       summary: Obtener la evidencia negativa activa de una aplicación
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       responses:
         '200':
           description: Acta activa o null.
@@ -1365,20 +1492,24 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/InstallerAbsenceVerification'
-                  - type: 'null'
+                - $ref: '#/components/schemas/InstallerAbsenceVerification'
+                - type: 'null'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+      description: ''
     post:
       operationId: confirmInstallerAbsence
       summary: Confirmar que no existe un binario instalable tras revisar todas las fuentes
-      tags: [Apps admin]
+      tags:
+      - Apps admin
       parameters:
-        - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
@@ -1400,6 +1531,731 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+      x-required-roles:
+      - ADMIN
+  /admin/apps/export.csv:
+    get:
+      operationId: adminExportCsv
+      summary: Exportar el catálogo administrativo como CSV y auditar la descarga
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Exportar el catálogo administrativo como CSV y auditar la descarga.
+          content:
+            text/csv:
+              schema:
+                type: string
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+  /admin/apps/{appId}:
+    patch:
+      operationId: adminPatchApp
+      summary: Actualizar los campos indicados de una aplicación
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '200':
+          description: Actualizar los campos indicados de una aplicación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppDetails'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchAppRequest'
+      parameters:
+      - name: appId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+    delete:
+      operationId: adminDeleteApp
+      summary: Eliminar una aplicación del catálogo
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '204':
+          description: Eliminar una aplicación del catálogo.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - name: appId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/apps/{appId}/tags:
+    put:
+      operationId: adminReplaceTags
+      summary: Sustituir las etiquetas de una aplicación
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '204':
+          description: Sustituir las etiquetas de una aplicación.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceTagsRequest'
+      parameters:
+      - name: appId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/apps/{appId}/sources/{sourceId}:
+    patch:
+      operationId: adminPatchSource
+      summary: Actualizar la configuración de una fuente
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '204':
+          description: Actualizar la configuración de una fuente.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchSourceRequest'
+      parameters:
+      - name: appId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: sourceId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/apps/{appId}/generate-description:
+    post:
+      operationId: adminGenerateDescription
+      summary: Solicitar la generación de descripción de una aplicación
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '202':
+          description: Solicitar la generación de descripción de una aplicación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DescriptionGeneration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - name: appId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/current:
+    get:
+      operationId: getCurrentScraperRun
+      summary: Obtener la ejecución actual o la más reciente del Scraper
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Ejecución activa o última registrada. Si no existe ninguna, el servidor responde
+            200 con el cuerpo vacío.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperRunSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/logs:
+    get:
+      operationId: listScraperLogs
+      summary: Consultar los últimos registros de resolución
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Consultar los últimos registros de resolución.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResolverLogItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 120
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/queues:
+    get:
+      operationId: getScraperQueues
+      summary: Consultar profundidad y estado de las colas persistentes
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Consultar profundidad y estado de las colas persistentes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScraperQueueState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/metrics:
+    get:
+      operationId: listScraperMetrics
+      summary: Consultar las últimas métricas del Scraper
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Consultar las últimas métricas del Scraper.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScraperMetricItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 60
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/snapshots:
+    get:
+      operationId: getScraperSnapshots
+      summary: Consultar las instantáneas operativas de los workers
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Consultar las instantáneas operativas de los workers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScraperSnapshotItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/event:
+    get:
+      operationId: getScraperEvent
+      summary: Obtener la versión y el estado agregado del Scraper
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Obtener la versión y el estado agregado del Scraper.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/queues/recover-stuck:
+    post:
+      operationId: adminRecoverStuckQueueItems
+      summary: Recuperar reservas de cola que han quedado bloqueadas
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '200':
+          description: Recuperar reservas de cola que han quedado bloqueadas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperQueueMaintenanceResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/queues/retry-failed:
+    post:
+      operationId: adminRetryFailedQueueItems
+      summary: Reencolar elementos fallidos y auditar la operación
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '200':
+          description: Reencolar elementos fallidos y auditar la operación.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperQueueMaintenanceResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/queues/prune-terminal:
+    post:
+      operationId: adminPruneTerminalQueueItems
+      summary: Eliminar elementos terminales de las colas
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '200':
+          description: Eliminar elementos terminales de las colas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperQueueMaintenanceResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/commands:
+    post:
+      operationId: enqueueScraperCommand
+      summary: Encolar una orden de control del scheduler
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '202':
+          description: Encolar una orden de control del scheduler.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScraperCommandRequest'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/descriptions/enqueue-missing:
+    post:
+      operationId: adminEnqueueMissingDescriptions
+      summary: Encolar aplicaciones sin descripción y devolver los contadores
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '202':
+          description: Encolar aplicaciones sin descripción y devolver los contadores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentEnqueueResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/audit:
+    get:
+      operationId: listAdminAudit
+      summary: Consultar las últimas acciones administrativas
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Consultar las últimas acciones administrativas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminAuditItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 100
+      x-required-roles:
+      - ADMIN
+  /admin/bundles:
+    get:
+      operationId: adminListAdminBundles
+      summary: Listar bundles visibles para administración
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      responses:
+        '200':
+          description: Listar bundles visibles para administración.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundlePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      parameters:
+      - name: type
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 1
+      - name: pageSize
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 20
+      - name: sort
+        in: query
+        required: false
+        schema:
+          type: string
+          default: updated
+      x-required-roles:
+      - ADMIN
+    post:
+      operationId: adminCreateBundle
+      summary: Crear un bundle con la cuenta administradora como propietaria
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '201':
+          description: Crear un bundle con la cuenta administradora como propietaria.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertBundleRequest'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /admin/bundles/{bundleId}:
+    patch:
+      operationId: adminUpdateBundle
+      summary: Actualizar el contenido y metadatos de un bundle
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '200':
+          description: Actualizar el contenido y metadatos de un bundle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertBundleRequest'
+      parameters:
+      - name: bundleId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+    delete:
+      operationId: adminDeleteBundle
+      summary: Eliminar un bundle y registrar la acción
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      responses:
+        '204':
+          description: Eliminar un bundle y registrar la acción.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      parameters:
+      - name: bundleId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - ADMIN
+  /auth/csrf:
+    get:
+      operationId: getCsrfToken
+      summary: Obtener el nombre y valor del token CSRF de la sesión
+      tags:
+      - Identidad
+      description: Las mutaciones desde el navegador requieren CSRF.
+      responses:
+        '200':
+          description: Obtener el nombre y valor del token CSRF de la sesión.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+      security: []
+  /auth/preferences:
+    patch:
+      operationId: updateNotificationPreferences
+      summary: Actualizar la preferencia de avisos de descarga de la cuenta
+      tags:
+      - Identidad
+      description: Las mutaciones desde el navegador requieren CSRF.
+      responses:
+        '200':
+          description: Actualizar la preferencia de avisos de descarga de la cuenta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferencesRequest'
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      x-required-roles:
+      - USER
 components:
   securitySchemes:
     sessionCookie:
@@ -1434,20 +2290,6 @@ components:
         type: string
     JobId:
       name: jobId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    SemanticModelId:
-      name: modelId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    SemanticOperationId:
-      name: operationId
       in: path
       required: true
       schema:
@@ -1542,12 +2384,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
-    SemanticOperationAccepted:
-      description: Trabajo asincrono aceptado o deduplicado.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/SemanticOperationAccepted'
   schemas:
     ScraperRunRequest:
       type: object
@@ -1625,11 +2461,12 @@ components:
       type: object
       additionalProperties: false
       oneOf:
-        - required: [officialPageUrl]
+        - required: [officialPageUrl, officialConfirmedAbsent]
           properties:
             officialPageUrl: {type: string, format: uri, pattern: '^https://'}
             officialConfirmedAbsent: {type: boolean, const: true}
-        - properties:
+        - required: [officialConfirmedAbsent]
+          properties:
             officialPageUrl: {type: 'null'}
             officialConfirmedAbsent: {type: boolean, const: false}
       required:
@@ -1689,10 +2526,11 @@ components:
         email:
           type: string
           format: email
+          maxLength: 254
         password:
           type: string
-          minLength: 12
-          maxLength: 128
+          minLength: 8
+          description: Entre 8 caracteres y 72 bytes UTF-8, con mayúscula, minúscula, número y carácter especial.
     LoginRequest:
       type: object
       additionalProperties: false
@@ -1701,8 +2539,10 @@ components:
         email:
           type: string
           format: email
+          maxLength: 254
         password:
           type: string
+          description: Máximo de 72 bytes UTF-8. Las cuentas antiguas pueden conservar una contraseña más corta hasta que la cambien.
     AdminLoginRequest:
       type: object
       additionalProperties: false
@@ -1712,6 +2552,7 @@ components:
           type: string
         password:
           type: string
+          description: Máximo de 72 bytes UTF-8.
     EmailRequest:
       type: object
       additionalProperties: false
@@ -1720,6 +2561,7 @@ components:
         email:
           type: string
           format: email
+          maxLength: 254
     UsernameUpdateRequest:
       type: object
       additionalProperties: false
@@ -1737,7 +2579,7 @@ components:
           type: string
     User:
       type: object
-      required: [id, username, email, emailVerified, role, notifyOnJobCompletion, createdAt, authenticationMethods]
+      required: [id, username, email, emailVerified, role, notifyOnJobCompletion, createdAt]
       properties:
         id:
           type: string
@@ -1757,12 +2599,6 @@ components:
         createdAt:
           type: string
           format: date-time
-        authenticationMethods:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-            enum: [LOCAL, GOOGLE]
     App:
       type: object
       required: [id, slug, packageId, name, tags, operatingSystems, downloadable, updatedAt]
@@ -2287,6 +3123,13 @@ components:
       type: object
       required: [id, operatingSystem, architecture, isLatest, sourceLabel, score, isPrimary]
       properties:
+        installationSupport:
+          type: string
+          enum: [automatic, manual, not_applicable]
+        compatibleLinuxTargets:
+          type: array
+          items:
+            $ref: '#/components/schemas/LinuxTarget'
         id:
           type: string
           format: uuid
@@ -2314,7 +3157,7 @@ components:
           type: boolean
     AppPage:
       type: object
-      required: [data, page, pageSize, total, requestedMode, appliedMode]
+      required: [data, page, pageSize, total, alphabet, requestedMode, appliedMode]
       properties:
         data:
           type: array
@@ -2336,7 +3179,31 @@ components:
         indexVersion:
           type: [string, 'null']
         degradedReason:
+          description: >-
+            Motivo estable de degradación de la búsqueda semántica; por ejemplo,
+            `semantic_query_too_short` cuando el servicio rechaza una consulta demasiado corta.
           type: [string, 'null']
+        alphabet:
+          type: array
+          description: Letras disponibles con página inicial y número de aplicaciones para los filtros actuales.
+          items:
+            $ref: '#/components/schemas/CatalogAlphabetEntry'
+    CatalogAlphabetEntry:
+      type: object
+      required: [letter, page, count]
+      properties:
+        letter:
+          type: string
+          description: Inicial normalizada; los nombres sin una letra latina se agrupan en '#'.
+        page:
+          type: integer
+          minimum: 1
+          description: Primera página de esa inicial con el tamaño de página solicitado.
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Aplicaciones que pertenecen a esa inicial tras aplicar los filtros.
     SearchMode:
       type: string
       enum: [lexical, semantic]
@@ -2372,6 +3239,16 @@ components:
       type: object
       additionalProperties: false
       properties:
+        sourceRef:
+          description: Fuente exacta para una aplicación; nunca se sustituye silenciosamente.
+          type: string
+          format: uuid
+        linuxTarget:
+          $ref: '#/components/schemas/LinuxTarget'
+        targetArchitecture:
+          description: Requiere linuxTarget y operatingSystems igual a [linux].
+          type: string
+          enum: [x86_64, x86, aarch64]
         appIds:
           type: array
           minItems: 1
@@ -2395,7 +3272,83 @@ components:
       oneOf:
         - required: [appIds]
         - required: [bundleId]
+    LinuxTarget:
+      description: Familia de paquetes del equipo de destino; solo para selección exclusivamente Linux.
+      type: string
+      enum: [apt, dnf, pacman, zypper, portable]
+    LinuxProfileVersion:
+      type: object
+      required: [version, status, profile]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [draft, approved]
+        profile:
+          $ref: '../schemas/linux-install-profile.json'
+    LinuxProfileWrite:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, status, profile]
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [draft, approved]
+        profile:
+          $ref: '../schemas/linux-install-profile.json'
+    LinuxDependencyVersion:
+      type: object
+      required: [version, dependencies]
+      properties:
+        version:
+          type: integer
+        dependencies:
+          type: array
+          items:
+            type: string
+            format: uuid
+    LinuxDownloadPreview:
+      type: object
+      required: [target, architecture, totalCount, automaticCount, manualCount, omittedCount, items]
+      properties:
+        target:
+          $ref: '#/components/schemas/LinuxTarget'
+        architecture:
+          type: string
+        totalCount:
+          type: integer
+        automaticCount:
+          type: integer
+        manualCount:
+          type: integer
+        omittedCount:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            required: [appId, name, sourceRef, installationSupport, dependency]
+            properties:
+              appId:
+                type: string
+                format: uuid
+              name:
+                type: string
+              sourceRef:
+                type: [string, 'null']
+                format: uuid
+              installationSupport:
+                type: string
+                enum: [automatic, manual, unavailable]
+              dependency:
+                type: boolean
     DownloadJobStatus:
+      description: Estado global del ZIP; independiente de la capacidad de instalación del runtime.
       type: string
       enum: [QUEUED, RESOLVING, DOWNLOADING, PACKAGING, READY, PARTIAL, MANUAL_ONLY, FAILED, CANCELLED, EXPIRED]
     DownloadFileLink:
@@ -2436,6 +3389,18 @@ components:
       type: object
       required: [id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode, items, createdAt, expiresAt]
       properties:
+        linux:
+          type: [object, 'null']
+          properties:
+            target:
+              $ref: '#/components/schemas/LinuxTarget'
+            architecture:
+              type: string
+            addedDependencyAppIds:
+              type: array
+              items:
+                type: string
+                format: uuid
         id:
           type: string
           format: uuid
@@ -2825,25 +3790,12 @@ components:
           maxItems: 6
           items:
             $ref: '#/components/schemas/OwnBundleSummary'
-    SemanticArtifactState:
-      type: string
-      enum: [ready, incompatible, failed, deleted]
-    SemanticDeploymentState:
-      type: string
-      enum: [not_prepared, preparing, ready, active, stale, failed]
-    SemanticOperationKind:
-      type: string
-      enum: [benchmark, prepare, activate, delete]
-    SemanticOperationStatus:
-      type: string
-      enum: [queued, running, cancel_requested, cancelled, succeeded, failed]
     SemanticIndexState:
       type: object
+      additionalProperties: false
       required: [expected, indexed, complete]
       properties:
         indexVersion:
-          type: [string, 'null']
-        snapshotHash:
           type: [string, 'null']
         expected:
           type: integer
@@ -2856,401 +3808,64 @@ components:
         builtAt:
           type: [string, 'null']
           format: date-time
-    SemanticBenchmarkMetric:
+    SemanticWorkerState:
       type: object
-      required:
-        - modelId
-        - modelKey
-        - modelVersion
-        - repository
-        - variant
-        - stage
-        - scope
-        - eligible
-        - ndcgAt10
-        - mrrAt10
-        - mapAt10
-        - recallAt10
-        - recallAt20
-        - exactMrrAt1
-        - p50Ms
-        - p95Ms
-        - p99Ms
-        - throughputQps
-        - embeddingBuildMs
-        - hnswBuildMs
-        - indexBuildMs
-        - hnswRecallAt20
-        - vectorBytes
-        - hnswIndexBytes
-        - indexBytes
-        - rssBytes
-        - vramBytes
-        - totalScore
-        - minimumSimilarity
+      additionalProperties: false
+      required: [present, healthy, reason, consecutiveFailures]
       properties:
-        modelId:
-          type: string
-          format: uuid
-        modelKey:
-          type: string
-        modelVersion:
-          type: string
-        repository:
-          type: string
-        variant:
-          type: string
-        stage:
-          type: string
-        scope:
-          type: string
-          enum: [historical, smoke, full]
-        eligible:
+        present:
           type: boolean
-        recommended:
+        healthy:
           type: boolean
-        ndcgAt10:
-          type: number
-        mrrAt10:
-          type: number
-        mapAt10:
-          type: number
-        recallAt10:
-          type: number
-        recallAt20:
-          type: number
-        exactMrrAt1:
-          type: number
-        p50Ms:
-          type: number
-        p95Ms:
-          type: number
-        p99Ms:
-          type: number
-        throughputQps:
-          type: number
-        embeddingBuildMs:
-          type: number
-        hnswBuildMs:
-          type: number
-        indexBuildMs:
-          type: number
-        hnswRecallAt20:
-          type: number
-        vectorBytes:
-          type: integer
-          format: int64
-        hnswIndexBytes:
-          type: integer
-          format: int64
-        indexBytes:
-          type: integer
-          format: int64
-        rssBytes:
-          type: integer
-          format: int64
-        vramBytes:
-          type: integer
-          format: int64
-        totalScore:
-          type: number
-        minimumSimilarity:
-          type: number
-        loadMs:
-          type: number
-        warmupMs:
-          type: number
-        dimensions:
-          type: integer
-          minimum: 1
-          maximum: 2000
-        artifactBytes:
-          type: integer
-          format: int64
-    SemanticBenchmarkRun:
-      type: object
-      required:
-        - id
-        - datasetHash
-        - seed
-        - configuration
-        - metrics
-        - modelIds
-        - scope
-        - documentCount
-        - queryCount
-        - metricsSchemaVersion
-        - createdAt
-      properties:
-        id:
+        reason:
           type: string
-          format: uuid
-        datasetHash:
-          type: string
-        seed:
-          type: integer
-        configuration:
-          type: object
-          additionalProperties: true
-        metrics:
-          type: array
-          items:
-            $ref: '#/components/schemas/SemanticBenchmarkMetric'
-        selectedModelVersion:
+        ageSeconds:
+          type: [number, 'null']
+          minimum: 0
+        lastSuccessAgeSeconds:
+          type: [number, 'null']
+          minimum: 0
+        lastErrorAgeSeconds:
+          type: [number, 'null']
+          minimum: 0
+        lastErrorCode:
           type: [string, 'null']
-        modelIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-        scope:
-          type: string
-          enum: [historical, smoke, full]
-        hardwareFingerprint:
-          type: [string, 'null']
-        documentCount:
+        consecutiveFailures:
           type: integer
           minimum: 0
-        queryCount:
-          type: integer
-          minimum: 0
-        metricsSchemaVersion:
-          type: integer
-          minimum: 1
-        createdAt:
-          type: string
-          format: date-time
-    SemanticModel:
-      type: object
-      required:
-        - id
-        - displayName
-        - repository
-        - revision
-        - artifactState
-        - deploymentState
-        - artifactBytes
-        - queryPrefix
-        - passagePrefix
-        - minimumSimilarity
-        - metadata
-        - active
-        - createdAt
-        - index
-      properties:
-        id:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-        repository:
-          type: string
-        revision:
-          type: string
-        artifactState:
-          $ref: '#/components/schemas/SemanticArtifactState'
-        deploymentState:
-          $ref: '#/components/schemas/SemanticDeploymentState'
-        artifactBytes:
-          type: integer
-          format: int64
-          minimum: 0
-        dimensions:
-          type: [integer, 'null']
-          minimum: 1
-          maximum: 2000
-        queryPrefix:
-          type: string
-        passagePrefix:
-          type: string
-        minimumSimilarity:
-          type: number
-          minimum: -1
-          maximum: 1
-        metadata:
-          type: object
-          additionalProperties: true
-        validationMessage:
-          type: [string, 'null']
-        modelVersion:
-          type: [string, 'null']
-        active:
-          type: boolean
-        createdAt:
-          type: string
-          format: date-time
-        downloadedAt:
-          type: [string, 'null']
-          format: date-time
-        validatedAt:
-          type: [string, 'null']
-          format: date-time
-        activatedAt:
-          type: [string, 'null']
-          format: date-time
-        index:
-          $ref: '#/components/schemas/SemanticIndexState'
-        lastBenchmark:
-          oneOf:
-            - type: 'null'
-            - type: object
-              required: [id, datasetHash, scope, current, createdAt]
-              properties:
-                id:
-                  type: string
-                  format: uuid
-                datasetHash:
-                  type: string
-                scope:
-                  type: string
-                  enum: [historical, smoke, full]
-                hardwareFingerprint:
-                  type: [string, 'null']
-                metric:
-                  oneOf:
-                    - type: 'null'
-                    - $ref: '#/components/schemas/SemanticBenchmarkMetric'
-                current:
-                  type: boolean
-                createdAt:
-                  type: string
-                  format: date-time
     SemanticOverview:
       type: object
-      required: [service, searchReady, disk, activeOperations]
+      additionalProperties: false
+      required: [service, status, database, searchReady, model, index, indexer]
       properties:
         service:
           type: string
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: boolean
         searchReady:
           type: boolean
-        activeModel:
+        model:
           oneOf:
             - type: 'null'
-            - $ref: '#/components/schemas/SemanticModel'
-        disk:
-          type: object
-          required:
-            [modelBytes, freeBytes, totalBytes, reservedBytes, maximumModelBytes]
-          properties:
-            modelBytes:
-              type: integer
-              format: int64
-            freeBytes:
-              type: integer
-              format: int64
-            totalBytes:
-              type: integer
-              format: int64
-            reservedBytes:
-              type: integer
-              format: int64
-            maximumModelBytes:
-              type: integer
-              format: int64
-        activeOperations:
-          type: integer
-          minimum: 0
-    SemanticOperation:
-      type: object
-      required:
-        - id
-        - kind
-        - status
-        - phase
-        - progress
-        - result
-        - actor
-        - attempts
-        - createdAt
-        - updatedAt
-      properties:
-        id:
-          type: string
-          format: uuid
-        kind:
-          $ref: '#/components/schemas/SemanticOperationKind'
-        status:
-          $ref: '#/components/schemas/SemanticOperationStatus'
-        phase:
-          type: string
-        modelId:
-          type: [string, 'null']
-          format: uuid
-        modelIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-        modelVersion:
-          type: [string, 'null']
-        repository:
-          type: [string, 'null']
-        revision:
-          type: [string, 'null']
-        progress:
-          type: object
-          required: [current, total, unit]
-          properties:
-            current:
-              type: number
-            total:
-              type: number
-            unit:
-              type: string
-        message:
-          type: [string, 'null']
-        errorCode:
-          type: [string, 'null']
-        result:
-          type: object
-          additionalProperties: true
-        actor:
-          type: string
-        attempts:
-          type: integer
-          minimum: 0
-        leaseOwner:
-          type: [string, 'null']
-        leaseUntil:
-          type: [string, 'null']
-          format: date-time
-        createdAt:
-          type: string
-          format: date-time
-        startedAt:
-          type: [string, 'null']
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        finishedAt:
-          type: [string, 'null']
-          format: date-time
-    SemanticOperationAccepted:
-      type: object
-      required: [operationId, status]
-      properties:
-        operationId:
-          type: string
-          format: uuid
-        status:
-          $ref: '#/components/schemas/SemanticOperationStatus'
-        modelId:
-          type: string
-          format: uuid
-    ActivateSemanticModelRequest:
-      type: object
-      required: [benchmarkRunId]
-      properties:
-        benchmarkRunId:
-          type: string
-          format: uuid
-        expectedCurrentModelId:
-          type: [string, 'null']
-          format: uuid
-        confirmRegression:
-          type: boolean
-          default: false
+            - type: object
+              additionalProperties: false
+              required: [version, dimensions, artifactReady]
+              properties:
+                version:
+                  type: [string, 'null']
+                dimensions:
+                  type: [integer, 'null']
+                  minimum: 1
+                  maximum: 2000
+                artifactReady:
+                  type: boolean
+        index:
+          $ref: '#/components/schemas/SemanticIndexState'
+        indexer:
+          $ref: '#/components/schemas/SemanticWorkerState'
     Problem:
       type: object
       additionalProperties: false
@@ -3263,3 +3878,310 @@ components:
         details:
           type: object
           additionalProperties: true
+    UpsertAppRequest:
+      type: object
+      properties:
+        winstallId:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+          minLength: 1
+        publisher:
+          type: string
+        description:
+          type: string
+        longDescription:
+          type: string
+        iconUrl:
+          type: string
+        officialUrl:
+          type: string
+        latestVersion:
+          type: string
+        appStatus:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+      - name
+    PatchAppRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        publisher:
+          type: string
+        description:
+          type: string
+        longDescription:
+          type: string
+        iconUrl:
+          type: string
+        officialUrl:
+          type: string
+        latestVersion:
+          type: string
+        appStatus:
+          type: string
+    ReplaceTagsRequest:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+    PatchSourceRequest:
+      type: object
+      properties:
+        operatingSystem:
+          type: string
+        architecture:
+          type: string
+        initialUrl:
+          type: string
+        resolverType:
+          type: string
+        resolutionStatus:
+          type: string
+        validationStatus:
+          type: string
+    DescriptionGeneration:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+    ResolverLogItem:
+      type: object
+      properties:
+        id:
+          type: string
+        phase:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+        safeMetadata:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ScraperQueueState:
+      type: object
+      properties:
+        queue:
+          type: string
+        queued:
+          type: integer
+          format: int64
+        inProgress:
+          type: integer
+          format: int64
+        completed:
+          type: integer
+          format: int64
+        discarded:
+          type: integer
+          format: int64
+        failed:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScraperQueueItem'
+      required:
+      - queued
+      - inProgress
+      - completed
+      - discarded
+      - failed
+    ScraperQueueItem:
+      type: object
+      properties:
+        id:
+          type: string
+        packageId:
+          type: string
+        appName:
+          type: string
+        status:
+          type: string
+        attempts:
+          type: integer
+          format: int32
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+      - attempts
+    ScraperMetricItem:
+      type: object
+      properties:
+        available:
+          type: integer
+          format: int32
+        review:
+          type: integer
+          format: int32
+        unavailable:
+          type: integer
+          format: int32
+        queuedSearcherFilter:
+          type: integer
+          format: int32
+        queuedFilterScraper:
+          type: integer
+          format: int32
+        queuedScraperSoFilter:
+          type: integer
+          format: int32
+        queuedSoFilterDescriptor:
+          type: integer
+          format: int32
+        capturedAt:
+          type: string
+          format: date-time
+      required:
+      - available
+      - review
+      - unavailable
+      - queuedSearcherFilter
+      - queuedFilterScraper
+      - queuedScraperSoFilter
+      - queuedSoFilterDescriptor
+    ScraperSnapshotItem:
+      type: object
+      properties:
+        stage:
+          type: string
+        packageId:
+          type: string
+        appName:
+          type: string
+        url:
+          type: string
+        html:
+          type: string
+        capturedAt:
+          type: string
+          format: date-time
+    ScraperEvent:
+      type: object
+      properties:
+        type:
+          type: string
+        version:
+          type: string
+        queues:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScraperQueueState'
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScraperMetricItem'
+        snapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScraperSnapshotItem'
+        generatedAt:
+          type: string
+          format: date-time
+    ScraperQueueMaintenanceResult:
+      type: object
+      properties:
+        action:
+          type: string
+        affected:
+          type: integer
+          format: int32
+      required:
+      - affected
+    ScraperCommandRequest:
+      type: object
+      properties:
+        command:
+          type: string
+          minLength: 1
+      required:
+      - command
+    ContentEnqueueResult:
+      type: object
+      properties:
+        matched:
+          type: integer
+          format: int32
+        enqueued:
+          type: integer
+          format: int32
+        alreadyActive:
+          type: integer
+          format: int32
+      required:
+      - matched
+      - enqueued
+      - alreadyActive
+    AdminAuditItem:
+      type: object
+      properties:
+        actor:
+          type: string
+        action:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: string
+        safeMetadata:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    UpsertBundleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        slug:
+          type: string
+        type:
+          type: string
+        visibility:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        appIds:
+          type: array
+          items:
+            type: string
+          maxItems: 100
+      required:
+      - name
+    CsrfResponse:
+      type: object
+      properties:
+        headerName:
+          type: string
+        parameterName:
+          type: string
+        token:
+          type: string
+    PreferencesRequest:
+      type: object
+      properties:
+        notifyOnJobCompletion:
+          type: boolean
+      required:
+      - notifyOnJobCompletion

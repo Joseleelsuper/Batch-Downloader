@@ -17,17 +17,23 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.retry.MessageRecoverer;
 
 /**
- * Implementa el componente {@code DownloadJobFailureRecoverer}.
+ * Al agotar reintentos, comunica a Core un fallo terminal antes de rechazar el comando; conserva el
+ * mensaje para otra entrega si falta capacidad o no pudo publicar ese resultado.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.messaging.DownloadJobListener
+ * @see es.ubu.batchdownloader.downloadworker.ports.EventPublisher
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y operación del worker
  */
 public final class DownloadJobFailureRecoverer implements MessageRecoverer {
     /**
-     * Constante que define {@code LOGGER}.
+     * Logger de la clase, usado para registrar decisiones sin exponer datos sensibles.
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobFailureRecoverer.class);
     /**
-     * Constante que define {@code FAILURE_CODE}.
+     * Valor compartido que fija f a i l u r e  c o d e para el comportamiento del componente.
      */
     private static final String FAILURE_CODE = "download_job_processing_failed";
 
@@ -45,11 +51,12 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
     private final Clock clock;
 
     /**
-     * Inicializa una instancia de {@code DownloadJobFailureRecoverer}.
+     * Conecta lectura del comando, publicación del fallo y reloj de recuperación.
      *
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param eventPublisher Valor de {@code eventPublisher} utilizado por la operación.
-     * @param clock Valor de {@code clock} utilizado por la operación.
+     * @param objectMapper Lector JSON del comando original cuando debe producirse un fallo
+     *     terminal.
+     * @param eventPublisher Transporte de eventos que comunica el fallo terminal a Core.
+     * @param clock Reloj común que fecha resultados y señales de salud.
      */
     public DownloadJobFailureRecoverer(
             ObjectMapper objectMapper,
@@ -61,14 +68,15 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
     }
 
     /**
-     * Recupera los elementos afectados mediante {@code recover}.
+     * Distingue capacidad de fallo definitivo, recupera el trabajo del comando y publica un evento
+     * determinista de fallo; solo después desvía el mensaje a rechazo.
      *
-     * @param message Mensaje que debe procesarse.
-     * @param cause Valor de {@code cause} utilizado por la operación.
-     * @throws AmqpRejectAndDontRequeueException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
-     * @throws ImmediateRequeueAmqpException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param message Mensaje AMQP original cuyos intentos de procesamiento se agotaron.
+     * @param cause Cadena de fallos que explica por qué el consumidor no pudo completar el mensaje.
+     * @throws org.springframework.amqp.ImmediateRequeueAmqpException si falta capacidad o no se
+     *     puede publicar el fallo terminal.
+     * @throws org.springframework.amqp.AmqpRejectAndDontRequeueException si el comando no puede
+     *     deserializarse o ya se publicó su resultado terminal.
      */
     @Override
     public void recover(Message message, Throwable cause) {
@@ -117,10 +125,10 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
     }
 
     /**
-     * Ejecuta la operación {@code deterministicEventId}.
+     * Deriva la identidad del fallo por agotamiento a partir del trabajo, tipo y código estables.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code deterministicEventId}.
+     * @param jobId UUID del trabajo al que se aplica el evento.
+     * @return UUID reproducible entre intentos de recuperación.
      */
     private UUID deterministicEventId(UUID jobId) {
         return UUID.nameUUIDFromBytes(
@@ -128,7 +136,12 @@ public final class DownloadJobFailureRecoverer implements MessageRecoverer {
                         .getBytes(StandardCharsets.UTF_8));
     }
 
-    /** Mantiene en cola los trabajos que solo esperan espacio temporal en el SSD. */
+    /**
+     * Recorre las causas buscando storage_busy para conservar la condición como temporal.
+     *
+     * @param cause Cadena de fallos que explica por qué el consumidor no pudo completar el mensaje.
+     * @return true si algún fallo de la cadena indica falta de capacidad.
+     */
     private boolean causedByStorageCapacity(Throwable cause) {
         Throwable current = cause;
         while (current != null) {

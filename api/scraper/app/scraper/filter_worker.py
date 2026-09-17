@@ -1,4 +1,4 @@
-"""Filtrado de aplicaciones antes de su resolución de instaladores."""
+"""Filtra trabajos del buscador antes de activar resolución de instaladores."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import asyncio
 from typing import Any
 
 import httpx
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
@@ -22,11 +24,10 @@ from app.scraper.candidates import (
     InstallerCandidate,
     registered_domain,
 )
-from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.github import GitHubReleaseResolver
 from app.scraper.installer_policy import (
     dedupe_candidates,
     fallback_candidates,
-    github_collection_timeout_seconds,
     prepare_scored_candidates,
 )
 from app.scraper.pipeline_runtime import (
@@ -35,6 +36,7 @@ from app.scraper.pipeline_runtime import (
 )
 from app.scraper.pipeline_support import (
     claim_item,
+    exception_detail,
     finish_item,
     parse_payload_app,
     payload_package_id,
@@ -48,50 +50,71 @@ from app.scraper.validator import (
 from app.scraper.winstall import (
     WinstallApp,
 )
-from app.scraper.winstall_candidates import collect_winstall_parent_index_candidates
+from app.scraper.winstall_candidates import (
+    collect_winstall_github_candidates,
+    collect_winstall_parent_index_candidates,
+)
+from app.scraper.worker_recovery import recover_worker_failure
 
 logger = get_logger(__name__)
-"""Estado global asociado a `logger`.
-"""
+
 
 
 class FilterWorker:
-    """Ejecuta el procesamiento en segundo plano de `Filter`."""
+    """Valida si una aplicación tiene al menos un candidato descargable antes de enviarla al
+    scraper.
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Inicializa una instancia de `FilterWorker`.
+        """Configura validador y resolutor GitHub para el filtro.
 
         Args:
-            settings (Settings): Configuración del servicio.
+            settings: Configuración del servicio y sus límites.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.worker_id = f"filter:{worker_id()}"
-        """Estado de instancia asociado a `worker_id`.
-        """
+
         self.validator = DownloadValidator(settings)
-        """Estado de instancia asociado a `validator`.
-        """
+
         self.github = GitHubReleaseResolver(settings)
-        """Estado de instancia asociado a `github`.
-        """
+
 
     async def run(self, runtime: PipelineRuntime) -> None:
-        """Ejecuta `run` dentro de `FilterWorker`.
+        """Consume la cola del buscador, clasifica errores de reserva y finaliza cuando el
+        searcher termina sin trabajo activo.
 
         Args:
-            runtime (PipelineRuntime): Valor de `runtime` utilizado por la operación.
+            runtime: Estado compartido del pipeline.
         """
         while not runtime.stop_event.is_set():
             if not await runtime.before_next_item():
                 break
-            item = await claim_item(
-                self.settings,
-                QUEUE_SEARCHER_FILTER,
-                self.worker_id,
-                run_id=runtime.run_id,
-            )
+            try:
+                item = await claim_item(
+                    self.settings,
+                    QUEUE_SEARCHER_FILTER,
+                    self.worker_id,
+                    run_id=runtime.run_id,
+                )
+            except (SQLAlchemyTimeoutError, OperationalError) as exc:
+                logger.warning(
+                    "filter_claim_retry",
+                    worker_id=self.worker_id,
+                    error=exc.__class__.__name__,
+                    detail=exception_detail(exc),
+                )
+                await asyncio.sleep(0.5)
+                continue
+            except Exception as exc:
+                logger.warning(
+                    "filter_claim_retry",
+                    worker_id=self.worker_id,
+                    error=exc.__class__.__name__,
+                    detail=exception_detail(exc),
+                )
+                await asyncio.sleep(1)
+                continue
             if item is None:
                 if runtime.searcher_done.is_set() and not await queue_has_active_work(
                     self.settings,
@@ -117,7 +140,7 @@ class FilterWorker:
                         session,
                         UrlProtector(self.settings.url_protection_secret),
                     )
-                    if not await catalog.should_scrape_winstall_package(
+                    if not await catalog.winstall.should_scrape_winstall_package(
                         app.package_id,
                         force_refresh=bool(payload.get("force_refresh")),
                     ):
@@ -157,24 +180,18 @@ class FilterWorker:
                     await session.commit()
                 await finish_item(self.settings, item, "complete", None)
             except Exception as exc:
-                await finish_item(self.settings, item, "fail", exc.__class__.__name__)
-                await runtime.increment("apps_failed")
-                await runtime.increment("apps_transient_failed")
-                logger.warning(
-                    "filter_app_failed",
-                    winstall_id=item.package_id,
-                    error=exc.__class__.__name__,
-                )
+                await recover_worker_failure(self.settings, runtime, item, exc, "filter")
         runtime.filter_done.set()
 
     async def _official_page_valid(self, url: str | None) -> bool:
-        """Ejecuta el paso interno `_official_page_valid`.
+        """Consulta DNS público de la página oficial para descartar destinos claramente no
+        accesibles.
 
         Args:
-            url (str | None): URL del recurso que debe procesarse.
+            url: URL oficial o recurso que se comprueba.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si el dominio resuelve y la respuesta es utilizable.
         """
         if not url:
             return False
@@ -202,14 +219,15 @@ class FilterWorker:
         return not content_type or "html" in content_type
 
     async def _fallback_download_valid(self, payload: dict[str, Any], app: WinstallApp) -> bool:
-        """Ejecuta el paso interno `_fallback_download_valid`.
+        """Puntúa candidatos Winstall y valida hasta 48 para comprobar que existe un binario
+        descargable.
 
         Args:
-            payload (dict[str, Any]): Carga de datos recibida por la operación.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            payload: Payload JSON asociado al trabajo.
+            app: Aplicación Winstall utilizada para puntuar o completar candidatos.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True al primer candidato validado.
         """
         candidates = fallback_candidates(payload, app)
         if await self._candidate_group_has_valid_download(app, candidates):
@@ -222,14 +240,14 @@ class FilterWorker:
         app: WinstallApp,
         candidates: list[InstallerCandidate],
     ) -> bool:
-        """Ejecuta el paso interno `_candidate_group_has_valid_download`.
+        """Expande, puntúa y valida un grupo de candidatos sin modificar el catálogo.
 
         Args:
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
-            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+            app: Aplicación Winstall utilizada para puntuar o completar candidatos.
+            candidates: Candidatos que se validan o enriquecen.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si algún candidato es aceptable.
         """
         scored = await run_cpu_bound(
             prepare_scored_candidates,
@@ -255,44 +273,24 @@ class FilterWorker:
         app: WinstallApp,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        """Ejecuta el paso interno `_collect_winstall_github_candidates`.
+        """Completa fallback con releases GitHub y con índices padres de Winstall.
 
         Args:
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
-            candidates (list[InstallerCandidate]): Valor de `candidates` utilizado por la operación.
+            app: Aplicación Winstall utilizada para puntuar o completar candidatos.
+            candidates: Candidatos que se validan o enriquecen.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos deduplicados.
         """
         refreshed: list[InstallerCandidate] = []
-        seen_repositories: set[tuple[str, str]] = set()
-        for candidate in candidates:
-            repo = parse_github_repo(candidate.url)
-            if not repo:
-                continue
-            repo_key = (repo.owner.lower(), repo.name.lower())
-            if repo_key in seen_repositories:
-                continue
-            seen_repositories.add(repo_key)
-            try:
-                async with asyncio.timeout(github_collection_timeout_seconds(self.settings)):
-                    release_candidates = await self.github.collect(
-                        candidate.url,
-                        app.latest_version,
-                    )
-            except Exception:
-                continue
-            for release_candidate in release_candidates:
-                refreshed.append(
-                    InstallerCandidate(
-                        url=release_candidate.url,
-                        source=f"winstall_{release_candidate.source}",
-                        label=release_candidate.label or candidate.label,
-                        context=release_candidate.context or candidate.context,
-                        asset_kind=release_candidate.asset_kind or candidate.asset_kind,
-                        referer=candidate.referer,
-                    )
-                )
+        refreshed.extend(
+            await collect_winstall_github_candidates(
+                self.settings,
+                self.github,
+                candidates,
+                app.latest_version,
+            )
+        )
         refreshed.extend(await self._collect_winstall_parent_index_candidates(candidates))
         return dedupe_candidates(refreshed)
 
@@ -300,5 +298,12 @@ class FilterWorker:
         self,
         candidates: list[InstallerCandidate],
     ) -> list[InstallerCandidate]:
-        """Explora índices padres mediante la política compartida de Winstall."""
+        """Delega la exploración de índices padre al colector compartido de Winstall.
+
+        Args:
+            candidates: Candidatos que se validan o enriquecen.
+
+        Returns:
+            candidatos derivados.
+        """
         return await collect_winstall_parent_index_candidates(self.settings, candidates)

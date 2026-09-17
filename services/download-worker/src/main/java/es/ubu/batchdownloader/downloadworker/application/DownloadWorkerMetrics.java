@@ -7,7 +7,16 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.time.Duration;
 import org.springframework.stereotype.Component;
 
-/** Registra la presión interna del pipeline sin desplegar otro servicio. */
+/**
+ * Registra actividad de descargas, temporales y empaquetado y los tiempos y motivos que explican
+ * esperas del worker.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadPipeline
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Capacidad y coordinación de descargas
+ */
 @Component
 public class DownloadWorkerMetrics {
     /** Descargas HTTP activas. */
@@ -21,7 +30,11 @@ public class DownloadWorkerMetrics {
     /** Registro usado para iniciar las muestras. */
     private final MeterRegistry registry;
 
-    /** Inicializa y publica los medidores. */
+    /**
+     * Registra medidores compartidos y el temporizador de espera de empaquetado.
+     *
+     * @param registry Registro de ocupación, espera y resultados del worker.
+     */
     public DownloadWorkerMetrics(MeterRegistry registry) {
         this.registry = registry;
         registry.gauge("download_worker_active_downloads", activeDownloads);
@@ -30,53 +43,92 @@ public class DownloadWorkerMetrics {
         packagingWait = registry.timer("download_worker_packaging_wait");
     }
 
-    /** Señala el inicio de una descarga. */
+    /**
+     * Incrementa el número de transferencias actualmente activas.
+     */
     public void downloadStarted() {
         activeDownloads.incrementAndGet();
     }
 
-    /** Señala el final de una descarga. */
+    /**
+     * Decrementa la actividad al terminar la transferencia que previamente se registró.
+     */
     public void downloadFinished() {
         activeDownloads.decrementAndGet();
     }
 
-    /** Añade bytes temporales recién descargados. */
+    /**
+     * Añade bytes materializados al medidor de temporales; ignora cantidades negativas.
+     *
+     * @param bytes Cantidad de bytes que se reserva, contabiliza o consume según la operación.
+     */
     public void temporaryAdded(long bytes) {
         temporaryBytes.addAndGet(Math.max(0, bytes));
     }
 
-    /** Retira bytes temporales ya incorporados o limpiados. */
+    /**
+     * Descuenta bytes eliminados sin permitir que el medidor quede negativo.
+     *
+     * @param bytes Cantidad de bytes que se reserva, contabiliza o consume según la operación.
+     */
     public void temporaryRemoved(long bytes) {
         temporaryBytes.updateAndGet(current -> Math.max(0, current - Math.max(0, bytes)));
     }
 
-    /** Inicia la medición de espera de empaquetado. */
+    /**
+     * Inicia una medición cuando un trabajo empieza a esperar un permiso de ZIP.
+     *
+     * @return muestra que debe detenerse al terminar la espera.
+     */
     public Timer.Sample startPackagingWait() {
         return Timer.start(registry);
     }
 
-    /** Finaliza la medición de espera de empaquetado. */
+    /**
+     * Finaliza la muestra y registra su duración en el temporizador de espera de ZIP.
+     *
+     * @param sample Medición iniciada cuando el trabajo empezó a esperar una plaza de empaquetado.
+     */
     public void stopPackagingWait(Timer.Sample sample) {
         sample.stop(packagingWait);
     }
 
-    /** Registra cuánto permaneció el comando en RabbitMQ antes de ser atendido. */
+    /**
+     * Registra cuánto esperó el evento en cola antes de procesarse.
+     *
+     * @param duration Tiempo que el evento pasó esperando antes de comenzar su ejecución.
+     */
     public void queueWait(Duration duration) {
         registry.timer("download_worker_queue_wait").record(duration);
     }
 
-    /** Señala la entrada en la fase exclusiva de ZIP/subida. */
+    /**
+     * Incrementa la cantidad de empaquetados activos.
+     */
     public void packagingStarted() {
         activePackagings.incrementAndGet();
     }
 
-    /** Señala la salida de la fase exclusiva de ZIP/subida. */
+    /**
+     * Decrementa los empaquetados activos al abandonar la fase.
+     */
     public void packagingFinished() {
         activePackagings.decrementAndGet();
     }
 
-    /** Cuenta aplazamientos por un conjunto acotado de motivos estables. */
+    /**
+     * Cuenta un aplazamiento utilizando un código de motivo estable como etiqueta.
+     *
+     * @param reason Código que permite distinguir la causa de aplazamiento por capacidad.
+     */
     public void capacityDeferred(String reason) {
         registry.counter("download_worker_capacity_deferred", "reason", reason).increment();
+    }
+
+    /**
+     * Cuenta un archivo que incorpora el runtime de instalación Linux.
+     */
+    public void linuxInstallerCreated() {
+        registry.counter("download_worker_linux_installer_created").increment();
     }
 }

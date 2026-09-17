@@ -7,9 +7,15 @@ import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
 /**
- * Implementa el componente {@code JpaUserAccountStore}.
+ * Adapta cuentas del dominio a JPA y sus consultas de identidad normalizada, conservando versión y
+ * restricciones de unicidad.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.application.port.UserAccountStore
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.UserAccountEntity
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 @Repository
 class JpaUserAccountStore implements UserAccountStore {
@@ -19,19 +25,19 @@ class JpaUserAccountStore implements UserAccountStore {
     private final SpringDataUserAccountRepository repository;
 
     /**
-     * Inicializa una instancia de {@code JpaUserAccountStore}.
+     * Conecta la persistencia JPA de identidades y sus restricciones de unicidad.
      *
-     * @param repository Repositorio utilizado por la operación.
+     * @param repository Repositorio JPA de la entidad correspondiente que participa en la
+     *     transacción del llamador.
      */
     JpaUserAccountStore(SpringDataUserAccountRepository repository) {
         this.repository = repository;
     }
 
     /**
-     * Implementa {@code existsByNormalizedUsername} para {@code JpaUserAccountStore}.
+     * {@inheritDoc}
      *
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
      */
     @Override
     public boolean existsByNormalizedUsername(String normalizedUsername) {
@@ -39,10 +45,9 @@ class JpaUserAccountStore implements UserAccountStore {
     }
 
     /**
-     * Implementa {@code existsByNormalizedEmail} para {@code JpaUserAccountStore}.
+     * {@inheritDoc}
      *
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
      */
     @Override
     public boolean existsByNormalizedEmail(String normalizedEmail) {
@@ -50,10 +55,9 @@ class JpaUserAccountStore implements UserAccountStore {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findById}.
+     * {@inheritDoc}
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @return Resultado producido por {@code findById}.
+     * @param id UUID estable del agregado que se consulta o reconstruye.
      */
     @Override
     public Optional<UserAccount> findById(UUID id) {
@@ -61,10 +65,9 @@ class JpaUserAccountStore implements UserAccountStore {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findByNormalizedUsername}.
+     * {@inheritDoc}
      *
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @return Resultado producido por {@code findByNormalizedUsername}.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
      */
     @Override
     public Optional<UserAccount> findByNormalizedUsername(String normalizedUsername) {
@@ -72,10 +75,9 @@ class JpaUserAccountStore implements UserAccountStore {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findByNormalizedEmail}.
+     * {@inheritDoc}
      *
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @return Resultado producido por {@code findByNormalizedEmail}.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
      */
     @Override
     public Optional<UserAccount> findByNormalizedEmail(String normalizedEmail) {
@@ -83,10 +85,10 @@ class JpaUserAccountStore implements UserAccountStore {
     }
 
     /**
-     * Guarda el recurso solicitado mediante {@code save}.
+     * Reutiliza la entidad de la cuenta cuando existe y sincroniza sus datos antes de guardar.
      *
-     * @param account Valor de {@code account} utilizado por la operación.
-     * @return Resultado producido por {@code save}.
+     * @param account Agregado de cuenta que debe consultarse o persistirse.
+     * @return cuenta reconstruida con la versión persistida.
      */
     @Override
     public UserAccount save(UserAccount account) {

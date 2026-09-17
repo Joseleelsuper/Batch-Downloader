@@ -20,18 +20,46 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-/** Centraliza las lecturas, el enriquecimiento y la autorización de bundles. */
+/**
+ * Consulta bundles con políticas de visibilidad y enriquece sus listados mediante lotes para evitar
+ * consultas por cada tarjeta.
+ *
+ * @see es.ubu.batchdownloader.bundle.BundleAccessPolicy
+ * @see es.ubu.batchdownloader.catalog.CatalogRepository
+ * @see es.ubu.batchdownloader.bundle.BundleRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Bundles
+ */
 @Repository
 public class BundleReadRepository {
     private final JdbcTemplate jdbc;
     private final CatalogRepository catalog;
 
-    /** Inicializa las lecturas con sus dos fuentes de datos. */
+    /**
+     * Conecta SQL de bundles con el enriquecimiento por lotes del catálogo.
+     *
+     * @param jdbc Acceso SQL que participa en la transacción del llamador.
+     * @param catalog Consulta del catálogo para resolver identidades y enriquecer aplicaciones
+     *     mediante lotes.
+     */
     public BundleReadRepository(JdbcTemplate jdbc, CatalogRepository catalog) {
         this.jdbc = jdbc;
         this.catalog = catalog;
     }
 
+    /**
+     * Selecciona bundles públicos u oficiales; community incluye también los de tipo user y el
+     * enriquecimiento se realiza por página.
+     *
+     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
+     *     community o user.
+     * @param sort stars prioriza estrellas y fecha; cualquier otro valor ordena por actualización
+     *     descendente.
+     * @param page Página numerada desde uno; los controladores acotan valores inferiores.
+     * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
+     * @return resúmenes en el orden solicitado.
+     */
     public List<BundleSummary> list(String type, String sort, int page, int pageSize) {
         String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
         String sql = """
@@ -53,10 +81,11 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code count}.
+     * Cuenta los mismos tipos y visibilidades que el listado público, sin paginación.
      *
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
+     *     community o user.
+     * @return total público filtrado.
      */
     public long count(String type) {
         Long count = jdbc.queryForObject(
@@ -73,13 +102,16 @@ public class BundleReadRepository {
     }
 
     /**
-     * Enumera los elementos solicitados mediante {@code listForAdministration}.
+     * Selecciona una página de cualquier visibilidad y aplica el tipo literalmente, sin expandir
+     * community a user.
      *
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @param page Número de página solicitado.
-     * @param pageSize Número máximo de elementos incluidos en una página.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
+     *     community o user.
+     * @param sort stars prioriza estrellas y fecha; cualquier otro valor ordena por actualización
+     *     descendente.
+     * @param page Página numerada desde uno; los controladores acotan valores inferiores.
+     * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
+     * @return resúmenes administrativos enriquecidos por lotes.
      */
     public List<BundleSummary> listForAdministration(String type, String sort, int page, int pageSize) {
         String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
@@ -100,10 +132,12 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code countForAdministration}.
+     * Cuenta bundles de cualquier visibilidad con el filtro literal de tipo del listado
+     * administrativo.
      *
-     * @param type Valor de {@code type} utilizado por la operación.
-     * @return Número de elementos afectados por la operación.
+     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
+     *     community o user.
+     * @return total administrativo filtrado.
      */
     public long countForAdministration(String type) {
         Long count = jdbc.queryForObject(
@@ -115,14 +149,15 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code details}.
+     * Carga el detalle por UUID o slug y aplica la misma regla de visibilidad utilizada al
+     * descargar.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @param viewerId UUID de la cuenta que solicita el recurso, o {@code null}.
-     * @param administrator Valor de {@code administrator} utilizado por la operación.
-     * @return Resultado producido por {@code details}.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param publicId UUID textual o slug del bundle solicitado.
+     * @param viewerId UUID de quien consulta, o null para visitantes anónimos.
+     * @param administrator Permite al administrador consultar bundles de cualquier visibilidad.
+     * @return detalle accesible.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si falta el bundle o es privado para
+     *     otro propietario.
      */
     public BundleDetails details(String publicId, UUID viewerId, boolean administrator) {
         BundleRecord bundle = findBundle(publicId);
@@ -135,26 +170,29 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code detailsInternal}.
+     * Carga un detalle sin comprobar identidad; solo debe usarse desde una operación que ya
+     * autorizó el recurso.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @return Resultado producido por {@code detailsInternal}.
+     * @param publicId UUID textual o slug del bundle solicitado.
+     * @return detalle del bundle existente.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si no existe el UUID o slug.
      */
     public BundleDetails detailsInternal(String publicId) {
         return findBundle(publicId).details();
     }
 
     /**
-     * Ejecuta la operación {@code appIdsForDownload}.
+     * Consulta solo acceso e identidades de aplicaciones activas y conserva su orden; materializa
+     * como máximo 101 para detectar exceso.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @param viewerId UUID de la cuenta que solicita la descarga, o {@code null}.
-     * @param administrator Valor de {@code administrator} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param publicId UUID textual o slug del bundle solicitado.
+     * @param viewerId UUID de quien consulta, o null para visitantes anónimos.
+     * @param administrator Permite al administrador consultar bundles de cualquier visibilidad.
+     * @return hasta cien UUID de aplicaciones.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si el bundle no existe o no es
+     *     accesible.
+     * @throws es.ubu.batchdownloader.common.ConflictException si contiene más de cien aplicaciones
+     *     activas.
      */
     public List<UUID> appIdsForDownload(
             String publicId, UUID viewerId, boolean administrator) {
@@ -185,10 +223,12 @@ public class BundleReadRepository {
     }
 
     /**
-     * Carga únicamente los campos necesarios para autorizar una descarga de bundle.
+     * Carga únicamente UUID, visibilidad y propietario para autorizar una descarga sin enriquecer
+     * tarjetas.
      *
-     * @param publicId Identificador público o slug.
-     * @return Datos mínimos de acceso.
+     * @param publicId UUID textual o slug del bundle solicitado.
+     * @return datos mínimos de acceso.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si el UUID o slug no existe.
      */
     private BundleAccess findBundleAccess(String publicId) {
         List<BundleAccess> bundles = jdbc.query(
@@ -212,12 +252,11 @@ public class BundleReadRepository {
     }
 
     /**
-     * Busca el resultado solicitado mediante {@code findBundle}.
+     * Carga el detalle y la identidad propietaria para aplicar después la política de visibilidad.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @return Resultado producido por {@code findBundle}.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param publicId UUID textual o slug del bundle solicitado.
+     * @return detalle acompañado de su propietario.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si no se encuentra UUID ni slug.
      */
     private BundleRecord findBundle(String publicId) {
         List<BundleRecord> bundles = jdbc.query(
@@ -238,7 +277,13 @@ public class BundleReadRepository {
         return bundles.get(0);
     }
 
-    /** Convierte una fila base sin ejecutar consultas relacionadas desde el mapeador. */
+    /**
+     * Lee los metadatos comunes de una fila sin consultar todavía etiquetas ni aplicaciones.
+     *
+     * @param rs Fila SQL posicionada en un registro de bundle o aplicación.
+     * @return datos base del resumen.
+     * @throws java.sql.SQLException si una columna no puede leerse con el tipo esperado.
+     */
     private BundleBase bundleBase(ResultSet rs) throws SQLException {
         return new BundleBase(
                 UuidBytes.toUuid(rs.getBytes("id")),
@@ -252,10 +297,14 @@ public class BundleReadRepository {
     }
 
     /**
-     * Enriquece una página completa mediante consultas por lotes y fuera del mapeador JDBC.
+     * Carga etiquetas y aplicaciones de toda la página, deduplica muestras y consulta su proyección
+     * de catálogo una sola vez.
+     * Conserva orden de bundles y de aplicaciones y limita las muestras globales y por plataforma a
+     * seis.
      *
-     * @param bundles Filas base de la página.
-     * @return Resúmenes completos en el mismo orden.
+     * @param bundles Filas base de la página en el orden de presentación.
+     * @return resúmenes completos con recuentos de aplicaciones activas y descargables por
+     *     plataforma.
      */
     private List<BundleSummary> enrichSummaries(List<BundleBase> bundles) {
         if (bundles.isEmpty()) {
@@ -365,11 +414,12 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code detailsFromRow}.
+     * Combina metadatos de la fila con etiquetas, aplicaciones activas y disponibilidad por
+     * plataforma del mismo bundle.
      *
-     * @param rs Valor de {@code rs} utilizado por la operación.
-     * @return Resultado producido por {@code detailsFromRow}.
-     * @throws SQLException Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param rs Fila SQL posicionada en un registro de bundle o aplicación.
+     * @return detalle completo del bundle.
+     * @throws java.sql.SQLException si no puede leer las columnas de metadatos.
      */
     private BundleDetails detailsFromRow(ResultSet rs) throws SQLException {
         UUID id = UuidBytes.toUuid(rs.getBytes("id"));
@@ -391,11 +441,13 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code previewApps}.
+     * Carga UUID de aplicaciones activas en el orden del bundle y enriquece la selección mediante
+     * una consulta de catálogo por lote.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @param limit Número máximo de elementos que se recuperarán.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param limit Máximo de aplicaciones de muestra; cero o negativo carga todas las activas.
+     * @return aplicaciones proyectadas, omitiendo las que dejaron de estar disponibles.
      */
     private List<AppListItem> previewApps(UUID bundleId, int limit) {
         String sql = """
@@ -420,10 +472,11 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code tags}.
+     * Consulta las etiquetas del bundle ordenadas por su texto.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @return lista de etiquetas visibles.
      */
     private List<String> tags(UUID bundleId) {
         return jdbc.queryForList(
@@ -433,10 +486,11 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code availableOperatingSystems}.
+     * Proyecta las plataformas con al menos un instalador seleccionable del bundle.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @return plataformas en orden windows, linux, macos.
      */
     List<String> availableOperatingSystems(UUID bundleId) {
         return platformAvailability(bundleId).stream()
@@ -445,10 +499,12 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code platformAvailability}.
+     * Agrupa instaladores seleccionables por plataforma, sin excluirlos solo por antigüedad, y
+     * enriquece seis muestras por plataforma en un lote.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @return recuentos y muestras por plataforma.
      */
     private List<PlatformAvailability> platformAvailability(UUID bundleId) {
         Map<String, List<UUID>> appIdsBySystem = new LinkedHashMap<>();
@@ -490,10 +546,11 @@ public class BundleReadRepository {
     }
 
     /**
-     * Ejecuta la operación {@code activeAppCount}.
+     * Cuenta elementos del bundle cuya aplicación continúa activa en el catálogo.
      *
-     * @param bundleId Identificador de {@code bundle} utilizado por la operación.
-     * @return Resultado producido por {@code activeAppCount}.
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @return número de aplicaciones activas o cero si no hay resultado.
      */
     private int activeAppCount(UUID bundleId) {
         Integer count = jdbc.queryForObject(
@@ -509,14 +566,49 @@ public class BundleReadRepository {
         return count == null ? 0 : count;
     }
 
-    /** Convierte de forma segura una columna UUID textual opcional. */
+    /**
+     * Interpreta una columna UUID textual opcional de propietario.
+     *
+     * @param row Fila SQL de la que se lee una columna de identidad.
+     * @param column Nombre de la columna que guarda un UUID textual o null.
+     * @return UUID o null si la columna es nula o blanca.
+     * @throws java.sql.SQLException si falla la lectura de la columna.
+     * @throws IllegalArgumentException si el texto presente no es un UUID.
+     */
     private UUID nullableUuid(ResultSet row, String column) throws SQLException {
         String value = row.getString(column);
         return value == null || value.isBlank() ? null : UUID.fromString(value);
     }
 
+    /**
+     * Asocia el detalle enriquecido con el propietario necesario para autorizar su lectura.
+     *
+     * @param details Proyección completa del bundle que acompaña a los datos de acceso.
+     * @param ownerId UUID canónico de la cuenta propietaria; null para bundles sin propietario
+     *     asignado.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Bundles
+     */
     private record BundleRecord(BundleDetails details, UUID ownerId) {}
 
+    /**
+     * Conserva metadatos de una fila antes de enriquecer la página con etiquetas y aplicaciones.
+     *
+     * @param id UUID estable del bundle.
+     * @param slug Identificador legible del bundle dentro de las rutas públicas.
+     * @param name Nombre visible del conjunto de aplicaciones.
+     * @param description Descripción opcional de la finalidad del bundle.
+     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
+     *     community o user.
+     * @param visibility Visibilidad public, private u official; las ediciones personales solo
+     *     admiten public o private.
+     * @param starCount Estrellas registradas para ordenar y presentar el bundle.
+     * @param updatedAt Fecha del último cambio persistido del bundle.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Bundles
+     */
     private record BundleBase(
             UUID id,
             String slug,
@@ -527,5 +619,17 @@ public class BundleReadRepository {
             int starCount,
             LocalDateTime updatedAt) {}
 
+    /**
+     * Acota la consulta de autorización de descargas a UUID, visibilidad y propietario.
+     *
+     * @param id UUID estable del bundle.
+     * @param visibility Visibilidad public, private u official; las ediciones personales solo
+     *     admiten public o private.
+     * @param ownerId UUID canónico de la cuenta propietaria; null para bundles sin propietario
+     *     asignado.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Bundles
+     */
     private record BundleAccess(UUID id, String visibility, UUID ownerId) {}
 }

@@ -20,18 +20,43 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** CRUD de bundles pertenecientes a la cuenta USER autenticada. */
+/**
+ * Expone gestión personal de bundles bajo el UUID de una cuenta USER habilitada y exige versión en
+ * las ediciones.
+ *
+ * @see es.ubu.batchdownloader.bundle.UserBundleRepository
+ * @see es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Bundles
+ */
 @RestController
 @RequestMapping("/api/v1/users/me/bundles")
 public class UserBundleController {
     private final UserBundleRepository bundles;
     private final CurrentAccount currentAccount;
 
+    /**
+     * Conecta operaciones personales con la comprobación de la cuenta vigente.
+     *
+     * @param bundles Repositorio que exige propiedad UUID en cada operación personal.
+     * @param currentAccount Resolución de una cuenta habilitada a partir de la identidad UUID de
+     *     sesión.
+     */
     public UserBundleController(UserBundleRepository bundles, CurrentAccount currentAccount) {
         this.bundles = bundles;
         this.currentAccount = currentAccount;
     }
 
+    /**
+     * Pagina bundles del propietario con tamaño de 1–60 y página mínima uno.
+     *
+     * @param page Página numerada desde uno; los controladores acotan valores inferiores.
+     * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return página personal con total antes de paginar.
+     */
     @GetMapping
     OwnBundlePage list(
             @RequestParam(defaultValue = "1") int page,
@@ -45,6 +70,15 @@ public class UserBundleController {
                 bundles.count(account.id()));
     }
 
+    /**
+     * Crea un bundle privado del UUID autenticado con sus etiquetas y selección ordenada.
+     *
+     * @param request Datos validados del bundle y su selección; las escrituras personales incluyen
+     *     control de versión.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return 201 con el detalle personal y su versión inicial.
+     */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     OwnBundleDetails create(
@@ -54,11 +88,31 @@ public class UserBundleController {
         return bundles.create(account.id(), request);
     }
 
+    /**
+     * Consulta únicamente un bundle personal perteneciente al UUID de la sesión.
+     *
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return detalle con versión para editar.
+     */
     @GetMapping("/{bundleId}")
     OwnBundleDetails details(@PathVariable String bundleId, Authentication authentication) {
         return bundles.details(currentAccount.require(authentication).id(), bundleId);
     }
 
+    /**
+     * Guarda una edición del propietario solo si expectedVersion sigue vigente.
+     *
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param request Datos validados del bundle y su selección; las escrituras personales incluyen
+     *     control de versión.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     * @return detalle con la nueva versión; una edición obsoleta produce conflicto.
+     */
     @PatchMapping("/{bundleId}")
     OwnBundleDetails update(
             @PathVariable String bundleId,
@@ -67,6 +121,14 @@ public class UserBundleController {
         return bundles.update(currentAccount.require(authentication).id(), bundleId, request);
     }
 
+    /**
+     * Elimina el bundle personal solo si pertenece a la cuenta; devuelve 204 al completarse.
+     *
+     * @param bundleId UUID del bundle, o su UUID textual o slug cuando así lo exige la ruta
+     *     pública.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol
+     *     correspondiente.
+     */
     @DeleteMapping("/{bundleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void delete(@PathVariable String bundleId, Authentication authentication) {

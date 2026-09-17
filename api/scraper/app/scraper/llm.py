@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `llm`.
+"""Define tipos y políticas puras compartidas por clientes LLM, cooldowns y parsing de
+Retry-After.
 """
 from __future__ import annotations
 
@@ -11,73 +12,70 @@ from typing import Protocol
 
 
 class LLMProviderName(StrEnum):
-    """Enumera los valores admitidos por `LLMProviderName`.
-    """
+    """Identifica los proveedores soportados por el servicio de descripciones."""
     GROQ = "groq"
-    """Constante que define `GROQ`.
-    """
+
     DEEPSEEK = "deepseek"
-    """Constante que define `DEEPSEEK`.
-    """
+
 
 
 @dataclass(frozen=True)
 class LLMProviderConfig:
-    """Define la configuración utilizada por `LLMProvider`.
+    """Agrupa credencial, endpoint y modelo de una llamada LLM.
+
+    Attributes:
+        name: Proveedor.
+        api_key: Credencial de API.
+        base_url: Endpoint base.
+        model: Identificador de modelo.
     """
 
     name: LLMProviderName
-    """Atributo de clase `name` de `LLMProviderConfig`.
-    """
+
     api_key: str
-    """Atributo de clase `api_key` de `LLMProviderConfig`.
-    """
+
     base_url: str
-    """Atributo de clase `base_url` de `LLMProviderConfig`.
-    """
+
     model: str
-    """Atributo de clase `model` de `LLMProviderConfig`.
-    """
+
 
     @property
     def key(self) -> tuple[str, str]:
-        """Ejecuta `key` dentro de `LLMProviderConfig`.
+        """Construye la clave estable de proveedor y modelo para cooldowns.
 
         Returns:
-            tuple[str, str]: Resultado producido por la operación.
+            tupla proveedor-modelo.
         """
         return (self.name.value, self.model)
 
 
 @dataclass(frozen=True)
 class ModelCooldown:
-    """Representa el componente `ModelCooldown`.
+    """Expone un modelo temporalmente bloqueado y el tiempo restante.
+
+    Attributes:
+        provider: Proveedor.
+        model: Modelo.
+        reason: Causa del bloqueo.
+        remaining_seconds: Segundos restantes.
     """
     provider: str
-    """Atributo de clase `provider` de `ModelCooldown`.
-    """
+
     model: str
-    """Atributo de clase `model` de `ModelCooldown`.
-    """
+
     reason: str
-    """Atributo de clase `reason` de `ModelCooldown`.
-    """
+
     remaining_seconds: float
-    """Atributo de clase `remaining_seconds` de `ModelCooldown`.
-    """
+
 
 
 class ModelCooldownStore(Protocol):
-    """Gestiona el almacenamiento de `ModelCooldown`.
-    """
+    """Contrato de lectura e inicio de cooldown por proveedor y modelo."""
     def get(self, provider: LLMProviderConfig) -> ModelCooldown | None:
-        """Ejecuta `get` dentro de `ModelCooldownStore`.
+        """Devuelve un cooldown activo o None.
 
         Args:
-            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
-
-        Returns:
-            ModelCooldown | None: Resultado producido por la operación.
+            provider: Configuración del proveedor LLM.
         """
         ...
 
@@ -88,53 +86,47 @@ class ModelCooldownStore(Protocol):
         reason: str,
         seconds: float,
     ) -> None:
-        """Ejecuta `start` dentro de `ModelCooldownStore`.
+        """Registra un bloqueo hasta que transcurra la duración indicada.
 
         Args:
-            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
-            reason (str): Valor de `reason` utilizado por la operación.
-            seconds (float): Valor de `seconds` utilizado por la operación.
+            provider: Configuración del proveedor LLM.
+            reason: Código de error o causa del cooldown.
+            seconds: Duración del cooldown en segundos.
         """
         ...
 
 
 @dataclass(frozen=True)
 class _CooldownEntry:
-    """Representa el componente `_CooldownEntry`.
-    """
+    """Entrada interna con instante monotónico de expiración y causa."""
     expires_at: float
-    """Atributo de clase `expires_at` de `_CooldownEntry`.
-    """
+
     reason: str
-    """Atributo de clase `reason` de `_CooldownEntry`.
-    """
+
 
 
 class InMemoryModelCooldownStore:
-    """Gestiona el almacenamiento de `InMemoryModelCooldown`.
-    """
+    """Implementación en memoria de cooldowns que elimina entradas caducadas al leerlas."""
 
     def __init__(self, monotonic: Callable[[], float] = time.monotonic) -> None:
-        """Inicializa una instancia de `InMemoryModelCooldownStore`.
+        """Inicializa el almacén con reloj inyectable para pruebas deterministas.
 
         Args:
-            monotonic (Callable[[], float]): Valor de `monotonic` utilizado por la operación.
+            monotonic: Reloj monotónico inyectable para pruebas.
         """
         self._monotonic = monotonic
-        """Estado de instancia asociado a `_monotonic`.
-        """
+
         self._entries: dict[tuple[str, str], _CooldownEntry] = {}
-        """Estado de instancia asociado a `_entries`.
-        """
+
 
     def get(self, provider: LLMProviderConfig) -> ModelCooldown | None:
-        """Ejecuta `get` dentro de `InMemoryModelCooldownStore`.
+        """Calcula tiempo restante y elimina un modelo cuando el cooldown terminó.
 
         Args:
-            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+            provider: Configuración del proveedor LLM.
 
         Returns:
-            ModelCooldown | None: Resultado producido por la operación.
+            ModelCooldown o None.
         """
         entry = self._entries.get(provider.key)
         if entry is None:
@@ -157,12 +149,12 @@ class InMemoryModelCooldownStore:
         reason: str,
         seconds: float,
     ) -> None:
-        """Ejecuta `start` dentro de `InMemoryModelCooldownStore`.
+        """Registra el vencimiento más lejano sin acortar un cooldown existente.
 
         Args:
-            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
-            reason (str): Valor de `reason` utilizado por la operación.
-            seconds (float): Valor de `seconds` utilizado por la operación.
+            provider: Configuración del proveedor LLM.
+            reason: Código de error o causa del cooldown.
+            seconds: Duración del cooldown en segundos.
         """
         if seconds <= 0:
             return
@@ -176,7 +168,13 @@ class InMemoryModelCooldownStore:
 
 
 class LLMGenerationError(Exception):
-    """Representa un error relacionado con `LLMGeneration`.
+    """Error de generación con proveedor, modelo, posibilidad de reintento y cooldown sugerido.
+
+    Attributes:
+        reason: Código seguro.
+        provider, model: Origen.
+        retryable: Indica reintento.
+        cooldown_seconds: Duración sugerida.
     """
     def __init__(
         self,
@@ -187,56 +185,48 @@ class LLMGenerationError(Exception):
         retryable: bool = False,
         cooldown_seconds: float | None = None,
     ) -> None:
-        """Inicializa una instancia de `LLMGenerationError`.
+        """Conserva el contexto de un fallo LLM para la política de fallback.
 
         Args:
-            reason (str): Valor de `reason` utilizado por la operación.
-            provider (str | None): Valor de `provider` utilizado por la operación.
-            model (str | None): Modelo utilizado por la operación.
-            retryable (bool): Valor de `retryable` utilizado por la operación.
-            cooldown_seconds (float | None): Valor de `cooldown_seconds` utilizado por la operación.
+            reason: Código de error o causa del cooldown.
+            provider: Configuración del proveedor LLM.
+            model: Modelo LLM asociado al error, si se conoce.
+            retryable: Indica si el consumidor puede reintentar.
+            cooldown_seconds: Duración opcional que propone el error.
         """
         super().__init__(reason)
         self.reason = reason
-        """Estado de instancia asociado a `reason`.
-        """
+
         self.provider = provider
-        """Estado de instancia asociado a `provider`.
-        """
+
         self.model = model
-        """Estado de instancia asociado a `model`.
-        """
+
         self.retryable = retryable
-        """Estado de instancia asociado a `retryable`.
-        """
+
         self.cooldown_seconds = cooldown_seconds
-        """Estado de instancia asociado a `cooldown_seconds`.
-        """
+
 
 
 class NoLLMProviderConfigured(LLMGenerationError):
-    """Representa el componente `NoLLMProviderConfigured`.
-    """
+    """Indica que ninguna credencial LLM está configurada."""
     pass
 
 
 TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
-"""Constante que define `TRANSIENT_HTTP_STATUSES`.
-"""
+
 _DURATION_TOKEN = re.compile(r"(?P<amount>\d+(?:\.\d+)?)(?P<unit>ms|s|m|h|d)", re.I)
-"""Constante que define `_DURATION_TOKEN`.
-"""
+
 
 
 def unique_model_ids(primary: str, fallbacks: tuple[str | StrEnum, ...]) -> tuple[str, ...]:
-    """Ejecuta la operación `unique_model_ids`.
+    """Combina modelo principal y fallbacks eliminando vacíos y duplicados.
 
     Args:
-        primary (str): Valor de `primary` utilizado por la operación.
-        fallbacks (tuple[str | StrEnum, ...]): Valor de `fallbacks` utilizado por la operación.
+        primary: Modelo principal configurado.
+        fallbacks: Modelos alternativos configurados.
 
     Returns:
-        tuple[str, ...]: Resultado producido por la operación.
+        tupla de IDs en orden.
     """
 
     models: list[str] = []
@@ -252,14 +242,14 @@ def cooldown_from_headers(
     *,
     default_seconds: float,
 ) -> float:
-    """Ejecuta la operación `cooldown_from_headers`.
+    """Interpreta Retry-After y cabeceras de reset en segundos y conserva el máximo.
 
     Args:
-        headers (Mapping[str, str]): Cabeceras HTTP utilizadas por la solicitud.
-        default_seconds (float): Valor de `default_seconds` utilizado por la operación.
+        headers: Cabeceras HTTP del proveedor.
+        default_seconds: Espera utilizada si no hay una cabecera interpretable.
 
     Returns:
-        float: Resultado producido por la operación.
+        espera calculada.
     """
 
     normalized_headers = {key.lower(): value for key, value in headers.items()}
@@ -273,13 +263,13 @@ def cooldown_from_headers(
 
 
 def parse_duration_seconds(value: str | None) -> float | None:
-    """Analiza la operación `duration_seconds`.
+    """Acepta segundos decimales o expresiones ms/s/m/h/d y suma sus tokens.
 
     Args:
-        value (str | None): Valor que debe procesarse.
+        value: Texto o tamaño que se interpreta.
 
     Returns:
-        float | None: Resultado producido por la operación.
+        segundos o None.
     """
     if not value:
         return None

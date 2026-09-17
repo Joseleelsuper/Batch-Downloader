@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `catalog_projection`.
+"""Comprueba y repara la proyección materializada de disponibilidad y contadores del catálogo
+MySQL.
 """
 from __future__ import annotations
 
@@ -10,51 +11,50 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @dataclass(frozen=True)
 class CatalogProjectionReport:
-    """Representa el componente `CatalogProjectionReport`.
+    """Compara proyecciones guardadas con recuentos derivados y permite informar desajustes sin
+    efectuar reparaciones.
+
+    Attributes:
+        source_mismatches, app_mismatches: Fuentes y aplicaciones cuyos contadores
+            materializados no coinciden.
+        counter_row_present: Existencia de la fila singleton de totales.
+        stored_total, stored_available, stored_review, stored_missing, stored_version:
+            Recuentos y revisión almacenados, o None si falta la fila.
+        expected_total, expected_available, expected_review, expected_missing: Recuentos
+            calculados a partir del catálogo actual.
     """
     source_mismatches: int
-    """Atributo de clase `source_mismatches` de `CatalogProjectionReport`.
-    """
+
     app_mismatches: int
-    """Atributo de clase `app_mismatches` de `CatalogProjectionReport`.
-    """
+
     counter_row_present: bool
-    """Atributo de clase `counter_row_present` de `CatalogProjectionReport`.
-    """
+
     stored_total: int | None
-    """Atributo de clase `stored_total` de `CatalogProjectionReport`.
-    """
+
     stored_available: int | None
-    """Atributo de clase `stored_available` de `CatalogProjectionReport`.
-    """
+
     stored_review: int | None
-    """Atributo de clase `stored_review` de `CatalogProjectionReport`.
-    """
+
     stored_missing: int | None
-    """Atributo de clase `stored_missing` de `CatalogProjectionReport`.
-    """
+
     stored_version: int | None
-    """Atributo de clase `stored_version` de `CatalogProjectionReport`.
-    """
+
     expected_total: int
-    """Atributo de clase `expected_total` de `CatalogProjectionReport`.
-    """
+
     expected_available: int
-    """Atributo de clase `expected_available` de `CatalogProjectionReport`.
-    """
+
     expected_review: int
-    """Atributo de clase `expected_review` de `CatalogProjectionReport`.
-    """
+
     expected_missing: int
-    """Atributo de clase `expected_missing` de `CatalogProjectionReport`.
-    """
+
 
     @property
     def consistent(self) -> bool:
-        """Ejecuta `consistent` dentro de `CatalogProjectionReport`.
+        """Exige ausencia de desajustes, fila de contadores presente, partición válida y
+        coincidencia de todos los totales.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True únicamente si toda la proyección coincide.
         """
         stored_partition = (
             self.stored_total is not None
@@ -76,33 +76,39 @@ class CatalogProjectionReport:
         )
 
     def log_fields(self) -> dict[str, int | bool | None]:
-        """Ejecuta `log_fields` dentro de `CatalogProjectionReport`.
+        """Convierte el informe en campos serializables y añade el resultado derivado de
+        consistencia.
 
         Returns:
-            dict[str, int | bool | None]: Mapa con los datos producidos por la operación.
+            mapa apto para diagnóstico estructurado.
         """
         return {**asdict(self), "consistent": self.consistent}
 
 
 class CatalogProjectionRepository:
-    """Gestiona la persistencia y consulta de `CatalogProjection`.
+    """Ejecuta controles y reparación administrativa sobre la sesión del llamador; repair
+    confirma su propia operación de mantenimiento.
+
+    See Also:
+        CatalogProjectionReport: Expone diferencias y consistencia final.
     """
 
     def __init__(self, session: AsyncSession) -> None:
-        """Inicializa una instancia de `CatalogProjectionRepository`.
+        """Conserva la sesión donde se ejecutarán las consultas de mantenimiento.
 
         Args:
-            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+            session: Sesión asíncrona del llamador; se comparte por composición, nunca entre
+                workers concurrentes.
         """
         self.session = session
-        """Estado de instancia asociado a `session`.
-        """
+
 
     async def check(self) -> CatalogProjectionReport:
-        """Ejecuta `check` dentro de `CatalogProjectionRepository`.
+        """Recuenta artefactos, fuentes y aplicaciones y compara las proyecciones y el singleton
+        sin modificarlos.
 
         Returns:
-            CatalogProjectionReport: Resultado producido por la operación.
+            informe de diferencias y totales observados.
         """
         source_mismatches = int(
             await self.session.scalar(
@@ -196,10 +202,13 @@ class CatalogProjectionRepository:
     async def repair(self) -> CatalogProjectionReport:
         # El timeout de transacción de InnoDB gobierna este bloqueo de fila y, a
         # diferencia de un bloqueo consultivo con nombre, no puede filtrarse al pool.
-        """Ejecuta `repair` dentro de `CatalogProjectionRepository`.
+        """Bloquea el singleton, recalcula contadores y proyecciones y confirma la reparación
+        antes de volver a comprobarla.
+        Ante una excepción solicita rollback y propaga el fallo; la comprobación posterior
+        ocurre después del commit.
 
         Returns:
-            CatalogProjectionReport: Resultado producido por la operación.
+            informe de consistencia tras la reparación.
         """
         try:
             await self.session.execute(

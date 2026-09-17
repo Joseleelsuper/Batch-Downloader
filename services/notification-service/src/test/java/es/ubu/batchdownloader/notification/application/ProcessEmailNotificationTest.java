@@ -18,15 +18,20 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Agrupa los escenarios de prueba de {@code ProcessEmailNotificationTest}.
+ * Comprueba reserva, deduplicación y clasificación de fallos del procesamiento de correo con
+ * puertos simulados.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.application.ProcessEmailNotification
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @ExtendWith(MockitoExtension.class)
 class ProcessEmailNotificationTest {
 
     /**
-     * Constante que define {@code EVENT_ID}.
+     * Valor compartido que fija e v e n t  i d para el comportamiento del componente.
      */
     private static final UUID EVENT_ID = UUID.fromString("83e7ddfe-0fb4-4f19-9694-137ada2bb39c");
 
@@ -52,7 +57,8 @@ class ProcessEmailNotificationTest {
     private EmailNotification notification;
 
     /**
-     * Prepara el estado necesario para los escenarios de prueba.
+     * Crea puertos aislados y una solicitud de ZIP disponible con identidad estable para cada
+     * prueba.
      */
     @BeforeEach
     void setUp() {
@@ -71,35 +77,36 @@ class ProcessEmailNotificationTest {
     }
 
     /**
-     * Comprueba el escenario {@code sendsAndMarksANewEventAsProcessed}.
+     * Comprueba que una reserva adquirida provoca un envío y después la confirmación del evento.
      */
     @Test
     void sendsAndMarksANewEventAsProcessed() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
                 .thenReturn(NotificationInbox.ClaimResult.ACQUIRED);
 
-        processor.execute(notification);
+        processor.handle(notification);
 
         verify(sender).send(notification);
         verify(inbox).markProcessed(EVENT_ID);
     }
 
     /**
-     * Comprueba el escenario {@code ignoresAnEventAlreadyProcessed}.
+     * Comprueba que una entrega ya confirmada no vuelve a enviarse ni cambia el inbox.
      */
     @Test
     void ignoresAnEventAlreadyProcessed() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
                 .thenReturn(NotificationInbox.ClaimResult.ALREADY_PROCESSED);
 
-        processor.execute(notification);
+        processor.handle(notification);
 
         verify(sender, never()).send(notification);
         verify(inbox, never()).markProcessed(EVENT_ID);
     }
 
     /**
-     * Comprueba el escenario {@code recordsTheFailureAndPropagatesItForRabbitRetry}.
+     * Comprueba que un fallo de envío se registra y se propaga con su causa para que Rabbit pueda
+     * reintentarlo.
      */
     @Test
     void recordsTheFailureAndPropagatesItForRabbitRetry() {
@@ -109,7 +116,7 @@ class ProcessEmailNotificationTest {
                 new org.springframework.mail.MailSendException("SMTP no disponible");
         org.mockito.Mockito.doThrow(mailFailure).when(sender).send(notification);
 
-        assertThatThrownBy(() -> processor.execute(notification))
+        assertThatThrownBy(() -> processor.handle(notification))
                 .isInstanceOf(NotificationProcessingException.class)
                 .hasCause(mailFailure);
 
@@ -118,20 +125,24 @@ class ProcessEmailNotificationTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsAnEventThatIsBeingProcessedByAnotherConsumer}.
+     * Comprueba que una reserva ocupada impide enviar y devuelve un fallo de procesamiento
+     * reintentable.
      */
     @Test
     void rejectsAnEventThatIsBeingProcessedByAnotherConsumer() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
                 .thenReturn(NotificationInbox.ClaimResult.BUSY);
 
-        assertThatThrownBy(() -> processor.execute(notification))
+        assertThatThrownBy(() -> processor.handle(notification))
                 .isInstanceOf(NotificationProcessingException.class)
                 .hasMessageContaining(EVENT_ID.toString());
 
         verify(sender, never()).send(notification);
     }
 
+    /**
+     * Comprueba que se propaga la misma excepción temporal con la demora que indicó el proveedor.
+     */
     @Test
     void preservesRetryAfterMetadataForRabbitRetryHandling() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
@@ -140,7 +151,7 @@ class ProcessEmailNotificationTest {
                 "resend_temporarily_unavailable", java.time.Duration.ofSeconds(12));
         org.mockito.Mockito.doThrow(failure).when(sender).send(notification);
 
-        assertThatThrownBy(() -> processor.execute(notification))
+        assertThatThrownBy(() -> processor.handle(notification))
                 .isSameAs(failure)
                 .isInstanceOfSatisfying(RetryableNotificationException.class,
                         exception -> org.assertj.core.api.Assertions.assertThat(exception.retryAfter())
@@ -148,6 +159,10 @@ class ProcessEmailNotificationTest {
         verify(inbox).markFailed(EVENT_ID, "resend_temporarily_unavailable");
     }
 
+    /**
+     * Comprueba que el fallo permanente conserva su clasificación para rechazar la entrega sin
+     * reintentos.
+     */
     @Test
     void propagatesPermanentFailuresForImmediateDeadLettering() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
@@ -156,7 +171,7 @@ class ProcessEmailNotificationTest {
                 new PermanentNotificationException("resend_request_rejected");
         org.mockito.Mockito.doThrow(failure).when(sender).send(notification);
 
-        assertThatThrownBy(() -> processor.execute(notification)).isSameAs(failure);
+        assertThatThrownBy(() -> processor.handle(notification)).isSameAs(failure);
         verify(inbox).markFailed(EVENT_ID, "resend_request_rejected");
     }
 }

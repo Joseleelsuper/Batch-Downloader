@@ -1,6 +1,5 @@
 {
   "account.profile.failed": "No se pudo actualizar el perfil.",
-  "account.profile.providers": "Métodos de acceso: {providers}",
   "account.profile.saved": "Perfil actualizado.",
   "account.profile.title": "Mi perfil"
 }

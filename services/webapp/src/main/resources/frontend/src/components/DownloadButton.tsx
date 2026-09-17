@@ -2,15 +2,17 @@ import { Download } from 'lucide-react';
 import { downloadJobFileUrl } from '../api/downloads';
 import { useDownloadJob } from '../hooks/useDownloadJob';
 import { useTranslation } from '../services/i18n';
+import type { OperatingSystem } from '../types/catalog';
 
 interface Props {
   appId: string;
   appName?: string;
   sourceRef?: string;
+  operatingSystem?: OperatingSystem;
   disabled?: boolean;
 }
 
-export function DownloadButton({ appId, appName, sourceRef, disabled }: Props) {
+export function DownloadButton({ appId, appName, sourceRef, operatingSystem, disabled }: Readonly<Props>) {
   const t = useTranslation();
   const { job, starting, error, start } = useDownloadJob();
   const ready = Boolean(job && ['READY', 'PARTIAL', 'MANUAL_ONLY'].includes(job.status));
@@ -29,7 +31,7 @@ export function DownloadButton({ appId, appName, sourceRef, disabled }: Props) {
       return;
     }
     void start(
-      { appIds: [appId], sourceRef },
+      { appIds: [appId], sourceRef, ...(operatingSystem ? { operatingSystems: [operatingSystem] } : {}) },
       t('download.job.appLabel', { name: appName || appId }),
     ).catch(() => undefined);
   }

@@ -8,8 +8,7 @@ MIGRATION = (
     / "versions"
     / "20260716_0010_catalog_read_indexes.py"
 )
-"""Constante que define `MIGRATION`.
-"""
+
 
 
 def test_catalog_read_indexes_are_owned_by_alembic() -> None:

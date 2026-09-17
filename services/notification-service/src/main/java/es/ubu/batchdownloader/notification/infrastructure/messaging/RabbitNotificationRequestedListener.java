@@ -17,34 +17,50 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
- * Procesa los eventos recibidos por {@code RabbitNotificationRequestedListener}.
+ * Recibe solicitudes de correo de RabbitMQ y las entrega al caso de uso tras validar JSON y
+ * contrato.
+ *
+ * Rechaza explícitamente los fallos permanentes sin reencolarlos. Los demás fallos se propagan
+ * a la política de reintentos, y cada resultado actualiza la señal de salud del consumidor.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.messaging.NotificationRequestedMessageMapper
+ *
+ * @see es.ubu.batchdownloader.notification.application.NotificationHandler
+ * @see es.ubu.batchdownloader.notification.config.NotificationRetryConfiguration
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @Component
 public class RabbitNotificationRequestedListener {
 
     /**
-     * Estado {@code eventReader} mantenido por {@code RabbitNotificationRequestedListener}.
+     * Lector inmutable del sobre que rechaza propiedades desconocidas y claves duplicadas.
      */
     private final ObjectReader eventReader;
     /**
-     * Dependencia {@code messageMapper} utilizada por {@code RabbitNotificationRequestedListener}.
+     * Validador del contrato y conversor a la solicitud de dominio.
      */
     private final NotificationRequestedMessageMapper messageMapper;
     /**
-     * Estado {@code processor} mantenido por {@code RabbitNotificationRequestedListener}.
+     * Caso de uso que reserva, envía y confirma cada evento.
      */
     private final NotificationHandler handler;
     /** Señales operativas del consumidor. */
     private final NotificationWorkerHeartbeat heartbeat;
 
     /**
-     * Inicializa una instancia de {@code RabbitNotificationRequestedListener}.
+     * Crea un lector que rechaza claves duplicadas y campos desconocidos y conecta validación,
+     * procesamiento y salud.
      *
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param messageMapper Valor de {@code messageMapper} utilizado por la operación.
-     * @param handler cadena de políticas que procesa la notificación.
+     * @param objectMapper Configuración base de JSON de la que se crea un lector estricto
+     *     independiente.
+     *
+     * @param messageMapper Validador del contrato y conversor a la solicitud de dominio.
+     * @param handler Caso de uso que reserva, envía y confirma cada evento.
+     * @param heartbeat Estado operativo que registra el resultado del consumidor.
      */
     @Autowired
     public RabbitNotificationRequestedListener(
@@ -62,10 +78,17 @@ public class RabbitNotificationRequestedListener {
     }
 
     /**
-     * Ejecuta la operación {@code receive}.
+     * Valida y procesa una entrega; confirma el avance operativo o registra el fallo antes de
+     * propagarlo.
      *
-     * @param payload Carga de datos recibida por la operación.
-     * @param routingKey Valor de {@code routingKey} utilizado por la operación.
+     * @param payload Bytes del sobre JSON recibidos de RabbitMQ.
+     * @param routingKey Clave de enrutamiento recibida de RabbitMQ.
+     * @throws org.springframework.amqp.AmqpRejectAndDontRequeueException si el procesamiento
+     *     comunica un fallo permanente.
+     *
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     el JSON o el contrato de entrada no son válidos.
      */
     @RabbitListener(queues = "${notification.rabbit.queue}")
     public void receive(
@@ -86,12 +109,14 @@ public class RabbitNotificationRequestedListener {
     }
 
     /**
-     * Ejecuta la operación {@code deserialize}.
+     * Lee el sobre con detección estricta de duplicados y campos desconocidos, sin registrar su
+     * contenido.
      *
-     * @param payload Carga de datos recibida por la operación.
-     * @return Resultado producido por {@code deserialize}.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param payload Bytes del sobre JSON recibidos de RabbitMQ.
+     * @return sobre todavía pendiente de validación funcional.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     Jackson no puede leer los bytes conforme al esquema del mensaje.
      */
     private NotificationRequestedMessage deserialize(byte[] payload) {
         try {

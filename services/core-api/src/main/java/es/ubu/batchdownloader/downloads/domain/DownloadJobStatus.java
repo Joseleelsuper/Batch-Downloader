@@ -1,56 +1,62 @@
 package es.ubu.batchdownloader.downloads.domain;
 
 /**
- * Enumera los valores admitidos por {@code DownloadJobStatus}.
+ * Representa admisión, transferencia, empaquetado y resultado global del ZIP; un resultado parcial
+ * o manual puede descargarse.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJob
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadItemStatus
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 public enum DownloadJobStatus {
     /**
-     * Constante que define {@code QUEUED}.
+     * Espera capacidad o reserva para comenzar.
      */
     QUEUED,
     /**
-     * Constante que define {@code RESOLVING}.
+     * Resuelve y revalida la fuente antes de transferir bytes.
      */
     RESOLVING,
     /**
-     * Constante que define {@code DOWNLOADING}.
+     * Transfiere los instaladores admitidos.
      */
     DOWNLOADING,
     /**
-     * Constante que define {@code PACKAGING}.
+     * Escribe el ZIP tras terminar todos los elementos.
      */
     PACKAGING,
     /**
-     * Constante que define {@code READY}.
+     * El ZIP está completo y disponible.
      */
     READY,
     /**
-     * Constante que define {@code PARTIAL}.
+     * El ZIP contiene resultados utilizables junto con elementos fallidos.
      */
     PARTIAL,
     /**
-     * Constante que define {@code MANUAL_ONLY}.
+     * El ZIP contiene únicamente alternativas manuales.
      */
     MANUAL_ONLY,
     /**
-     * Constante que define {@code FAILED}.
+     * El procesamiento terminó con fallo.
      */
     FAILED,
     /**
-     * Constante que define {@code CANCELLED}.
+     * El solicitante canceló el procesamiento.
      */
     CANCELLED,
     /**
-     * Constante que define {@code EXPIRED}.
+     * Terminó la vigencia del ZIP y se retiró su clave de entrega.
      */
     EXPIRED;
 
     /**
-     * Ejecuta la operación {@code terminal}.
+     * Identifica trabajos cuyo resultado impide aplicar más progreso ordinario.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return true para READY, PARTIAL, MANUAL_ONLY, FAILED, CANCELLED o EXPIRED.
      */
     public boolean terminal() {
         return this == READY
@@ -62,9 +68,10 @@ public enum DownloadJobStatus {
     }
 
     /**
-     * Ejecuta la operación {@code downloadable}.
+     * Distingue resultados que pueden conservar un ZIP utilizable, incluso con instaladores
+     * omitidos o accesos manuales.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return true para READY, PARTIAL o MANUAL_ONLY.
      */
     public boolean downloadable() {
         return this == READY || this == PARTIAL || this == MANUAL_ONLY;

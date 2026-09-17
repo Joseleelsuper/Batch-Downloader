@@ -1,11 +1,19 @@
-"""Implementa las responsabilidades del módulo `pipeline`.
+"""Mantiene colas persistentes, reservas de consumidores, recuperación y vistas operativas del
+scraper.
+Las transiciones hacen flush dentro de la sesión cedida; el coordinador conserva el commit de
+cada operación.
+
+See Also:
+    app.scraper.pipeline_support: Abre sesiones independientes para las transiciones de
+        workers.
+    app.scraper.worker_recovery: Selecciona reintentos y resultados terminales.
 """
 from __future__ import annotations
 
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select
@@ -24,179 +32,177 @@ from app.db.models import (
 )
 
 QUEUE_SEARCHER_FILTER = "searcher_filter"
-"""Constante que define `QUEUE_SEARCHER_FILTER`.
-"""
+
 QUEUE_FILTER_SCRAPER = "filter_scraper"
-"""Constante que define `QUEUE_FILTER_SCRAPER`.
-"""
+
 QUEUE_SCRAPER_SO_FILTER = "scraper_so_filter"
-"""Constante que define `QUEUE_SCRAPER_SO_FILTER`.
-"""
+
 QUEUE_SO_FILTER_DESCRIPTOR = "so_filter_descriptor"
-"""Constante que define `QUEUE_SO_FILTER_DESCRIPTOR`.
-"""
+
 QUEUE_MANUAL_INSTALLER_ENRICHMENT = "manual_installer_enrichment"
-"""Constante que define `QUEUE_MANUAL_INSTALLER_ENRICHMENT`.
-"""
+
 QUEUE_WEBSITE_APP_DISCOVERY = "website_app_discovery"
-"""Constante que define `QUEUE_WEBSITE_APP_DISCOVERY`.
-"""
+
 
 # Las instantáneas alimentan el monitor administrativo en vivo; son vistas previas,
 # nunca un archivo de una página oficial. Acota la entrada antes de sanearla para que
 # una página grande no monopolice un worker del scraper durante una pasada de regex.
 MAX_SNAPSHOT_HTML_BYTES = 24_000
-"""Constante que define `MAX_SNAPSHOT_HTML_BYTES`.
-"""
+
 
 STATUS_QUEUED = "queued"
-"""Constante que define `STATUS_QUEUED`.
-"""
+
 STATUS_IN_PROGRESS = "in_progress"
-"""Constante que define `STATUS_IN_PROGRESS`.
-"""
+
 STATUS_COMPLETED = "completed"
-"""Constante que define `STATUS_COMPLETED`.
-"""
+
 STATUS_DISCARDED = "discarded"
-"""Constante que define `STATUS_DISCARDED`.
-"""
+
 STATUS_FAILED = "failed"
-"""Constante que define `STATUS_FAILED`.
-"""
+
 
 
 @dataclass(frozen=True)
 class QueuePreviewItem:
-    """Representa un elemento de `QueuePreview`.
+    """Resume una tarea activa para mostrar progreso sin cargar su payload completo.
+
+    Attributes:
+        id, package_id, app_name: Identidades de tarea y paquete y nombre visible opcional.
+        status, attempts, updated_at: Estado, intentos realizados y última modificación.
     """
     id: str
-    """Atributo de clase `id` de `QueuePreviewItem`.
-    """
+
     package_id: str
-    """Atributo de clase `package_id` de `QueuePreviewItem`.
-    """
+
     app_name: str | None
-    """Atributo de clase `app_name` de `QueuePreviewItem`.
-    """
+
     status: str
-    """Atributo de clase `status` de `QueuePreviewItem`.
-    """
+
     attempts: int
-    """Atributo de clase `attempts` de `QueuePreviewItem`.
-    """
+
     updated_at: object
-    """Atributo de clase `updated_at` de `QueuePreviewItem`.
-    """
+
 
 
 @dataclass(frozen=True)
 class QueueState:
-    """Representa el componente `QueueState`.
+    """Combina recuentos por estado con una muestra acotada de tareas activas de una cola.
+
+    Attributes:
+        queue: Etapa persistida del pipeline.
+        counts: Recuentos por estado.
+        items: Vista previa de tareas en cola o en procesamiento.
     """
     queue: str
-    """Atributo de clase `queue` de `QueueState`.
-    """
+
     counts: dict[str, int]
-    """Atributo de clase `counts` de `QueueState`.
-    """
+
     items: list[QueuePreviewItem]
-    """Atributo de clase `items` de `QueueState`.
-    """
+
 
 
 @dataclass(frozen=True)
 class WorkerSnapshotView:
-    """Representa el componente `WorkerSnapshotView`.
+    """Expone la vista previa vigente más reciente de una etapa para el monitor administrativo.
+
+    Attributes:
+        stage, package_id, app_name: Etapa y aplicación observadas.
+        url, html: Página y HTML de muestra, ya acotado al guardarlo.
+        captured_at: Instante UTC de captura.
     """
     stage: str
-    """Atributo de clase `stage` de `WorkerSnapshotView`.
-    """
+
     package_id: str | None
-    """Atributo de clase `package_id` de `WorkerSnapshotView`.
-    """
+
     app_name: str | None
-    """Atributo de clase `app_name` de `WorkerSnapshotView`.
-    """
+
     url: str | None
-    """Atributo de clase `url` de `WorkerSnapshotView`.
-    """
+
     html: str | None
-    """Atributo de clase `html` de `WorkerSnapshotView`.
-    """
+
     captured_at: object
-    """Atributo de clase `captured_at` de `WorkerSnapshotView`.
-    """
+
 
 
 @dataclass(frozen=True)
 class MetricSnapshotView:
-    """Representa el componente `MetricSnapshotView`.
+    """Expone una muestra histórica de disponibilidad y profundidad de las cuatro colas del
+    pipeline.
+
+    Attributes:
+        available, review, unavailable: Recuentos de aplicaciones por estado observado de sus
+            fuentes.
+        queued_searcher_filter, queued_filter_scraper, queued_scraper_so_filter,
+            queued_so_filter_descriptor: Trabajo en cola o en procesamiento por transición
+            entre etapas.
+        captured_at: Instante de la muestra.
     """
     available: int
-    """Atributo de clase `available` de `MetricSnapshotView`.
-    """
+
     review: int
-    """Atributo de clase `review` de `MetricSnapshotView`.
-    """
+
     unavailable: int
-    """Atributo de clase `unavailable` de `MetricSnapshotView`.
-    """
+
     queued_searcher_filter: int
-    """Atributo de clase `queued_searcher_filter` de `MetricSnapshotView`.
-    """
+
     queued_filter_scraper: int
-    """Atributo de clase `queued_filter_scraper` de `MetricSnapshotView`.
-    """
+
     queued_scraper_so_filter: int
-    """Atributo de clase `queued_scraper_so_filter` de `MetricSnapshotView`.
-    """
+
     queued_so_filter_descriptor: int
-    """Atributo de clase `queued_so_filter_descriptor` de `MetricSnapshotView`.
-    """
+
     captured_at: object
-    """Atributo de clase `captured_at` de `MetricSnapshotView`.
-    """
+
 
 
 @dataclass(frozen=True)
 class QueueMaintenanceResult:
-    """Representa el resultado de `QueueMaintenance`.
+    """Resume una acción administrativa de mantenimiento y el número de tareas afectadas.
+
+    Attributes:
+        action: Nombre estable de la operación ejecutada.
+        affected: Cantidad de tareas modificadas.
     """
     action: str
-    """Atributo de clase `action` de `QueueMaintenanceResult`.
-    """
+
     affected: int
-    """Atributo de clase `affected` de `QueueMaintenanceResult`.
-    """
+
 
 
 class PipelineRepository:
-    """Gestiona la persistencia y consulta de `Pipeline`.
+    """Selecciona y modifica tareas durables y datos del monitor en la sesión de una operación.
+    Reserva trabajo con SKIP LOCKED y conserva la identidad única por cola y paquete al
+    reencolar.
+
+    See Also:
+        app.db.models.ScraperWorkItem: Persiste reserva, prioridad e intentos.
+        app.scraper.pipeline_runtime: Coordina las etapas que consumen estas colas.
     """
     def __init__(self, session: AsyncSession) -> None:
-        """Inicializa una instancia de `PipelineRepository`.
+        """Conserva la sesión que controla la transacción de cada transición del pipeline.
 
         Args:
-            session (AsyncSession): Sesión de base de datos utilizada por la operación.
+            session: Sesión asíncrona del llamador; ninguna operación de este repositorio
+                confirma la transacción.
         """
         self.session = session
-        """Estado de instancia asociado a `session`.
-        """
+
 
     async def reset_expired_leases(self) -> int:
-        """Restablece la operación `expired_leases`.
+        """Delega la recuperación de reservas vencidas o ausentes en la misma política de trabajo
+        atascado.
 
         Returns:
-            int: Resultado producido por la operación.
+            número de tareas reencoladas.
         """
         return await self.recover_stuck()
 
     async def recover_stuck(self) -> int:
-        """Recupera la operación `stuck`.
+        """Selecciona tareas en procesamiento con reserva vencida o sin fecha, libera su
+        propietario y limpia el error anterior.
 
         Returns:
-            int: Número de elementos afectados por la operación.
+            número de tareas disponibles de nuevo.
         """
         now = utc_now()
         result = await self.session.scalars(
@@ -209,22 +215,14 @@ class PipelineRepository:
                 )
             )
         )
-        items = list(result)
-        for item in items:
-            item.status = STATUS_QUEUED
-            item.lease_owner = None
-            item.lease_expires_at = None
-            item.available_at = now
-            item.last_error = None
-            item.updated_at = now
-        await self.session.flush()
-        return len(items)
+        return await self._requeue_items(list(result), now)
 
     async def recover_orphaned_run_items(self) -> int:
-        """Recupera la operación `orphaned_run_items`.
+        """Libera tareas en procesamiento sin ejecución o asociadas a una ejecución terminada,
+        aunque su reserva aún no haya caducado.
 
         Returns:
-            int: Número de elementos afectados por la operación.
+            número de tareas reencoladas con motivo scheduler_restart_recovery.
         """
         now = utc_now()
         inactive_run_ids = select(ScrapeRun.id).where(
@@ -240,34 +238,40 @@ class PipelineRepository:
                 )
             )
         )
-        items = list(result)
-        for item in items:
-            item.status = STATUS_QUEUED
-            item.lease_owner = None
-            item.lease_expires_at = None
-            item.available_at = now
-            item.last_error = "scheduler_restart_recovery"
-            item.updated_at = now
-        await self.session.flush()
-        return len(items)
+        return await self._requeue_items(list(result), now, error="scheduler_restart_recovery")
 
     async def retry_failed(self) -> int:
-        """Reintenta la operación `failed`.
+        """Selecciona solo tareas fallidas y las deja disponibles de nuevo sin reiniciar su
+        contador de intentos.
 
         Returns:
-            int: Número de elementos afectados por la operación.
+            número de tareas reencoladas con error anterior limpio.
         """
         now = utc_now()
         result = await self.session.scalars(
             select(ScraperWorkItem).where(ScraperWorkItem.status == STATUS_FAILED)
         )
-        items = list(result)
+        return await self._requeue_items(list(result), now)
+
+    async def _requeue_items(
+        self, items: list[ScraperWorkItem], now: datetime, error: str | None = None
+    ) -> int:
+        """Libera las reservas de tareas seleccionadas y las deja disponibles para reintento.
+
+        Args:
+            items: Tareas ya seleccionadas según la política de recuperación del llamador.
+            now: Instante UTC sin tzinfo para disponibilidad y última modificación.
+            error: Motivo que debe quedar en la tarea; None limpia el error anterior.
+
+        Returns:
+            Número de tareas reencoladas, después de hacer flush sin confirmar la transacción.
+        """
         for item in items:
             item.status = STATUS_QUEUED
             item.lease_owner = None
             item.lease_expires_at = None
             item.available_at = now
-            item.last_error = None
+            item.last_error = error
             item.updated_at = now
         await self.session.flush()
         return len(items)
@@ -283,19 +287,26 @@ class PipelineRepository:
         priority: int = 0,
         force: bool = False,
     ) -> ScraperWorkItem:
-        """Ejecuta `enqueue` dentro de `PipelineRepository`.
+        """Crea o reutiliza la tarea única por cola y paquete, conserva tareas en progreso y
+        reabre estados admitidos por la política de la etapa.
+        Un cambio de ejecución reinicia los intentos; un cambio de huella o force permite
+        regenerar contenido completado en las etapas correspondientes.
 
         Args:
-            queue (str): Valor de `queue` utilizado por la operación.
-            package_id (str): Identificador de `package` utilizado por la operación.
-            app_name (str | None): Valor de `app_name` utilizado por la operación.
-            payload (dict[str, Any]): Carga de datos recibida por la operación.
-            run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
-            priority (int): Valor de `priority` utilizado por la operación.
-            force (bool): Valor de `force` utilizado por la operación.
+            queue: Nombre persistido de la cola o etapa del pipeline.
+            package_id: Identidad de paquete u operación, única dentro de cada cola.
+            app_name: Nombre visible de aplicación, opcional durante las primeras etapas.
+            payload: Datos de entrada serializables, incluida input_hash cuando la etapa
+                detecta cambios.
+            run_id: Ejecución asociada; None no restringe la consulta o permite trabajo
+                independiente.
+            priority: Prioridad numérica; los valores mayores se reservan primero.
+            force: True permite reprocesar tareas completadas de filtro de plataformas o
+                descripción.
 
         Returns:
-            ScraperWorkItem: Resultado producido por la operación.
+            tarea creada o reutilizada, que puede seguir activa o completada si no corresponde
+                reencolarla.
         """
         existing = await self.session.scalar(
             select(ScraperWorkItem)
@@ -357,14 +368,14 @@ class PipelineRepository:
         return item
 
     async def has_active_item(self, queue: str, package_id: str) -> bool:
-        """Indica si existe la operación `active_item`.
+        """Comprueba si el paquete tiene trabajo en cola o en procesamiento en la etapa indicada.
 
         Args:
-            queue (str): Valor de `queue` utilizado por la operación.
-            package_id (str): Identificador de `package` utilizado por la operación.
+            queue: Nombre persistido de la cola o etapa del pipeline.
+            package_id: Identidad de paquete u operación, única dentro de cada cola.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si existe trabajo activo.
         """
         item_id = await self.session.scalar(
             select(ScraperWorkItem.id)
@@ -376,14 +387,15 @@ class PipelineRepository:
         return item_id is not None
 
     async def item_statuses(self, queue: str, package_ids: list[str]) -> dict[str, str]:
-        """Ejecuta `item_statuses` dentro de `PipelineRepository`.
+        """Consulta los estados existentes de un conjunto de paquetes en una sola cola.
 
         Args:
-            queue (str): Valor de `queue` utilizado por la operación.
-            package_ids (list[str]): Colección de identificadores de `package`.
+            queue: Nombre persistido de la cola o etapa del pipeline.
+            package_ids: Identidades que se consultan por lotes; una lista vacía produce
+                resultado vacío.
 
         Returns:
-            dict[str, str]: Mapa con los datos producidos por la operación.
+            mapa por paquete; los inexistentes no aparecen.
         """
         if not package_ids:
             return {}
@@ -399,14 +411,16 @@ class PipelineRepository:
         queues: tuple[str, ...],
         package_ids: list[str],
     ) -> set[str]:
-        """Ejecuta `active_package_ids` dentro de `PipelineRepository`.
+        """Busca paquetes con trabajo en cola o en procesamiento en cualquiera de las etapas
+        indicadas.
 
         Args:
-            queues (tuple[str, ...]): Valor de `queues` utilizado por la operación.
-            package_ids (list[str]): Colección de identificadores de `package`.
+            queues: Colas en las que se buscan paquetes activos.
+            package_ids: Identidades que se consultan por lotes; una lista vacía produce
+                resultado vacío.
 
         Returns:
-            set[str]: Resultado producido por la operación.
+            conjunto de identidades activas sin duplicados.
         """
         if not queues or not package_ids:
             return set()
@@ -426,15 +440,18 @@ class PipelineRepository:
         *,
         run_id: uuid.UUID | None = None,
     ) -> ScraperWorkItem | None:
-        """Reserva la operación `next`.
+        """Bloquea la primera tarea disponible por prioridad descendente y antigüedad, omite
+        filas bloqueadas y asigna reserva e incremento de intentos.
 
         Args:
-            queue (str): Valor de `queue` utilizado por la operación.
-            worker_id (str): Identificador de `worker` utilizado por la operación.
-            lease_seconds (int): Valor de `lease_seconds` utilizado por la operación.
+            queue: Nombre persistido de la cola o etapa del pipeline.
+            worker_id: Identidad del consumidor que reserva o captura trabajo.
+            lease_seconds: Duración de la reserva en segundos.
+            run_id: Ejecución asociada; None no restringe la consulta o permite trabajo
+                independiente.
 
         Returns:
-            ScraperWorkItem | None: Resultado producido por la operación.
+            tarea reservada tras flush o None si no hay una elegible.
         """
         now = utc_now()
         statement = (
@@ -467,28 +484,28 @@ class PipelineRepository:
         return item
 
     async def complete(self, item: ScraperWorkItem) -> None:
-        """Ejecuta `complete` dentro de `PipelineRepository`.
+        """Marca la tarea completada, limpia el error y libera su reserva.
 
         Args:
-            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
+            item: Tarea de la sesión actual cuyo estado se modifica.
         """
         await self._finish(item, STATUS_COMPLETED, None)
 
     async def discard(self, item: ScraperWorkItem, reason: str) -> None:
-        """Ejecuta `discard` dentro de `PipelineRepository`.
+        """Marca la tarea descartada con un motivo y libera su reserva.
 
         Args:
-            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
-            reason (str): Valor de `reason` utilizado por la operación.
+            item: Tarea de la sesión actual cuyo estado se modifica.
+            reason: Motivo del descarte o reintento, truncado a 1000 caracteres.
         """
         await self._finish(item, STATUS_DISCARDED, reason)
 
     async def fail(self, item: ScraperWorkItem, error: str) -> None:
-        """Ejecuta `fail` dentro de `PipelineRepository`.
+        """Marca la tarea fallida con un error y libera su reserva para recuperación posterior.
 
         Args:
-            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
-            error (str): Error que debe registrarse o propagarse.
+            item: Tarea de la sesión actual cuyo estado se modifica.
+            error: Código o resumen del fallo, truncado a 1000 caracteres.
         """
         await self._finish(item, STATUS_FAILED, error)
 
@@ -499,12 +516,14 @@ class PipelineRepository:
         *,
         delay_seconds: int = 2,
     ) -> None:
-        """Ejecuta `requeue` dentro de `PipelineRepository`.
+        """Libera la reserva y aplaza la disponibilidad de la tarea, conservando intentos y un
+        motivo de reintento.
 
         Args:
-            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
-            reason (str): Valor de `reason` utilizado por la operación.
-            delay_seconds (int): Valor de `delay_seconds` utilizado por la operación.
+            item: Tarea de la sesión actual cuyo estado se modifica.
+            reason: Motivo del descarte o reintento, truncado a 1000 caracteres.
+            delay_seconds: Pausa antes del siguiente intento, en segundos; los valores
+                negativos se tratan como cero.
         """
         now = utc_now()
         item.status = STATUS_QUEUED
@@ -516,25 +535,34 @@ class PipelineRepository:
         await self.session.flush()
 
     async def _finish(self, item: ScraperWorkItem, status: str, message: str | None) -> None:
-        """Ejecuta el paso interno `_finish`.
+        """Aplica un resultado terminal, trunca el mensaje, limpia propietario y vencimiento y
+        hace flush. Las dos primeras etapas producen payloads grandes que sólo son necesarios
+        durante la ejecución; al terminar correctamente o descartar una tarea se libera ese JSON,
+        mientras que los fallos lo conservan para permitir un reintento fiel.
 
         Args:
-            item (ScraperWorkItem): Valor de `item` utilizado por la operación.
-            status (str): Valor de `status` utilizado por la operación.
-            message (str | None): Mensaje que debe procesarse.
+            item: Tarea de la sesión actual cuyo estado se modifica.
+            status: Estado terminal o de cola que se asigna a la tarea.
+            message: Motivo opcional del resultado; None limpia el error anterior.
         """
         item.status = status
         item.last_error = truncate(message, 1000)
         item.lease_owner = None
         item.lease_expires_at = None
+        if status in {STATUS_COMPLETED, STATUS_DISCARDED} and item.queue in {
+            QUEUE_SEARCHER_FILTER,
+            QUEUE_FILTER_SCRAPER,
+        }:
+            item.payload_json = None
         item.updated_at = utc_now()
         await self.session.flush()
 
     async def has_pending_work(self) -> bool:
-        """Indica si existe la operación `pending_work`.
+        """Comprueba si existe cualquier tarea en cola o en procesamiento, incluidas las etapas
+        de inspección y descubrimiento.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True mientras quede trabajo activo.
         """
         count = await self.session.scalar(
             select(func.count(ScraperWorkItem.id)).where(
@@ -549,24 +577,28 @@ class PipelineRepository:
         *,
         run_id: uuid.UUID | None = None,
     ) -> int:
-        """Ejecuta `queue_depth` dentro de `PipelineRepository`.
+        """Cuenta trabajo en cola o en procesamiento de una etapa, opcionalmente restringido a
+        una ejecución.
 
         Args:
-            queue (str): Valor de `queue` utilizado por la operación.
+            queue: Nombre persistido de la cola o etapa del pipeline.
+            run_id: Ejecución asociada; None no restringe la consulta o permite trabajo
+                independiente.
 
         Returns:
-            int: Resultado producido por la operación.
+            número de tareas activas.
         """
         return await self._count_queue(queue, run_id=run_id)
 
     async def queue_states(self, limit: int = 20) -> list[QueueState]:
-        """Ejecuta `queue_states` dentro de `PipelineRepository`.
+        """Devuelve las cuatro colas del pipeline con recuentos de todos los estados y muestra
+        activa que prioriza trabajo en procesamiento.
 
         Args:
-            limit (int): Número máximo de elementos que se recuperarán.
+            limit: Máximo de tareas activas mostrado por cola.
 
         Returns:
-            list[QueueState]: Colección de elementos obtenidos por la operación.
+            estados ordenados desde descubrimiento hasta descripción.
         """
         states: list[QueueState] = []
         for queue in (
@@ -629,17 +661,20 @@ class PipelineRepository:
         html: str | None,
         ttl_seconds: int = 900,
     ) -> None:
-        """Guarda la operación `snapshot`.
+        """Acota y depura el HTML y guarda una vista previa con caducidad sin tocar la ejecución
+        activa ni podar otras instantáneas.
 
         Args:
-            run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
-            worker_id (str): Identificador de `worker` utilizado por la operación.
-            stage (str): Valor de `stage` utilizado por la operación.
-            package_id (str | None): Identificador de `package` utilizado por la operación.
-            app_name (str | None): Valor de `app_name` utilizado por la operación.
-            url (str | None): URL del recurso que debe procesarse.
-            html (str | None): Valor de `html` utilizado por la operación.
-            ttl_seconds (int): Valor de `ttl_seconds` utilizado por la operación.
+            run_id: Identidad recibida por compatibilidad; la instantánea se guarda con
+                run_id=None para no bloquear la ejecución.
+            worker_id: Identidad del consumidor que reserva o captura trabajo.
+            stage: Etapa que identifica la vista previa del worker.
+            package_id: Identidad de paquete u operación, única dentro de cada cola.
+            app_name: Nombre visible de aplicación, opcional durante las primeras etapas.
+            url: Página observada durante el trabajo, o None si no existe.
+            html: HTML de vista previa opcional; se limita antes de retirar scripts y
+                manejadores inline.
+            ttl_seconds: Vigencia de la instantánea en segundos desde la captura.
         """
         now = utc_now()
         self.session.add(
@@ -661,10 +696,10 @@ class PipelineRepository:
         await self.session.flush()
 
     async def prune_expired_snapshots(self) -> int:
-        """Ejecuta `prune_expired_snapshots` dentro de `PipelineRepository`.
+        """Elimina vistas previas cuya caducidad es anterior al instante actual y hace flush.
 
         Returns:
-            int: Resultado producido por la operación.
+            recuento comunicado por el driver, o cero si no está disponible.
         """
         result = await self.session.execute(
             delete(ScraperWorkerSnapshot).where(
@@ -675,10 +710,11 @@ class PipelineRepository:
         return statement_rowcount(result)
 
     async def latest_snapshots(self) -> list[WorkerSnapshotView]:
-        """Ejecuta `latest_snapshots` dentro de `PipelineRepository`.
+        """Busca la captura no caducada más reciente de cada etapa del monitor, desde searcher
+        hasta descriptor.
 
         Returns:
-            list[WorkerSnapshotView]: Colección de elementos obtenidos por la operación.
+            vistas existentes en el orden de las etapas.
         """
         snapshots: list[WorkerSnapshotView] = []
         for stage in ("searcher", "filter", "scraper", "so_filter", "descriptor"):
@@ -703,10 +739,12 @@ class PipelineRepository:
         return snapshots
 
     async def save_metric_snapshot(self, run_id: uuid.UUID | None = None) -> None:
-        """Guarda la operación `metric_snapshot`.
+        """Recuenta disponibilidad por estados de fuentes y profundidad de colas y guarda una
+        muestra histórica asociada a la ejecución opcional.
 
         Args:
-            run_id (uuid.UUID | None): Identificador de `run` utilizado por la operación.
+            run_id: Ejecución asociada; None no restringe la consulta o permite trabajo
+                independiente.
         """
         available = await self._count_apps_with_statuses(
             [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value],
@@ -740,13 +778,14 @@ class PipelineRepository:
         await self.session.flush()
 
     async def metric_snapshots(self, limit: int = 60) -> list[MetricSnapshotView]:
-        """Ejecuta `metric_snapshots` dentro de `PipelineRepository`.
+        """Lee las muestras más recientes y las devuelve en orden temporal ascendente para
+        dibujar la serie.
 
         Args:
-            limit (int): Número máximo de elementos que se recuperarán.
+            limit: Máximo de elementos de la vista solicitada.
 
         Returns:
-            list[MetricSnapshotView]: Colección de elementos obtenidos por la operación.
+            hasta limit muestras, de más antigua a más reciente.
         """
         result = await self.session.scalars(
             select(ScraperMetricSnapshot)
@@ -773,13 +812,16 @@ class PipelineRepository:
         *,
         run_id: uuid.UUID | None = None,
     ) -> int:
-        """Ejecuta el paso interno `_count_queue`.
+        """Aplica los filtros comunes de cola, estado activo y ejecución opcional antes de contar
+        tareas.
 
         Args:
-            queue (str): Valor de `queue` utilizado por la operación.
+            queue: Nombre persistido de la cola o etapa del pipeline.
+            run_id: Ejecución asociada; None no restringe la consulta o permite trabajo
+                independiente.
 
         Returns:
-            int: Número de elementos afectados por la operación.
+            cantidad de tareas elegibles, o cero si no hay ninguna.
         """
         statement = (
             select(func.count(ScraperWorkItem.id))
@@ -797,15 +839,19 @@ class PipelineRepository:
         exclude_available: bool = False,
         exclude_review: bool = False,
     ) -> int:
-        """Ejecuta el paso interno `_count_apps_with_statuses`.
+        """Cuenta aplicaciones activas con una fuente de los estados solicitados y aplica
+        exclusiones para evitar solapar categorías.
+        Para direct/fallback exige además validación válida de la fuente.
 
         Args:
-            statuses (list[str]): Valor de `statuses` utilizado por la operación.
-            exclude_available (bool): Valor de `exclude_available` utilizado por la operación.
-            exclude_review (bool): Valor de `exclude_review` utilizado por la operación.
+            statuses: Estados de resolución de fuentes que se incluyen en el recuento.
+            exclude_available: True excluye aplicaciones que tienen otra fuente directa o
+                fallback válida.
+            exclude_review: True excluye aplicaciones que tienen una fuente pendiente de
+                revisión.
 
         Returns:
-            int: Número de elementos afectados por la operación.
+            cantidad de aplicaciones que cumple los criterios.
         """
         source_query = (
             select(DownloadSource.id)
@@ -850,13 +896,17 @@ class PipelineRepository:
 
 
 def sanitize_snapshot_html(html: str | None) -> str | None:
-    """Ejecuta la operación `sanitize_snapshot_html`.
+    """Acota la entrada y retira bloques script y atributos de evento inline antes de volver a
+    limitar el resultado.
+    Es una depuración de vista previa, no un sanitizador HTML general para insertar contenido
+    arbitrario sin aislamiento.
 
     Args:
-        html (str | None): Valor de `html` utilizado por la operación.
+        html: HTML de vista previa opcional; se limita antes de retirar scripts y manejadores
+            inline.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        HTML de muestra o None si no se recibió contenido.
     """
     if not html:
         return None
@@ -877,13 +927,15 @@ def sanitize_snapshot_html(html: str | None) -> str | None:
 
 
 def truncate_snapshot_bytes(value: str) -> str:
-    """Ejecuta la operación `truncate_snapshot_bytes`.
+    """Recorta el contenido a 24000 bytes UTF-8 sin cortar caracteres y añade una marca de
+    truncamiento cuando hace falta.
 
     Args:
-        value (str): Valor que debe procesarse.
+        value: HTML original que debe acotarse para la vista previa.
 
     Returns:
-        str: Resultado producido por la operación.
+        texto original o prefijo acotado más el comentario de truncamiento, cuyos bytes son
+            adicionales al límite.
     """
     encoded = value.encode("utf-8", errors="ignore")
     if len(encoded) <= MAX_SNAPSHOT_HTML_BYTES:
@@ -893,14 +945,16 @@ def truncate_snapshot_bytes(value: str) -> str:
 
 
 def truncate(value: str | None, max_length: int) -> str | None:
-    """Ejecuta la operación `truncate`.
+    """Conserva textos cortos y sustituye el final de los largos por tres puntos dentro del
+    límite solicitado.
 
     Args:
-        value (str | None): Valor que debe procesarse.
-        max_length (int): Valor de `max_length` utilizado por la operación.
+        value: Texto opcional cuyo tamaño se limita.
+        max_length: Máximo de caracteres del resultado; las llamadas proporcionan al menos
+            tres para incluir puntos suspensivos.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        texto original, texto abreviado o None.
     """
     if value is None:
         return None
@@ -908,12 +962,12 @@ def truncate(value: str | None, max_length: int) -> str | None:
 
 
 def statement_rowcount(result: object) -> int:
-    """Ejecuta la operación `statement_rowcount`.
+    """Obtiene el recuento de filas del resultado SQL sin exigir una clase concreta del driver.
 
     Args:
-        result (object): Resultado que debe procesarse.
+        result: Resultado SQLAlchemy del que se consulta el número de filas afectadas.
 
     Returns:
-        int: Número de elementos afectados por la operación.
+        rowcount convertido a entero; cero si el atributo falta o es nulo.
     """
     return int(getattr(result, "rowcount", 0) or 0)

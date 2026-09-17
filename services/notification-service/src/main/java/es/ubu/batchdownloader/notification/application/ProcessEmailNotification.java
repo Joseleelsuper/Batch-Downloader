@@ -8,47 +8,47 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Implementa el componente {@code ProcessEmailNotification}.
+ * Reserva cada evento de correo, realiza el envío y confirma su resultado en el inbox.
+ *
+ * <p>Ignora eventos completados, permite reintentar reservas ocupadas y conserva la
+ * clasificación de fallos permanentes o temporales del proveedor. Un fallo al registrar
+ * el error se añade como excepción suprimida sin sustituir la causa original.</p>
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see NotificationHandler
+ * @see NotificationInbox
+ * @see NotificationSender
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @Service
 public class ProcessEmailNotification implements NotificationHandler {
 
     /**
-     * Constante que define {@code LOGGER}.
+     * Registra identificadores y resultado del procesamiento, sin destinatarios ni parámetros de
+     * plantilla.
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(ProcessEmailNotification.class);
 
     /**
-     * Estado {@code inbox} mantenido por {@code ProcessEmailNotification}.
+     * Reserva y confirma eventos para controlar entregas repetidas.
      */
     private final NotificationInbox inbox;
     /**
-     * Estado {@code sender} mantenido por {@code ProcessEmailNotification}.
+     * Realiza el envío y conserva la clasificación de errores del proveedor.
      */
     private final NotificationSender sender;
 
     /**
-     * Inicializa una instancia de {@code ProcessEmailNotification}.
+     * Asocia la reserva idempotente de eventos con el puerto de envío de correo.
      *
-     * @param inbox Valor de {@code inbox} utilizado por la operación.
-     * @param sender Valor de {@code sender} utilizado por la operación.
+     * @param inbox Registro persistente de reservas, intentos y confirmaciones por evento.
+     * @param sender Puerto que selecciona el proveedor y realiza el envío.
      */
     public ProcessEmailNotification(NotificationInbox inbox, NotificationSender sender) {
         this.inbox = inbox;
         this.sender = sender;
-    }
-
-    /**
-     * Ejecuta la operación {@code execute}.
-     *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @throws NotificationProcessingException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
-     */
-    public void execute(EmailNotification notification) {
-        handle(notification);
     }
 
     /** {@inheritDoc} */
@@ -86,10 +86,14 @@ public class ProcessEmailNotification implements NotificationHandler {
     }
 
     /**
-     * Marca el recurso solicitado mediante {@code markFailure}.
+     * Registra el fallo en el inbox; si ese registro también falla, añade la excepción como
+     * suprimida a la original.
      *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @param originalException Valor de {@code originalException} utilizado por la operación.
+     * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
+     *     el envío.
+     *
+     * @param originalException Fallo de envío o confirmación cuya identidad y causa deben
+     *     conservarse.
      */
     private void markFailure(EmailNotification notification, RuntimeException originalException) {
         try {
@@ -100,10 +104,10 @@ public class ProcessEmailNotification implements NotificationHandler {
     }
 
     /**
-     * Ejecuta la operación {@code errorDescription}.
+     * Obtiene una descripción persistible del fallo sin perder los errores que no tienen mensaje.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code errorDescription}.
+     * @param exception Fallo que se describe o cuya cadena de causas se examina.
+     * @return mensaje original no vacío, o nombre simple de la excepción.
      */
     private String errorDescription(RuntimeException exception) {
         String message = exception.getMessage();

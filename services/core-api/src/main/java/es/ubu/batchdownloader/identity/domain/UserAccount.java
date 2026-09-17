@@ -5,81 +5,89 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Implementa el componente {@code UserAccount}.
+ * Conserva la identidad UUID de una cuenta y sus invariantes de credenciales, verificación, rol y
+ * preferencias sin depender de frameworks.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.application.IdentityService
+ * @see es.ubu.batchdownloader.identity.application.port.UserAccountStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 public final class UserAccount {
     /**
-     * Estado {@code id} mantenido por {@code UserAccount}.
+     * UUID estable del agregado que se consulta o reconstruye.
      */
     private final UUID id;
     /**
-     * Estado {@code username} mantenido por {@code UserAccount}.
+     * Nombre visible de la cuenta, distinto de su UUID de identidad.
      */
     private String username;
     /**
-     * Estado {@code normalizedUsername} mantenido por {@code UserAccount}.
+     * Nombre recortado y en minúsculas usado para búsquedas y unicidad.
      */
     private String normalizedUsername;
     /**
-     * Estado {@code email} mantenido por {@code UserAccount}.
+     * Correo de la cuenta; se conserva recortado y se compara mediante su versión normalizada.
      */
     private final String email;
     /**
-     * Estado {@code normalizedEmail} mantenido por {@code UserAccount}.
+     * Correo recortado y en minúsculas para consulta y unicidad.
      */
     private final String normalizedEmail;
     /**
-     * Estado {@code passwordHash} mantenido por {@code UserAccount}.
+     * Hash de contraseña almacenado, nunca la contraseña original.
      */
     private String passwordHash;
     /**
-     * Estado {@code emailVerified} mantenido por {@code UserAccount}.
+     * Indica que se ha confirmado el control del correo de la cuenta.
      */
     private boolean emailVerified;
     /**
-     * Estado {@code role} mantenido por {@code UserAccount}.
+     * Rol USER o ADMIN que determina el acceso permitido.
      */
     private final UserRole role;
     /**
-     * Estado {@code notifyOnJobCompletion} mantenido por {@code UserAccount}.
+     * Preferencia vigente de recibir correo cuando termina una descarga.
      */
     private boolean notifyOnJobCompletion;
     /**
-     * Estado {@code enabled} mantenido por {@code UserAccount}.
+     * Indica que la cuenta está habilitada para autenticarse y utilizar sus recursos.
      */
     private boolean enabled;
     /**
-     * Estado {@code createdAt} mantenido por {@code UserAccount}.
+     * Instante de creación original del agregado.
      */
     private final Instant createdAt;
     /**
-     * Estado {@code updatedAt} mantenido por {@code UserAccount}.
+     * Instante del último cambio de la cuenta.
      */
     private Instant updatedAt;
     /**
-     * Estado {@code version} mantenido por {@code UserAccount}.
+     * Versión persistida utilizada para detectar escrituras concurrentes.
      */
     private long version;
 
     /**
-     * Inicializa una instancia de {@code UserAccount}.
+     * Exige identidad, rol, fechas y textos obligatorios al reconstruir una cuenta; conserva su
+     * versión de concurrencia.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @param email Dirección de correo electrónico asociada a la operación.
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @param passwordHash Valor de {@code passwordHash} utilizado por la operación.
-     * @param emailVerified Valor de {@code emailVerified} utilizado por la operación.
-     * @param role Valor de {@code role} utilizado por la operación.
-     * @param notifyOnJobCompletion Valor de {@code notifyOnJobCompletion} utilizado por la
-     *     operación.
-     * @param enabled Valor de {@code enabled} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @param updatedAt Valor de {@code updatedAt} utilizado por la operación.
-     * @param version Valor de {@code version} utilizado por la operación.
+     * @param id UUID estable del agregado que se consulta o reconstruye.
+     * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
+     * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
+     *     normalizada.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
+     * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
+     * @param emailVerified Indica que se ha confirmado el control del correo de la cuenta.
+     * @param role Rol USER o ADMIN que determina el acceso permitido.
+     * @param notifyOnJobCompletion Preferencia vigente de recibir correo cuando termina una
+     *     descarga.
+     * @param enabled Habilita el acceso de la cuenta o la preferencia de correo según el método.
+     * @param createdAt Instante de creación original del agregado.
+     * @param updatedAt Instante del último cambio de la cuenta.
+     * @param version Versión persistida utilizada para detectar escrituras concurrentes.
      */
     private UserAccount(
             UUID id,
@@ -100,7 +108,7 @@ public final class UserAccount {
         this.normalizedUsername = requireText(normalizedUsername, "normalizedUsername");
         this.email = requireText(email, "email");
         this.normalizedEmail = requireText(normalizedEmail, "normalizedEmail");
-        this.passwordHash = passwordHash == null ? null : requireText(passwordHash, "passwordHash");
+        this.passwordHash = requireText(passwordHash, "passwordHash");
         this.emailVerified = emailVerified;
         this.role = Objects.requireNonNull(role);
         this.notifyOnJobCompletion = notifyOnJobCompletion;
@@ -111,15 +119,17 @@ public final class UserAccount {
     }
 
     /**
-     * Ejecuta la operación {@code register}.
+     * Crea una cuenta USER habilitada, pendiente de verificar correo y con avisos de descarga
+     * activados.
      *
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @param email Dirección de correo electrónico asociada a la operación.
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @param passwordHash Valor de {@code passwordHash} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @return Resultado producido por {@code register}.
+     * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
+     * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
+     *     normalizada.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
+     * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
+     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
+     * @return cuenta nueva con UUID aleatorio y versión cero.
      */
     public static UserAccount register(
             String username,
@@ -133,28 +143,17 @@ public final class UserAccount {
                 false, UserRole.USER, true, true, now, now, 0);
     }
 
-    /** Crea una cuenta que utiliza exclusivamente una identidad OAuth. */
-    public static UserAccount registerOauth(
-            String username,
-            String normalizedUsername,
-            String email,
-            String normalizedEmail,
-            Instant now) {
-        return new UserAccount(
-                UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, null,
-                true, UserRole.USER, true, true, now, now, 0);
-    }
-
     /**
-     * Ejecuta la operación {@code bootstrapAdmin}.
+     * Crea la cuenta ADMIN inicial habilitada y con correo verificado para el arranque configurado.
      *
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @param email Dirección de correo electrónico asociada a la operación.
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @param passwordHash Valor de {@code passwordHash} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @return Resultado producido por {@code bootstrapAdmin}.
+     * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
+     * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
+     *     normalizada.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
+     * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
+     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
+     * @return administrador nuevo con UUID aleatorio y versión cero.
      */
     public static UserAccount bootstrapAdmin(
             String username,
@@ -169,23 +168,25 @@ public final class UserAccount {
     }
 
     /**
-     * Ejecuta la operación {@code rehydrate}.
+     * Reconstruye una cuenta persistida conservando UUID, flags, fechas y versión sin aplicar
+     * cambios de negocio.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param username Valor de {@code username} utilizado por la operación.
-     * @param normalizedUsername Valor de {@code normalizedUsername} utilizado por la operación.
-     * @param email Dirección de correo electrónico asociada a la operación.
-     * @param normalizedEmail Valor de {@code normalizedEmail} utilizado por la operación.
-     * @param passwordHash Valor de {@code passwordHash} utilizado por la operación.
-     * @param emailVerified Valor de {@code emailVerified} utilizado por la operación.
-     * @param role Valor de {@code role} utilizado por la operación.
-     * @param notifyOnJobCompletion Valor de {@code notifyOnJobCompletion} utilizado por la
-     *     operación.
-     * @param enabled Valor de {@code enabled} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @param updatedAt Valor de {@code updatedAt} utilizado por la operación.
-     * @param version Valor de {@code version} utilizado por la operación.
-     * @return Resultado producido por {@code rehydrate}.
+     * @param id UUID estable del agregado que se consulta o reconstruye.
+     * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
+     * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
+     * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
+     *     normalizada.
+     * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
+     * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
+     * @param emailVerified Indica que se ha confirmado el control del correo de la cuenta.
+     * @param role Rol USER o ADMIN que determina el acceso permitido.
+     * @param notifyOnJobCompletion Preferencia vigente de recibir correo cuando termina una
+     *     descarga.
+     * @param enabled Habilita el acceso de la cuenta o la preferencia de correo según el método.
+     * @param createdAt Instante de creación original del agregado.
+     * @param updatedAt Instante del último cambio de la cuenta.
+     * @param version Versión persistida utilizada para detectar escrituras concurrentes.
+     * @return agregado de la cuenta.
      */
     public static UserAccount rehydrate(
             UUID id,
@@ -206,9 +207,9 @@ public final class UserAccount {
     }
 
     /**
-     * Verifica los datos recibidos mediante {@code verifyEmail}.
+     * Confirma el correo y actualiza el instante de modificación de la cuenta.
      *
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
      */
     public void verifyEmail(Instant now) {
         emailVerified = true;
@@ -216,17 +217,25 @@ public final class UserAccount {
     }
 
     /**
-     * Ejecuta la operación {@code changePassword}.
+     * Sustituye el hash por uno no vacío y registra la fecha de cambio; la invalidación de sesiones
+     * corresponde al caso de uso.
      *
-     * @param encodedPassword Valor de {@code encodedPassword} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param encodedPassword Hash calculado antes de actualizar el agregado de cuenta.
+     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
      */
     public void changePassword(String encodedPassword, Instant now) {
         passwordHash = requireText(encodedPassword, "encodedPassword");
         updatedAt = Objects.requireNonNull(now);
     }
 
-    /** Actualiza el nombre visible sin alterar la identidad estable del propietario. */
+    /**
+     * Actualiza nombre visible y clave normalizada sin cambiar la identidad UUID ni su propiedad de
+     * recursos.
+     *
+     * @param value Nuevo nombre visible previamente validado por la política.
+     * @param normalizedValue Versión normalizada del nuevo nombre para búsquedas y unicidad.
+     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
+     */
     public void changeUsername(String value, String normalizedValue, Instant now) {
         username = requireText(value, "username");
         normalizedUsername = requireText(normalizedValue, "normalizedUsername");
@@ -234,10 +243,11 @@ public final class UserAccount {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code updateNotificationPreference}.
+     * Actualiza únicamente la preferencia de correo y la fecha de modificación.
      *
-     * @param enabled Valor de {@code enabled} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param enabled true para recibir avisos al terminar descargas; no habilita ni deshabilita la
+     *     cuenta.
+     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
      */
     public void updateNotificationPreference(boolean enabled, Instant now) {
         notifyOnJobCompletion = enabled;
@@ -245,13 +255,12 @@ public final class UserAccount {
     }
 
     /**
-     * Ejecuta la operación {@code requireText}.
+     * Exige texto no nulo ni blanco para las invariantes internas de la cuenta, sin normalizarlo.
      *
-     * @param value Valor que debe procesarse.
-     * @param field Valor de {@code field} utilizado por la operación.
-     * @return Resultado producido por {@code requireText}.
-     * @throws IllegalArgumentException Si los argumentos recibidos no cumplen las restricciones
-     *     requeridas.
+     * @param value Texto que se normaliza o valida según el contrato del método.
+     * @param field Nombre del campo obligatorio usado para identificar una violación de invariante.
+     * @return valor original validado.
+     * @throws IllegalArgumentException si falta el texto obligatorio.
      */
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
@@ -259,83 +268,82 @@ public final class UserAccount {
     }
 
     /**
-     * Ejecuta la operación {@code id}.
+     * UUID estable del agregado que se consulta o reconstruye.
      *
-     * @return Resultado producido por {@code id}.
+     * @return UUID estable del agregado que se consulta o reconstruye.
      */
     public UUID id() { return id; }
     /**
-     * Ejecuta la operación {@code username}.
+     * Nombre visible de la cuenta, distinto de su UUID de identidad.
      *
-     * @return Resultado producido por {@code username}.
+     * @return Nombre visible de la cuenta, distinto de su UUID de identidad.
      */
     public String username() { return username; }
     /**
-     * Normaliza el valor recibido mediante {@code normalizedUsername}.
+     * Nombre recortado y en minúsculas usado para búsquedas y unicidad.
      *
-     * @return Resultado producido por {@code normalizedUsername}.
+     * @return Nombre recortado y en minúsculas usado para búsquedas y unicidad.
      */
     public String normalizedUsername() { return normalizedUsername; }
     /**
-     * Ejecuta la operación {@code email}.
+     * Correo de la cuenta; se conserva recortado y se compara mediante su versión normalizada.
      *
-     * @return Resultado producido por {@code email}.
+     * @return Correo de la cuenta; se conserva recortado y se compara mediante su versión
+     *     normalizada.
      */
     public String email() { return email; }
     /**
-     * Normaliza el valor recibido mediante {@code normalizedEmail}.
+     * Correo recortado y en minúsculas para consulta y unicidad.
      *
-     * @return Resultado producido por {@code normalizedEmail}.
+     * @return Correo recortado y en minúsculas para consulta y unicidad.
      */
     public String normalizedEmail() { return normalizedEmail; }
     /**
-     * Ejecuta la operación {@code passwordHash}.
+     * Hash de contraseña almacenado, nunca la contraseña original.
      *
-     * @return Resultado producido por {@code passwordHash}.
+     * @return Hash de contraseña almacenado, nunca la contraseña original.
      */
     public String passwordHash() { return passwordHash; }
-    /** Indica si la cuenta admite autenticación mediante contraseña. */
-    public boolean hasPassword() { return passwordHash != null && !passwordHash.isBlank(); }
     /**
-     * Ejecuta la operación {@code emailVerified}.
+     * Indica que se ha confirmado el control del correo de la cuenta.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return Indica que se ha confirmado el control del correo de la cuenta.
      */
     public boolean emailVerified() { return emailVerified; }
     /**
-     * Ejecuta la operación {@code role}.
+     * Rol USER o ADMIN que determina el acceso permitido.
      *
-     * @return Resultado producido por {@code role}.
+     * @return Rol USER o ADMIN que determina el acceso permitido.
      */
     public UserRole role() { return role; }
     /**
-     * Ejecuta la operación {@code notifyOnJobCompletion}.
+     * Preferencia vigente de recibir correo cuando termina una descarga.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return Preferencia vigente de recibir correo cuando termina una descarga.
      */
     public boolean notifyOnJobCompletion() { return notifyOnJobCompletion; }
     /**
-     * Ejecuta la operación {@code enabled}.
+     * Indica que la cuenta está habilitada para autenticarse y utilizar sus recursos.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return Indica que la cuenta está habilitada para autenticarse y utilizar sus recursos.
      */
     public boolean enabled() { return enabled; }
     /**
-     * Crea el recurso solicitado mediante {@code createdAt}.
+     * Instante de creación original del agregado.
      *
-     * @return Resultado producido por {@code createdAt}.
+     * @return Instante de creación original del agregado.
      */
     public Instant createdAt() { return createdAt; }
     /**
-     * Actualiza el recurso solicitado mediante {@code updatedAt}.
+     * Instante del último cambio de la cuenta.
      *
-     * @return Resultado producido por {@code updatedAt}.
+     * @return Instante del último cambio de la cuenta.
      */
     public Instant updatedAt() { return updatedAt; }
     /**
-     * Ejecuta la operación {@code version}.
+     * Versión persistida utilizada para detectar escrituras concurrentes.
      *
-     * @return Resultado producido por {@code version}.
+     * @return Versión persistida utilizada para detectar escrituras concurrentes.
      */
     public long version() { return version; }
 }

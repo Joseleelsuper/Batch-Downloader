@@ -23,11 +23,20 @@ import org.springframework.amqp.ImmediateRequeueAmqpException;
 import org.springframework.amqp.core.Message;
 
 /**
- * Agrupa los escenarios de prueba de {@code DownloadJobFailureRecovererTest}.
+ * Verifica cuándo un fallo agotado vuelve a la cola y cuándo publica un resultado terminal antes de
+ * rechazar el comando.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.messaging.DownloadJobFailureRecoverer
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
  */
 class DownloadJobFailureRecovererTest {
+    /**
+     * Simula storage_busy y comprueba reencolado inmediato sin publicar un evento de fallo
+     * terminal.
+     */
     @Test
     void keepsStorageCapacityFailuresInTheInputQueue() {
         RecordingPublisher publisher = new RecordingPublisher();
@@ -42,12 +51,11 @@ class DownloadJobFailureRecovererTest {
     }
 
     /**
-     * Comprueba el escenario {@code publishesATerminalFailureBeforeRejectingTheCommandToItsDlq}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Agota un fallo de procesamiento y comprueba publicación de JOB_FAILED para el trabajo y
+     * rechazo sin reencolado con el mismo código.
      */
     @Test
-    void publishesATerminalFailureBeforeRejectingTheCommandToItsDlq() throws Exception {
+    void publishesATerminalFailureBeforeRejectingTheCommandToItsDlq() {
         UUID jobId = UUID.randomUUID();
         DownloadJobRequestedEvent requested = new DownloadJobRequestedEvent(
                 UUID.randomUUID(),
@@ -82,13 +90,11 @@ class DownloadJobFailureRecovererTest {
     }
 
     /**
-     * Comprueba el escenario {@code
-     * requeuesInsteadOfDeadLetteringWhenTheTerminalFailureCannotBePublished}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Hace fallar la publicación del resultado terminal y comprueba que el comando se reencola
+     * inmediatamente.
      */
     @Test
-    void requeuesInsteadOfDeadLetteringWhenTheTerminalFailureCannotBePublished() throws Exception {
+    void requeuesInsteadOfDeadLetteringWhenTheTerminalFailureCannotBePublished() {
         DownloadJobRequestedEvent requested = new DownloadJobRequestedEvent(
                 UUID.randomUUID(),
                 EventTypes.JOB_REQUESTED,
@@ -117,9 +123,13 @@ class DownloadJobFailureRecovererTest {
     }
 
     /**
-     * Agrupa los escenarios de prueba de {@code RecordingPublisher}.
+     * Conserva claves y sobres de eventos en el orden recibido para comprobar resultados del
+     * recuperador.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Pruebas de integración y mensajería
      */
     private static final class RecordingPublisher implements EventPublisher {
         /**
@@ -132,10 +142,10 @@ class DownloadJobFailureRecovererTest {
         private final List<Object> events = new ArrayList<>();
 
         /**
-         * Publica el contenido solicitado mediante {@code publish}.
+         * Añade la clave y el sobre a los registros paralelos de la prueba.
          *
-         * @param routingKey Valor de {@code routingKey} utilizado por la operación.
-         * @param event Evento que debe procesarse.
+         * @param routingKey clave de enrutamiento que se captura para las aserciones.
+         * @param event sobre del evento publicado por el recuperador.
          */
         @Override
         public void publish(String routingKey, Object event) {

@@ -5,75 +5,94 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Implementa el componente {@code DownloadJobItem}.
+ * Mantiene la fuente exacta, página manual y progreso de una aplicación dentro del lote,
+ * conservando resultados terminales individuales.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJob
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadItemStatus
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 public final class DownloadJobItem {
     /**
-     * Estado {@code id} mantenido por {@code DownloadJobItem}.
+     * UUID estable del trabajo o elemento representado.
      */
     private final UUID id;
     /**
-     * Estado {@code appId} mantenido por {@code DownloadJobItem}.
+     * UUID público de la aplicación del catálogo.
      */
     private final UUID appId;
     /**
-     * Estado {@code sourceRef} mantenido por {@code DownloadJobItem}.
+     * UUID de la fuente exacta; null permite selección automática o representa una alternativa
+     * manual.
      */
     private final UUID sourceRef;
     /**
-     * Estado {@code appName} mantenido por {@code DownloadJobItem}.
+     * Nombre visible de la aplicación conservado en el momento de admisión.
      */
     private final String appName;
     /**
-     * Estado {@code officialPageUrl} mantenido por {@code DownloadJobItem}.
+     * Página oficial para la alternativa manual; no es una URL de instalador resuelta.
      */
     private final String officialPageUrl;
     /**
-     * Estado {@code status} mantenido por {@code DownloadJobItem}.
+     * Estado del trabajo o elemento correspondiente al evento o proyección.
      */
     private DownloadItemStatus status;
     /**
-     * Estado {@code bytesDownloaded} mantenido por {@code DownloadJobItem}.
+     * Bytes transferidos del instalador; el dominio conserva el máximo recibido.
      */
     private long bytesDownloaded;
     /**
-     * Estado {@code sha256} mantenido por {@code DownloadJobItem}.
+     * SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está disponible.
      */
     private String sha256;
     /**
-     * Estado {@code errorCode} mantenido por {@code DownloadJobItem}.
+     * Código seguro del fallo del elemento o null si no hay un fallo que comunicar.
      */
     private String errorCode;
     /**
-     * Estado {@code createdAt} mantenido por {@code DownloadJobItem}.
+     * Instante de creación del registro.
      */
     private final Instant createdAt;
     /**
-     * Estado {@code updatedAt} mantenido por {@code DownloadJobItem}.
+     * Instante del último cambio de estado guardado.
      */
     private Instant updatedAt;
     /**
-     * Estado {@code version} mantenido por {@code DownloadJobItem}.
+     * Versión persistida para concurrencia optimista.
      */
     private long version;
 
     /**
-     * Inicializa una instancia de {@code DownloadJobItem}.
+     * Normaliza nombre y página opcional y conserva un contador de bytes no negativo para el
+     * elemento.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param sourceRef Valor de {@code sourceRef} utilizado por la operación.
-     * @param appName Valor de {@code appName} utilizado por la operación.
-     * @param officialPageUrl Dirección de {@code officialPage} que debe procesarse.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param bytesDownloaded Valor de {@code bytesDownloaded} utilizado por la operación.
-     * @param sha256 Valor de {@code sha256} utilizado por la operación.
-     * @param errorCode Valor de {@code errorCode} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @param updatedAt Valor de {@code updatedAt} utilizado por la operación.
-     * @param version Valor de {@code version} utilizado por la operación.
+     * @param id UUID estable del trabajo o elemento representado.
+     * @param appId UUID público de la aplicación del catálogo.
+     * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
+     *
+     * @param appName Nombre visible de la aplicación conservado en el momento de admisión.
+     * @param officialPageUrl Página oficial para la alternativa manual; no es una URL de instalador
+     *     resuelta.
+     *
+     * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
+     * @param bytesDownloaded Bytes transferidos del instalador; el dominio conserva el máximo
+     *     recibido.
+     *
+     * @param sha256 SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está
+     *     disponible.
+     *
+     * @param errorCode Código seguro del fallo del elemento o null si no hay un fallo que
+     *     comunicar.
+     *
+     * @param createdAt Instante de creación del registro.
+     * @param updatedAt Instante del último cambio de estado guardado.
+     * @param version Versión persistida para concurrencia optimista.
+     * @throws NullPointerException si faltan UUID, estado o fechas requeridas.
      */
     private DownloadJobItem(
             UUID id,
@@ -103,26 +122,32 @@ public final class DownloadJobItem {
     }
 
     /**
-     * Ejecuta la operación {@code queued}.
+     * Crea un elemento QUEUED ligado al UUID exacto de la fuente seleccionada por el catálogo.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param sourceRef Valor de {@code sourceRef} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @return Resultado producido por {@code queued}.
+     * @param appId UUID público de la aplicación del catálogo.
+     * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
+     *
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @return elemento nuevo con transferencia e integridad todavía vacías.
      */
     public static DownloadJobItem queued(UUID appId, UUID sourceRef, Instant now) {
         return queued(appId, sourceRef, appId.toString(), null, now);
     }
 
     /**
-     * Ejecuta la operación {@code queued}.
+     * Crea un elemento QUEUED ligado al UUID exacto de la fuente seleccionada por el catálogo.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param sourceRef Valor de {@code sourceRef} utilizado por la operación.
-     * @param appName Valor de {@code appName} utilizado por la operación.
-     * @param officialPageUrl Dirección de {@code officialPage} que debe procesarse.
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @return Resultado producido por {@code queued}.
+     * @param appId UUID público de la aplicación del catálogo.
+     * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
+     *
+     * @param appName Nombre visible de la aplicación conservado en el momento de admisión.
+     * @param officialPageUrl Página oficial para la alternativa manual; no es una URL de instalador
+     *     resuelta.
+     *
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @return elemento nuevo con transferencia e integridad todavía vacías.
      */
     public static DownloadJobItem queued(
             UUID appId, UUID sourceRef, String appName, String officialPageUrl, Instant now) {
@@ -132,13 +157,17 @@ public final class DownloadJobItem {
     }
 
     /**
-     * Crea un item que se resolverá mediante un acceso a la página oficial.
+     * Crea una alternativa manual con página oficial y sin fuente automática para conservarla en el
+     * ZIP.
      *
-     * @param appId Identificador de la aplicación.
-     * @param appName Nombre público de la aplicación.
-     * @param officialPageUrl Página oficial que se incluirá en el acceso.
-     * @param now Instante de creación.
-     * @return Item manual listo para encolarse.
+     * @param appId UUID público de la aplicación del catálogo.
+     * @param appName Nombre visible de la aplicación conservado en el momento de admisión.
+     * @param officialPageUrl Página oficial para la alternativa manual; no es una URL de instalador
+     *     resuelta.
+     *
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     * @return elemento QUEUED que el worker convertirá en acceso manual.
+     * @throws IllegalArgumentException si falta una página oficial no vacía.
      */
     public static DownloadJobItem manual(
             UUID appId, String appName, String officialPageUrl, Instant now) {
@@ -151,21 +180,31 @@ public final class DownloadJobItem {
     }
 
     /**
-     * Ejecuta la operación {@code rehydrate}.
+     * Reconstruye identidad, fuente y progreso del elemento a partir de su registro persistido.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param sourceRef Valor de {@code sourceRef} utilizado por la operación.
-     * @param appName Valor de {@code appName} utilizado por la operación.
-     * @param officialPageUrl Dirección de {@code officialPage} que debe procesarse.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param bytesDownloaded Valor de {@code bytesDownloaded} utilizado por la operación.
-     * @param sha256 Valor de {@code sha256} utilizado por la operación.
-     * @param errorCode Valor de {@code errorCode} utilizado por la operación.
-     * @param createdAt Valor de {@code createdAt} utilizado por la operación.
-     * @param updatedAt Valor de {@code updatedAt} utilizado por la operación.
-     * @param version Valor de {@code version} utilizado por la operación.
-     * @return Resultado producido por {@code rehydrate}.
+     * @param id UUID estable del trabajo o elemento representado.
+     * @param appId UUID público de la aplicación del catálogo.
+     * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
+     *
+     * @param appName Nombre visible de la aplicación conservado en el momento de admisión.
+     * @param officialPageUrl Página oficial para la alternativa manual; no es una URL de instalador
+     *     resuelta.
+     *
+     * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
+     * @param bytesDownloaded Bytes transferidos del instalador; el dominio conserva el máximo
+     *     recibido.
+     *
+     * @param sha256 SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está
+     *     disponible.
+     *
+     * @param errorCode Código seguro del fallo del elemento o null si no hay un fallo que
+     *     comunicar.
+     *
+     * @param createdAt Instante de creación del registro.
+     * @param updatedAt Instante del último cambio de estado guardado.
+     * @param version Versión persistida para concurrencia optimista.
+     * @return elemento con nombre y página normalizados y contador de bytes no negativo.
      */
     public static DownloadJobItem rehydrate(
             UUID id, UUID appId, UUID sourceRef, String appName, String officialPageUrl,
@@ -177,13 +216,14 @@ public final class DownloadJobItem {
     }
 
     /**
-     * Ejecuta la operación {@code progress}.
+     * Actualiza un elemento todavía activo manteniendo el máximo de bytes recibido; los estados
+     * terminales no se reabren.
      *
-     * @param next Valor de {@code next} utilizado por la operación.
-     * @param downloaded Valor de {@code downloaded} utilizado por la operación.
-     * @param checksum Valor de {@code checksum} utilizado por la operación.
-     * @param failure Valor de {@code failure} utilizado por la operación.
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param next Nuevo estado del elemento; los estados terminales anteriores no se modifican.
+     * @param downloaded Bytes transferidos recibidos; no disminuyen el contador existente.
+     * @param checksum Hash del contenido transferido o null mientras no se conoce.
+     * @param failure Código seguro de fallo o null para borrar el anterior.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
      */
     public void progress(DownloadItemStatus next, long downloaded, String checksum, String failure, Instant now) {
         if (status.terminal()) return;
@@ -195,15 +235,20 @@ public final class DownloadJobItem {
     }
 
     /**
-     * Indica si puede realizarse la operación mediante {@code cancel}.
+     * Cancela solo elementos no terminales y conserva sus bytes y checksum para el historial.
      *
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
      */
     public void cancel(Instant now) {
         if (!status.terminal()) progress(DownloadItemStatus.CANCELLED, bytesDownloaded, sha256, null, now);
     }
 
-    /** Reinicia el item cuando el trabajo completo vuelve a la cola por capacidad. */
+    /**
+     * Restablece QUEUED, bytes e integridad para reiniciar el elemento después de un aplazamiento
+     * del lote.
+     *
+     * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
+     */
     void requeue(Instant now) {
         status = DownloadItemStatus.QUEUED;
         bytesDownloaded = 0;
@@ -213,94 +258,98 @@ public final class DownloadJobItem {
     }
 
     /**
-     * Ejecuta la operación {@code id}.
+     * UUID estable del trabajo o elemento representado.
      *
-     * @return Resultado producido por {@code id}.
+     * @return UUID estable del trabajo o elemento representado.
      */
     public UUID id() { return id; }
     /**
-     * Ejecuta la operación {@code appId}.
+     * UUID público de la aplicación del catálogo.
      *
-     * @return Resultado producido por {@code appId}.
+     * @return UUID público de la aplicación del catálogo.
      */
     public UUID appId() { return appId; }
     /**
-     * Ejecuta la operación {@code sourceRef}.
+     * UUID de la fuente exacta; null permite selección automática o representa una alternativa
+     * manual.
      *
-     * @return Resultado producido por {@code sourceRef}.
+     * @return UUID de la fuente exacta; null permite selección automática o representa una
+     *     alternativa manual.
      */
     public UUID sourceRef() { return sourceRef; }
     /**
-     * Ejecuta la operación {@code appName}.
+     * Nombre visible de la aplicación conservado en el momento de admisión.
      *
-     * @return Resultado producido por {@code appName}.
+     * @return Nombre visible de la aplicación conservado en el momento de admisión.
      */
     public String appName() { return appName; }
     /**
-     * Ejecuta la operación {@code officialPageUrl}.
+     * Página oficial para la alternativa manual; no es una URL de instalador resuelta.
      *
-     * @return Resultado producido por {@code officialPageUrl}.
+     * @return Página oficial para la alternativa manual; no es una URL de instalador resuelta.
      */
     public String officialPageUrl() { return officialPageUrl; }
     /**
-     * Ejecuta la operación {@code status}.
+     * Estado del trabajo o elemento correspondiente al evento o proyección.
      *
-     * @return Resultado producido por {@code status}.
+     * @return Estado del trabajo o elemento correspondiente al evento o proyección.
      */
     public DownloadItemStatus status() { return status; }
     /**
-     * Ejecuta la operación {@code bytesDownloaded}.
+     * Bytes transferidos del instalador; el dominio conserva el máximo recibido.
      *
-     * @return Resultado producido por {@code bytesDownloaded}.
+     * @return Bytes transferidos del instalador; el dominio conserva el máximo recibido.
      */
     public long bytesDownloaded() { return bytesDownloaded; }
     /**
-     * Ejecuta la operación {@code sha256}.
+     * SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está disponible.
      *
-     * @return Resultado producido por {@code sha256}.
+     * @return SHA-256 hexadecimal del contenido cuando se conoce; null si todavía no está
+     *     disponible.
      */
     public String sha256() { return sha256; }
     /**
-     * Ejecuta la operación {@code errorCode}.
+     * Código seguro del fallo del elemento o null si no hay un fallo que comunicar.
      *
-     * @return Resultado producido por {@code errorCode}.
+     * @return Código seguro del fallo del elemento o null si no hay un fallo que comunicar.
      */
     public String errorCode() { return errorCode; }
     /**
-     * Crea el recurso solicitado mediante {@code createdAt}.
+     * Instante de creación del registro.
      *
-     * @return Resultado producido por {@code createdAt}.
+     * @return Instante de creación del registro.
      */
     public Instant createdAt() { return createdAt; }
     /**
-     * Actualiza el recurso solicitado mediante {@code updatedAt}.
+     * Instante del último cambio de estado guardado.
      *
-     * @return Resultado producido por {@code updatedAt}.
+     * @return Instante del último cambio de estado guardado.
      */
     public Instant updatedAt() { return updatedAt; }
     /**
-     * Ejecuta la operación {@code version}.
+     * Versión persistida para concurrencia optimista.
      *
-     * @return Resultado producido por {@code version}.
+     * @return Versión persistida para concurrencia optimista.
      */
     public long version() { return version; }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizedName}.
+     * Usa el nombre sin espacios exteriores o el UUID de la aplicación cuando falta un nombre
+     * visible.
      *
-     * @param value Valor que debe procesarse.
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @return Resultado producido por {@code normalizedName}.
+     * @param value Texto o número que se normaliza según el contrato del método.
+     * @param appId UUID público de la aplicación del catálogo.
+     * @return nombre no vacío para mostrar el elemento.
      */
     private static String normalizedName(String value, UUID appId) {
         return value == null || value.isBlank() ? appId.toString() : value.strip();
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizedOptionalText}.
+     * Elimina espacios exteriores y representa ausencia de página mediante null.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code normalizedOptionalText}.
+     * @param value Texto o número que se normaliza según el contrato del método.
+     * @return texto recortado o null si estaba vacío.
      */
     private static String normalizedOptionalText(String value) {
         return value == null || value.isBlank() ? null : value.strip();

@@ -1,4 +1,10 @@
-"""Implementa las responsabilidades del módulo `worker`."""
+"""Punto de entrada del scheduler y supervisor de enriquecimiento del Scraper; coordina colas
+durables, reparación y retención.
+
+See Also:
+    app.scraper.catalog_fetcher: Ejecuta el pipeline de scraping.
+    app.scraper.content_workers: Consume filtros y descripciones.
+"""
 
 from __future__ import annotations
 
@@ -20,8 +26,9 @@ from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ScrapeScope, ValidationStatus
 from app.db.models import ScrapeRun
 from app.db.session import AsyncSessionLocal
-from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.catalog import CatalogRepository
 from app.repositories.catalog_projection import CatalogProjectionRepository
+from app.repositories.catalog_rules import ResolvedSourceCreate
 from app.repositories.heartbeat import WorkerHeartbeatRepository
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
@@ -54,21 +61,23 @@ from app.scraper.website_discovery import WebsiteAppDiscoveryWorker
 from app.scraper.winstall import WinstallClient
 
 logger = get_logger(__name__)
-"""Estado global asociado a `logger`.
-"""
+
 
 
 class ContentEnrichmentSupervisor:
-    """Representa el componente `ContentEnrichmentSupervisor`."""
+    """Mantiene consumidores de descripción, inspección manual, descubrimiento web y filtro SO y
+    los reinicia solo ante contención transitoria de base de datos.
+    """
 
     def __init__(self) -> None:
-        """Inicializa una instancia de `ContentEnrichmentSupervisor`."""
+        """Carga la configuración compartida del scheduler."""
         self.settings = get_settings()
-        """Estado de instancia asociado a `settings`.
-        """
+
 
     async def run(self) -> None:
-        """Ejecuta `run` dentro de `ContentEnrichmentSupervisor`."""
+        """Recupera leases huérfanos, crea consumidores con la concurrencia configurada y cancela
+        sus tareas al cerrar.
+        """
         async with AsyncSessionLocal() as session:
             pipeline = PipelineRepository(session)
             recovered = await pipeline.reset_expired_leases()
@@ -126,15 +135,12 @@ class ContentEnrichmentSupervisor:
         component: str,
         consumer: Callable[[], Awaitable[None]],
     ) -> None:
-        """Reinicia un consumidor ante contención transitoria de base de datos.
-
-        Los demás errores siguen propagándose para que Docker reinicie un scheduler
-        realmente averiado. Los timeouts de adquisición y locks MySQL reintentables
-        son esperables bajo concurrencia y no deben derribar los demás consumidores.
+        """Supervisa un consumidor y reintenta timeouts de pool o locks MySQL; deja propagar
+        otros errores para que Docker detecte un fallo real.
 
         Args:
-            component (str): Nombre estable del consumidor afectado.
-            consumer (Callable[[], Awaitable[None]]): Bucle de consumo supervisado.
+            component: Nombre estable del consumidor supervisado.
+            consumer: Bucle asíncrono que se reinicia ante contención transitoria.
         """
         while True:
             try:
@@ -160,12 +166,11 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_descriptions(self) -> None:
-        """Ejecuta el paso interno `_consume_descriptions`."""
+        """Consume descripciones respetando pausa/parada y espera cuando no hay proveedor LLM o
+        trabajo.
+        """
         worker = DescriptorWorker(self.settings)
         while True:
-            if await self._scrape_run_active():
-                await asyncio.sleep(1)
-                continue
             if await self._paused_or_stopping():
                 await asyncio.sleep(1)
                 continue
@@ -177,7 +182,7 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_manual_installers(self) -> None:
-        """Ejecuta el paso interno `_consume_manual_installers`."""
+        """Consume inspecciones manuales y espera entre reservas vacías."""
         worker = ManualInstallerWorker(self.settings)
         while True:
             processed = await worker.process_one()
@@ -185,7 +190,7 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_website_discoveries(self) -> None:
-        """Ejecuta el paso interno `_consume_website_discoveries`."""
+        """Consume descubrimientos web y espera entre reservas vacías."""
         worker = WebsiteAppDiscoveryWorker(self.settings)
         while True:
             processed = await worker.process_one()
@@ -193,10 +198,11 @@ class ContentEnrichmentSupervisor:
                 await asyncio.sleep(1)
 
     async def _consume_so_filters(self, index: int) -> None:
-        """Ejecuta el paso interno `_consume_so_filters`.
+        """Consume filtros SO y, en el primer consumidor, reencola aplicaciones pendientes antes
+        de procesarlas.
 
         Args:
-            index (int): Valor de `index` utilizado por la operación.
+            index: Índice del consumidor SO filter.
         """
         worker = SOFilterWorker(self.settings)
         while True:
@@ -205,7 +211,7 @@ class ContentEnrichmentSupervisor:
                 continue
             if index == 0:
                 try:
-                    await self._enqueue_pending_so_filters()
+                    enqueued = await self._enqueue_pending_so_filters() or 0
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - mantiene activo el supervisor
@@ -215,12 +221,19 @@ class ContentEnrichmentSupervisor:
                     )
                     await asyncio.sleep(5)
                     continue
+            else:
+                enqueued = 0
             processed = await worker.process_one()
             if not processed:
-                await asyncio.sleep(1)
+                await asyncio.sleep(60 if index == 0 and enqueued == 0 else 1)
 
-    async def _enqueue_pending_so_filters(self) -> None:
-        """Ejecuta el paso interno `_enqueue_pending_so_filters`."""
+    async def _enqueue_pending_so_filters(self) -> int:
+        """Busca aplicaciones sin plataformas verificadas y las encola cuando no hay trabajo
+        aguas arriba activo.
+
+        Returns:
+            número de aplicaciones que se han encolado en esta pasada.
+        """
         async with AsyncSessionLocal() as session:
             catalog = CatalogRepository(
                 session,
@@ -237,6 +250,7 @@ class ContentEnrichmentSupervisor:
                 (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER),
                 package_ids,
             )
+            enqueued = 0
             for app in apps:
                 if app.winstall_id in upstream_active:
                     continue
@@ -249,13 +263,16 @@ class ContentEnrichmentSupervisor:
                     app,
                     force=True,
                 )
+                enqueued += 1
             await session.commit()
+            return enqueued
 
     async def _paused_or_stopping(self) -> bool:
-        """Ejecuta el paso interno `_paused_or_stopping`.
+        """Consulta el run activo para saber si una pausa o parada administrativa debe detener
+        consumidores.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True cuando el scheduler está pausado o detenido.
         """
         async with AsyncSessionLocal() as session:
             control = (
@@ -267,20 +284,6 @@ class ContentEnrichmentSupervisor:
             ).one_or_none()
             return bool(control and (control.paused_at is not None or control.stop_requested))
 
-    async def _scrape_run_active(self) -> bool:
-        """Reserva el pool acotado para el pipeline mientras exista un run activo.
-
-        Las descripciones se conservan en su cola durable y se enriquecen al terminar
-        el scrape. Así una llamada LLM no ocupa una de las dos conexiones durante el
-        procesamiento de instaladores.
-        """
-        async with AsyncSessionLocal() as session:
-            run_id = await session.scalar(
-                select(ScrapeRun.id).where(ScrapeRun.active_lock == 1).limit(1)
-            )
-            return run_id is not None
-
-
 async def scrape_once(
     recover_running: bool = False,
     *,
@@ -288,10 +291,17 @@ async def scrape_once(
     selected_app_ids: list[uuid.UUID] | None = None,
     request_id: uuid.UUID | None = None,
 ) -> None:
-    """Ejecuta la operación `scrape_once`.
+    """Carga configuración, ejecuta CatalogFetcher en una sesión aislada y registra los
+    contadores finales.
 
     Args:
-        recover_running (bool): Valor de `recover_running` utilizado por la operación.
+        recover_running: Indica si se recuperan ejecuciones antiguas antes de arrancar.
+        scope: Alcance incremental, completo o selected.
+        selected_app_ids: UUID de aplicaciones seleccionadas.
+        request_id: Solicitud durable que originó el run.
+
+    Raises:
+        Exception: Propaga el fallo después de rollback para que el proceso lo señale.
     """
     settings = get_settings()
     async with AsyncSessionLocal() as session:
@@ -315,7 +325,17 @@ async def enqueue_scrape_request(
     created_by: str,
     app_ids: list[str] | None = None,
 ) -> uuid.UUID:
-    """Persiste una solicitud para que el coordinador la reclame sin solapamientos."""
+    """Persiste una solicitud durable de scraping para que el dispatcher la ejecute sin
+    solapamientos.
+
+    Args:
+        scope: Alcance incremental, completo o selected.
+        created_by: Origen humano o scheduler de la solicitud durable.
+        app_ids: Identificadores textuales opcionales del alcance selected.
+
+    Returns:
+        UUID de la solicitud.
+    """
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         request = await ScrapeRunRepository(session, settings).enqueue_run_request(
@@ -328,7 +348,12 @@ async def enqueue_scrape_request(
 
 
 async def run_request_dispatcher(instance_id: uuid.UUID) -> None:
-    """Reclama solicitudes durables de una en una y conserva las pendientes."""
+    """Reclama solicitudes una a una, valida alcance/UUIDs, ejecuta el run y publica heartbeat de
+    éxito o fallo.
+
+    Args:
+        instance_id: UUID de la instancia del scheduler.
+    """
     settings = get_settings()
     while True:
         request_id: uuid.UUID | None = None
@@ -382,7 +407,14 @@ async def persist_scheduler_heartbeat(
     action: str,
     error_code: str | None = None,
 ) -> None:
-    """Actualiza la señal sin convertir un fallo de observabilidad en reinicio."""
+    """Guarda success, failure o pulse sin convertir un error de observabilidad en una caída del
+    scheduler.
+
+    Args:
+        instance_id: UUID de la instancia del scheduler.
+        action: Resultado de heartbeat: success, failure o pulse.
+        error_code: Código seguro de error del scheduler.
+    """
     try:
         async with AsyncSessionLocal() as session:
             repository = WorkerHeartbeatRepository(session)
@@ -408,7 +440,11 @@ async def persist_scheduler_heartbeat(
 
 
 async def emit_scheduler_heartbeat(instance_id: uuid.UUID) -> None:
-    """Mantiene visible un scheduler ocioso sin alterar el contador de fallos."""
+    """Envía pulsos periódicos mientras el scheduler permanece ocioso.
+
+    Args:
+        instance_id: UUID de la instancia del scheduler.
+    """
     settings = get_settings()
     while True:
         await persist_scheduler_heartbeat(instance_id, action="pulse")
@@ -416,33 +452,30 @@ async def emit_scheduler_heartbeat(instance_id: uuid.UUID) -> None:
 
 
 async def repair_platforms() -> None:
-    """Ejecuta la operación `repair_platforms`."""
+    """Repara plataformas de resoluciones existentes y confirma la transacción."""
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
-        repaired = await catalog.repair_resolved_source_platforms()
+        repaired = await catalog.sources.repair_resolved_source_platforms()
         await session.commit()
     logger.info("platform_repair_finished", repaired=repaired)
 
 
 async def repair_source_statuses() -> None:
-    """Ejecuta la operación `repair_source_statuses`."""
+    """Recalcula estados de fuentes a partir de resoluciones y validaciones guardadas."""
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
-        repaired = await catalog.repair_source_statuses()
+        repaired = await catalog.sources.repair_source_statuses()
         await session.commit()
     logger.info("source_status_repair_finished", repaired=repaired)
 
 
 async def maintain_catalog_projection(*, repair: bool) -> None:
-    """Ejecuta la operación `maintain_catalog_projection`.
+    """Comprueba o repara la proyección del catálogo y falla si permanece inconsistente.
 
     Args:
-        repair (bool): Valor de `repair` utilizado por la operación.
-
-    Throws:
-        RuntimeError: Si el estado de ejecución impide completar la operación.
+        repair: Indica si se aplican reparaciones o solo se comprueba consistencia.
     """
     async with AsyncSessionLocal() as session:
         projection = CatalogProjectionRepository(session)
@@ -457,7 +490,7 @@ async def maintain_catalog_projection(*, repair: bool) -> None:
 
 
 async def repair_known_apps() -> None:
-    """Ejecuta la operación `repair_known_apps`."""
+    """Valida endpoints oficiales conocidos de Epic e Itch y actualiza sus fuentes directas."""
     settings = get_settings()
     repaired = 0
     async with WinstallClient(settings) as winstall:
@@ -469,7 +502,7 @@ async def repair_known_apps() -> None:
             async with AsyncSessionLocal() as session:
                 catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
                 logs = ResolverLogRepository(session)
-                software_app = await catalog.upsert_winstall_app(app)
+                software_app = await catalog.winstall.upsert_winstall_app(app)
                 validator = DownloadValidator(settings)
                 for candidate in candidates:
                     result = await validator.validate(candidate)
@@ -487,14 +520,14 @@ async def repair_known_apps() -> None:
                     operating_system = infer_validated_operating_system(candidate, result)
                     if not operating_system:
                         continue
-                    source = await catalog.ensure_download_source(
+                    source = await catalog.sources.ensure_download_source(
                         software_app_id=software_app.id,
                         app=app,
                         operating_system=operating_system,
                         architecture=infer_architecture(candidate),
                         initial_url=app.homepage,
                     )
-                    await catalog.expire_valid_resolved_sources(source.id)
+                    await catalog.sources.expire_valid_resolved_sources(source.id)
                     installer = ValidInstaller(
                         candidate=candidate,
                         result=result,
@@ -503,7 +536,7 @@ async def repair_known_apps() -> None:
                         architecture=infer_architecture(candidate),
                         version=extract_version(candidate) or app.latest_version,
                     )
-                    await catalog.save_resolved_source(
+                    await catalog.sources.save_resolved_source(
                         ResolvedSourceCreate(
                             source_id=source.id,
                             url=result.final_url or candidate.url,
@@ -540,7 +573,9 @@ async def repair_known_apps() -> None:
 
 
 async def run_startup_scrape() -> None:
-    """Ejecuta la operación `startup_scrape`."""
+    """Intenta reparación de aplicaciones conocidas, recupera runs anteriores y encola un
+    scraping incremental.
+    """
     try:
         await repair_known_apps()
     except Exception as exc:
@@ -558,7 +593,11 @@ async def run_startup_scrape() -> None:
 
 
 async def recover_scheduler_runs() -> int:
-    """Cierra leases de coordinador interrumpidas antes de aceptar trabajo nuevo."""
+    """Cierra leases de coordinador que quedaron abiertos tras reinicio del scheduler.
+
+    Returns:
+        número de runs recuperados.
+    """
     settings = get_settings()
     async with AsyncSessionLocal() as session:
         recovered = await ScrapeRunRepository(session, settings).recover_running(
@@ -569,7 +608,7 @@ async def recover_scheduler_runs() -> int:
 
 
 async def prune_retained_records() -> None:
-    """Ejecuta una pasada no bloqueante de las políticas de retención."""
+    """Ejecuta la política de retención sin bloquear el scheduler si falla la base de datos."""
     try:
         async with AsyncSessionLocal() as session:
             result = await RetentionRepository(session).prune()
@@ -590,11 +629,14 @@ async def prune_retained_records() -> None:
             resolver_logs=result.resolver_logs,
             commands=result.commands,
             runs=result.runs,
+            compacted_payloads=result.compacted_payloads,
         )
 
 
 async def run_scheduler() -> None:
-    """Ejecuta la operación `scheduler`."""
+    """Configura jobs incremental, semanal y de retención y mantiene supervisor, dispatcher y
+    heartbeat hasta apagado.
+    """
     settings = get_settings()
     instance_id = uuid.uuid4()
     await persist_scheduler_heartbeat(instance_id, action="success")
@@ -687,7 +729,7 @@ async def run_scheduler() -> None:
 
 
 def main() -> None:
-    """Ejecuta el punto de entrada del módulo."""
+    """Configura logging, comprueba runtime free-threaded y ejecuta el comando del worker."""
     configure_logging()
     assert_free_threaded_runtime()
     parser = argparse.ArgumentParser(description="Batch Downloader scraper worker")

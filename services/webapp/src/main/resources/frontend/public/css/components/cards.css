@@ -189,7 +189,8 @@
 }
 
 .app-compact-card strong,
-.app-compact-card span {
+.app-compact-card span,
+.bundle-card-header-home h3 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -221,11 +222,6 @@
   gap: 12px;
 }
 
-.bundle-card-header-home h3 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .bundle-card-count {
   justify-self: end;

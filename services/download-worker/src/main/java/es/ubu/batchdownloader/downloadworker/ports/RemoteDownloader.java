@@ -6,20 +6,28 @@ import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ResolvedDownl
 import java.nio.file.Path;
 
 /**
- * Define el contrato de {@code RemoteDownloader}.
+ * Transfiere un instalador resuelto a un archivo local aplicando límites e integridad y conserva la
+ * identidad exacta de su fuente.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver
+ * @see es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadedArtifact
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Puertos del worker
  */
 public interface RemoteDownloader {
     /**
-     * Ejecuta la operación {@code download}.
+     * Descarga el elemento al destino local dentro del presupuesto total y límite por archivo y
+     * devuelve su identidad e integridad comprobadas.
      *
-     * @param item Elemento sobre el que se realiza la operación.
-     * @param filename Valor de {@code filename} utilizado por la operación.
-     * @param target Valor de {@code target} utilizado por la operación.
-     * @param totalBudget Valor de {@code totalBudget} utilizado por la operación.
-     * @param maxFileBytes Valor de {@code maxFileBytes} utilizado por la operación.
-     * @return Resultado producido por {@code download}.
+     * @param item Elemento admitido o resuelto cuya fuente exacta se procesa.
+     * @param filename Nombre seguro y deduplicado asignado al instalador descargado.
+     * @param target Ruta local de destino del instalador.
+     * @param totalBudget Presupuesto compartido de bytes del trabajo, consumido durante la
+     *     transferencia.
+     * @param maxFileBytes Límite máximo permitido para este archivo, en bytes.
+     * @return artefacto local completo listo para almacenar y archivar.
      */
     DownloadedArtifact download(
             ResolvedDownloadItem item,

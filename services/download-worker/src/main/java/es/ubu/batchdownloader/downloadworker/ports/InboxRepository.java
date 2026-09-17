@@ -4,31 +4,36 @@ import java.time.Duration;
 import java.util.UUID;
 
 /**
- * Define el contrato de {@code InboxRepository}.
+ * Deduplica entregas de eventos mediante reservas temporales y confirmación de procesamiento.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Puertos del worker
  */
 public interface InboxRepository {
     /**
-     * Ejecuta la operación {@code tryStart}.
+     * Intenta reservar un evento todavía no procesado o cuya reserva puede recuperarse según el
+     * arrendamiento.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param lease Valor de {@code lease} utilizado por la operación.
-     * @return Indica si se cumple la condición evaluada.
+     * @param eventId UUID estable del mensaje de entrada, conservado entre entregas duplicadas.
+     * @param lease Duración de la reserva de procesamiento antes de permitir recuperación.
+     * @return true si el llamador puede procesarlo; false si ya se procesó o está reservado.
      */
     boolean tryStart(UUID eventId, Duration lease);
 
     /**
-     * Ejecuta la operación {@code complete}.
+     * Confirma que el evento reservado terminó de procesarse para que futuras entregas no lo
+     * ejecuten otra vez.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @param eventId UUID estable del mensaje de entrada, conservado entre entregas duplicadas.
      */
     void complete(UUID eventId);
 
     /**
-     * Libera el recurso solicitado mediante {@code release}.
+     * Libera una reserva que no pudo completarse para permitir un reintento posterior.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @param eventId UUID estable del mensaje de entrada, conservado entre entregas duplicadas.
      */
     void release(UUID eventId);
 }

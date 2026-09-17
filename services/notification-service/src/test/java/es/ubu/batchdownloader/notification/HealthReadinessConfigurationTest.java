@@ -7,8 +7,20 @@ import java.io.InputStream;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 
-/** Verifica que SMTP y Resend no bloqueen la vida del consumidor. */
+/**
+ * Comprueba que las sondas exigen los recursos del consumidor sin depender de la disponibilidad de
+ * proveedores de correo.
+ *
+ * @see es.ubu.batchdownloader.notification.operations.NotificationWorkerHeartbeat
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
+ */
 class HealthReadinessConfigurationTest {
+    /**
+     * Comprueba que readiness incluye base de datos, Rabbit y latido, mientras liveness conserva
+     * solo señales del proceso.
+     */
     @Test
     void readinessRequiresDatabaseRabbitmqAndFreshHeartbeat() throws IOException {
         Properties properties = applicationProperties();
@@ -19,6 +31,11 @@ class HealthReadinessConfigurationTest {
                 .isEqualTo("readinessState,db,rabbit,workerHeartbeat");
     }
 
+    /**
+     * Carga las propiedades de producción para comprobar las sondas sin arrancar el servicio.
+     *
+     * @return configuración del recurso application.properties.
+     */
     private Properties applicationProperties() throws IOException {
         Properties properties = new Properties();
         try (InputStream stream = getClass().getResourceAsStream("/application.properties")) {

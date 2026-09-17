@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `free_threading`.
+"""Verifica que el intérprete y sus extensiones mantienen la ejecución de CPython sin GIL
+requerida por el scraper.
 """
 from __future__ import annotations
 
@@ -14,15 +15,17 @@ RUNTIME_EXTENSION_IMPORTS = (
     "selectolax.parser",
     "sqlalchemy",
 )
-"""Constante que define `RUNTIME_EXTENSION_IMPORTS`.
-"""
+
 
 
 def assert_free_threaded_runtime() -> None:
-    """Comprueba la operación `free_threaded_runtime`.
+    """Comprueba la compilación sin GIL, importa las extensiones utilizadas y vuelve a comprobar
+    que ninguna haya reactivado el GIL.
 
-    Throws:
-        RuntimeError: Si el estado de ejecución impide completar la operación.
+    Raises:
+        RuntimeError: Si la compilación, el estado inicial o una extensión incumplen el
+            requisito de ejecución sin GIL.
+        ImportError: Si alguna dependencia requerida no está disponible.
     """
     if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
         raise RuntimeError("scraper_requires_cpython_free_threaded_build")

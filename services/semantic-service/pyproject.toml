@@ -3,20 +3,16 @@ name = "batch-downloader-semantic-service"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-  "accelerate==1.14.0",
-  "datasets==5.0.0",
   "fastapi==0.139.2",
   "httpx==0.28.1",
   "numpy==2.5.1",
-  "peft==0.19.1",
-  "psutil==7.2.2",
   "psycopg[binary,pool]==3.3.4",
   "pydantic-settings==2.14.2",
-  "scikit-learn==1.9.0",
   "sentence-transformers==5.6.1",
   "torch==2.13.0",
   "transformers==5.14.1",
   "uvicorn==0.51.0",
+  "websockets==15.0.1",
 ]
 
 [tool.pytest.ini_options]
@@ -49,8 +45,8 @@ target-version = "py314"
 select = ["E", "F", "I", "UP", "B", "C90"]
 
 [tool.ruff.lint.mccabe]
-# Los casos de uso del store, benchmark y migrador ya tienen responsabilidades acotadas.
-max-complexity = 15
+# El indexador mantiene un flujo revisable.
+max-complexity = 10
 
 [tool.coverage.run]
 branch = true
@@ -64,8 +60,7 @@ skip_covered = false
 [project.scripts]
 semantic-migrator = "app.migrator:main"
 semantic-indexer = "app.indexer:main"
-semantic-model-worker = "app.model_worker:main"
-semantic-trainer = "app.trainer:main"
+semantic-model-validate = "app.model_validation:main"
 
 [build-system]
 requires = ["setuptools>=68"]

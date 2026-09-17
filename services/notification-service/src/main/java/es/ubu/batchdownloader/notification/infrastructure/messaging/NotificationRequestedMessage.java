@@ -5,16 +5,25 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Representa los datos inmutables de {@code NotificationRequestedMessage}.
+ * Representa el sobre JSON de una solicitud de correo antes de aplicar las invariantes del dominio.
+ * Los campos opcionales del transporte permiten deserializar y diagnosticar mensajes incompletos
+ * en el conversor, que comprueba tipo, versión, trazabilidad y contenido.
  *
- * @param eventId Valor de {@code eventId} incluido en el record.
- * @param type Valor de {@code type} incluido en el record.
- * @param schemaVersion Valor de {@code schemaVersion} incluido en el record.
- * @param occurredAt Valor de {@code occurredAt} incluido en el record.
- * @param correlationId Valor de {@code correlationId} incluido en el record.
- * @param causationId Valor de {@code causationId} incluido en el record.
- * @param payload Valor de {@code payload} incluido en el record.
+ * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+ * @param type Tipo de evento indicado por el productor; debe ser notification.email.requested.
+ * @param schemaVersion Versión del sobre, actualmente 1; null se rechaza al validar la entrada.
+ * @param occurredAt Instante UTC en que el productor emitió el evento.
+ * @param correlationId Identificador de trazabilidad del flujo que solicitó el correo.
+ * @param causationId Identificador del evento causante; puede ser null.
+ * @param payload Contenido de la solicitud de correo, pendiente de validación.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.messaging.NotificationRequestedMessageMapper
+ *
+ * @see es.ubu.batchdownloader.notification.domain.EmailNotification
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 public record NotificationRequestedMessage(
         UUID eventId,
@@ -26,12 +35,21 @@ public record NotificationRequestedMessage(
         Payload payload) {
 
     /**
-     * Representa los datos inmutables de {@code Payload}.
+     * Contiene destinatario, nombre de plantilla y parámetros tal como llegan por RabbitMQ, aún sin
+     * validar.
      *
-     * @param recipient Valor de {@code recipient} incluido en el record.
-     * @param template Valor de {@code template} incluido en el record.
-     * @param parameters Valor de {@code parameters} incluido en el record.
+     * @param recipient Dirección de correo del destinatario, sin nombre visible ni lista de
+     *     direcciones.
+     *
+     * @param template Finalidad del correo, que determina sus parámetros y proveedor.
+     * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @see
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.NotificationRequestedMessageMapper
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Notificaciones
      */
     public record Payload(
             String recipient,

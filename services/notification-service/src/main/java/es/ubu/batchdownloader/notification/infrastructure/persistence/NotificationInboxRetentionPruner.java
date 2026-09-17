@@ -12,7 +12,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Elimina mensajes procesados antiguos sin tocar fallidos ni reclamaciones activas. */
+/**
+ * Retira por lotes confirmaciones de correo con más de siete días para acotar el inbox.
+ * Conserva intentos fallidos y reservas en curso; una pasada elimina como máximo 500 eventos.
+ *
+ * @see es.ubu.batchdownloader.notification.infrastructure.persistence.JdbcNotificationInbox
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
+ */
 @Component
 public class NotificationInboxRetentionPruner {
     private static final Logger LOGGER = LoggerFactory.getLogger(NotificationInboxRetentionPruner.class);
@@ -24,7 +32,14 @@ public class NotificationInboxRetentionPruner {
     private final Counter deleted;
     private final Counter failures;
 
-    /** Inicializa el pruner con reloj y métricas inyectables. */
+    /**
+     * Asocia la política de retención con su almacenamiento, reloj y contadores operativos.
+     *
+     * @param jdbc Acceso a las filas del inbox que pertenecen a este servicio.
+     * @param clock Reloj usado para comparar reservas y registrar instantes en milisegundos UTC.
+     * @param meterRegistry Registro de métricas sin identificadores de evento ni contenido del
+     *     correo.
+     */
     public NotificationInboxRetentionPruner(
             JdbcTemplate jdbc,
             Clock clock,
@@ -52,7 +67,13 @@ public class NotificationInboxRetentionPruner {
         }
     }
 
-    /** Elimina como máximo 500 filas procesadas con más de siete días. */
+    /**
+     * Selecciona hasta 500 confirmaciones antiguas y las elimina si siguen en PROCESSED.
+     *
+     * @return número de filas realmente eliminadas.
+     * @throws org.springframework.dao.DataAccessException si falla la consulta o alguna
+     *     eliminación; las anteriores pueden haberse confirmado.
+     */
     public int prune() {
         long cutoff = clock.instant().minus(RETENTION).toEpochMilli();
         List<String> eventIds = jdbc.queryForList(

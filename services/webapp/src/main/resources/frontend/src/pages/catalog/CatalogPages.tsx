@@ -55,6 +55,15 @@ const DEFAULT_COUNTS: Record<FilterKey, number> = {
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 const CATALOG_REFRESH_INTERVAL_MS = 5_000;
 
+function searchNoticeFor(t: Translator, degradedReason?: string | null): string | null {
+  if (!degradedReason) return null;
+  return t(
+    degradedReason === 'semantic_query_too_short'
+      ? 'catalog.search.degraded.shortQuery'
+      : 'catalog.search.degraded',
+  );
+}
+
 export function CatalogPage() {
   const t = useTranslation();
   const { appId } = useParams();
@@ -214,7 +223,7 @@ export function CatalogPage() {
         setApps(response.data);
         setTotal(response.total);
         setAlphabet(response.alphabet ?? []);
-        setSearchNotice(response.degradedReason ? t('catalog.search.degraded') : null);
+        setSearchNotice(searchNoticeFor(t, response.degradedReason));
         lastLoadedPage.current = { searchKey: canonicalSearchKey, apps: response.data };
         if (refreshInspection?.missingIds.length) {
           const validation = await validateCatalogSelection(

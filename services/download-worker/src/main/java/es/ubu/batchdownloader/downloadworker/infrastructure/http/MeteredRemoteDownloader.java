@@ -9,18 +9,42 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.nio.file.Path;
 
-/** Registra duración y resultado sin introducir etiquetas de alta cardinalidad. */
+/**
+ * Mide cada llamada de descarga y distingue éxito, rechazo funcional y otros fallos sin cambiar su
+ * resultado.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Transporte de descargas
+ */
 public final class MeteredRemoteDownloader implements RemoteDownloader {
     private final RemoteDownloader delegate;
     private final MeterRegistry registry;
 
-    /** Inicializa el wrapper de métricas. */
+    /**
+     * Conecta la siguiente política y el registro de duración por resultado.
+     *
+     * @param delegate Siguiente política o transporte de la cadena de descarga.
+     * @param registry Registro de duraciones, concurrencia y reintentos.
+     */
     public MeteredRemoteDownloader(RemoteDownloader delegate, MeterRegistry registry) {
         this.delegate = delegate;
         this.registry = registry;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Registra duración en la salida normal o excepcional y propaga el mismo artefacto o fallo de
+     * la llamada delegada.
+     *
+     * @param item Elemento admitido o resuelto cuya fuente exacta se procesa.
+     * @param filename Nombre seguro y deduplicado asignado al instalador descargado.
+     * @param target Ruta local de destino del instalador.
+     * @param totalBudget Presupuesto compartido de bytes del trabajo, consumido durante la
+     *     transferencia.
+     * @param maxFileBytes Límite máximo permitido para este archivo, en bytes.
+     * @return artefacto de la transferencia delegada.
+     */
     @Override
     public DownloadedArtifact download(
             ResolvedDownloadItem item,

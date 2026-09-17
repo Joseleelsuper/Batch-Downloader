@@ -92,8 +92,8 @@ export function createManualInstallerInspection(
 export function fetchCurrentManualInstallerInspection(
   appId: string,
   signal?: AbortSignal,
-): Promise<ManualInstallerInspection> {
-  return requestJson<ManualInstallerInspection>(
+): Promise<ManualInstallerInspection | null> {
+  return requestJson<ManualInstallerInspection | null>(
     `/api/v1/admin/apps/${encodeURIComponent(appId)}/manual-installer-inspections/current`,
     { signal },
   );

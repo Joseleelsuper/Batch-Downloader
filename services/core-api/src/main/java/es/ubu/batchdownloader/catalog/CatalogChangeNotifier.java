@@ -11,9 +11,15 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 /**
- * Implementa el componente {@code CatalogChangeNotifier}.
+ * Informa por WebSocket de la versión actual y sus cambios sin permitir que una nueva conexión
+ * consuma la invalidación de las existentes.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
+ * @see es.ubu.batchdownloader.catalog.CatalogWebSocketConfig
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
  */
 @Component
 public class CatalogChangeNotifier extends TextWebSocketHandler {
@@ -35,10 +41,11 @@ public class CatalogChangeNotifier extends TextWebSocketHandler {
     private volatile String lastVersion;
 
     /**
-     * Inicializa una instancia de {@code CatalogChangeNotifier}.
+     * Conecta la versión compuesta del catálogo y la serialización de sus eventos públicos.
      *
-     * @param catalog Acceso al catálogo utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
+     * @param catalog Fachada de consultas del catálogo que conserva filtros, proyecciones y
+     *     versiones públicas.
+     * @param objectMapper Conversor JSON de eventos públicos o respuestas del servicio semántico.
      */
     public CatalogChangeNotifier(CatalogRepository catalog, ObjectMapper objectMapper) {
         this.catalog = catalog;
@@ -46,10 +53,11 @@ public class CatalogChangeNotifier extends TextWebSocketHandler {
     }
 
     /**
-     * Implementa {@code afterConnectionEstablished} para {@code CatalogChangeNotifier}.
+     * Registra la conexión y le envía el estado actual; solo la primera conexión inicializa la
+     * versión compartida del sondeo.
      *
-     * @param session Valor de {@code session} utilizado por la operación.
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param session Conexión WebSocket que recibe la versión actual y los cambios posteriores.
+     * @throws Exception si no puede consultar, serializar o enviar la instantánea inicial.
      */
     @Override
     public synchronized void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -63,10 +71,10 @@ public class CatalogChangeNotifier extends TextWebSocketHandler {
     }
 
     /**
-     * Implementa {@code afterConnectionClosed} para {@code CatalogChangeNotifier}.
+     * Retira la conexión cerrada para que deje de participar en difusiones posteriores.
      *
-     * @param session Valor de {@code session} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
+     * @param session Conexión WebSocket que recibe la versión actual y los cambios posteriores.
+     * @param status Motivo de cierre comunicado por el servidor WebSocket.
      */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
@@ -74,9 +82,10 @@ public class CatalogChangeNotifier extends TextWebSocketHandler {
     }
 
     /**
-     * Publica el contenido solicitado mediante {@code publishIfChanged}.
+     * Sondea solo cuando existen sesiones y difunde la versión si cambió; elimina conexiones
+     * cerradas o fallidas sin impedir el envío a las demás.
      *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * @throws Exception si falla la consulta o serialización del evento antes de difundirlo.
      */
     @Scheduled(fixedDelayString = "${app.catalog-events.poll-ms:3000}")
     public synchronized void publishIfChanged() throws Exception {

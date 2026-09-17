@@ -15,6 +15,7 @@ from app.scraper.description_enricher import (
     GeneratedDescription,
     LLMGenerationError,
     description_input_hash,
+    parse_description_payload,
 )
 from app.scraper.llm import (
     InMemoryModelCooldownStore,
@@ -39,8 +40,7 @@ class FakeClock:
         """Inicializa una instancia de `FakeClock`.
         """
         self.now = 0.0
-        """Estado de instancia asociado a `now`.
-        """
+
 
     def __call__(self) -> float:
         """Ejecuta la instancia como una operación invocable.
@@ -145,12 +145,16 @@ async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -
     )
 
     assert result.provider == "groq"
-    assert result.model == "qwen/qwen3-32b"
+    assert result.model == "qwen/qwen3.8-27b"
     assert result.description == "Descripcion larga valida para la app."
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
-        "qwen/qwen3-32b",
+        "qwen/qwen3.6-27b",
+        "qwen/qwen3.8-27b",
     ]
+    assert all(
+        json.loads(call.request.content)["reasoning_effort"] == "none"
+        for call in groq_route.calls
+    )
     assert not deepseek_route.called
 
 
@@ -167,7 +171,7 @@ async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable()
     groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
         return_value=httpx.Response(503)
     )
-    respx.post("https://api.deepseek.com/chat/completions").mock(
+    deepseek_route = respx.post("https://api.deepseek.com/chat/completions").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -192,18 +196,22 @@ async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable()
 
     assert result.provider == "deepseek"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
-        "qwen/qwen3-32b",
         "qwen/qwen3.6-27b",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3.8-27b",
     ]
+    assert json.loads(deepseek_route.calls[0].request.content)["thinking"] == {
+        "type": "disabled"
+    }
+    assert all("thinking" not in json.loads(call.request.content) for call in groq_route.calls)
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_groq_model_400_cools_down_and_tries_next_model() -> None:
-    """Comprueba el escenario `groq_model_400_cools_down_and_tries_next_model`.
-    """
+@pytest.mark.parametrize("status_code", [400, 404])
+async def test_unavailable_groq_model_cools_down_and_tries_next_model(
+    status_code: int,
+) -> None:
+    """Un modelo incompatible o ausente no bloquea los fallbacks de Groq."""
     settings = Settings(
         llm_groq_api_key="groq-key",
         llm_deepseek_api_key="deepseek-key",
@@ -212,7 +220,7 @@ async def test_groq_model_400_cools_down_and_tries_next_model() -> None:
     )
     groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
         side_effect=[
-            httpx.Response(400),
+            httpx.Response(status_code),
             httpx.Response(
                 200,
                 json={
@@ -256,10 +264,22 @@ async def test_groq_model_400_cools_down_and_tries_next_model() -> None:
     assert result.provider == "groq"
     assert result.model == "qwen/qwen3-32b"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
+        "qwen/qwen3.6-27b",
         "qwen/qwen3-32b",
     ]
     assert not deepseek_route.called
+
+
+def test_parse_description_payload_accepts_json_wrapped_in_provider_text() -> None:
+    """Tolera razonamiento o texto de cortesía sin relajar la forma del resultado."""
+    description, language = parse_description_payload(
+        '<think>Comprobando evidencia.</think>\n'
+        '{"long_description":"Descripción válida del proveedor.","language":"es"}\n'
+        "Fin."
+    )
+
+    assert description == "Descripción válida del proveedor."
+    assert language == "es"
 
 
 @pytest.mark.asyncio
@@ -310,12 +330,12 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
 
     assert first.model == "qwen/qwen3-32b"
     assert second.model == "qwen/qwen3-32b"
-    assert third.model == "llama-3.1-8b-instant"
+    assert third.model == "qwen/qwen3.6-27b"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "llama-3.1-8b-instant",
+        "qwen/qwen3.6-27b",
         "qwen/qwen3-32b",
         "qwen/qwen3-32b",
-        "llama-3.1-8b-instant",
+        "qwen/qwen3.6-27b",
     ]
 
 
@@ -337,10 +357,10 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
         """Agrupa los escenarios de prueba de `BadLLM`.
         """
         def has_provider(self) -> bool:
-            """Indica si existe la operación `provider`.
-
-            Returns:
-                bool: Indica si se cumple la condición evaluada.
+            """Prepara el recurso
+            `test_enricher_marks_invalid_llm_response_as_failed.BadLLM.has_provider` usado por
+            las pruebas para aislar el escenario `test enricher marks invalid llm response as
+            failed.BadLLM.has provider` y conservar sus datos de entrada.
             """
             return True
 
@@ -363,11 +383,9 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
             """Inicializa una instancia de `FakeCatalog`.
             """
             self.app = make_app(official_url=None)
-            """Estado de instancia asociado a `app`.
-            """
+
             self.failed = []
-            """Estado de instancia asociado a `failed`.
-            """
+
 
         async def apps_for_description_enrichment(self, _software_app_ids=None):
             """Ejecuta `apps_for_description_enrichment` dentro de `FakeCatalog`.
@@ -404,8 +422,7 @@ async def test_enricher_marks_invalid_llm_response_as_failed() -> None:
             """Inicializa una instancia de `FakeLogs`.
             """
             self.entries = []
-            """Estado de instancia asociado a `entries`.
-            """
+
 
         async def add(self, **kwargs):
             """Ejecuta `add` dentro de `FakeLogs`.
@@ -437,10 +454,10 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
         """Agrupa los escenarios de prueba de `GoodLLM`.
         """
         def has_provider(self) -> bool:
-            """Indica si existe la operación `provider`.
-
-            Returns:
-                bool: Indica si se cumple la condición evaluada.
+            """Prepara el recurso
+            `test_enricher_treats_zero_max_apps_as_unlimited.GoodLLM.has_provider` usado por
+            las pruebas para aislar el escenario `test enricher treats zero max apps as
+            unlimited.GoodLLM.has provider` y conservar sus datos de entrada.
             """
             return True
 
@@ -467,11 +484,9 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
                 make_app(winstall_id=f"Vendor.App{i}", name=f"Vendor App {i}", official_url=None)
                 for i in range(3)
             ]
-            """Estado de instancia asociado a `apps`.
-            """
+
             self.saved = []
-            """Estado de instancia asociado a `saved`.
-            """
+
 
         async def apps_for_description_enrichment(self, _software_app_ids=None):
             """Ejecuta `apps_for_description_enrichment` dentro de `FakeCatalog`.
@@ -522,3 +537,55 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
 
     assert enriched == 3
     assert len(catalog.saved) == 3
+
+
+@pytest.mark.asyncio
+async def test_enrich_app_releases_database_before_calling_llm() -> None:
+    """La petición externa no mantiene ocupada la conexión del catálogo."""
+    events: list[str] = []
+
+    class GoodLLM:
+        def has_provider(self) -> bool:
+            return True
+
+        async def generate(self, _evidence):
+            events.append("llm")
+            return GeneratedDescription(
+                description="Descripción generada sin retener la conexión SQL.",
+                language="es",
+                provider="groq",
+                model="test-model",
+            )
+
+    class FakeCatalog:
+        def __init__(self) -> None:
+            self.app = make_app(official_url=None)
+
+        async def apps_for_description_enrichment(self, _software_app_ids=None):
+            return [self.app]
+
+        async def save_long_description(self, **_kwargs):
+            events.append("save")
+
+        async def mark_long_description_failed(self, **_kwargs):
+            raise AssertionError("valid responses must not be marked failed")
+
+    class FakeLogs:
+        async def add(self, **_kwargs):
+            events.append("log")
+
+    async def release_database_connection() -> None:
+        events.append("release")
+
+    result = await AppDescriptionEnricher(
+        Settings(),
+        FakeCatalog(),
+        FakeLogs(),
+        llm=GoodLLM(),
+    ).enrich_app(
+        uuid4(),
+        release_database_connection=release_database_connection,
+    )
+
+    assert result.status == "completed"
+    assert events == ["release", "llm", "save", "log"]

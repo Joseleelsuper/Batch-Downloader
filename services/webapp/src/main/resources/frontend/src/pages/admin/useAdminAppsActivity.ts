@@ -1,6 +1,6 @@
 import { useCallback, useReducer } from 'react';
 
-type ActivityKey =
+export type ActivityKey =
   | 'saving'
   | 'inspecting'
   | 'discoveringWebsite'
@@ -46,7 +46,7 @@ function activityReducer(state: ActivityState, action: ActivityAction): Activity
   }
 }
 
-/** Agrupa las operaciones asíncronas del banco administrativo en una máquina de estado. */
+/** Mantiene indicadores independientes para permitir operaciones simultáneas y avisos del editor. */
 export function useAdminAppsActivity() {
   const [state, dispatch] = useReducer(activityReducer, INITIAL_ACTIVITY);
   const setMessage = useCallback((value: string | null) => {
@@ -63,32 +63,6 @@ export function useAdminAppsActivity() {
     ...state,
     setMessage,
     setError,
-    setSaving: useCallback((value: boolean) => setOperation('saving', value), [setOperation]),
-    setInspecting: useCallback((value: boolean) => setOperation('inspecting', value), [setOperation]),
-    setDiscoveringWebsite: useCallback(
-      (value: boolean) => setOperation('discoveringWebsite', value),
-      [setOperation],
-    ),
-    setApplying: useCallback((value: boolean) => setOperation('applying', value), [setOperation]),
-    setGeneratingDescription: useCallback(
-      (value: boolean) => setOperation('generatingDescription', value),
-      [setOperation],
-    ),
-    setDeletingSelected: useCallback(
-      (value: boolean) => setOperation('deletingSelected', value),
-      [setOperation],
-    ),
-    setExportingCsv: useCallback(
-      (value: boolean) => setOperation('exportingCsv', value),
-      [setOperation],
-    ),
-    setDeletingAll: useCallback(
-      (value: boolean) => setOperation('deletingAll', value),
-      [setOperation],
-    ),
-    setRetryingSelected: useCallback(
-      (value: boolean) => setOperation('retryingSelected', value),
-      [setOperation],
-    ),
+    setOperation,
   };
 }

@@ -14,16 +14,17 @@ from app.core.time import utc_now
 from app.core.url_protector import UrlProtector
 from app.db.enums import AppStatus, ResolutionStatus, ValidationStatus
 from app.db.models import DownloadSource, ManualInstallerInspection, SoftwareApp
-from app.repositories.catalog import CatalogRepository, ResolvedSourceCreate
+from app.repositories.catalog import CatalogRepository
+from app.repositories.catalog_rules import ResolvedSourceCreate
 from app.schemas.internal import ManualInstallerApplyRequest
 from app.scraper.artifacts import ArtifactArchitecture
 from app.scraper.candidates import registered_domain
+from app.scraper.inspection_lifecycle import append_warning
 from app.scraper.manual_installer import (
     ManualInstallerError,
     ManualInstallerInspectionRepository,
     ManualInstallerInspector,
     ValidatedManualInstaller,
-    append_warning,
     clean_optional,
     description_provenance,
     reveal_manual_installer_inputs,
@@ -332,7 +333,7 @@ async def _persist_sources(
     source_ids: set[uuid.UUID] = set()
     resolved_ids: list[uuid.UUID] = []
     for index, (validated, operating_system, architecture) in enumerate(installers):
-        source = await catalog.source_for_platform(app.id, operating_system, architecture)
+        source = await catalog.sources.source_for_platform(app.id, operating_system, architecture)
         if source is None:
             source = DownloadSource(
                 software_app_id=app.id,
@@ -366,8 +367,8 @@ async def _persist_sources(
             )
         )
 
-    await catalog.refresh_source_statuses(source_ids)
-    await catalog.refresh_operating_systems(app.id)
+    await catalog.sources.refresh_source_statuses(source_ids)
+    await catalog.sources.refresh_operating_systems(app.id)
     await session.refresh(app, attribute_names=["version", "app_status", "catalog_status"])
     return resolved_ids
 
@@ -385,8 +386,8 @@ async def _persist_resolved_source(
     is_primary: bool,
 ) -> uuid.UUID:
     """Reemplaza la versión vigente de una fuente por el artefacto revalidado."""
-    await catalog.expire_valid_resolved_sources(source.id)
-    resolved = await catalog.save_resolved_source(
+    await catalog.sources.expire_valid_resolved_sources(source.id)
+    resolved = await catalog.sources.save_resolved_source(
         ResolvedSourceCreate(
             source_id=source.id,
             url=validated.final_url,

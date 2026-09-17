@@ -16,7 +16,6 @@ import adminAudit from '@batch-locales/es/admin-audit.json';
 import adminBundles from '@batch-locales/es/admin-bundles.json';
 import adminDashboard from '@batch-locales/es/admin-dashboard.json';
 import adminLayout from '@batch-locales/es/admin-layout.json';
-import adminRequests from '@batch-locales/es/admin-requests.json';
 import adminScraper from '@batch-locales/es/admin-scraper.json';
 import adminSemantic from '@batch-locales/es/admin-semantic.json';
 import adminShared from '@batch-locales/es/admin-shared.json';
@@ -24,6 +23,7 @@ import authenticationShared from '@batch-locales/es/authentication-shared.json';
 import bundleDetail from '@batch-locales/es/bundle-detail.json';
 import catalogPage from '@batch-locales/es/catalog.json';
 import downloads from '@batch-locales/es/downloads.json';
+import linuxInstaller from '@batch-locales/es/linux-installer.json';
 import facetDirectory from '@batch-locales/es/facet-directory.json';
 import forgotPassword from '@batch-locales/es/forgot-password.json';
 import home from '@batch-locales/es/home.json';
@@ -44,6 +44,7 @@ const bundledMessages = {
   ...facetDirectory,
   ...bundleDetail,
   ...downloads,
+  ...linuxInstaller,
   ...authenticationShared,
   ...login,
   ...register,
@@ -60,7 +61,6 @@ const bundledMessages = {
   ...adminBundles,
   ...adminScraper,
   ...adminSemantic,
-  ...adminRequests,
   ...adminAudit,
   ...adminShared,
 } as const;

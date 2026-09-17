@@ -82,6 +82,66 @@ class SemanticSearchClientTest {
     }
 
     /**
+     * Comprueba el escenario {@code explicitShortQueryRejectionUsesSpecificDegradationReason}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
+    @Test
+    void explicitShortQueryRejectionUsesSpecificDegradationReason() throws Exception {
+        startServer(422, """
+                {"detail": {"code": "semantic_query_too_short"}}
+                """);
+
+        SemanticCandidateSet result = client(Duration.ofSeconds(1))
+                .resolve(CatalogSearchMode.SEMANTIC, "Steam");
+
+        assertThat(result.appliedMode()).isEqualTo(CatalogSearchMode.LEXICAL);
+        assertThat(result.degradedReason()).isEqualTo("semantic_query_too_short");
+    }
+
+    /**
+     * Comprueba el escenario {@code fastApiShortQueryValidationUsesSpecificDegradationReason}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
+    @Test
+    void fastApiShortQueryValidationUsesSpecificDegradationReason() throws Exception {
+        startServer(422, """
+                {
+                  "detail": [{
+                    "type": "string_too_short",
+                    "loc": ["body", "query"],
+                    "msg": "String should have at least 6 characters"
+                  }]
+                }
+                """);
+
+        SemanticCandidateSet result = client(Duration.ofSeconds(1))
+                .resolve(CatalogSearchMode.SEMANTIC, "Steam");
+
+        assertThat(result.appliedMode()).isEqualTo(CatalogSearchMode.LEXICAL);
+        assertThat(result.degradedReason()).isEqualTo("semantic_query_too_short");
+    }
+
+    /**
+     * Comprueba el escenario {@code unrelatedClientRejectionKeepsGenericDegradationReason}.
+     *
+     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     */
+    @Test
+    void unrelatedClientRejectionKeepsGenericDegradationReason() throws Exception {
+        startServer(422, """
+                {"detail": [{"type": "string_too_short", "loc": ["body", "limit"]}]}
+                """);
+
+        SemanticCandidateSet result = client(Duration.ofSeconds(1))
+                .resolve(CatalogSearchMode.SEMANTIC, "editor");
+
+        assertThat(result.appliedMode()).isEqualTo(CatalogSearchMode.LEXICAL);
+        assertThat(result.degradedReason()).isEqualTo("semantic_request_rejected");
+    }
+
+    /**
      * Comprueba el escenario {@code truncatedEnumerationNeverPublishesAPartialSemanticScope}.
      *
      * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
@@ -105,10 +165,9 @@ class SemanticSearchClientTest {
     }
 
     /**
-     * Ejecuta la operación {@code client}.
+     * Ejecuta client y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param timeout Tiempo máximo permitido para completar la operación.
-     * @return Resultado producido por {@code client}.
+     * @param timeout Límite temporal de la operación.
      */
     private SemanticSearchClient client(Duration timeout) {
         return new SemanticSearchClient(
@@ -120,11 +179,10 @@ class SemanticSearchClientTest {
     }
 
     /**
-     * Ejecuta la operación {@code startServer}.
+     * Ejecuta start server y comunica su resultado manteniendo las reglas del componente.
      *
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param body Cuerpo recibido por la solicitud.
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * @param status Estado que condiciona la transición.
+     * @param body Contenido que se normaliza o comprueba.
      */
     private void startServer(int status, String body) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

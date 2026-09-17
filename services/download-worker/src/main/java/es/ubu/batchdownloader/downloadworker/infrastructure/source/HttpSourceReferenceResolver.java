@@ -6,6 +6,7 @@ import es.ubu.batchdownloader.downloadworker.application.InfrastructureException
 import es.ubu.batchdownloader.downloadworker.config.SourceResolverProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ResolvedDownloadItem;
+import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.InstallationMetadata;
 import es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver;
 import java.io.IOException;
 import java.net.URI;
@@ -13,12 +14,19 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * Resuelve los recursos gestionados por {@code HttpSourceReferenceResolver}.
+ * Consulta al scraper la fuente exacta admitida y contrasta identidad, pertenencia y confianza
+ * antes de permitir que el worker use su URI final.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadResolutionService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Adaptadores y persistencia del worker
  */
 public class HttpSourceReferenceResolver implements SourceReferenceResolver {
     /**
@@ -39,11 +47,12 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
     private final String baseUrl;
 
     /**
-     * Inicializa una instancia de {@code HttpSourceReferenceResolver}.
+     * Conecta cliente, serializador y configuración del scraper normalizando la URL base.
      *
-     * @param client Valor de {@code client} utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @param client Cliente del servicio remoto, configurado antes de componer el adaptador.
+     * @param objectMapper Serializador de contratos JSON entre servicios.
+     * @param properties Configuración específica del adaptador: destino, credencial y límites de
+     *     acceso.
      */
     public HttpSourceReferenceResolver(
             HttpClient client,
@@ -56,12 +65,15 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
     }
 
     /**
-     * Resuelve el recurso solicitado mediante {@code resolve}.
+     * Solicita la resolución autenticada y comprueba la respuesta. Un 404, 409, 5xx u otro estado
+     * no satisfactorio se conserva como rechazo individual para poder entregar el resto del lote.
      *
-     * @param item Elemento sobre el que se realiza la operación.
-     * @return Resultado producido por {@code resolve}.
-     * @throws DownloadRejectedException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param item Elemento admitido cuya fuente exacta se resuelve.
+     * @return resolución con los UUID originales y metadatos de instalación.
+     * @throws es.ubu.batchdownloader.downloadworker.application.DownloadRejectedException si el
+     *     scraper rechaza o no puede resolver esa fuente.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si falla el
+     *     transporte, JSON o la consistencia del contrato.
      */
     @Override
     public ResolvedDownloadItem resolve(DownloadItemRequest item) {
@@ -103,16 +115,20 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
                 resolved.architecture(),
                 resolved.expectedSizeBytes(),
                 normalizeSha256(resolved.expectedSha256()),
-                resolved.expectedMime());
+                resolved.expectedMime(),
+                new InstallationMetadata(resolved.appName(), resolved.version(), resolved.extension(),
+                        resolved.operatingSystem(), resolved.architecture(), resolved.installationProfile(),
+                        resolved.signatureBase64()));
     }
 
     /**
-     * Envía el contenido solicitado mediante {@code send}.
+     * Envía la petición interna de resolución y conserva la interrupción en caso de cancelación del
+     * hilo.
      *
-     * @param request Solicitud recibida por la operación.
-     * @return Resultado producido por {@code send}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param request Petición interna ya construida con token y timeout.
+     * @return respuesta HTTP con cuerpo textual.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
+     *     interrumpe la petición o falla la E/S.
      */
     private HttpResponse<String> send(HttpRequest request) {
         try {
@@ -126,12 +142,12 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
     }
 
     /**
-     * Ejecuta la operación {@code deserialize}.
+     * Lee el contrato de resolución sin utilizar todavía la URI remota.
      *
-     * @param body Cuerpo recibido por la solicitud.
-     * @return Resultado producido por {@code deserialize}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param body Cuerpo JSON recibido del servicio interno; se valida antes de utilizarlo.
+     * @return respuesta deserializada del scraper.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si el JSON
+     *     no puede interpretarse.
      */
     private SourceResolutionResponse deserialize(String body) {
         try {
@@ -142,12 +158,15 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateResponse}.
+     * Exige fuente y aplicación exactas, confianza VERIFIED, URI y plataforma presentes, tamaño no
+     * negativo y SHA-256 válido cuando se proporciona.
      *
-     * @param requested Valor de {@code requested} utilizado por la operación.
-     * @param resolved Valor de {@code resolved} utilizado por la operación.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param requested Elemento original contra el que se contrastan identidad y pertenencia de la
+     *     respuesta.
+     * @param resolved Respuesta del scraper que debe conservar la selección y declarar confianza
+     *     VERIFIED.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no se
+     *     cumple alguna condición del contrato de resolución.
      */
     private void validateResponse(DownloadItemRequest requested, SourceResolutionResponse resolved) {
         if (resolved.sourceRef() == null
@@ -174,12 +193,13 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizeSha256}.
+     * Representa una huella ausente como null y exige sesenta y cuatro caracteres hexadecimales
+     * para una huella aportada.
      *
-     * @param sha256 Valor de {@code sha256} utilizado por la operación.
-     * @return Resultado producido por {@code normalizeSha256}.
-     * @throws InfrastructureException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param sha256 SHA-256 calculado del contenido descargado, cuando existe un archivo.
+     * @return huella en minúsculas o null para ausencia.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si la
+     *     huella no cumple el formato SHA-256.
      */
     private String normalizeSha256(String sha256) {
         if (sha256 == null || sha256.isBlank()) {
@@ -195,19 +215,33 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
     }
 
     /**
-     * Representa los datos inmutables de {@code SourceResolutionResponse}.
+     * Recibe del scraper una resolución exacta con evidencia de confianza, integridad esperada y
+     * datos declarativos de instalación.
      *
-     * @param sourceRef Valor de {@code sourceRef} incluido en el record.
-     * @param appId Valor de {@code appId} incluido en el record.
-     * @param url Valor de {@code url} incluido en el record.
-     * @param expectedFilename Valor de {@code expectedFilename} incluido en el record.
-     * @param expectedSizeBytes Valor de {@code expectedSizeBytes} incluido en el record.
-     * @param expectedSha256 Valor de {@code expectedSha256} incluido en el record.
-     * @param expectedMime Valor de {@code expectedMime} incluido en el record.
-     * @param operatingSystem Valor de {@code operatingSystem} incluido en el record.
-     * @param architecture Valor de {@code architecture} incluido en el record.
-     * @param trustStatus Valor de {@code trustStatus} incluido en el record.
+     * @param sourceRef UUID exacto del instalador seleccionado; no debe sustituirse por otro
+     *     candidato automático.
+     * @param appId UUID de la aplicación seleccionada en el catálogo.
+     * @param url URI final revalidada que usa el worker; no se incluye en los manifiestos
+     *     entregados.
+     * @param expectedFilename Nombre propuesto del instalador; la política de nombres lo saneará
+     *     antes de escribir.
+     * @param expectedSizeBytes Tamaño esperado en bytes; null cuando la inspección no lo conoce.
+     * @param expectedSha256 SHA-256 esperado para verificar integridad; null si no se conoce.
+     * @param expectedMime Tipo MIME esperado de la fuente, cuando la resolución lo proporciona.
+     * @param operatingSystem Plataforma declarada para la fuente concreta.
+     * @param architecture Arquitectura declarada para la fuente concreta.
+     * @param trustStatus Estado VERIFIED exigido antes de utilizar la resolución.
+     * @param appName Nombre de la aplicación que se muestra en el manifiesto o las instrucciones
+     *     manuales.
+     * @param version Versión del programa correspondiente al instalador, cuando se conoce.
+     * @param extension Formato del instalador sin incluir una dirección de descarga.
+     * @param installationProfile Receta Linux declarativa de la fuente, cuando está disponible.
+     * @param signatureBase64 Firma separada del instalador codificada en Base64, cuando la fuente
+     *     la proporciona.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Adaptadores y persistencia del worker
      */
     public record SourceResolutionResponse(
             UUID sourceRef,
@@ -219,6 +253,36 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
             String expectedMime,
             String operatingSystem,
             String architecture,
-            String trustStatus) {
+            String trustStatus,
+            String appName,
+            String version,
+            String extension,
+            Map<String, Object> installationProfile,
+            String signatureBase64) {
+        /**
+         * Conserva el contrato abreviado de resolución sin nombre, versión, receta ni firma de
+         * instalación.
+         *
+         * @param sourceRef UUID exacto del instalador seleccionado; no debe sustituirse por otro
+         *     candidato automático.
+         * @param appId UUID de la aplicación seleccionada en el catálogo.
+         * @param url URI final revalidada que usa el worker; no se incluye en los manifiestos
+         *     entregados.
+         * @param expectedFilename Nombre propuesto del instalador; la política de nombres lo
+         *     saneará antes de escribir.
+         * @param expectedSizeBytes Tamaño esperado en bytes; null cuando la inspección no lo
+         *     conoce.
+         * @param expectedSha256 SHA-256 esperado para verificar integridad; null si no se conoce.
+         * @param expectedMime Tipo MIME esperado de la fuente, cuando la resolución lo proporciona.
+         * @param operatingSystem Plataforma declarada para la fuente concreta.
+         * @param architecture Arquitectura declarada para la fuente concreta.
+         * @param trustStatus Estado VERIFIED exigido antes de utilizar la resolución.
+         */
+        public SourceResolutionResponse(UUID sourceRef, UUID appId, String url, String expectedFilename,
+                Long expectedSizeBytes, String expectedSha256, String expectedMime,
+                String operatingSystem, String architecture, String trustStatus) {
+            this(sourceRef, appId, url, expectedFilename, expectedSizeBytes, expectedSha256,
+                    expectedMime, operatingSystem, architecture, trustStatus, null, null, null, null, null);
+        }
     }
 }

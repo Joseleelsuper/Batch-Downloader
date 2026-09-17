@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.bundle.BundleRepository;
 import es.ubu.batchdownloader.downloads.application.DownloadJobService;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,7 +19,7 @@ import org.springframework.http.HttpHeaders;
 class DownloadJobControllerTest {
     @Test
     void preparesANonCacheableSignedLinkWithoutChangingTheManualFileContract() {
-        DownloadJobService jobs = mock(DownloadJobService.class);
+        DownloadJobAccessService jobs = mock(DownloadJobAccessService.class);
         DownloadRequestOwner owners = mock(DownloadRequestOwner.class);
         HttpServletRequest request = mock(HttpServletRequest.class);
         UUID jobId = UUID.randomUUID();
@@ -28,6 +29,7 @@ class DownloadJobControllerTest {
         when(owners.resolve(null, "browser-token", "127.0.0.1")).thenReturn(owner);
         when(jobs.file(owner, jobId)).thenReturn(signed);
         DownloadJobController controller = new DownloadJobController(
+                mock(DownloadJobService.class),
                 jobs,
                 owners,
                 mock(BundleRepository.class),

@@ -15,9 +15,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Coordina las operaciones de negocio de {@code AdminAuditService}.
+ * Persiste auditoría administrativa con metadatos previamente filtrados; registra y cuenta los
+ * fallos sin impedir que se entregue el resultado de la operación principal.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.admin.AdminAppController
+ * @see es.ubu.batchdownloader.admin.AdminScraperController
+ * @see es.ubu.batchdownloader.admin.AdminSemanticController
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Administración del catálogo
  */
 @Service
 public class AdminAuditService {
@@ -34,12 +41,12 @@ public class AdminAuditService {
     private final Counter failures;
 
     /**
-     * Inicializa una instancia de {@code AdminAuditService}.
+     * Conecta persistencia y serialización y registra el contador admin.audit.failures.
      *
-     * @param jdbcTemplate Valor de {@code jdbcTemplate} utilizado por la operación.
-     * @param objectMapper Valor de {@code objectMapper} utilizado por la operación.
-     * @param clock Reloj determinista utilizado para fechar el evento.
-     * @param meterRegistry Registro de métricas operativas.
+     * @param jdbcTemplate Acceso SQL utilizado para persistir la auditoría administrativa.
+     * @param objectMapper Serializador de los campos seguros de auditoría.
+     * @param clock Reloj utilizado para fechar los cambios persistidos.
+     * @param meterRegistry Registro del contador de fallos de persistencia de auditoría.
      */
     public AdminAuditService(
             JdbcTemplate jdbcTemplate,
@@ -55,13 +62,14 @@ public class AdminAuditService {
     }
 
     /**
-     * Ejecuta la operación {@code record}.
+     * Guarda actor, acción, destino y metadatos con fecha UTC. Si fallan la serialización o la
+     * inserción, incrementa el contador y registra solo acción, tipo de destino y clase de fallo.
      *
-     * @param actor Identidad del actor que solicita la operación.
-     * @param action Valor de {@code action} utilizado por la operación.
-     * @param targetType Valor de {@code targetType} utilizado por la operación.
-     * @param targetId Identificador de {@code target} utilizado por la operación.
-     * @param safeMetadata Valor de {@code safeMetadata} utilizado por la operación.
+     * @param actor UUID textual del administrador que confirma la evidencia.
+     * @param action Acción administrativa realizada, sin datos secretos.
+     * @param targetType Tipo del recurso sobre el que se realizó la acción.
+     * @param targetId Identificador del recurso afectado.
+     * @param safeMetadata Datos ya filtrados por el llamador; null se guarda como un objeto vacío.
      */
     public void record(String actor, String action, String targetType, String targetId, Map<String, Object> safeMetadata) {
         try {

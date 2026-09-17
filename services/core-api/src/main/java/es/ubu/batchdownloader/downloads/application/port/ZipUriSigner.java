@@ -4,23 +4,33 @@ import java.net.URI;
 import java.time.Duration;
 
 /**
- * Define el contrato de {@code ZipUriSigner}.
+ * Concede lectura temporal de un ZIP publicado mediante una URI que el navegador puede utilizar
+ * directamente.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobAccessService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 public interface ZipUriSigner {
     /**
-     * Ejecuta la operación {@code signGet}.
+     * Firma el acceso de lectura al objeto durante la vigencia indicada.
      *
-     * @param objectKey Valor de {@code objectKey} utilizado por la operación.
-     * @param validity Valor de {@code validity} utilizado por la operación.
-     * @return Resultado producido por {@code signGet}.
+     * @param objectKey Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
+     * @param validity Vigencia solicitada para el permiso temporal de lectura.
+     * @return URI temporal del almacén; no implica que el objeto exista.
      */
     URI signGet(String objectKey, Duration validity);
 
     /**
-     * Firma una descarga con un nombre de fichero explícito. La implementación por defecto
-     * conserva compatibilidad con firmantes existentes.
+     * Permite sugerir un nombre de archivo al firmar la lectura; el método por defecto delega sin
+     * utilizar ese nombre.
+     *
+     * @param objectKey Clave interna del ZIP en el almacén de objetos, nunca una URL firmada.
+     * @param filename Nombre sugerido al navegador para guardar el ZIP.
+     * @param validity Vigencia solicitada para el permiso temporal de lectura.
+     * @return URI temporal de lectura del ZIP.
      */
     default URI signGet(String objectKey, String filename, Duration validity) {
         return signGet(objectKey, validity);

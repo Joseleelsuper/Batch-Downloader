@@ -9,11 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import es.ubu.batchdownloader.downloads.application.DownloadJobService;
-import es.ubu.batchdownloader.downloads.application.DownloadJobService.DownloadItemMetadata;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService;
+import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService.DownloadItemMetadata;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthFailureHandler;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.util.List;
 import java.util.UUID;
@@ -45,15 +43,15 @@ import org.springframework.test.web.servlet.MockMvc;
 })
 class InternalDownloadJobMetadataControllerTest {
     /**
-     * Constante que define {@code JOB_ID}.
+     * Valor compartido que fija j o b  i d para el comportamiento del componente.
      */
     private static final UUID JOB_ID = UUID.fromString("00000000-0000-4000-8000-000000000001");
     /**
-     * Constante que define {@code ITEM_ID}.
+     * Valor compartido que fija i t e m  i d para el comportamiento del componente.
      */
     private static final UUID ITEM_ID = UUID.fromString("00000000-0000-4000-8000-000000000002");
     /**
-     * Constante que define {@code APP_ID}.
+     * Valor compartido que fija a p p  i d para el comportamiento del componente.
      */
     private static final UUID APP_ID = UUID.fromString("00000000-0000-4000-8000-000000000003");
 
@@ -67,19 +65,13 @@ class InternalDownloadJobMetadataControllerTest {
      * Dato compartido {@code jobs} para los escenarios de prueba.
      */
     @MockitoBean
-    private DownloadJobService jobs;
+    private DownloadJobAccessService jobs;
 
     /**
      * Dato compartido {@code users} para los escenarios de prueba.
      */
     @MockitoBean
     private UserAccountStore users;
-
-    @MockitoBean
-    private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
-
-    @MockitoBean
-    private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
      * Comprueba el escenario {@code acceptsContainerHttpWithoutCsrfWhenTheInternalTokenMatches}.

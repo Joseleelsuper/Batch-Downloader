@@ -8,7 +8,7 @@ desde webs oficiales y exponer endpoints MVP de busqueda/descarga.
 ```bash
 pip install -r requirements-dev.txt
 playwright install chromium
-alembic upgrade head
+alembic upgrade 20260914_0021  # fase expansiva; head tras la puerta de compatibilidad
 uvicorn app.main:app
 python -m app.worker scrape-once
 python -m app.worker scheduler

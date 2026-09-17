@@ -13,7 +13,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Elimina idempotencias completadas antiguas sin tocar reclamaciones activas. */
+/**
+ * Poda entradas completadas del inbox local por antigüedad y en lotes acotados, conservando
+ * reservas de trabajos todavía en procesamiento.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.persistence.JdbcInboxRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Adaptadores y persistencia del worker
+ */
 @Component
 public class DownloadInboxRetentionPruner {
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadInboxRetentionPruner.class);
@@ -25,7 +33,13 @@ public class DownloadInboxRetentionPruner {
     private final Counter deleted;
     private final Counter failures;
 
-    /** Inicializa el pruner con reloj y métricas inyectables. */
+    /**
+     * Conecta la consulta de entradas antiguas, el reloj y los contadores de mantenimiento.
+     *
+     * @param jdbc Acceso SQL al inbox local del worker.
+     * @param clock Reloj para reservas, confirmaciones y cortes de retención.
+     * @param meterRegistry Contadores de entradas eliminadas y fallos de retención.
+     */
     public DownloadInboxRetentionPruner(
             JdbcTemplate jdbc,
             Clock clock,
@@ -36,7 +50,10 @@ public class DownloadInboxRetentionPruner {
         failures = meterRegistry.counter("download.worker.inbox.retention.failures");
     }
 
-    /** Ejecuta una pasada no crítica; un fallo transitorio no reinicia el worker. */
+    /**
+     * Ejecuta una pasada y registra eliminaciones; cuenta los fallos de acceso a datos sin impedir
+     * una ejecución programada posterior.
+     */
     @Scheduled(fixedDelayString = "${download-worker.retention.interval:PT6H}")
     public void runScheduled() {
         try {
@@ -53,7 +70,12 @@ public class DownloadInboxRetentionPruner {
         }
     }
 
-    /** Elimina como máximo 500 filas completadas con más de siete días. */
+    /**
+     * Selecciona hasta BATCH_SIZE entradas completadas fuera de retención y borra cada UUID solo si
+     * sigue completado.
+     *
+     * @return cantidad de filas efectivamente eliminadas.
+     */
     public int prune() {
         List<String> eventIds = jdbc.queryForList(
                 """

@@ -44,6 +44,7 @@ dist/
 eggs/
 .eggs/
 lib/
+!services/download-worker/src/main/resources/linux-installer/lib/
 lib64/
 parts/
 sdist/
@@ -349,3 +350,6 @@ dist
 # End of https://www.toptal.com/developers/gitignore/api/node
 /.impeccable/surfaces
 /PRODUCT.md
+/docs/architecture
+/docs/informes
+/keys

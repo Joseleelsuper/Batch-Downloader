@@ -1,16 +1,14 @@
-"""Poda acotada de datos operativos del scraper.
-
-Las filas reclamables o todavía arrendadas no forman parte de ninguna política de
-retención. Cada ejecución elimina como máximo un lote por tabla para que el
-mantenimiento no monopolice el pool de dos conexiones del scheduler.
+"""Elimina por lotes datos operativos antiguos y conserva trabajo activo o ejecuciones todavía
+referenciadas.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from time import monotonic
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, null, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utc_now
@@ -23,7 +21,12 @@ from app.db.models import (
     ScraperWorkerSnapshot,
     ScraperWorkItem,
 )
-from app.repositories.pipeline import STATUS_COMPLETED, STATUS_DISCARDED
+from app.repositories.pipeline import (
+    QUEUE_FILTER_SCRAPER,
+    QUEUE_SEARCHER_FILTER,
+    STATUS_COMPLETED,
+    STATUS_DISCARDED,
+)
 
 WORK_ITEM_RETENTION_DAYS = 30
 """Conservación de métricas, instantáneas y elementos terminales."""
@@ -34,10 +37,28 @@ RUN_LOG_RETENTION_DAYS = 90
 DEFAULT_RETENTION_BATCH_SIZE = 500
 """Máximo de filas eliminado de cada tabla en una pasada."""
 
+PAYLOAD_COMPACTION_BATCH_SIZE = 1_000
+"""Número de payloads operativos que se libera en una transacción lógica."""
+
+PAYLOAD_COMPACTION_MAX_BATCHES = 20
+"""Límite de lotes de compactación por ciclo del scheduler."""
+
+PAYLOAD_COMPACTION_MAX_SECONDS = 30.0
+"""Tiempo máximo de compactación antes de ceder el ciclo al resto del scheduler."""
+
 
 @dataclass(frozen=True, slots=True)
 class RetentionResult:
-    """Resume una pasada idempotente de retención."""
+    """Desglosa las filas retiradas de cada categoría durante una pasada de retención.
+
+    Attributes:
+        work_items, metric_snapshots, worker_snapshots: Tareas terminales e instantáneas
+            operativas eliminadas.
+        resolver_logs, commands, runs: Registros, comandos terminales y ejecuciones históricas
+            retirados.
+        compacted_payloads: Payloads terminales de las dos primeras etapas liberados sin borrar
+            la identidad ni el resultado de la tarea.
+    """
 
     work_items: int = 0
     metric_snapshots: int = 0
@@ -45,10 +66,15 @@ class RetentionResult:
     resolver_logs: int = 0
     commands: int = 0
     runs: int = 0
+    compacted_payloads: int = 0
 
     @property
     def total(self) -> int:
-        """Devuelve el número total de filas eliminadas."""
+        """Suma las filas afectadas en todas las categorías de la pasada.
+
+        Returns:
+            cantidad total de filas eliminadas o payloads compactados.
+        """
         return sum(
             (
                 self.work_items,
@@ -57,14 +83,26 @@ class RetentionResult:
                 self.resolver_logs,
                 self.commands,
                 self.runs,
+                self.compacted_payloads,
             )
         )
 
 
 class RetentionRepository:
-    """Aplica las ventanas de retención sin tocar trabajo pendiente o arrendado."""
+    """Aplica retención de 30 días a datos operativos y de 90 días a logs, comandos y
+    ejecuciones, sin confirmar por su cuenta.
+
+    See Also:
+        app.db.models.ScrapeRun: Se conserva si otra categoría todavía referencia la
+            ejecución.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
+        """Conserva la sesión de mantenimiento del llamador.
+
+        Args:
+            session: Sesión asíncrona del llamador; este decide cuándo confirmar los cambios.
+        """
         self.session = session
 
     async def prune(
@@ -73,12 +111,27 @@ class RetentionRepository:
         now: datetime | None = None,
         batch_size: int = DEFAULT_RETENTION_BATCH_SIZE,
     ) -> RetentionResult:
-        """Elimina un lote por tabla y conserva siempre filas activas."""
+        """Borra hasta un lote por categoría, exige tareas completadas o descartadas sin reserva
+        y conserva ejecuciones con referencias existentes.
+
+        Args:
+            now: Instante UTC sin tzinfo; None toma el reloj actual cuando se admite.
+            batch_size: Máximo de filas por categoría en una pasada; debe ser positivo.
+
+        Returns:
+            recuentos por categoría, pendientes de commit.
+
+        Raises:
+            ValueError: retention_batch_size_must_be_positive si el tamaño de lote es menor
+                que uno.
+        """
         if batch_size < 1:
             raise ValueError("retention_batch_size_must_be_positive")
         current = now or utc_now()
         operational_cutoff = current - timedelta(days=WORK_ITEM_RETENTION_DAYS)
         history_cutoff = current - timedelta(days=RUN_LOG_RETENTION_DAYS)
+
+        compacted_payloads = await self.compact_terminal_work_payloads()
 
         work_items = await self._delete_ids(
             ScraperWorkItem,
@@ -102,9 +155,11 @@ class RetentionRepository:
         worker_snapshots = await self._delete_ids(
             ScraperWorkerSnapshot,
             ScraperWorkerSnapshot.id,
-            ScraperWorkerSnapshot.captured_at,
-            (ScraperWorkerSnapshot.captured_at < operational_cutoff,),
+            ScraperWorkerSnapshot.expires_at,
+            (ScraperWorkerSnapshot.expires_at < current,),
             batch_size,
+            max_batches=PAYLOAD_COMPACTION_MAX_BATCHES,
+            max_seconds=PAYLOAD_COMPACTION_MAX_SECONDS,
         )
         resolver_logs = await self._delete_ids(
             ResolverLog,
@@ -135,7 +190,7 @@ class RetentionRepository:
             ScraperWorkerSnapshot.run_id == ScrapeRun.id
         ).exists()
         referenced_commands = select(ScraperCommand.id).where(
-            ScraperCommand.run_id == ScrapeRun.id
+            ScraperCommand.id == ScrapeRun.request_id
         ).exists()
         runs = await self._delete_ids(
             ScrapeRun,
@@ -165,7 +220,68 @@ class RetentionRepository:
             resolver_logs=resolver_logs,
             commands=commands,
             runs=runs,
+            compacted_payloads=compacted_payloads,
         )
+
+    async def compact_terminal_work_payloads(
+        self,
+        *,
+        batch_size: int = PAYLOAD_COMPACTION_BATCH_SIZE,
+        max_batches: int = PAYLOAD_COMPACTION_MAX_BATCHES,
+        max_seconds: float = PAYLOAD_COMPACTION_MAX_SECONDS,
+    ) -> int:
+        """Libera payloads grandes de tareas terminales en lotes acotados.
+
+        Sólo se compactan ``searcher_filter`` y ``filter_scraper`` completados o descartados.
+        Las consultas de selección y actualización repiten el predicado para no vaciar un
+        payload que haya sido reencolado concurrentemente.
+        """
+        if batch_size < 1 or max_batches < 1 or max_seconds <= 0:
+            raise ValueError("payload_compaction_limits_must_be_positive")
+        started = monotonic()
+        affected = 0
+        for _ in range(max_batches):
+            if monotonic() - started >= max_seconds:
+                break
+            ids = list(
+                await self.session.scalars(
+                    select(ScraperWorkItem.id)
+                    .where(
+                        ScraperWorkItem.queue.in_(
+                            (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER)
+                        )
+                    )
+                    .where(ScraperWorkItem.status.in_((STATUS_COMPLETED, STATUS_DISCARDED)))
+                    .where(ScraperWorkItem.payload_json.is_not(None))
+                    .order_by(ScraperWorkItem.updated_at.asc(), ScraperWorkItem.id.asc())
+                    .limit(batch_size)
+                )
+            )
+            if not ids:
+                break
+            result = await self.session.execute(
+                update(ScraperWorkItem)
+                .where(ScraperWorkItem.id.in_(ids))
+                .where(
+                    ScraperWorkItem.queue.in_(
+                        (QUEUE_SEARCHER_FILTER, QUEUE_FILTER_SCRAPER)
+                    )
+                )
+                .where(ScraperWorkItem.status.in_((STATUS_COMPLETED, STATUS_DISCARDED)))
+                .where(ScraperWorkItem.payload_json.is_not(None))
+                # Preserva updated_at: compactar un payload no debe rejuvenecer una tarea
+                # terminal y retrasar su retención de 30 días.
+                .values(
+                    payload_json=null(),
+                    updated_at=ScraperWorkItem.updated_at,
+                )
+            )
+            await self.session.flush()
+            rowcount = getattr(result, "rowcount", None)
+            affected += len(ids) if rowcount is None or rowcount < 0 else int(rowcount)
+            if len(ids) < batch_size:
+                break
+        return affected
 
     async def _delete_ids(
         self,
@@ -174,18 +290,42 @@ class RetentionRepository:
         order_column: Any,
         predicates: tuple[Any, ...],
         batch_size: int,
+        *,
+        max_batches: int = 1,
+        max_seconds: float | None = None,
     ) -> int:
-        """Selecciona primero identificadores para conservar un límite portable."""
-        ids = list(
-            await self.session.scalars(
-                select(id_column)
-                .where(*predicates)
-                .order_by(order_column.asc(), id_column.asc())
-                .limit(batch_size)
+        """Selecciona primero las claves elegibles más antiguas y ejecuta una eliminación
+        limitada a ellas.
+
+        Args:
+            model: Modelo ORM cuya tabla se depura.
+            id_column: Columna de clave primaria utilizada para seleccionar y borrar.
+            order_column: Columna temporal que ordena primero las filas más antiguas.
+            predicates: Condiciones de elegibilidad para borrar datos retenidos.
+            batch_size: Máximo de filas por categoría en una pasada; debe ser positivo.
+
+        Returns:
+            filas afectadas o cantidad seleccionada si el driver no proporciona un recuento
+                válido.
+        """
+        started = monotonic()
+        affected = 0
+        for _ in range(max_batches):
+            if max_seconds is not None and monotonic() - started >= max_seconds:
+                break
+            ids = list(
+                await self.session.scalars(
+                    select(id_column)
+                    .where(*predicates)
+                    .order_by(order_column.asc(), id_column.asc())
+                    .limit(batch_size)
+                )
             )
-        )
-        if not ids:
-            return 0
-        result = await self.session.execute(delete(model).where(id_column.in_(ids)))
-        rowcount = getattr(result, "rowcount", None)
-        return len(ids) if rowcount is None or rowcount < 0 else int(rowcount)
+            if not ids:
+                break
+            result = await self.session.execute(delete(model).where(id_column.in_(ids)))
+            rowcount = getattr(result, "rowcount", None)
+            affected += len(ids) if rowcount is None or rowcount < 0 else int(rowcount)
+            if len(ids) < batch_size:
+                break
+        return affected

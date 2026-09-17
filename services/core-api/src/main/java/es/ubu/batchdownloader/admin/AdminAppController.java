@@ -1,26 +1,27 @@
 package es.ubu.batchdownloader.admin;
 
-import es.ubu.batchdownloader.admin.AdminDtos.PatchAppRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.ReplaceTagsRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.UpsertAppRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyResponse;
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerApplyResult;
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspectionRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyResponse;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryApplyResult;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscoveryRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerification;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationSummary;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.PatchAppRequest;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.PatchSourceRequest;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.ReplaceTagsRequest;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.UpsertAppRequest;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerApplyRequest;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerApplyResponse;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerApplyResult;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspection;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspectionRequest;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscovery;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryApplyRequest;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryApplyResponse;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryApplyResult;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryRequest;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerification;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationRequest;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationSummary;
 import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
+import es.ubu.batchdownloader.catalog.CatalogQuery;
 import es.ubu.batchdownloader.catalog.SemanticCandidateSet;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
@@ -33,6 +34,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.Nullable;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,10 +48,16 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Expone las operaciones HTTP gestionadas por {@code AdminAppController}.
+ * Expone edición del catálogo e inspecciones y descubrimientos persistentes a administradores,
+ * registrando sus acciones con metadatos seguros.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @apiNote Expone operaciones HTTP sin modificar los contratos de dominio.
+ * @see es.ubu.batchdownloader.admin.AdminAppRepository
+ * @see es.ubu.batchdownloader.admin.ScraperInternalClient
+ * @see es.ubu.batchdownloader.admin.AdminAuditService
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Administración
  */
 @RestController
 public class AdminAppController {
@@ -71,12 +79,16 @@ public class AdminAppController {
     private final ScraperInternalClient scraperClient;
 
     /**
-     * Inicializa una instancia de {@code AdminAppController}.
+     * Conecta consulta y edición del catálogo con el cliente del scraper y la auditoría
+     * administrativa.
      *
-     * @param catalog Acceso al catálogo utilizado por la operación.
-     * @param adminApps Valor de {@code adminApps} utilizado por la operación.
-     * @param audit Valor de {@code audit} utilizado por la operación.
-     * @param scraperClient Valor de {@code scraperClient} utilizado por la operación.
+     * @param catalog Consultas del catálogo que enriquecen las aplicaciones y mantienen sus filtros
+     *     comunes.
+     * @param adminApps Escrituras administrativas, evidencias de ausencia y exportación del
+     *     catálogo.
+     * @param audit Registro de acciones con actor UUID y metadatos seguros sin URLs resueltas.
+     * @param scraperClient Cliente interno autenticado para inspección, descubrimiento y generación
+     *     de contenido.
      */
     public AdminAppController(
             CatalogRepository catalog,
@@ -90,16 +102,18 @@ public class AdminAppController {
     }
 
     /**
-     * Enumera los elementos solicitados mediante {@code listApps}.
+     * Aplica búsqueda léxica y filtros administrativos, incluido unresolved, compartiendo consulta
+     * y total.
      *
-     * @param query Valor de {@code query} utilizado por la operación.
-     * @param status Estado utilizado para filtrar o actualizar el recurso.
-     * @param operatingSystem Valor de {@code operatingSystem} utilizado por la operación.
-     * @param architecture Valor de {@code architecture} utilizado por la operación.
-     * @param sort Valor de {@code sort} utilizado por la operación.
-     * @param page Número de página solicitado.
-     * @param pageSize Número máximo de elementos incluidos en una página.
-     * @return Resultado producido por {@code listApps}.
+     * @param query Texto de búsqueda administrativa, opcional.
+     * @param status Filtro de estado del catálogo; unresolved agrupa review y missing.
+     * @param operatingSystem Plataforma singular opcional de la consulta administrativa.
+     * @param architecture Arquitectura opcional que debe existir entre las fuentes de la
+     *     aplicación.
+     * @param sort updated, downloads o name, con la misma política de orden del catálogo.
+     * @param page Página desde uno; valores menores se acotan a uno.
+     * @param pageSize Elementos por página, acotados a 1–100.
+     * @return página de aplicaciones con tamaño efectivo y total filtrado.
      */
     @GetMapping("/api/v1/admin/apps")
     public AppSearchResponse listApps(
@@ -116,44 +130,50 @@ public class AdminAppController {
                 ? List.of()
                 : List.of(operatingSystem);
         SemanticCandidateSet lexicalCandidates = SemanticCandidateSet.lexical();
+        CatalogQuery filters = new CatalogQuery(
+                query, status, operatingSystems, architecture, List.of(), List.of());
         return new AppSearchResponse(
-                catalog.search(
-                        query,
-                        status,
-                        operatingSystems,
-                        architecture,
-                        List.of(),
-                        List.of(),
-                        sort,
-                        safePage,
-                        safePageSize,
-                        lexicalCandidates),
+                catalog.search(filters, sort, safePage, safePageSize, lexicalCandidates),
                 safePage,
                 safePageSize,
-                catalog.count(
-                        query,
-                        status,
-                        operatingSystems,
-                        architecture,
-                        List.of(),
-                        List.of(),
-                        lexicalCandidates));
+                catalog.count(filters, lexicalCandidates));
     }
 
-    /** Devuelve el criterio de cierre de la campaña de ausencias. */
+    /**
+     * Consulta los totales de evidencia vigente de ausencia de instaladores.
+     *
+     * @return resumen administrativo de verificaciones de ausencia.
+     */
     @GetMapping("/api/v1/admin/apps/absence-verifications/summary")
     public InstallerAbsenceVerificationSummary absenceVerificationSummary() {
         return adminApps.absenceVerificationSummary();
     }
 
-    /** Obtiene la evidencia activa de una aplicación, si existe. */
+    /**
+     * Recupera la evidencia activa de ausencia asociada a la aplicación.
+     *
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @return verificación vigente o null cuando no existe.
+     */
     @GetMapping("/api/v1/admin/apps/{appId}/absence-verification")
     public InstallerAbsenceVerification activeAbsenceVerification(
             @PathVariable String appId) {
         return adminApps.activeAbsenceVerification(appId);
     }
 
-    /** Registra una ausencia confirmada y audita al responsable sin guardar binarios. */
+    /**
+     * Registra evidencia de ausencia bajo el actor administrativo y audita únicamente su código de
+     * motivo.
+     *
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 201 con la verificación guardada.
+     */
     @PostMapping("/api/v1/admin/apps/{appId}/absence-verification")
     @ResponseStatus(HttpStatus.CREATED)
     public InstallerAbsenceVerification confirmInstallerAbsence(
@@ -173,10 +193,12 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code exportCsv}.
+     * Entrega como adjunto UTF-8 la exportación de aplicaciones con referencias de fuente y
+     * registra el número de filas exportadas.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code exportCsv}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return CSV batch-downloader-apps.csv sin URLs resueltas.
      */
     @GetMapping(value = "/api/v1/admin/apps/export.csv", produces = "text/csv")
     public ResponseEntity<String> exportCsv(
@@ -198,11 +220,13 @@ public class AdminAppController {
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code createApp}.
+     * Crea una aplicación manual y registra el UUID de la nueva entrada en la auditoría.
      *
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code createApp}.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 201 con el detalle público creado.
      */
     @PostMapping("/api/v1/admin/apps")
     @ResponseStatus(HttpStatus.CREATED)
@@ -215,12 +239,15 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code patchApp}.
+     * Aplica la edición parcial y audita el UUID de la aplicación modificada.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code patchApp}.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return detalle actualizado del catálogo.
      */
     @PatchMapping("/api/v1/admin/apps/{appId}")
     public AppDetails patchApp(
@@ -233,10 +260,13 @@ public class AdminAppController {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteApp}.
+     * Solicita el borrado protegido por inactividad del scraper y audita la eliminación; devuelve
+     * 204 al completarse.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
      */
     @DeleteMapping("/api/v1/admin/apps/{appId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -248,13 +278,16 @@ public class AdminAppController {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteAllApps}.
+     * Exige la confirmación textual de borrado total antes de limpiar el catálogo y auditar la
+     * cantidad eliminada.
      *
-     * @param confirm Valor de {@code confirm} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Mapa con los datos producidos por la operación.
-     * @throws ConflictException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param confirm Debe ser exactamente DELETE_ALL para solicitar el borrado completo del
+     *     catálogo.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return mapa con deleted y número de aplicaciones borradas.
+     * @throws es.ubu.batchdownloader.common.ConflictException si falta confirmación o el scraper
+     *     mantiene trabajo activo que impide borrar.
      */
     @DeleteMapping("/api/v1/admin/apps")
     public Map<String, Object> deleteAllApps(
@@ -271,11 +304,14 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code replaceTags}.
+     * Reemplaza las etiquetas de la aplicación y registra la acción; devuelve 204 al completarse.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
      */
     @PutMapping("/api/v1/admin/apps/{appId}/tags")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -288,12 +324,16 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code patchSource}.
+     * Modifica únicamente una fuente perteneciente a la aplicación y audita ambas identidades;
+     * devuelve 204 al completarse.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param sourceId Identificador de {@code source} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param sourceId UUID de una fuente que debe pertenecer a la aplicación de la ruta.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
      */
     @PatchMapping("/api/v1/admin/apps/{appId}/sources/{sourceId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -307,11 +347,13 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code generateDescription}.
+     * Solicita al scraper una tarea persistente de descripción y audita su UUID y estado.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code generateDescription}.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 202 con la tarea aceptada, sin contenido del proveedor de generación.
      */
     @PostMapping("/api/v1/admin/apps/{appId}/generate-description")
     public ResponseEntity<ScraperInternalClient.DescriptionGeneration> generateDescription(
@@ -330,12 +372,16 @@ public class AdminAppController {
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code createManualInstallerInspection}.
+     * Solicita inspección persistente de los instaladores propuestos y audita el UUID y estado sin
+     * registrar sus URLs.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code createManualInstallerInspection}.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 202 con la inspección aceptada.
      */
     @PostMapping("/api/v1/admin/apps/{appId}/manual-installer-inspections")
     public ResponseEntity<ManualInstallerInspection> createManualInstallerInspection(
@@ -356,23 +402,26 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code currentManualInstallerInspection}.
+     * Consulta la inspección que permite recuperar el flujo administrativo de la aplicación.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @return Resultado producido por {@code currentManualInstallerInspection}.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @return inspección actual resuelta por el scraper o null si no existe una inspección abierta.
      */
     @GetMapping("/api/v1/admin/apps/{appId}/manual-installer-inspections/current")
+    @Nullable
     public ManualInstallerInspection currentManualInstallerInspection(
             @PathVariable String appId) {
         return scraperClient.currentManualInstallerInspection(appId);
     }
 
     /**
-     * Ejecuta la operación {@code manualInstallerInspection}.
+     * Consulta una inspección concreta dentro de la aplicación indicada.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param inspectionId Identificador de {@code inspection} utilizado por la operación.
-     * @return Resultado producido por {@code manualInstallerInspection}.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param inspectionId UUID de la inspección persistida que pertenece a esa aplicación.
+     * @return estado, candidatos y diagnóstico seguro de la inspección.
      */
     @GetMapping("/api/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}")
     public ManualInstallerInspection manualInstallerInspection(
@@ -382,13 +431,17 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code applyManualInstallerInspection}.
+     * Solicita revalidar y publicar la selección inspeccionada, consulta el detalle resultante y
+     * audita las referencias exactas publicadas.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param inspectionId Identificador de {@code inspection} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code applyManualInstallerInspection}.
+     * @param appId UUID textual o identificador público de la aplicación; las rutas internas
+     *     requieren UUID.
+     * @param inspectionId UUID de la inspección persistida que pertenece a esa aplicación.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return aplicación actualizada, referencias de fuente y advertencias de la aplicación.
      */
     @PostMapping(
             "/api/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply")
@@ -418,11 +471,14 @@ public class AdminAppController {
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code createWebsiteAppDiscovery}.
+     * Solicita el descubrimiento persistente de una página oficial y registra su UUID sin exponer
+     * las URLs internas.
      *
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code createWebsiteAppDiscovery}.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return 202 con el descubrimiento aceptado.
      */
     @PostMapping("/api/v1/admin/app-discoveries")
     public ResponseEntity<WebsiteAppDiscovery> createWebsiteAppDiscovery(
@@ -440,10 +496,10 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code websiteAppDiscovery}.
+     * Recupera candidatos, progreso y diagnóstico de un descubrimiento persistido.
      *
-     * @param discoveryId Identificador de {@code discovery} utilizado por la operación.
-     * @return Resultado producido por {@code websiteAppDiscovery}.
+     * @param discoveryId UUID del descubrimiento persistido de una página oficial.
+     * @return vista administrativa del descubrimiento.
      */
     @GetMapping("/api/v1/admin/app-discoveries/{discoveryId}")
     public WebsiteAppDiscovery websiteAppDiscovery(
@@ -452,12 +508,15 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code applyWebsiteAppDiscovery}.
+     * Solicita publicar la selección descubierta y enriquece la aplicación resultante; audita
+     * estado de catálogo y cantidad de instaladores.
      *
-     * @param discoveryId Identificador de {@code discovery} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code applyWebsiteAppDiscovery}.
+     * @param discoveryId UUID del descubrimiento persistido de una página oficial.
+     * @param request Cuerpo validado de la operación; las confirmaciones conservan selección y
+     *     versión esperadas.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return detalle de aplicación, instaladores publicados y advertencias.
      */
     @PostMapping("/api/v1/admin/app-discoveries/{discoveryId}/apply")
     public WebsiteAppDiscoveryApplyResponse applyWebsiteAppDiscovery(
@@ -483,10 +542,11 @@ public class AdminAppController {
     }
 
     /**
-     * Ejecuta la operación {@code actor}.
+     * Exige el principal administrativo y extrae su UUID estable para auditar la acción.
      *
-     * @param principal Identidad autenticada que ejecuta la operación.
-     * @return Resultado producido por {@code actor}.
+     * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
+     *     identifica el actor auditado.
+     * @return UUID textual del actor.
      */
     private String actor(AccountPrincipal principal) {
         return AdminActor.require(principal);

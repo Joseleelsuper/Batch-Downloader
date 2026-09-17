@@ -1,11 +1,11 @@
 package es.ubu.batchdownloader.admin;
 
-import es.ubu.batchdownloader.admin.AdminDtos.PatchAppRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.PatchSourceRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.UpsertAppRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerification;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationSummary;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.PatchAppRequest;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.PatchSourceRequest;
+import es.ubu.batchdownloader.admin.AdminCatalogDtos.UpsertAppRequest;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerification;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationRequest;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationSummary;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
@@ -20,14 +20,24 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Gestiona la persistencia y consulta de {@code AdminAppRepository}.
+ * Aplica altas, cambios y borrados administrativos sobre el catálogo con sus etiquetas, fuentes y
+ * bundles dentro de una transacción. Delega las proyecciones y la evidencia de ausencia en
+ * colaboradores específicos.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.admin.AdminAppSourceRepository
+ * @see es.ubu.batchdownloader.admin.AdminAppExportRepository
+ * @see es.ubu.batchdownloader.admin.InstallerAbsenceRepository
+ * @see es.ubu.batchdownloader.catalog.CatalogRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Administración del catálogo
  */
 @Repository
 public class AdminAppRepository {
     /**
-     * Constante que define {@code DELETE_BATCH_SIZE}.
+     * Valor compartido que fija d e l e t e  b a t c h  s i z e para el comportamiento del
+     * componente.
      */
     private static final int DELETE_BATCH_SIZE = 500;
     /**
@@ -48,14 +58,15 @@ public class AdminAppRepository {
     private final Clock clock;
 
     /**
-     * Inicializa una instancia de {@code AdminAppRepository}.
+     * Compone persistencia, proyecciones, exportación y evidencias usando el mismo reloj de
+     * aplicación.
      *
-     * @param jdbc Valor de {@code jdbc} utilizado por la operación.
-     * @param catalog Acceso al catálogo utilizado por la operación.
-     * @param exports Proyección utilizada para construir exportaciones.
-     * @param absences Persistencia de verificaciones de ausencia.
-     * @param sources Persistencia de fuentes de descarga.
-     * @param clock Reloj de aplicación.
+     * @param jdbc Acceso SQL que participa en la transacción administrativa del llamador.
+     * @param catalog Consulta de proyecciones e identificadores internos del catálogo.
+     * @param exports Exportación de aplicaciones activas y referencias exactas por plataforma.
+     * @param absences Registro de evidencias vigentes de ausencia de instaladores.
+     * @param sources Edición de fuentes iniciales con comprobación de pertenencia a la aplicación.
+     * @param clock Reloj utilizado para fechar los cambios persistidos.
      */
     public AdminAppRepository(
             JdbcTemplate jdbc,
@@ -73,10 +84,11 @@ public class AdminAppRepository {
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code create}.
+     * Crea una aplicación manual, sustituye sus etiquetas y añade una fuente Windows pendiente de
+     * revisión; devuelve la proyección recién persistida.
      *
-     * @param request Solicitud recibida por la operación.
-     * @return Resultado producido por {@code create}.
+     * @param request Campos validados de la creación, edición o confirmación solicitada.
+     * @return detalle público de la nueva aplicación, todavía sin instalador validado.
      */
     @Transactional
     public AppDetails create(UpsertAppRequest request) {
@@ -113,12 +125,13 @@ public class AdminAppRepository {
     }
 
     /**
-     * Registra una ausencia únicamente cuando las tres comprobaciones son concluyentes.
+     * Delega la comprobación y sustitución atómica de la evidencia de ausencia de instaladores.
      *
-     * @param publicId Aplicación revisada.
-     * @param request Evidencia estructurada.
-     * @param actor Administrador responsable.
-     * @return Acta activa recién creada.
+     * @param publicId UUID público textual de la aplicación que se consulta o modifica.
+     * @param request Campos validados de la creación, edición o confirmación solicitada.
+     * @param actor UUID textual del administrador que confirma la evidencia.
+     * @return evidencia activa vinculada a la versión comprobada.
+     * @see es.ubu.batchdownloader.admin.InstallerAbsenceRepository
      */
     @Transactional
     public InstallerAbsenceVerification confirmInstallerAbsence(
@@ -128,22 +141,34 @@ public class AdminAppRepository {
         return absences.confirm(publicId, request, actor);
     }
 
-    /** Obtiene el acta activa más reciente de una aplicación. */
+    /**
+     * Consulta la evidencia que todavía está activa para la aplicación indicada.
+     *
+     * @param publicId UUID público textual de la aplicación que se consulta o modifica.
+     * @return evidencia vigente o null si no existe.
+     * @see es.ubu.batchdownloader.admin.InstallerAbsenceRepository
+     */
     public InstallerAbsenceVerification activeAbsenceVerification(String publicId) {
         return absences.active(publicId);
     }
 
-    /** Resume los ``missing`` sin evidencia usando la proyección autoritativa. */
+    /**
+     * Consulta los recuentos de ausencia confirmada y aplicaciones pendientes de evidencia.
+     *
+     * @return resumen administrativo de la cobertura de comprobaciones.
+     */
     public InstallerAbsenceVerificationSummary absenceVerificationSummary() {
         return absences.summary();
     }
 
     /**
-     * Ejecuta la operación {@code patch}.
+     * Actualiza metadatos conservando los campos null, recalcula nombre normalizado y estado de
+     * descripción e invalida la evidencia si cambia la página oficial. Un estado de aplicación
+     * vacío se interpreta como active.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @return Resultado producido por {@code patch}.
+     * @param publicId UUID público textual de la aplicación que se consulta o modifica.
+     * @param request Campos validados de la creación, edición o confirmación solicitada.
+     * @return detalle público posterior a la edición.
      */
     @Transactional
     public AppDetails patch(String publicId, PatchAppRequest request) {
@@ -177,10 +202,10 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code replaceTags}.
+     * Sustituye todas las etiquetas de la aplicación por las propuestas con origen admin.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
+     * @param publicId UUID público textual de la aplicación que se consulta o modifica.
+     * @param tags Etiquetas propuestas; null elimina todas las asociaciones existentes.
      */
     @Transactional
     public void replaceTags(String publicId, List<String> tags) {
@@ -188,9 +213,12 @@ public class AdminAppRepository {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code delete}.
+     * Borra una aplicación y sus relaciones cuando el scraper está inactivo y recalcula los
+     * contadores de sus bundles.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
+     * @param publicId UUID público textual de la aplicación que se consulta o modifica.
+     * @throws es.ubu.batchdownloader.common.ConflictException si hay una ejecución, trabajo en cola
+     *     o trabajo en curso del scraper.
      */
     @Transactional
     public void delete(String publicId) {
@@ -205,9 +233,12 @@ public class AdminAppRepository {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteAll}.
+     * Borra el catálogo, trabajos y snapshots del scraper y pone a cero los contadores de bundles
+     * cuando no hay actividad pendiente.
      *
-     * @return Número de elementos afectados por la operación.
+     * @return número de aplicaciones existentes antes del borrado.
+     * @throws es.ubu.batchdownloader.common.ConflictException si el scraper tiene ejecuciones o
+     *     trabajos pendientes.
      */
     @Transactional
     public int deleteAll() {
@@ -224,22 +255,21 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code exportCsv}.
+     * Delega la exportación de aplicaciones activas con una referencia exacta por plataforma.
      *
-     * @return Resultado producido por {@code exportCsv}.
+     * @return contenido CSV y cantidad de aplicaciones incluidas.
      */
     public AppCsvExport exportCsv() {
         return exports.exportCsv();
     }
 
     /**
-     * Ejecuta la operación {@code patchSource}.
+     * Delega una edición parcial sin permitir que se modifique una fuente perteneciente a otra
+     * aplicación.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param sourceId Identificador de {@code source} utilizado por la operación.
-     * @param request Solicitud recibida por la operación.
-     * @throws NotFoundException Si no puede completarse la operación bajo las condiciones
-     *     requeridas.
+     * @param appId Identificador de la aplicación propietaria de los datos modificados.
+     * @param sourceId UUID textual de la fuente inicial que debe pertenecer a la aplicación.
+     * @param request Campos validados de la creación, edición o confirmación solicitada.
      */
     @Transactional
     public void patchSource(String appId, String sourceId, PatchSourceRequest request) {
@@ -247,20 +277,25 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code softwareAppId}.
+     * Resuelve el identificador público a la clave persistida utilizada en las relaciones del
+     * catálogo.
      *
-     * @param publicId Identificador de {@code public} utilizado por la operación.
-     * @return Resultado producido por {@code softwareAppId}.
+     * @param publicId UUID público textual de la aplicación que se consulta o modifica.
+     * @return UUID interno de la aplicación.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si el catálogo no puede resolver la
+     *     aplicación indicada.
      */
     public UUID softwareAppId(String publicId) {
         return catalog.softwareAppId(publicId);
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteApps}.
+     * Obtiene primero las claves afectadas y elimina dependencias en orden para evitar conflictos
+     * de disparadores MySQL y respetar las claves foráneas.
      *
-     * @param appWhereClause Valor de {@code appWhereClause} utilizado por la operación.
-     * @param appWhereParams Valor de {@code appWhereParams} utilizado por la operación.
+     * @param appWhereClause Cláusula WHERE interna parametrizada; vacía selecciona todas las
+     *     aplicaciones.
+     * @param appWhereParams Valores de la cláusula de selección en orden de aparición.
      */
     private void deleteApps(String appWhereClause, List<Object> appWhereParams) {
         String scopedApps = appWhereClause.isBlank()
@@ -291,12 +326,14 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code selectIdsByForeignKey}.
+     * Recupera en lotes las claves primarias de los registros dependientes antes de ejecutar los
+     * borrados.
      *
-     * @param table Valor de {@code table} utilizado por la operación.
-     * @param foreignKey Valor de {@code foreignKey} utilizado por la operación.
-     * @param ownerIds Colección de identificadores de {@code owner}.
-     * @return Colección de elementos obtenidos por la operación.
+     * @param table Nombre de tabla elegido internamente, nunca recibido de una petición.
+     * @param foreignKey Columna de relación elegida internamente para localizar los registros
+     *     dependientes.
+     * @param ownerIds UUID binarios de los propietarios de los registros buscados.
+     * @return copia inmutable de las claves encontradas; vacía si no hay propietarios.
      */
     private List<byte[]> selectIdsByForeignKey(String table, String foreignKey, List<byte[]> ownerIds) {
         if (ownerIds.isEmpty()) {
@@ -311,21 +348,22 @@ public class AdminAppRepository {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteByIds}.
+     * Borra registros de una tabla interna usando su clave primaria y los límites de lote comunes.
      *
-     * @param table Valor de {@code table} utilizado por la operación.
-     * @param ids Valor de {@code ids} utilizado por la operación.
+     * @param table Nombre de tabla elegido internamente, nunca recibido de una petición.
+     * @param ids UUID binarios que se reparten en lotes acotados para consultar o borrar.
      */
     private void deleteByIds(String table, List<byte[]> ids) {
         deleteByForeignKey(table, "id", ids);
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteByForeignKey}.
+     * Borra por una relación o clave interna en lotes acotados, sin consultas anidadas sobre tablas
+     * modificadas por disparadores.
      *
-     * @param table Valor de {@code table} utilizado por la operación.
-     * @param column Valor de {@code column} utilizado por la operación.
-     * @param ids Valor de {@code ids} utilizado por la operación.
+     * @param table Nombre de tabla elegido internamente, nunca recibido de una petición.
+     * @param column Columna interna por la que se acota el borrado.
+     * @param ids UUID binarios que se reparten en lotes acotados para consultar o borrar.
      */
     private void deleteByForeignKey(String table, String column, List<byte[]> ids) {
         forEachDeleteBatch(ids, batch -> jdbc.update(
@@ -334,10 +372,11 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code forEachDeleteBatch}.
+     * Entrega sublistas consecutivas de hasta DELETE_BATCH_SIZE UUID a la operación; una lista
+     * vacía no ejecuta nada.
      *
-     * @param ids Valor de {@code ids} utilizado por la operación.
-     * @param operation Valor de {@code operation} utilizado por la operación.
+     * @param ids UUID binarios que se reparten en lotes acotados para consultar o borrar.
+     * @param operation Operación que consume cada sublista, dentro de la transacción del llamador.
      */
     private void forEachDeleteBatch(List<byte[]> ids, java.util.function.Consumer<List<byte[]>> operation) {
         for (int start = 0; start < ids.size(); start += DELETE_BATCH_SIZE) {
@@ -346,17 +385,21 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code placeholders}.
+     * Construye la lista de interrogantes para enlazar valores de un lote JDBC.
      *
-     * @param count Valor de {@code count} utilizado por la operación.
-     * @return Resultado producido por {@code placeholders}.
+     * @param count Número de parámetros posicionales necesarios para el lote.
+     * @return parámetros separados por coma; cadena vacía para cero.
      */
     private String placeholders(int count) {
         return String.join(", ", java.util.Collections.nCopies(count, "?"));
     }
 
     /**
-     * Ejecuta la operación {@code assertScraperIdleForDeletion}.
+     * Bloquea las filas de ejecuciones activas y trabajos pendientes antes de permitir que la
+     * transacción borre el catálogo.
+     *
+     * @throws es.ubu.batchdownloader.common.ConflictException si encuentra una ejecución running o
+     *     un trabajo queued o in_progress.
      */
     private void assertScraperIdleForDeletion() {
         boolean running = !jdbc.queryForList(
@@ -377,9 +420,9 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code scraperRunningConflict}.
+     * Construye el conflicto estable que impide borrar datos mientras el scraper puede utilizarlos.
      *
-     * @return Resultado producido por {@code scraperRunningConflict}.
+     * @return conflicto con código scraper_running.
      */
     private ConflictException scraperRunningConflict() {
         return new ConflictException(
@@ -388,9 +431,10 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code refreshBundleCounts}.
+     * Recuenta las aplicaciones restantes de cada bundle afectado y actualiza su fecha una vez por
+     * UUID distinto.
      *
-     * @param bundleIds Colección de identificadores de {@code bundle}.
+     * @param bundleIds Bundles afectados; cada UUID distinto se recalcula una sola vez.
      */
     private void refreshBundleCounts(List<UUID> bundleIds) {
         for (UUID bundleId : bundleIds.stream().distinct().toList()) {
@@ -407,11 +451,12 @@ public class AdminAppRepository {
     }
 
     /**
-     * Crea el recurso solicitado mediante {@code createDefaultSource}.
+     * Crea una fuente Windows x86_64 de revisión manual y validación pendiente a partir de la
+     * página oficial, sin considerarla un instalador descargable.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param officialUrl Dirección de {@code official} que debe procesarse.
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param appId Identificador de la aplicación propietaria de los datos modificados.
+     * @param officialUrl Página oficial pública de la aplicación; no es un instalador resuelto.
+     * @param now Fecha compartida por la creación de la aplicación y su fuente inicial.
      */
     private void createDefaultSource(UUID appId, String officialUrl, LocalDateTime now) {
         jdbc.update(
@@ -430,11 +475,12 @@ public class AdminAppRepository {
     }
 
     /**
-     * Ejecuta la operación {@code replaceTags}.
+     * Elimina asociaciones anteriores e inserta etiquetas no blancas, recortadas y normalizadas,
+     * conservando el origen y evitando duplicados persistidos.
      *
-     * @param appId Identificador de {@code app} utilizado por la operación.
-     * @param tags Valor de {@code tags} utilizado por la operación.
-     * @param source Fuente de descarga sobre la que se actúa.
+     * @param appId Identificador de la aplicación propietaria de los datos modificados.
+     * @param tags Etiquetas propuestas; null elimina todas las asociaciones existentes.
+     * @param source Origen que se conserva junto a cada asociación de etiqueta.
      */
     private void replaceTags(UUID appId, List<String> tags, String source) {
         jdbc.update("DELETE FROM software_app_tags WHERE software_app_id = ?", UuidBytes.fromUuid(appId));
@@ -459,10 +505,11 @@ public class AdminAppRepository {
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizeSlug}.
+     * Convierte el texto a minúsculas ASCII separadas por guiones; si no queda contenido crea un
+     * slug app- seguido de UUID.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code normalizeSlug}.
+     * @param value Texto que se normaliza o comprueba; se admite null donde se indica.
+     * @return slug no vacío para el alta administrativa.
      */
     private String normalizeSlug(String value) {
         String slug = value.toLowerCase(Locale.ROOT)
@@ -472,42 +519,47 @@ public class AdminAppRepository {
     }
 
     /**
-     * Normaliza el valor recibido mediante {@code normalizeText}.
+     * Recorta el texto y lo convierte a minúsculas independientes de la configuración regional.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code normalizeText}.
+     * @param value Texto que se normaliza o comprueba; se admite null donde se indica.
+     * @return texto normalizado; cadena vacía para null.
      */
     private String normalizeText(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
     }
 
     /**
-     * Ejecuta la operación {@code coalesce}.
+     * Conserva el valor anterior únicamente cuando la propuesta es null.
      *
-     * @param next Valor de {@code next} utilizado por la operación.
-     * @param current Valor de {@code current} utilizado por la operación.
-     * @return Resultado producido por {@code coalesce}.
+     * @param next Nuevo texto; null significa conservar el actual y una cadena vacía sí lo
+     *     sustituye.
+     * @param current Texto que se mantiene cuando no hay sustitución.
+     * @return propuesta o valor actual, permitiendo borrar mediante una cadena vacía.
      */
     private String coalesce(String next, String current) {
         return next == null ? current : next;
     }
 
     /**
-     * Indica si se cumple la condición mediante {@code isBlank}.
+     * Comprueba si un campo opcional carece de texto significativo.
      *
-     * @param value Valor que debe procesarse.
-     * @return Indica si se cumple la condición evaluada.
+     * @param value Texto que se normaliza o comprueba; se admite null donde se indica.
+     * @return true para null, texto vacío o solo espacios.
      */
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
 
     /**
-     * Representa los datos inmutables de {@code AppCsvExport}.
+     * Transporta la exportación completa y el número de aplicaciones para la respuesta descargable
+     * y su auditoría.
      *
-     * @param content Valor de {@code content} incluido en el record.
-     * @param rowCount Valor de {@code rowCount} incluido en el record.
+     * @param content CSV completo con cabecera y finales de línea CRLF.
+     * @param rowCount Cantidad de aplicaciones exportadas, excluida la cabecera.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Administración del catálogo
      */
     public record AppCsvExport(String content, int rowCount) {}
 }

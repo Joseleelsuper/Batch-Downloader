@@ -11,18 +11,42 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 
-/** Transporte JDK que ejecuta exactamente un GET y nunca sigue redirecciones. */
+/**
+ * Abre respuestas HTTP JDK con cuerpo en streaming, timeout configurado y codificación identity,
+ * dejando la interpretación de estado al descargador.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.ports.RemoteExchange
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.DefaultRemoteDownloader
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Transporte de descargas
+ */
 public final class JdkRemoteExchange implements RemoteExchange {
     private final HttpClient client;
     private final DownloadProperties properties;
 
-    /** Inicializa el transporte con los límites ya configurados para el worker. */
+    /**
+     * Conecta el cliente y el timeout que se aplica a cada petición.
+     *
+     * @param client Cliente HTTP JDK que proporciona conexiones y respuestas con cuerpo en
+     *     streaming.
+     * @param properties Límites de tamaño, tiempo y redirecciones configurados para la
+     *     transferencia.
+     */
     public JdkRemoteExchange(HttpClient client, DownloadProperties properties) {
         this.client = client;
         this.properties = properties;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Solicita contenido binario por GET con cabeceras estables y entrega el flujo al consumidor
+     * para su cierre.
+     *
+     * @param uri URI de destino que debe superar la política de acceso a recursos públicos.
+     * @return respuesta adaptada sin materializar el cuerpo completo.
+     * @throws es.ubu.batchdownloader.downloadworker.application.DownloadRejectedException si se
+     *     interrumpe la petición, expira el timeout o falla la E/S remota.
+     */
     @Override
     public Response get(URI uri) {
         HttpRequest request = HttpRequest.newBuilder(uri)
@@ -47,18 +71,35 @@ public final class JdkRemoteExchange implements RemoteExchange {
         }
     }
 
-    /** Adaptador cerrado sobre la respuesta nativa del JDK. */
+    /**
+     * Adapta estado, cabeceras y flujo de HttpResponse al puerto de intercambio sin copiar el
+     * contenido.
+     *
+     * @param delegate Respuesta JDK con su flujo todavía abierto.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Transporte de descargas
+     */
     private record JdkResponse(HttpResponse<InputStream> delegate) implements Response {
+        /**
+         * {@inheritDoc}
+         */
         @Override
         public int statusCode() {
             return delegate.statusCode();
         }
 
+        /**
+         * {@inheritDoc}
+         */
         @Override
         public java.net.http.HttpHeaders headers() {
             return delegate.headers();
         }
 
+        /**
+         * {@inheritDoc}
+         */
         @Override
         public InputStream body() {
             return delegate.body();

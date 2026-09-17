@@ -10,7 +10,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.retry.RetryContext;
 import org.springframework.retry.context.RetryContextSupport;
 
+/**
+ * Comprueba las esperas de reintento con un sleeper controlado y sin pausas reales.
+ *
+ * @see es.ubu.batchdownloader.notification.config.RetryAfterBackOffPolicy
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
+ */
 class RetryAfterBackOffPolicyTest {
+    /**
+     * Comprueba que una causa temporal con Retry-After determina la espera del siguiente intento.
+     */
     @Test
     void usesProviderRetryAfterWhenPresent() {
         List<Long> sleeps = new ArrayList<>();
@@ -26,6 +37,10 @@ class RetryAfterBackOffPolicyTest {
         assertThat(sleeps).containsExactly(17_000L);
     }
 
+    /**
+     * Comprueba que los intentos sin demora del proveedor siguen los intervalos exponenciales
+     * configurados.
+     */
     @Test
     void fallsBackToConfiguredExponentialIntervals() {
         List<Long> sleeps = new ArrayList<>();

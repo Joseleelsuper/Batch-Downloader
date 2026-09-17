@@ -11,9 +11,11 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 import app.scraper.catalog_fetcher as catalog_fetcher
+import app.scraper.filter_worker as filter_worker_module
 import app.scraper.pipeline_runtime as pipeline_runtime
 import app.scraper.platform_worker as platform_worker
 import app.scraper.searcher_worker as searcher_worker
+import app.scraper.worker_recovery as worker_recovery
 from app.core.config import Settings
 from app.core.time import utc_now
 from app.db.enums import ResolutionStatus, ScrapeScope
@@ -26,10 +28,12 @@ from app.scraper.installer_policy import (
     dedupe_valid_installers,
     fallback_candidates,
     infer_validated_operating_system,
+    installer_app_compatibility_reason,
     is_actionable_installer_candidate,
     is_catalog_publishable_installer,
     is_windows_winstall_archive,
     known_official_candidates,
+    persisted_installer_app_compatibility_reason,
     rank_installers,
     should_collect_official_installers,
     use_only_known_official_candidates,
@@ -167,6 +171,8 @@ async def test_incremental_scope_selects_new_unresolved_and_changed_apps(monkeyp
     class FakeCatalog:
         def __init__(self, *_args):
             pass
+            self.winstall = self
+            self.sources = self
 
         async def winstall_refresh_states(self):
             return {
@@ -210,6 +216,72 @@ async def test_incremental_scope_selects_new_unresolved_and_changed_apps(monkeyp
     assert skipped == 1
 
 
+@pytest.mark.asyncio
+async def test_selected_scope_resolves_local_ids_without_remote_catalog(monkeypatch) -> None:
+    """Una reparación dirigida no depende de estabilizar las 14.000 apps remotas."""
+    app_id = uuid4()
+    local_app = SimpleNamespace(
+        id=app_id,
+        winstall_id="Vendor.Selected",
+        name="Selected App",
+        metadata_json={
+            "_id": "Vendor.Selected",
+            "name": "Selected App",
+            "latestVersion": "1.0.0",
+            "versions": [
+                {
+                    "version": "1.0.0",
+                    "installers": ["https://cdn.example.test/Selected-1.0.0.exe"],
+                }
+            ],
+        },
+    )
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeCatalog:
+        def __init__(self, *_args):
+            pass
+            self.winstall = self
+            self.sources = self
+
+        async def snapshot_refresh_targets(self, *, app_ids):
+            assert app_ids == [app_id]
+            return [local_app]
+
+    monkeypatch.setattr(searcher_worker, "CatalogRepository", FakeCatalog)
+    monkeypatch.setattr(
+        searcher_worker,
+        "async_session_local",
+        lambda: lambda: FakeSession(),
+    )
+    settings = Settings()
+    runtime = PipelineRuntime(
+        settings=settings,
+        run_id=uuid4(),
+        run_started_at=utc_now(),
+        scope=ScrapeScope.SELECTED,
+        selected_app_ids=(app_id,),
+    )
+
+    targets, app_ids, winstall_ids, missing, skipped = await SearcherWorker(
+        settings
+    )._select_local_targets(runtime)
+
+    assert [target.package_id for target in targets] == ["Vendor.Selected"]
+    assert targets[0].installer_data_complete is True
+    assert targets[0].installer_urls == ["https://cdn.example.test/Selected-1.0.0.exe"]
+    assert app_ids == [str(app_id)]
+    assert winstall_ids == ["Vendor.Selected"]
+    assert missing == []
+    assert skipped == 0
+
+
 def test_fallback_candidates_include_winstall_api_and_page_links() -> None:
     """Comprueba el escenario `fallback_candidates_include_winstall_api_and_page_links`."""
     app = SimpleNamespace(
@@ -243,6 +315,7 @@ def test_fallback_candidates_include_winstall_api_and_page_links() -> None:
         "https://cdn.example.com/App-1.2.3.dmg",
     ]
     assert candidates[0].asset_kind == "winstall_download"
+    assert candidates[0].context == "1.2.3"
 
 
 def test_rank_installers_marks_latest_per_platform_architecture() -> None:
@@ -284,6 +357,215 @@ def test_rank_installers_prefers_direct_over_fallback_for_same_version() -> None
 
     assert ranked[0] == (direct, 0, True)
     assert ranked[1] == (fallback, 1, False)
+
+
+def test_rank_installers_prefers_expected_version_over_unrelated_newer_version() -> None:
+    """La versión de otra rama no puede convertirse en primaria por ser mayor."""
+    expected = valid(
+        "https://python.org/python-3.11.9-amd64.exe",
+        "windows",
+        "x86_64",
+        "3.11.9",
+        80,
+    )
+    unrelated = valid(
+        "https://python.org/python-3.14.2-amd64.exe",
+        "windows",
+        "x86_64",
+        "3.14.2",
+        100,
+    )
+
+    ranked = rank_installers([unrelated, expected], "3.11.9")
+
+    assert ranked[0] == (expected, 0, True)
+    assert ranked[1] == (unrelated, 1, False)
+
+
+def test_installer_compatibility_rejects_other_product_and_version_branch() -> None:
+    """Un binario real no basta si pertenece a otro producto o rama del proveedor."""
+    authentic = parse_winstall_app(
+        {
+            "_id": "Altova.Authentic.2026.Enterprise",
+            "name": "Altova Authentic 2026 Enterprise Edition",
+            "publisher": "Altova",
+            "latestVersion": "2026.02.00.01",
+            "versions": [
+                {
+                    "version": "2026.02.00.01",
+                    "installers": [
+                        "https://cdn.sw.altova.com/v2026r2/en/AuthenticEnt2026rel2_x64.exe"
+                    ],
+                }
+            ],
+        }
+    )
+    mission_kit = valid(
+        "https://cdn.sw.altova.com/v2026r2/en/MissionKitEnt2026rel2_x64.exe",
+        "windows",
+        "x86_64",
+        "2026.02.00.01",
+        120,
+    )
+    python = parse_winstall_app(
+        {
+            "_id": "Python.Python.3.11",
+            "name": "Python 3.11",
+            "publisher": "Python Software Foundation",
+            "latestVersion": "3.11.9",
+            "versions": [
+                {
+                    "version": "3.11.9",
+                    "installers": [
+                        "https://python.org/python-3.11.9-amd64.exe"
+                    ],
+                }
+            ],
+        }
+    )
+    python_314 = valid(
+        "https://python.org/python-3.14.2-amd64.exe",
+        "windows",
+        "x86_64",
+        "3.14.2",
+        120,
+    )
+
+    assert (
+        installer_app_compatibility_reason(authentic, mission_kit)
+        == "product_identity_mismatch"
+    )
+    assert (
+        installer_app_compatibility_reason(python, python_314)
+        == "version_not_declared_for_app"
+    )
+
+
+def test_installer_compatibility_accepts_declared_opaque_winstall_endpoint() -> None:
+    """La relación autoritativa permite endpoints cuyo nombre no revela el producto."""
+    url = "https://aifast.komect.com/portal/pc/downloadPcClient/1852100238471585872"
+    app = parse_winstall_app(
+        {
+            "_id": "ChinaMobile.CMCCProxy",
+            "name": "CMCC Proxy",
+            "publisher": "China Mobile",
+            "latestVersion": "5.18.0",
+            "versions": [{"version": "5.18.0", "installers": [url]}],
+        }
+    )
+    candidate = InstallerCandidate(
+        url=url,
+        source="winstall_api",
+        score=35,
+        asset_kind="winstall_download",
+        context="5.18.0",
+    )
+    installer = ValidInstaller(
+        candidate=candidate,
+        result=ValidationResult(
+            ok=True,
+            url=url,
+            final_url=url,
+            filename="downloadPcClient.exe",
+            extension=".exe",
+        ),
+        status=ResolutionStatus.FALLBACK,
+        operating_system="windows",
+        architecture="x86_64",
+        version="5.18.0",
+    )
+
+    assert installer_app_compatibility_reason(app, installer) is None
+
+
+def test_persisted_installer_compatibility_expires_wrong_version_branch() -> None:
+    """Una fuente antigua de otra rama deja de sostener el catálogo."""
+    app = parse_winstall_app(
+        {
+            "_id": "Python.Python.3.7",
+            "name": "Python 3.7",
+            "publisher": "Python Software Foundation",
+            "latestVersion": "3.7.9",
+            "versions": [
+                {
+                    "version": "3.7.9",
+                    "installers": ["https://python.org/python-3.7.9-amd64.exe"],
+                }
+            ],
+        }
+    )
+
+    assert (
+        persisted_installer_app_compatibility_reason(
+            app,
+            url="https://python.org/python-3.14.7-arm64.exe",
+            filename="python-3.14.7-arm64.exe",
+            version="3.14.7",
+            metadata={"candidate_source": "href", "asset_kind": "installer"},
+        )
+        == "version_not_declared_for_app"
+    )
+
+
+def test_persisted_installer_compatibility_preserves_winstall_provenance() -> None:
+    """La versión validada recompone el contexto de filas Winstall antiguas."""
+    app = parse_winstall_app(
+        {
+            "_id": "Microsoft.VCRedist.2013.x64",
+            "name": "Microsoft Visual C++ 2013 Redistributable (x64)",
+            "publisher": "Microsoft",
+            "latestVersion": "12.0.40664.0",
+            "versions": [
+                {
+                    "version": "12.0.40664.0",
+                    "installers": ["https://download.microsoft.com/opaque"],
+                }
+            ],
+        }
+    )
+
+    assert (
+        persisted_installer_app_compatibility_reason(
+            app,
+            url="https://cdn.microsoft.com/vcredist_x64.exe",
+            filename="vcredist_x64.exe",
+            version="12.0.40664.0",
+            metadata={
+                "candidate_source": "winstall_api",
+                "asset_kind": "winstall_download",
+            },
+        )
+        is None
+    )
+
+
+def test_installer_compatibility_accepts_named_compact_vendor_version() -> None:
+    """Un nombre de producto fuerte permite la notación compacta del fabricante."""
+    app = parse_winstall_app(
+        {
+            "_id": "IPU.CoolPack",
+            "name": "CoolPack",
+            "publisher": "IPU",
+            "latestVersion": "1.50",
+            "versions": [
+                {
+                    "version": "1.50",
+                    "installers": ["https://example.test/coolpack-v150.exe"],
+                }
+            ],
+        }
+    )
+
+    assert (
+        persisted_installer_app_compatibility_reason(
+            app,
+            url="https://cdn.sanity.io/files/coolpack-v150.exe",
+            filename="coolpack-v150.exe",
+            version="1.5.0",
+            metadata={"candidate_source": "href", "asset_kind": "installer"},
+        )
+        is None
+    )
 
 
 def test_dedupes_redirect_variants_that_only_change_query_parameters() -> None:
@@ -341,6 +623,25 @@ def test_winstall_version_context_identifies_an_unversioned_binary() -> None:
     )
 
     assert validated_installer_version(candidate, result) == "2.4.0"
+
+
+def test_validated_filename_version_wins_over_provider_context() -> None:
+    """Una etiqueta del proveedor no puede ocultar la versión real del fichero."""
+    candidate = InstallerCandidate(
+        url="https://cdn.example.com/download",
+        source="winstall_api",
+        context="2.5.0",
+        asset_kind="winstall_download",
+    )
+    result = ValidationResult(
+        ok=True,
+        url=candidate.url,
+        final_url=candidate.url,
+        filename="Flowy-AIPC-0.2.10-setup.exe",
+        extension=".exe",
+    )
+
+    assert validated_installer_version(candidate, result) == "0.2.10"
 
 
 def test_public_version_advances_only_when_the_new_artifact_was_validated() -> None:
@@ -510,10 +811,14 @@ async def test_platform_worker_includes_parent_index_fallback(monkeypatch) -> No
     )
 
     async def collect_parent(_candidates):
-        """Ejecuta la operación `collect_parent`.
+        """Prepara el recurso
+        `test_platform_worker_includes_parent_index_fallback.collect_parent` usado por las
+        pruebas para aislar el escenario `test platform worker includes parent index
+        fallback.collect parent` y conservar sus datos de entrada.
 
         Args:
-            _candidates (Any): Valor de `_candidates` utilizado por la operación.
+            _candidates: Entrada `_candidates` del escenario que se mantiene estable para la
+                prueba.
         """
         return [current]
 
@@ -883,14 +1188,13 @@ async def test_winstall_github_asset_refreshes_from_release_api() -> None:
     )
 
     async def collect(url: str, version: str | None) -> list[InstallerCandidate]:
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso `test_winstall_github_asset_refreshes_from_release_api.collect`
+        usado por las pruebas para aislar el escenario `test winstall github asset refreshes
+        from release api.collect` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-            version (str | None): Valor de `version` utilizado por la operación.
-
-        Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
+            version: Entrada `version` del escenario que se mantiene estable para la prueba.
         """
         assert url == stale.url
         assert version == "40"
@@ -924,14 +1228,13 @@ async def test_winstall_github_refresh_queries_each_repository_once() -> None:
     worker = PlatformScraperWorker(Settings())
 
     async def collect(url: str, version: str | None) -> list[InstallerCandidate]:
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso `test_winstall_github_refresh_queries_each_repository_once.collect`
+        usado por las pruebas para aislar el escenario `test winstall github refresh queries
+        each repository once.collect` y conservar sus datos de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-            version (str | None): Valor de `version` utilizado por la operación.
-
-        Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            url: Entrada `url` del escenario que se mantiene estable para la prueba.
+            version: Entrada `version` del escenario que se mantiene estable para la prueba.
         """
         calls.append((url, version))
         return []
@@ -973,14 +1276,14 @@ async def test_filter_validates_current_winstall_asset_before_refreshing_github(
             return ValidationResult(ok=candidate.url == current, url=candidate.url)
 
     async def unexpected_refresh(*_args, **_kwargs):
-        """Ejecuta la operación `unexpected_refresh`.
+        """Prepara el recurso
+        `test_filter_validates_current_winstall_asset_before_refreshing_github.unexpected_refresh`
+        usado por las pruebas para aislar el escenario `test filter validates current winstall
+        asset before refreshing github.unexpected refresh` y conservar sus datos de entrada.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
-
-        Throws:
-            AssertionError: Si no puede completarse la operación bajo las condiciones requeridas.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         raise AssertionError("A valid Winstall asset must not trigger a GitHub refresh")
 
@@ -1008,14 +1311,14 @@ async def test_filter_uses_refreshed_winstall_github_release_before_discarding()
     worker = FilterWorker(Settings())
 
     async def collect(_url: str, _version: str | None) -> list[InstallerCandidate]:
-        """Ejecuta la operación `collect`.
+        """Prepara el recurso
+        `test_filter_uses_refreshed_winstall_github_release_before_discarding.collect` usado
+        por las pruebas para aislar el escenario `test filter uses refreshed winstall github
+        release before discarding.collect` y conservar sus datos de entrada.
 
         Args:
-            _url (str): Dirección de `` que debe procesarse.
-            _version (str | None): Valor de `_version` utilizado por la operación.
-
-        Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            _url: Entrada `_url` del escenario que se mantiene estable para la prueba.
+            _version: Entrada `_version` del escenario que se mantiene estable para la prueba.
         """
         return [
             InstallerCandidate(
@@ -1118,22 +1421,30 @@ async def test_searcher_backpressure_waits_until_queue_depth_drops(monkeypatch) 
             return None
 
     async def fake_set_current(_settings, _run_id, _package_id, _app_name, phase):
-        """Ejecuta la operación `fake_set_current`.
+        """Prepara el doble
+        `test_searcher_backpressure_waits_until_queue_depth_drops.fake_set_current` para
+        aislar el escenario `test searcher backpressure waits until queue depth drops.fake set
+        current` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            _settings (Any): Valor de `_settings` utilizado por la operación.
-            _run_id (Any): Identificador de `_run` utilizado por la operación.
-            _package_id (Any): Identificador de `_package` utilizado por la operación.
-            _app_name (Any): Valor de `_app_name` utilizado por la operación.
-            phase (Any): Valor de `phase` utilizado por la operación.
+            _settings: Entrada `_settings` del escenario que se mantiene estable para la
+                prueba.
+            _run_id: Entrada `_run_id` del escenario que se mantiene estable para la prueba.
+            _package_id: Entrada `_package_id` del escenario que se mantiene estable para la
+                prueba.
+            _app_name: Entrada `_app_name` del escenario que se mantiene estable para la
+                prueba.
+            phase: Entrada `phase` del escenario que se mantiene estable para la prueba.
         """
         phases.append(phase)
 
     async def fake_sleep(_seconds):
-        """Ejecuta la operación `fake_sleep`.
+        """Prepara el doble `test_searcher_backpressure_waits_until_queue_depth_drops.fake_sleep`
+        para aislar el escenario `test searcher backpressure waits until queue depth
+        drops.fake sleep` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            _seconds (Any): Valor de `_seconds` utilizado por la operación.
+            _seconds: Entrada `_seconds` del escenario que se mantiene estable para la prueba.
         """
         return None
 
@@ -1172,8 +1483,7 @@ async def test_catalog_fetcher_starts_configured_scraper_workers(monkeypatch) ->
                 _settings (Any): Valor de `_settings` utilizado por la operación.
             """
             self.index = len(started)
-            """Estado de instancia asociado a `index`.
-            """
+
             started.append(self.index)
 
         async def run(self, _runtime) -> None:
@@ -1205,14 +1515,13 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
     calls = 0
 
     async def fake_claim(*_args, **_kwargs):
-        """Ejecuta la operación `fake_claim`.
+        """Prepara el doble `test_platform_worker_retries_transient_claim_failure.fake_claim`
+        para aislar el escenario `test platform worker retries transient claim failure.fake
+        claim` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            *_args (Any): Valor de `_args` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
-
-        Throws:
-            OperationalError: Si no puede completarse la operación bajo las condiciones requeridas.
+            _args: Entrada `_args` del escenario que se mantiene estable para la prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         nonlocal calls
         calls += 1
@@ -1221,10 +1530,12 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
         return None
 
     async def fake_sleep(_seconds):
-        """Ejecuta la operación `fake_sleep`.
+        """Prepara el doble `test_platform_worker_retries_transient_claim_failure.fake_sleep`
+        para aislar el escenario `test platform worker retries transient claim failure.fake
+        sleep` y permitir que la prueba observe la garantía que le corresponde.
 
         Args:
-            _seconds (Any): Valor de `_seconds` utilizado por la operación.
+            _seconds: Entrada `_seconds` del escenario que se mantiene estable para la prueba.
         """
         return None
 
@@ -1242,6 +1553,170 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
     await PlatformScraperWorker(settings).run(runtime)
 
     assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_filter_worker_requeues_database_pool_timeout(monkeypatch) -> None:
+    """La contención al filtrar no convierte una app existente en fallo terminal."""
+    item = SimpleNamespace(
+        id=uuid4(),
+        package_id="Vendor.App",
+        app_name="App",
+        payload_json={"package_id": "Vendor.App"},
+        attempts=1,
+    )
+    claims = [item, None]
+    finishes: list[tuple[str, str | None]] = []
+
+    async def fake_claim(*_args, **_kwargs):
+        return claims.pop(0)
+
+    async def fake_finish(_settings, _item, action, message, **_kwargs):
+        finishes.append((action, message))
+
+    async def no_active_work(*_args, **_kwargs) -> bool:
+        return False
+
+    async def no_op(*_args, **_kwargs) -> None:
+        return None
+
+    class PoolTimeoutSession:
+        async def __aenter__(self):
+            raise SQLAlchemyTimeoutError()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(filter_worker_module, "claim_item", fake_claim)
+    monkeypatch.setattr(filter_worker_module, "finish_item", fake_finish)
+    monkeypatch.setattr(worker_recovery, "finish_item", fake_finish)
+    monkeypatch.setattr(filter_worker_module, "queue_has_active_work", no_active_work)
+    monkeypatch.setattr(filter_worker_module, "set_current", no_op)
+    monkeypatch.setattr(
+        filter_worker_module,
+        "parse_payload_app",
+        lambda *_args: SimpleNamespace(package_id="Vendor.App", name="App"),
+    )
+    monkeypatch.setattr(
+        filter_worker_module,
+        "async_session_local",
+        lambda: lambda: PoolTimeoutSession(),
+    )
+    settings = Settings()
+    runtime = PipelineRuntime(settings=settings, run_id=uuid4(), run_started_at=utc_now())
+    runtime.searcher_done.set()
+
+    await FilterWorker(settings).run(runtime)
+
+    assert finishes == [("requeue", "database_pool_retry")]
+    assert runtime.counters.apps_failed == 0
+
+
+@pytest.mark.asyncio
+async def test_platform_worker_requeues_app_timeout(monkeypatch) -> None:
+    """Un proveedor lento recibe intentos acotados antes de declararse fallido."""
+    item = SimpleNamespace(
+        id=uuid4(),
+        package_id="Vendor.Slow",
+        app_name="Slow",
+        payload_json={},
+        attempts=1,
+    )
+    claims = [item, None]
+    finishes: list[tuple[str, str | None]] = []
+
+    async def fake_claim(*_args, **_kwargs):
+        return claims.pop(0)
+
+    async def fake_finish(_settings, _item, action, message, **_kwargs):
+        finishes.append((action, message))
+
+    async def no_active_work(*_args, **_kwargs) -> bool:
+        return False
+
+    worker = PlatformScraperWorker(Settings())
+
+    async def time_out(*_args, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(platform_worker, "claim_item", fake_claim)
+    monkeypatch.setattr(platform_worker, "finish_item", fake_finish)
+    monkeypatch.setattr(platform_worker, "queue_has_active_work", no_active_work)
+    monkeypatch.setattr(worker, "_scrape_item", time_out)
+    runtime = PipelineRuntime(
+        settings=worker.settings,
+        run_id=uuid4(),
+        run_started_at=utc_now(),
+    )
+    runtime.searcher_done.set()
+    runtime.filter_done.set()
+
+    await worker.run(runtime)
+
+    assert finishes == [("requeue", "timeout_after_90s")]
+    assert runtime.counters.apps_failed == 0
+
+
+@pytest.mark.asyncio
+async def test_attested_candidates_do_not_exhaust_publishable_budget() -> None:
+    """Los retos de borde no deben impedir probar el siguiente binario real."""
+    app = parse_winstall_app(
+        {
+            "_id": "Vendor.App",
+            "name": "Vendor App",
+            "author": "Vendor",
+            "latestVersion": "1.0.0",
+            "versions": [],
+        }
+    )
+    challenged = [
+        InstallerCandidate(
+            url=f"https://edge.example.test/AppSetup-x64-{index}.exe",
+            source="winstall_page",
+            asset_kind="winstall_download",
+        )
+        for index in range(4)
+    ]
+    binary = InstallerCandidate(
+        url="https://cdn.example.test/App.exe",
+        source="winstall_page",
+        asset_kind="winstall_download",
+    )
+    worker = PlatformScraperWorker(Settings())
+
+    class MixedValidator:
+        async def validate(self, candidate: InstallerCandidate) -> ValidationResult:
+            confidence = (
+                ValidationConfidence.VALIDATED
+                if candidate.url == binary.url
+                else ValidationConfidence.ATTESTED
+            )
+            return ValidationResult(
+                ok=True,
+                url=candidate.url,
+                final_url=candidate.url,
+                filename=candidate.url.rsplit("/", 1)[-1],
+                extension=".exe",
+                confidence=confidence,
+                transport_security=(
+                    None
+                    if confidence == ValidationConfidence.VALIDATED
+                    else "https_winstall_edge_attested"
+                ),
+            )
+
+    worker.validator = MixedValidator()
+
+    installers, diagnostics = await worker._validate_candidate_group(
+        app,
+        [*challenged, binary],
+        ResolutionStatus.FALLBACK,
+        max_candidates=5,
+        max_valid=1,
+    )
+
+    assert [installer.candidate.url for installer in installers] == [binary.url]
+    assert diagnostics.attempted == 5
 
 
 def test_only_fully_validated_installers_are_publishable() -> None:
@@ -1279,18 +1754,19 @@ def valid(
     confidence: ValidationConfidence = ValidationConfidence.UNVERIFIED,
     transport_security: str | None = None,
 ) -> ValidInstaller:
-    """Ejecuta la operación `valid`.
+    """Prepara el recurso `valid` usado por las pruebas para aislar el escenario `valid` y
+    conservar sus datos de entrada.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
-        os (str): Valor de `os` utilizado por la operación.
-        arch (str): Valor de `arch` utilizado por la operación.
-        version (str): Valor de `version` utilizado por la operación.
-        score (int): Valor de `score` utilizado por la operación.
-        status (ResolutionStatus): Valor de `status` utilizado por la operación.
-
-    Returns:
-        ValidInstaller: Resultado producido por la operación.
+        url: Entrada `url` del escenario que se mantiene estable para la prueba.
+        os: Entrada `os` del escenario que se mantiene estable para la prueba.
+        arch: Entrada `arch` del escenario que se mantiene estable para la prueba.
+        version: Entrada `version` del escenario que se mantiene estable para la prueba.
+        score: Entrada `score` del escenario que se mantiene estable para la prueba.
+        status: Entrada `status` del escenario que se mantiene estable para la prueba.
+        confidence: Entrada `confidence` del escenario que se mantiene estable para la prueba.
+        transport_security: Entrada `transport_security` del escenario que se mantiene estable
+            para la prueba.
     """
     candidate = InstallerCandidate(url=url, source="href", score=score, asset_kind="installer")
     return ValidInstaller(

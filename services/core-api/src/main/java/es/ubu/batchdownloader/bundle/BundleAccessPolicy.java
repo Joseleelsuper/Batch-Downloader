@@ -2,11 +2,33 @@ package es.ubu.batchdownloader.bundle;
 
 import java.util.UUID;
 
-/** Decide el acceso a un bundle sin ejecutar consultas ni depender de la capa web. */
+/**
+ * Comparte la regla de visibilidad entre consulta de detalle y selección para descarga, ocultando
+ * bundles privados ajenos.
+ *
+ * @see es.ubu.batchdownloader.bundle.BundleReadRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Bundles
+ */
 final class BundleAccessPolicy {
+    /**
+     * Impide instancias de la política estática de visibilidad.
+     */
     private BundleAccessPolicy() {}
 
-    /** Permite recursos públicos/oficiales, administradores o al propietario autenticado. */
+    /**
+     * Permite visibilidad pública u oficial, administración o coincidencia de propietario con el
+     * visitante autenticado.
+     *
+     * @param visibility Visibilidad public, private u official; las ediciones personales solo
+     *     admiten public o private.
+     * @param ownerId UUID canónico de la cuenta propietaria; null para bundles sin propietario
+     *     asignado.
+     * @param viewerId UUID de quien consulta, o null para visitantes anónimos.
+     * @param administrator Permite al administrador consultar bundles de cualquier visibilidad.
+     * @return true si el bundle puede consultarse con esas identidades.
+     */
     static boolean isVisible(
             String visibility,
             UUID ownerId,

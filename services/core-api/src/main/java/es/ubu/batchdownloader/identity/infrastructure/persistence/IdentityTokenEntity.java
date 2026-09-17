@@ -14,65 +14,74 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Implementa el componente {@code IdentityTokenEntity}.
+ * Mapea hash, finalidad, consumo y vencimiento de un token a JPA con versión para concurrencia
+ * optimista.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.domain.IdentityToken
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.JpaIdentityTokenStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 @Entity
 @Table(name = "identity_tokens")
 class IdentityTokenEntity {
     /**
-     * Estado {@code id} mantenido por {@code IdentityTokenEntity}.
+     * UUID estable del agregado que se consulta o reconstruye.
      */
     @Id
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(length = 36, nullable = false)
     private UUID id;
     /**
-     * Estado {@code userId} mantenido por {@code IdentityTokenEntity}.
+     * UUID canónico de la cuenta; no cambia al modificar su nombre visible.
      */
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "user_id", length = 36, nullable = false)
     private UUID userId;
     /**
-     * Estado {@code tokenHash} mantenido por {@code IdentityTokenEntity}.
+     * SHA-256 hexadecimal del token opaco, utilizado para localizarlo sin almacenar su original.
      */
     @Column(name = "token_hash", length = 64, nullable = false, unique = true)
     private String tokenHash;
     /**
-     * Estado {@code type} mantenido por {@code IdentityTokenEntity}.
+     * Finalidad del token: verificación de correo o restablecimiento de contraseña.
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "token_type", length = 32, nullable = false)
     private IdentityToken.Type type;
     /**
-     * Estado {@code expiresAt} mantenido por {@code IdentityTokenEntity}.
+     * Instante a partir del cual el token deja de ser utilizable, incluido el propio límite.
      */
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
     /**
-     * Estado {@code consumedAt} mantenido por {@code IdentityTokenEntity}.
+     * Instante de consumo o invalidación; null significa que aún no se ha consumido.
      */
     @Column(name = "consumed_at")
     private Instant consumedAt;
     /**
-     * Estado {@code createdAt} mantenido por {@code IdentityTokenEntity}.
+     * Instante de creación original del agregado.
      */
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+    /**
+     * Versión persistida utilizada para detectar escrituras concurrentes.
+     */
     @Version
     private long version;
 
     /**
-     * Inicializa una instancia de {@code IdentityTokenEntity}.
+     * Permite a JPA reconstruir el registro del token sin emitir otro permiso.
      */
     protected IdentityTokenEntity() {}
 
     /**
-     * Ejecuta la operación {@code from}.
+     * Crea la entidad de un token conservando UUID, versión y estado.
      *
-     * @param token Token utilizado para autorizar o correlacionar la operación.
-     * @return Resultado producido por {@code from}.
+     * @param token Agregado de token que conserva hash, finalidad, vencimiento y consumo.
+     * @return entidad nueva con los datos del agregado.
      */
     static IdentityTokenEntity from(IdentityToken token) {
         IdentityTokenEntity entity = new IdentityTokenEntity();
@@ -83,9 +92,10 @@ class IdentityTokenEntity {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code updateFrom}.
+     * Copia finalidad, hash y fechas del token sin sustituir la identidad ni la versión que
+     * gestiona JPA.
      *
-     * @param token Token utilizado para autorizar o correlacionar la operación.
+     * @param token Agregado de token que conserva hash, finalidad, vencimiento y consumo.
      */
     void updateFrom(IdentityToken token) {
         userId = token.userId();
@@ -97,9 +107,9 @@ class IdentityTokenEntity {
     }
 
     /**
-     * Convierte el valor recibido mediante {@code toDomain}.
+     * Rehidrata el token conservando consumo, vencimiento y versión guardados.
      *
-     * @return Resultado producido por {@code toDomain}.
+     * @return agregado equivalente a la fila persistida.
      */
     IdentityToken toDomain() {
         return IdentityToken.rehydrate(id, userId, tokenHash, type, expiresAt, consumedAt, createdAt, version);

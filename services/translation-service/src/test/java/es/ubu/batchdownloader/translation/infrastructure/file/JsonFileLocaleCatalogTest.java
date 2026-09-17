@@ -16,9 +16,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Agrupa los escenarios de prueba de {@code JsonFileLocaleCatalogTest}.
+ * Comprueba carga, caché, paridad y rechazo de duplicados del catálogo dividido en páginas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.translation.infrastructure.file.JsonFileLocaleCatalog
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Traducciones
  */
 class JsonFileLocaleCatalogTest {
 
@@ -29,9 +33,7 @@ class JsonFileLocaleCatalogTest {
     private Path localeDirectory;
 
     /**
-     * Comprueba el escenario {@code loadsAndCachesAValidSpanishCatalog}.
-     *
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * Comprueba que una estructura válida publica el JSON español y lo conserva en caché.
      */
     @Test
     void loadsAndCachesAValidSpanishCatalog() throws IOException {
@@ -60,11 +62,21 @@ class JsonFileLocaleCatalogTest {
 
         LocaleDocument spanish = catalog.findByLocale("es").orElseThrow();
         JsonNode messages = new ObjectMapper().readTree(spanish.content());
-        assertThat(messages.size()).isEqualTo(802);
+        ObjectMapper mapper = new ObjectMapper();
+        int expectedMessages = 0;
+        try (var pages = Files.list(Path.of("locales", "es"))) {
+            for (Path page : pages.filter(path -> path.toString().endsWith(".json")).toList()) {
+                JsonNode entries = mapper.readTree(page.toFile());
+                expectedMessages += entries.size();
+                entries.properties().forEach(entry ->
+                        assertThat(messages.get(entry.getKey())).isEqualTo(entry.getValue()));
+            }
+        }
+        assertThat(messages.size()).isEqualTo(expectedMessages);
         assertThat(messages.has("catalog.title")).isTrue();
         assertThat(messages.has("admin.apps.subtitle")).isTrue();
         assertThat(messages.has("account.login.title")).isTrue();
-        assertThat(messages.has("error.google_oauth_not_configured.title")).isTrue();
+        assertThat(messages.has("error.unexpected_error.title")).isTrue();
         assertThat(messages.has("legal.privacy.title")).isTrue();
         assertThat(messages.has("legal.lastUpdated")).isTrue();
         assertThat(messages.has("download.job.manual.title")).isTrue();
@@ -76,9 +88,7 @@ class JsonFileLocaleCatalogTest {
     }
 
     /**
-     * Comprueba el escenario {@code failsFastWhenTheSpanishCatalogMissesATemplateKey}.
-     *
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * Comprueba que falta de una clave de plantilla impide construir el catálogo español.
      */
     @Test
     void failsFastWhenTheSpanishCatalogMissesATemplateKey() throws IOException {
@@ -91,9 +101,7 @@ class JsonFileLocaleCatalogTest {
     }
 
     /**
-     * Comprueba el escenario {@code failsFastWhenTheSpanishCatalogAddsAnUnknownKey}.
-     *
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * Comprueba que una traducción sin clave equivalente en la plantilla se rechaza al cargar.
      */
     @Test
     void failsFastWhenTheSpanishCatalogAddsAnUnknownKey() throws IOException {
@@ -106,9 +114,7 @@ class JsonFileLocaleCatalogTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsBlankOrNonTextTranslations}.
-     *
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * Comprueba que las traducciones españolas vacías o no textuales impiden publicar el catálogo.
      */
     @Test
     void rejectsBlankOrNonTextTranslations() throws IOException {
@@ -126,9 +132,7 @@ class JsonFileLocaleCatalogTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsDuplicateJsonKeys}.
-     *
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * Comprueba que repetir una clave dentro de una página JSON produce un error de configuración.
      */
     @Test
     void rejectsDuplicateJsonKeys() throws IOException {
@@ -166,9 +170,9 @@ class JsonFileLocaleCatalogTest {
     }
 
     /**
-     * Ejecuta la operación {@code catalog}.
+     * Construye un catálogo desde las páginas temporales creadas por el escenario.
      *
-     * @return Resultado producido por {@code catalog}.
+     * @return catálogo validado, o propaga el fallo esperado por la prueba.
      */
     private JsonFileLocaleCatalog catalog() {
         return new JsonFileLocaleCatalog(
@@ -176,12 +180,11 @@ class JsonFileLocaleCatalogTest {
     }
 
     /**
-     * Ejecuta la operación {@code write}.
+     * Escribe una página JSON controlada bajo el directorio temporal del catálogo elegido.
      *
-     * @param catalogName Directorio de plantilla o idioma.
-     * @param fileName Nombre de la página JSON.
-     * @param content Contenido que debe procesarse.
-     * @throws IOException Si se produce un error al leer o escribir los datos requeridos.
+     * @param catalogName Directorio del catálogo temporal: plantilla o español.
+     * @param fileName Nombre de la página JSON del escenario.
+     * @param content Texto JSON que se escribirá, válido o inválido según la prueba.
      */
     private void write(String catalogName, String fileName, String content) throws IOException {
         Path directory = Files.createDirectories(localeDirectory.resolve(catalogName));

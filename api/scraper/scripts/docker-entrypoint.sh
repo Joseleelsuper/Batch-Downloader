@@ -27,7 +27,9 @@ async def main():
 asyncio.run(main())
 PY
 
-alembic upgrade head
+# La fase expansiva llega por defecto hasta 0021. Tras la puerta de compatibilidad se puede
+# promover explícitamente a `head` mediante SCRAPER_ALEMBIC_TARGET para retirar 0022.
+alembic upgrade "${SCRAPER_ALEMBIC_TARGET:-20260914_0021}"
 
 case "${1:-api}" in
   api)

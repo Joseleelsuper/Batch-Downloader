@@ -9,9 +9,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
 /**
- * Reparte de forma justa dos plazas entre trabajos normales y exclusivos.
+ * Reparte permisos globales con un semáforo justo y pesos por trabajo, permitiendo reservar toda la
+ * capacidad para descargas exclusivas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadResolutionService
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Capacidad y coordinación de descargas
  */
 public final class JobCapacity {
     /** Semáforo ponderado y justo. */
@@ -22,10 +28,11 @@ public final class JobCapacity {
     private final Timer capacityWait;
 
     /**
-     * Inicializa la capacidad global.
+     * Crea el semáforo justo con la capacidad recibida y registra trabajos activos y duración de
+     * espera.
      *
-     * @param capacity Número de trabajos normales simultáneos.
-     * @param registry Registro de métricas.
+     * @param capacity Cantidad total de permisos que pueden repartirse entre trabajos.
+     * @param registry Registro de ocupación, espera y resultados del worker.
      */
     public JobCapacity(int capacity, MeterRegistry registry) {
         this.permits = new Semaphore(capacity, true);
@@ -34,16 +41,33 @@ public final class JobCapacity {
     }
 
     /**
-     * Reserva una o todas las plazas.
+     * Espera los permisos del trabajo sin una señal externa de cancelación, conservando la
+     * posibilidad de interrupción del hilo.
      *
-     * @param weight Plazas requeridas.
-     * @return Reserva liberable mediante try-with-resources.
+     * @param weight Número de permisos que requiere este trabajo; la resolución elige uno o toda la
+     *     capacidad.
+     * @return reserva de permisos que el coordinador debe cerrar.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
+     *     interrumpe la espera; conserva la interrupción.
      */
     public Lease acquire(int weight) {
         return acquire(weight, () -> false);
     }
 
-    /** Reserva plazas permitiendo cancelar mientras el trabajo espera en el semáforo justo. */
+    /**
+     * Espera permisos en intervalos de 250 ms, comprueba cancelación entre esperas y registra su
+     * duración incluso si no llega a obtenerlos.
+     *
+     * @param weight Número de permisos que requiere este trabajo; la resolución elige uno o toda la
+     *     capacidad.
+     * @param cancelled Consulta de cancelación cooperativa revisada mientras el trabajo espera
+     *     permisos.
+     * @return reserva activa con el peso solicitado.
+     * @throws java.util.concurrent.CancellationException si se solicita cancelación mientras
+     *     espera.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
+     *     interrumpe el hilo de espera; conserva la interrupción.
+     */
     public Lease acquire(int weight, BooleanSupplier cancelled) {
         long startedAt = System.nanoTime();
         try {
@@ -62,29 +86,51 @@ public final class JobCapacity {
         }
     }
 
-    /** @return Si el semáforo respeta el orden de llegada. */
+    /**
+     * Expone la política de equidad del semáforo para verificar el orden de admisión.
+     *
+     * @return true si se respeta la política justa configurada.
+     */
     boolean fair() {
         return permits.isFair();
     }
 
-    /** @return Plazas libres, utilizado por las pruebas de capacidad. */
+    /**
+     * Consulta los permisos actualmente libres sin reservarlos.
+     *
+     * @return cantidad de permisos disponibles.
+     */
     int availablePermits() {
         return permits.availablePermits();
     }
 
-    /** Reserva activa de plazas. */
+    /**
+     * Conserva los permisos de un trabajo y devuelve su peso al cerrar la fase de ejecución.
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Capacidad y coordinación de descargas
+     */
     public final class Lease implements AutoCloseable {
         /** Peso que debe devolverse. */
         private final int weight;
         /** Impide liberar dos veces. */
         private boolean closed;
 
-        /** Inicializa la reserva. */
+        /**
+         * Registra el peso ya adquirido para devolver exactamente esos permisos.
+         *
+         * @param weight Número de permisos que requiere este trabajo; la resolución elige uno o
+         *     toda la capacidad.
+         */
         private Lease(int weight) {
             this.weight = weight;
         }
 
-        /** Devuelve las plazas al conjunto global. */
+        /**
+         * Devuelve los permisos y reduce el contador de trabajos activos una sola vez en el ciclo
+         * de vida del coordinador.
+         */
         @Override
         public void close() {
             if (!closed) {

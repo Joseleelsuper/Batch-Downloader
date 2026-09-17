@@ -12,19 +12,26 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Define la configuración utilizada por {@code RabbitTopologyConfiguration}.
+ * Declara exchanges, colas durables y enlaces de solicitudes de correo y entregas rechazadas.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.config.RabbitTopologyProperties
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.messaging.RabbitNotificationRequestedListener
+ *
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @Configuration
 @EnableRabbit
 public class RabbitTopologyConfiguration {
 
     /**
-     * Ejecuta la operación {@code downloadEventsExchange}.
+     * Declara el exchange topic durable y sin borrado automático de los eventos del productor.
      *
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @return Resultado producido por {@code downloadEventsExchange}.
+     * @param properties Nombres configurados de exchanges, colas y claves de enrutamiento.
+     * @return exchange compartido al que se enlaza la cola de notificaciones.
      */
     @Bean
     TopicExchange downloadEventsExchange(RabbitTopologyProperties properties) {
@@ -32,10 +39,10 @@ public class RabbitTopologyConfiguration {
     }
 
     /**
-     * Ejecuta la operación {@code notificationDeadLetterExchange}.
+     * Declara el exchange directo durable que recibe entregas rechazadas por el consumidor.
      *
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @return Resultado producido por {@code notificationDeadLetterExchange}.
+     * @param properties Nombres configurados de exchanges, colas y claves de enrutamiento.
+     * @return exchange de descartes sin borrado automático.
      */
     @Bean
     DirectExchange notificationDeadLetterExchange(RabbitTopologyProperties properties) {
@@ -43,10 +50,10 @@ public class RabbitTopologyConfiguration {
     }
 
     /**
-     * Ejecuta la operación {@code notificationQueue}.
+     * Declara la cola durable de entrada con su exchange y clave de dead letter configurados.
      *
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @return Resultado producido por {@code notificationQueue}.
+     * @param properties Nombres configurados de exchanges, colas y claves de enrutamiento.
+     * @return cola que redirige entregas rechazadas a la topología de descartes.
      */
     @Bean
     Queue notificationQueue(RabbitTopologyProperties properties) {
@@ -57,10 +64,10 @@ public class RabbitTopologyConfiguration {
     }
 
     /**
-     * Ejecuta la operación {@code notificationDeadLetterQueue}.
+     * Declara la cola durable que conserva solicitudes rechazadas para su diagnóstico.
      *
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @return Resultado producido por {@code notificationDeadLetterQueue}.
+     * @param properties Nombres configurados de exchanges, colas y claves de enrutamiento.
+     * @return cola de descartes configurada.
      */
     @Bean
     Queue notificationDeadLetterQueue(RabbitTopologyProperties properties) {
@@ -68,13 +75,13 @@ public class RabbitTopologyConfiguration {
     }
 
     /**
-     * Ejecuta la operación {@code notificationRequestedBinding}.
+     * Suscribe la cola de correo al exchange de eventos mediante la clave aceptada por el
+     * conversor.
      *
-     * @param notificationQueue Valor de {@code notificationQueue} utilizado por la operación.
-     * @param downloadEventsExchange Valor de {@code downloadEventsExchange} utilizado por la
-     *     operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @return Resultado producido por {@code notificationRequestedBinding}.
+     * @param notificationQueue Cola durable de entrada que recibe solicitudes de correo.
+     * @param downloadEventsExchange Exchange topic compartido de eventos del productor.
+     * @param properties Nombres configurados de exchanges, colas y claves de enrutamiento.
+     * @return enlace de entrada del consumidor.
      */
     @Bean
     Binding notificationRequestedBinding(
@@ -87,14 +94,12 @@ public class RabbitTopologyConfiguration {
     }
 
     /**
-     * Ejecuta la operación {@code deadLetterBinding}.
+     * Conecta el exchange de descartes con su cola mediante la clave de rechazo configurada.
      *
-     * @param notificationDeadLetterQueue Valor de {@code notificationDeadLetterQueue} utilizado por
-     *     la operación.
-     * @param notificationDeadLetterExchange Valor de {@code notificationDeadLetterExchange}
-     *     utilizado por la operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
-     * @return Resultado producido por {@code deadLetterBinding}.
+     * @param notificationDeadLetterQueue Cola que conserva las entregas rechazadas.
+     * @param notificationDeadLetterExchange Exchange directo que enruta las entregas rechazadas.
+     * @param properties Nombres configurados de exchanges, colas y claves de enrutamiento.
+     * @return enlace para conservar entregas rechazadas.
      */
     @Bean
     Binding deadLetterBinding(

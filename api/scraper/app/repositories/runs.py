@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `runs`.
+"""Coordina la reserva exclusiva de ejecuciones y el consumo persistente de órdenes de pausa,
+reanudación, parada y lanzamiento.
 """
 import socket
 import uuid
@@ -14,26 +15,30 @@ from app.db.enums import ScrapeRunStatus, ScrapeScope
 from app.db.models import ScraperCommand, ScrapeRun
 
 RUN_LOCK_STALE_MINUTES = 90
-"""Constante que define `RUN_LOCK_STALE_MINUTES`.
-"""
+
 
 
 class ScrapeRunRepository:
-    """Gestiona la persistencia y consulta de `ScrapeRun`.
+    """Mantiene exclusión mediante active_lock, progreso y comandos del scheduler en la sesión
+    del llamador.
+    Las operaciones no confirman automáticamente; acquire sí revierte la sesión si colisiona
+    la reserva única.
+
+    See Also:
+        app.worker: Consume comandos y confirma las transiciones.
+        app.db.models.ScrapeRun: Conserva manifiesto, latido y resultado.
     """
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
-        """Inicializa una instancia de `ScrapeRunRepository`.
+        """Conecta el seguimiento de ejecuciones a la sesión y configuración del scheduler.
 
         Args:
-            session (AsyncSession): Sesión de base de datos utilizada por la operación.
-            settings (Settings): Configuración del servicio.
+            session: Sesión asíncrona del llamador; este decide cuándo confirmar los cambios.
+            settings: Configuración del scheduler conservada por el repositorio.
         """
         self.session = session
-        """Estado de instancia asociado a `session`.
-        """
+
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
 
     async def acquire(
         self,
@@ -41,10 +46,19 @@ class ScrapeRunRepository:
         scope: ScrapeScope = ScrapeScope.INCREMENTAL,
         request_id: uuid.UUID | None = None,
     ) -> ScrapeRun | None:
-        """Ejecuta `acquire` dentro de `ScrapeRunRepository`.
+        """Rechaza una ejecución activa con latido reciente y recupera reservas de más de 90
+        minutos antes de intentar la clave única de ejecución.
+
+        Args:
+            scope: Alcance estable de la ejecución solicitada.
+            request_id: UUID opcional del comando administrativo que originó la ejecución.
 
         Returns:
-            ScrapeRun | None: Resultado producido por la operación.
+            nueva ejecución pendiente de commit o None si ya existe un propietario.
+
+        Raises:
+            Exception: Los errores de persistencia distintos de una colisión de integridad se
+                propagan al llamador.
         """
         stale_before = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES)
         running = list(
@@ -94,7 +108,14 @@ class ScrapeRunRepository:
         app_ids: list[str],
         winstall_ids: list[str],
     ) -> None:
-        """Persiste el conjunto exacto que debe poder auditarse al cerrar la ejecución."""
+        """Guarda las identidades objetivo y su número de paquetes y renueva el latido; no actúa
+        si la ejecución falta.
+
+        Args:
+            run_id: UUID de la ejecución que se consulta o actualiza.
+            app_ids: UUID textuales de las aplicaciones seleccionadas.
+            winstall_ids: Identificadores de proveedor que forman el manifiesto del trabajo.
+        """
         run = await self.session.get(ScrapeRun, run_id)
         if run is None:
             return
@@ -104,13 +125,15 @@ class ScrapeRunRepository:
         run.heartbeat_at = utc_now()
 
     async def recover_running(self, error_summary: str) -> int:
-        """Recupera la operación `running`.
+        """Marca fallidas las ejecuciones que seguían activas, libera exclusión, retira pausa y
+        parada y finaliza sus solicitudes asociadas.
 
         Args:
-            error_summary (str): Resumen del error que se asociará a la ejecución.
+            error_summary: Motivo resumido que se conserva al terminar o recuperar la
+                ejecución.
 
         Returns:
-            int: Número de elementos afectados por la operación.
+            número de ejecuciones recuperadas tras hacer flush.
         """
         result = await self.session.scalars(
             select(ScrapeRun).where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
@@ -136,11 +159,13 @@ class ScrapeRunRepository:
         return len(runs)
 
     async def heartbeat(self, run_id: uuid.UUID, **counters: int) -> None:
-        """Ejecuta `heartbeat` dentro de `ScrapeRunRepository`.
+        """Renueva el latido y copia los contadores cuyos nombres existen en la entidad de
+        ejecución.
 
         Args:
-            run_id (uuid.UUID): Identificador de `run` utilizado por la operación.
-            **counters (int): Valor de `counters` utilizado por la operación.
+            run_id: UUID de la ejecución que se consulta o actualiza.
+            counters: Contadores de progreso por nombre de atributo; se ignoran nombres
+                inexistentes.
         """
         run = await self.session.get(ScrapeRun, run_id)
         if not run:
@@ -157,13 +182,14 @@ class ScrapeRunRepository:
         app_name: str | None,
         phase: str | None,
     ) -> None:
-        """Establece la operación `current`.
+        """Publica paquete, nombre y fase actuales y limpia la fecha de pausa cuando la fase deja
+        de ser paused.
 
         Args:
-            run_id (uuid.UUID): Identificador de `run` utilizado por la operación.
-            package_id (str | None): Identificador de `package` utilizado por la operación.
-            app_name (str | None): Valor de `app_name` utilizado por la operación.
-            phase (str | None): Valor de `phase` utilizado por la operación.
+            run_id: UUID de la ejecución que se consulta o actualiza.
+            package_id: Paquete que se publica como progreso actual.
+            app_name: Nombre de la aplicación actual, o None al limpiar el progreso.
+            phase: Etapa del proceso a la que pertenece el registro.
         """
         run = await self.session.get(ScrapeRun, run_id)
         if not run:
@@ -176,10 +202,10 @@ class ScrapeRunRepository:
             run.paused_at = None
 
     async def mark_paused(self, run_id: uuid.UUID) -> None:
-        """Marca la operación `paused`.
+        """Registra fase paused y fecha de pausa y renueva el latido de la ejecución.
 
         Args:
-            run_id (uuid.UUID): Identificador de `run` utilizado por la operación.
+            run_id: UUID de la ejecución que se consulta o actualiza.
         """
         run = await self.session.get(ScrapeRun, run_id)
         if not run:
@@ -189,10 +215,11 @@ class ScrapeRunRepository:
         run.paused_at = utc_now()
 
     async def mark_stop_requested(self, run_id: uuid.UUID) -> None:
-        """Marca la operación `stop_requested`.
+        """Activa la señal persistida de parada cooperativa, publica fase stopping y retira la
+        pausa.
 
         Args:
-            run_id (uuid.UUID): Identificador de `run` utilizado por la operación.
+            run_id: UUID de la ejecución que se consulta o actualiza.
         """
         run = await self.session.get(ScrapeRun, run_id)
         if not run:
@@ -209,13 +236,16 @@ class ScrapeRunRepository:
         error_summary: str | None = None,
         **counters: int,
     ) -> None:
-        """Ejecuta `finish` dentro de `ScrapeRunRepository`.
+        """Guarda resultado y contadores finales, libera active_lock y registra fin y fase
+        terminal.
 
         Args:
-            run_id (uuid.UUID): Identificador de `run` utilizado por la operación.
-            status (ScrapeRunStatus): Valor de `status` utilizado por la operación.
-            error_summary (str | None): Resumen del error que se asociará a la ejecución.
-            **counters (int): Valor de `counters` utilizado por la operación.
+            run_id: UUID de la ejecución que se consulta o actualiza.
+            status: Estado que debe quedar persistido para la operación.
+            error_summary: Motivo resumido que se conserva al terminar o recuperar la
+                ejecución.
+            counters: Contadores de progreso por nombre de atributo; se ignoran nombres
+                inexistentes.
         """
         run = await self.session.get(ScrapeRun, run_id)
         if not run:
@@ -232,10 +262,10 @@ class ScrapeRunRepository:
                 setattr(run, key, value)
 
     async def next_pending_command(self) -> ScraperCommand | None:
-        """Ejecuta `next_pending_command` dentro de `ScrapeRunRepository`.
+        """Busca por antigüedad la primera orden pendiente de pause, resume, stop o force_stop.
 
         Returns:
-            ScraperCommand | None: Resultado producido por la operación.
+            comando de control o None.
         """
         return await self.session.scalar(
             select(ScraperCommand)
@@ -246,7 +276,12 @@ class ScrapeRunRepository:
         )
 
     async def next_pending_run_request(self) -> ScraperCommand | None:
-        """Bloquea la siguiente solicitud durable sin consumir controles de una ejecución."""
+        """Solo si no existe ejecución activa, bloquea la solicitud run_once pendiente más
+        antigua y omite las bloqueadas por otro consumidor.
+
+        Returns:
+            solicitud reservada en la transacción o None.
+        """
         active = await self.session.scalar(
             select(ScrapeRun.id)
             .where(ScrapeRun.active_lock == 1)
@@ -268,9 +303,16 @@ class ScrapeRunRepository:
         request: ScraperCommand,
         run_id: uuid.UUID,
     ) -> None:
-        """Asocia la solicitud con el run adquirido por el coordinador."""
+        """Marca running el comando asociado a la ejecución y limpia su mensaje anterior.
+
+        La asociación canónica vive en ``scrape_runs.request_id``; el campo histórico
+        ``scraper_commands.run_id`` ya no se lee ni se escribe.
+
+        Args:
+            request: Comando persistido que se asocia a la ejecución iniciada.
+            run_id: UUID de la ejecución que se consulta o actualiza.
+        """
         request.status = "running"
-        request.run_id = run_id
         request.started_at = utc_now()
         request.message = None
 
@@ -281,7 +323,14 @@ class ScrapeRunRepository:
         status: str,
         message: str | None = None,
     ) -> None:
-        """Cierra la solicitud sin perder el vínculo con su ejecución."""
+        """Guarda estado, explicación y fecha de consumo del comando indicado; no actúa si ya no
+        existe.
+
+        Args:
+            request_id: UUID opcional del comando administrativo que originó la ejecución.
+            status: Estado que debe quedar persistido para la operación.
+            message: Explicación opcional del estado o resultado.
+        """
         request = await self.session.get(ScraperCommand, request_id)
         if request is None:
             return
@@ -296,7 +345,17 @@ class ScrapeRunRepository:
         app_ids: list[str] | None,
         created_by: str,
     ) -> ScraperCommand:
-        """Crea una solicitud que sobrevivirá a reinicios del scheduler."""
+        """Añade una petición run_once pendiente con actor, alcance y selección explícitos y hace
+        flush para obtener su identidad.
+
+        Args:
+            scope: Alcance estable de la ejecución solicitada.
+            app_ids: UUID textuales de las aplicaciones seleccionadas.
+            created_by: Identidad del actor que solicita ejecutar el scraper.
+
+        Returns:
+            comando creado sin confirmar todavía.
+        """
         request = ScraperCommand(
             command="run_once",
             scope=scope.value,
@@ -314,12 +373,12 @@ class ScrapeRunRepository:
         status: str = "completed",
         message: str | None = None,
     ) -> None:
-        """Ejecuta `consume_command` dentro de `ScrapeRunRepository`.
+        """Registra estado, mensaje y fecha de consumo de una orden administrativa.
 
         Args:
-            command (ScraperCommand): Comando que debe procesarse.
-            status (str): Valor de `status` utilizado por la operación.
-            message (str | None): Mensaje que debe procesarse.
+            command: Comando administrativo que acaba de consumirse.
+            status: Estado que debe quedar persistido para la operación.
+            message: Explicación opcional del estado o resultado.
         """
         command.status = status
         command.message = message
@@ -327,9 +386,9 @@ class ScrapeRunRepository:
 
 
 def worker_id() -> str:
-    """Ejecuta la operación `worker_id`.
+    """Combina nombre del equipo y UUID aleatorio para distinguir propietarios de ejecuciones.
 
     Returns:
-        str: Resultado producido por la operación.
+        identidad con formato hostname:uuid.
     """
     return f"{socket.gethostname()}:{uuid.uuid4()}"

@@ -8,23 +8,20 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260716_0010"
-"""Estado global asociado a `revision`.
-"""
+
 down_revision: str | None = "20260713_0009"
-"""Estado global asociado a `down_revision`.
-"""
+
 branch_labels: str | Sequence[str] | None = None
-"""Estado global asociado a `branch_labels`.
-"""
+
 depends_on: str | Sequence[str] | None = None
-"""Estado global asociado a `depends_on`.
-"""
+
 
 
 def upgrade() -> None:
     # Core ordena las aplicaciones activas por esta tupla exacta. Sin un índice
     # de cobertura, MySQL ordena todas las filas activas antes de aplicar LIMIT.
-    """Ejecuta la operación `upgrade`.
+    """Aplica la revisión Alembic `20260716` para actualizar el esquema del Scraper de forma
+    reproducible.
     """
     op.create_index(
         "ix_software_apps_status_updated_name_id",
@@ -75,7 +72,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Ejecuta la operación `downgrade`.
+    """Revierte la revisión Alembic `20260716` en el orden inverso, conservando los
+    identificadores declarados por la migración.
     """
     op.drop_index(
         "ix_resolved_sources_catalog_downloadable",

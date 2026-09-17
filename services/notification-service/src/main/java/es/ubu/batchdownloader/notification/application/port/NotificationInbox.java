@@ -3,52 +3,72 @@ package es.ubu.batchdownloader.notification.application.port;
 import java.util.UUID;
 
 /**
- * Define el contrato de {@code NotificationInbox}.
+ * Evita procesar simultáneamente el mismo evento y conserva el resultado de cada intento.
+ *
+ * Una reserva adquirida permite enviar; una confirmación previa permite ignorar la entrega
+ * duplicada.
+ * La reserva ocupada exige posponerla sin volver a enviar desde este consumidor.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.application.ProcessEmailNotification
+ * @see es.ubu.batchdownloader.notification.infrastructure.persistence.JdbcNotificationInbox
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 public interface NotificationInbox {
 
     /**
-     * Reserva el elemento solicitado mediante {@code claim}.
+     * Intenta reservar el evento nuevo o recuperar un intento fallido o una reserva caducada.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param eventType Valor de {@code eventType} utilizado por la operación.
-     * @return Resultado producido por {@code claim}.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @param eventType Tipo de evento almacenado junto a la reserva del inbox.
+     * @return ACQUIRED si puede procesarse; ALREADY_PROCESSED si ya terminó; BUSY si otro intento
+     *     mantiene la reserva.
      */
     ClaimResult claim(UUID eventId, String eventType);
 
     /**
-     * Marca el recurso solicitado mediante {@code markProcessed}.
+     * Confirma el envío del evento reservado y evita que una entrega posterior vuelva a procesarlo.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @throws IllegalStateException si no existe una reserva en procesamiento que pueda
+     *     confirmarse.
      */
     void markProcessed(UUID eventId);
 
     /**
-     * Marca el recurso solicitado mediante {@code markFailed}.
+     * Registra el fallo del intento y libera la reserva para que otra entrega pueda reintentarlo.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @param error Valor de {@code error} utilizado por la operación.
+     * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
+     * @param error Descripción del fallo persistido; puede estar vacía y se acota antes de
+     *     guardarla.
+     *
+     * @throws IllegalStateException si el evento no se encuentra en procesamiento.
      */
     void markFailed(UUID eventId, String error);
 
     /**
-     * Enumera los valores admitidos por {@code ClaimResult}.
+     * Distingue permiso para enviar, entrega duplicada completada y reserva ocupada por otro
+     * intento.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+     * @see es.ubu.batchdownloader.notification.application.port.NotificationInbox
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Notificaciones
      */
     enum ClaimResult {
         /**
-         * Constante que define {@code ACQUIRED}.
+         * El consumidor ha reservado el evento y puede iniciar el envío.
          */
         ACQUIRED,
         /**
-         * Constante que define {@code ALREADY_PROCESSED}.
+         * El inbox ya confirmó el evento; se ignora esta entrega sin volver a enviar.
          */
         ALREADY_PROCESSED,
         /**
-         * Constante que define {@code BUSY}.
+         * Otro intento mantiene una reserva vigente; esta entrega debe posponerse.
          */
         BUSY
     }

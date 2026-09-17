@@ -14,8 +14,8 @@ target-version = "py314"
 select = ["E", "F", "I", "UP", "B", "C90"]
 
 [tool.ruff.lint.mccabe]
-# Las rutas, la validación y la aplicación manual ya están separadas por caso de uso.
-max-complexity = 20
+# Cada coordinación delega validación, persistencia y recuperación en unidades acotadas.
+max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 # Dependency factories in FastAPI signatures are the framework's intended API.

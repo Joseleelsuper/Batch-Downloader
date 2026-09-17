@@ -136,12 +136,10 @@ async def test_icon_resolver_falls_back_to_github_owner_avatar(monkeypatch) -> N
 
 
 async def public_url(_: str) -> bool:
-    """Ejecuta la operación `public_url`.
+    """Prepara el recurso `public_url` usado por las pruebas para aislar el escenario `public
+    url` y conservar sus datos de entrada.
 
     Args:
-        _ (str): Valor de `_` utilizado por la operación.
-
-    Returns:
-        bool: Indica si se cumple la condición evaluada.
+        _: Entrada `_` del escenario que se mantiene estable para la prueba.
     """
     return True

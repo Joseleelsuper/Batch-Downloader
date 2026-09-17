@@ -4,26 +4,45 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 
-/** Construye filtros SQL parametrizados compartidos por búsquedas, conteos y facetas. */
+/**
+ * Construye filtros SQL parametrizados compartidos por resultados, totales, facetas e índice
+ * alfabético del catálogo.
+ *
+ * @see es.ubu.batchdownloader.catalog.CatalogQuery
+ * @see es.ubu.batchdownloader.catalog.CatalogRepository
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Catálogo
+ */
 final class CatalogFilterSql {
+    /**
+     * Impide instancias del constructor estático de filtros SQL.
+     */
     private CatalogFilterSql() {}
 
-    /** Añade filtros textuales y estructurados a una consulta con alias {@code a}. */
-    static void appendAll(
-            StringBuilder sql,
-            List<Object> params,
-            String query,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers) {
-        appendLexical(sql, params, query);
-        appendStructured(
-                sql, params, status, operatingSystems, architecture, tags, publishers);
+    /**
+     * Añade filtro textual y filtros estructurados manteniendo el orden de sus parámetros.
+     *
+     * @param sql Sentencia en construcción, formada solo por fragmentos constantes y marcadores de
+     *     parámetros.
+     * @param params Valores enlazados en el mismo orden que los marcadores añadidos a SQL.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     */
+    static void appendAll(StringBuilder sql, List<Object> params, CatalogQuery filters) {
+        appendLexical(sql, params, filters.query());
+        appendStructured(sql, params, filters);
     }
 
-    /** Añade la búsqueda literal normalizada sin interpolar valores del usuario. */
+    /**
+     * Busca contenido de nombre, editor, descripciones, identificador y etiquetas con variantes
+     * normalizadas y sin espacios cuando corresponda.
+     *
+     * @param sql Sentencia en construcción, formada solo por fragmentos constantes y marcadores de
+     *     parámetros.
+     * @param params Valores enlazados en el mismo orden que los marcadores añadidos a SQL.
+     * @param query Texto de búsqueda; null o blanco no impone filtro léxico ni solicita embeddings.
+     */
     private static void appendLexical(
             StringBuilder sql,
             List<Object> params,
@@ -59,17 +78,19 @@ final class CatalogFilterSql {
         params.add(normalizedLike);
     }
 
-    /** Añade estado, plataformas, arquitectura, tags y editores normalizados. */
-    static void appendStructured(
-            StringBuilder sql,
-            List<Object> params,
-            String status,
-            List<String> operatingSystems,
-            String architecture,
-            List<String> tags,
-            List<String> publishers) {
-        appendSource(sql, params, status, operatingSystems, architecture);
-        List<String> normalizedPublishers = normalizedDistinct(publishers);
+    /**
+     * Aplica estado, plataformas y arquitectura, cualquier editor solicitado y todas las etiquetas
+     * normalizadas distintas.
+     *
+     * @param sql Sentencia en construcción, formada solo por fragmentos constantes y marcadores de
+     *     parámetros.
+     * @param params Valores enlazados en el mismo orden que los marcadores añadidos a SQL.
+     * @param filters Texto, estado, plataformas, arquitectura, etiquetas y editores de una misma
+     *     búsqueda.
+     */
+    static void appendStructured(StringBuilder sql, List<Object> params, CatalogQuery filters) {
+        appendSource(sql, params, filters.status(), filters.operatingSystems(), filters.architecture());
+        List<String> normalizedPublishers = normalizedDistinct(filters.publishers());
         if (!normalizedPublishers.isEmpty()) {
             sql.append(" AND LOWER(TRIM(COALESCE(a.publisher, ''))) IN (");
             CatalogSql.appendPlaceholders(sql, normalizedPublishers.size());
@@ -77,7 +98,7 @@ final class CatalogFilterSql {
             params.addAll(normalizedPublishers);
         }
 
-        List<String> normalizedTags = normalizedDistinct(tags);
+        List<String> normalizedTags = normalizedDistinct(filters.tags());
         if (!normalizedTags.isEmpty()) {
             sql.append(" AND (SELECT COUNT(DISTINCT t.normalized_tag) "
                     + "FROM software_app_tags t WHERE t.software_app_id = a.id "
@@ -89,6 +110,20 @@ final class CatalogFilterSql {
         }
     }
 
+    /**
+     * Filtra la proyección de plataformas con OR y el estado de catálogo; unresolved agrupa review
+     * y missing y la arquitectura exige una fuente coincidente.
+     *
+     * @param sql Sentencia en construcción, formada solo por fragmentos constantes y marcadores de
+     *     parámetros.
+     * @param params Valores enlazados en el mismo orden que los marcadores añadidos a SQL.
+     * @param status Estado del catálogo; all no filtra y available, review o missing seleccionan su
+     *     estado público.
+     * @param operatingSystems Plataformas con semántica OR; una lista vacía representa todas las
+     *     plataformas.
+     * @param architecture Arquitectura opcional que debe existir entre las fuentes de la
+     *     aplicación.
+     */
     private static void appendSource(
             StringBuilder sql,
             List<Object> params,
@@ -127,6 +162,14 @@ final class CatalogFilterSql {
         }
     }
 
+    /**
+     * Recorta, convierte a minúsculas y deduplica valores no blancos con orden de primera
+     * aparición.
+     *
+     * @param values Textos que se recortan, normalizan y deduplican conservando su primera
+     *     aparición.
+     * @return valores normalizados o lista vacía.
+     */
     private static List<String> normalizedDistinct(List<String> values) {
         if (values == null || values.isEmpty()) {
             return List.of();

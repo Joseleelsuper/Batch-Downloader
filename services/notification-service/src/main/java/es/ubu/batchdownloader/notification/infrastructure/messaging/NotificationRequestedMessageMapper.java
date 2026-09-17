@@ -12,35 +12,49 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * Transforma los datos gestionados por {@code NotificationRequestedMessageMapper}.
+ * Valida el sobre recibido de RabbitMQ y lo convierte en una solicitud de correo de dominio.
+ *
+ * Comprueba ruta, tipo, versión, destinatario único, escalares y requisitos de la plantilla. Los
+ * tokens de identidad deben llegar como sobres enc:v1; esta conversión no los descifra.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.domain.EmailNotification
+ * @see
+ *     es.ubu.batchdownloader.notification.infrastructure.messaging.RabbitNotificationRequestedListener
+ *
+ * @see es.ubu.batchdownloader.notification.infrastructure.messaging.NotificationRequestedMessage
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @Component
 public class NotificationRequestedMessageMapper {
 
     /**
-     * Estado {@code topology} mantenido por {@code NotificationRequestedMessageMapper}.
+     * Nombres configurados de exchange, colas y claves de enrutamiento.
      */
     private final RabbitTopologyProperties topology;
 
     /**
-     * Inicializa una instancia de {@code NotificationRequestedMessageMapper}.
+     * Asocia la validación de entrada con la clave de enrutamiento aceptada por el consumidor.
      *
-     * @param topology Valor de {@code topology} utilizado por la operación.
+     * @param topology Nombres configurados de exchange, colas y claves de enrutamiento.
      */
     public NotificationRequestedMessageMapper(RabbitTopologyProperties topology) {
         this.topology = topology;
     }
 
     /**
-     * Transforma el valor recibido mediante {@code map}.
+     * Comprueba el contrato del evento y sus parámetros antes de permitir reservarlo o enviarlo.
      *
-     * @param message Mensaje que debe procesarse.
-     * @param routingKey Valor de {@code routingKey} utilizado por la operación.
-     * @return Resultado producido por {@code map}.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param message Sobre JSON deserializado desde RabbitMQ; aún no es un evento de dominio
+     *     válido.
+     *
+     * @param routingKey Clave de enrutamiento recibida de RabbitMQ.
+     * @return solicitud de correo con invariantes de dominio y parámetros de plantilla comprobados.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     el sobre, destinatario, plantilla, ruta o parámetros incumplen el contrato.
      */
     public EmailNotification map(NotificationRequestedMessage message, String routingKey) {
         if (message == null) {
@@ -77,12 +91,14 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Analiza el contenido recibido mediante {@code parseTemplate}.
+     * Convierte el nombre exacto de una plantilla admitida, rechazando nombres ausentes o
+     * desconocidos.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code parseTemplate}.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @return plantilla de identidad o descarga reconocida.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     no se reconoce el nombre de la plantilla.
      */
     private EmailNotification.Template parseTemplate(String value) {
         try {
@@ -93,10 +109,14 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateParameters}.
+     * Exige escalares y los datos de cada plantilla: sobre de token, trabajo y caducidad o detalle
+     * del fallo.
      *
-     * @param template Valor de {@code template} utilizado por la operación.
-     * @param parameters Valor de {@code parameters} utilizado por la operación.
+     * @param template Finalidad del correo, que determina sus parámetros y proveedor.
+     * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     faltan datos, tienen un formato inválido o el token no usa enc:v1.
      */
     private void validateParameters(EmailNotification.Template template, Map<String, Object> parameters) {
         parameters.forEach(this::validateScalarParameter);
@@ -122,12 +142,13 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateScalarParameter}.
+     * Rechaza claves vacías y valores que no sean texto, número o booleano.
      *
-     * @param key Valor de {@code key} utilizado por la operación.
-     * @param value Valor que debe procesarse.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param key Nombre no vacío del parámetro que se examina.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     la clave está vacía o el valor es null, una colección o un objeto.
      */
     private void validateScalarParameter(String key, Object value) {
         requireText(key, "payload.parameters key");
@@ -138,12 +159,13 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateEmail}.
+     * Exige una única dirección de correo válida sin nombre visible ni sintaxis de lista.
      *
-     * @param value Valor que debe procesarse.
-     * @return Resultado producido por {@code validateEmail}.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @return dirección validada sin espacios exteriores.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     la dirección falta, es inválida o incluye contenido adicional.
      */
     private String validateEmail(String value) {
         String recipient = requireText(value, "payload.recipient");
@@ -160,11 +182,13 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateJobId}.
+     * Exige que el trabajo referido por una plantilla de descarga tenga un identificador UUID
+     * válido.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param jobId UUID textual del trabajo de descarga.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     jobId no se puede interpretar como UUID.
      */
     private void validateJobId(String jobId) {
         try {
@@ -175,11 +199,12 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Valida los datos recibidos mediante {@code validateExpiration}.
+     * Exige que la caducidad de un ZIP se pueda interpretar como un instante ISO-8601.
      *
-     * @param value Valor que debe procesarse.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     expiresAt no tiene un formato de instante válido.
      */
     private void validateExpiration(String value) {
         try {
@@ -190,10 +215,13 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Ejecuta la operación {@code requireFailureCode}.
+     * Lee failureCode o su alias anterior errorCode para validar avisos de preparación fallida.
      *
-     * @param parameters Valor de {@code parameters} utilizado por la operación.
-     * @return Resultado producido por {@code requireFailureCode}.
+     * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
+     * @return código de fallo no vacío.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     ambos nombres carecen de contenido.
      */
     private String requireFailureCode(Map<String, Object> parameters) {
         Object primary = parameters.get("failureCode");
@@ -204,13 +232,14 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Ejecuta la operación {@code requireParameter}.
+     * Obtiene un parámetro escalar obligatorio como texto sin espacios exteriores.
      *
-     * @param parameters Valor de {@code parameters} utilizado por la operación.
-     * @param key Valor de {@code key} utilizado por la operación.
-     * @return Resultado producido por {@code requireParameter}.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
+     * @param key Nombre no vacío del parámetro que se examina.
+     * @return texto no vacío del parámetro solicitado.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     el parámetro falta o su representación textual está vacía.
      */
     private String requireParameter(Map<String, Object> parameters, String key) {
         Object value = parameters.get(key);
@@ -221,11 +250,12 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Ejecuta la operación {@code requireRoutingKey}.
+     * Impide aceptar mensajes recibidos con una clave ajena a la suscripción configurada.
      *
-     * @param actual Valor de {@code actual} utilizado por la operación.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param actual Clave recibida, que debe coincidir exactamente con la configuración.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     la clave no coincide exactamente con la configuración.
      */
     private void requireRoutingKey(String actual) {
         if (!topology.routingKey().equals(actual)) {
@@ -235,14 +265,15 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Ejecuta la operación {@code requireNonNull}.
+     * Exige la presencia de un campo del sobre, conservando su tipo.
      *
-     * @param <T> Parámetro de tipo utilizado por la operación.
-     * @param value Valor que debe procesarse.
-     * @param fieldName Valor de {@code fieldName} utilizado por la operación.
-     * @return Resultado producido por {@code requireNonNull}.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @param fieldName Nombre del campo que se incluye en el error de validación.
+     * @param <T> Tipo del campo validado, que se devuelve sin conversión.
+     * @return valor original no nulo.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     el campo es null.
      */
     private <T> T requireNonNull(T value, String fieldName) {
         if (value == null) {
@@ -252,13 +283,14 @@ public class NotificationRequestedMessageMapper {
     }
 
     /**
-     * Ejecuta la operación {@code requireText}.
+     * Exige contenido textual en un campo obligatorio y elimina espacios exteriores.
      *
-     * @param value Valor que debe procesarse.
-     * @param fieldName Valor de {@code fieldName} utilizado por la operación.
-     * @return Resultado producido por {@code requireText}.
-     * @throws InvalidDownloadEventException Si no puede completarse la operación bajo las
-     *     condiciones requeridas.
+     * @param value Contenido recibido antes de aplicar la validación indicada.
+     * @param fieldName Nombre del campo que se incluye en el error de validación.
+     * @return texto no vacío del campo.
+     * @throws
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     el campo es null o está en blanco.
      */
     private String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {

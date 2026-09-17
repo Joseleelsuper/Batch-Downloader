@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `strategies`.
+"""Selecciona políticas por proveedor mediante registros ordenados y callbacks que separan
+recopilación de candidatos y resolución persistida.
 """
 from __future__ import annotations
 
@@ -13,46 +14,48 @@ from app.scraper.winstall import WinstallApp
 
 
 class ScrapeRuntime(Protocol):
-    """Mantiene el estado de ejecución de `Scrape`.
+    """Expone la identidad mínima de ejecución necesaria por una estrategia de recopilación.
+
+    Attributes:
+        run_id: UUID de la ejecución a la que se atribuyen progreso y evidencia.
     """
     run_id: uuid.UUID
-    """Atributo de clase `run_id` de `ScrapeRuntime`.
-    """
+
 
 
 ResolverCallback = Callable[[uuid.UUID, str, WinstallApp], Awaitable[ResolutionStatus]]
-"""Estado global asociado a `ResolverCallback`.
-"""
+
 ResolverPredicate = Callable[[str], bool]
-"""Estado global asociado a `ResolverPredicate`.
-"""
+
 CandidateResolverCallback = Callable[
     [ScrapeRuntime, WinstallApp, str], Awaitable[list[InstallerCandidate]]
 ]
-"""Estado global asociado a `CandidateResolverCallback`.
-"""
+
 
 
 class ResolverStrategy(Protocol):
-    """Representa el componente `ResolverStrategy`.
+    """Define selección por URL y ejecución de un resolutor que actualiza una fuente existente.
+
+    See Also:
+        ResolverStrategyRegistry: Elige la primera estrategia compatible.
     """
     @property
     def name(self) -> str:
-        """Ejecuta `name` dentro de `ResolverStrategy`.
+        """Identifica la estrategia para evitar registros duplicados y explicar su selección.
 
         Returns:
-            str: Resultado producido por la operación.
+            nombre estable del proveedor o política.
         """
         ...
 
     def supports(self, url: str) -> bool:
-        """Ejecuta `supports` dentro de `ResolverStrategy`.
+        """Decide si esta estrategia reconoce la URL de entrada.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
+            url: URL o ruta del recurso que se interpreta.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si puede hacerse cargo de la resolución.
         """
         ...
 
@@ -62,42 +65,46 @@ class ResolverStrategy(Protocol):
         official_url: str,
         app: WinstallApp,
     ) -> ResolutionStatus:
-        """Ejecuta `resolve` dentro de `ResolverStrategy`.
+        """Resuelve instaladores compatibles con la aplicación y actualiza la fuente indicada
+        según la política del proveedor.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            official_url (str): Dirección de `official` que debe procesarse.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            source_id: UUID de la fuente donde la estrategia debe guardar su resultado.
+            official_url: Página oficial que selecciona la estrategia del proveedor.
+            app: Datos Winstall de la aplicación para elegir instaladores compatibles.
 
         Returns:
-            ResolutionStatus: Resultado producido por la operación.
+            estado final de resolución de la fuente.
         """
         ...
 
 
 @dataclass(frozen=True)
 class CallbackResolverStrategy:
-    """Representa el componente `CallbackResolverStrategy`.
+    """Adapta un predicado de URL y un callback existente al contrato de estrategia de
+    resolución.
+
+    Attributes:
+        name: Nombre único de la estrategia.
+        predicate: Comprobación de compatibilidad con la URL.
+        callback: Operación asíncrona que resuelve y persiste la fuente.
     """
 
     name: str
-    """Atributo de clase `name` de `CallbackResolverStrategy`.
-    """
+
     predicate: ResolverPredicate
-    """Atributo de clase `predicate` de `CallbackResolverStrategy`.
-    """
+
     callback: ResolverCallback
-    """Atributo de clase `callback` de `CallbackResolverStrategy`.
-    """
+
 
     def supports(self, url: str) -> bool:
-        """Ejecuta `supports` dentro de `CallbackResolverStrategy`.
+        """Delega la selección de proveedor en el predicado configurado.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
+            url: URL o ruta del recurso que se interpreta.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            resultado del predicado.
         """
         return self.predicate(url)
 
@@ -107,92 +114,94 @@ class CallbackResolverStrategy:
         official_url: str,
         app: WinstallApp,
     ) -> ResolutionStatus:
-        """Ejecuta `resolve` dentro de `CallbackResolverStrategy`.
+        """Delega la fuente, URL y aplicación al callback configurado.
 
         Args:
-            source_id (uuid.UUID): Identificador de `source` utilizado por la operación.
-            official_url (str): Dirección de `official` que debe procesarse.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
+            source_id: UUID de la fuente donde la estrategia debe guardar su resultado.
+            official_url: Página oficial que selecciona la estrategia del proveedor.
+            app: Datos Winstall de la aplicación para elegir instaladores compatibles.
 
         Returns:
-            ResolutionStatus: Resultado producido por la operación.
+            estado de resolución producido por el callback.
         """
         return await self.callback(source_id, official_url, app)
 
 
 class ResolverStrategyRegistry:
-    """Representa el componente `ResolverStrategyRegistry`.
+    """Mantiene resolutores en orden de prioridad y prohíbe nombres duplicados para que la
+    selección sea predecible.
     """
     def __init__(self, strategies: Iterable[ResolverStrategy] = ()) -> None:
-        """Inicializa una instancia de `ResolverStrategyRegistry`.
+        """Registra en orden las estrategias iniciales aplicando la misma comprobación de
+        unicidad.
 
         Args:
-            strategies (Iterable[ResolverStrategy]): Valor de `strategies` utilizado por la
-                operación.
+            strategies: Estrategias iniciales en orden de prioridad.
         """
         self._strategies: list[ResolverStrategy] = []
-        """Estado de instancia asociado a `_strategies`.
-        """
+
         for strategy in strategies:
             self.register(strategy)
 
     @property
     def names(self) -> tuple[str, ...]:
-        """Ejecuta `names` dentro de `ResolverStrategyRegistry`.
+        """Expone los nombres en el orden que se utiliza para buscar un resolutor.
 
         Returns:
-            tuple[str, ...]: Resultado producido por la operación.
+            tupla de nombres registrados.
         """
         return tuple(strategy.name for strategy in self._strategies)
 
     def register(self, strategy: ResolverStrategy) -> None:
-        """Ejecuta `register` dentro de `ResolverStrategyRegistry`.
+        """Añade una estrategia al final del orden de búsqueda si su nombre todavía no existe.
 
         Args:
-            strategy (ResolverStrategy): Valor de `strategy` utilizado por la operación.
+            strategy: Estrategia que se añade al final del registro con nombre único.
 
-        Throws:
-            ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+        Raises:
+            ValueError: resolver_strategy_already_registered si el nombre está duplicado.
         """
         if strategy.name in self.names:
             raise ValueError(f"resolver_strategy_already_registered:{strategy.name}")
         self._strategies.append(strategy)
 
     def find(self, url: str) -> ResolverStrategy | None:
-        """Ejecuta `find` dentro de `ResolverStrategyRegistry`.
+        """Recorre estrategias en orden y escoge la primera cuyo predicado admite la URL.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
+            url: URL o ruta del recurso que se interpreta.
 
         Returns:
-            ResolverStrategy | None: Resultado producido por la operación.
+            estrategia seleccionada o None.
         """
         return next((strategy for strategy in self._strategies if strategy.supports(url)), None)
 
 
 @dataclass(frozen=True)
 class CandidateResolverStrategy:
-    """Representa el componente `CandidateResolverStrategy`.
+    """Adapta selección por proveedor y recopilación asíncrona de candidatos sin exigir
+    publicación de fuentes.
+
+    Attributes:
+        name, predicate: Identidad única y condición de URL admitida.
+        callback: Recopilador que recibe contexto de ejecución, aplicación y página oficial.
     """
 
     name: str
-    """Atributo de clase `name` de `CandidateResolverStrategy`.
-    """
+
     predicate: ResolverPredicate
-    """Atributo de clase `predicate` de `CandidateResolverStrategy`.
-    """
+
     callback: CandidateResolverCallback
-    """Atributo de clase `callback` de `CandidateResolverStrategy`.
-    """
+
 
     def supports(self, url: str) -> bool:
-        """Ejecuta `supports` dentro de `CandidateResolverStrategy`.
+        """Evalúa si la URL pertenece al proveedor gestionado por este recopilador.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
+            url: URL o ruta del recurso que se interpreta.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            resultado del predicado configurado.
         """
         return self.predicate(url)
 
@@ -202,64 +211,64 @@ class CandidateResolverStrategy:
         app: WinstallApp,
         official_url: str,
     ) -> list[InstallerCandidate]:
-        """Ejecuta `collect` dentro de `CandidateResolverStrategy`.
+        """Delega la recopilación con el contexto y aplicación actuales sin cambiar su orden ni
+        puntuación.
 
         Args:
-            runtime (ScrapeRuntime): Valor de `runtime` utilizado por la operación.
-            app (WinstallApp): Aplicación sobre la que se realiza la operación.
-            official_url (str): Dirección de `official` que debe procesarse.
+            runtime: Contexto de la ejecución actual que aporta al menos run_id.
+            app: Datos Winstall de la aplicación para elegir instaladores compatibles.
+            official_url: Página oficial que selecciona la estrategia del proveedor.
 
         Returns:
-            list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+            candidatos producidos por el callback.
         """
         return await self.callback(runtime, app, official_url)
 
 
 class CandidateResolverStrategyRegistry:
-    """Representa el componente `CandidateResolverStrategyRegistry`.
+    """Mantiene recopiladores de proveedores en orden de preferencia y comprueba nombres únicos
+    al registrarlos.
     """
     def __init__(self, strategies: Iterable[CandidateResolverStrategy] = ()) -> None:
-        """Inicializa una instancia de `CandidateResolverStrategyRegistry`.
+        """Registra la secuencia inicial de recopiladores conservando su prioridad.
 
         Args:
-            strategies (Iterable[CandidateResolverStrategy]): Valor de `strategies` utilizado por la
-                operación.
+            strategies: Estrategias iniciales en orden de prioridad.
         """
         self._strategies: list[CandidateResolverStrategy] = []
-        """Estado de instancia asociado a `_strategies`.
-        """
+
         for strategy in strategies:
             self.register(strategy)
 
     @property
     def names(self) -> tuple[str, ...]:
-        """Ejecuta `names` dentro de `CandidateResolverStrategyRegistry`.
+        """Expone los nombres de recopiladores en el orden de selección.
 
         Returns:
-            tuple[str, ...]: Resultado producido por la operación.
+            tupla de nombres registrados.
         """
         return tuple(strategy.name for strategy in self._strategies)
 
     def register(self, strategy: CandidateResolverStrategy) -> None:
-        """Ejecuta `register` dentro de `CandidateResolverStrategyRegistry`.
+        """Añade un recopilador al final de la lista si su nombre es único.
 
         Args:
-            strategy (CandidateResolverStrategy): Valor de `strategy` utilizado por la operación.
+            strategy: Estrategia que se añade al final del registro con nombre único.
 
-        Throws:
-            ValueError: Si los datos recibidos no cumplen las restricciones requeridas.
+        Raises:
+            ValueError: candidate_resolver_strategy_already_registered si el nombre ya existe.
         """
         if strategy.name in self.names:
             raise ValueError(f"candidate_resolver_strategy_already_registered:{strategy.name}")
         self._strategies.append(strategy)
 
     def find(self, url: str) -> CandidateResolverStrategy | None:
-        """Ejecuta `find` dentro de `CandidateResolverStrategyRegistry`.
+        """Selecciona el primer recopilador cuyo predicado admite la página oficial.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
+            url: URL o ruta del recurso que se interpreta.
 
         Returns:
-            CandidateResolverStrategy | None: Resultado producido por la operación.
+            estrategia de candidatos o None.
         """
         return next((strategy for strategy in self._strategies if strategy.supports(url)), None)

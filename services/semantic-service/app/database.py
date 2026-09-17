@@ -1,5 +1,4 @@
-"""Implementa las responsabilidades del módulo `database`.
-"""
+"""Controla el pool PostgreSQL, las migraciones y la exclusion de indexacion."""
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
@@ -16,22 +15,39 @@ from psycopg_pool import ConnectionPool
 from app.config import Settings
 
 T = TypeVar("T")
-"""Constante que define `T`.
-"""
+
 
 
 class Database:
-    """Representa el componente `Database`.
+    """Presta conexiones transaccionales y coordina operaciones de fondo mediante locks
+    consultivos de PostgreSQL.
+    El pool se crea cerrado. Durante una operación exclusiva fija una conexión y serializa su
+    uso
+    con un RLock para permitir progreso y latidos sin consumir conexiones adicionales.
+
+    Attributes:
+        settings: Límites y credenciales validados del proceso.
+        pool: Pool de conexiones que devuelve filas como diccionarios.
+        _pinned_connection: Conexión fijada solo mientras dura una operación exclusiva.
+        _pinned_lock: Protección reentrante del acceso a la conexión fijada.
+
+    See Also:
+        app.http_context.lifespan: Abre y verifica el pool del API.
+        app.indexer.SemanticIndexer: Coordina el trabajo de indexacion.
     """
     def __init__(self, settings: Settings) -> None:
-        """Inicializa una instancia de `Database`.
+        """Crea un pool cerrado con filas de diccionario y prepara la exclusión de la conexión de
+        fondo.
 
         Args:
-            settings (Settings): Configuración del servicio.
+            settings: Configuración validada del proceso, incluidos límites de conexión y
+                caché local.
+
+        Raises:
+            ValueError: Si el mínimo de conexiones configurado supera el máximo.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         minimum, maximum = settings.database_pool_limits
         if minimum > maximum:
             raise ValueError("semantic_database_pool_min_exceeds_max")
@@ -44,25 +60,30 @@ class Database:
             open=False,
             kwargs={"row_factory": dict_row},
         )
-        """Estado de instancia asociado a `pool`.
-        """
+
         self._pinned_connection: Connection[dict[str, Any]] | None = None
         """Conexión reutilizada durante una operación de fondo exclusiva."""
         self._pinned_lock = RLock()
         """Serializa el uso de la conexión compartida, incluido el heartbeat."""
 
     def open(self) -> None:
-        """Ejecuta `open` dentro de `Database`.
-        """
+        """Abre el pool y espera hasta 60 segundos a disponer de sus conexiones iniciales."""
         self.pool.open(wait=True, timeout=60)
 
     def close(self) -> None:
-        """Ejecuta `close` dentro de `Database`.
-        """
+        """Cierra el pool y libera sus conexiones; no inicia otro ciclo de apertura."""
         self.pool.close()
 
     def migrate(self) -> None:
-        """Aplica migraciones con lock global y fija el checksum de cada versión."""
+        """Serializa migradores con un lock global, verifica checksums y aplica las versiones
+        pendientes en orden.
+        Confirma cada versión por separado; un fallo posterior conserva las anteriores y
+        libera el lock.
+
+        Raises:
+            RuntimeError: Si faltan archivos de una versión aplicada o cambió su checksum.
+            OSError: Si no pueden leerse las migraciones locales.
+        """
         migrations = self._migration_files()
         with self.pool.connection() as connection:
             connection.execute("SELECT pg_advisory_lock(%s)", (4_242_018,))
@@ -126,10 +147,23 @@ class Database:
                 connection.commit()
 
     def verify_schema(self) -> None:
-        """Comprueba versión y checksums sin modificar el esquema."""
+        """Exige que versiones y checksums aplicados coincidan exactamente con los archivos del
+        servicio, sin migrar.
+
+        Raises:
+            RuntimeError: Si falta el registro del esquema, no tiene checksum o difieren
+                versiones o huellas.
+        """
         migrations = self._migration_files()
 
         def verify(connection: Connection[dict[str, Any]]) -> None:
+            """Compara tabla, columnas, versiones y huellas en la conexión cedida para verificar
+            el esquema.
+
+            Args:
+                connection: Conexión de la transacción cedida por Database.run; no se abre
+                    otra conexión.
+            """
             table = connection.execute(
                 "SELECT to_regclass('public.semantic_schema_migrations') AS name"
             ).fetchone()
@@ -164,6 +198,15 @@ class Database:
 
     @staticmethod
     def _migration_files() -> dict[str, tuple[str, str]]:
+        """Lee las migraciones SQL locales por nombre y calcula SHA-256 de sus bytes originales.
+
+        Returns:
+            mapa ordenado de versión a checksum y SQL UTF-8.
+
+        Raises:
+            OSError: Si falla la lectura de un archivo de migración.
+            UnicodeDecodeError: Si una migración no es UTF-8 válido.
+        """
         migration_dir = Path(__file__).resolve().parents[1] / "migrations"
         migrations: dict[str, tuple[str, str]] = {}
         for migration in sorted(migration_dir.glob("*.sql")):
@@ -175,13 +218,17 @@ class Database:
         return migrations
 
     def run(self, callback: Callable[[Connection[dict[str, Any]]], T]) -> T:
-        """Ejecuta `run` dentro de `Database`.
+        """Ejecuta trabajo y confirma su transacción, reutilizando bajo lock la conexión
+        exclusiva cuando existe.
+        Propaga el fallo del trabajo; en la conexión fijada revierte explícitamente antes de
+        propagarlo.
 
         Args:
-            callback (Callable[[Connection], T]): Valor de `callback` utilizado por la operación.
+            callback: Trabajo que se ejecuta con una conexión y cuyo resultado se devuelve
+                tras confirmar.
 
         Returns:
-            T: Resultado producido por la operación.
+            resultado del callback después de confirmar la transacción.
         """
         with self._pinned_lock:
             pinned = self._pinned_connection
@@ -200,7 +247,16 @@ class Database:
 
     @contextmanager
     def exclusive_background_operation(self) -> Iterator[None]:
-        """Impide solapar indexación y preparación y fija una sola conexión."""
+        """Reserva una conexión y un lock consultivo para impedir solapar indexación y
+        preparación entre procesos.
+
+        Yields:
+            control mientras se mantiene la exclusión del trabajo de fondo.
+
+        Raises:
+            RuntimeError: Si se intenta anidar otra operación exclusiva o no se puede adquirir
+                la reserva.
+        """
         with self._pinned_lock:
             if self._pinned_connection is not None:
                 raise RuntimeError("semantic_background_operation_nested")
@@ -222,7 +278,11 @@ class Database:
                     connection.commit()
 
     def metrics(self) -> dict[str, int | float]:
-        """Obtiene contadores numéricos del pool para Prometheus."""
+        """Filtra las estadísticas numéricas del pool para exponerlas como métricas operativas.
+
+        Returns:
+            contadores y medidas numéricas de psycopg_pool con claves de texto.
+        """
         return {
             str(key): value
             for key, value in self.pool.get_stats().items()
@@ -230,10 +290,11 @@ class Database:
         }
 
     def healthy(self) -> bool:
-        """Ejecuta `healthy` dentro de `Database`.
+        """Comprueba una consulta trivial a través del mismo acceso transaccional utilizado por
+        el servicio.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si PostgreSQL devuelve una fila; False ante cualquier fallo de acceso.
         """
         try:
             return bool(self.run(lambda connection: connection.execute("SELECT 1").fetchone()))

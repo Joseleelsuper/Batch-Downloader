@@ -15,92 +15,98 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Implementa el componente {@code UserAccountEntity}.
+ * Persiste las credenciales, identidad estable, rol y preferencias de la cuenta con control
+ * optimista de actualizaciones.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.identity.domain.UserAccount
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.JpaUserAccountStore
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Identidad
  */
 @Entity
 @Table(name = "core_users")
 class UserAccountEntity {
     /**
-     * Estado {@code id} mantenido por {@code UserAccountEntity}.
+     * UUID estable del propietario.
      */
     @Id
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(length = 36, nullable = false)
     private UUID id;
     /**
-     * Estado {@code username} mantenido por {@code UserAccountEntity}.
+     * Nombre visible de la cuenta, distinto de su UUID de identidad.
      */
     @Column(nullable = false, length = 80)
     private String username;
     /**
-     * Estado {@code normalizedUsername} mantenido por {@code UserAccountEntity}.
+     * Nombre recortado y en minúsculas usado para búsquedas y unicidad.
      */
     @Column(name = "normalized_username", nullable = false, length = 80, unique = true)
     private String normalizedUsername;
     /**
-     * Estado {@code email} mantenido por {@code UserAccountEntity}.
+     * Correo de la cuenta; se conserva recortado y se compara mediante su versión normalizada.
      */
     @Column(nullable = false, length = 320)
     private String email;
     /**
-     * Estado {@code normalizedEmail} mantenido por {@code UserAccountEntity}.
+     * Correo recortado y en minúsculas para consulta y unicidad.
      */
     @Column(name = "normalized_email", nullable = false, length = 320, unique = true)
     private String normalizedEmail;
     /**
-     * Estado {@code passwordHash} mantenido por {@code UserAccountEntity}.
+     * Hash de contraseña almacenado, nunca la contraseña original.
      */
-    @Column(name = "password_hash", length = 100)
+    @Column(name = "password_hash", nullable = false, length = 100)
     private String passwordHash;
     /**
-     * Estado {@code emailVerified} mantenido por {@code UserAccountEntity}.
+     * Indica que se ha confirmado el control del correo de la cuenta.
      */
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified;
     /**
-     * Estado {@code role} mantenido por {@code UserAccountEntity}.
+     * Rol USER o ADMIN que determina el acceso permitido.
      */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private UserRole role;
     /**
-     * Estado {@code notifyOnJobCompletion} mantenido por {@code UserAccountEntity}.
+     * Preferencia vigente de recibir correo cuando termina una descarga.
      */
     @Column(name = "notify_on_job_completion", nullable = false)
     private boolean notifyOnJobCompletion;
     /**
-     * Estado {@code enabled} mantenido por {@code UserAccountEntity}.
+     * Habilita el acceso de la cuenta o la preferencia de correo según el método.
      */
     @Column(nullable = false)
     private boolean enabled;
     /**
-     * Estado {@code createdAt} mantenido por {@code UserAccountEntity}.
+     * Instante de creación original del agregado.
      */
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
     /**
-     * Estado {@code updatedAt} mantenido por {@code UserAccountEntity}.
+     * Instante del último cambio de la cuenta.
      */
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
     /**
-     * Estado {@code version} mantenido por {@code UserAccountEntity}.
+     * Versión persistida utilizada para detectar escrituras concurrentes.
      */
     @Version
     private long version;
 
     /**
-     * Inicializa una instancia de {@code UserAccountEntity}.
+     * Permite a JPA reconstruir una cuenta desde las columnas persistidas.
      */
     protected UserAccountEntity() {}
 
     /**
-     * Ejecuta la operación {@code from}.
+     * Crea la entidad de cuenta conservando UUID, versión y todos sus datos persistentes.
      *
-     * @param account Valor de {@code account} utilizado por la operación.
-     * @return Resultado producido por {@code from}.
+     * @param account Agregado de cuenta que debe consultarse o persistirse.
+     * @return entidad nueva que representa el agregado.
      */
     static UserAccountEntity from(UserAccount account) {
         UserAccountEntity entity = new UserAccountEntity();
@@ -111,9 +117,9 @@ class UserAccountEntity {
     }
 
     /**
-     * Actualiza el recurso solicitado mediante {@code updateFrom}.
+     * Copia perfil, credenciales, flags y fechas sin modificar UUID ni versión gestionada por JPA.
      *
-     * @param account Valor de {@code account} utilizado por la operación.
+     * @param account Agregado de cuenta que debe consultarse o persistirse.
      */
     void updateFrom(UserAccount account) {
         username = account.username();
@@ -130,9 +136,9 @@ class UserAccountEntity {
     }
 
     /**
-     * Convierte el valor recibido mediante {@code toDomain}.
+     * Rehidrata la cuenta con su identidad, estado y versión originales.
      *
-     * @return Resultado producido por {@code toDomain}.
+     * @return agregado independiente que representa la entidad.
      */
     UserAccount toDomain() {
         return UserAccount.rehydrate(
@@ -141,9 +147,9 @@ class UserAccountEntity {
     }
 
     /**
-     * Ejecuta la operación {@code id}.
+     * Identifica la entidad mediante el UUID canónico de la cuenta.
      *
-     * @return Resultado producido por {@code id}.
+     * @return UUID estable del propietario.
      */
     UUID id() { return id; }
 }

@@ -1,26 +1,26 @@
-"""Implementa las responsabilidades del módulo `time`.
-"""
+"""Proporciona instantes UTC sin tzinfo compatibles con las columnas temporales del scraper."""
 from datetime import UTC, datetime, timedelta
 
 
 # El almacenamiento usa UTC deliberadamente. La conversión a la zona horaria del
 # usuario se realiza únicamente en los límites de presentación.
 def utc_now() -> datetime:
-    """Ejecuta la operación `utc_now`.
+    """Lee el reloj UTC y retira tzinfo para mantener la convención temporal de persistencia.
 
     Returns:
-        datetime: Resultado producido por la operación.
+        instante UTC ingenuo, que no representa la hora local del equipo.
     """
     return datetime.now(UTC).replace(tzinfo=None)
 
 
 def utc_after(**kwargs: int) -> datetime:
-    """Ejecuta la operación `utc_after`.
+    """Suma al instante UTC actual un desplazamiento expresado con los argumentos de timedelta.
 
     Args:
-        **kwargs (int): Valor de `kwargs` utilizado por la operación.
+        kwargs: Unidades de timedelta, como seconds, minutes u hours; se admiten valores
+            negativos.
 
     Returns:
-        datetime: Resultado producido por la operación.
+        instante desplazado en UTC sin tzinfo.
     """
     return utc_now() + timedelta(**kwargs)

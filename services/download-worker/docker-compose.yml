@@ -1,0 +1,47 @@
+services:
+  download-worker:
+    build:
+      context: ../..
+      dockerfile: services/download-worker/Dockerfile
+    env_file:
+      - path: ./.env.example
+      - path: ./.env
+        required: false
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
+      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
+      MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
+      MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
+      SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      DOWNLOAD_WORKER_LINUX_INSTALLER_ENABLED: ${DOWNLOAD_WORKER_LINUX_INSTALLER_ENABLED:-true}
+    cpu_shares: 768
+    restart: unless-stopped
+    ports:
+      - "${DOWNLOAD_WORKER_HOST_PORT}:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      core-api:
+        condition: service_healthy
+      scraper-api:
+        condition: service_healthy
+    volumes:
+      - download_worker_data:/app/data
+      - download_worker_temp:/tmp/batch-downloader
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+volumes:
+  download_worker_data:
+  download_worker_temp:

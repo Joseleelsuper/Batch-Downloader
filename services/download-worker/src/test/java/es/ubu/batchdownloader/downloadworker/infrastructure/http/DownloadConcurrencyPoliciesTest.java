@@ -20,10 +20,23 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Verifica los límites transversales de host y reintento íntegro. */
+/**
+ * Caracteriza reintentos, consumo del presupuesto y límite simultáneo de descargas por host.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.RetryingRemoteDownloader
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.http.HostLimitedRemoteDownloader
+ * @see es.ubu.batchdownloader.downloadworker.application.DownloadBudget
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de archivo y transporte
+ */
 class DownloadConcurrencyPoliciesTest {
     @TempDir Path temporary;
 
+    /**
+     * Simula dos respuestas 429 y un éxito y exige tres intentos y el cargo de los 64 bytes del
+     * resultado al presupuesto total.
+     */
     @Test
     void retriesOnlyTwiceAndCommitsTheSuccessfulAttemptToTheTotalBudget() {
         AtomicInteger calls = new AtomicInteger();
@@ -46,6 +59,9 @@ class DownloadConcurrencyPoliciesTest {
         assertThat(total.consumedBytes()).isEqualTo(64);
     }
 
+    /**
+     * Simula un 404 y comprueba que se propaga el rechazo tras un único intento.
+     */
     @Test
     void doesNotRetryARegularClientError() {
         AtomicInteger calls = new AtomicInteger();
@@ -64,6 +80,10 @@ class DownloadConcurrencyPoliciesTest {
         assertThat(calls).hasValue(1);
     }
 
+    /**
+     * Lanza tres descargas al mismo host y utiliza barreras y un contador para comprobar que el
+     * máximo de ejecuciones simultáneas es dos.
+     */
     @Test
     void allowsAtMostTwoActiveDownloadsForTheSameHost() throws Exception {
         AtomicInteger active = new AtomicInteger();
@@ -100,6 +120,12 @@ class DownloadConcurrencyPoliciesTest {
         assertThat(maximum).hasValue(2);
     }
 
+    /**
+     * Crea una fuente Windows que dirige la descarga al host cuyo semáforo se quiere comprobar.
+     *
+     * @param host host inicial que comparte el límite de concurrencia.
+     * @return fuente de prueba con tamaño histórico de un byte.
+     */
     private ResolvedDownloadItem item(String host) {
         return new ResolvedDownloadItem(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
@@ -107,6 +133,15 @@ class DownloadConcurrencyPoliciesTest {
                 "setup.exe", "windows", "x86_64", 1L, null, null);
     }
 
+    /**
+     * Representa el resultado del doble de descarga sin escribir contenido en disco.
+     *
+     * @param item fuente resuelta de la descarga simulada.
+     * @param filename nombre de salida del instalador.
+     * @param target archivo temporal de destino.
+     * @param size tamaño en bytes del artefacto simulado.
+     * @return metadatos de prueba con identidades de la fuente y una huella fija.
+     */
     private DownloadedArtifact artifact(
             ResolvedDownloadItem item, String filename, Path target, long size) {
         return new DownloadedArtifact(

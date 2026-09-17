@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.scraper.candidates import InstallerCandidate
 from app.scraper.validator import (
     BROWSER_COMPATIBLE_USER_AGENT,
+    SOURCEFORGE_USER_AGENT,
     DownloadValidator,
     ValidationConfidence,
     domain_has_public_dns,
@@ -56,18 +57,16 @@ async def test_domain_dns_resolution_retries_transient_failure(monkeypatch) -> N
     calls: list[str] = []
 
     async def resolve(_hostname: str, record_type: str, **_kwargs):
-        """Ejecuta la operación `resolve`.
+        """Prepara el recurso `test_domain_dns_resolution_retries_transient_failure.resolve`
+        usado por las pruebas para aislar el escenario `test domain dns resolution retries
+        transient failure.resolve` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str): Valor de `_hostname` utilizado por la operación.
-            record_type (str): Valor de `record_type` utilizado por la operación.
-            **_kwargs (Any): Valor de `_kwargs` utilizado por la operación.
-
-        Throws:
-            dns.resolver.NoAnswer: Si no puede completarse la operación bajo las condiciones
-                requeridas.
-            dns.exception.Timeout: Si no puede completarse la operación bajo las condiciones
-                requeridas.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
+            record_type: Entrada `record_type` del escenario que se mantiene estable para la
+                prueba.
+            _kwargs: Entrada `_kwargs` del escenario que se mantiene estable para la prueba.
         """
         calls.append(record_type)
         if len(calls) <= 2:
@@ -132,13 +131,13 @@ async def test_validator_accepts_github_release_asset_redirect(monkeypatch) -> N
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso `test_validator_accepts_github_release_asset_redirect.public_dns`
+        usado por las pruebas para aislar el escenario `test validator accepts github release
+        asset redirect.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -185,13 +184,12 @@ async def test_validator_blocks_a_public_to_private_redirect(monkeypatch) -> Non
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso `test_validator_blocks_a_public_to_private_redirect.public_dns`
+        usado por las pruebas para aislar el escenario `test validator blocks a public to
+        private redirect.public dns` y conservar sus datos de entrada.
 
         Args:
-            hostname (str | None): Valor de `hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            hostname: Entrada `hostname` del escenario que se mantiene estable para la prueba.
         """
         return hostname == "downloads.example.com"
 
@@ -223,13 +221,14 @@ async def test_validator_rejects_redirect_credentials_before_following(monkeypat
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_rejects_redirect_credentials_before_following.public_dns` usado por
+        las pruebas para aislar el escenario `test validator rejects redirect credentials
+        before following.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -265,13 +264,14 @@ async def test_manual_validator_requires_a_signature_even_for_binary_content_typ
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_manual_validator_requires_a_signature_even_for_binary_content_type.public_dns`
+        usado por las pruebas para aislar el escenario `test manual validator requires a
+        signature even for binary content type.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -309,13 +309,13 @@ async def test_manual_validator_accepts_a_matching_signature(monkeypatch) -> Non
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso `test_manual_validator_accepts_a_matching_signature.public_dns`
+        usado por las pruebas para aislar el escenario `test manual validator accepts a
+        matching signature.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -353,13 +353,14 @@ async def test_validator_preserves_candidate_filename_when_redirect_hides_it(mon
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_preserves_candidate_filename_when_redirect_hides_it.public_dns` usado
+        por las pruebas para aislar el escenario `test validator preserves candidate filename
+        when redirect hides it.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -400,13 +401,14 @@ async def test_validator_accepts_public_cross_domain_redirect_without_allowlist(
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_accepts_public_cross_domain_redirect_without_allowlist.public_dns`
+        usado por las pruebas para aislar el escenario `test validator accepts public cross
+        domain redirect without allowlist.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -444,13 +446,14 @@ async def test_validator_accepts_common_windows_executable_mime_alias(monkeypatc
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_accepts_common_windows_executable_mime_alias.public_dns` usado por las
+        pruebas para aislar el escenario `test validator accepts common windows executable
+        mime alias.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -480,13 +483,14 @@ async def test_validator_accepts_mislabeled_msi_after_partial_signature_probe(mo
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_accepts_mislabeled_msi_after_partial_signature_probe.public_dns` usado
+        por las pruebas para aislar el escenario `test validator accepts mislabeled msi after
+        partial signature probe.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -524,13 +528,14 @@ async def test_validator_uses_actual_zip_signature_for_winstall_mislabeled_exe(m
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_uses_actual_zip_signature_for_winstall_mislabeled_exe.public_dns`
+        usado por las pruebas para aislar el escenario `test validator uses actual zip
+        signature for winstall mislabeled exe.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -566,13 +571,14 @@ async def test_validator_follows_redirect_revealed_only_by_partial_get(monkeypat
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_follows_redirect_revealed_only_by_partial_get.public_dns` usado por
+        las pruebas para aislar el escenario `test validator follows redirect revealed only by
+        partial get.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -619,13 +625,14 @@ async def test_validator_rejects_mislabeled_text_without_binary_signature(monkey
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_rejects_mislabeled_text_without_binary_signature.public_dns` usado por
+        las pruebas para aislar el escenario `test validator rejects mislabeled text without
+        binary signature.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -667,13 +674,13 @@ async def test_validator_rejects_extensionless_octet_stream(monkeypatch) -> None
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso `test_validator_rejects_extensionless_octet_stream.public_dns`
+        usado por las pruebas para aislar el escenario `test validator rejects extensionless
+        octet stream.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -708,13 +715,14 @@ async def test_validator_infers_extensionless_winstall_pe_executable(monkeypatch
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_infers_extensionless_winstall_pe_executable.public_dns` usado por las
+        pruebas para aislar el escenario `test validator infers extensionless winstall pe
+        executable.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -759,13 +767,14 @@ async def test_validator_accepts_winstall_distribution_zip_outside_github_releas
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_accepts_winstall_distribution_zip_outside_github_releases.public_dns`
+        usado por las pruebas para aislar el escenario `test validator accepts winstall
+        distribution zip outside github releases.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -842,13 +851,14 @@ async def test_validator_rejects_known_non_desktop_binary_extensions(monkeypatch
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_rejects_known_non_desktop_binary_extensions.public_dns` usado por las
+        pruebas para aislar el escenario `test validator rejects known non desktop binary
+        extensions.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -880,13 +890,13 @@ async def test_validator_accepts_msixbundle(monkeypatch) -> None:
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso `test_validator_accepts_msixbundle.public_dns` usado por las
+        pruebas para aislar el escenario `test validator accepts msixbundle.public dns` y
+        conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -919,13 +929,14 @@ async def test_validator_accepts_verified_winstall_http_installer(monkeypatch) -
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_accepts_verified_winstall_http_installer.public_dns` usado por las
+        pruebas para aislar el escenario `test validator accepts verified winstall http
+        installer.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -961,13 +972,14 @@ async def test_validator_allows_verified_winstall_redirect_to_public_cdn(monkeyp
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_allows_verified_winstall_redirect_to_public_cdn.public_dns` usado por
+        las pruebas para aislar el escenario `test validator allows verified winstall redirect
+        to public cdn.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -1013,13 +1025,14 @@ async def test_validator_accepts_visible_winstall_installer_blocked_by_cloudflar
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_accepts_visible_winstall_installer_blocked_by_cloudflare.public_dns`
+        usado por las pruebas para aislar el escenario `test validator accepts visible
+        winstall installer blocked by cloudflare.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -1065,6 +1078,43 @@ def test_sourceforge_download_hosts_use_the_provider_specific_flow() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_sourceforge_partial_download_uses_non_browser_user_agent(monkeypatch) -> None:
+    """Cloudflare bloquea el UA simulado, pero admite el consumidor identificado."""
+    async def public_dns(_hostname: str | None) -> bool:
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://downloads.sourceforge.net/project/app/AppSetup.exe"
+    observed_user_agents: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        observed_user_agents.append(request.headers["user-agent"])
+        return httpx.Response(
+            206,
+            headers={
+                "content-type": "application/octet-stream",
+                "content-range": "bytes 0-1023/4096",
+            },
+            content=b"MZ" + bytes(32),
+        )
+
+    respx.get(url).mock(side_effect=respond)
+
+    result = await DownloadValidator(Settings()).validate(
+        InstallerCandidate(
+            url=url,
+            source="winstall_api",
+            asset_kind="winstall_download",
+        )
+    )
+
+    assert result.ok is True
+    assert result.confidence == ValidationConfidence.VALIDATED
+    assert observed_user_agents == [SOURCEFORGE_USER_AGENT]
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_validator_attests_siteground_challenge_with_winstall_declared_extension(
     monkeypatch,
 ) -> None:
@@ -1074,13 +1124,15 @@ async def test_validator_attests_siteground_challenge_with_winstall_declared_ext
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_attests_siteground_challenge_with_winstall_declared_extension.public_dns`
+        usado por las pruebas para aislar el escenario `test validator attests siteground
+        challenge with winstall declared extension.public dns` y conservar sus datos de
+        entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -1125,13 +1177,13 @@ async def test_validator_attests_tencent_edgeone_challenge(monkeypatch) -> None:
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso `test_validator_attests_tencent_edgeone_challenge.public_dns` usado
+        por las pruebas para aislar el escenario `test validator attests tencent edgeone
+        challenge.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -1175,13 +1227,14 @@ async def test_validator_attests_akamai_edge_denial_for_winstall_binary(monkeypa
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_attests_akamai_edge_denial_for_winstall_binary.public_dns` usado por
+        las pruebas para aislar el escenario `test validator attests akamai edge denial for
+        winstall binary.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -1228,13 +1281,14 @@ async def test_validator_does_not_attest_generic_cloudflare_candidate(monkeypatc
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_does_not_attest_generic_cloudflare_candidate.public_dns` usado por las
+        pruebas para aislar el escenario `test validator does not attest generic cloudflare
+        candidate.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
@@ -1282,28 +1336,25 @@ async def test_validator_retries_verified_winstall_tls_failure_over_http(monkeyp
         monkeypatch (Any): Utilidad de pytest para sustituir dependencias durante la prueba.
     """
     async def public_dns(_hostname: str | None) -> bool:
-        """Ejecuta la operación `public_dns`.
+        """Prepara el recurso
+        `test_validator_retries_verified_winstall_tls_failure_over_http.public_dns` usado por
+        las pruebas para aislar el escenario `test validator retries verified winstall tls
+        failure over http.public dns` y conservar sus datos de entrada.
 
         Args:
-            _hostname (str | None): Valor de `_hostname` utilizado por la operación.
-
-        Returns:
-            bool: Indica si se cumple la condición evaluada.
+            _hostname: Entrada `_hostname` del escenario que se mantiene estable para la
+                prueba.
         """
         return True
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        """Ejecuta la operación `handler`.
+        """Prepara el recurso
+        `test_validator_retries_verified_winstall_tls_failure_over_http.handler` usado por las
+        pruebas para aislar el escenario `test validator retries verified winstall tls failure
+        over http.handler` y conservar sus datos de entrada.
 
         Args:
-            request (httpx.Request): Solicitud recibida por la operación.
-
-        Returns:
-            httpx.Response: Resultado producido por la operación.
-
-        Throws:
-            httpx.ConnectError: Si no puede completarse la operación bajo las condiciones
-                requeridas.
+            request: Entrada `request` del escenario que se mantiene estable para la prueba.
         """
         if request.url.scheme == "https":
             raise httpx.ConnectError(

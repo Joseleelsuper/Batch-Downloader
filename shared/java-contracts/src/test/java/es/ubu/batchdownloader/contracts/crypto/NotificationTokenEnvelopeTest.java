@@ -6,12 +6,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
 
-/** Vectores compartidos que impiden divergencias entre productor y consumidor. */
+/**
+ * Comprueba compatibilidad binaria del sobre enc:v1 y rechazo de tokens o claves inválidos.
+ *
+ * @see es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope
+ * @since 0.2.0-SNAPSHOT
+ * @version 0.2.0-SNAPSHOT
+ * @category Contratos compartidos
+ */
 class NotificationTokenEnvelopeTest {
     private static final String KEY = Base64.getEncoder().encodeToString(new byte[32]);
     private static final String VECTOR =
             "enc:v1:AAECAwQFBgcICQoL_KRYN27Q65zvGz2LiXG_eDt1QoKMNW5dUVCGvIhioCnl";
 
+    /**
+     * Comprueba que una clave y nonce conocidos producen el vector canónico y permiten recuperar el
+     * token original.
+     */
     @Test
     void matchesTheVersionOneContractVector() {
         NotificationTokenEnvelope envelope = new NotificationTokenEnvelope(KEY);
@@ -23,6 +34,9 @@ class NotificationTokenEnvelopeTest {
         assertThat(envelope.decrypt(VECTOR)).isEqualTo("token-de-contrato");
     }
 
+    /**
+     * Comprueba el rechazo de texto claro, sobres manipulados y claves con longitud incorrecta.
+     */
     @Test
     void rejectsPlaintextTamperingAndInvalidKeys() {
         NotificationTokenEnvelope envelope = new NotificationTokenEnvelope(KEY);

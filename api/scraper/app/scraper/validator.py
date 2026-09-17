@@ -1,5 +1,14 @@
-"""Implementa las responsabilidades del módulo `validator`.
+"""Valida destinos de instalador, redirecciones, formatos y evidencia binaria sin descargar el
+archivo completo.
+Distingue binario comprobado de evidencia Winstall atestiguada para que la resolución interna
+pueda aplicar una confianza más estricta.
+
+See Also:
+    app.scraper.artifacts.ArtifactFormatRegistry: Define formatos y prefijos binarios.
+    app.domain.source_resolution.source_trust_status: Decide qué confianza puede publicarse al
+        worker.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,21 +45,16 @@ from app.scraper.candidates import (
 BINARY_CONTENT_TYPES = (
     DEFAULT_ARTIFACT_FORMAT_REGISTRY.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
 )
-"""Constante que define `BINARY_CONTENT_TYPES`.
-"""
+
 
 DNS_POSITIVE_TTL_SECONDS = 600.0
-"""Constante que define `DNS_POSITIVE_TTL_SECONDS`.
-"""
+
 DNS_NEGATIVE_TTL_SECONDS = 20.0
-"""Constante que define `DNS_NEGATIVE_TTL_SECONDS`.
-"""
+
 _DNS_CACHE: dict[str, tuple[float, bool]] = {}
-"""Constante que define `_DNS_CACHE`.
-"""
+
 _DNS_INFLIGHT: dict[tuple[int, str], asyncio.Task[bool]] = {}
-"""Constante que define `_DNS_INFLIGHT`.
-"""
+
 _SOURCEFORGE_LOCKS: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
 _SOURCEFORGE_NEXT_REQUEST: dict[asyncio.AbstractEventLoop, float] = {}
 SOURCEFORGE_MIN_INTERVAL_SECONDS = 1.0
@@ -59,64 +63,77 @@ BROWSER_COMPATIBLE_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/139.0.0.0 Safari/537.36"
 )
+SOURCEFORGE_USER_AGENT = "BatchDownloaderScraper/0.1"
+"""Identificación no simulada que SourceForge admite para descargas parciales."""
 
 
 class ValidationConfidence(StrEnum):
-    """Enumera los valores admitidos por `ValidationConfidence`.
+    """Expresa qué evidencia sostiene el resultado técnico de un candidato.
+
+    Attributes:
+        UNVERIFIED: No se obtuvo una comprobación aceptable.
+        VALIDATED: La comprobación aceptó evidencia técnica del instalador.
+        ATTESTED: El origen Winstall acredita el candidato, pero un desafío del servidor
+            impide comprobar el binario.
     """
+
     UNVERIFIED = "unverified"
-    """Constante que define `UNVERIFIED`.
-    """
+
     VALIDATED = "validated"
-    """Constante que define `VALIDATED`.
-    """
+
     ATTESTED = "attested"
-    """Constante que define `ATTESTED`.
-    """
+
 
 
 @dataclass(frozen=True)
 class ValidationResult:
-    """Representa el resultado de `Validation`.
+    """Devuelve aceptación, confianza y metadatos observados de un candidato sin persistirlos.
+
+    Attributes:
+        ok, reason: Resultado de aceptación y motivo del rechazo, cuando corresponde.
+        url, final_url, final_domain: Destino inicial, destino observado y dominio publicable.
+        filename, extension, content_type, size_bytes: Nombre, formato, MIME y tamaño total
+            conocido en bytes.
+        transport_security: Marca de excepción histórica Winstall, o None para el transporte
+            ordinario.
+        confidence: Garantía de comprobación; ok por sí solo no equivale a descarga HTTPS
+            verificada.
     """
+
     ok: bool
-    """Atributo de clase `ok` de `ValidationResult`.
-    """
+
     url: str
-    """Atributo de clase `url` de `ValidationResult`.
-    """
+
     final_url: str | None = None
-    """Atributo de clase `final_url` de `ValidationResult`.
-    """
+
     final_domain: str | None = None
-    """Atributo de clase `final_domain` de `ValidationResult`.
-    """
+
     filename: str | None = None
-    """Atributo de clase `filename` de `ValidationResult`.
-    """
+
     extension: str | None = None
-    """Atributo de clase `extension` de `ValidationResult`.
-    """
+
     content_type: str | None = None
-    """Atributo de clase `content_type` de `ValidationResult`.
-    """
+
     size_bytes: int | None = None
-    """Atributo de clase `size_bytes` de `ValidationResult`.
-    """
+
     reason: str | None = None
-    """Atributo de clase `reason` de `ValidationResult`.
-    """
+
     transport_security: str | None = None
-    """Atributo de clase `transport_security` de `ValidationResult`.
-    """
+
     confidence: ValidationConfidence = ValidationConfidence.UNVERIFIED
-    """Atributo de clase `confidence` de `ValidationResult`.
-    """
+
 
 
 @dataclass(frozen=True)
 class _HttpNavigation:
-    """Agrupa la respuesta final y el contexto seguro de redirección."""
+    """Conserva respuesta final y contexto de navegación necesario para sondas posteriores del
+    binario.
+
+    Attributes:
+        response: Respuesta final de metadatos.
+        current_url, previous_url: Destino actual y salto anterior opcional utilizado como
+            Referer.
+    """
 
     response: httpx.Response
     current_url: str
@@ -125,7 +142,16 @@ class _HttpNavigation:
 
 @dataclass
 class _ArtifactEvidence:
-    """Estado interno de la inspección de formato de un instalador."""
+    """Acumula metadatos y muestra del artefacto entre comprobaciones para evitar sondas
+    repetidas.
+
+    Attributes:
+        filename, extension, content_type, disposition, size_bytes: Evidencia de nombre,
+            formato, MIME, disposición y bytes declarados.
+        looks_binary: Las cabeceras ya apuntan a un archivo binario.
+        signature_response: Muestra reutilizable para inferir o comprobar el prefijo del
+            formato.
+    """
 
     filename: str | None
     extension: str | None
@@ -137,30 +163,36 @@ class _ArtifactEvidence:
 
 
 class DownloadValidator:
-    """Representa el componente `DownloadValidator`.
+    """Coordina validación de URL y DNS, navegación explícita y comprobaciones de instalador con
+    formatos sustituibles.
+    Cierra solo el cliente HTTP que crea; los errores de transporte sin recuperación se
+    propagan para decidir reintentos.
+
+    See Also:
+        app.scraper.ports.CandidateValidator: Contrato consumido por los resolutores.
+        app.scraper.artifacts.ArtifactFormatRegistry: Política de reconocimiento de formatos.
     """
+
     def __init__(
         self,
         settings: Settings,
         client: httpx.AsyncClient | None = None,
         formats: ArtifactFormatRegistry = DEFAULT_ARTIFACT_FORMAT_REGISTRY,
     ) -> None:
-        """Inicializa una instancia de `DownloadValidator`.
+        """Conecta límites, cliente opcional y registro de formatos sin abrir conexiones todavía.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            client (httpx.AsyncClient | None): Cliente utilizado para ejecutar el escenario.
-            formats (ArtifactFormatRegistry): Valor de `formats` utilizado por la operación.
+            settings: Configuración de timeout, redirecciones, tamaño y esquemas admitidos.
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            formats: Registro de formatos, MIME y prefijos binarios admitidos.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.client = client
-        """Estado de instancia asociado a `client`.
-        """
+
         self.formats = formats
-        """Estado de instancia asociado a `formats`.
-        """
+
 
     async def validate(
         self,
@@ -168,39 +200,25 @@ class DownloadValidator:
         *,
         require_signature: bool = False,
     ) -> ValidationResult:
-        """Ejecuta `validate` dentro de `DownloadValidator`.
+        """Valida la URL inicial, abre o reutiliza cliente y comprueba metadatos y binario.
+        Conserva el respaldo HTTP histórico solo para un candidato Winstall con error de
+        certificado; la confianza de transporte queda marcada por separado.
 
         Args:
-            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-            require_signature (bool): Valor de `require_signature` utilizado por la operación.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            require_signature: True exige comprobar el prefijo binario del formato; esta firma
+                de archivo no es una firma criptográfica del editor.
 
         Returns:
-            ValidationResult: Resultado producido por la operación.
+            resultado aceptado o rechazado con evidencia técnica.
+
+        Raises:
+            httpx.RequestError: Si falla el transporte y no existe una recuperación aplicable.
         """
-        try:
-            parsed = urlparse(candidate.url)
-            hostname = parsed.hostname
-        except ValueError:
-            return self._fail(candidate.url, "invalid_url")
-        if not self._scheme_allowed(candidate, parsed.scheme):
-            return self._fail(candidate.url, "unsupported_scheme")
-        if not hostname:
-            return self._fail(candidate.url, "missing_domain")
-        if parsed.username is not None or parsed.password is not None:
-            return self._fail(candidate.url, "url_credentials_forbidden")
-        if is_non_binary_installer_reference(candidate.url):
-            return self._fail(candidate.url, "non_binary_installer_reference")
-        if is_github_source_archive(candidate.url):
-            return self._fail(candidate.url, "github_source_archive")
-        if (
-            hostname.lower().endswith("github.com")
-            and detect_extension(candidate.url) == ".zip"
-            and not is_github_release_asset(candidate.url)
-            and not is_verified_winstall_candidate(candidate)
-        ):
-            return self._fail(candidate.url, "github_zip_not_release_asset")
-        if not await domain_has_public_dns(hostname):
-            return self._fail(candidate.url, "dns_not_public")
+        rejection = await self._validate_candidate_url(candidate)
+        if rejection is not None:
+            return rejection
 
         owns_client = self.client is None
         client = self.client or httpx.AsyncClient(
@@ -235,15 +253,19 @@ class DownloadValidator:
         *,
         require_signature: bool,
     ) -> ValidationResult:
-        """Ejecuta el paso interno `_validate_http`.
+        """Obtiene la respuesta final, clasifica errores HTTP y permite evidencia atestiguada
+        Winstall ante desafíos del servidor.
 
         Args:
-            client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
-            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-            require_signature (bool): Valor de `require_signature` utilizado por la operación.
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            require_signature: True exige comprobar el prefijo binario del formato; esta firma
+                de archivo no es una firma criptográfica del editor.
 
         Returns:
-            ValidationResult: Resultado producido por la operación.
+            resultado de rechazo, atestiguación o comprobación del artefacto.
         """
         navigation = await self._request_final_response(client, candidate)
         if isinstance(navigation, ValidationResult):
@@ -269,7 +291,18 @@ class DownloadValidator:
         client: httpx.AsyncClient,
         candidate: InstallerCandidate,
     ) -> _HttpNavigation | ValidationResult:
-        """Sigue un número acotado de redirecciones y valida cada destino."""
+        """Consulta metadatos salto a salto con Referer controlado y valida cada redirección
+        antes de solicitarla.
+
+        Args:
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+
+        Returns:
+            respuesta final con contexto de navegación o rechazo por destino o saltos.
+        """
         current_url = candidate.url
         previous_url: str | None = None
         for _ in range(self.settings.max_redirects + 1):
@@ -298,7 +331,18 @@ class DownloadValidator:
         current_url: str,
         location: str,
     ) -> str | ValidationResult:
-        """Resuelve y valida un destino antes de efectuar la siguiente petición."""
+        """Resuelve Location y rechaza esquemas, credenciales, archivos fuente GitHub o DNS no
+        admitidos antes de continuar.
+
+        Args:
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            current_url: URL del salto que se acaba de consultar.
+            location: Destino de redirección absoluto o relativo recibido en Location.
+
+        Returns:
+            URL redirigida admitida o resultado de rechazo con motivo específico.
+        """
         try:
             redirected_url = urljoin(current_url, location)
             parsed = urlparse(redirected_url)
@@ -325,7 +369,18 @@ class DownloadValidator:
         url: str,
         hostname: str,
     ) -> bool:
-        """Detecta archivos ZIP de GitHub que no proceden de una release verificada."""
+        """Detecta ZIP alojados bajo un host terminado en github.com que no son assets de release
+        ni candidatos acreditados por Winstall.
+
+        Args:
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            url: URL del candidato o recurso que se consulta.
+            hostname: Host DNS o literal de IP; None no es admitido.
+
+        Returns:
+            True si debe rechazarse esta referencia GitHub.
+        """
         return (
             hostname.lower().endswith("github.com")
             and detect_extension(url) == ".zip"
@@ -341,7 +396,21 @@ class DownloadValidator:
         *,
         require_signature: bool,
     ) -> ValidationResult:
-        """Comprueba metadatos, formato y firma de la respuesta final."""
+        """Extrae nombre, tamaño, formato y MIME, rechaza exceso de tamaño o HTML y completa
+        evidencia binaria antes de aceptar.
+
+        Args:
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            navigation: Respuesta final y URL actual/anterior de la navegación ya validada.
+            require_signature: True exige comprobar el prefijo binario del formato; esta firma
+                de archivo no es una firma criptográfica del editor.
+
+        Returns:
+            resultado técnico con confianza VALIDATED, evidencia ATTESTED o motivo de rechazo.
+        """
         response = navigation.response
         current_url = navigation.current_url
 
@@ -383,24 +452,11 @@ class DownloadValidator:
                 return attested
             return self._fail(current_url, "html_response")
 
-        if not evidence.extension:
-            extension_error = await self._infer_missing_extension(
-                client, candidate, navigation, evidence
-            )
-            if extension_error:
-                return extension_error
-        if require_signature:
-            signature_error = await self._verify_required_signature(
-                client, candidate, navigation, evidence
-            )
-            if signature_error:
-                return signature_error
-        if not evidence.looks_binary:
-            binary_error = await self._verify_binary_evidence(
-                client, candidate, navigation, evidence
-            )
-            if binary_error:
-                return binary_error
+        error = await self._verify_artifact_evidence(
+            client, candidate, navigation, evidence, require_signature
+        )
+        if error is not None:
+            return error
 
         return ValidationResult(
             ok=True,
@@ -422,7 +478,20 @@ class DownloadValidator:
         navigation: _HttpNavigation,
         evidence: _ArtifactEvidence,
     ) -> ValidationResult | None:
-        """Infiere el formato cuando la URL y las cabeceras no lo declaran."""
+        """Obtiene una muestra para inferir formato y exige además intención de descarga en el
+        candidato; completa nombre y evidencia binaria.
+
+        Args:
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            navigation: Respuesta final y URL actual/anterior de la navegación ya validada.
+            evidence: Metadatos del artefacto que se completan durante las comprobaciones.
+
+        Returns:
+            None si pudo inferir el instalador o rechazo HTTP/de formato.
+        """
         evidence.signature_response = await self._response_with_content(
             client, candidate, navigation, navigation.response
         )
@@ -447,7 +516,21 @@ class DownloadValidator:
         navigation: _HttpNavigation,
         evidence: _ArtifactEvidence,
     ) -> ValidationResult | None:
-        """Aplica la política estricta del formato solicitado."""
+        """Comprueba el prefijo binario del formato cuando existe; para formatos sin prefijo
+        exige MIME compatible o disposición attachment.
+
+        Args:
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            navigation: Respuesta final y URL actual/anterior de la navegación ya validada.
+            evidence: Metadatos del artefacto que se completan durante las comprobaciones.
+
+        Returns:
+            None si la evidencia cumple la política o un rechazo específico de formato, HTTP o
+                prefijo.
+        """
         extension = evidence.extension
         if extension is None:
             return self._fail(navigation.current_url, "missing_installer_extension")
@@ -460,8 +543,10 @@ class DownloadValidator:
                 or evidence.content_type in GENERIC_BINARY_MEDIA_TYPES
                 or "attachment" in evidence.disposition
             )
-            return None if accepted_type else self._fail(
-                navigation.current_url, "installer_content_type_mismatch"
+            return (
+                None
+                if accepted_type
+                else self._fail(navigation.current_url, "installer_content_type_mismatch")
             )
 
         evidence.signature_response = await self._response_with_content(
@@ -475,9 +560,7 @@ class DownloadValidator:
                 navigation.current_url,
                 f"http_{evidence.signature_response.status_code}",
             )
-        if not self.formats.matches_signature(
-            extension, evidence.signature_response.content
-        ):
+        if not self.formats.matches_signature(extension, evidence.signature_response.content):
             return self._fail(navigation.current_url, "installer_signature_mismatch")
         return None
 
@@ -488,7 +571,21 @@ class DownloadValidator:
         navigation: _HttpNavigation,
         evidence: _ArtifactEvidence,
     ) -> ValidationResult | None:
-        """Descarta respuestas textuales que no contengan una firma de instalador."""
+        """Sondea el cuerpo cuando las cabeceras no prueban que sea binario.
+        Solo para candidatos Winstall permite corregir extensión y nombre si los bytes
+        identifican otro formato admitido.
+
+        Args:
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            navigation: Respuesta final y URL actual/anterior de la navegación ya validada.
+            evidence: Metadatos del artefacto que se completan durante las comprobaciones.
+
+        Returns:
+            None si la muestra acredita un instalador o rechazo not_an_installer.
+        """
         extension = evidence.extension
         if extension is None:
             return self._fail(navigation.current_url, "missing_installer_extension")
@@ -500,9 +597,7 @@ class DownloadValidator:
         )
         if evidence.signature_response.status_code >= 400:
             return self._fail(navigation.current_url, "not_an_installer")
-        if self.formats.matches_signature(
-            extension, evidence.signature_response.content
-        ):
+        if self.formats.matches_signature(extension, evidence.signature_response.content):
             return None
 
         actual_extension = self.formats.infer_extension(evidence.signature_response.content)
@@ -521,7 +616,20 @@ class DownloadValidator:
         navigation: _HttpNavigation,
         response: httpx.Response,
     ) -> httpx.Response:
-        """Reutiliza el cuerpo disponible o solicita una muestra binaria acotada."""
+        """Reutiliza una muestra ya leída y, si falta, solicita unos bytes del destino final con
+        Referer de navegación.
+
+        Args:
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            navigation: Respuesta final y URL actual/anterior de la navegación ya validada.
+            response: Respuesta HTTP con cabeceras y muestra opcional del cuerpo.
+
+        Returns:
+            respuesta con contenido de muestra.
+        """
         if response.content:
             return response
         return await request_partial(
@@ -532,26 +640,28 @@ class DownloadValidator:
         )
 
     def _fail(self, url: str, reason: str) -> ValidationResult:
-        """Ejecuta el paso interno `_fail`.
+        """Construye un rechazo con URL y código de motivo, sin atribuir metadatos no observados.
 
         Args:
-            url (str): URL del recurso que debe procesarse.
-            reason (str): Valor de `reason` utilizado por la operación.
+            url: URL del candidato o recurso que se consulta.
+            reason: Código estable del motivo de rechazo.
 
         Returns:
-            ValidationResult: Resultado producido por la operación.
+            resultado ok=False con confianza UNVERIFIED.
         """
         return ValidationResult(ok=False, url=url, reason=reason)
 
     def _scheme_allowed(self, candidate: InstallerCandidate, scheme: str) -> bool:
-        """Ejecuta el paso interno `_scheme_allowed`.
+        """Acepta los esquemas configurados y conserva la excepción histórica HTTP para
+        candidatos procedentes de Winstall.
 
         Args:
-            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-            scheme (str): Valor de `scheme` utilizado por la operación.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            scheme: Esquema de URL que debe cumplir la política del candidato.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si el esquema es admisible para esta comprobación.
         """
         if scheme in self.settings.allowed_download_schemes:
             return True
@@ -563,15 +673,17 @@ class DownloadValidator:
         current_url: str,
         response: httpx.Response,
     ) -> ValidationResult | None:
-        """Ejecuta el paso interno `_winstall_edge_attested_result`.
+        """Reconoce un desafío perimetral en una URL HTTPS acreditada por Winstall y de formato
+        conocido, sin afirmar que se haya leído el binario.
 
         Args:
-            candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-            current_url (str): Dirección de `current` que debe procesarse.
-            response (httpx.Response): Respuesta que debe procesarse.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            current_url: URL del salto que se acaba de consultar.
+            response: Respuesta HTTP con cabeceras y muestra opcional del cuerpo.
 
         Returns:
-            ValidationResult | None: Resultado producido por la operación.
+            resultado ATTESTED con marca https_winstall_edge_attested o None.
         """
         extension = (
             detect_extension(current_url)
@@ -600,15 +712,99 @@ class DownloadValidator:
             confidence=ValidationConfidence.ATTESTED,
         )
 
+    async def _validate_candidate_url(
+        self, candidate: InstallerCandidate
+    ) -> ValidationResult | None:
+        """Rechaza URL inválidas, esquemas y credenciales no admitidos, fichas sin binario,
+        fuentes GitHub y DNS restringido.
+
+        Args:
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+
+        Returns:
+            rechazo inicial o None para continuar con HTTP.
+        """
+        try:
+            parsed = urlparse(candidate.url)
+            hostname = parsed.hostname
+        except ValueError:
+            return self._fail(candidate.url, "invalid_url")
+        if not self._scheme_allowed(candidate, parsed.scheme):
+            return self._fail(candidate.url, "unsupported_scheme")
+        if not hostname:
+            return self._fail(candidate.url, "missing_domain")
+        if parsed.username is not None or parsed.password is not None:
+            return self._fail(candidate.url, "url_credentials_forbidden")
+        if is_non_binary_installer_reference(candidate.url):
+            return self._fail(candidate.url, "non_binary_installer_reference")
+        if is_github_source_archive(candidate.url):
+            return self._fail(candidate.url, "github_source_archive")
+        if (
+            hostname.lower().endswith("github.com")
+            and detect_extension(candidate.url) == ".zip"
+            and not is_github_release_asset(candidate.url)
+            and not is_verified_winstall_candidate(candidate)
+        ):
+            return self._fail(candidate.url, "github_zip_not_release_asset")
+        if not await domain_has_public_dns(hostname):
+            return self._fail(candidate.url, "dns_not_public")
+        return None
+
+    async def _verify_artifact_evidence(
+        self,
+        client: httpx.AsyncClient,
+        candidate: InstallerCandidate,
+        navigation: _HttpNavigation,
+        evidence: _ArtifactEvidence,
+        require_signature: bool,
+    ) -> ValidationResult | None:
+        """Completa extensión ausente, verifica el prefijo obligatorio si se pide y sondea el
+        cuerpo cuando las cabeceras no bastan.
+
+        Args:
+            client: Cliente HTTPX externo; None permite que el validador cree y cierre uno
+                propio donde se admite.
+            candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+                referencia.
+            navigation: Respuesta final y URL actual/anterior de la navegación ya validada.
+            evidence: Metadatos del artefacto que se completan durante las comprobaciones.
+            require_signature: True exige comprobar el prefijo binario del formato; esta firma
+                de archivo no es una firma criptográfica del editor.
+
+        Returns:
+            primer rechazo encontrado o None si todas las comprobaciones requeridas pasan.
+        """
+        if not evidence.extension:
+            extension_error = await self._infer_missing_extension(
+                client, candidate, navigation, evidence
+            )
+            if extension_error:
+                return extension_error
+        if require_signature:
+            signature_error = await self._verify_required_signature(
+                client, candidate, navigation, evidence
+            )
+            if signature_error:
+                return signature_error
+        if not evidence.looks_binary:
+            binary_error = await self._verify_binary_evidence(
+                client, candidate, navigation, evidence
+            )
+            if binary_error:
+                return binary_error
+        return None
+
 
 def is_verified_winstall_candidate(candidate: InstallerCandidate) -> bool:
-    """Indica si se cumple la operación `verified_winstall_candidate`.
+    """Reconoce candidatos de API o página Winstall y los marcados como winstall_download.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+            referencia.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si el origen permite aplicar la política histórica específica de Winstall.
     """
     return candidate.source in {"winstall_api", "winstall_page"} or (
         candidate.asset_kind == "winstall_download"
@@ -619,14 +815,16 @@ def winstall_http_tls_fallback(
     candidate: InstallerCandidate,
     error: httpx.ConnectError,
 ) -> InstallerCandidate | None:
-    """Ejecuta la operación `winstall_http_tls_fallback`.
+    """Deriva una copia HTTP únicamente para candidatos Winstall HTTPS cuyo error indica
+    certificate verify failed.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-        error (httpx.ConnectError): Error que debe registrarse o propagarse.
+        candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+            referencia.
+        error: Fallo de conexión observado al acceder al candidato HTTPS.
 
     Returns:
-        InstallerCandidate | None: Resultado producido por la operación.
+        candidato de respaldo sin modificar el original o None si no corresponde.
     """
     parsed = urlparse(candidate.url)
     if not (
@@ -639,34 +837,43 @@ def winstall_http_tls_fallback(
 
 
 def transport_security_for(url: str, candidate: InstallerCandidate) -> str | None:
-    """Ejecuta la operación `transport_security_for`.
+    """Marca explícitamente el transporte HTTP excepcional de candidatos acreditados por
+    Winstall.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        url: URL del candidato o recurso que se consulta.
+        candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+            referencia.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        http_winstall_verified en ese caso o None.
     """
     if urlparse(url).scheme == "http" and is_verified_winstall_candidate(candidate):
         return "http_winstall_verified"
     return None
 
 
-def metadata_headers(referer: str | None = None, *, partial: bool = False) -> dict[str, str]:
-    """Ejecuta la operación `metadata_headers`.
+def metadata_headers(
+    referer: str | None = None,
+    *,
+    partial: bool = False,
+    user_agent: str = BROWSER_COMPATIBLE_USER_AGENT,
+) -> dict[str, str]:
+    """Construye cabeceras de negociación y añade Referer y Range de bytes 0-1023 cuando se
+    solicita una sonda parcial.
 
     Args:
-        referer (str | None): Valor de `referer` utilizado por la operación.
-        partial (bool): Valor de `partial` utilizado por la operación.
+        referer: Página anterior o del mismo sitio, o None para omitir Referer.
+        partial: True añade Range y solicita bytes sin compresión de transporte.
+        user_agent: Identidad enviada en la cabecera User-Agent.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        cabeceras para HEAD o GET de comprobación.
     """
     headers = {
         "Accept": "application/octet-stream,application/x-msdownload,application/x-msi,*/*",
         "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
-        "User-Agent": BROWSER_COMPATIBLE_USER_AGENT,
+        "User-Agent": user_agent,
     }
     if referer:
         headers["Referer"] = referer
@@ -683,16 +890,19 @@ async def request_metadata(
     *,
     probe_html: bool = False,
 ) -> httpx.Response:
-    """Ejecuta la operación `request_metadata`.
+    """Usa la vía limitada de SourceForge o intenta HEAD y recurre a GET parcial ante 403/405,
+    MIME ausente o evidencia no binaria que debe sondearse.
 
     Args:
-        client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
-        url (str): URL del recurso que debe procesarse.
-        referer (str | None): Valor de `referer` utilizado por la operación.
-        probe_html (bool): Valor de `probe_html` utilizado por la operación.
+        client: Cliente HTTPX externo; None permite que el validador cree y cierre uno propio
+            donde se admite.
+        url: URL del candidato o recurso que se consulta.
+        referer: Página anterior o del mismo sitio, o None para omitir Referer.
+        probe_html: True permite sondear por GET parcial contenido que no parezca binario
+            cuando el candidato tiene intención de descarga.
 
     Returns:
-        httpx.Response: Resultado producido por la operación.
+        respuesta de metadatos o muestra; el llamador interpreta estado y redirección.
     """
     if is_sourceforge_download_url(url):
         return await request_sourceforge_metadata(client, url, referer=referer)
@@ -718,11 +928,17 @@ async def request_sourceforge_metadata(
     *,
     referer: str | None = None,
 ) -> httpx.Response:
-    """Sigue el contrato de descarga de SourceForge sin disparar su protección.
+    """Serializa sondas de SourceForge por bucle de eventos y mantiene al menos un segundo de
+    separación desde el final de la petición anterior.
 
-    SourceForge documenta GET con redirección a su red de mirrors. Los HEAD
-    paralelos suelen devolver una página de desafío y no el artefacto. Se serializa
-    este proveedor y se descarga solo el prefijo necesario para validar la firma.
+    Args:
+        client: Cliente HTTPX externo; None permite que el validador cree y cierre uno propio
+            donde se admite.
+        url: URL del candidato o recurso que se consulta.
+        referer: Página anterior o del mismo sitio, o None para omitir Referer.
+
+    Returns:
+        respuesta parcial obtenida con el User-Agent específico del scraper.
     """
     loop = asyncio.get_running_loop()
     lock = _SOURCEFORGE_LOCKS.setdefault(loop, asyncio.Lock())
@@ -731,15 +947,26 @@ async def request_sourceforge_metadata(
         if delay > 0:
             await asyncio.sleep(delay)
         try:
-            return await request_partial(client, url, referer=referer)
-        finally:
-            _SOURCEFORGE_NEXT_REQUEST[loop] = (
-                loop.time() + SOURCEFORGE_MIN_INTERVAL_SECONDS
+            return await request_partial(
+                client,
+                url,
+                referer=referer,
+                user_agent=SOURCEFORGE_USER_AGENT,
             )
+        finally:
+            _SOURCEFORGE_NEXT_REQUEST[loop] = loop.time() + SOURCEFORGE_MIN_INTERVAL_SECONDS
 
 
 def is_sourceforge_download_url(url: str) -> bool:
-    """Identifica tanto la página de descarga como cualquiera de sus mirrors."""
+    """Reconoce sourceforge.net y sus subdominios para aplicar la política de consultas
+    serializadas.
+
+    Args:
+        url: URL del candidato o recurso que se consulta.
+
+    Returns:
+        True si el host pertenece a ese conjunto, sin exigir una ruta específica.
+    """
     try:
         host = (urlparse(url).hostname or "").lower()
     except ValueError:
@@ -753,22 +980,32 @@ async def request_partial(
     *,
     referer: str | None = None,
     max_bytes: int = 4096,
+    user_agent: str = BROWSER_COMPATIBLE_USER_AGENT,
 ) -> httpx.Response:
-    """Ejecuta la operación `request_partial`.
+    """Envía un GET con Range y lee como máximo la muestra configurada aunque el servidor
+    responda con el archivo completo.
+    Cierra el streaming y conserva estado, cabeceras y petición original en una respuesta
+    local.
 
     Args:
-        client (httpx.AsyncClient): Cliente utilizado para ejecutar el escenario.
-        url (str): URL del recurso que debe procesarse.
-        referer (str | None): Valor de `referer` utilizado por la operación.
-        max_bytes (int): Valor de `max_bytes` utilizado por la operación.
+        client: Cliente HTTPX externo; None permite que el validador cree y cierre uno propio
+            donde se admite.
+        url: URL del candidato o recurso que se consulta.
+        referer: Página anterior o del mismo sitio, o None para omitir Referer.
+        max_bytes: Máximo de bytes crudos leídos de la respuesta parcial; predeterminado 4096.
+        user_agent: Identidad enviada en la cabecera User-Agent.
 
     Returns:
-        httpx.Response: Resultado producido por la operación.
+        respuesta con bytes de muestra, que puede ser una redirección o un error HTTP.
     """
     async with client.stream(
         "GET",
         url,
-        headers=metadata_headers(referer, partial=True),
+        headers=metadata_headers(
+            referer,
+            partial=True,
+            user_agent=user_agent,
+        ),
     ) as streamed:
         content = bytearray()
         async for chunk in streamed.aiter_raw():
@@ -787,13 +1024,14 @@ async def request_partial(
 
 
 def response_size_bytes(response: httpx.Response) -> int | None:
-    """Ejecuta la operación `response_size_bytes`.
+    """Prefiere el tamaño total de Content-Range al Content-Length para no confundir bytes de la
+    sonda con tamaño del instalador.
 
     Args:
-        response (httpx.Response): Respuesta que debe procesarse.
+        response: Respuesta HTTP con cabeceras y muestra opcional del cuerpo.
 
     Returns:
-        int | None: Resultado producido por la operación.
+        tamaño declarado total o None si las cabeceras no permiten determinarlo.
     """
     content_range = response.headers.get("content-range", "")
     match = re.search(r"/(\d+)\s*$", content_range)
@@ -804,38 +1042,41 @@ def response_size_bytes(response: httpx.Response) -> int | None:
 
 
 def matches_installer_signature(extension: str, content: bytes) -> bool:
-    """Ejecuta la operación `matches_installer_signature`.
+    """Comprueba el prefijo binario utilizando el registro predeterminado de formatos.
 
     Args:
-        extension (str): Valor de `extension` utilizado por la operación.
-        content (bytes): Contenido que debe procesarse.
+        extension: Extensión completa cuyo formato se comprueba o asigna.
+        content: Bytes iniciales de un archivo, usados como evidencia de formato.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si los bytes coinciden con una firma de formato admitida.
     """
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.matches_signature(extension, content)
 
 
 def infer_installer_extension(content: bytes) -> str | None:
-    """Ejecuta la operación `infer_installer_extension`.
+    """Busca el primer formato predeterminado que permite inferencia y coincide con los bytes
+    iniciales.
 
     Args:
-        content (bytes): Contenido que debe procesarse.
+        content: Bytes iniciales de un archivo, usados como evidencia de formato.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        extensión inferida o None.
     """
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.infer_extension(content)
 
 
 def declared_candidate_extension(candidate: InstallerCandidate) -> str | None:
-    """Ejecuta la operación `declared_candidate_extension`.
+    """Busca sufijos de instalador delimitados en etiqueta y contexto y prioriza extensiones
+    compuestas más largas.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: URL candidata con origen, etiqueta, formato sugerido y página de
+            referencia.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        extensión mencionada por el candidato o None.
     """
     text = f"{candidate.label or ''} {candidate.context or ''}".lower()
     for extension in sorted(PREFERRED_EXTENSIONS, key=len, reverse=True):
@@ -845,14 +1086,15 @@ def declared_candidate_extension(candidate: InstallerCandidate) -> str | None:
 
 
 def filename_for_inferred_extension(url: str, extension: str) -> str:
-    """Ejecuta la operación `filename_for_inferred_extension`.
+    """Deriva un nombre del último segmento de URL, sanea caracteres y limita longitud para
+    añadir la extensión reconocida.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
-        extension (str): Valor de `extension` utilizado por la operación.
+        url: URL del candidato o recurso que se consulta.
+        extension: Extensión completa cuyo formato se comprueba o asigna.
 
     Returns:
-        str: Resultado producido por la operación.
+        nombre de hasta 255 caracteres; usa download como base si no puede obtener otra.
     """
     try:
         name = PurePosixPath(unquote(urlparse(url).path)).name
@@ -867,15 +1109,16 @@ def filename_with_actual_extension(
     url: str,
     extension: str,
 ) -> str:
-    """Ejecuta la operación `filename_with_actual_extension`.
+    """Retira un sufijo de instalador conocido del nombre y añade el formato observado, o deriva
+    el nombre de URL si falta.
 
     Args:
-        filename (str | None): Valor de `filename` utilizado por la operación.
-        url (str): URL del recurso que debe procesarse.
-        extension (str): Valor de `extension` utilizado por la operación.
+        filename: Nombre propuesto del archivo, o None si aún debe derivarse de la URL.
+        url: URL del candidato o recurso que se consulta.
+        extension: Extensión completa cuyo formato se comprueba o asigna.
 
     Returns:
-        str: Resultado producido por la operación.
+        nombre con la extensión real y longitud acotada.
     """
     if not filename:
         return filename_for_inferred_extension(url, extension)
@@ -888,13 +1131,14 @@ def filename_with_actual_extension(
 
 
 def download_host(url: str) -> str | None:
-    """Ejecuta la operación `download_host`.
+    """Obtiene el dominio registrado del destino y usa el hostname en minúsculas si no tiene
+    sufijo público reconocido.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL del candidato o recurso que se consulta.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        dominio publicable o None si no puede leerse el host.
     """
     try:
         hostname = urlparse(url).hostname
@@ -906,14 +1150,14 @@ def download_host(url: str) -> str | None:
 
 
 def same_site_referer(download_url: str, referer: str | None) -> str | None:
-    """Ejecuta la operación `same_site_referer`.
+    """Conserva Referer solo cuando su dominio registrado coincide con el de la descarga.
 
     Args:
-        download_url (str): Dirección de `download` que debe procesarse.
-        referer (str | None): Valor de `referer` utilizado por la operación.
+        download_url: Destino de descarga cuyo dominio debe coincidir con el de Referer.
+        referer: Página anterior o del mismo sitio, o None para omitir Referer.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        página recibida o None para evitar enviar una referencia entre sitios distintos.
     """
     if not referer:
         return None
@@ -925,13 +1169,15 @@ def same_site_referer(download_url: str, referer: str | None) -> str | None:
 
 
 def is_edge_challenge(response: httpx.Response) -> bool:
-    """Indica si se cumple la operación `edge_challenge`.
+    """Busca cabeceras y marcadores de desafíos antirobot en los primeros 4096 bytes de
+    respuesta.
 
     Args:
-        response (httpx.Response): Respuesta que debe procesarse.
+        response: Respuesta HTTP con cabeceras y muestra opcional del cuerpo.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si detecta evidencia de desafío perimetral; no acredita el contenido del
+            instalador.
     """
     headers = " ".join(
         value.lower()
@@ -967,13 +1213,15 @@ def is_edge_challenge(response: httpx.Response) -> bool:
 
 
 def filename_from_content_disposition(value: str | None) -> str | None:
-    """Ejecuta la operación `filename_from_content_disposition`.
+    """Prioriza filename* UTF-8 y después filename, decodifica el nombre y solo acepta valores
+    con un punto.
 
     Args:
-        value (str | None): Valor que debe procesarse.
+        value: Valor recibido de Content-Disposition o nombre/ruta de archivo, según la
+            operación.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        nombre limitado a 255 caracteres o None.
     """
     if not value:
         return None
@@ -989,13 +1237,15 @@ def filename_from_content_disposition(value: str | None) -> str | None:
 
 
 def unsupported_filename_extension(value: str | None) -> str | None:
-    """Ejecuta la operación `unsupported_filename_extension`.
+    """Busca sufijos descartados en la ruta decodificada y conserva tar.gz como excepción
+    admitida.
 
     Args:
-        value (str | None): Valor que debe procesarse.
+        value: Valor recibido de Content-Disposition o nombre/ruta de archivo, según la
+            operación.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        extensión no soportada encontrada o None.
     """
     if not value:
         return None
@@ -1012,7 +1262,15 @@ def unsupported_filename_extension(value: str | None) -> str | None:
 
 
 def is_non_binary_installer_reference(url: str) -> bool:
-    """Rechaza tiendas, comandos y wrappers que no son un artefacto instalable."""
+    """Reconoce el endpoint de ficha Winstall y páginas de tienda Microsoft sin extensión de
+    instalador.
+
+    Args:
+        url: URL del candidato o recurso que se consulta.
+
+    Returns:
+        True para esas referencias sin binario o URL que no puede interpretarse.
+    """
     try:
         parsed = urlparse(url)
     except ValueError:
@@ -1031,13 +1289,16 @@ def is_non_binary_installer_reference(url: str) -> bool:
 
 
 async def domain_has_public_dns(hostname: str | None) -> bool:
-    """Ejecuta la operación `domain_has_public_dns`.
+    """Valida literales IP directamente y deduplica consultas DNS simultáneas por bucle y host.
+    Protege la consulta compartida frente a cancelación individual y cachea éxito durante 600
+    segundos y rechazo durante 20.
 
     Args:
-        hostname (str | None): Valor de `hostname` utilizado por la operación.
+        hostname: Host DNS o literal de IP; None no es admitido.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si las direcciones resueltas cumplen la política de IP; False si falta host o la
+            resolución no es admisible.
     """
     if not hostname:
         return False
@@ -1070,13 +1331,16 @@ async def domain_has_public_dns(hostname: str | None) -> bool:
 
 
 async def resolve_public_dns(hostname: str) -> bool:
-    """Resuelve la operación `public_dns`.
+    """Consulta A y AAAA con hasta tres intentos; exige al menos una dirección y ningún fallo
+    transitorio pendiente antes de aceptar.
+    Rechaza NXDOMAIN y cualquier dirección restringida y aplica pausas breves entre intentos
+    recuperables.
 
     Args:
-        hostname (str): Valor de `hostname` utilizado por la operación.
+        hostname: Host DNS o literal de IP; None no es admitido.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True solo cuando todas las direcciones obtenidas superan is_public_ip.
     """
     for attempt in range(3):
         addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
@@ -1106,14 +1370,14 @@ async def resolve_public_dns(hostname: str) -> bool:
 
 
 def is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Indica si se cumple la operación `public_ip`.
+    """Rechaza direcciones clasificadas como privadas, loopback, link-local, multicast,
+    reservadas o no especificadas por ipaddress.
 
     Args:
-        ip (ipaddress.IPv4Address | ipaddress.IPv6Address): Valor de `ip` utilizado por la
-            operación.
+        ip: Dirección IPv4 o IPv6 ya interpretada.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True cuando no pertenece a ninguna de esas categorías.
     """
     return not (
         ip.is_private

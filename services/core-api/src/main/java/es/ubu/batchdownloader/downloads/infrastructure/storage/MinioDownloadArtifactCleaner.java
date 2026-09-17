@@ -9,9 +9,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Implementa el componente {@code MinioDownloadArtifactCleaner}.
+ * Elimina recursivamente los objetos bajo el prefijo exclusivo de un trabajo expirado.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.application.port.DownloadArtifactCleaner
+ * @see es.ubu.batchdownloader.downloads.application.DownloadJobExpiration
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 @Component
 class MinioDownloadArtifactCleaner implements DownloadArtifactCleaner {
@@ -25,10 +30,10 @@ class MinioDownloadArtifactCleaner implements DownloadArtifactCleaner {
     private final String bucket;
 
     /**
-     * Inicializa una instancia de {@code MinioDownloadArtifactCleaner}.
+     * Conecta el cliente interno y el bucket donde se conservan los artefactos del worker.
      *
-     * @param minio Valor de {@code minio} utilizado por la operación.
-     * @param bucket Valor de {@code bucket} utilizado por la operación.
+     * @param minio Cliente del almacén configurado con sus credenciales de acceso.
+     * @param bucket Contenedor de objetos donde el worker publica los ZIP y sus temporales.
      */
     MinioDownloadArtifactCleaner(MinioClient minio, @Value("${app.minio.bucket}") String bucket) {
         this.minio = minio;
@@ -36,10 +41,11 @@ class MinioDownloadArtifactCleaner implements DownloadArtifactCleaner {
     }
 
     /**
-     * Elimina el recurso solicitado mediante {@code deleteJobArtifacts}.
+     * Lista y elimina los objetos bajo jobs/UUID/; un fallo interrumpe el recorrido y permite
+     * reintentar los restantes.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @throws IllegalStateException Si el estado actual impide completar la operación.
+     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
+     * @throws IllegalStateException si MinIO no puede listar o eliminar algún objeto.
      */
     @Override
     @SuppressWarnings("java:S2221") // MinIO exposes heterogeneous checked exceptions.

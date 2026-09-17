@@ -1,11 +1,13 @@
 fastapi==0.139.2
 uvicorn==0.51.0
+websockets==15.0.1
 httpx[http2]==0.28.1
 selectolax==0.4.11
 playwright==1.61.0
 sqlalchemy==2.0.51
 alembic==1.18.5
 aiomysql==0.3.2
+PyMySQL==1.2.0
 pydantic-settings==2.14.2
 tenacity==9.1.4
 apscheduler==3.11.3

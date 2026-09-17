@@ -1,17 +1,17 @@
-"""Implementa las responsabilidades del módulo `text`.
-"""
+"""Normaliza texto de catálogo para búsquedas, coincidencias y slugs reproducibles."""
 import re
 import unicodedata
 
 
 def normalize_text(value: str | None) -> str:
-    """Normaliza la operación `text`.
+    """Descompone Unicode con NFKD, elimina marcas combinantes, convierte a minúsculas y colapsa
+    espacios.
 
     Args:
-        value (str | None): Valor que debe procesarse.
+        value: Texto, URL o atributo que se normaliza o analiza.
 
     Returns:
-        str: Resultado producido por la operación.
+        texto normalizado o cadena vacía si falta el valor.
     """
     if not value:
         return ""
@@ -22,13 +22,13 @@ def normalize_text(value: str | None) -> str:
 
 
 def slugify(value: str) -> str:
-    """Ejecuta la operación `slugify`.
+    """Convierte el texto normalizado a segmentos ASCII alfanuméricos separados por guiones.
 
     Args:
-        value (str): Valor que debe procesarse.
+        value: Texto, URL o atributo que se normaliza o analiza.
 
     Returns:
-        str: Resultado producido por la operación.
+        slug sin guiones exteriores, o app si no queda contenido.
     """
     normalized = normalize_text(value)
     normalized = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")

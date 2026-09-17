@@ -19,14 +19,18 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 
 /**
- * Agrupa los escenarios de prueba de {@code JdbcNotificationInboxTest}.
+ * Comprueba reservas y transiciones idempotentes del inbox sobre una base de datos aislada.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.infrastructure.persistence.JdbcNotificationInbox
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 class JdbcNotificationInboxTest {
 
     /**
-     * Constante que define {@code NOW}.
+     * Valor compartido que fija n o w para el comportamiento del componente.
      */
     private static final Instant NOW = Instant.parse("2026-07-11T10:00:00Z");
 
@@ -44,7 +48,7 @@ class JdbcNotificationInboxTest {
     private JdbcTemplate jdbcTemplate;
 
     /**
-     * Prepara el estado necesario para los escenarios de prueba.
+     * Crea una base de datos local vacía con el esquema de inbox y un reloj determinista.
      */
     @BeforeEach
     void setUp() {
@@ -61,7 +65,7 @@ class JdbcNotificationInboxTest {
     }
 
     /**
-     * Libera el estado utilizado por los escenarios de prueba.
+     * Cierra la base de datos de la prueba para liberar sus recursos.
      */
     @AfterEach
     void tearDown() {
@@ -69,7 +73,8 @@ class JdbcNotificationInboxTest {
     }
 
     /**
-     * Comprueba el escenario {@code persistsAndDeduplicatesAProcessedEvent}.
+     * Comprueba que un evento nuevo se reserva, se confirma y después se reconoce como duplicado
+     * completado.
      */
     @Test
     void persistsAndDeduplicatesAProcessedEvent() {
@@ -85,7 +90,7 @@ class JdbcNotificationInboxTest {
     }
 
     /**
-     * Comprueba el escenario {@code makesAFailedEventAvailableToTheNextRetry}.
+     * Comprueba que un intento fallido puede reservarse de nuevo para reintentar el envío.
      */
     @Test
     void makesAFailedEventAvailableToTheNextRetry() {
@@ -105,7 +110,8 @@ class JdbcNotificationInboxTest {
     }
 
     /**
-     * Comprueba el escenario {@code reportsAnActiveLeaseAsBusy}.
+     * Comprueba que una segunda reserva del mismo evento se informa como ocupada mientras la
+     * primera sigue vigente.
      */
     @Test
     void reportsAnActiveLeaseAsBusy() {
@@ -119,10 +125,10 @@ class JdbcNotificationInboxTest {
     }
 
     /**
-     * Ejecuta la operación {@code statusOf}.
+     * Consulta directamente el estado persistido para comprobar la transición de un evento.
      *
-     * @param eventId Identificador de {@code event} utilizado por la operación.
-     * @return Resultado producido por {@code statusOf}.
+     * @param eventId UUID de la fila del inbox que se comprueba.
+     * @return estado actual de la fila del inbox.
      */
     private String statusOf(UUID eventId) {
         return jdbcTemplate.queryForObject(

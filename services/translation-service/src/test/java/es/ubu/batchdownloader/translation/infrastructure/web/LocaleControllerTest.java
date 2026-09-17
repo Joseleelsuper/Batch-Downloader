@@ -20,18 +20,22 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * Agrupa los escenarios de prueba de {@code LocaleControllerTest}.
+ * Comprueba el contrato HTTP del catálogo español y su revalidación condicional con ETag.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.translation.infrastructure.web.LocaleController
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Traducciones
  */
 class LocaleControllerTest {
 
     /**
-     * Constante que define {@code ETAG}.
+     * Valor compartido que fija e t a g para el comportamiento del componente.
      */
     private static final String ETAG = "\"8d7c294d0c4f3f5a\"";
     /**
-     * Constante que define {@code CONTENT}.
+     * Valor compartido que fija c o n t e n t para el comportamiento del componente.
      */
     private static final byte[] CONTENT = "{\"greeting\":\"Hola\"}"
             .getBytes(StandardCharsets.UTF_8);
@@ -42,7 +46,7 @@ class LocaleControllerTest {
     private MockMvc mockMvc;
 
     /**
-     * Prepara el estado necesario para los escenarios de prueba.
+     * Prepara un controlador aislado con catálogo de prueba y política de caché conocida.
      */
     @BeforeEach
     void setUp() {
@@ -58,9 +62,8 @@ class LocaleControllerTest {
     }
 
     /**
-     * Comprueba el escenario {@code returnsTheSpanishCatalogWithCacheHeaders}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Comprueba que GET del español devuelve JSON UTF-8, ETag y las cabeceras de caché
+     * configuradas.
      */
     @Test
     void returnsTheSpanishCatalogWithCacheHeaders() throws Exception {
@@ -78,9 +81,7 @@ class LocaleControllerTest {
     }
 
     /**
-     * Comprueba el escenario {@code returnsNotModifiedWhenIfNoneMatchMatches}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Comprueba que If-None-Match coincidente devuelve 304 sin contenido.
      */
     @Test
     void returnsNotModifiedWhenIfNoneMatchMatches() throws Exception {
@@ -91,9 +92,7 @@ class LocaleControllerTest {
     }
 
     /**
-     * Comprueba el escenario {@code exposesOnlyTheSpanishLocaleInVersionOne}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Comprueba que la versión uno no expone una ruta para un idioma no publicado.
      */
     @Test
     void exposesOnlyTheSpanishLocaleInVersionOne() throws Exception {

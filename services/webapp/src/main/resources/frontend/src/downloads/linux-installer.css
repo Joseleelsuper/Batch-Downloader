@@ -1,0 +1,20 @@
+.linux-installer-dialog {
+  width: min(36rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  border: 1px solid #bcc8d4;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  color: #1b2935;
+  background: #fff;
+  box-shadow: 0 1rem 4rem #10283c40;
+}
+.linux-installer-dialog::backdrop { background: #10283c99; }
+.linux-installer-dialog label, .linux-recipe-editor label { display: block; margin: .8rem 0 .3rem; font-weight: 600; }
+.linux-installer-dialog select, .linux-recipe-editor select, .linux-recipe-editor input,
+.linux-recipe-editor textarea { width: 100%; padding: .6rem; border: 1px solid #8797a6; border-radius: .4rem; }
+.linux-installer-dialog footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .6rem; margin-top: 1rem; }
+.linux-installer-dialog :focus-visible, .linux-recipe-editor :focus-visible { outline: 3px solid #1569ae; outline-offset: 3px; }
+.linux-recipe-editor { padding: 1rem; border: 1px solid #bcc8d4; border-radius: .6rem; margin-block: 1rem; }
+.linux-recipe-editor textarea { min-height: 10rem; font-family: monospace; resize: vertical; }
+.linux-recipe-editor code, .linux-installer-dialog code { overflow-wrap: anywhere; }

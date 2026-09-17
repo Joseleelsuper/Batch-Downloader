@@ -1,10 +1,17 @@
-"""Implementa las responsabilidades del módulo `description_enricher`.
+"""Genera y persiste descripciones largas de aplicaciones con evidencia acotada, proveedores LLM
+alternativos, cooldowns y huellas reproducibles.
+
+See Also:
+    app.scraper.llm: Define errores, proveedores y políticas de cuota.
+    app.repositories.catalog: Persiste el resultado y su estado.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -36,138 +43,145 @@ from app.scraper.llm import (
 from app.scraper.safe_http import SafeHttpError, fetch_public_resource
 
 logger = get_logger(__name__)
-"""Estado global asociado a `logger`.
-"""
+
 
 
 @dataclass(frozen=True)
 class GeneratedDescription:
-    """Representa el componente `GeneratedDescription`.
+    """Resultado textual aceptado de un proveedor LLM con idioma y modelo de trazabilidad.
+
+    Attributes:
+        description: Texto normalizado que se puede mostrar en el catálogo.
+        language: Idioma declarado o es.
+        provider: Proveedor que respondió.
+        model: Modelo que respondió.
     """
+
     description: str
-    """Atributo de clase `description` de `GeneratedDescription`.
-    """
+
     language: str
-    """Atributo de clase `language` de `GeneratedDescription`.
-    """
+
     provider: str
-    """Atributo de clase `provider` de `GeneratedDescription`.
-    """
+
     model: str
-    """Atributo de clase `model` de `GeneratedDescription`.
-    """
+
 
 
 @dataclass(frozen=True)
 class EnrichmentResult:
-    """Representa el resultado de `Enrichment`.
+    """Resultado detallado de una operación de enriquecimiento, incluyendo la huella y el error
+    opcional.
+
+    Attributes:
+        app_id: Aplicación procesada.
+        input_hash: Huella de entrada.
+        description: Descripción generada o None.
+        error: Código del fallo, si existe.
+        provider, model: Origen del resultado.
     """
+
     app_id: Any
-    """Atributo de clase `app_id` de `EnrichmentResult`.
-    """
+
     input_hash: str
-    """Atributo de clase `input_hash` de `EnrichmentResult`.
-    """
+
     description: GeneratedDescription | None
-    """Atributo de clase `description` de `EnrichmentResult`.
-    """
+
     error: str | None = None
-    """Atributo de clase `error` de `EnrichmentResult`.
-    """
+
     provider: str | None = None
-    """Atributo de clase `provider` de `EnrichmentResult`.
-    """
+
     model: str | None = None
-    """Atributo de clase `model` de `EnrichmentResult`.
-    """
+
 
 
 @dataclass(frozen=True)
 class DescriptionJobResult:
-    """Representa el resultado de `DescriptionJob`.
+    """Estado compacto que usa la cola para informar si una descripción se completó, omitió, dejó
+    pendiente o falló.
+
+    Attributes:
+        app_id: Aplicación del trabajo.
+        status: Estado de cola.
+        input_hash: Huella evaluada.
+        error: Motivo de fallo o pendiente.
+        provider, model: Origen cuando hubo generación.
     """
+
     app_id: Any
-    """Atributo de clase `app_id` de `DescriptionJobResult`.
-    """
+
     status: str
-    """Atributo de clase `status` de `DescriptionJobResult`.
-    """
+
     input_hash: str | None = None
-    """Atributo de clase `input_hash` de `DescriptionJobResult`.
-    """
+
     error: str | None = None
-    """Atributo de clase `error` de `DescriptionJobResult`.
-    """
+
     provider: str | None = None
-    """Atributo de clase `provider` de `DescriptionJobResult`.
-    """
+
     model: str | None = None
-    """Atributo de clase `model` de `DescriptionJobResult`.
-    """
+
 
 
 class LLMRateLimiter(Protocol):
-    """Representa el componente `LLMRateLimiter`.
+    """Contrato mínimo para esperar una cuota disponible antes de llamar a cualquier proveedor
+    LLM.
     """
+
     async def wait_for_slot(self) -> Any:
-        """Ejecuta `wait_for_slot` dentro de `LLMRateLimiter`.
+        """Espera hasta que la política de cuota permita enviar una petición.
 
         Returns:
-            Any: Resultado producido por la operación.
+            resultado del limitador, si lo proporciona.
         """
         ...
 
 
 class AppDescriptionLLMClient:
-    """Encapsula la comunicación con `AppDescriptionLLM`.
+    """Selecciona modelos Groq/DeepSeek, aplica cuota y cooldowns y valida la respuesta JSON de
+    una descripción.
     """
+
     def __init__(
         self,
         settings: Settings,
         rate_limiter: LLMRateLimiter | None = None,
         cooldowns: ModelCooldownStore | None = None,
     ) -> None:
-        """Inicializa una instancia de `AppDescriptionLLMClient`.
+        """Configura proveedores y crea colaboradores de cuota y cooldown cuando no se inyectan.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            rate_limiter (LLMRateLimiter | None): Valor de `rate_limiter` utilizado por la
-                operación.
-            cooldowns (ModelCooldownStore | None): Valor de `cooldowns` utilizado por la operación.
+            settings: Configuración de proveedores, límites y timeouts.
+            rate_limiter: Colaborador que espera un hueco de cuota antes de llamar al
+                proveedor.
+            cooldowns: Almacén que bloquea modelos con errores recientes.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.rate_limiter = rate_limiter or DatabaseLLMRateLimiter()
-        """Estado de instancia asociado a `rate_limiter`.
-        """
+
         self.cooldowns = cooldowns or InMemoryModelCooldownStore()
-        """Estado de instancia asociado a `cooldowns`.
-        """
+
 
     def has_provider(self) -> bool:
-        """Indica si existe la operación `provider`.
+        """Comprueba si existe al menos una credencial LLM utilizable.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si Groq o DeepSeek están configurados.
         """
         return bool(self.settings.llm_groq_api_key or self._deepseek().api_key)
 
     async def generate(self, evidence: dict[str, Any]) -> GeneratedDescription:
-        """Ejecuta `generate` dentro de `AppDescriptionLLMClient`.
+        """Prueba modelos Groq en orden, respeta cooldowns, usa DeepSeek como fallback y propaga
+        el último error significativo.
 
         Args:
-            evidence (dict[str, Any]): Valor de `evidence` utilizado por la operación.
+            evidence: Mapa acotado de datos de catálogo y web enviado al modelo.
 
         Returns:
-            GeneratedDescription: Resultado producido por la operación.
+            GeneratedDescription validada.
 
-        Throws:
-            LLMGenerationError: Si no puede completarse la operación bajo las condiciones
-                requeridas.
-            last_error: Si no puede completarse la operación bajo las condiciones requeridas.
-            NoLLMProviderConfigured: Si no puede completarse la operación bajo las condiciones
-                requeridas.
+        Raises:
+            NoLLMProviderConfigured: Si no hay credenciales.
+            LLMGenerationError: Si los proveedores fallan o todos están en cooldown.
         """
         groq_models = self._groq_models()
         deepseek = self._deepseek()
@@ -203,18 +217,18 @@ class AppDescriptionLLMClient:
         provider: LLMProviderConfig,
         evidence: dict[str, Any],
     ) -> GeneratedDescription:
-        """Ejecuta el paso interno `_call_provider`.
+        """Construye la petición segura de chat, desactiva razonamiento no requerido, limita
+        cuota y convierte la respuesta en descripción normalizada.
 
         Args:
-            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
-            evidence (dict[str, Any]): Valor de `evidence` utilizado por la operación.
+            provider: Configuración del proveedor que se consulta.
+            evidence: Mapa acotado de datos de catálogo y web enviado al modelo.
 
         Returns:
-            GeneratedDescription: Resultado producido por la operación.
+            GeneratedDescription del proveedor.
 
-        Throws:
-            LLMGenerationError: Si no puede completarse la operación bajo las condiciones
-                requeridas.
+        Raises:
+            LLMGenerationError: Ante timeout, HTTP, JSON o contenido inválido.
         """
         url = f"{provider.base_url.rstrip('/')}/chat/completions"
         payload = {
@@ -238,6 +252,13 @@ class AppDescriptionLLMClient:
             "max_tokens": 520,
             "response_format": {"type": "json_object"},
         }
+        if provider.name == LLMProviderName.GROQ and provider.model.startswith("qwen/qwen3"):
+            # Los modelos Qwen actuales razonan por defecto. Desactivarlo evita
+            # que consuman el presupuesto con <think> y permite que Groq valide
+            # el objeto JSON final de forma determinista.
+            payload["reasoning_effort"] = "none"
+        if provider.name == LLMProviderName.DEEPSEEK:
+            payload["thinking"] = {"type": "disabled"}
         headers = {
             "Authorization": f"Bearer {provider.api_key}",
             "Content-Type": "application/json",
@@ -282,32 +303,7 @@ class AppDescriptionLLMClient:
                 cooldown_seconds=self.settings.llm_transient_cooldown_seconds,
             ) from exc
 
-        if response.status_code >= 400:
-            logger.warning(
-                "llm_request_failed",
-                provider=provider.name.value,
-                model=provider.model,
-                status_code=response.status_code,
-            )
-            retryable = response.status_code in TRANSIENT_HTTP_STATUSES
-            cooldown_seconds = None
-            if response.status_code == 429:
-                cooldown_seconds = cooldown_from_headers(
-                    response.headers,
-                    default_seconds=self.settings.llm_rate_limit_cooldown_seconds,
-                )
-            elif retryable:
-                cooldown_seconds = self.settings.llm_transient_cooldown_seconds
-            elif response.status_code == 400:
-                retryable = True
-                cooldown_seconds = self.settings.llm_model_error_cooldown_seconds
-            raise LLMGenerationError(
-                f"http_{response.status_code}",
-                provider.name.value,
-                provider.model,
-                retryable=retryable,
-                cooldown_seconds=cooldown_seconds,
-            )
+        self._require_successful_response(provider, response)
 
         try:
             body = response.json()
@@ -346,10 +342,10 @@ class AppDescriptionLLMClient:
         )
 
     def _groq_models(self) -> tuple[LLMProviderConfig, ...]:
-        """Ejecuta el paso interno `_groq_models`.
+        """Construye la secuencia única de modelos Groq configurados, incluyendo fallbacks.
 
         Returns:
-            tuple[LLMProviderConfig, ...]: Resultado producido por la operación.
+            tupla de configuraciones Groq.
         """
         if not self.settings.llm_groq_api_key:
             return ()
@@ -368,10 +364,10 @@ class AppDescriptionLLMClient:
         )
 
     def _deepseek(self) -> LLMProviderConfig:
-        """Ejecuta el paso interno `_deepseek`.
+        """Construye la configuración del modelo DeepSeek configurado.
 
         Returns:
-            LLMProviderConfig: Resultado producido por la operación.
+            configuración DeepSeek.
         """
         return LLMProviderConfig(
             name=LLMProviderName.DEEPSEEK,
@@ -381,13 +377,13 @@ class AppDescriptionLLMClient:
         )
 
     def _log_cooldown_skip(self, provider: LLMProviderConfig) -> bool:
-        """Ejecuta el paso interno `_log_cooldown_skip`.
+        """Registra y omite un modelo cuyo cooldown aún está activo.
 
         Args:
-            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
+            provider: Configuración del proveedor que se consulta.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si el modelo está bloqueado.
         """
         cooldown = self.cooldowns.get(provider)
         if cooldown is None:
@@ -406,11 +402,12 @@ class AppDescriptionLLMClient:
         provider: LLMProviderConfig,
         error: LLMGenerationError,
     ) -> None:
-        """Ejecuta el paso interno `_start_cooldown`.
+        """Inicia el cooldown indicado por el error o por la configuración transitoria y lo
+        registra.
 
         Args:
-            provider (LLMProviderConfig): Valor de `provider` utilizado por la operación.
-            error (LLMGenerationError): Error que debe registrarse o propagarse.
+            provider: Configuración del proveedor que se consulta.
+            error: Fallo del proveedor que determina reintento y cooldown.
         """
         seconds = error.cooldown_seconds or self.settings.llm_transient_cooldown_seconds
         self.cooldowns.start(provider, reason=error.reason, seconds=seconds)
@@ -422,10 +419,52 @@ class AppDescriptionLLMClient:
             cooldown_seconds=seconds,
         )
 
+    def _require_successful_response(
+        self, provider: LLMProviderConfig, response: httpx.Response
+    ) -> None:
+        """Clasifica respuestas HTTP: 429 usa Retry-After, 5xx y estados transitorios reintentan
+        y 400/404 enfrían el modelo.
+
+        Args:
+            provider: Configuración del proveedor que se consulta.
+            response: Respuesta HTTP recibida del proveedor LLM.
+
+        Raises:
+            LLMGenerationError: Siempre que la respuesta sea >=400.
+        """
+        if response.status_code >= 400:
+            logger.warning(
+                "llm_request_failed",
+                provider=provider.name.value,
+                model=provider.model,
+                status_code=response.status_code,
+            )
+            retryable = response.status_code in TRANSIENT_HTTP_STATUSES
+            cooldown_seconds = None
+            if response.status_code == 429:
+                cooldown_seconds = cooldown_from_headers(
+                    response.headers,
+                    default_seconds=self.settings.llm_rate_limit_cooldown_seconds,
+                )
+            elif retryable:
+                cooldown_seconds = self.settings.llm_transient_cooldown_seconds
+            elif response.status_code in {400, 404}:
+                retryable = True
+                cooldown_seconds = self.settings.llm_model_error_cooldown_seconds
+            raise LLMGenerationError(
+                f"http_{response.status_code}",
+                provider.name.value,
+                provider.model,
+                retryable=retryable,
+                cooldown_seconds=cooldown_seconds,
+            )
+
 
 class AppDescriptionEnricher:
-    """Representa el componente `AppDescriptionEnricher`.
+    """Coordina el enriquecimiento persistente de una aplicación, liberando la transacción antes
+    de red y guardando huellas, estados y trazas.
     """
+
     def __init__(
         self,
         settings: Settings,
@@ -433,41 +472,41 @@ class AppDescriptionEnricher:
         logs: ResolverLogRepository,
         llm: AppDescriptionLLMClient | None = None,
     ) -> None:
-        """Inicializa una instancia de `AppDescriptionEnricher`.
+        """Inyecta catálogo, logs y cliente LLM para mantener el caso de uso testeable.
 
         Args:
-            settings (Settings): Configuración del servicio.
-            catalog (CatalogRepository): Valor de `catalog` utilizado por la operación.
-            logs (ResolverLogRepository): Valor de `logs` utilizado por la operación.
-            llm (AppDescriptionLLMClient | None): Valor de `llm` utilizado por la operación.
+            settings: Configuración de proveedores, límites y timeouts.
+            catalog: Repositorio de catálogo para leer aplicaciones y guardar descripciones.
+            logs: Repositorio de trazas de resolución y enriquecimiento.
+            llm: Cliente LLM inyectable para generar la descripción.
         """
         self.settings = settings
-        """Estado de instancia asociado a `settings`.
-        """
+
         self.catalog = catalog
-        """Estado de instancia asociado a `catalog`.
-        """
+
         self.logs = logs
-        """Estado de instancia asociado a `logs`.
-        """
+
         self.llm = llm or AppDescriptionLLMClient(settings)
-        """Estado de instancia asociado a `llm`.
-        """
+
 
     async def enrich_app(
         self,
         software_app_id: Any,
         *,
         force: bool = False,
+        release_database_connection: Callable[[], Awaitable[None]] | None = None,
     ) -> DescriptionJobResult:
-        """Ejecuta `enrich_app` dentro de `AppDescriptionEnricher`.
+        """Carga una aplicación, evita regenerar entradas sin cambios, obtiene evidencia externa
+        y persiste éxito o fallo con su huella.
 
         Args:
-            software_app_id (Any): Identificador de `software_app` utilizado por la operación.
-            force (bool): Valor de `force` utilizado por la operación.
+            software_app_id: Identificador de aplicación para enriquecer.
+            force: Indica si se ignora una descripción ya completada con la misma huella.
+            release_database_connection: Callback opcional para liberar la transacción antes
+                de E/S externa.
 
         Returns:
-            DescriptionJobResult: Resultado producido por la operación.
+            DescriptionJobResult con estado y origen.
         """
         apps = await self.catalog.apps_for_description_enrichment([software_app_id])
         if not apps:
@@ -492,6 +531,9 @@ class AppDescriptionEnricher:
                 input_hash=input_hash,
                 error="llm_provider_not_configured",
             )
+
+        if release_database_connection is not None:
+            await release_database_connection()
 
         metadata = await fetch_safe_page_metadata(
             app.official_url,
@@ -554,13 +596,14 @@ class AppDescriptionEnricher:
         )
 
     async def enrich_pending(self, software_app_ids: list[Any] | None = None) -> int:
-        """Ejecuta `enrich_pending` dentro de `AppDescriptionEnricher`.
+        """Selecciona trabajos pendientes hasta el límite configurado y procesa cada aplicación
+        de forma secuencial.
 
         Args:
-            software_app_ids (list[Any] | None): Colección de identificadores de `software_app`.
+            software_app_ids: Identificadores opcionales que limitan la selección de trabajos.
 
         Returns:
-            int: Resultado producido por la operación.
+            número de trabajos completados.
         """
         if not self.llm.has_provider():
             logger.warning("description_enrichment_skipped", reason="llm_provider_not_configured")
@@ -614,13 +657,14 @@ class AppDescriptionEnricher:
 
 
 def description_input_hash(app: SoftwareApp) -> str:
-    """Ejecuta la operación `description_input_hash`.
+    """Calcula SHA-256 estable de identidad, metadatos, tags y versión que condicionan la
+    descripción.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación cuyo texto o huella se construye.
 
     Returns:
-        str: Resultado producido por la operación.
+        huella hexadecimal.
     """
     payload = {
         "winstall_id": app.winstall_id,
@@ -636,14 +680,14 @@ def description_input_hash(app: SoftwareApp) -> str:
 
 
 def description_evidence(app: SoftwareApp, page_metadata: dict[str, str]) -> dict[str, Any]:
-    """Ejecuta la operación `description_evidence`.
+    """Construye evidencia segura de catálogo, tags, dominio y mejor instalador para el prompt.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
-        page_metadata (dict[str, str]): Valor de `page_metadata` utilizado por la operación.
+        app: Aplicación cuyo texto o huella se construye.
+        page_metadata: Metadatos seguros obtenidos de la página oficial.
 
     Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
+        mapa serializable para el modelo.
     """
     resolved = best_resolved_source(app)
     return {
@@ -665,18 +709,17 @@ def description_evidence(app: SoftwareApp, page_metadata: dict[str, str]) -> dic
 
 
 def build_embedding_metadata(app: SoftwareApp) -> dict[str, Any]:
-    """Construye la operación `embedding_metadata`.
+    """Proyecta nombre, paquete, editor, tags, descripciones, plataformas y arquitecturas en el
+    esquema de embeddings v1.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación cuyo texto o huella se construye.
 
     Returns:
-        dict[str, Any]: Mapa con los datos producidos por la operación.
+        metadatos normalizados.
     """
     tags = sorted(
-        tag.tag.strip()
-        for tag in app.__dict__.get("tags", [])
-        if tag.tag and tag.tag.strip()
+        tag.tag.strip() for tag in app.__dict__.get("tags", []) if tag.tag and tag.tag.strip()
     )
     sources = app.__dict__.get("sources", [])
     systems = sorted(
@@ -709,20 +752,19 @@ def build_embedding_metadata(app: SoftwareApp) -> dict[str, Any]:
         "operatingSystems": systems,
         "architectures": architectures,
         "version": (app.latest_version or "").strip() or None,
-        "officialDomain": (
-            registered_domain(app.official_url) if app.official_url else None
-        ),
+        "officialDomain": (registered_domain(app.official_url) if app.official_url else None),
     }
 
 
 def build_embedding_text(app: SoftwareApp) -> str:
-    """Construye la operación `embedding_text`.
+    """Convierte los metadatos de embeddings a líneas estables en español para indexación
+    semántica.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación cuyo texto o huella se construye.
 
     Returns:
-        str: Resultado de `build_embedding_text`.
+        texto canónico.
     """
     metadata = build_embedding_metadata(app)
     parts = [
@@ -731,8 +773,7 @@ def build_embedding_text(app: SoftwareApp) -> str:
         f"Editor: {metadata['publisher'] or '-'}",
         f"Tags: {', '.join(metadata['tags']) or '-'}",
         f"Descripcion corta: {metadata['shortDescription'] or '-'}",
-        "Descripcion larga: "
-        f"{metadata['longDescription'] or metadata['shortDescription'] or '-'}",
+        f"Descripcion larga: {metadata['longDescription'] or metadata['shortDescription'] or '-'}",
         f"Sistemas: {', '.join(metadata['operatingSystems']) or '-'}",
         f"Arquitecturas: {', '.join(metadata['architectures']) or '-'}",
         f"Version: {metadata['version'] or '-'}",
@@ -742,13 +783,13 @@ def build_embedding_text(app: SoftwareApp) -> str:
 
 
 def embedding_content_hash(app: SoftwareApp) -> str:
-    """Ejecuta la operación `embedding_content_hash`.
+    """Calcula SHA-256 del texto y metadatos de embedding para detectar cambios de contenido.
 
     Args:
-        app (SoftwareApp): Aplicación sobre la que se realiza la operación.
+        app: Aplicación cuyo texto o huella se construye.
 
     Returns:
-        str: Resultado producido por la operación.
+        huella hexadecimal.
     """
     canonical = {
         "content": build_embedding_text(app),
@@ -764,13 +805,14 @@ def embedding_content_hash(app: SoftwareApp) -> str:
 
 
 def build_description_prompt(evidence: dict[str, Any]) -> str:
-    """Construye la operación `description_prompt`.
+    """Genera el prompt que obliga al modelo a responder 120-180 palabras en español y JSON sin
+    URLs ni instrucciones externas.
 
     Args:
-        evidence (dict[str, Any]): Valor de `evidence` utilizado por la operación.
+        evidence: Mapa acotado de datos de catálogo y web enviado al modelo.
 
     Returns:
-        str: Resultado de `build_description_prompt`.
+        prompt con evidencia serializada.
     """
     return (
         "Crea una descripcion larga en espanol para esta aplicacion.\n"
@@ -788,16 +830,17 @@ def build_description_prompt(evidence: dict[str, Any]) -> str:
 
 
 def parse_description_payload(content: str) -> tuple[str, str]:
-    """Analiza la operación `description_payload`.
+    """Acepta JSON directo o cercado, recupera el primer objeto si hay texto adicional y exige
+    descripción no vacía.
 
     Args:
-        content (str): Contenido que debe procesarse.
+        content: Contenido devuelto por el modelo en formato JSON o Markdown cercado.
 
     Returns:
-        tuple[str, str]: Resultado producido por la operación.
+        descripción y lenguaje.
 
-    Throws:
-        LLMGenerationError: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        LLMGenerationError: Si el JSON o el campo long_description no son válidos.
     """
     cleaned = content.strip()
     fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL | re.IGNORECASE)
@@ -806,7 +849,16 @@ def parse_description_payload(content: str) -> tuple[str, str]:
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise LLMGenerationError("invalid_json") from exc
+        object_start = cleaned.find("{")
+        if object_start < 0:
+            raise LLMGenerationError("invalid_json") from exc
+        try:
+            payload, _remainder_index = json.JSONDecoder().raw_decode(cleaned[object_start:])
+        except json.JSONDecodeError as embedded_exc:
+            raise LLMGenerationError("invalid_json") from embedded_exc
+
+    if not isinstance(payload, dict):
+        raise LLMGenerationError("invalid_json")
 
     description = payload.get("long_description") or payload.get("description")
     language = payload.get("language") or "es"
@@ -818,26 +870,27 @@ def parse_description_payload(content: str) -> tuple[str, str]:
 
 
 def normalize_generated_description(value: str) -> str:
-    """Normaliza la operación `generated_description`.
+    """Colapsa espacios y elimina extremos del texto generado.
 
     Args:
-        value (str): Valor que debe procesarse.
+        value: Texto que se normaliza.
 
     Returns:
-        str: Resultado producido por la operación.
+        descripción normalizada.
     """
     return re.sub(r"\s+", " ", value).strip()
 
 
 async def fetch_safe_page_metadata(url: str | None, timeout: float) -> dict[str, str]:
-    """Recupera la operación `safe_page_metadata`.
+    """Consulta solo URLs HTTPS como HTML limitado y devuelve metadatos allowlisted; cualquier
+    fallo produce mapa vacío.
 
     Args:
-        url (str | None): URL del recurso que debe procesarse.
-        timeout (float): Tiempo máximo permitido para completar la operación.
+        url: URL oficial que puede consultarse como HTML.
+        timeout: Tiempo máximo de la consulta externa.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        metadatos seguros o {}.
     """
     if not url or urlparse(url).scheme != "https":
         return {}
@@ -858,13 +911,14 @@ async def fetch_safe_page_metadata(url: str | None, timeout: float) -> dict[str,
 
 
 def _parse_safe_page_metadata(html: str) -> dict[str, str]:
-    """Ejecuta el paso interno `_parse_safe_page_metadata`.
+    """Extrae title y meta description/keywords/Open Graph/Twitter sin ejecutar scripts y limita
+    cada valor.
 
     Args:
-        html (str): Valor de `html` utilizado por la operación.
+        html: HTML limitado que se analiza sin ejecutar scripts.
 
     Returns:
-        dict[str, str]: Mapa con los datos producidos por la operación.
+        mapa de metadatos no vacío.
     """
     parser = HTMLParser(html)
     metadata: dict[str, str] = {}
@@ -894,13 +948,13 @@ def _parse_safe_page_metadata(html: str) -> dict[str, str]:
 
 
 def safe_text(value: str, max_length: int = 500) -> str:
-    """Ejecuta la operación `safe_text`.
+    """Normaliza espacios y corta un texto de página al límite indicado.
 
     Args:
-        value (str): Valor que debe procesarse.
-        max_length (int): Valor de `max_length` utilizado por la operación.
+        value: Texto que se normaliza.
+        max_length: Número máximo de caracteres que se conserva.
 
     Returns:
-        str: Resultado producido por la operación.
+        texto seguro.
     """
     return re.sub(r"\s+", " ", value).strip()[:max_length]

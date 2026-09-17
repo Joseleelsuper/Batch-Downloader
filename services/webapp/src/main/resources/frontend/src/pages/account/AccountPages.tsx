@@ -1,5 +1,6 @@
 import {
   Boxes,
+  Check,
   Clock3,
   Download,
   ExternalLink,
@@ -8,6 +9,7 @@ import {
   Save,
   Trash2,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
   type FormEvent,
@@ -23,7 +25,6 @@ import {
   useLocation,
   useNavigate,
   useParams,
-  useSearchParams,
 } from 'react-router-dom';
 import {
   confirmEmail,
@@ -47,6 +48,10 @@ import { useTranslation, type Translator } from '../../services/i18n';
 import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSummary } from '../../types/account';
 import type { CatalogApp } from '../../types/catalog';
 
+const MAXIMUM_EMAIL_LENGTH = 254;
+const MINIMUM_PASSWORD_CHARACTERS = 8;
+const MAXIMUM_PASSWORD_UTF8_BYTES = 72;
+
 function apiMessage(t: Translator, error: unknown, fallbackKey: string): string {
   if (error instanceof ApiRequestError) {
     const key = `account.error.${error.code}`;
@@ -66,6 +71,90 @@ function fieldMessage(error: unknown, field: string): string | null {
   return null;
 }
 
+function emailIssue(t: Translator, email: string): string | null {
+  if (!email.trim() || !/^[^\s@]+@[^\s@]+$/.test(email)) return t('account.email.invalid');
+  if (email.length > MAXIMUM_EMAIL_LENGTH) return t('account.email.tooLong');
+  return null;
+}
+
+function passwordBytes(password: string): number {
+  return new TextEncoder().encode(password).length;
+}
+
+function newPasswordIssue(t: Translator, password: string): string | null {
+  if (Array.from(password).length < MINIMUM_PASSWORD_CHARACTERS) return t('account.password.tooShort');
+  if (passwordBytes(password) > MAXIMUM_PASSWORD_UTF8_BYTES) return t('account.password.tooLong');
+  if (!/\p{Lu}/u.test(password)) return t('account.password.missingUppercase');
+  if (!/\p{Ll}/u.test(password)) return t('account.password.missingLowercase');
+  if (!/\p{N}/u.test(password)) return t('account.password.missingNumber');
+  if (!/[^\p{L}\p{N}\s]/u.test(password)) return t('account.password.missingSpecial');
+  return null;
+}
+
+function loginPasswordIssue(t: Translator, password: string): string | null {
+  if (!password) return t('account.password.required');
+  if (passwordBytes(password) > MAXIMUM_PASSWORD_UTF8_BYTES) return t('account.password.tooLong');
+  return null;
+}
+
+function PasswordGuidance({ password }: Readonly<{ password: string }>) {
+  const t = useTranslation();
+  const compositionIcons = [
+    { glyph: 'uppercase', label: t('account.password.missingUppercase') },
+    { glyph: 'lowercase', label: t('account.password.missingLowercase') },
+    { glyph: 'numbers', label: t('account.password.missingNumber') },
+    { glyph: 'asterisk', label: t('account.password.missingSpecial') },
+  ];
+  const rules = [
+    {
+      id: 'minimum',
+      label: t('account.password.rule.minimum'),
+      passed: Array.from(password).length >= MINIMUM_PASSWORD_CHARACTERS,
+    },
+    {
+      id: 'composition',
+      label: t('account.password.rule.composition'),
+      passed: /\p{Lu}/u.test(password)
+        && /\p{Ll}/u.test(password)
+        && /\p{N}/u.test(password)
+        && /[^\p{L}\p{N}\s]/u.test(password),
+    },
+  ];
+  const passedRules = rules.filter((rule) => rule.passed).length;
+
+  return <div id="password-guidance" className="password-requirements">
+    <p className="password-requirements-title">{t('account.password.rulesTitle')}</p>
+    <ul className="password-rules">
+      {rules.map((rule) => {
+        const Icon = rule.passed ? Check : X;
+        return <li key={rule.id} className={rule.passed ? 'is-passed' : 'is-pending'}>
+          <Icon size={17} strokeWidth={2.5} aria-hidden="true" />
+          {rule.id === 'composition' ? <span
+            className="password-composition-icons"
+            role="img"
+            aria-label={rule.label}
+          >
+            {compositionIcons.map((icon) => <span
+              key={icon.glyph}
+              className="material-symbols-outlined password-composition-symbol"
+              title={icon.label}
+              aria-hidden="true"
+            >{icon.glyph}</span>)}
+          </span> : <span>{rule.label}</span>}
+          <span className="sr-only"> — {rule.passed
+            ? t('account.password.rule.met')
+            : t('account.password.rule.unmet')}</span>
+        </li>;
+      })}
+    </ul>
+    <p className="sr-only" role="status" aria-live="polite">
+      {t('account.password.rulesStatus')
+        .replace('{passed}', String(passedRules))
+        .replace('{total}', String(rules.length))}
+    </p>
+  </div>;
+}
+
 function AuthCard({ children }: Readonly<{ children: React.ReactNode }>) {
   return <main className="login-page"><section className="login-card auth-card">{children}</section></main>;
 }
@@ -75,7 +164,6 @@ export function UserLoginPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [search] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +173,11 @@ export function UserLoginPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    const validationError = emailIssue(t, email) ?? loginPasswordIssue(t, password);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -98,27 +191,18 @@ export function UserLoginPage() {
     }
   }
 
-  function google() {
-    window.location.assign(`/api/v1/auth/oauth2/google?returnTo=${encodeURIComponent(destination)}`);
-  }
-
   return (
     <AuthCard>
       <h2>{t('account.login.title')}</h2>
-      {search.get('oauthError') ? <p className="error-banner">{t('account.login.oauthError')}</p> : null}
       <form className="auth-form" onSubmit={submit} noValidate>
         <label>{t('account.email')}
-          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+          <input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
         </label>
         <label>{t('login.password')}
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
         </label>
         {error ? <p className="error-banner">{error}</p> : null}
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
-        <button type="button" className="secondary-button google-auth-button" onClick={google} disabled={submitting}>
-          <img className="google-auth-icon" src="/assets/google-g.png" alt="" aria-hidden="true" />
-          <span>{t('account.login.google')}</span>
-        </button>
       </form>
       <div className="auth-links">
         <Link to="/register">{t('account.register.link')}</Link>
@@ -143,6 +227,11 @@ export function AdminLoginPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    const validationError = loginPasswordIssue(t, password);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -159,7 +248,7 @@ export function AdminLoginPage() {
   return (
     <AuthCard>
       <h2>{t('account.adminLogin.title')}</h2>
-      <form className="auth-form" onSubmit={submit}>
+      <form className="auth-form" onSubmit={submit} noValidate>
         <label>{t('login.username')}
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
         </label>
@@ -186,12 +275,18 @@ export function RegisterPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    const emailValidationError = emailIssue(t, email);
+    if (emailValidationError) {
+      setError(emailValidationError);
+      return;
+    }
     if (password !== confirmation) {
       setError(t('account.password.mismatch'));
       return;
     }
-    if (new TextEncoder().encode(password).length > 72) {
-      setError(t('account.password.tooLong'));
+    const passwordValidationError = newPasswordIssue(t, password);
+    if (passwordValidationError) {
+      setError(passwordValidationError);
       return;
     }
     setSubmitting(true);
@@ -210,11 +305,11 @@ export function RegisterPage() {
   return (
     <AuthCard>
       <h2>{t('account.register.title')}</h2>
-      <form className="auth-form" onSubmit={submit}>
-        <label>{t('account.email')}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
-        <label>{t('login.password')}<input type="password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required /></label>
-        <label>{t('account.password.confirm')}<input type="password" minLength={12} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></label>
-        <small>{t('account.password.help')}</small>
+      <form className="auth-form" onSubmit={submit} noValidate>
+        <label>{t('account.email')}<input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
+        <label>{t('login.password')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" aria-describedby="password-guidance" required /></label>
+        <label>{t('account.password.confirm')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></label>
+        <PasswordGuidance password={password} />
         {error ? <p className="error-banner">{error}</p> : null}
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.register.submit')}</button>
       </form>
@@ -253,6 +348,11 @@ export function VerifyEmailPage() {
   async function resend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    const validationError = emailIssue(t, email);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
     setSubmitting(true);
     setMessage(null);
     try {
@@ -272,9 +372,9 @@ export function VerifyEmailPage() {
       {state === 'success' ? <><p className="form-message">{t('account.verify.success')}</p><Link to="/login">{t('account.login.link')}</Link></> : null}
       {state === 'error' ? <p className="error-banner">{message}</p> : null}
       {state === 'waiting' || state === 'error' ? (
-        <form className="auth-form" onSubmit={resend}>
+        <form className="auth-form" onSubmit={resend} noValidate>
           <p>{t('account.verify.instructions')}</p>
-          <label>{t('account.email')}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
+          <label>{t('account.email')}<input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
           <button type="submit" className="secondary-button" disabled={submitting}>{t('account.verify.resend')}</button>
           {state === 'waiting' && message ? <p className="form-message">{message}</p> : null}
         </form>
@@ -291,6 +391,11 @@ export function ForgotPasswordPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    const validationError = emailIssue(t, email);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
     setSubmitting(true);
     setMessage(null);
     try {
@@ -302,8 +407,8 @@ export function ForgotPasswordPage() {
       setSubmitting(false);
     }
   }
-  return <AuthCard><h2>{t('account.forgot.title')}</h2><form className="auth-form" onSubmit={submit}>
-    <label>{t('account.email')}<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
+  return <AuthCard><h2>{t('account.forgot.title')}</h2><form className="auth-form" onSubmit={submit} noValidate>
+    <label>{t('account.email')}<input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
     <button className="primary-button" type="submit" disabled={submitting}>{t('account.forgot.submit')}</button>
     {message ? <p className="form-message">{message}</p> : null}
   </form><Link to="/login">{t('account.login.link')}</Link></AuthCard>;
@@ -331,8 +436,9 @@ export function ResetPasswordPage() {
       setError(t('account.password.mismatch'));
       return;
     }
-    if (new TextEncoder().encode(password).length > 72) {
-      setError(t('account.password.tooLong'));
+    const passwordValidationError = newPasswordIssue(t, password);
+    if (passwordValidationError) {
+      setError(passwordValidationError);
       return;
     }
     setSubmitting(true);
@@ -350,9 +456,10 @@ export function ResetPasswordPage() {
   return <AuthCard><h2>{t('account.reset.title')}</h2>
     {!token && !complete ? <p className="error-banner">{t('account.reset.missingToken')}</p> : null}
     {complete ? <><p className="form-message">{t('account.reset.success')}</p><Link to="/login">{t('account.login.link')}</Link></> : null}
-    {token && !complete ? <form className="auth-form" onSubmit={submit}>
-      <label>{t('login.password')}<input type="password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required /></label>
-      <label>{t('account.password.confirm')}<input type="password" minLength={12} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></label>
+    {token && !complete ? <form className="auth-form" onSubmit={submit} noValidate>
+      <label>{t('login.password')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" aria-describedby="password-guidance" required /></label>
+      <label>{t('account.password.confirm')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></label>
+      <PasswordGuidance password={password} />
       {error ? <p className="error-banner">{error}</p> : null}
       <button className="primary-button" type="submit" disabled={submitting}>{t('account.reset.submit')}</button>
     </form> : null}
@@ -550,7 +657,6 @@ export function ProfilePage() {
   }
   return <section className="account-page"><header><div><h2>{t('account.profile.title')}</h2><p>{auth.account?.email}</p></div></header>
     <form className="account-card profile-form" onSubmit={submit}><label>{t('login.username')}<input value={username} onChange={(event) => setUsername(event.target.value)} minLength={3} maxLength={40} autoComplete="username" required /></label>
-      <small>{t('account.profile.providers', { providers: auth.account?.authenticationMethods.join(', ') ?? '' })}</small>
       {error ? <p className="error-banner">{error}</p> : null}{message ? <p className="form-message">{message}</p> : null}
       <button className="primary-button" type="submit" disabled={submitting}><Save size={18} />{t('account.save')}</button></form>
   </section>;

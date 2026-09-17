@@ -8,17 +8,13 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260718_0011"
-"""Estado global asociado a `revision`.
-"""
+
 down_revision: str | None = "20260716_0010"
-"""Estado global asociado a `down_revision`.
-"""
+
 branch_labels: str | Sequence[str] | None = None
-"""Estado global asociado a `branch_labels`.
-"""
+
 depends_on: str | Sequence[str] | None = None
-"""Estado global asociado a `depends_on`.
-"""
+
 
 
 TRIGGERS = (
@@ -32,15 +28,15 @@ TRIGGERS = (
     "trg_software_apps_catalog_au",
     "trg_software_apps_catalog_ad",
 )
-"""Constante que define `TRIGGERS`.
-"""
+
 
 
 def _execute(sql: str) -> None:
-    """Ejecuta el paso interno `_execute`.
+    """Construye la parte `_execute` de la revisión `20260718` sin cambiar sus nombres de tabla,
+    columna o índice.
 
     Args:
-        sql (str): Valor de `sql` utilizado por la operación.
+        sql: Valor de `sql` utilizado por la configuración de la migración.
     """
     op.execute(sa.text(sql))
 
@@ -49,7 +45,8 @@ def upgrade() -> None:
             # Las actualizaciones de los disparadores de fuentes forman parte del token
             # de cambio del catálogo. Conserva los microsegundos para que dos transiciones
             # del mismo segundo no colapsen en el valor MAX(updated_at) consumido por Core.
-    """Ejecuta la operación `upgrade`.
+    """Aplica la revisión Alembic `20260718` para actualizar el esquema del Scraper de forma
+    reproducible.
     """
     _execute(
         "ALTER TABLE software_apps "
@@ -176,7 +173,8 @@ def upgrade() -> None:
 
 
 def _create_software_app_triggers() -> None:
-    """Ejecuta el paso interno `_create_software_app_triggers`.
+    """Construye la parte `_create_software_app_triggers` de la revisión `20260718` sin cambiar
+    sus nombres de tabla, columna o índice.
     """
     _execute(
         """
@@ -249,7 +247,8 @@ def _create_software_app_triggers() -> None:
 
 
 def _create_download_source_triggers() -> None:
-    """Ejecuta el paso interno `_create_download_source_triggers`.
+    """Construye la parte `_create_download_source_triggers` de la revisión `20260718` sin
+    cambiar sus nombres de tabla, columna o índice.
     """
     _execute(
         """
@@ -337,7 +336,8 @@ def _create_download_source_triggers() -> None:
 
 
 def _create_resolved_source_triggers() -> None:
-    """Ejecuta el paso interno `_create_resolved_source_triggers`.
+    """Construye la parte `_create_resolved_source_triggers` de la revisión `20260718` sin
+    cambiar sus nombres de tabla, columna o índice.
     """
     _execute(
         """
@@ -405,7 +405,8 @@ def _create_resolved_source_triggers() -> None:
 
 
 def downgrade() -> None:
-    """Ejecuta la operación `downgrade`.
+    """Revierte la revisión Alembic `20260718` en el orden inverso, conservando los
+    identificadores declarados por la migración.
     """
     for trigger in reversed(TRIGGERS):
         _execute(f"DROP TRIGGER IF EXISTS {trigger}")

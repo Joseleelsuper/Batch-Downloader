@@ -7,16 +7,16 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import es.ubu.batchdownloader.admin.AdminDtos.ManualInstallerInspection;
-import es.ubu.batchdownloader.admin.AdminDtos.WebsiteAppDiscovery;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspection;
+import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscovery;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthFailureHandler;
-import es.ubu.batchdownloader.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,7 +36,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
-@WebMvcTest(AdminAppController.class)
+@WebMvcTest({AdminAppController.class, LinuxInstallAdminController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
     "server.port=0",
@@ -50,7 +50,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 })
 class AdminAppSecurityTest {
     /**
-     * Constante que define {@code APP_ID}.
+     * Valor compartido que fija a p p  i d para el comportamiento del componente.
      */
     private static final String APP_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -89,12 +89,6 @@ class AdminAppSecurityTest {
      */
     @MockitoBean
     private UserAccountStore users;
-
-    @MockitoBean
-    private GoogleOAuthSuccessHandler googleOAuthSuccessHandler;
-
-    @MockitoBean
-    private GoogleOAuthFailureHandler googleOAuthFailureHandler;
 
     /**
      * Comprueba el escenario {@code inspectionEndpointsRequireAnAdministratorSession}.
@@ -207,6 +201,29 @@ class AdminAppSecurityTest {
                 .andExpect(status().isAccepted());
     }
 
+    @Test
+    void linuxRecipeEndpointsRequireAdministratorAndCsrf() throws Exception {
+        String sourceRef = "00000000-0000-0000-0000-000000000004";
+        String path = "/api/v1/admin/apps/{appId}/linux/sources/{sourceRef}/profile";
+
+        mvc.perform(get(path, APP_ID, sourceRef))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(path, APP_ID, sourceRef)
+                        .with(administrator())
+                        .contentType("application/json")
+                        .content("{\"expectedVersion\":0,\"status\":\"draft\",\"profile\":{}}"))
+                .andExpect(status().isForbidden());
+
+        when(scraperClient.writeLinuxProfile(any(UUID.class), any(UUID.class), any()))
+                .thenReturn(JsonNodeFactory.instance.objectNode().put("version", 1));
+        mvc.perform(put(path, APP_ID, sourceRef)
+                        .with(administrator())
+                        .with(csrf())
+                        .contentType("application/json")
+                        .content("{\"expectedVersion\":0,\"status\":\"draft\",\"profile\":{}}"))
+                .andExpect(status().isOk());
+    }
+
     private static RequestPostProcessor administrator() {
         AccountPrincipal principal = new AccountPrincipal(
                 UUID.fromString("00000000-0000-0000-0000-000000000099"),
@@ -217,9 +234,7 @@ class AdminAppSecurityTest {
     }
 
     /**
-     * Ejecuta la operación {@code validRequest}.
-     *
-     * @return Resultado producido por {@code validRequest}.
+     * Ejecuta valid request y comunica su resultado manteniendo las reglas del componente.
      */
     private String validRequest() {
         return """
@@ -235,9 +250,8 @@ class AdminAppSecurityTest {
     }
 
     /**
-     * Ejecuta la operación {@code websiteDiscoveryRequest}.
-     *
-     * @return Resultado producido por {@code websiteDiscoveryRequest}.
+     * Ejecuta website discovery request y comunica su resultado manteniendo las reglas del
+     * componente.
      */
     private String websiteDiscoveryRequest() {
         return """

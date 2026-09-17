@@ -8,14 +8,32 @@ import java.util.Optional;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
-/** Registra el resultado del envío sin usar destinatarios ni identificadores como etiquetas. */
+/**
+ * Mide duración y resultado del envío por plantilla sin etiquetar destinatarios ni identificadores.
+ * Los errores del enrutador se propagan intactos y el envío funciona también sin registro de
+ * métricas.
+ *
+ * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
+ * @see es.ubu.batchdownloader.notification.application.port.NotificationSender
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
+ */
 @Component
 @Primary
 public final class MeteredNotificationSender implements NotificationSender {
     private final RoutingNotificationSender delegate;
     private final Optional<MeterRegistry> registry;
 
-    /** Inicializa el wrapper exterior del router SMTP/Resend. */
+    /**
+     * Envuelve el enrutador de proveedores con instrumentación opcional.
+     *
+     * @param delegate Enrutador que realiza el envío y propaga sus fallos sin cambiar su
+     *     clasificación.
+     *
+     * @param registry Registro opcional de métricas; su ausencia permite enviar sin
+     *     instrumentación.
+     */
     public MeteredNotificationSender(
             RoutingNotificationSender delegate,
             Optional<MeterRegistry> registry) {
@@ -23,7 +41,13 @@ public final class MeteredNotificationSender implements NotificationSender {
         this.registry = registry;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * Envía a través del enrutador y mide éxito o fallo en un bloque final que no sustituye la
+     * excepción original.
+     *
+     * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
+     *     el envío.
+     */
     @Override
     public void send(EmailNotification notification) {
         MeterRegistry meterRegistry = registry.orElse(null);

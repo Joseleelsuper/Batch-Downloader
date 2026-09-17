@@ -12,10 +12,22 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.Status;
 
-/** Verifica el umbral, la recuperación y la antigüedad del heartbeat de descargas. */
+/**
+ * Verifica degradación por fallos consecutivos o latido antiguo y recuperación con tiempo
+ * controlado.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.operations.DownloadWorkerHeartbeat
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
+ */
 class DownloadWorkerHeartbeatTest {
     private static final Instant START = Instant.parse("2026-08-24T18:00:00Z");
 
+    /**
+     * Acumula tres fallos y comprueba estado DOWN y sus detalles; después registra éxito y exige
+     * estado UP y contador cero.
+     */
     @Test
     void degradesAfterThreeFailuresAndRecoversAfterSuccess() {
         MutableClock clock = new MutableClock(START);
@@ -54,6 +66,10 @@ class DownloadWorkerHeartbeatTest {
                 .containsEntry("consecutiveFailures", 0);
     }
 
+    /**
+     * Supera en un segundo el límite de frescura y comprueba estado DOWN; un nuevo pulso recupera
+     * UP.
+     */
     @Test
     void degradesWhenStaleAndPulseRestoresFreshness() {
         MutableClock clock = new MutableClock(START);
@@ -71,28 +87,60 @@ class DownloadWorkerHeartbeatTest {
         assertThat(heartbeat.health().getStatus()).isEqualTo(Status.UP);
     }
 
-    /** Reloj controlable para no introducir esperas reales en las pruebas. */
+    /**
+     * Mantiene un instante UTC modificable para probar caducidad y recuperación sin esperas reales.
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Pruebas de integración y mensajería
+     */
     private static final class MutableClock extends Clock {
         private Instant current;
 
+        /**
+         * Fija el instante inicial que devolverá el reloj de la prueba.
+         *
+         * @param current instante inicial del reloj controlado.
+         */
         private MutableClock(Instant current) {
             this.current = current;
         }
 
+        /**
+         * Suma la duración al instante que observarán las siguientes consultas del latido.
+         *
+         * @param duration avance temporal que se aplica sin esperar tiempo real.
+         */
         private void advance(Duration duration) {
             current = current.plus(duration);
         }
 
+        /**
+         * Declara la zona fija del reloj de prueba.
+         *
+         * @return UTC.
+         */
         @Override
         public ZoneId getZone() {
             return ZoneOffset.UTC;
         }
 
+        /**
+         * Conserva este reloj UTC para las llamadas de la prueba, sin aplicar la zona solicitada.
+         *
+         * @param zone zona solicitada, ignorada por este doble que siempre opera en UTC.
+         * @return la misma instancia del doble.
+         */
         @Override
         public Clock withZone(ZoneId zone) {
             return this;
         }
 
+        /**
+         * Expone el instante inicial o el último avance aplicado por el escenario.
+         *
+         * @return instante controlado actual.
+         */
         @Override
         public Instant instant() {
             return current;

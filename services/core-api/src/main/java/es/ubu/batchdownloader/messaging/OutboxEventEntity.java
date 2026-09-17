@@ -10,15 +10,21 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Implementa el componente {@code OutboxEventEntity}.
+ * Persiste el sobre de un evento, su disponibilidad y la reserva temporal de publicación; las
+ * transiciones liberan la reserva al confirmar o programar un reintento.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.messaging.OutboxDispatcher
+ * @see es.ubu.batchdownloader.messaging.OutboxWriter
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Mensajería y retención
  */
 @Entity
 @Table(name = "core_outbox_events")
 class OutboxEventEntity {
     /**
-     * Estado {@code id} mantenido por {@code OutboxEventEntity}.
+     * UUID del evento.
      */
     @Id
     @JdbcTypeCode(SqlTypes.CHAR)
@@ -36,17 +42,17 @@ class OutboxEventEntity {
     @Column(name = "aggregate_id", length = 36, nullable = false)
     private UUID aggregateId;
     /**
-     * Estado {@code eventType} mantenido por {@code OutboxEventEntity}.
+     * Nombre del tipo de evento.
      */
     @Column(name = "event_type", length = 120, nullable = false)
     private String eventType;
     /**
-     * Estado {@code routingKey} mantenido por {@code OutboxEventEntity}.
+     * Clave de enrutamiento AMQP.
      */
     @Column(name = "routing_key", length = 160, nullable = false)
     private String routingKey;
     /**
-     * Estado {@code payload} mantenido por {@code OutboxEventEntity}.
+     * Sobre serializado del evento.
      */
     @Column(columnDefinition = "json", nullable = false)
     private String payload;
@@ -84,21 +90,23 @@ class OutboxEventEntity {
     private Instant claimedAt;
 
     /**
-     * Inicializa una instancia de {@code OutboxEventEntity}.
+     * Permite que JPA reconstruya un evento persistido antes de poblar sus campos.
      */
     protected OutboxEventEntity() {}
 
     /**
-     * Ejecuta la operación {@code pending}.
+     * Crea un evento no publicado y disponible desde su instante de creación para guardarlo con el
+     * cambio del agregado.
      *
-     * @param id Identificador del recurso sobre el que se actúa.
-     * @param aggregateType Valor de {@code aggregateType} utilizado por la operación.
-     * @param aggregateId Identificador de {@code aggregate} utilizado por la operación.
-     * @param eventType Valor de {@code eventType} utilizado por la operación.
-     * @param routingKey Valor de {@code routingKey} utilizado por la operación.
-     * @param payload Carga de datos recibida por la operación.
-     * @param occurredAt Valor de {@code occurredAt} utilizado por la operación.
-     * @return Resultado producido por {@code pending}.
+     * @param id UUID estable del evento, conservado entre los reintentos.
+     * @param aggregateType Tipo de agregado que produjo el evento.
+     * @param aggregateId UUID del agregado modificado en la misma transacción.
+     * @param eventType Tipo de evento que identifica su contrato de carga.
+     * @param routingKey Clave AMQP que selecciona los consumidores interesados.
+     * @param payload Sobre JSON persistido o carga del evento antes de envolverla, según el punto
+     *     del flujo.
+     * @param occurredAt Instante de creación del evento y de disponibilidad para el primer intento.
+     * @return entidad pendiente todavía sin persistir.
      */
     static OutboxEventEntity pending(
             UUID id,
@@ -121,9 +129,10 @@ class OutboxEventEntity {
     }
 
     /**
-     * Marca el recurso solicitado mediante {@code markPublished}.
+     * Fecha la confirmación, elimina el último error y libera la reserva para que el evento deje de
+     * ser reclamable.
      *
-     * @param now Valor de {@code now} utilizado por la operación.
+     * @param now Instante del cambio o corte de disponibilidad que se aplica.
      */
     void markPublished(Instant now) {
         publishedAt = now;
@@ -131,7 +140,14 @@ class OutboxEventEntity {
         releaseClaim();
     }
 
-    /** Sustituye la carga por su forma sanitizada después del acuse del broker. */
+    /**
+     * Sustituye el sobre por su versión cifrada o saneada sin alterar identidad ni estado de
+     * publicación.
+     *
+     * @param sanitizedPayload Sobre JSON no blanco que sustituye al persistido tras cifrar o
+     *     retirar un token.
+     * @throws IllegalArgumentException si la representación propuesta es null o blanca.
+     */
     void replacePayload(String sanitizedPayload) {
         if (sanitizedPayload == null || sanitizedPayload.isBlank()) {
             throw new IllegalArgumentException("sanitized_payload_required");
@@ -140,10 +156,12 @@ class OutboxEventEntity {
     }
 
     /**
-     * Marca el recurso solicitado mediante {@code markFailed}.
+     * Incrementa los intentos, aplaza el siguiente envío con espera exponencial de dos a 256
+     * segundos y guarda hasta quinientos caracteres de diagnóstico antes de liberar la reserva.
      *
-     * @param now Valor de {@code now} utilizado por la operación.
-     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @param now Instante del cambio o corte de disponibilidad que se aplica.
+     * @param exception Fallo de publicación utilizado para aplazar el intento y registrar
+     *     diagnóstico acotado.
      */
     void markFailed(Instant now, RuntimeException exception) {
         attempts++;
@@ -155,40 +173,49 @@ class OutboxEventEntity {
         releaseClaim();
     }
 
-    /** Reserva el evento para publicarlo fuera de la transacción que lo seleccionó. */
+    /**
+     * Asocia el token y el instante a la reserva que habilita la publicación fuera de la
+     * transacción.
+     *
+     * @param token UUID de la reserva que debe conservarse al confirmar su resultado.
+     * @param now Instante del cambio o corte de disponibilidad que se aplica.
+     */
     void claim(UUID token, Instant now) {
         claimToken = token;
         claimedAt = now;
     }
 
-    /** Libera la reclamación al confirmar o aplazar el evento. */
+    /**
+     * Elimina token y fecha de reserva al completar la publicación o dejar preparado un reintento.
+     */
     private void releaseClaim() {
         claimToken = null;
         claimedAt = null;
     }
 
     /**
-     * Ejecuta la operación {@code id}.
+     * Devuelve la identidad estable utilizada por el broker y los consumidores para deduplicar
+     * reintentos.
      *
-     * @return Resultado producido por {@code id}.
+     * @return UUID del evento.
      */
     UUID id() { return id; }
     /**
-     * Ejecuta la operación {@code eventType}.
+     * Identifica el contrato de carga y la cabecera de tipo del mensaje AMQP.
      *
-     * @return Resultado producido por {@code eventType}.
+     * @return nombre del tipo de evento.
      */
     String eventType() { return eventType; }
     /**
-     * Ejecuta la operación {@code routingKey}.
+     * Proporciona la clave con la que se publica el evento en el exchange de solicitudes.
      *
-     * @return Resultado producido por {@code routingKey}.
+     * @return clave de enrutamiento AMQP.
      */
     String routingKey() { return routingKey; }
     /**
-     * Ejecuta la operación {@code payload}.
+     * Devuelve el sobre JSON persistido para migrarlo, enviarlo o retirar su token tras el acuse.
      *
-     * @return Resultado producido por {@code payload}.
+     * @return sobre serializado del evento.
      */
     String payload() { return payload; }
 }

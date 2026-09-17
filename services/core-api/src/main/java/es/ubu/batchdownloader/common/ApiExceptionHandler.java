@@ -18,11 +18,19 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
- * Implementa el componente {@code ApiExceptionHandler}.
+ * Traduce errores de aplicación y Spring a contratos HTTP seguros, conservando códigos funcionales
+ * y plazos de reintento cuando existen.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.common.ApiError
+ * @see es.ubu.batchdownloader.common.ServiceUnavailableException
+ * @see es.ubu.batchdownloader.common.RateLimitException
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Infraestructura de Core
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -32,10 +40,11 @@ public class ApiExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     /**
-     * Ejecuta la operación {@code notFound}.
+     * Traslada el código y mensaje funcionales a HTTP 404.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code notFound}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 404 con el contrato ApiError.
      */
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<ApiError> notFound(NotFoundException exception) {
@@ -44,10 +53,23 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code conflict}.
+     * Conserva el 404 estándar de Spring cuando la petición no coincide con ningún controlador.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code conflict}.
+     * @param exception Fallo generado por el manejador de recursos ante una ruta inexistente.
+     * @return respuesta HTTP 404 con el contrato ApiError.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    ResponseEntity<ApiError> missingResource(NoResourceFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of("not_found", "El recurso solicitado no existe"));
+    }
+
+    /**
+     * Traslada el código y mensaje funcionales a HTTP 409.
+     *
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 409 con el contrato ApiError.
      */
     @ExceptionHandler(ConflictException.class)
     ResponseEntity<ApiError> conflict(ConflictException exception) {
@@ -56,10 +78,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code badRequest}.
+     * Traslada el código y mensaje funcionales a HTTP 400.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code badRequest}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 400 con el contrato ApiError.
      */
     @ExceptionHandler(BadRequestException.class)
     ResponseEntity<ApiError> badRequest(BadRequestException exception) {
@@ -67,12 +90,26 @@ public class ApiExceptionHandler {
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Traslada el código y mensaje funcionales a HTTP 410.
+     *
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 410 con el contrato ApiError.
+     */
     @ExceptionHandler(GoneException.class)
     ResponseEntity<ApiError> gone(GoneException exception) {
         return ResponseEntity.status(HttpStatus.GONE)
                 .body(ApiError.of(exception.code(), exception.getMessage()));
     }
 
+    /**
+     * Traslada el código y mensaje funcionales a HTTP 403.
+     *
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 403 con el contrato ApiError.
+     */
     @ExceptionHandler(ForbiddenException.class)
     ResponseEntity<ApiError> forbiddenCode(ForbiddenException exception) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -80,10 +117,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code unprocessable}.
+     * Traslada el código y mensaje funcionales a HTTP 422.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code unprocessable}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 422 con el contrato ApiError.
      */
     @ExceptionHandler(UnprocessableEntityException.class)
     ResponseEntity<ApiError> unprocessable(UnprocessableEntityException exception) {
@@ -92,10 +130,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code unavailable}.
+     * Traslada el código y mensaje funcionales a HTTP 503 y conserva Retry-After.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code unavailable}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 503 con el contrato ApiError.
      */
     @ExceptionHandler(ServiceUnavailableException.class)
     ResponseEntity<ApiError> unavailable(ServiceUnavailableException exception) {
@@ -105,10 +144,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code rateLimited}.
+     * Traslada el código y mensaje funcionales a HTTP 429 y conserva Retry-After.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code rateLimited}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 429 con el contrato ApiError.
      */
     @ExceptionHandler(RateLimitException.class)
     ResponseEntity<ApiError> rateLimited(RateLimitException exception) {
@@ -118,10 +158,12 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Convierte el agotamiento del pool en una respuesta rápida y reintentable.
+     * Registra el fallo de conexión o creación de transacción y lo presenta como indisponibilidad
+     * temporal sin exponer su causa.
      *
-     * @param exception Error de adquisición de conexión.
-     * @return Respuesta temporal de capacidad.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 503 service_busy con Retry-After de un segundo.
      */
     @ExceptionHandler({
         DataAccessResourceFailureException.class,
@@ -135,10 +177,12 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Evita convertir el agotamiento de base de datos durante el login en credenciales inválidas.
+     * Convierte un fallo interno del proveedor de autenticación en indisponibilidad temporal del
+     * servicio.
      *
-     * @param exception Fallo interno del proveedor de autenticación.
-     * @return Respuesta temporal de capacidad.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 503 service_busy con Retry-After de un segundo.
      */
     @ExceptionHandler(AuthenticationServiceException.class)
     ResponseEntity<ApiError> authenticationServiceUnavailable(AuthenticationServiceException exception) {
@@ -149,10 +193,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code duplicate}.
+     * Convierte una violación de clave única no clasificada en conflicto de recurso existente.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code duplicate}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 409 duplicate_resource sin detalles SQL.
      */
     @ExceptionHandler(DuplicateKeyException.class)
     ResponseEntity<ApiError> duplicate(DuplicateKeyException exception) {
@@ -161,10 +206,12 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code databaseBusy}.
+     * Presenta la imposibilidad de adquirir un bloqueo como conflicto con otra operación de base de
+     * datos, sin exponer detalles SQL.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code databaseBusy}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 409 database_busy con un mensaje que permite volver a intentar la operación.
      */
     @ExceptionHandler(CannotAcquireLockException.class)
     ResponseEntity<ApiError> databaseBusy(CannotAcquireLockException exception) {
@@ -175,10 +222,12 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code invalidJson}.
+     * Oculta los detalles del analizador cuando el cuerpo HTTP no puede convertirse al tipo
+     * esperado.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code invalidJson}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 400 invalid_json.
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<ApiError> invalidJson(HttpMessageNotReadableException exception) {
@@ -187,10 +236,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code validation}.
+     * Agrupa los mensajes de validación por nombre de campo conservando su orden de encuentro.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code validation}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 400 validation_failed con detalles fieldErrors.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ApiError> validation(MethodArgumentNotValidException exception) {
@@ -208,10 +258,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code forbidden}.
+     * Convierte la denegación de Spring Security en un mensaje seguro de permisos insuficientes.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code forbidden}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 403 forbidden.
      */
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ApiError> forbidden(AccessDeniedException exception) {
@@ -220,10 +271,12 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code authentication}.
+     * Unifica los fallos de autenticación de Spring sin identificar la credencial o condición
+     * concreta que falló.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code authentication}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 401 invalid_credentials.
      */
     @ExceptionHandler(AuthenticationException.class)
     ResponseEntity<ApiError> authentication(AuthenticationException exception) {
@@ -232,10 +285,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code unauthorized}.
+     * Traslada el código y mensaje funcionales a HTTP 401.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code unauthorized}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return respuesta HTTP 401 con el contrato ApiError.
      */
     @ExceptionHandler(UnauthorizedException.class)
     ResponseEntity<ApiError> unauthorized(UnauthorizedException exception) {
@@ -244,9 +298,11 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code clientDisconnected}.
+     * Registra a nivel debug el cierre del cliente y evita intentar escribir otra respuesta en una
+     * conexión inutilizable.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
      */
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     void clientDisconnected(AsyncRequestNotUsableException exception) {
@@ -254,10 +310,12 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * Ejecuta la operación {@code unexpected}.
+     * Registra la causa completa para diagnóstico interno y devuelve un mensaje genérico al
+     * cliente.
      *
-     * @param exception Valor de {@code exception} utilizado por la operación.
-     * @return Resultado producido por {@code unexpected}.
+     * @param exception Fallo recibido por la frontera HTTP que debe convertirse en una respuesta
+     *     segura.
+     * @return 500 internal_error sin detalles de la excepción.
      */
     @ExceptionHandler(Exception.class)
     ResponseEntity<ApiError> unexpected(Exception exception) {

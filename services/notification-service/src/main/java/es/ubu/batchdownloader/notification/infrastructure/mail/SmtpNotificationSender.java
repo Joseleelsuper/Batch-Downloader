@@ -13,36 +13,45 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * Implementa el componente {@code SmtpNotificationSender}.
+ * Envía por SMTP los avisos en español de ZIP disponible o preparación fallida.
+ *
+ * Construye enlaces a la web pública y muestra la caducidad en la zona configurada. Rechaza las
+ * plantillas de identidad, que el enrutador debe enviar mediante Resend.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
+ * @see es.ubu.batchdownloader.notification.domain.EmailNotification
+ * @see es.ubu.batchdownloader.notification.config.MailTemplateProperties
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Notificaciones
  */
 @Component
 public class SmtpNotificationSender {
 
     /**
-     * Constante que define {@code SPANISH}.
+     * Idioma y convenciones regionales de los avisos SMTP.
      */
     private static final Locale SPANISH = Locale.forLanguageTag("es-ES");
 
     /**
-     * Estado {@code mailSender} mantenido por {@code SmtpNotificationSender}.
+     * Cliente SMTP configurado por Spring.
      */
     private final JavaMailSender mailSender;
     /**
-     * Estado {@code properties} mantenido por {@code SmtpNotificationSender}.
+     * Remitente y ubicación pública usados por las plantillas.
      */
     private final MailTemplateProperties properties;
     /**
-     * Estado {@code dateFormatter} mantenido por {@code SmtpNotificationSender}.
+     * Formato inmutable de fecha larga y hora corta en la zona del despliegue.
      */
     private final DateTimeFormatter dateFormatter;
 
     /**
-     * Inicializa una instancia de {@code SmtpNotificationSender}.
+     * Prepara el cliente SMTP y el formato español de fechas en la zona horaria configurada.
      *
-     * @param mailSender Valor de {@code mailSender} utilizado por la operación.
-     * @param properties Valor de {@code properties} utilizado por la operación.
+     * @param mailSender Cliente SMTP configurado por Spring.
+     * @param properties Remitente, zona horaria y base pública usados en las plantillas.
      */
     public SmtpNotificationSender(JavaMailSender mailSender, MailTemplateProperties properties) {
         this.mailSender = mailSender;
@@ -53,9 +62,15 @@ public class SmtpNotificationSender {
     }
 
     /**
-     * Envía el contenido solicitado mediante {@code send}.
+     * Compone un mensaje de texto de descarga y lo entrega al cliente SMTP.
      *
-     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
+     *     el envío.
+     *
+     * @throws es.ubu.batchdownloader.notification.application.PermanentNotificationException si
+     *     recibe una plantilla de identidad que SMTP no admite.
+     *
+     * @throws org.springframework.mail.MailException si el cliente SMTP no puede enviar el mensaje.
      */
     public void send(EmailNotification notification) {
         SimpleMailMessage message = new SimpleMailMessage();
@@ -66,10 +81,12 @@ public class SmtpNotificationSender {
     }
 
     /**
-     * Ejecuta la operación {@code applySpanishTemplate}.
+     * Selecciona el asunto y cuerpo del aviso de descarga; las plantillas de identidad son un fallo
+     * permanente.
      *
-     * @param message Mensaje que debe procesarse.
-     * @param notification Valor de {@code notification} utilizado por la operación.
+     * @param message Mensaje SMTP cuyo asunto y cuerpo se completan.
+     * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
+     *     el envío.
      */
     private void applySpanishTemplate(SimpleMailMessage message, EmailNotification notification) {
         switch (notification.template()) {
@@ -88,10 +105,16 @@ public class SmtpNotificationSender {
     }
 
     /**
-     * Ejecuta la operación {@code downloadReadyBody}.
+     * Compone el aviso de ZIP disponible con enlace al trabajo y fecha de caducidad localizada.
      *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @return Resultado producido por {@code downloadReadyBody}.
+     * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
+     *     el envío.
+     *
+     * @return cuerpo del correo en texto plano.
+     * @throws java.time.format.DateTimeParseException si expiresAt no representa un instante
+     *     ISO-8601.
+     *
+     * @throws IllegalArgumentException si falta jobId o expiresAt.
      */
     private String downloadReadyBody(EmailNotification notification) {
         Instant expiresAt = Instant.parse(notification.requiredParameter("expiresAt"));
@@ -114,10 +137,13 @@ public class SmtpNotificationSender {
     }
 
     /**
-     * Ejecuta la operación {@code downloadFailedBody}.
+     * Compone el aviso de preparación fallida con identificador del trabajo, código y detalle.
      *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @return Resultado producido por {@code downloadFailedBody}.
+     * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
+     *     el envío.
+     *
+     * @return cuerpo del correo en texto plano.
+     * @throws IllegalArgumentException si falta algún parámetro obligatorio del aviso.
      */
     private String downloadFailedBody(EmailNotification notification) {
         return """
@@ -137,10 +163,13 @@ public class SmtpNotificationSender {
     }
 
     /**
-     * Ejecuta la operación {@code failureCode}.
+     * Prefiere failureCode y acepta errorCode para mensajes compatibles con el formato anterior.
      *
-     * @param notification Valor de {@code notification} utilizado por la operación.
-     * @return Resultado producido por {@code failureCode}.
+     * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
+     *     el envío.
+     *
+     * @return código no vacío y sin espacios exteriores.
+     * @throws IllegalArgumentException si no está disponible ninguno de los dos códigos.
      */
     private String failureCode(EmailNotification notification) {
         Object failureCode = notification.parameters().get("failureCode");
@@ -150,10 +179,11 @@ public class SmtpNotificationSender {
     }
 
     /**
-     * Ejecuta la operación {@code downloadJobUrl}.
+     * Añade la ruta del trabajo a la base pública, codificando el identificador como segmento de
+     * URI.
      *
-     * @param jobId Identificador de {@code job} utilizado por la operación.
-     * @return Resultado producido por {@code downloadJobUrl}.
+     * @param jobId UUID textual del trabajo de descarga.
+     * @return enlace al seguimiento y descarga del trabajo en la web.
      */
     private String downloadJobUrl(String jobId) {
         return UriComponentsBuilder.fromUri(properties.publicBaseUrl())

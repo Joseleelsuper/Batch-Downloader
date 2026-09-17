@@ -18,28 +18,32 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /**
- * Agrupa los escenarios de prueba de {@code HttpJobItemMetadataLookupTest}.
+ * Comprueba el contrato HTTP interno usado para recuperar nombres y páginas oficiales de los
+ * elementos que no pudieron descargarse.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpJobItemMetadataLookup
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Pruebas de integración y mensajería
  */
 class HttpJobItemMetadataLookupTest {
     /**
-     * Constante que define {@code JOB_ID}.
+     * Valor compartido que fija j o b  i d para el comportamiento del componente.
      */
     private static final UUID JOB_ID = UUID.fromString("00000000-0000-4000-8000-000000000001");
     /**
-     * Constante que define {@code ITEM_ID}.
+     * Valor compartido que fija i t e m  i d para el comportamiento del componente.
      */
     private static final UUID ITEM_ID = UUID.fromString("00000000-0000-4000-8000-000000000002");
     /**
-     * Constante que define {@code APP_ID}.
+     * Valor compartido que fija a p p  i d para el comportamiento del componente.
      */
     private static final UUID APP_ID = UUID.fromString("00000000-0000-4000-8000-000000000003");
 
     /**
-     * Comprueba el escenario {@code requestsAllFailedIdsOnceAndValidatesTheExactResponse}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Consulta un elemento en un servidor local y comprueba secreto interno, cuerpo con su UUID y
+     * lectura de nombre y página oficial.
      */
     @Test
     void requestsAllFailedIdsOnceAndValidatesTheExactResponse() throws Exception {
@@ -78,9 +82,8 @@ class HttpJobItemMetadataLookupTest {
     }
 
     /**
-     * Comprueba el escenario {@code makesUnavailableCoreResponsesRetriable}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Responde 503 desde Core y comprueba que la consulta propaga InfrastructureException con
+     * job_metadata_unavailable.
      */
     @Test
     void makesUnavailableCoreResponsesRetriable() throws Exception {
@@ -102,9 +105,8 @@ class HttpJobItemMetadataLookupTest {
     }
 
     /**
-     * Comprueba el escenario {@code rejectsPartialOrMismatchedMetadataResponses}.
-     *
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * Devuelve una lista vacía para un elemento solicitado y exige invalid_job_metadata_response
+     * como fallo de infraestructura.
      */
     @Test
     void rejectsPartialOrMismatchedMetadataResponses() throws Exception {
@@ -128,10 +130,11 @@ class HttpJobItemMetadataLookupTest {
     }
 
     /**
-     * Ejecuta la operación {@code lookup}.
+     * Configura la consulta contra el puerto local del escenario con secreto fijo y timeout de dos
+     * segundos.
      *
-     * @param server Valor de {@code server} utilizado por la operación.
-     * @return Resultado producido por {@code lookup}.
+     * @param server servidor HTTP local con puerto efímero del escenario.
+     * @return cliente de metadatos con serializador de fechas y UUID.
      */
     private HttpJobItemMetadataLookup lookup(HttpServer server) {
         return new HttpJobItemMetadataLookup(
@@ -144,11 +147,12 @@ class HttpJobItemMetadataLookupTest {
     }
 
     /**
-     * Ejecuta la operación {@code server}.
+     * Abre un servidor loopback con puerto efímero y registra la ruta de metadatos del trabajo de
+     * prueba.
      *
-     * @param handler Valor de {@code handler} utilizado por la operación.
-     * @return Resultado producido por {@code server}.
-     * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
+     * @param handler respuesta simulada para la ruta interna de metadatos.
+     * @return servidor iniciado que el escenario debe detener en su bloque finally.
+     * @throws java.lang.Exception si no puede abrirse o configurarse el servidor HTTP local.
      */
     private HttpServer server(com.sun.net.httpserver.HttpHandler handler) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

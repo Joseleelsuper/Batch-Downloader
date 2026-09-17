@@ -6,34 +6,61 @@ import java.net.URI;
 import java.net.http.HttpHeaders;
 
 /**
- * Abre una única respuesta HTTP remota sin seguir redirecciones.
+ * Aísla una lectura HTTP y la vida de su respuesta para que las políticas de descarga inspeccionen
+ * cabeceras y consuman el cuerpo por streaming.
  *
- * <p>La separación por salto permite aplicar la política de URL pública inmediatamente antes
- * de cada acceso de red.</p>
+ * @see es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader
+ * @see RemoteExchange.Response
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Puertos del worker
  */
 public interface RemoteExchange {
 
     /**
-     * Ejecuta un único GET sobre la URI indicada.
+     * Abre una respuesta GET cuyo cuerpo debe cerrarse después de consumirlo o rechazarlo.
      *
-     * @param uri destino que se debe consultar.
-     * @return respuesta cuyo cuerpo debe cerrarse.
+     * @param uri URI de destino que debe superar la política de acceso a recursos públicos.
+     * @return respuesta con estado, cabeceras y flujo de contenido.
      */
     Response get(URI uri);
 
-    /** Respuesta de streaming obtenida para un único salto. */
+    /**
+     * Mantiene los metadatos y el flujo de una respuesta HTTP hasta que el consumidor la cierra.
+     *
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Puertos del worker
+     */
     interface Response extends AutoCloseable {
 
-        /** @return estado HTTP recibido. */
+        /**
+         * Expone el estado HTTP antes de decidir si se transfiere el contenido.
+         *
+         * @return código de estado recibido.
+         */
         int statusCode();
 
-        /** @return cabeceras HTTP recibidas. */
+        /**
+         * Expone cabeceras para validar tamaño, formato, redirección u otras condiciones de la
+         * descarga.
+         *
+         * @return cabeceras de la respuesta HTTP.
+         */
         HttpHeaders headers();
 
-        /** @return cuerpo sin materializar de la respuesta. */
+        /**
+         * Proporciona el flujo de contenido que se consume progresivamente.
+         *
+         * @return flujo abierto asociado a la respuesta.
+         */
         InputStream body();
 
-        /** Cierra siempre el cuerpo de la respuesta. */
+        /**
+         * Cierra el flujo de contenido para liberar los recursos de la respuesta.
+         *
+         * @throws java.io.IOException si falla el cierre del cuerpo.
+         */
         @Override
         default void close() throws IOException {
             body().close();

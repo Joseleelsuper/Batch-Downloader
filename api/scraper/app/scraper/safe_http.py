@@ -1,4 +1,5 @@
-"""Implementa las responsabilidades del módulo `safe_http`.
+"""Proporciona la política HTTPS y detección de consultas sensibles compartidas por inspecciones
+y descubrimientos.
 """
 from __future__ import annotations
 
@@ -25,21 +26,23 @@ SENSITIVE_QUERY_KEYS = {
     "signature",
     "token",
 }
-"""Constante que define `SENSITIVE_QUERY_KEYS`.
-"""
+
 
 
 def validate_public_https_syntax(url: str) -> str:
-    """Valida la operación `public_https_syntax`.
+    """Recorta espacios, exige HTTPS y host, prohíbe credenciales y controles y limita la URL a
+    2048 caracteres.
+    Normaliza esquema y elimina fragmento; admite puertos explícitos entre uno y 65535.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL completa que se solicita o valida antes de abrir la conexión.
 
     Returns:
-        str: Resultado producido por la operación.
+        URL normalizada sin fragmento.
 
-    Throws:
-        SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        app.scraper.http.models.SafeHttpError: Si la sintaxis, esquema, host, credenciales o
+            puerto incumplen estas restricciones.
     """
     value = url.strip()
     if not value or len(value) > 2048 or any(ord(character) < 32 for character in value):
@@ -61,16 +64,18 @@ def validate_public_https_syntax(url: str) -> str:
 
 
 async def validate_public_https_url(url: str) -> str:
-    """Valida la operación `public_https_url`.
+    """Valida la sintaxis y exige que el dominio supere la política DNS antes de abrir una
+    conexión.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL completa que se solicita o valida antes de abrir la conexión.
 
     Returns:
-        str: Resultado producido por la operación.
+        URL HTTPS normalizada.
 
-    Throws:
-        SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        app.scraper.http.models.SafeHttpError: Por sintaxis inválida o dns_not_public si la
+            resolución no es admitida.
     """
     normalized = validate_public_https_syntax(url)
     hostname = urlparse(normalized).hostname
@@ -80,13 +85,14 @@ async def validate_public_https_url(url: str) -> str:
 
 
 def has_sensitive_query(url: str) -> bool:
-    """Indica si existe la operación `sensitive_query`.
+    """Normaliza nombres de parámetros y detecta claves relacionadas con credenciales, firmas,
+    contraseñas y tokens.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL completa que se solicita o valida antes de abrir la conexión.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si la consulta puede contener secretos o la URL no puede interpretarse.
     """
     try:
         query = parse_qsl(urlparse(url).query, keep_blank_values=True)
@@ -123,20 +129,23 @@ async def fetch_public_resource(
     max_bytes: int,
     accept: str,
 ) -> SafeHttpResponse:
-    """Recupera la operación `public_resource`.
+    """Compone la consulta acotada con validación HTTPS y DNS en cada destino inicial o
+    redirigido.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
-        timeout (float): Tiempo máximo permitido para completar la operación.
-        max_redirects (int): Valor de `max_redirects` utilizado por la operación.
-        max_bytes (int): Valor de `max_bytes` utilizado por la operación.
-        accept (str): Valor de `accept` utilizado por la operación.
+        url: URL completa que se solicita o valida antes de abrir la conexión.
+        timeout: Timeout HTTPX de la consulta, en segundos.
+        max_redirects: Número máximo de redirecciones; la primera petición no cuenta como
+            salto.
+        max_bytes: Máximo de bytes del cuerpo aceptado en memoria.
+        accept: Valor de Accept que describe los tipos de recurso solicitados.
 
     Returns:
-        SafeHttpResponse: Resultado de `fetch_public_resource`.
+        recurso completo dentro de los límites.
 
-    Throws:
-        SafeHttpError: Si no puede completarse la operación bajo las condiciones requeridas.
+    Raises:
+        app.scraper.http.models.SafeHttpError: Si la consulta infringe una política o falla el
+            transporte.
     """
     fetcher = HttpxPublicResourceFetcher(validate_public_https_url)
     return await fetcher.fetch(

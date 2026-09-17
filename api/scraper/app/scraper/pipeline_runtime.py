@@ -1,4 +1,4 @@
-"""Estado compartido y reintentos locales del pipeline del scraper."""
+"""Mantiene estado compartido, contadores y reintentos locales de la ejecución del scraper."""
 
 from __future__ import annotations
 
@@ -25,13 +25,19 @@ async def retry_database_pool_operation[DatabaseResult](
     component: str,
     operation: Callable[[], Awaitable[DatabaseResult]],
 ) -> DatabaseResult:
-    """Reintenta contención transitoria del pool y de bloqueos MySQL.
+    """Reejecuta una operación con transacción limpia ante agotamiento del pool, deadlock o lock
+    timeout de MySQL.
 
-    Un ``SQLAlchemyTimeoutError`` en este servicio significa que todas las conexiones
-    acotadas del proceso están ocupadas. No equivale a un fallo del proveedor ni debe
-    degradar una aplicación. Los deadlocks y timeouts de lock de MySQL también son
-    recuperables, pero cada intento vuelve a ejecutar ``operation`` y abre una
-    transacción limpia. Los demás errores de red o SQL siguen propagándose.
+    Args:
+        settings: Configuración del servicio y sus límites.
+        component: Nombre del worker o componente para el diagnóstico.
+        operation: Operación asíncrona que se reintentará en una sesión limpia.
+
+    Returns:
+        resultado de la operación.
+
+    Raises:
+        OperationalError: Si el error no es un lock transitorio o se agotan intentos.
     """
     for attempt in range(1, DATABASE_POOL_RETRY_ATTEMPTS + 1):
         try:
@@ -66,18 +72,36 @@ async def retry_database_pool_operation[DatabaseResult](
 
 
 def mysql_error_code(exc: OperationalError) -> int | None:
-    """Extrae el código numérico del error original de MySQL, si existe."""
+    """Extrae el código entero del error original cuando el driver lo proporciona.
+
+    Args:
+        exc: Excepción SQL o de tarea que se clasifica.
+
+    Returns:
+        código MySQL o None.
+    """
     args: tuple[object, ...] = getattr(exc.orig, "args", ())
     return args[0] if args and isinstance(args[0], int) else None
 
 
 def is_transient_mysql_lock_error(exc: OperationalError) -> bool:
-    """Identifica deadlocks y expiraciones de espera de locks reintentables."""
+    """Reconoce 1205 y 1213 como deadlock o lock timeout reintentable.
+
+    Args:
+        exc: Excepción SQL o de tarea que se clasifica.
+
+    Returns:
+        True si se puede repetir.
+    """
     return mysql_error_code(exc) in {1205, 1213}
 
 
 def async_session_local():
-    """Ejecuta la operación `async_session_local`."""
+    """Importa de forma diferida la fábrica de sesiones para evitar ciclos durante el arranque.
+
+    Returns:
+        AsyncSessionLocal.
+    """
     from app.db.session import AsyncSessionLocal
 
     return AsyncSessionLocal
@@ -85,20 +109,18 @@ def async_session_local():
 
 @dataclass
 class ScrapeCounters:
-    """Representa el componente `ScrapeCounters`."""
+    """Contadores separados por descubrimiento, resolución, ausencia confirmada, revisión,
+    omisión y fallo transitorio.
+    """
 
     apps_discovered: int = 0
-    """Atributo de clase `apps_discovered` de `ScrapeCounters`.
-    """
+
     apps_resolved: int = 0
-    """Atributo de clase `apps_resolved` de `ScrapeCounters`.
-    """
+
     apps_failed: int = 0
-    """Atributo de clase `apps_failed` de `ScrapeCounters`.
-    """
+
     apps_skipped: int = 0
-    """Atributo de clase `apps_skipped` de `ScrapeCounters`.
-    """
+
     apps_confirmed_missing: int = 0
     """Ausencias con evidencia activa que no convierten la ejecución en parcial."""
     apps_needs_review: int = 0
@@ -111,17 +133,16 @@ class ScrapeCounters:
 
 @dataclass
 class PipelineRuntime:
-    """Mantiene el estado de ejecución de `Pipeline`."""
+    """Contexto mutable compartido por workers, con eventos de coordinación y presupuestos
+    protegidos por locks.
+    """
 
     settings: Settings
-    """Atributo de clase `settings` de `PipelineRuntime`.
-    """
+
     run_id: uuid.UUID
-    """Atributo de clase `run_id` de `PipelineRuntime`.
-    """
+
     run_started_at: datetime
-    """Atributo de clase `run_started_at` de `PipelineRuntime`.
-    """
+
     scope: ScrapeScope = ScrapeScope.INCREMENTAL
     """Scope inmutable asociado al manifest de la ejecución."""
     selected_app_ids: tuple[uuid.UUID, ...] = ()
@@ -129,70 +150,57 @@ class PipelineRuntime:
     request_id: uuid.UUID | None = None
     """Solicitud durable que originó esta ejecución."""
     counters: ScrapeCounters = field(default_factory=ScrapeCounters)
-    """Atributo de clase `counters` de `PipelineRuntime`.
-    """
+
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `stop_event` de `PipelineRuntime`.
-    """
+
     pause_event: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `pause_event` de `PipelineRuntime`.
-    """
+
     searcher_done: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `searcher_done` de `PipelineRuntime`.
-    """
+
     filter_done: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `filter_done` de `PipelineRuntime`.
-    """
+
     scraper_done: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `scraper_done` de `PipelineRuntime`.
-    """
+
     so_filter_done: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `so_filter_done` de `PipelineRuntime`.
-    """
+
     descriptor_done: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `descriptor_done` de `PipelineRuntime`.
-    """
+
     all_workers_done: asyncio.Event = field(default_factory=asyncio.Event)
-    """Atributo de clase `all_workers_done` de `PipelineRuntime`.
-    """
+
     stopped_by_command: bool = False
-    """Atributo de clase `stopped_by_command` de `PipelineRuntime`.
-    """
+
     _counter_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    """Atributo de clase `_counter_lock` de `PipelineRuntime`.
-    """
+
     _descriptor_budget_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    """Atributo de clase `_descriptor_budget_lock` de `PipelineRuntime`.
-    """
+
     _descriptor_attempts: int = 0
-    """Atributo de clase `_descriptor_attempts` de `PipelineRuntime`.
-    """
+
 
     async def before_next_item(self) -> bool:
-        """Ejecuta `before_next_item` dentro de `PipelineRuntime`.
+        """Espera mientras el run está pausado y permite avanzar solo si no se solicitó parada.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si el worker puede tomar otro trabajo.
         """
         while self.pause_event.is_set() and not self.stop_event.is_set():
             await asyncio.sleep(1)
         return not self.stop_event.is_set()
 
     async def increment(self, field_name: str, amount: int = 1) -> None:
-        """Ejecuta `increment` dentro de `PipelineRuntime`.
+        """Incrementa de forma atómica un contador del run.
 
         Args:
-            field_name (str): Valor de `field_name` utilizado por la operación.
-            amount (int): Valor de `amount` utilizado por la operación.
+            field_name: Nombre de contador permitido en ScrapeCounters.
+            amount: Incremento aplicado al contador.
         """
         async with self._counter_lock:
             setattr(self.counters, field_name, getattr(self.counters, field_name) + amount)
 
     async def reserve_descriptor_attempt(self) -> bool:
-        """Ejecuta `reserve_descriptor_attempt` dentro de `PipelineRuntime`.
+        """Reserva un intento de descriptor respetando llm_max_apps_per_run.
 
         Returns:
-            bool: Indica si se cumple la condición evaluada.
+            True si queda presupuesto.
         """
         async with self._descriptor_budget_lock:
             maximum = self.settings.llm_max_apps_per_run
@@ -202,6 +210,6 @@ class PipelineRuntime:
             return True
 
     async def release_descriptor_attempt(self) -> None:
-        """Libera la operación `descriptor_attempt`."""
+        """Devuelve un intento reservado sin permitir que el contador sea negativo."""
         async with self._descriptor_budget_lock:
             self._descriptor_attempts = max(0, self._descriptor_attempts - 1)

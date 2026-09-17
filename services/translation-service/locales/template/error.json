@@ -1,11 +1,6 @@
 {
   "error.backToHome": "",
   "error.backToLogin": "",
-  "error.google_oauth_not_configured.body": "",
-  "error.google_oauth_not_configured.title": "",
-  "error.oauth_failed.body": "",
-  "error.oauth_failed.title": "",
-  "error.status": "",
   "error.unexpected_error.body": "",
   "error.unexpected_error.title": ""
 }

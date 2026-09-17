@@ -120,6 +120,9 @@ services:
       SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
       SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
       SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      SCRAPER_DATABASE_POOL_MAX: 4
+      SCRAPER_DATABASE_MAX_OVERFLOW: 2
+      SCRAPER_ALEMBIC_TARGET: ${SCRAPER_ALEMBIC_TARGET:-20260914_0021}
       SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
       SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
       SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
@@ -147,8 +150,7 @@ services:
     pull_policy: always
     command: ["scheduler"]
     env_file:
-      - path: ./api/scraper/.env.scheduler.example
-      - path: ./api/scraper/.env.scheduler
+      - path: ./api/scraper/.env
         required: false
     environment:
       SCRAPER_DATABASE_HOST: mysql
@@ -156,6 +158,9 @@ services:
       SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
       SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
       SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
+      SCRAPER_DATABASE_POOL_MAX: 8
+      SCRAPER_DATABASE_MAX_OVERFLOW: 4
+      SCRAPER_ALEMBIC_TARGET: ${SCRAPER_ALEMBIC_TARGET:-20260914_0021}
       SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
       SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
       SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
@@ -202,12 +207,11 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      CORE_API_FLYWAY_TARGET: ${CORE_API_FLYWAY_TARGET:-16}
       CORE_API_ADMIN_USERNAME: ${CORE_API_ADMIN_USERNAME}
       CORE_API_ADMIN_EMAIL: ${CORE_API_ADMIN_EMAIL}
       CORE_API_ADMIN_PASSWORD: ${CORE_API_ADMIN_PASSWORD}
       APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL}
-      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
       NOTIFICATION_TOKEN_ENCRYPTION_KEY: ${NOTIFICATION_TOKEN_ENCRYPTION_KEY}
       SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
       SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
@@ -257,8 +261,9 @@ services:
       SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
       SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
+      SEMANTIC_MODEL_DIR: /models/current
+      SEMANTIC_MODEL_RUNTIME_CACHE_DIR: /models/runtime-cache
+      SEMANTIC_MODEL_MANIFEST_NAME: batch-model.json
     cpu_shares: 512
     restart: unless-stopped
     ports:
@@ -268,7 +273,6 @@ services:
         condition: service_healthy
     volumes:
       - semantic_models:/models
-      - semantic_reports:/reports
     healthcheck:
       test:
         [
@@ -298,8 +302,9 @@ services:
       SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
       SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
+      SEMANTIC_MODEL_DIR: /models/current
+      SEMANTIC_MODEL_RUNTIME_CACHE_DIR: /models/runtime-cache
+      SEMANTIC_MODEL_MANIFEST_NAME: batch-model.json
     cpu_shares: 128
     depends_on:
       semantic-service:
@@ -308,77 +313,13 @@ services:
         condition: service_healthy
     volumes:
       - semantic_models:/models
-      - semantic_reports:/reports
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "indexer", "--writable", "/models", "--writable", "/reports"]
+      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "indexer", "--writable", "/models"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 120s
-
-  semantic-model-worker:
-    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
-    pull_policy: always
-    command: ["python", "-m", "app.model_worker"]
-    env_file:
-      - path: ./services/semantic-service/.env.model-worker.example
-      - path: ./services/semantic-service/.env.model-worker
-        required: false
-    environment:
-      SEMANTIC_DATABASE_HOST: postgres
-      SEMANTIC_DATABASE_PORT: 5432
-      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
-      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
-      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
-      SEMANTIC_SCRAPER_API_URL: http://scraper-api:8000
-      SEMANTIC_SERVICE_URL: http://semantic-service:8000
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
-    cpu_shares: 128
-    depends_on:
-      semantic-service:
-        condition: service_healthy
-      scraper-api:
-        condition: service_healthy
-    volumes:
-      - semantic_models:/models
-      - semantic_reports:/reports
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "model-worker", "--writable", "/models", "--writable", "/reports"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 120s
-
-  semantic-trainer:
-    profiles: ["training"]
-    restart: "no"
-    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG}
-    pull_policy: always
-    command: ["python", "-m", "app.trainer"]
-    env_file:
-      - path: ./services/semantic-service/.env.trainer.example
-      - path: ./services/semantic-service/.env.trainer
-        required: false
-    environment:
-      SEMANTIC_DATABASE_HOST: postgres
-      SEMANTIC_DATABASE_PORT: 5432
-      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
-      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
-      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      SEMANTIC_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
-      SEMANTIC_MODEL_CACHE_DIR: /models
-      SEMANTIC_REPORTS_DIR: /reports
-    cpu_shares: 128
-    depends_on:
-      semantic-service:
-        condition: service_healthy
-    volumes:
-      - semantic_models:/models
-      - semantic_reports:/reports
 
   mailpit:
     image: axllent/mailpit:v1.30.0
@@ -447,6 +388,7 @@ services:
       MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
       MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
       SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      DOWNLOAD_WORKER_LINUX_INSTALLER_ENABLED: ${DOWNLOAD_WORKER_LINUX_INSTALLER_ENABLED:-true}
     cpu_shares: 768
     restart: unless-stopped
     ports:
@@ -497,4 +439,3 @@ volumes:
   download_worker_data:
   download_worker_temp:
   semantic_models:
-  semantic_reports:

@@ -1,8 +1,8 @@
 package es.ubu.batchdownloader.admin;
 
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerification;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationRequest;
-import es.ubu.batchdownloader.admin.AdminDtos.InstallerAbsenceVerificationSummary;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerification;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationRequest;
+import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationSummary;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.NotFoundException;
@@ -23,9 +23,15 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Conserva y valida la evidencia explícita de aplicaciones sin instalador.
+ * Conserva comprobaciones humanas de ausencia de instaladores vinculadas a la versión y las huellas
+ * del catálogo. Sustituye o invalida evidencia en la transacción que modifica la aplicación.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.admin.AdminAppRepository
+ * @see InstallerAbsenceDtos.InstallerAbsenceVerificationRequest
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Operaciones administrativas
  */
 @Repository
 public class InstallerAbsenceRepository {
@@ -34,11 +40,12 @@ public class InstallerAbsenceRepository {
     private final Clock clock;
 
     /**
-     * Inicializa el repositorio de evidencias negativas.
+     * Conecta las evidencias con el acceso SQL, la resolución de aplicaciones y el reloj de
+     * cambios.
      *
-     * @param jdbc acceso JDBC al catálogo
-     * @param catalog resolución canónica de identificadores públicos
-     * @param clock reloj inyectado para operaciones deterministas
+     * @param jdbc Acceso JDBC a las tablas operativas y evidencias del catálogo.
+     * @param catalog Resolución de aplicaciones públicas y sus claves persistidas.
+     * @param clock Reloj que fecha evidencias y determina el corte de retención.
      */
     public InstallerAbsenceRepository(JdbcTemplate jdbc, CatalogRepository catalog, Clock clock) {
         this.jdbc = jdbc;
@@ -47,12 +54,18 @@ public class InstallerAbsenceRepository {
     }
 
     /**
-     * Registra una ausencia únicamente cuando las comprobaciones son concluyentes.
+     * Bloquea la aplicación, exige comprobar su página oficial cuando existe y rechaza una ausencia
+     * si ya hay instalador descargable. Sustituye la evidencia activa y marca las fuentes missing
+     * en la misma transacción.
      *
-     * @param publicId aplicación revisada
-     * @param request evidencia estructurada
-     * @param actor administrador responsable
-     * @return acta activa recién creada
+     * @param publicId UUID público textual de la aplicación cuya evidencia se consulta o confirma.
+     * @param request Evidencias de las páginas comprobadas, ya validadas por la entrada HTTP.
+     * @param actor UUID textual de la cuenta administrativa que solicitó la operación.
+     * @return evidencia recién creada con las huellas comprobadas.
+     * @throws es.ubu.batchdownloader.common.NotFoundException si la aplicación desapareció o no
+     *     existe.
+     * @throws es.ubu.batchdownloader.common.ConflictException si falta comprobación oficial o
+     *     existe un instalador validado.
      */
     @Transactional
     public InstallerAbsenceVerification confirm(
@@ -87,7 +100,12 @@ public class InstallerAbsenceRepository {
         return byId(verificationId);
     }
 
-    /** Obtiene el acta activa más reciente de una aplicación. */
+    /**
+     * Consulta la evidencia activa más reciente para la aplicación resuelta.
+     *
+     * @param publicId UUID público textual de la aplicación cuya evidencia se consulta o confirma.
+     * @return evidencia activa o null cuando no hay ninguna.
+     */
     public InstallerAbsenceVerification active(String publicId) {
         UUID appId = catalog.softwareAppId(publicId);
         List<InstallerAbsenceVerification> rows = jdbc.query(
@@ -101,7 +119,12 @@ public class InstallerAbsenceRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    /** Resume los {@code missing} sin evidencia usando la proyección autoritativa. */
+    /**
+     * Cuenta evidencias activas y aplicaciones publicadas en missing o review, incluyendo las
+     * missing sin evidencia activa.
+     *
+     * @return recuentos administrativos para priorizar comprobaciones.
+     */
     public InstallerAbsenceVerificationSummary summary() {
         return jdbc.queryForObject(
                 """
@@ -124,7 +147,13 @@ public class InstallerAbsenceRepository {
                         rs.getLong("review_count")));
     }
 
-    /** Invalida evidencia activa cuando cambia una fuente autoritativa. */
+    /**
+     * Invalida la evidencia activa con motivo y fecha. Solo si retiró evidencia y no queda ninguna
+     * fuente disponible, devuelve las fuentes a revisión manual.
+     *
+     * @param appId UUID persistido de la aplicación propietaria de la evidencia.
+     * @param reason Código que identifica el cambio que invalida la comprobación anterior.
+     */
     void invalidate(UUID appId, String reason) {
         LocalDateTime now = LocalDateTime.now(clock);
         int invalidated = jdbc.update(
@@ -161,6 +190,13 @@ public class InstallerAbsenceRepository {
         }
     }
 
+    /**
+     * Lee versión, página oficial y huellas Winstall bajo FOR UPDATE para que la evidencia
+     * corresponda a un estado estable.
+     *
+     * @param appId UUID persistido de la aplicación propietaria de la evidencia.
+     * @return estado bloqueado o null si ya no existe la aplicación.
+     */
     private AbsenceAppState lockApp(UUID appId) {
         return jdbc.query(
                 """
@@ -182,6 +218,14 @@ public class InstallerAbsenceRepository {
                 UuidBytes.fromUuid(appId));
     }
 
+    /**
+     * Comprueba que ninguna fuente resuelta de la aplicación sea descargable antes de certificar
+     * una ausencia.
+     *
+     * @param appId UUID persistido de la aplicación propietaria de la evidencia.
+     * @throws es.ubu.batchdownloader.common.ConflictException si encuentra al menos un instalador
+     *     catalog_downloadable.
+     */
     private void rejectValidatedInstaller(UUID appId) {
         Long candidates = jdbc.queryForObject(
                 """
@@ -199,6 +243,13 @@ public class InstallerAbsenceRepository {
         }
     }
 
+    /**
+     * Conserva las evidencias anteriores como superseded con motivo reverified antes de insertar la
+     * nueva comprobación.
+     *
+     * @param appId UUID persistido de la aplicación propietaria de la evidencia.
+     * @param now Fecha compartida por sustitución e inserción dentro de la misma transacción.
+     */
     private void supersedeActive(UUID appId, LocalDateTime now) {
         jdbc.update(
                 """
@@ -212,6 +263,18 @@ public class InstallerAbsenceRepository {
                 UuidBytes.fromUuid(appId));
     }
 
+    /**
+     * Guarda las páginas comprobadas, confirmaciones, actor, versión y huellas como evidencia
+     * activa; incluye la página oficial solo cuando se aportó.
+     *
+     * @param verificationId UUID único de la evidencia creada o consultada.
+     * @param appId UUID persistido de la aplicación propietaria de la evidencia.
+     * @param app Estado de la aplicación obtenido bajo bloqueo para registrar la versión y las
+     *     huellas comprobadas.
+     * @param request Evidencias de las páginas comprobadas, ya validadas por la entrada HTTP.
+     * @param actor UUID textual de la cuenta administrativa que solicitó la operación.
+     * @param now Fecha compartida por sustitución e inserción dentro de la misma transacción.
+     */
     private void insert(
             UUID verificationId,
             UUID appId,
@@ -256,6 +319,12 @@ public class InstallerAbsenceRepository {
         jdbc.update(sql, parameters.toArray());
     }
 
+    /**
+     * Lee una evidencia que acaba de persistirse para devolver su representación completa.
+     *
+     * @param verificationId UUID único de la evidencia creada o consultada.
+     * @return evidencia asociada al UUID indicado.
+     */
     private InstallerAbsenceVerification byId(UUID verificationId) {
         return jdbc.queryForObject(
                 "SELECT * FROM installer_absence_verifications WHERE id = ?",
@@ -263,6 +332,15 @@ public class InstallerAbsenceRepository {
                 UuidBytes.fromUuid(verificationId));
     }
 
+    /**
+     * Convierte la evidencia SQL en su contrato administrativo, conservando la fecha y motivo de
+     * invalidación opcionales.
+     *
+     * @param rs Fila actual de la consulta JDBC.
+     * @param rowNum Índice de fila JDBC; no influye en la proyección.
+     * @return comprobación con identificadores textuales y huellas persistidas.
+     * @throws java.sql.SQLException si falla la lectura de una columna de la evidencia.
+     */
     private InstallerAbsenceVerification map(ResultSet rs, int rowNum) throws SQLException {
         return new InstallerAbsenceVerification(
                 UuidBytes.toUuid(rs.getBytes("id")).toString(),
@@ -282,6 +360,14 @@ public class InstallerAbsenceRepository {
                 rs.getString("invalidation_reason"));
     }
 
+    /**
+     * Calcula SHA-256 del texto recortado en UTF-8 para detectar cambios de la página oficial sin
+     * normalizar su URL.
+     *
+     * @param value Texto opcional cuya ausencia o huella se calcula.
+     * @return huella hexadecimal o null cuando falta texto.
+     * @throws IllegalStateException si el proveedor criptográfico no dispone de SHA-256.
+     */
     private String fingerprint(String value) {
         if (isBlank(value)) {
             return null;
@@ -295,15 +381,43 @@ public class InstallerAbsenceRepository {
         }
     }
 
+    /**
+     * Lee una fecha JDBC opcional conservando la ausencia del dato.
+     *
+     * @param rs Fila actual de la consulta JDBC.
+     * @param column Nombre interno de la columna nullable que se desea leer.
+     * @return fecha local persistida o null.
+     * @throws java.sql.SQLException si no se puede leer la columna de fecha.
+     */
     private LocalDateTime nullableDate(ResultSet rs, String column) throws SQLException {
         var timestamp = rs.getTimestamp(column);
         return timestamp == null ? null : timestamp.toLocalDateTime();
     }
 
+    /**
+     * Detecta si una página opcional carece de texto antes de exigirla o calcular su huella.
+     *
+     * @param value Texto opcional cuya ausencia o huella se calcula.
+     * @return true para null o texto formado solo por espacios.
+     */
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
 
+    /**
+     * Captura el estado bloqueado de la aplicación que queda vinculado a una confirmación de
+     * ausencia.
+     *
+     * @param winstallId Identificador del paquete que se comprobó en Winstall.
+     * @param officialUrl Página oficial conocida al confirmar la evidencia.
+     * @param version Versión persistida de la aplicación en el momento de la comprobación.
+     * @param winstallLatestVersion Última versión Winstall que se comprobó al generar la evidencia.
+     * @param summaryFingerprint Huella del resumen Winstall que acompañó a la versión comprobada.
+     * @param detailFingerprint Huella del detalle Winstall que acompañó a la versión comprobada.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Operaciones administrativas
+     */
     private record AbsenceAppState(
             String winstallId,
             String officialUrl,

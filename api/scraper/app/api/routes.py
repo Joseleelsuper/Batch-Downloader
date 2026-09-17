@@ -1,4 +1,6 @@
-"""Expone exclusivamente los healthchecks públicos del scraper."""
+"""Expone salud general, vida del proceso y disponibilidad de base de datos con responsabilidades
+separadas.
+"""
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -9,17 +11,19 @@ from app.db.session import AsyncSessionLocal
 from app.repositories.heartbeat import WorkerHeartbeatRepository
 
 router = APIRouter(prefix="/api")
-"""Estado global asociado a `router`.
-"""
+
 @router.get("/health")
 async def health(settings: Settings = Depends(get_settings)) -> dict[str, object]:
-    """Ejecuta la operación `health`.
+    """Consulta el latido persistido del scheduler y presenta salud degradada si falta, está
+    obsoleto, acumula fallos o falla la consulta.
 
     Args:
-        settings (Settings): Configuración del servicio.
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
 
     Returns:
-        dict[str, object]: Mapa con los datos producidos por la operación.
+        estado textual, nombre de servicio y diagnóstico del scheduler disponible; esta ruta
+            mantiene respuesta HTTP 200.
     """
     try:
         async with AsyncSessionLocal() as session:
@@ -39,12 +43,25 @@ async def health(settings: Settings = Depends(get_settings)) -> dict[str, object
 
 @router.get("/health/live")
 async def health_live(settings: Settings = Depends(get_settings)) -> dict[str, str]:
-    """Confirma que el proceso HTTP y su bucle de eventos siguen respondiendo."""
+    """Confirma que el proceso HTTP puede responder sin consultar base de datos ni workers.
+
+    Args:
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
+
+    Returns:
+        estado ok y nombre del servicio.
+    """
     return {"status": "ok", "service": settings.app_name}
 
 
 async def database_ready() -> bool:
-    """Comprueba MySQL con una consulta real y una conexión del pool de la API."""
+    """Abre una sesión independiente y comprueba SELECT 1, cerrándola tanto en éxito como en
+    fallo.
+
+    Returns:
+        True si la base responde y False ante cualquier excepción.
+    """
     try:
         async with AsyncSessionLocal() as session:
             await session.execute(text("SELECT 1"))
@@ -55,7 +72,15 @@ async def database_ready() -> bool:
 
 @router.get("/health/ready")
 async def health_ready(settings: Settings = Depends(get_settings)) -> JSONResponse:
-    """Indica si la API puede atender operaciones respaldadas por MySQL."""
+    """Traduce disponibilidad de base de datos a un estado HTTP apropiado para readiness.
+
+    Args:
+        settings: Configuración validada de salud, límites y credenciales internas del
+            servicio.
+
+    Returns:
+        respuesta 200 si la base está disponible o 503 con estado degraded en caso contrario.
+    """
     ready = await database_ready()
     return JSONResponse(
         status_code=200 if ready else 503,

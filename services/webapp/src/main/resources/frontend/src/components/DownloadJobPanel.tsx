@@ -138,6 +138,15 @@ export function DownloadJobPanel({
               </div>
             ))}
           </dl>
+          {job.linux && downloadable && completed > 0 ? (
+            <details>
+              <summary>{t('linux.download.usage')}</summary>
+              <p>{t('linux.download.extract')}</p>
+              <p><code>bash install.sh</code></p>
+              <p><code>bash uninstall.sh</code></p>
+              <p>{t('linux.download.persisted')}</p>
+            </details>
+          ) : null}
           {connectionError ? (
             <p className="download-job-connection-warning">
               <WifiOff size={15} />

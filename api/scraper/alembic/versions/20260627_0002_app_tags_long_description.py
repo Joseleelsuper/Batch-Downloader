@@ -6,21 +6,18 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "20260627_0002"
-"""Estado global asociado a `revision`.
-"""
+
 down_revision = "20260626_0001"
-"""Estado global asociado a `down_revision`.
-"""
+
 branch_labels = None
-"""Estado global asociado a `branch_labels`.
-"""
+
 depends_on = None
-"""Estado global asociado a `depends_on`.
-"""
+
 
 
 def upgrade() -> None:
-    """Ejecuta la operación `upgrade`.
+    """Aplica la revisión Alembic `20260627` para actualizar el esquema del Scraper de forma
+    reproducible.
     """
     op.add_column("software_apps", sa.Column("long_description", sa.Text(), nullable=True))
     op.add_column(
@@ -105,7 +102,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Ejecuta la operación `downgrade`.
+    """Revierte la revisión Alembic `20260627` en el orden inverso, conservando los
+    identificadores declarados por la migración.
     """
     op.drop_index("ix_software_app_tags_normalized_tag", table_name="software_app_tags")
     op.drop_index("ix_software_app_tags_app", table_name="software_app_tags")

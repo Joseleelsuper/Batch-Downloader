@@ -5,7 +5,7 @@ import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRe
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.ArchiveEntry;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.DownloadItemMetadata;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.FailedDownload;
-import es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy;
+import es.ubu.batchdownloader.downloadworker.ports.PublicUriPolicy;
 import es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup;
 import java.io.IOException;
 import java.net.URI;
@@ -22,8 +22,18 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-/** Genera accesos directos manuales sin conservar URLs con credenciales. */
-final class ManualShortcutWriter {
+/**
+ * Ofrece páginas oficiales como accesos manuales para elementos sin instalador, tras comprobar
+ * destino público y descartar consultas con nombres de parámetros sensibles.
+ *
+ * @see es.ubu.batchdownloader.downloadworker.ports.PublicUriPolicy
+ * @see es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup
+ * @see es.ubu.batchdownloader.downloadworker.application.FilenamePolicy
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Resultados y empaquetado
+ */
+public final class ManualShortcutWriter {
     private static final Set<String> SENSITIVE_QUERY_NAMES = Set.of(
             "access_token", "api_key", "apikey", "auth", "authorization", "key",
             "password", "sig", "signature", "token");
@@ -32,17 +42,37 @@ final class ManualShortcutWriter {
 
     private final JobItemMetadataLookup metadataLookup;
     private final FilenamePolicy filenamePolicy;
-    private final PublicHttpsUriPolicy publicHttpsUriPolicy;
+    private final PublicUriPolicy publicHttpsUriPolicy;
 
-    ManualShortcutWriter(
+    /**
+     * Compone consulta de metadatos, nombres seguros y validación de URI mediante el puerto
+     * público.
+     *
+     * @param metadataLookup Consulta por lotes de nombres y páginas oficiales de los elementos
+     *     fallidos.
+     * @param filenamePolicy Asigna nombres seguros y únicos dentro del archivo del trabajo.
+     * @param publicHttpsUriPolicy Puerto de validación de destinos públicos; evita depender del
+     *     adaptador HTTP concreto.
+     */
+    public ManualShortcutWriter(
             JobItemMetadataLookup metadataLookup,
             FilenamePolicy filenamePolicy,
-            PublicHttpsUriPolicy publicHttpsUriPolicy) {
+            PublicUriPolicy publicHttpsUriPolicy) {
         this.metadataLookup = metadataLookup;
         this.filenamePolicy = filenamePolicy;
         this.publicHttpsUriPolicy = publicHttpsUriPolicy;
     }
 
+    /**
+     * Consulta los elementos fallidos y crea accesos .url solo para páginas admisibles,
+     * asignándoles nombres únicos bajo Descargas manuales.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param failures Rechazos de resolución o descarga que pueden ofrecer una alternativa manual.
+     * @param jobDirectory Directorio temporal exclusivo de esta ejecución del trabajo.
+     * @return entradas creadas, rutas por elemento y metadatos consultados.
+     */
     Result write(
             DownloadJobRequestedEvent event,
             List<FailedDownload> failures,
@@ -71,6 +101,17 @@ final class ManualShortcutWriter {
         return new Result(List.copyOf(entries), Map.copyOf(pathsByItem), metadata);
     }
 
+    /**
+     * Selecciona de la solicitud original solo los UUID fallidos y consulta sus metadatos en lote;
+     * evita consultas cuando no hay fallos.
+     *
+     * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
+     *     eventos.
+     * @param failures Rechazos de resolución o descarga que pueden ofrecer una alternativa manual.
+     * @return metadatos por UUID del elemento.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si los UUID
+     *     de los fallos no corresponden a los elementos admitidos.
+     */
     private Map<UUID, DownloadItemMetadata> metadata(
             DownloadJobRequestedEvent event,
             List<FailedDownload> failures) {
@@ -91,6 +132,17 @@ final class ManualShortcutWriter {
         return metadataLookup.find(event.payload().jobId(), failedItems);
     }
 
+    /**
+     * Crea el directorio de accesos y escribe un archivo InternetShortcut UTF-8 con URI ASCII y
+     * finales CRLF.
+     *
+     * @param directory Directorio temporal exclusivo en el que se escribirán los instaladores.
+     * @param shortcut Ruta local del archivo .url que se crea.
+     * @param officialPage URI oficial que ya superó la validación de acceso público y de parámetros
+     *     sensibles.
+     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no se
+     *     puede crear el directorio o escribir el acceso.
+     */
     private void writeShortcut(Path directory, Path shortcut, URI officialPage) {
         try {
             Files.createDirectories(directory);
@@ -103,6 +155,13 @@ final class ManualShortcutWriter {
         }
     }
 
+    /**
+     * Descarta texto ausente o con controles, valida la sintaxis y exige consulta sin marcadores
+     * sensibles y un destino permitido por la política pública.
+     *
+     * @param value Texto propuesto que se normaliza o valida antes de incluirlo en el archivo.
+     * @return URI admisible o null para páginas rechazadas.
+     */
     private URI safeOfficialPage(String value) {
         if (value == null
                 || value.isBlank()
@@ -121,6 +180,13 @@ final class ManualShortcutWriter {
         }
     }
 
+    /**
+     * Decodifica y normaliza los nombres de parámetros y detecta nombres o marcadores sensibles;
+     * una codificación inválida también causa rechazo.
+     *
+     * @param uri URI cuya consulta se revisa antes de incorporarla a un acceso manual.
+     * @return true cuando la consulta debe excluirse del acceso manual.
+     */
     private boolean hasSensitiveQuery(URI uri) {
         String query = uri.getRawQuery();
         if (query == null || query.isBlank()) {
@@ -144,6 +210,17 @@ final class ManualShortcutWriter {
         }
     }
 
+    /**
+     * Relaciona accesos manuales con sus elementos y conserva metadatos para describir los fallos
+     * en el manifiesto.
+     *
+     * @param entries Archivos .url creados y sus ubicaciones previstas dentro del ZIP.
+     * @param pathsByItem Ruta de cada acceso manual por UUID del elemento al que corresponde.
+     * @param metadata Metadatos públicos por UUID de elemento consultado.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Resultados y empaquetado
+     */
     record Result(
             List<ArchiveEntry> entries,
             Map<UUID, String> pathsByItem,

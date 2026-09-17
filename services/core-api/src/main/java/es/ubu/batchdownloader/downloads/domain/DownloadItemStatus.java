@@ -1,40 +1,46 @@
 package es.ubu.batchdownloader.downloads.domain;
 
 /**
- * Enumera los valores admitidos por {@code DownloadItemStatus}.
+ * Distingue el progreso de un instalador de su resultado terminal para mantener resultados
+ * parciales del lote.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJobItem
+ * @see es.ubu.batchdownloader.downloads.domain.DownloadJobStatus
+ * @since 0.1.0
+ * @version 0.1.0
+ * @category Descargas
  */
 public enum DownloadItemStatus {
     /**
-     * Constante que define {@code QUEUED}.
+     * Espera capacidad o reserva para comenzar.
      */
     QUEUED,
     /**
-     * Constante que define {@code RESOLVING}.
+     * Resuelve y revalida la fuente antes de transferir bytes.
      */
     RESOLVING,
     /**
-     * Constante que define {@code DOWNLOADING}.
+     * Transfiere los instaladores admitidos.
      */
     DOWNLOADING,
     /**
-     * Constante que define {@code COMPLETED}.
+     * El instalador o acceso manual del elemento se completó.
      */
     COMPLETED,
     /**
-     * Constante que define {@code FAILED}.
+     * El procesamiento terminó con fallo.
      */
     FAILED,
     /**
-     * Constante que define {@code CANCELLED}.
+     * El solicitante canceló el procesamiento.
      */
     CANCELLED;
 
     /**
-     * Ejecuta la operación {@code terminal}.
+     * Identifica elementos que ya terminaron y no deben aceptar eventos posteriores de progreso.
      *
-     * @return Indica si se cumple la condición evaluada.
+     * @return true para COMPLETED, FAILED o CANCELLED.
      */
     public boolean terminal() {
         return this == COMPLETED || this == FAILED || this == CANCELLED;

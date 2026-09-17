@@ -1,13 +1,23 @@
-"""Implementa las responsabilidades del módulo `candidates`.
+"""Extrae posibles instaladores de HTML, puntúa su coincidencia con la aplicación y deriva
+variantes y contexto de plataforma.
+La extracción y puntuación no validan por sí solas la seguridad ni el contenido del destino.
+
+See Also:
+    app.scraper.validator.DownloadValidator: Comprueba red, formato y confianza antes de
+        publicar.
+    app.scraper.installer_policy: Ordena y filtra los candidatos para el catálogo.
 """
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
+from itertools import chain
 from pathlib import PurePosixPath
 from urllib.parse import parse_qs, unquote, urljoin, urlparse, urlunparse
 
-from selectolax.parser import HTMLParser
+from selectolax.parser import HTMLParser, Node
 
 from app.scraper.artifacts import (
     DEFAULT_ARTIFACT_FORMAT_REGISTRY,
@@ -17,23 +27,15 @@ from app.scraper.artifacts import (
 from app.scraper.text import normalize_text
 
 PREFERRED_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions
-"""Constante que define `PREFERRED_EXTENSIONS`.
-"""
+
 WINDOWS_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
     ArtifactPlatform.WINDOWS
 )
-"""Constante que define `WINDOWS_INSTALLER_EXTENSIONS`.
-"""
-MACOS_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
-    ArtifactPlatform.MACOS
-)
-"""Constante que define `MACOS_INSTALLER_EXTENSIONS`.
-"""
-LINUX_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(
-    ArtifactPlatform.LINUX
-)
-"""Constante que define `LINUX_INSTALLER_EXTENSIONS`.
-"""
+
+MACOS_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(ArtifactPlatform.MACOS)
+
+LINUX_INSTALLER_EXTENSIONS = DEFAULT_ARTIFACT_FORMAT_REGISTRY.extensions_for(ArtifactPlatform.LINUX)
+
 UNSUPPORTED_DOWNLOAD_EXTENSIONS = (
     ".apk",
     ".asc",
@@ -52,8 +54,7 @@ UNSUPPORTED_DOWNLOAD_EXTENSIONS = (
     ".yml",
     ".yaml",
 )
-"""Constante que define `UNSUPPORTED_DOWNLOAD_EXTENSIONS`.
-"""
+
 
 POSITIVE_KEYWORDS = (
     "download",
@@ -68,8 +69,7 @@ POSITIVE_KEYWORDS = (
     "offline",
     "standalone",
 )
-"""Constante que define `POSITIVE_KEYWORDS`.
-"""
+
 
 NEGATIVE_KEYWORDS = (
     "documentation",
@@ -85,23 +85,20 @@ NEGATIVE_KEYWORDS = (
     "opengl",
     "noselfupdate",
 )
-"""Constante que define `NEGATIVE_KEYWORDS`.
-"""
+
 
 URL_PATTERN = re.compile(
     r"https?://[^\s'\"<>\\]+|(?:(?:\.\./|\.\/|/)?[A-Za-z0-9._~!$&'()*+,;=:@%/-]+"
-    r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.appimage|\.dmg|\.pkg|\.tar\.gz|\.jar)(?:\?[^\s'\"<>\\]*)?)",
+    r"(?:\.exe|\.msi|\.msix|\.appx|\.zip|\.deb|\.rpm|\.appimage|\.dmg|\.pkg\.tar\.zst|\.pkg|\.tar\.gz|\.jar)(?:\?[^\s'\"<>\\]*)?)",
     re.IGNORECASE,
 )
-"""Constante que define `URL_PATTERN`.
-"""
+
 
 # Los scripts suelen contener fragmentos JavaScript arbitrarios terminados en ".exe"
 # o ".deb". Solo las URL absolutas son fiables para extraerlas del cuerpo de un script;
 # los atributos normales de enlaces y formularios se procesan por separado más abajo.
 ABSOLUTE_URL_PATTERN = re.compile(r"https?://[^\s'\"<>\\]+", re.IGNORECASE)
-"""Constante que define `ABSOLUTE_URL_PATTERN`.
-"""
+
 
 # Los controles dinámicos de descarga suelen guardar la ruta siguiente en JavaScript
 # en línea, por ejemplo: onclick="location.href='/download/launcherPC/'". Aquí solo se
@@ -111,150 +108,174 @@ EMBEDDED_NAVIGATION_URL_PATTERN = re.compile(
     r"(['\"])((?:https?:)?//[^'\"]+|/(?!/)[^'\"]+|\.\.?/[^'\"]+)\1",
     re.IGNORECASE,
 )
-"""Constante que define `EMBEDDED_NAVIGATION_URL_PATTERN`.
-"""
+
 
 VERSION_PATTERN = re.compile(r"(?<!\d)v?(\d+(?:\.\d+){1,4})", re.I)
-"""Constante que define `VERSION_PATTERN`.
-"""
+
 
 
 @dataclass(frozen=True)
 class InstallerCandidate:
-    """Representa el componente `InstallerCandidate`.
+    """Conserva la URL y las evidencias que permiten priorizar y validar un posible instalador
+    sin modificar la entrada original.
+
+    Attributes:
+        url, source: Destino propuesto y procedencia de extracción.
+        label, context: Texto visible y contexto de página o publicación.
+        score, asset_kind, match_tokens: Puntuación, clase de recurso y términos de aplicación
+            coincidentes.
+        referer: Página de origen para solicitudes que requieren contexto de navegación.
     """
+
     url: str
-    """Atributo de clase `url` de `InstallerCandidate`.
-    """
+
     source: str
-    """Atributo de clase `source` de `InstallerCandidate`.
-    """
+
     label: str | None = None
-    """Atributo de clase `label` de `InstallerCandidate`.
-    """
+
     context: str | None = None
-    """Atributo de clase `context` de `InstallerCandidate`.
-    """
+
     score: int = 0
-    """Atributo de clase `score` de `InstallerCandidate`.
-    """
+
     asset_kind: str | None = None
-    """Atributo de clase `asset_kind` de `InstallerCandidate`.
-    """
+
     match_tokens: tuple[str, ...] = ()
-    """Atributo de clase `match_tokens` de `InstallerCandidate`.
-    """
+
     referer: str | None = None
-    """Atributo de clase `referer` de `InstallerCandidate`.
-    """
+
 
     @property
     def extension(self) -> str | None:
-        """Ejecuta `extension` dentro de `InstallerCandidate`.
+        """Detecta un sufijo de instalador en la URL mediante el registro compartido de formatos.
 
         Returns:
-            str | None: Resultado producido por la operación.
+            extensión conocida o None.
         """
         return detect_extension(self.url)
 
 
-def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
-    """Ejecuta la operación `extract_candidates`.
+def _node_candidate(
+    node: Node,
+    url: str,
+    source: str,
+    base_url: str,
+    label: str | None = None,
+) -> InstallerCandidate:
+    """Combina destino y página base y captura texto del nodo y hasta 500 caracteres de HTML como
+    evidencia.
 
     Args:
-        html (str): Valor de `html` utilizado por la operación.
-        base_url (str): Dirección de `base` que debe procesarse.
+        node: Nodo HTML que aporta texto, atributos y contexto del enlace.
+        url: URL o ruta del recurso que se interpreta.
+        source: Procedencia estable del candidato, como href, formulario o proveedor.
+        base_url: Página usada para resolver enlaces relativos y conservar Referer.
+        label: Texto explícito de etiqueta; None utiliza el texto del nodo.
 
     Returns:
-        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        candidato con Referer de la página y URL vacía si no se pudo resolver.
+    """
+    return InstallerCandidate(
+        url=safe_urljoin(base_url, url) or "",
+        source=source,
+        label=node.text(separator=" ", strip=True) if label is None else label,
+        context=(node.html or "")[:500],
+        referer=base_url,
+    )
+
+
+def _linked_candidates(parser: HTMLParser, base_url: str) -> Iterator[InstallerCandidate]:
+    """Recorre enlaces y áreas antes de formularios, usando href o action y etiqueta accesible
+    del formulario cuando existe.
+
+    Args:
+        parser: Árbol HTML ya analizado de la página.
+        base_url: Página usada para resolver enlaces relativos y conservar Referer.
+
+    Yields:
+        candidatos enlazados en el orden de cada grupo de nodos.
+    """
+    for selector, attribute, source in (("a, area", "href", "href"), ("form", "action", "form")):
+        for node in parser.css(selector):
+            if url := node.attributes.get(attribute):
+                label = node.attributes.get("aria-label") or None if source == "form" else None
+                yield _node_candidate(node, url, source, base_url, label)
+
+
+def _button_candidates(parser: HTMLParser, base_url: str) -> Iterator[InstallerCandidate]:
+    """Busca patrones de URL o instalador en texto y atributos de botones y elementos con
+    role=button.
+
+    Args:
+        parser: Árbol HTML ya analizado de la página.
+        base_url: Página usada para resolver enlaces relativos y conservar Referer.
+
+    Yields:
+        candidatos encontrados con procedencia button.
+    """
+    for node in parser.css("button, [role=button]"):
+        values = " ".join(value for value in node.attributes.values() if isinstance(value, str))
+        text = f"{node.text(separator=' ', strip=True)} {values}"
+        for url in URL_PATTERN.findall(text):
+            yield _node_candidate(node, url, "button", base_url)
+
+
+def _attribute_candidates(parser: HTMLParser, base_url: str) -> Iterator[InstallerCandidate]:
+    """Busca URL de navegación en atributos de nodos con onclick o datos de enlace/descarga.
+
+    Args:
+        parser: Árbol HTML ya analizado de la página.
+        base_url: Página usada para resolver enlaces relativos y conservar Referer.
+
+    Yields:
+        candidatos con el nombre del atributo como procedencia.
+    """
+    for node in parser.css(
+        "[onclick], [data-url], [data-href], [data-link], [data-download], [data-download-url]"
+    ):
+        for attribute, value in node.attributes.items():
+            if isinstance(value, str):
+                for url in navigation_urls_from_attribute(value):
+                    yield _node_candidate(node, url, f"attribute:{attribute}", base_url)
+
+
+def _embedded_candidates(parser: HTMLParser, base_url: str) -> Iterator[InstallerCandidate]:
+    """Extrae URL HTTP absolutas de scripts y metadatos, conservando la página como referencia.
+
+    Args:
+        parser: Árbol HTML ya analizado de la página.
+        base_url: Página usada para resolver enlaces relativos y conservar Referer.
+
+    Yields:
+        candidatos embebidos sin ejecutar scripts.
+    """
+    for selector in ("script", "meta"):
+        for node in parser.css(selector):
+            content = node.text() if selector == "script" else node.attributes.get("content", "")
+            for url in ABSOLUTE_URL_PATTERN.findall(content or ""):
+                yield InstallerCandidate(url=url, source=selector, context=url, referer=base_url)
+
+
+def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
+    """Combina extracción de enlaces, botones, atributos y contenido embebido; conserva solo
+    HTTP/HTTPS y la primera aparición de cada URL.
+
+    Args:
+        html: Contenido HTML del que se extraen posibles destinos de instalación.
+        base_url: Página usada para resolver enlaces relativos y conservar Referer.
+
+    Returns:
+        candidatos únicos en el orden de descubrimiento.
     """
     parser = HTMLParser(html)
-    candidates: list[InstallerCandidate] = []
-
-    for node in parser.css("a, area"):
-        href = node.attributes.get("href")
-        if href:
-            candidates.append(
-                InstallerCandidate(
-                    url=safe_urljoin(base_url, href) or "",
-                    source="href",
-                    label=node.text(separator=" ", strip=True),
-                    context=(node.html or "")[:500],
-                    referer=base_url,
-                )
-            )
-
-    for node in parser.css("form"):
-        action = node.attributes.get("action")
-        if action:
-            candidates.append(
-                InstallerCandidate(
-                    url=safe_urljoin(base_url, action) or "",
-                    source="form",
-                    label=node.attributes.get("aria-label") or node.text(separator=" ", strip=True),
-                    context=(node.html or "")[:500],
-                    referer=base_url,
-                )
-            )
-
-    for node in parser.css("button, [role=button]"):
-        values = " ".join(
-            value for value in node.attributes.values() if isinstance(value, str)
+    candidates = chain.from_iterable(
+        extractor(parser, base_url)
+        for extractor in (
+            _linked_candidates,
+            _button_candidates,
+            _attribute_candidates,
+            _embedded_candidates,
         )
-        text = f"{node.text(separator=' ', strip=True)} {values}"
-        for match in URL_PATTERN.findall(text):
-            candidates.append(
-                InstallerCandidate(
-                    url=safe_urljoin(base_url, match) or "",
-                    source="button",
-                    label=node.text(separator=" ", strip=True),
-                    context=(node.html or "")[:500],
-                    referer=base_url,
-                )
-            )
-
-    for node in parser.css(
-        "[onclick], [data-url], [data-href], [data-link], "
-        "[data-download], [data-download-url]"
-    ):
-        label = node.text(separator=" ", strip=True)
-        for attribute, value in node.attributes.items():
-            if not isinstance(value, str):
-                continue
-            for embedded_url in navigation_urls_from_attribute(value):
-                candidates.append(
-                    InstallerCandidate(
-                        url=safe_urljoin(base_url, embedded_url) or "",
-                        source=f"attribute:{attribute}",
-                        label=label,
-                        context=(node.html or "")[:500],
-                        referer=base_url,
-                    )
-                )
-
-    for node in parser.css("script"):
-        for match in ABSOLUTE_URL_PATTERN.findall(node.text() or ""):
-            candidates.append(
-                InstallerCandidate(
-                    url=match,
-                    source="script",
-                    context=match,
-                    referer=base_url,
-                )
-            )
-
-    for node in parser.css("meta"):
-        content = node.attributes.get("content", "")
-        for match in ABSOLUTE_URL_PATTERN.findall(content or ""):
-            candidates.append(
-                InstallerCandidate(
-                    url=match,
-                    source="meta",
-                    context=match,
-                    referer=base_url,
-                )
-            )
-
+    )
     deduped: dict[str, InstallerCandidate] = {}
     for candidate in candidates:
         normalized_url = candidate.url.strip()
@@ -270,14 +291,14 @@ def extract_candidates(html: str, base_url: str) -> list[InstallerCandidate]:
 
 
 def safe_urljoin(base_url: str, value: str) -> str | None:
-    """Ejecuta la operación `safe_urljoin`.
+    """Resuelve una URL relativa sin interrumpir la extracción si la sintaxis provoca ValueError.
 
     Args:
-        base_url (str): Dirección de `base` que debe procesarse.
-        value (str): Valor que debe procesarse.
+        base_url: Página usada para resolver enlaces relativos y conservar Referer.
+        value: Texto, URL o atributo que se normaliza o analiza.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        destino resuelto o None.
     """
     try:
         return urljoin(base_url, value)
@@ -286,13 +307,14 @@ def safe_urljoin(base_url: str, value: str) -> str | None:
 
 
 def navigation_urls_from_attribute(value: str) -> list[str]:
-    """Ejecuta la operación `navigation_urls_from_attribute`.
+    """Reconoce valores de navegación directos y URL entre comillas dentro de atributos y elimina
+    duplicados manteniendo orden.
 
     Args:
-        value (str): Valor que debe procesarse.
+        value: Texto, URL o atributo que se normaliza o analiza.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        textos de URL encontrados, aún pendientes de resolver contra la página base.
     """
     stripped = value.strip()
     urls: list[str] = []
@@ -309,32 +331,69 @@ def score_candidate(
     publisher: str | None = None,
     version: str | None = None,
 ) -> InstallerCandidate:
-    """Ejecuta la operación `score_candidate`.
+    """Calcula preferencia por formato, palabras clave, identidad, versión y variante de producto
+    y devuelve una copia con las evidencias de coincidencia.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
-        app_name (str | None): Valor de `app_name` utilizado por la operación.
-        package_id (str | None): Identificador de `package` utilizado por la operación.
-        publisher (str | None): Valor de `publisher` utilizado por la operación.
-        version (str | None): Valor de `version` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
+        app_name: Nombre conocido de la aplicación, o None si falta.
+        package_id: Identidad del paquete proveedor, o None si no se conoce.
+        publisher: Editor declarado de la aplicación.
+        version: Versión esperada, usada como evidencia de coincidencia.
 
     Returns:
-        InstallerCandidate: Resultado producido por la operación.
+        candidato puntuado sin modificar el original.
     """
     text = normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
-    score = 0
-    extension = detect_extension(candidate.url)
     asset_kind = (
         "source_archive"
         if is_github_source_archive(candidate.url)
         else candidate.asset_kind or classify_asset(candidate.url)
     )
+    score = _artifact_score(candidate, asset_kind)
+    score += _keyword_score(text, candidate.asset_kind)
+    match_tokens = app_match_tokens(
+        text=text,
+        app_name=app_name,
+        package_id=package_id,
+        publisher=publisher,
+        version=version,
+    )
+    score += len(match_tokens) * 12
+    if version and version_labels_match(extract_version(candidate), version):
+        # La versión actual debe llegar antes que el historial cuando el
+        # presupuesto de validación es acotado.
+        score += 80
+    score += variant_score(text=text, app_name=app_name, package_id=package_id)
+    return replace(candidate, score=score, asset_kind=asset_kind, match_tokens=tuple(match_tokens))
+
+
+def _artifact_score(candidate: InstallerCandidate, asset_kind: str | None) -> int:
+    """Prioriza formatos de instalador y procedencia Winstall, penaliza archivos fuente y
+    distingue ZIP de release o blobs acreditados en GitHub.
+
+    Args:
+        candidate: Candidato original con URL y evidencia de procedencia.
+        asset_kind: Clasificación previa o derivada del artefacto.
+
+    Returns:
+        contribución numérica del formato y origen a la puntuación.
+    """
+    score = 0
+    extension = detect_extension(candidate.url)
     if asset_kind == "source_archive":
         score -= 150
+    # Una descarga declarada expresamente por Winstall merece llegar a la
+    # validación aunque use un endpoint opaco o el nombre contenga una etiqueta
+    # como ``beta``. Este bono no publica nada por sí solo: el validador todavía
+    # debe observar un artefacto binario seguro y la política del catálogo debe
+    # aceptar su identidad y versión.
+    if candidate.asset_kind == "winstall_download":
+        score += 35
     if extension in (
         WINDOWS_INSTALLER_EXTENSIONS
         + MACOS_INSTALLER_EXTENSIONS
-        + (".deb", ".rpm", ".appimage")
+        + (".deb", ".rpm", ".appimage", ".pkg.tar.zst")
     ):
         score += 70
     elif extension == ".zip":
@@ -342,11 +401,25 @@ def score_candidate(
     elif extension in PREFERRED_EXTENSIONS:
         score += 50
     if extension == ".zip" and registered_domain(candidate.url) == "github.com":
-        trusted_binary_blob = (
-            candidate.asset_kind == "winstall_download"
-            and is_github_raw_file(candidate.url)
+        trusted_binary_blob = candidate.asset_kind == "winstall_download" and is_github_raw_file(
+            candidate.url
         )
         score += 10 if is_github_release_asset(candidate.url) or trusted_binary_blob else -90
+    return score
+
+
+def _keyword_score(text: str, asset_kind: str | None) -> int:
+    """Suma evidencia de arquitectura y descarga y penaliza palabras de documentación, código u
+    otras variantes; portable no penaliza una descarga Winstall.
+
+    Args:
+        text: Texto normalizado de URL, etiqueta y contexto.
+        asset_kind: Clasificación previa o derivada del artefacto.
+
+    Returns:
+        contribución de palabras clave a la preferencia.
+    """
+    score = 0
     if any(
         keyword_present(text, keyword)
         for keyword in (
@@ -369,38 +442,21 @@ def score_candidate(
             score += 8 if keyword not in {"download", "descargar"} else 20
     for keyword in NEGATIVE_KEYWORDS:
         if keyword_present(text, keyword):
-            if keyword == "portable" and candidate.asset_kind == "winstall_download":
+            if keyword == "portable" and asset_kind == "winstall_download":
                 continue
             score -= 50
-    match_tokens = app_match_tokens(
-        text=text,
-        app_name=app_name,
-        package_id=package_id,
-        publisher=publisher,
-        version=version,
-    )
-    score += len(match_tokens) * 12
-    score += variant_score(text=text, app_name=app_name, package_id=package_id)
-    return InstallerCandidate(
-        url=candidate.url,
-        source=candidate.source,
-        label=candidate.label,
-        context=candidate.context,
-        score=score,
-        asset_kind=asset_kind,
-        match_tokens=tuple(match_tokens),
-        referer=candidate.referer,
-    )
+    return score
 
 
 def classify_asset(url: str) -> str:
-    """Ejecuta la operación `classify_asset`.
+    """Distingue archivo fuente GitHub, ZIP de release, instalador de plataforma, archivo
+    genérico reconocido y recurso desconocido.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL o ruta del recurso que se interpreta.
 
     Returns:
-        str: Resultado producido por la operación.
+        clase de artefacto utilizada para puntuarlo.
     """
     if is_github_source_archive(url):
         return "source_archive"
@@ -418,13 +474,14 @@ def classify_asset(url: str) -> str:
 
 
 def is_github_source_archive(url: str) -> bool:
-    """Indica si se cumple la operación `github_source_archive`.
+    """Reconoce codeload, rutas archive/zipball/tarball y los ZIP main o master bajo hosts
+    terminados en github.com.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL o ruta del recurso que se interpreta.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si la URL apunta a una forma conocida de distribución de código fuente.
     """
     parsed = urlparse(url)
     host = parsed.netloc.lower()
@@ -440,13 +497,13 @@ def is_github_source_archive(url: str) -> bool:
 
 
 def is_github_release_asset(url: str) -> bool:
-    """Indica si se cumple la operación `github_release_asset`.
+    """Reconoce la ruta releases/download bajo un netloc terminado en github.com.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL o ruta del recurso que se interpreta.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si el enlace tiene estructura de asset de release.
     """
     parsed = urlparse(url)
     return (
@@ -456,13 +513,18 @@ def is_github_release_asset(url: str) -> bool:
 
 
 def is_github_raw_file(url: str) -> bool:
-    """Distingue un blob explícito de los ZIP de código generados por GitHub."""
+    """Reconoce raw.githubusercontent.com y rutas raw bajo hosts terminados en github.com.
+
+    Args:
+        url: URL o ruta del recurso que se interpreta.
+
+    Returns:
+        True si la URL tiene estructura de archivo directo del repositorio.
+    """
     parsed = urlparse(url)
     host = parsed.netloc.lower()
     path = parsed.path.lower()
-    return host == "raw.githubusercontent.com" or (
-        host.endswith("github.com") and "/raw/" in path
-    )
+    return host == "raw.githubusercontent.com" or (host.endswith("github.com") and "/raw/" in path)
 
 
 def app_match_tokens(
@@ -472,17 +534,18 @@ def app_match_tokens(
     publisher: str | None,
     version: str | None,
 ) -> list[str]:
-    """Ejecuta la operación `app_match_tokens`.
+    """Extrae términos distintivos de nombre, paquete, editor y versión y conserva los presentes
+    en el texto candidato.
 
     Args:
-        text (str): Valor de `text` utilizado por la operación.
-        app_name (str | None): Valor de `app_name` utilizado por la operación.
-        package_id (str | None): Identificador de `package` utilizado por la operación.
-        publisher (str | None): Valor de `publisher` utilizado por la operación.
-        version (str | None): Valor de `version` utilizado por la operación.
+        text: Texto normalizado de URL, etiqueta y contexto.
+        app_name: Nombre conocido de la aplicación, o None si falta.
+        package_id: Identidad del paquete proveedor, o None si no se conoce.
+        publisher: Editor declarado de la aplicación.
+        version: Versión esperada, usada como evidencia de coincidencia.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        términos únicos coincidentes.
     """
     raw = " ".join(value for value in (app_name, package_id, publisher, version) if value)
     tokens = product_tokens(raw)
@@ -490,13 +553,14 @@ def app_match_tokens(
 
 
 def product_tokens(value: str) -> list[str]:
-    """Ejecuta la operación `product_tokens`.
+    """Normaliza separadores y texto, elimina términos genéricos y conserva tokens alfanuméricos
+    de al menos tres caracteres.
 
     Args:
-        value (str): Valor que debe procesarse.
+        value: Texto, URL o atributo que se normaliza o analiza.
 
     Returns:
-        list[str]: Colección de elementos obtenidos por la operación.
+        tokens únicos en el orden de aparición.
     """
     normalized = normalize_text(value.replace(".", " ").replace("_", " ").replace("-", " "))
     stopwords = {
@@ -519,16 +583,59 @@ def product_tokens(value: str) -> list[str]:
     return list(dict.fromkeys(tokens))
 
 
-def variant_score(text: str, app_name: str | None, package_id: str | None) -> int:
-    """Ejecuta la operación `variant_score`.
+def version_labels_match(first: str | None, second: str | None) -> bool:
+    """Compara versiones numéricas sin prefijos habituales ni ceros finales redundantes y utiliza
+    comparación textual normalizada como respaldo.
 
     Args:
-        text (str): Valor de `text` utilizado por la operación.
-        app_name (str | None): Valor de `app_name` utilizado por la operación.
-        package_id (str | None): Identificador de `package` utilizado por la operación.
+        first: Primera versión o etiqueta a comparar.
+        second: Segunda versión o etiqueta a comparar.
 
     Returns:
-        int: Resultado producido por la operación.
+        True si las etiquetas representan la misma versión; False si falta alguna.
+    """
+    if not first or not second:
+        return False
+
+    def parts(value: str) -> tuple[int, ...] | None:
+        """Convierte una versión numérica con puntos en componentes enteros y retira ceros
+        finales sin eliminar el único componente.
+
+        Args:
+            value: Texto, URL o atributo que se normaliza o analiza.
+
+        Returns:
+            tupla numérica normalizada o None si contiene partes no numéricas.
+        """
+        normalized = value.strip().casefold().removeprefix("version").strip(" :-_")
+        if normalized.startswith("v"):
+            normalized = normalized[1:]
+        raw_parts = normalized.split(".")
+        if not raw_parts or not all(part.isdigit() for part in raw_parts):
+            return None
+        values = [int(part) for part in raw_parts]
+        while len(values) > 1 and values[-1] == 0:
+            values.pop()
+        return tuple(values)
+
+    first_parts = parts(first)
+    second_parts = parts(second)
+    if first_parts is not None and second_parts is not None:
+        return first_parts == second_parts
+    return first.strip().casefold() == second.strip().casefold()
+
+
+def variant_score(text: str, app_name: str | None, package_id: str | None) -> int:
+    """Favorece coincidencias de variantes graphing, geometry, cas, suite y classic y penaliza
+    candidatos que anuncian una variante no solicitada.
+
+    Args:
+        text: Texto normalizado de URL, etiqueta y contexto.
+        app_name: Nombre conocido de la aplicación, o None si falta.
+        package_id: Identidad del paquete proveedor, o None si no se conoce.
+
+    Returns:
+        ajuste de preferencia por variante de producto.
     """
     app_text = normalize_text(f"{app_name or ''} {package_id or ''}")
     score = 0
@@ -552,25 +659,26 @@ def variant_score(text: str, app_name: str | None, package_id: str | None) -> in
 
 
 def detect_extension(url: str) -> str | None:
-    """Ejecuta la operación `detect_extension`.
+    """Delega detección de sufijos simples o compuestos al registro de formatos compartido.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL o ruta del recurso que se interpreta.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        extensión admitida o None.
     """
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.detect_extension(url)
 
 
 def filename_from_url(url: str) -> str | None:
-    """Ejecuta la operación `filename_from_url`.
+    """Busca nombres de instalador en segmentos de ruta y después en parámetros filename, file,
+    download o installer.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL o ruta del recurso que se interpreta.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        nombre decodificado de hasta 255 caracteres o None.
     """
     parsed = urlparse(url)
     path = unquote(parsed.path)
@@ -587,26 +695,27 @@ def filename_from_url(url: str) -> str | None:
 
 
 def candidate_text(candidate: InstallerCandidate) -> str:
-    """Ejecuta la operación `candidate_text`.
+    """Reúne URL, etiqueta y contexto en un texto normalizado para las reglas de coincidencia.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        str: Resultado producido por la operación.
+        texto sin acentos, en minúsculas y con espacios normalizados.
     """
     return normalize_text(f"{candidate.url} {candidate.label or ''} {candidate.context or ''}")
 
 
 def keyword_present(text: str, keyword: str) -> bool:
-    """Ejecuta la operación `keyword_present`.
+    """Busca palabras o frases normalizadas sin incrustarlas dentro de otra palabra alfanumérica
+    y admite espacios equivalentes.
 
     Args:
-        text (str): Valor de `text` utilizado por la operación.
-        keyword (str): Valor de `keyword` utilizado por la operación.
+        text: Texto normalizado de URL, etiqueta y contexto.
+        keyword: Palabra o frase que debe aparecer delimitada en el texto.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si el marcador aparece delimitado.
     """
     normalized = normalize_text(keyword)
     pattern = re.escape(normalized).replace(r"\ ", r"\s+")
@@ -614,13 +723,14 @@ def keyword_present(text: str, keyword: str) -> bool:
 
 
 def candidate_has_download_intent(candidate: InstallerCandidate) -> bool:
-    """Ejecuta la operación `candidate_has_download_intent`.
+    """Reconoce la marca de descarga Winstall o palabras delimitadas de descarga e instalación en
+    la evidencia del candidato.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si la página sugiere una acción de descarga.
     """
     text = candidate_text(candidate)
     if candidate.asset_kind == "winstall_download":
@@ -632,25 +742,26 @@ def candidate_has_download_intent(candidate: InstallerCandidate) -> bool:
 
 
 def is_download_candidate(candidate: InstallerCandidate) -> bool:
-    """Indica si se cumple la operación `download_candidate`.
+    """Acepta para evaluación destinos con extensión conocida o intención textual de descarga.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si merece pasar a puntuación y validación posterior.
     """
     return bool(detect_extension(candidate.url)) or candidate_has_download_intent(candidate)
 
 
 def candidate_variants(candidate: InstallerCandidate) -> list[InstallerCandidate]:
-    """Ejecuta la operación `candidate_variants`.
+    """Conserva el candidato original y añade alternativas HTTPS, Elcomsoft, S3 y SourceForge en
+    ese orden, sin repetir URL.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
+        candidatos de rutas alternativas que todavía deben validarse.
     """
     variants = [candidate]
     for variant_factory in (
@@ -666,7 +777,15 @@ def candidate_variants(candidate: InstallerCandidate) -> list[InstallerCandidate
 
 
 def https_upgrade_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
-    """Prueba el mismo artefacto por TLS sin relajar la prohibición de HTTP."""
+    """Propone la misma URL con HTTPS para un destino HTTP con host y marca la procedencia de la
+    transformación.
+
+    Args:
+        candidate: Candidato original con URL y evidencia de procedencia.
+
+    Returns:
+        variante HTTPS o None.
+    """
     parsed = urlparse(candidate.url)
     if parsed.scheme.lower() != "http" or not parsed.hostname:
         return None
@@ -681,7 +800,15 @@ def https_upgrade_variant(candidate: InstallerCandidate) -> InstallerCandidate |
 
 
 def elcomsoft_download_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
-    """Evita el mirror regional con TLS roto usando el CDN oficial canónico."""
+    """Deriva el host canónico download.elcomsoft.com para rutas de descarga con formato conocido
+    en los hosts Elcomsoft contemplados.
+
+    Args:
+        candidate: Candidato original con URL y evidencia de procedencia.
+
+    Returns:
+        candidato canónico con consulta conservada o None.
+    """
     parsed = urlparse(candidate.url)
     host = (parsed.hostname or "").lower()
     if host not in {"elcomsoft.com", "www.elcomsoft.com", "us.elcomsoft.com"}:
@@ -711,13 +838,14 @@ def elcomsoft_download_variant(candidate: InstallerCandidate) -> InstallerCandid
 
 
 def s3_path_style_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
-    """Ejecuta la operación `s3_path_style_variant`.
+    """Reescribe buckets con guion bajo de la forma bucket.s3.amazonaws.com a una ruta de
+    s3.amazonaws.com.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        InstallerCandidate | None: Resultado producido por la operación.
+        variante HTTPS por ruta que conserva la consulta o None.
     """
     parsed = urlparse(candidate.url)
     host = (parsed.hostname or "").lower()
@@ -748,19 +876,20 @@ def s3_path_style_variant(candidate: InstallerCandidate) -> InstallerCandidate |
 
 
 def sourceforge_mirror_variant(candidate: InstallerCandidate) -> InstallerCandidate | None:
-    """Ejecuta la operación `sourceforge_mirror_variant`.
+    """Deriva la ruta central downloads.sourceforge.net desde una ficha de archivos o un espejo
+    dl.sourceforge.net.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        InstallerCandidate | None: Resultado producido por la operación.
+        candidato de enrutamiento de espejos o None.
     """
     parsed = urlparse(candidate.url)
     host = (parsed.hostname or "").lower()
     if host in {"sourceforge.net", "www.sourceforge.net"}:
         match = re.fullmatch(
-            r"/projects?/([^/]+)/files/(.+)/download/?",
+            r"/projects?/([^/]+)/files/(.+?)(?:/download)?/?",
             parsed.path,
             flags=re.IGNORECASE,
         )
@@ -792,13 +921,14 @@ def sourceforge_mirror_variant(candidate: InstallerCandidate) -> InstallerCandid
 
 
 def infer_operating_system(candidate: InstallerCandidate) -> str | None:
-    """Ejecuta la operación `infer_operating_system`.
+    """Prefiere la plataforma del formato y utiliza texto de nombre y contexto para casos
+    ambiguos; tar.gz se considera Linux salvo evidencia macOS.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        windows, macos, linux o None.
     """
     extension = candidate.extension
     text = candidate_text(candidate)
@@ -821,26 +951,27 @@ def infer_operating_system(candidate: InstallerCandidate) -> str | None:
 
 
 def operating_system_for_extension(extension: str | None) -> str | None:
-    """Ejecuta la operación `operating_system_for_extension`.
+    """Consulta la plataforma única asociada a un formato en el registro compartido.
 
     Args:
-        extension (str | None): Valor de `extension` utilizado por la operación.
+        extension: Extensión completa del artefacto, o None si no se conoce.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        nombre de plataforma o None para formatos ambiguos o desconocidos.
     """
     platform = DEFAULT_ARTIFACT_FORMAT_REGISTRY.platform_for(extension)
     return platform.value if platform else None
 
 
 def infer_architecture(candidate: InstallerCandidate) -> str:
-    """Ejecuta la operación `infer_architecture`.
+    """Busca marcadores de arquitectura en la evidencia normalizada del candidato y conserva
+    x86_64 como valor predeterminado histórico.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        str: Resultado producido por la operación.
+        arquitectura normalizada.
     """
     text = candidate_text(candidate)
     return DEFAULT_ARTIFACT_FORMAT_REGISTRY.infer_architecture(
@@ -850,26 +981,27 @@ def infer_architecture(candidate: InstallerCandidate) -> str:
 
 
 def has_architecture_token(text: str, token: str) -> bool:
-    """Indica si existe la operación `architecture_token`.
+    """Busca un marcador de arquitectura delimitado por caracteres no alfanuméricos.
 
     Args:
-        text (str): Valor de `text` utilizado por la operación.
-        token (str): Token utilizado para autorizar o correlacionar la operación.
+        text: Texto normalizado de URL, etiqueta y contexto.
+        token: Marcador literal de arquitectura.
 
     Returns:
-        bool: Indica si se cumple la condición evaluada.
+        True si el texto contiene el token completo.
     """
     return re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", text) is not None
 
 
 def extract_version(candidate: InstallerCandidate) -> str | None:
-    """Ejecuta la operación `extract_version`.
+    """Busca versiones con puntos en ruta, consulta, fragmento, etiqueta y contexto, excluyendo
+    autoridades URL para evitar números del dominio.
 
     Args:
-        candidate (InstallerCandidate): Valor de `candidate` utilizado por la operación.
+        candidate: Candidato original con URL y evidencia de procedencia.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        última versión numérica encontrada o None.
     """
     try:
         parsed = urlparse(candidate.url)
@@ -877,9 +1009,7 @@ def extract_version(candidate: InstallerCandidate) -> str | None:
     except ValueError:
         url_text = candidate.url
     supporting_text = " ".join(
-        strip_url_authorities(value)
-        for value in (candidate.label, candidate.context)
-        if value
+        strip_url_authorities(value) for value in (candidate.label, candidate.context) if value
     )
     raw = f"{url_text} {supporting_text}"
     matches = VERSION_PATTERN.findall(raw)
@@ -889,25 +1019,26 @@ def extract_version(candidate: InstallerCandidate) -> str | None:
 
 
 def strip_url_authorities(value: str) -> str:
-    """Ejecuta la operación `strip_url_authorities`.
+    """Retira esquema y autoridad de enlaces embebidos para que hosts y puertos no se interpreten
+    como versiones.
 
     Args:
-        value (str): Valor que debe procesarse.
+        value: Texto, URL o atributo que se normaliza o analiza.
 
     Returns:
-        str: Resultado producido por la operación.
+        texto restante con rutas y contexto conservados.
     """
     return re.sub(r"https?://(?:\[[^\]]+\]|[^/\s'\"<>]+)", "", value, flags=re.I)
 
 
 def registered_domain(url: str) -> str | None:
-    """Ejecuta la operación `registered_domain`.
+    """Extrae dominio y sufijo público y descarta subdominios para comparar procedencia.
 
     Args:
-        url (str): URL del recurso que debe procesarse.
+        url: URL o ruta del recurso que se interpreta.
 
     Returns:
-        str | None: Resultado producido por la operación.
+        dominio registrado en minúsculas o None si no existe dominio con sufijo reconocido.
     """
     import tldextract
 
