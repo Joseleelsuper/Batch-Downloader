@@ -103,7 +103,7 @@ function LinuxProfileForm({ appId, options }: Readonly<{
         disabled={!ready || busy} onChange={(event) => setDependenciesText(event.target.value)} />
       <button type="button" className="secondary-button" disabled={!ready || busy}
         onClick={() => void saveDependencies()}>{t('linux.admin.saveDependencies')}</button>
-      {message ? <p role="status">{message}</p> : null}
+      {message ? <output aria-live="polite">{message}</output> : null}
     </section>
   );
 }

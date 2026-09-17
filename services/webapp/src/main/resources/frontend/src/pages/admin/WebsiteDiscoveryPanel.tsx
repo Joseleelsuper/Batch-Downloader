@@ -15,7 +15,7 @@ import { useAdminAppsActivity } from './useAdminAppsActivity';
 import { useAdminAppEditor } from './useAdminAppEditor';
 import { useWebsiteDiscovery } from './useWebsiteDiscovery';
 /** Permite descubrir una aplicación desde su sitio oficial y revisar sus instaladores. */
-export function WebsiteDiscoveryPanel({ editor, activity, discoveryActions }: { editor: ReturnType<typeof useAdminAppEditor>; activity: ReturnType<typeof useAdminAppsActivity>; discoveryActions: ReturnType<typeof useWebsiteDiscovery>; }) {
+export function WebsiteDiscoveryPanel({ editor, activity, discoveryActions }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor>; activity: ReturnType<typeof useAdminAppsActivity>; discoveryActions: ReturnType<typeof useWebsiteDiscovery>; }>) {
   const t = useTranslation();
   const { websiteDiscovery, websiteUrl, websiteInstallerUrls, setEditor } = editor;
   const { discoveringWebsite } = activity;

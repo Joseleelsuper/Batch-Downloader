@@ -54,9 +54,11 @@ export function LinuxTargetDialog({ request, onSelect, onCancel }: Readonly<{
       </select>
       <p><small>{t('linux.download.architectureHelp')} <code>uname -m</code></small></p>
       <div aria-live="polite" aria-busy={!current}>
-        {!current ? <p>{t('common.loading')}</p> : current.error ? (
+        {!current ? <p>{t('common.loading')}</p> : null}
+        {current?.error ? (
           <p role="alert">{t('linux.download.previewError')}</p>
-        ) : preview ? (
+        ) : null}
+        {current && !current.error && preview ? (
           <>
             <p>{t('linux.download.counts', { automatic: preview.automaticCount, manual: preview.manualCount, omitted: preview.omittedCount })}</p>
             {preview.items.some((item) => item.dependency) ? (

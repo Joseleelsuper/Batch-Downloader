@@ -160,11 +160,7 @@ export function useAdminAppEditor(apps: CatalogApp[], activity: ReturnType<typeo
 
   const selectedListId = selected?.id ?? null;
   const provenance = useMemo(
-    () => creating && websiteDiscovery?.status === 'ready'
-      ? websiteDiscovery.suggestions
-      : inspection?.status === 'ready'
-        ? inspection.suggestions
-        : null,
+    () => resolveProvenance(creating, websiteDiscovery, inspection),
     [creating, inspection, websiteDiscovery],
   );
   const inspectionLocksOrdinaryWrite = Boolean(
@@ -205,15 +201,7 @@ export function useAdminAppEditor(apps: CatalogApp[], activity: ReturnType<typeo
     event: KeyboardEvent<HTMLButtonElement>,
     currentIndex: number,
   ) {
-    const nextIndex = event.key === 'ArrowDown'
-      ? Math.min(apps.length - 1, currentIndex + 1)
-      : event.key === 'ArrowUp'
-        ? Math.max(0, currentIndex - 1)
-        : event.key === 'Home'
-          ? 0
-          : event.key === 'End'
-            ? apps.length - 1
-            : null;
+    const nextIndex = listIndexForKey(event.key, currentIndex, apps.length);
     if (nextIndex === null) return;
 
     event.preventDefault();
@@ -224,4 +212,24 @@ export function useAdminAppEditor(apps: CatalogApp[], activity: ReturnType<typeo
   }
 
   return { ...editor, setEditor, dispatchEditor, detailRequestRef, hydratedInspectionRef, hydratedWebsiteDiscoveryRef, websiteRecoveryRequestRef, detailHeadingRef, appListRef, searchInputRef, detailTriggerRef, detailAppRef, openApp, startNewApp, closeMobileDetail, moveListSelection, selectedListId, provenance, inspectionLocksOrdinaryWrite, previewPending };
+}
+
+function resolveProvenance(
+  creating: boolean,
+  websiteDiscovery: WebsiteAppDiscovery | null,
+  inspection: ManualInstallerInspection | null,
+) {
+  if (creating && websiteDiscovery?.status === 'ready') return websiteDiscovery.suggestions;
+  if (inspection?.status === 'ready') return inspection.suggestions;
+  return null;
+}
+
+function listIndexForKey(key: string, currentIndex: number, length: number): number | null {
+  switch (key) {
+    case 'ArrowDown': return Math.min(length - 1, currentIndex + 1);
+    case 'ArrowUp': return Math.max(0, currentIndex - 1);
+    case 'Home': return 0;
+    case 'End': return length - 1;
+    default: return null;
+  }
 }

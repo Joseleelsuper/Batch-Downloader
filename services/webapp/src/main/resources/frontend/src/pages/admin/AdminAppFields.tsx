@@ -15,7 +15,7 @@ const DESCRIPTION_FIELDS = [
 ] as const;
 
 /** Edita los metadatos y muestra su procedencia mientras coincidan con la sugerencia recibida. */
-export function AdminAppFields({ editor }: { editor: ReturnType<typeof useAdminAppEditor> }) {
+export function AdminAppFields({ editor }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor> }>) {
   const t = useTranslation();
   const { form, provenance, previewPending, setEditor } = editor;
   const fieldProps = (key: keyof typeof form) => ({

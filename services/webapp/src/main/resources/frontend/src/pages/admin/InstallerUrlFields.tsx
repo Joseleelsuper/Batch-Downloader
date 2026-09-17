@@ -3,13 +3,13 @@ import { useTranslation } from '../../services/i18n';
 import type { OperatingSystem } from '../../types/catalog';
 
 /** Recoge una URL opcional por plataforma conservando etiquetas, límites y ayuda de cada flujo. */
-export function InstallerUrlFields({ mode, values, onChange, disabled, onKeyDown }: {
+export function InstallerUrlFields({ mode, values, onChange, disabled, onKeyDown }: Readonly<{
   mode: 'manual' | 'website';
   values: Record<OperatingSystem, string>;
   onChange: Dispatch<SetStateAction<Record<OperatingSystem, string>>>;
   disabled: boolean;
   onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
-}) {
+}>) {
   const t = useTranslation();
   return <fieldset className={mode === 'manual' ? 'platform-installer-urls' : 'website-platform-urls'}>
     <legend>{t(mode === 'manual' ? 'admin.apps.manual.installerUrls' : 'admin.apps.website.optionalInstallers')}</legend>

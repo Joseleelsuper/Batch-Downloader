@@ -14,8 +14,7 @@ import {
   createDownloadJob,
   fetchDownloadJobFileLink,
 } from '../api/downloads';
-import type { CreateDownloadJobRequest } from '../api/downloads';
-import type { LinuxSelection } from '../api/downloads';
+import type { CreateDownloadJobRequest, LinuxSelection } from '../api/downloads';
 import { LinuxTargetDialog } from './LinuxTargetDialog';
 import { ApiRequestError } from '../api/http';
 import { useTranslation, type Translator } from '../services/i18n';

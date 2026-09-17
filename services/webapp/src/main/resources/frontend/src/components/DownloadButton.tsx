@@ -12,7 +12,7 @@ interface Props {
   disabled?: boolean;
 }
 
-export function DownloadButton({ appId, appName, sourceRef, operatingSystem, disabled }: Props) {
+export function DownloadButton({ appId, appName, sourceRef, operatingSystem, disabled }: Readonly<Props>) {
   const t = useTranslation();
   const { job, starting, error, start } = useDownloadJob();
   const ready = Boolean(job && ['READY', 'PARTIAL', 'MANUAL_ONLY'].includes(job.status));

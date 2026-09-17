@@ -25,7 +25,7 @@ const FILTERS: AdminAppFilter[] = [
 ];
 
 /** Presenta filtros y resultados con navegación por teclado y paginación. */
-export function AdminAppsList({ editor, list }: { editor: ReturnType<typeof useAdminAppEditor>; list: ReturnType<typeof useAdminAppsList>; }) {
+export function AdminAppsList({ editor, list }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor>; list: ReturnType<typeof useAdminAppsList>; }>) {
   const t = useTranslation();
   const { detailRequestRef, appListRef, searchInputRef, detailTriggerRef, dispatchEditor, openApp, moveListSelection, selectedListId } = editor;
   const { queryInput, query, filter, page, pageSize, total, apps, dispatchList, listRequestRef, filterCounts } = list;
@@ -77,10 +77,10 @@ export function AdminAppsList({ editor, list }: { editor: ReturnType<typeof useA
         aria-label={t('admin.apps.list.label')}
       >
         {listState === 'loading' ? (
-          <div className="admin-app-list-state" role="status">
+          <output className="admin-app-list-state" aria-live="polite">
             <Loader2 className="spin" size={22} />
             <span>{t('admin.apps.loading')}</span>
-          </div>
+          </output>
         ) : null}
         {listState === 'error' ? (
           <div className="admin-app-list-state">
@@ -99,11 +99,7 @@ export function AdminAppsList({ editor, list }: { editor: ReturnType<typeof useA
             <PackageCheck size={26} />
             <strong>{t('admin.apps.empty.title')}</strong>
             <p>
-              {query
-                ? t('admin.apps.empty.search')
-                : filter === 'unresolved'
-                  ? t('admin.apps.empty.unresolved')
-                  : t('admin.apps.empty.filtered')}
+              {emptyMessage(t, query, filter)}
             </p>
           </div>
         ) : null}
@@ -140,4 +136,14 @@ export function AdminAppsList({ editor, list }: { editor: ReturnType<typeof useA
       />
     </section>
   );
+}
+
+function emptyMessage(
+  t: ReturnType<typeof useTranslation>,
+  query: string,
+  filter: AdminAppFilter,
+): string {
+  if (query) return t('admin.apps.empty.search');
+  if (filter === 'unresolved') return t('admin.apps.empty.unresolved');
+  return t('admin.apps.empty.filtered');
 }

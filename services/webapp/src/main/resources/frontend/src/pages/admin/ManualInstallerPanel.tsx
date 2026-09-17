@@ -18,7 +18,7 @@ import { useAdminAppsActivity } from './useAdminAppsActivity';
 import { useAdminAppEditor } from './useAdminAppEditor';
 import { useManualInstallerInspection } from './useManualInstallerInspection';
 /** Recoge URLs por plataforma y presenta evidencias antes de publicar instaladores. */
-export function ManualInstallerPanel({ editor, activity, inspectionActions }: { editor: ReturnType<typeof useAdminAppEditor>; activity: ReturnType<typeof useAdminAppsActivity>; inspectionActions: ReturnType<typeof useManualInstallerInspection>; }) {
+export function ManualInstallerPanel({ editor, activity, inspectionActions }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor>; activity: ReturnType<typeof useAdminAppsActivity>; inspectionActions: ReturnType<typeof useManualInstallerInspection>; }>) {
   const t = useTranslation();
   const { inspection, manualInstallerUrls, sourcePageUrl, operatingSystem, setEditor } = editor;
   const { inspecting, applying } = activity;
@@ -37,7 +37,7 @@ export function ManualInstallerPanel({ editor, activity, inspectionActions }: { 
         <span className={inspection ? 'is-complete' : 'is-current'}>
           <strong>1</strong>{t('admin.apps.manual.step.urls')}
         </span>
-        <span className={inspection?.status === 'ready' ? 'is-complete' : inspection ? 'is-current' : ''}>
+        <span className={stepTwoClass(inspection)}>
           <strong>2</strong>{t('admin.apps.manual.step.preview')}
         </span>
         <span className={inspection?.status === 'ready' ? 'is-current' : ''}>
@@ -106,4 +106,10 @@ export function ManualInstallerPanel({ editor, activity, inspectionActions }: { 
       ) : null}
     </section>
   );
+}
+
+function stepTwoClass(inspection: ReturnType<typeof useAdminAppEditor>['inspection']): string {
+  if (inspection?.status === 'ready') return 'is-complete';
+  if (inspection) return 'is-current';
+  return '';
 }
