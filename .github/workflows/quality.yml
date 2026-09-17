@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   java:
@@ -132,13 +133,25 @@ jobs:
       - name: Test Compose health aggregation
         run: python -m unittest discover -s scripts/tests -v
 
+  linux-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and run Linux installer verification image
+        run: |
+          docker build -f scripts/linux-installer/Dockerfile.test -t batch-downloader-linux-installer:test .
+          docker run --rm batch-downloader-linux-installer:test
+
   sonar:
-    if: github.event_name == 'push'
-    needs: [java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose]
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    needs: [java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose, linux-installer]
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_HOST_URL: https://sonarcloud.io
     steps:
       - uses: actions/checkout@v5
         with:
@@ -154,6 +167,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
+      - name: Require SonarCloud token
+        if: env.SONAR_TOKEN == ''
+        run: |
+          echo "::error::Configure the SONAR_TOKEN repository secret before running SonarCloud analysis."
+          exit 1
       - run: mvn -B verify
       - run: pip install -r api/scraper/requirements-dev.txt
       - run: pytest api/scraper --cov=api/scraper/app --cov-report=xml:api/scraper/coverage.xml
@@ -163,8 +181,11 @@ jobs:
       - run: npm ci && npm run test:coverage
         working-directory: services/webapp/src/main/resources/frontend
       - name: SonarQube scan
-        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         uses: SonarSource/sonarqube-scan-action@v5
+        with:
+          args: >-
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
