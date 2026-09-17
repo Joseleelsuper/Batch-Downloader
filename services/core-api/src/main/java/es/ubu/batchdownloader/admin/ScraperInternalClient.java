@@ -48,6 +48,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ScraperInternalClient {
+    @SuppressWarnings("java:S1075") // Ruta relativa fija del contrato; la base del scraper ya es configurable.
     private static final String APPS_PATH = "/apps/";
 
     /**

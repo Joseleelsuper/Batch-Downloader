@@ -69,8 +69,8 @@ class LinuxInstallerBundleWriterTest {
                 "config/packages.conf",
                 "config/components/" + applicationId + ".json",
                 "signatures/" + applicationId + ".asc",
-                "checksums.sha256");
-        assertThat(entries).containsEntry("signatures/" + applicationId + ".asc", signature);
+                "checksums.sha256")
+                .containsEntry("signatures/" + applicationId + ".asc", signature);
         assertThat(new String(entries.get("config/packages.conf"), StandardCharsets.UTF_8))
                 .containsSubsequence(applicationId.toString(), dependencyId.toString());
 

@@ -170,11 +170,14 @@ def prune_system_directories(keep_directories):
     if SYSTEM_ROOT.exists() and not SYSTEM_ROOT.is_symlink():
         for app in SYSTEM_ROOT.iterdir():
             if not app.is_dir() or app.is_symlink(): continue
-            for path in app.iterdir():
-                if path.is_dir() and not path.is_symlink() and path not in keep_directories:
-                    require(path.resolve().is_relative_to(SYSTEM_ROOT), "prune_escape")
-                    shutil.rmtree(path)
+            prune_application_directories(app, keep_directories)
             if not any(app.iterdir()): app.rmdir()
+
+def prune_application_directories(app, keep_directories):
+    for path in app.iterdir():
+        if path.is_dir() and not path.is_symlink() and path not in keep_directories:
+            require(path.resolve().is_relative_to(SYSTEM_ROOT), "prune_escape")
+            shutil.rmtree(path)
 
 def load_request():
     request = json.loads(sys.stdin.read(2 * 1024 ** 2))
@@ -272,7 +275,7 @@ def run_install(request, component, manager, owner, state, journal):
     strategy = component["profile"]["strategy"]
     inspect(strategy, payload)
     if strategy in ("deb", "rpm", "arch"):
-        return install_native(component, manager, owner, state, journal, payload, strategy)
+        return install_native(manager, owner, state, journal, payload, strategy)
     remember_intent(journal, "portable:" + component["appId"], {
         "manager": "portable", "name": component["appId"], "preexisting": False,
         "version": component["sha256"], "owners": [owner], "history": [],
@@ -296,7 +299,7 @@ def cached_payload(source, component, cache):
         temporary.unlink(missing_ok=True)
     return payload
 
-def install_native(component, manager, owner, state, journal, payload, strategy):
+def install_native(manager, owner, state, journal, payload, strategy):
     require((strategy == "deb" and manager == "apt")
             or (strategy == "rpm" and manager in ("dnf", "zypper"))
             or (strategy == "arch" and manager == "pacman"), "incompatible_package")
@@ -308,7 +311,7 @@ def install_native(component, manager, owner, state, journal, payload, strategy)
     native_intent(manager, package, payload, owner, state, journal)
     return native_record(manager, package, payload, owner, state)
 
-def run_remove(component, owner, state, journal):
+def run_remove(owner, state, journal):
     for key, entry in state["records"].copy().items():
         if owner not in entry["owners"]:
             continue
@@ -319,7 +322,7 @@ def run_remove(component, owner, state, journal):
         else:
             entry["owners"].remove(owner)
 
-def run_rollback(component, manager, owner, state, journal):
+def run_rollback(manager, owner, state, journal):
     candidates = [record for record in state["records"].values()
                   if owner in record["owners"] and record["history"]]
     require(candidates, "rollback_version_unavailable")
@@ -345,10 +348,10 @@ def run_operation(request, component, manager, owner, state, journal, state_file
     if action == "install":
         return run_install(request, component, manager, owner, state, journal)
     if action == "remove":
-        run_remove(component, owner, state, journal)
+        run_remove(owner, state, journal)
         return {}
     if action == "rollback":
-        run_rollback(component, manager, owner, state, journal)
+        run_rollback(manager, owner, state, journal)
         return {}
     raise ValueError("unknown_system_operation")
 

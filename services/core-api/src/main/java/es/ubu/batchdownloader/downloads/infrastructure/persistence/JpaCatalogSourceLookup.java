@@ -134,7 +134,7 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
      * Valor compartido que fija d e f a u l t  o p e r a t i n g  s y s t e m s para el
      * comportamiento del componente.
      */
-    private static final List<String> DEFAULT_OPERATING_SYSTEMS = List.of("windows", "linux", "macos");
+    private static final List<String> DEFAULT_OPERATING_SYSTEMS = List.of("windows", LINUX, "macos");
     /**
      * Estado {@code jdbc} mantenido por {@code JpaCatalogSourceLookup}.
      */

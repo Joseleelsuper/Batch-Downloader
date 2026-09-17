@@ -199,7 +199,8 @@ public class DownloadJobService {
                     "no_downloadable_apps",
                     "Ninguna de las aplicaciones seleccionadas tiene un instalador o una página oficial segura.");
         }
-        return persistJob(owner, items, appIds, originalAppIds, omittedCount, notifyWhenReady, now, target);
+        return persistJob(owner, items, new PersistJobContext(
+                List.copyOf(appIds), originalAppIds, omittedCount, notifyWhenReady, now, target));
     }
 
     private void validatePreviewSelection(DownloadSelection selection, LinuxTarget target) {
@@ -340,31 +341,37 @@ public class DownloadJobService {
     private DownloadJobView persistJob(
             RequestOwner owner,
             List<DownloadJobItem> items,
-            LinkedHashSet<UUID> appIds,
-            List<UUID> originalAppIds,
-            int omittedCount,
-            boolean notifyWhenReady,
-            Instant now,
-            LinuxTarget target) {
+            PersistJobContext persisted) {
         DownloadJob job = jobs.save(DownloadJob.queue(
                 owner.authenticated() ? owner.userId() : null,
                 owner.authenticated() ? null : owner.requireAnonymousOwnerHash(),
                 owner.authenticated() ? null : owner.anonymousIpHash(),
                 items,
-                appIds.size(),
-                omittedCount,
-                notifyWhenReady && owner.authenticated(),
-                now,
-                now.plus(limits.zipRetention())));
+                persisted.appIds().size(),
+                persisted.omittedCount(),
+                persisted.notifyWhenReady() && owner.authenticated(),
+                persisted.now(),
+                persisted.now().plus(limits.zipRetention())));
         events.jobRequested(job);
-        if (target == null) {
+        if (persisted.target() == null) {
             return DownloadJobView.from(job);
         }
-        var context = new DownloadJobView.LinuxContext(target.manager(), target.architecture(),
-                appIds.stream().filter(id -> !originalAppIds.contains(id)).toList());
-        jobs.saveLinuxContext(job.id(), context);
-        return DownloadJobView.from(job).withLinuxContext(context);
+        var linuxContext = new DownloadJobView.LinuxContext(
+                persisted.target().manager(), persisted.target().architecture(),
+                persisted.appIds().stream()
+                        .filter(id -> !persisted.originalAppIds().contains(id))
+                        .toList());
+        jobs.saveLinuxContext(job.id(), linuxContext);
+        return DownloadJobView.from(job).withLinuxContext(linuxContext);
     }
+
+    private record PersistJobContext(
+            List<UUID> appIds,
+            List<UUID> originalAppIds,
+            int omittedCount,
+            boolean notifyWhenReady,
+            Instant now,
+            LinuxTarget target) {}
 
     /**
      * Aplica cuota de trabajos activos por navegador y creaciones en la última hora por navegador

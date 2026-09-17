@@ -76,6 +76,13 @@ function SemanticContent({
     return <output aria-live="polite">{t('semantic.status.loading')}</output>;
   }
   if (!overview) return null;
+  return <SemanticOverviewContent overview={overview} t={t} />;
+}
+
+function SemanticOverviewContent({
+  overview,
+  t,
+}: Readonly<{ overview: SemanticOverview; t: Translator }>) {
   const index = overview.index;
   const coverage = index && index.expected > 0
     ? `${integer(index.indexed)} / ${integer(index.expected)} (${percent(index.indexed / index.expected)})`

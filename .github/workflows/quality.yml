@@ -181,7 +181,7 @@ jobs:
       - run: npm ci && npm run test:coverage
         working-directory: services/webapp/src/main/resources/frontend
       - name: SonarQube scan
-        uses: SonarSource/sonarqube-scan-action@v5
+        uses: SonarSource/sonarqube-scan-action@v6
         with:
           args: >-
             -Dsonar.qualitygate.wait=true
