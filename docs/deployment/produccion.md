@@ -2,7 +2,8 @@
 
 La producción vive en `51.170.57.42` y Coolify la administra desde
 `https://deploy.batchdownloader.dev`. El único tráfico público permitido es TCP
-80/443. SSH queda disponible solo desde los bridges Docker que usa Coolify.
+22/80/443. SSH está disponible desde cualquier IP, exclusivamente por clave,
+con contraseña y acceso root desactivados.
 
 ## Flujo de una versión
 
