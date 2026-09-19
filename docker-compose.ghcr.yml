@@ -54,7 +54,10 @@ services:
       - "127.0.0.1:${RABBITMQ_MANAGEMENT_HOST_PORT}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-      - ./docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    configs:
+      - source: rabbitmq_enabled_plugins
+        target: /etc/rabbitmq/enabled_plugins
+        mode: 0444
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
       interval: 10s
@@ -101,11 +104,16 @@ services:
       MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
       MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
       MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
-    volumes:
-      - ./docker/minio/init.sh:/config/init.sh:ro
-      - ./docker/minio/lifecycle-zips.json:/config/lifecycle-zips.json:ro
-      - ./docker/minio/core-policy.json:/config/core-policy.json:ro
-      - ./docker/minio/worker-policy.json:/config/worker-policy.json:ro
+    configs:
+      - source: minio_init
+        target: /config/init.sh
+        mode: 0555
+      - source: minio_lifecycle
+        target: /config/lifecycle-zips.json
+      - source: minio_core_policy
+        target: /config/core-policy.json
+      - source: minio_worker_policy
+        target: /config/worker-policy.json
 
   scraper-api:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-scraper:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
@@ -207,7 +215,31 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      CORE_API_SERVER_PORT: 8080
+      CORE_API_SCRAPER_API_URL: http://scraper-api:8000
+      CORE_API_SEMANTIC_SERVICE_URL: http://semantic-service:8000
+      CORE_API_DOWNLOAD_WORKER_URL: http://download-worker:8080
+      CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT: 1s
+      CORE_API_SEMANTIC_REQUEST_TIMEOUT: 3s
+      CORE_API_BCRYPT_STRENGTH: 12
+      CORE_API_DB_POOL_MIN: 2
+      CORE_API_DB_POOL_MAX: 5
+      CORE_API_DB_POOL_TIMEOUT: 2000
       CORE_API_FLYWAY_TARGET: ${CORE_API_FLYWAY_TARGET:-16}
+      CORE_API_AUTH_HASH_CONCURRENCY: 2
+      CORE_API_AUTH_HASH_QUEUE: 20
+      CORE_API_AUTH_HASH_WAIT: 2s
+      CORE_API_AUTH_LOGIN_MAX_PER_MINUTE: 10
+      CORE_API_AUTH_REGISTER_MAX_PER_HOUR: 3
+      CORE_API_AUTH_RESET_MAX_PER_HOUR: 3
+      CORE_API_AUTH_VERIFICATION_RESEND_MAX_PER_HOUR: 3
+      CORE_API_SESSION_TIMEOUT: 8h
+      CORE_API_VERIFICATION_TTL: 24h
+      CORE_API_PASSWORD_RESET_TTL: 1h
+      CORE_API_OUTBOX_DELAY: 1s
+      CORE_API_OUTBOX_CLAIM_LEASE: 5m
+      CORE_API_OUTBOX_CONFIRM_TIMEOUT: 2s
+      CORE_API_RETENTION_INTERVAL: 6h
       CORE_API_ADMIN_USERNAME: ${CORE_API_ADMIN_USERNAME}
       CORE_API_ADMIN_EMAIL: ${CORE_API_ADMIN_EMAIL}
       CORE_API_ADMIN_PASSWORD: ${CORE_API_ADMIN_PASSWORD}
@@ -230,6 +262,18 @@ services:
       MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
       MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
       MINIO_REGION: ${MINIO_REGION}
+      DOWNLOAD_MAX_APPS: 100
+      DOWNLOAD_ZIP_RETENTION: 6h
+      DOWNLOAD_PRESIGNED_URL_TTL: 5m
+      DOWNLOAD_ANONYMOUS_MAX_ACTIVE_JOBS: 2
+      DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR: 10
+      DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR: 30
+      DOWNLOAD_AUTHENTICATED_MAX_ACTIVE_JOBS: 3
+      DOWNLOAD_GLOBAL_MAX_PENDING_JOBS: 50
+      DOWNLOAD_SSE_HEARTBEAT: 20s
+      CORE_API_CATALOG_CACHE_MAXIMUM_SIZE: 512
+      CORE_API_CATALOG_CACHE_TTL: 15s
+      CORE_API_DOWNLOAD_EVENTS_QUEUE: core-api.download.events.v1
     cpu_shares: 1024
     restart: unless-stopped
     ports:
@@ -247,6 +291,21 @@ services:
       timeout: 5s
       retries: 12
       start_period: 120s
+
+  semantic-migrate:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
+    pull_policy: always
+    command: ["python", "-m", "app.migrator"]
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   semantic-service:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
@@ -271,8 +330,8 @@ services:
     ports:
       - "127.0.0.1:${SEMANTIC_SERVICE_HOST_PORT}:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      semantic-migrate:
+        condition: service_completed_successfully
     volumes:
       - semantic_models:/models
     healthcheck:
@@ -346,6 +405,17 @@ services:
       - path: ./services/notification-service/.env
         required: false
     environment:
+      NOTIFICATION_SERVICE_SERVER_PORT: 8080
+      NOTIFICATION_RETRY_MAX_ATTEMPTS: 3
+      NOTIFICATION_RETRY_INITIAL_INTERVAL: 1s
+      NOTIFICATION_RETRY_MULTIPLIER: 2
+      NOTIFICATION_RETRY_MAX_INTERVAL: 10s
+      NOTIFICATION_SERVICE_INBOX_URL: jdbc:h2:file:/app/data/notification-inbox;DB_CLOSE_ON_EXIT=FALSE
+      NOTIFICATION_SERVICE_INBOX_USERNAME: sa
+      NOTIFICATION_SERVICE_INBOX_LEASE_DURATION: PT5M
+      NOTIFICATION_SERVICE_RETENTION_INTERVAL: 6h
+      NOTIFICATION_SERVICE_HEARTBEAT_INTERVAL: 10s
+      NOTIFICATION_SERVICE_HEARTBEAT_STALE_AFTER: 1m
       RABBITMQ_HOST: ${RABBITMQ_HOST}
       RABBITMQ_PORT: ${RABBITMQ_PORT}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
@@ -355,9 +425,16 @@ services:
       NOTIFICATION_SERVICE_SMTP_PORT: ${NOTIFICATION_SERVICE_SMTP_PORT:-1025}
       NOTIFICATION_SERVICE_SMTP_AUTH: ${NOTIFICATION_SERVICE_SMTP_AUTH:-false}
       NOTIFICATION_SERVICE_SMTP_STARTTLS: ${NOTIFICATION_SERVICE_SMTP_STARTTLS:-false}
+      NOTIFICATION_SERVICE_SMTP_CONNECTION_TIMEOUT_MS: 5000
+      NOTIFICATION_SERVICE_SMTP_TIMEOUT_MS: 10000
+      NOTIFICATION_SERVICE_SMTP_WRITE_TIMEOUT_MS: 10000
       NOTIFICATION_SERVICE_SMTP_USERNAME: ${NOTIFICATION_SERVICE_SMTP_USERNAME}
       NOTIFICATION_SERVICE_SMTP_PASSWORD: ${NOTIFICATION_SERVICE_SMTP_PASSWORD}
       NOTIFICATION_SERVICE_MAIL_FROM: ${NOTIFICATION_SERVICE_MAIL_FROM:-no-reply@batch-downloader.local}
+      NOTIFICATION_SERVICE_MAIL_ZONE_ID: Europe/Madrid
+      NOTIFICATION_SERVICE_RESEND_BASE_URL: https://api.resend.com
+      NOTIFICATION_SERVICE_RESEND_CONNECT_TIMEOUT: 2s
+      NOTIFICATION_SERVICE_RESEND_REQUEST_TIMEOUT: 10s
       APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL}
       RESEND_API_KEY: ${RESEND_API_KEY}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL}
@@ -386,6 +463,46 @@ services:
       - path: ./services/download-worker/.env
         required: false
     environment:
+      DOWNLOAD_WORKER_SERVER_PORT: 8080
+      DOWNLOAD_WORKER_INBOX_URL: jdbc:h2:file:/app/data/download-inbox;DB_CLOSE_ON_EXIT=FALSE
+      DOWNLOAD_WORKER_INBOX_USERNAME: sa
+      DOWNLOAD_WORKER_COMMAND_EXCHANGE: batch.commands.v1
+      DOWNLOAD_WORKER_EVENT_EXCHANGE: batch.events.v1
+      DOWNLOAD_WORKER_INPUT_ROUTING_KEY: download.job.requested
+      DOWNLOAD_WORKER_INPUT_QUEUE: download-worker.download.job.requested.v1
+      DOWNLOAD_WORKER_CANCELLATION_ROUTING_KEY: download.job.cancel-requested
+      DOWNLOAD_WORKER_SOURCE_RESOLVER_URL: http://scraper-api:8000
+      DOWNLOAD_WORKER_CORE_API_URL: http://core-api:8080
+      DOWNLOAD_WORKER_CANCELLATION_QUEUE: download-worker.download.job.cancel-requested.v1
+      DOWNLOAD_WORKER_DLX: batch.dead-letter.v1
+      DOWNLOAD_WORKER_DLQ: download-worker.download.job.requested.v1.dlq
+      DOWNLOAD_WORKER_CAPACITY_WAIT_QUEUE: download-worker.download.job.capacity-wait.v1
+      DOWNLOAD_WORKER_CAPACITY_WAIT_DELAY: 30s
+      DOWNLOAD_WORKER_CANCELLATION_CONCURRENCY: 2
+      DOWNLOAD_WORKER_RETRY_ATTEMPTS: 3
+      DOWNLOAD_WORKER_RETRY_INITIAL_INTERVAL: 1s
+      DOWNLOAD_WORKER_RETRY_MULTIPLIER: "2.0"
+      DOWNLOAD_WORKER_RETRY_MAX_INTERVAL: 10s
+      DOWNLOAD_WORKER_ARTIFACT_RETENTION: 6h
+      DOWNLOAD_WORKER_SOURCE_RESOLVER_TIMEOUT: 10s
+      DOWNLOAD_WORKER_CORE_API_TIMEOUT: 10s
+      DOWNLOAD_WORKER_MAX_ITEMS: 100
+      DOWNLOAD_WORKER_MAX_FILE_SIZE: 4GB
+      DOWNLOAD_WORKER_MAX_REDIRECTS: 5
+      DOWNLOAD_WORKER_CONNECT_TIMEOUT: 10s
+      DOWNLOAD_WORKER_REQUEST_TIMEOUT: 15m
+      DOWNLOAD_WORKER_CONCURRENCY: 16
+      DOWNLOAD_WORKER_JOB_CONCURRENCY: 8
+      DOWNLOAD_WORKER_PER_JOB_CONCURRENCY: 2
+      DOWNLOAD_WORKER_PACKAGING_CONCURRENCY: 4
+      DOWNLOAD_WORKER_ZIP_LEVEL: 0
+      DOWNLOAD_WORKER_LARGE_JOB_THRESHOLD: 2GB
+      DOWNLOAD_WORKER_MULTIPART_PART_SIZE: 16MB
+      DOWNLOAD_WORKER_INBOX_LEASE: 30m
+      DOWNLOAD_WORKER_RETENTION_INTERVAL: 6h
+      DOWNLOAD_WORKER_HEARTBEAT_INTERVAL: 10s
+      DOWNLOAD_WORKER_HEARTBEAT_STALE_AFTER: 1m
+      DOWNLOAD_WORKER_TEMP_DIRECTORY: /tmp/batch-downloader
       RABBITMQ_HOST: ${RABBITMQ_HOST}
       RABBITMQ_PORT: ${RABBITMQ_PORT}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
@@ -429,6 +546,10 @@ services:
       - path: ./services/translation-service/.env.example
       - path: ./services/translation-service/.env
         required: false
+    environment:
+      TRANSLATION_SERVICE_SERVER_PORT: 8080
+      TRANSLATION_SERVICE_LOCALES_PATH: /app/locales
+      TRANSLATION_SERVICE_CACHE_MAX_AGE: PT1H
     cpu_shares: 128
     restart: unless-stopped
     ports:
@@ -450,3 +571,103 @@ volumes:
   download_worker_temp:
   semantic_models:
     name: ${SEMANTIC_MODELS_VOLUME_NAME:-batch-downloader_semantic_models}
+
+configs:
+  rabbitmq_enabled_plugins:
+    content: "[rabbitmq_management,rabbitmq_prometheus]."
+  minio_init:
+    content: |
+      #!/bin/sh
+      set -eu
+
+      render_policy() {
+        input_path=$$1
+        output_path=$$2
+        : > "$$output_path"
+        while IFS= read -r line || [ -n "$$line" ]; do
+          case $$line in
+            *"__BUCKET__"*)
+              prefix=$${line%%__BUCKET__*}
+              suffix=$${line#*__BUCKET__}
+              printf '%s%s%s\n' "$$prefix" "$$MINIO_ZIP_BUCKET" "$$suffix" >> "$$output_path"
+              ;;
+            *)
+              printf '%s\n' "$$line" >> "$$output_path"
+              ;;
+          esac
+        done < "$$input_path"
+      }
+
+      attempts=0
+      until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+        attempts=$$((attempts + 1))
+        if [ "$$attempts" -ge 30 ]; then
+          echo 'MinIO no está disponible para inicialización.' >&2
+          exit 1
+        fi
+        sleep 2
+      done
+
+      mc mb --ignore-existing "local/$$MINIO_ZIP_BUCKET"
+      mc ilm rule import "local/$$MINIO_ZIP_BUCKET" < /config/lifecycle-zips.json
+      mc quota set "local/$$MINIO_ZIP_BUCKET" --size "$$MINIO_ZIP_QUOTA"
+      render_policy /config/core-policy.json /tmp/core-policy.json
+      render_policy /config/worker-policy.json /tmp/worker-policy.json
+      mc admin policy create local batch-core /tmp/core-policy.json
+      mc admin policy create local batch-worker /tmp/worker-policy.json
+      mc admin user add local "$$MINIO_CORE_ACCESS_KEY" "$$MINIO_CORE_SECRET_KEY"
+      mc admin user add local "$$MINIO_WORKER_ACCESS_KEY" "$$MINIO_WORKER_SECRET_KEY"
+      mc admin policy attach local batch-core --user "$$MINIO_CORE_ACCESS_KEY"
+      mc admin policy attach local batch-worker --user "$$MINIO_WORKER_ACCESS_KEY"
+  minio_lifecycle:
+    content: |
+      {
+        "Rules": [
+          {
+            "ID": "expire-download-jobs-after-24h",
+            "Status": "Enabled",
+            "Filter": {"Prefix": "jobs/"},
+            "Expiration": {"Days": 1}
+          }
+        ]
+      }
+  minio_core_policy:
+    content: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": ["s3:GetBucketLocation"],
+            "Resource": ["arn:aws:s3:::__BUCKET__"]
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["s3:ListBucket"],
+            "Resource": ["arn:aws:s3:::__BUCKET__"],
+            "Condition": {"StringLike": {"s3:prefix": ["jobs/*"]}}
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject", "s3:DeleteObject"],
+            "Resource": ["arn:aws:s3:::__BUCKET__/jobs/*"]
+          }
+        ]
+      }
+  minio_worker_policy:
+    content: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": ["s3:ListBucket", "s3:GetBucketLocation", "s3:ListBucketMultipartUploads"],
+            "Resource": ["arn:aws:s3:::__BUCKET__"]
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+            "Resource": ["arn:aws:s3:::__BUCKET__/jobs/*"]
+          }
+        ]
+      }

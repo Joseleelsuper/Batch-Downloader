@@ -44,6 +44,7 @@ DAEMONS = frozenset(
 JOBS = frozenset(
     {
         "minio-init",
+        "semantic-migrate",
         "scraper-python314t-benchmark",
         "scraper-python314-control",
         "scraper-python314-benchmark-report",
@@ -62,6 +63,7 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
     "rabbitmq": {},
     "minio": {},
     "minio-init": {"minio": "service_healthy"},
+    "semantic-migrate": {"postgres": "service_healthy"},
     "scraper-api": {"mysql": "service_healthy"},
     "scraper-scheduler": {"scraper-api": "service_healthy"},
     "webapp": {
@@ -73,9 +75,7 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
         "scraper-api": "service_healthy",
         "minio-init": "service_completed_successfully",
     },
-    "semantic-service": {
-        "postgres": "service_healthy",
-    },
+    "semantic-service": {"semantic-migrate": "service_completed_successfully"},
     "semantic-indexer": {
         "semantic-service": "service_healthy",
         "scraper-api": "service_healthy",
@@ -108,6 +108,7 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
     ),
     "semantic": (
         "postgres",
+        "semantic-migrate",
         "scraper-api",
         "semantic-service",
         "semantic-indexer",
@@ -128,6 +129,7 @@ SERVICE_PRIORITY = {
     "minio": 0,
     "mailpit": 0,
     "minio-init": 1,
+    "semantic-migrate": 1,
     "scraper-api": 1,
     "semantic-service": 1,
     "translation-service": 1,
@@ -309,7 +311,42 @@ def validate_configuration(name: str, configuration: Mapping[str, Any]) -> list[
 def comparable_service(configuration: Mapping[str, Any]) -> dict[str, Any]:
     """Normaliza solo las diferencias de distribución admitidas entre despliegues."""
     ignored = {"build", "image", "pull_policy", "profiles"}
-    return {key: value for key, value in configuration.items() if key not in ignored}
+    result = {key: value for key, value in configuration.items() if key not in ignored}
+    embedded_targets = {
+        "/etc/rabbitmq/enabled_plugins",
+        "/config/init.sh",
+        "/config/lifecycle-zips.json",
+        "/config/core-policy.json",
+        "/config/worker-policy.json",
+    }
+    volumes = [
+        volume
+        for volume in result.get("volumes", [])
+        if not (
+            isinstance(volume, Mapping) and volume.get("target") in embedded_targets
+        )
+        and not (
+            isinstance(volume, str)
+            and len(volume.split(":")) >= 2
+            and volume.split(":")[-2] in embedded_targets
+        )
+    ]
+    configs = [
+        config
+        for config in result.get("configs", [])
+        if not (
+            isinstance(config, Mapping) and config.get("target") in embedded_targets
+        )
+    ]
+    if volumes:
+        result["volumes"] = volumes
+    else:
+        result.pop("volumes", None)
+    if configs:
+        result["configs"] = configs
+    else:
+        result.pop("configs", None)
+    return result
 
 
 def validate_parity(local: Mapping[str, Any], ghcr: Mapping[str, Any]) -> list[str]:

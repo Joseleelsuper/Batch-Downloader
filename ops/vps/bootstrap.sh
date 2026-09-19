@@ -92,16 +92,16 @@ systemctl reload ssh.service
 cp "${IPV4_RULES}" "${rules_tmp}"
 rules_next="$(mktemp)"
 awk '
-  /^-A INPUT / && /--dport 22([[:space:]]|$)/ && /-j ACCEPT([[:space:]]|$)/ { next }
+  /^-A INPUT / && /--dport (22|80|443)([[:space:]]|$)/ && /-j ACCEPT([[:space:]]|$)/ { next }
   { print }
 ' "${rules_tmp}" > "${rules_next}"
 mv "${rules_next}" "${rules_tmp}"
 rules_next=""
-coolify_ssh_rule="-A INPUT -i br+ -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT"
-if ! grep -Fqx -- "${coolify_ssh_rule}" "${rules_tmp}"; then
+public_ssh_rule="-A INPUT -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT"
+if ! grep -Fqx -- "${public_ssh_rule}" "${rules_tmp}"; then
   rules_next="$(mktemp)"
-  awk -v rule="${coolify_ssh_rule}" '
-    !inserted && /^-A INPUT .* -j (REJECT|DROP)/ { print rule; inserted=1 }
+  awk -v rule="${public_ssh_rule}" '
+    !inserted && /^-A INPUT/ && / -j (REJECT|DROP)( |$)/ { print rule; inserted=1 }
     !inserted && /^COMMIT$/ { print rule; inserted=1 }
     { print }
     END { if (!inserted) exit 2 }
@@ -110,12 +110,9 @@ if ! grep -Fqx -- "${coolify_ssh_rule}" "${rules_tmp}"; then
   rules_next=""
 fi
 for port in 80 443; do
-  if grep -Eq -- "^-A INPUT .*--dport ${port} .* -j ACCEPT$" "${rules_tmp}"; then
-    continue
-  fi
   rules_next="$(mktemp)"
   awk -v rule="-A INPUT -p tcp -m tcp --dport ${port} -m conntrack --ctstate NEW -j ACCEPT" '
-    !inserted && /^-A INPUT .* -j (REJECT|DROP)/ { print rule; inserted=1 }
+    !inserted && /^-A INPUT/ && / -j (REJECT|DROP)( |$)/ { print rule; inserted=1 }
     !inserted && /^COMMIT$/ { print rule; inserted=1 }
     { print }
     END { if (!inserted) exit 2 }
@@ -128,19 +125,16 @@ if ! cmp -s "${rules_tmp}" "${IPV4_RULES}"; then
   cp -a "${IPV4_RULES}" "${IPV4_RULES}.before-batch-downloader"
   install -m 0644 "${rules_tmp}" "${IPV4_RULES}"
 fi
-if ! iptables -C INPUT -i br+ -p tcp --dport 22 \
-  -m conntrack --ctstate NEW -j ACCEPT 2>/dev/null; then
-  iptables -I INPUT 1 -i br+ -p tcp --dport 22 \
-    -m conntrack --ctstate NEW -j ACCEPT
-fi
-mapfile -t external_ssh_rules < <(
+mapfile -t existing_ssh_rules < <(
   iptables -L INPUT --line-numbers -n -v \
-    | awk '$1 ~ /^[0-9]+$/ && $4 == "ACCEPT" && $6 !~ /^br/ && $0 ~ /dpt:22/ { print $1 }' \
+    | awk '$1 ~ /^[0-9]+$/ && $4 == "ACCEPT" && $0 ~ /dpt:22/ { print $1 }' \
     | sort -rn
 )
-for rule_number in "${external_ssh_rules[@]}"; do
+for rule_number in "${existing_ssh_rules[@]}"; do
   iptables -D INPUT "${rule_number}"
 done
+iptables -I INPUT 1 -p tcp --dport 22 \
+  -m conntrack --ctstate NEW -j ACCEPT
 for port in 80 443; do
   if ! iptables -C INPUT -p tcp --dport "${port}" -m conntrack --ctstate NEW -j ACCEPT 2>/dev/null; then
     iptables -I INPUT 1 -p tcp --dport "${port}" -m conntrack --ctstate NEW -j ACCEPT
@@ -148,7 +142,7 @@ for port in 80 443; do
 done
 
 cat > "${ipv6_tmp}" <<'IPV6_RULES'
-# Batch Downloader: no public IPv6 DNS, but keep the host closed by default.
+# Batch Downloader: only the three administrative/web entry points are public.
 *filter
 :INPUT DROP [0:0]
 :FORWARD ACCEPT [0:0]
@@ -156,6 +150,7 @@ cat > "${ipv6_tmp}" <<'IPV6_RULES'
 -A INPUT -i lo -j ACCEPT
 -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 -A INPUT -p ipv6-icmp -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT
 -A INPUT -p tcp -m tcp --dport 80 -m conntrack --ctstate NEW -j ACCEPT
 -A INPUT -p tcp -m tcp --dport 443 -m conntrack --ctstate NEW -j ACCEPT
 COMMIT
@@ -199,4 +194,4 @@ if [[ ! -e "${COOLIFY_OVERRIDE}" ]]; then
 fi
 
 docker ps --format '{{.Names}}\t{{.Status}}'
-echo "Bootstrap completado. Solo TCP 80/443 queda accesible públicamente; SSH se conserva únicamente desde los bridges de Coolify."
+echo "Bootstrap completado. Solo TCP 22/80/443 queda accesible públicamente; SSH admite únicamente claves."

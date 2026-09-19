@@ -46,6 +46,28 @@ class FakeCoolifyClient:
 
 
 class CoolifyReleaseTest(unittest.TestCase):
+    def test_environment_ignores_preview_values(self) -> None:
+        client = coolify_release.CoolifyClient(
+            "https://deploy.example.test", "token", "application-uuid"
+        )
+        with mock.patch.object(
+            client,
+            "request",
+            return_value=[
+                {
+                    "key": "APP_PUBLIC_BASE_URL",
+                    "value": "https://batchdownloader.dev",
+                    "is_preview": False,
+                },
+                {"key": "APP_PUBLIC_BASE_URL", "value": None, "is_preview": True},
+            ],
+        ):
+            values = client.environment()
+
+        self.assertEqual(
+            {"APP_PUBLIC_BASE_URL": "https://batchdownloader.dev"}, values
+        )
+
     def test_client_uses_documented_commit_and_environment_endpoints(self) -> None:
         client = coolify_release.CoolifyClient(
             "https://deploy.example.test", "token", "application-uuid"
