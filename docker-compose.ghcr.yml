@@ -4,7 +4,7 @@ services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
-    command: ["--log-bin-trust-function-creators=1", "--max-connections=32", "--long-query-time=0.5", "--binlog-expire-logs-seconds=86400"]
+    command: ["--skip-log-bin", "--log-bin-trust-function-creators=1", "--max-connections=32", "--long-query-time=0.5", "--binlog-expire-logs-seconds=86400"]
     cpu_shares: 1024
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
