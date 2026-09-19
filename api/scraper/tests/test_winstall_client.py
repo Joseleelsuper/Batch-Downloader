@@ -18,6 +18,13 @@ from app.scraper.winstall import (
 )
 
 
+def test_settings_use_the_current_winstall_api_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El valor predeterminado apunta al host de API que publica Winstall actualmente."""
+    monkeypatch.delenv("SCRAPER_WINSTALL_API_BASE_URL", raising=False)
+
+    assert Settings(_env_file=None).winstall_api_base_url == "https://api.winstall.app"
+
+
 def test_extract_next_data_app_payload() -> None:
     """Comprueba el escenario `extract_next_data_app_payload`.
     """
