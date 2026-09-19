@@ -4,7 +4,8 @@ umask 077
 
 readonly CONFIG_FILE="${BATCH_BACKUP_CONFIG:-/etc/batch-downloader/backup.env}"
 readonly BACKUP_ROOT="${BATCH_BACKUP_ROOT:-/var/backups/batch-downloader}"
-readonly PROJECT="batch-downloader"
+readonly PROJECT="${BATCH_COMPOSE_PROJECT:-batch-downloader}"
+readonly SEMANTIC_VOLUME="${SEMANTIC_MODELS_VOLUME_NAME:-batch-downloader_semantic_models}"
 
 if (( EUID != 0 )); then
   echo "El backup debe ejecutarse como root." >&2
@@ -121,9 +122,8 @@ cold_volume_backup() {
 }
 
 model_backup() {
-  local volume="batch-downloader_semantic_models"
   local mountpoint directory timestamp output
-  mountpoint="$(docker volume inspect --format '{{.Mountpoint}}' "${volume}")"
+  mountpoint="$(docker volume inspect --format '{{.Mountpoint}}' "${SEMANTIC_VOLUME}")"
   if [[ ! -f "${mountpoint}/current/batch-model.json" ]]; then
     echo "El volumen no contiene un modelo current validado." >&2
     exit 1
