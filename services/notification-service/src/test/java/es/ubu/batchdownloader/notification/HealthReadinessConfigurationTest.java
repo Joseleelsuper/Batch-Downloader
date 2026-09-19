@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Comprueba que las sondas exigen los recursos del consumidor sin depender de la disponibilidad de
@@ -17,6 +18,12 @@ import org.junit.jupiter.api.Test;
  * @category Notificaciones
  */
 class HealthReadinessConfigurationTest {
+    /** Comprueba que las tareas que mantienen fresco el latido se ejecutan en producción. */
+    @Test
+    void applicationEnablesScheduledHeartbeatTasks() {
+        assertThat(Main.class).hasAnnotation(EnableScheduling.class);
+    }
+
     /**
      * Comprueba que readiness incluye base de datos, Rabbit y latido, mientras liveness conserva
      * solo señales del proceso.

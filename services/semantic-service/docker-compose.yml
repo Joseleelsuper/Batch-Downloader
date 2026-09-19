@@ -1,4 +1,19 @@
 services:
+  semantic-migrate:
+    build:
+      context: .
+    command: ["python", "-m", "app.migrator"]
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   semantic-service:
     build:
       context: .
@@ -20,10 +35,10 @@ services:
     cpu_shares: 512
     restart: unless-stopped
     ports:
-      - "${SEMANTIC_SERVICE_HOST_PORT}:8000"
+      - "127.0.0.1:${SEMANTIC_SERVICE_HOST_PORT}:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      semantic-migrate:
+        condition: service_completed_successfully
     volumes:
       - semantic_models:/models
     healthcheck:
@@ -76,3 +91,4 @@ services:
 
 volumes:
   semantic_models:
+    name: ${SEMANTIC_MODELS_VOLUME_NAME:-batch-downloader_semantic_models}

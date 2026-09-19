@@ -6,8 +6,8 @@ services:
     cpu_shares: 1024
     restart: unless-stopped
     ports:
-      - "${WEBAPP_HOST_PORT}:80"
-      - "${MINIO_DOWNLOAD_HOST_PORT}:8080"
+      - "127.0.0.1:${WEBAPP_HOST_PORT}:80"
+      - "127.0.0.1:${MINIO_DOWNLOAD_HOST_PORT}:8080"
     depends_on:
       core-api:
         condition: service_healthy

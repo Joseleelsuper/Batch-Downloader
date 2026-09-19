@@ -66,11 +66,12 @@ class ComposeHealthTest(unittest.TestCase):
             ),
         )
 
-    def test_semantic_capability_uses_persistent_services_only(self) -> None:
+    def test_semantic_capability_requires_successful_migration(self) -> None:
         statuses = {
             service: daemon(service)
             for service in compose_health.CAPABILITIES["semantic"]
         }
+        statuses["semantic-migrate"] = completed_job("semantic-migrate")
 
         state, problems = compose_health.capability_readiness(
             "semantic", statuses, required=False
@@ -78,7 +79,10 @@ class ComposeHealthTest(unittest.TestCase):
 
         self.assertEqual("ready", state)
         self.assertEqual([], problems)
-        self.assertNotIn("semantic-migrator", compose_health.JOBS)
+        self.assertIn("semantic-migrate", compose_health.JOBS)
+
+    def test_notifications_do_not_require_the_development_mailpit(self) -> None:
+        self.assertNotIn("mailpit", compose_health.CAPABILITIES["notifications"])
 
     def test_parse_ps_accepts_json_lines(self) -> None:
         output = (
@@ -195,6 +199,49 @@ class ComposeHealthTest(unittest.TestCase):
         errors = compose_health.validate_parity(local, ghcr)
 
         self.assertIn("paridad:core-api: configuración funcional distinta", errors)
+
+    def test_parity_allows_a_production_only_profile(self) -> None:
+        local = {
+            "services": {
+                "mailpit": {"restart": "unless-stopped"},
+                **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
+            }
+        }
+        ghcr = {
+            "services": {
+                "mailpit": {
+                    "restart": "unless-stopped",
+                    "profiles": ["local-mail"],
+                }
+            }
+        }
+
+        errors = compose_health.validate_parity(local, ghcr)
+
+        self.assertEqual([], errors)
+
+    def test_parity_allows_embedded_production_configs(self) -> None:
+        local = {
+            "services": {
+                "minio-init": {
+                    "volumes": ["./docker/minio/init.sh:/config/init.sh:ro"],
+                },
+                **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
+            }
+        }
+        ghcr = {
+            "services": {
+                "minio-init": {
+                    "configs": [
+                        {"source": "minio_init", "target": "/config/init.sh"}
+                    ],
+                }
+            }
+        }
+
+        errors = compose_health.validate_parity(local, ghcr)
+
+        self.assertEqual([], errors)
 
     def test_private_h2_passwords_are_not_rotated_by_compose(self) -> None:
         """Impide reintroducir secretos externos para los H2 persistentes privados."""
