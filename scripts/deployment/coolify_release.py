@@ -169,7 +169,7 @@ class CoolifyClient:
                 continue
             if item.get("is_preview") is True:
                 continue
-            value = item.get("real_value", item.get("value", ""))
+            value = item.get("value", item.get("real_value", ""))
             if item.get("is_shown_once") is True and not str(value or "").strip():
                 value = "configured-secret"
             values[item["key"]] = value if isinstance(value, str) else str(value)

@@ -89,6 +89,27 @@ class CoolifyReleaseTest(unittest.TestCase):
 
         self.assertEqual("configured-secret", values["CORE_API_ADMIN_PASSWORD"])
 
+    def test_environment_prefers_public_value_over_shell_quoted_real_value(self) -> None:
+        client = coolify_release.CoolifyClient(
+            "https://deploy.example.test", "token", "application-uuid"
+        )
+        with mock.patch.object(
+            client,
+            "request",
+            return_value=[
+                {
+                    "key": "APP_PUBLIC_BASE_URL",
+                    "value": "https://batchdownloader.dev",
+                    "real_value": "'https://batchdownloader.dev'",
+                    "is_preview": False,
+                    "is_shown_once": False,
+                }
+            ],
+        ):
+            values = client.environment()
+
+        self.assertEqual("https://batchdownloader.dev", values["APP_PUBLIC_BASE_URL"])
+
     def test_client_uses_documented_commit_and_environment_endpoints(self) -> None:
         client = coolify_release.CoolifyClient(
             "https://deploy.example.test", "token", "application-uuid"
