@@ -265,6 +265,19 @@ def deploy_state(
     wait_for_deployment(client, deployment_uuid, timeout=timeout, interval=interval)
 
 
+def wait_for_smoke(urls: Sequence[str], *, timeout: float, interval: float) -> None:
+    """Espera a que Traefik y los contenedores recién creados estén disponibles."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            run_smoke(urls)
+            return
+        except Exception:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(interval)
+
+
 def perform_release(
     client: CoolifyClient,
     release_sha: str,
@@ -272,6 +285,7 @@ def perform_release(
     urls: Sequence[str] = DEFAULT_URLS,
     timeout: float = 900,
     interval: float = 10,
+    smoke_timeout: float = 180,
 ) -> None:
     if not SHA_PATTERN.fullmatch(release_sha):
         raise ReleaseError("RELEASE_SHA debe ser un commit hexadecimal de 40 caracteres")
@@ -290,7 +304,7 @@ def perform_release(
         updated_values = dict(values)
         updated_values["GHCR_IMAGE_TAG"] = target.image_tag
         validate_environment(updated_values, target.image_tag)
-        run_smoke(urls)
+        wait_for_smoke(urls, timeout=smoke_timeout, interval=interval)
     except Exception as deployment_error:
         if not previous.rollback_capable or previous == target:
             raise ReleaseError(
@@ -299,7 +313,7 @@ def perform_release(
         print(f"El despliegue falló; restaurando {previous.image_tag}.", file=sys.stderr)
         try:
             deploy_state(client, previous, timeout=timeout, interval=interval)
-            run_smoke(urls)
+            wait_for_smoke(urls, timeout=smoke_timeout, interval=interval)
         except Exception as rollback_error:
             raise ReleaseError(
                 f"Fallaron el despliegue ({deployment_error}) y el rollback ({rollback_error})"
@@ -323,6 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--release-sha", default=os.environ.get("RELEASE_SHA", ""))
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--poll-interval", type=float, default=10)
+    parser.add_argument("--smoke-timeout", type=float, default=180)
     parser.add_argument("--url", action="append", dest="urls")
     return parser
 
@@ -341,6 +356,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             urls=tuple(arguments.urls or DEFAULT_URLS),
             timeout=arguments.timeout,
             interval=arguments.poll_interval,
+            smoke_timeout=arguments.smoke_timeout,
         )
     except (OSError, ReleaseError) as exception:
         print(f"ERROR: {exception}", file=sys.stderr)
