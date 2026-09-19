@@ -54,7 +54,10 @@ services:
       - "127.0.0.1:${RABBITMQ_MANAGEMENT_HOST_PORT}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-      - ./docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    configs:
+      - source: rabbitmq_enabled_plugins
+        target: /etc/rabbitmq/enabled_plugins
+        mode: 0444
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
       interval: 10s
@@ -101,11 +104,16 @@ services:
       MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
       MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
       MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
-    volumes:
-      - ./docker/minio/init.sh:/config/init.sh:ro
-      - ./docker/minio/lifecycle-zips.json:/config/lifecycle-zips.json:ro
-      - ./docker/minio/core-policy.json:/config/core-policy.json:ro
-      - ./docker/minio/worker-policy.json:/config/worker-policy.json:ro
+    configs:
+      - source: minio_init
+        target: /config/init.sh
+        mode: 0555
+      - source: minio_lifecycle
+        target: /config/lifecycle-zips.json
+      - source: minio_core_policy
+        target: /config/core-policy.json
+      - source: minio_worker_policy
+        target: /config/worker-policy.json
 
   scraper-api:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-scraper:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
@@ -248,6 +256,21 @@ services:
       retries: 12
       start_period: 120s
 
+  semantic-migrate:
+    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
+    pull_policy: always
+    command: ["python", "-m", "app.migrator"]
+    environment:
+      SEMANTIC_DATABASE_HOST: postgres
+      SEMANTIC_DATABASE_PORT: 5432
+      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
+      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
+      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   semantic-service:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
     pull_policy: always
@@ -271,8 +294,8 @@ services:
     ports:
       - "127.0.0.1:${SEMANTIC_SERVICE_HOST_PORT}:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      semantic-migrate:
+        condition: service_completed_successfully
     volumes:
       - semantic_models:/models
     healthcheck:
@@ -429,6 +452,10 @@ services:
       - path: ./services/translation-service/.env.example
       - path: ./services/translation-service/.env
         required: false
+    environment:
+      TRANSLATION_SERVICE_SERVER_PORT: 8080
+      TRANSLATION_SERVICE_LOCALES_PATH: /app/locales
+      TRANSLATION_SERVICE_CACHE_MAX_AGE: PT1H
     cpu_shares: 128
     restart: unless-stopped
     ports:
@@ -450,3 +477,103 @@ volumes:
   download_worker_temp:
   semantic_models:
     name: ${SEMANTIC_MODELS_VOLUME_NAME:-batch-downloader_semantic_models}
+
+configs:
+  rabbitmq_enabled_plugins:
+    content: "[rabbitmq_management,rabbitmq_prometheus]."
+  minio_init:
+    content: |
+      #!/bin/sh
+      set -eu
+
+      render_policy() {
+        input_path=$$1
+        output_path=$$2
+        : > "$$output_path"
+        while IFS= read -r line || [ -n "$$line" ]; do
+          case $$line in
+            *"__BUCKET__"*)
+              prefix=$${line%%__BUCKET__*}
+              suffix=$${line#*__BUCKET__}
+              printf '%s%s%s\n' "$$prefix" "$$MINIO_ZIP_BUCKET" "$$suffix" >> "$$output_path"
+              ;;
+            *)
+              printf '%s\n' "$$line" >> "$$output_path"
+              ;;
+          esac
+        done < "$$input_path"
+      }
+
+      attempts=0
+      until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+        attempts=$$((attempts + 1))
+        if [ "$$attempts" -ge 30 ]; then
+          echo 'MinIO no está disponible para inicialización.' >&2
+          exit 1
+        fi
+        sleep 2
+      done
+
+      mc mb --ignore-existing "local/$$MINIO_ZIP_BUCKET"
+      mc ilm rule import "local/$$MINIO_ZIP_BUCKET" < /config/lifecycle-zips.json
+      mc quota set "local/$$MINIO_ZIP_BUCKET" --size "$$MINIO_ZIP_QUOTA"
+      render_policy /config/core-policy.json /tmp/core-policy.json
+      render_policy /config/worker-policy.json /tmp/worker-policy.json
+      mc admin policy create local batch-core /tmp/core-policy.json
+      mc admin policy create local batch-worker /tmp/worker-policy.json
+      mc admin user add local "$$MINIO_CORE_ACCESS_KEY" "$$MINIO_CORE_SECRET_KEY"
+      mc admin user add local "$$MINIO_WORKER_ACCESS_KEY" "$$MINIO_WORKER_SECRET_KEY"
+      mc admin policy attach local batch-core --user "$$MINIO_CORE_ACCESS_KEY"
+      mc admin policy attach local batch-worker --user "$$MINIO_WORKER_ACCESS_KEY"
+  minio_lifecycle:
+    content: |
+      {
+        "Rules": [
+          {
+            "ID": "expire-download-jobs-after-24h",
+            "Status": "Enabled",
+            "Filter": {"Prefix": "jobs/"},
+            "Expiration": {"Days": 1}
+          }
+        ]
+      }
+  minio_core_policy:
+    content: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": ["s3:GetBucketLocation"],
+            "Resource": ["arn:aws:s3:::__BUCKET__"]
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["s3:ListBucket"],
+            "Resource": ["arn:aws:s3:::__BUCKET__"],
+            "Condition": {"StringLike": {"s3:prefix": ["jobs/*"]}}
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject", "s3:DeleteObject"],
+            "Resource": ["arn:aws:s3:::__BUCKET__/jobs/*"]
+          }
+        ]
+      }
+  minio_worker_policy:
+    content: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": ["s3:ListBucket", "s3:GetBucketLocation", "s3:ListBucketMultipartUploads"],
+            "Resource": ["arn:aws:s3:::__BUCKET__"]
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+            "Resource": ["arn:aws:s3:::__BUCKET__/jobs/*"]
+          }
+        ]
+      }

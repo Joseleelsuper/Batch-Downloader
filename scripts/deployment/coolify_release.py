@@ -167,6 +167,8 @@ class CoolifyClient:
         for item in result:
             if not isinstance(item, Mapping) or not isinstance(item.get("key"), str):
                 continue
+            if item.get("is_preview") is True:
+                continue
             value = item.get("real_value", item.get("value", ""))
             values[item["key"]] = value if isinstance(value, str) else str(value)
         return values
