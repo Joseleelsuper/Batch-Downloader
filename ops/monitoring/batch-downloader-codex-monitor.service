@@ -1,0 +1,20 @@
+[Unit]
+Description=Daily Codex infrastructure monitor for Batch Downloader
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+SupplementaryGroups=docker
+Environment=HOME=/home/ubuntu
+WorkingDirectory=/home/ubuntu
+StateDirectory=batch-downloader-codex-monitor
+StateDirectoryMode=0700
+ExecStart=/usr/local/sbin/batch-downloader-codex-monitor
+TimeoutStartSec=20min
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
