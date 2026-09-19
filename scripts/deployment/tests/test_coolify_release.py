@@ -155,6 +155,16 @@ class CoolifyReleaseTest(unittest.TestCase):
         self.assertEqual(1, client.deployments)
         self.assertEqual(2, smoke.call_count)
 
+    def test_smoke_waits_for_new_containers_to_be_ready(self) -> None:
+        with mock.patch.object(
+            coolify_release,
+            "run_smoke",
+            side_effect=[RuntimeError("503"), None],
+        ) as smoke:
+            coolify_release.wait_for_smoke((), timeout=1, interval=0)
+
+        self.assertEqual(2, smoke.call_count)
+
     def test_failed_smoke_restores_previous_commit_and_tag(self) -> None:
         previous = "a" * 40
         release = "b" * 40
@@ -167,7 +177,9 @@ class CoolifyReleaseTest(unittest.TestCase):
             ),
             self.assertRaises(coolify_release.ReleaseError),
         ):
-            coolify_release.perform_release(client, release, interval=0)
+            coolify_release.perform_release(
+                client, release, interval=0, smoke_timeout=0
+            )
 
         self.assertEqual(previous, client.current_commit)
         self.assertEqual(f"sha-{previous}", client.values["GHCR_IMAGE_TAG"])
