@@ -158,7 +158,7 @@ class Settings(BaseSettings):
 
     winstall_base_url: str = "https://winstall.app"
 
-    winstall_api_base_url: str = "https://winstall.app/api/winstall"
+    winstall_api_base_url: str = "https://api.winstall.app"
 
     request_timeout_seconds: float = 20
 
