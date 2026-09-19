@@ -112,7 +112,7 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
         "semantic-service",
         "semantic-indexer",
     ),
-    "notifications": ("rabbitmq", "mailpit", "notification-service"),
+    "notifications": ("rabbitmq", "notification-service"),
     "translations": ("translation-service",),
     "background": (
         "scraper-api",
@@ -308,7 +308,7 @@ def validate_configuration(name: str, configuration: Mapping[str, Any]) -> list[
 
 def comparable_service(configuration: Mapping[str, Any]) -> dict[str, Any]:
     """Normaliza solo las diferencias de distribución admitidas entre despliegues."""
-    ignored = {"build", "image", "pull_policy"}
+    ignored = {"build", "image", "pull_policy", "profiles"}
     return {key: value for key, value in configuration.items() if key not in ignored}
 
 
