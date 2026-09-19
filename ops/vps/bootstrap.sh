@@ -92,7 +92,7 @@ systemctl reload ssh.service
 cp "${IPV4_RULES}" "${rules_tmp}"
 rules_next="$(mktemp)"
 awk '
-  /^-A INPUT / && /--dport 22([[:space:]]|$)/ && /-j ACCEPT([[:space:]]|$)/ { next }
+  /^-A INPUT / && /--dport (22|80|443)([[:space:]]|$)/ && /-j ACCEPT([[:space:]]|$)/ { next }
   { print }
 ' "${rules_tmp}" > "${rules_next}"
 mv "${rules_next}" "${rules_tmp}"
@@ -101,7 +101,7 @@ public_ssh_rule="-A INPUT -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -j
 if ! grep -Fqx -- "${public_ssh_rule}" "${rules_tmp}"; then
   rules_next="$(mktemp)"
   awk -v rule="${public_ssh_rule}" '
-    !inserted && /^-A INPUT .* -j (REJECT|DROP)/ { print rule; inserted=1 }
+    !inserted && /^-A INPUT/ && / -j (REJECT|DROP)( |$)/ { print rule; inserted=1 }
     !inserted && /^COMMIT$/ { print rule; inserted=1 }
     { print }
     END { if (!inserted) exit 2 }
@@ -110,12 +110,9 @@ if ! grep -Fqx -- "${public_ssh_rule}" "${rules_tmp}"; then
   rules_next=""
 fi
 for port in 80 443; do
-  if grep -Eq -- "^-A INPUT .*--dport ${port} .* -j ACCEPT$" "${rules_tmp}"; then
-    continue
-  fi
   rules_next="$(mktemp)"
   awk -v rule="-A INPUT -p tcp -m tcp --dport ${port} -m conntrack --ctstate NEW -j ACCEPT" '
-    !inserted && /^-A INPUT .* -j (REJECT|DROP)/ { print rule; inserted=1 }
+    !inserted && /^-A INPUT/ && / -j (REJECT|DROP)( |$)/ { print rule; inserted=1 }
     !inserted && /^COMMIT$/ { print rule; inserted=1 }
     { print }
     END { if (!inserted) exit 2 }
