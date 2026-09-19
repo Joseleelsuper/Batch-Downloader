@@ -84,7 +84,13 @@ npm --prefix services/webapp/src/main/resources/frontend test -- --run src/api/d
 
 ## Endpoints
 
-Permisos: **Público** no requiere sesión; **Propietario** exige la sesión `USER` o la cookie anónima `BATCH_DOWNLOAD_OWNER`; **Interno** exige `X-Internal-Service-Token`; **Operativo** no tiene autenticación de aplicación y debe restringirse por red. Todas las operaciones `POST`, `PUT`, `PATCH` y `DELETE` realizadas desde el navegador requieren además el token obtenido en `GET /api/v1/auth/csrf`; los endpoints internos no usan CSRF.
+Permisos: 
+- **Público** no requiere sesión; 
+- **Propietario** exige la sesión `USER` o la cookie anónima `BATCH_DOWNLOAD_OWNER`;
+- **Interno** exige `X-Internal-Service-Token`;
+- **Operativo** no tiene autenticación de aplicación y debe restringirse por red. Todas las operaciones `POST`, `PUT`, `PATCH` y `DELETE` realizadas desde el navegador requieren además el token obtenido en `GET /api/v1/auth/csrf`; los endpoints internos no usan CSRF.
+
+El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
 
 <details>
 <summary><strong>API pública y de usuario</strong></summary>
@@ -180,8 +186,6 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Descargas | `GET /{bucket}/jobs/{jobId}/bundle.zip` | URL firmada | Sirve el ZIP desde el host de descargas de MinIO. |
 
 </details>
-
-El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
 
 <details>
 <summary><strong>Globales</strong> — <code>.env.example</code></summary>
