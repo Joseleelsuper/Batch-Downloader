@@ -183,21 +183,6 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 
 El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
 
-## Variables de entorno
-
-`.env.example` contiene valores compartidos, puertos y secretos; los `.env.example` de cada servicio contienen ajustes no sensibles.
-
-Durante la refactorización del MySQL compartido los objetivos quedan fijados en la fase expansiva
-(`SCRAPER_ALEMBIC_TARGET=20260914_0021` y `CORE_API_FLYWAY_TARGET=16`). Tras una copia restaurable,
-un scrape completo y 24 horas sin regresiones, promueve ambos valores (`head` y `18`) y recrea los
-servicios para ejecutar la fase contractiva: `V17` retira las proyecciones obsoletas y `V18` elimina
-permanentemente la tabla de solicitudes públicas de software.
-Si `V17` aborta porque una proyección contiene filas, conserva el backup, corrige el consumidor o
-vacía la tabla tras validarlo, ejecuta `flyway repair` y vuelve a promover a `18`; la migración no
-borra proyecciones de forma silenciosa. La eliminación de solicitudes en `V18` es intencionada y
-permanente, por lo que la recuperación requiere restaurar la copia de MySQL y desplegar la versión
-anterior.
-
 <details>
 <summary><strong>Globales</strong> — <code>.env.example</code></summary>
 
@@ -300,12 +285,6 @@ anterior.
 | Frontend | `VITE_API_BASE_URL` | Base opcional de la API; vacía usa el mismo origen. |
 
 </details>
-
-Para regenerar los `.env` locales no sensibles desde las plantillas:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/sync-service-env-files.ps1
-```
 
 ## Estados de los jobs
 
