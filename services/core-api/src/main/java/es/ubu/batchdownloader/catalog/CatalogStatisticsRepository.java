@@ -90,11 +90,32 @@ public class CatalogStatisticsRepository {
      * sirviendo respuestas vacías si se eliminan sus filas operativas durante un reinicio.
      */
     private void ensureCounterRow() {
-        jdbc.update("""
+        int inserted = jdbc.update("""
                 INSERT IGNORE INTO catalog_counters (
                     id, total_count, available_count, review_count, missing_count, version, updated_at
                 ) VALUES (1, 0, 0, 0, 0, 0, UTC_TIMESTAMP(6))
                 """);
+        if (inserted > 0) {
+            jdbc.update("""
+                    UPDATE catalog_counters
+                    SET total_count = (SELECT COUNT(*) FROM software_apps),
+                        available_count = (
+                            SELECT COALESCE(SUM(catalog_status = 'available'), 0)
+                            FROM software_apps
+                        ),
+                        review_count = (
+                            SELECT COALESCE(SUM(catalog_status = 'review'), 0)
+                            FROM software_apps
+                        ),
+                        missing_count = (
+                            SELECT COALESCE(SUM(catalog_status = 'missing'), 0)
+                            FROM software_apps
+                        ),
+                        version = version + 1,
+                        updated_at = UTC_TIMESTAMP(6)
+                    WHERE id = 1
+                    """);
+        }
     }
 
     /**
