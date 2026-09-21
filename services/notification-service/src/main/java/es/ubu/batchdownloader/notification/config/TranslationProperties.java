@@ -3,6 +3,7 @@ package es.ubu.batchdownloader.notification.config;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Configura el cliente interno que consulta los catálogos de traducción. */
@@ -13,6 +14,8 @@ public record TranslationProperties(
         Duration requestTimeout,
         Duration cacheTtl,
         String fallbackLocale) {
+    private static final Pattern LOCALE = Pattern.compile(
+            "^[A-Za-z]{2,12}(?:[-_][A-Za-z0-9]{2,12})*$");
 
     public TranslationProperties {
         baseUrl = Objects.requireNonNull(baseUrl, "notification.translation.base-url es obligatorio");
@@ -36,6 +39,10 @@ public record TranslationProperties(
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("notification.translation.fallback-locale es obligatorio");
         }
-        return value.strip().toLowerCase(java.util.Locale.ROOT);
+        String locale = value.strip();
+        if (!LOCALE.matcher(locale).matches()) {
+            throw new IllegalArgumentException("notification.translation.fallback-locale no es válido");
+        }
+        return locale.toLowerCase(java.util.Locale.ROOT);
     }
 }

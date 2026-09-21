@@ -917,19 +917,25 @@ paths:
       x-required-roles:
       - ADMIN
       description: ''
-  /locales/es:
+  /locales/{locale}:
     get:
-      operationId: getSpanishLocale
-      summary: Obtener el catálogo de traducciones español
+      operationId: getLocale
+      summary: Obtener un catálogo de traducciones
       security: []
       parameters:
+      - name: locale
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[A-Za-z]{2,12}(?:[-_][A-Za-z0-9]{2,12})*$'
       - name: If-None-Match
         in: header
         schema:
           type: string
       responses:
         '200':
-          description: Catálogo español versionado.
+          description: Catálogo de idioma versionado.
           headers:
             ETag:
               required: true

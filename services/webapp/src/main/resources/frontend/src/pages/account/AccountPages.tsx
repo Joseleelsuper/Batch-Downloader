@@ -40,7 +40,7 @@ import { adminLogin } from '../../api/account';
 import { fetchApps } from '../../api/catalogApps';
 import { ApiRequestError } from '../../api/http';
 import { useAuth } from '../../auth/AuthContext';
-import { useTranslation, type Translator } from '../../services/i18n';
+import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSummary } from '../../types/account';
 import type { CatalogApp } from '../../types/catalog';
 
@@ -78,6 +78,7 @@ function AuthCard({ children }: Readonly<{ children: React.ReactNode }>) {
 
 export function UserLoginPage() {
   const t = useTranslation();
+  const locale = useLocale();
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -119,7 +120,7 @@ export function UserLoginPage() {
     setError(null);
     setMessage(null);
     try {
-      await requestMagicLink(email);
+      await requestMagicLink(email, locale);
       setMessage(t('account.magic.sent'));
     } catch (cause) {
       setError(apiMessage(t, cause, 'account.magic.failed'));

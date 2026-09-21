@@ -54,7 +54,7 @@ describe('account flows', () => {
     });
     fireEvent.submit(container.querySelector('form')!);
 
-    await waitFor(() => expect(request).toHaveBeenCalledWith('person@example.com'));
+    await waitFor(() => expect(request).toHaveBeenCalledWith('person@example.com', 'es'));
     expect(await screen.findByText(t('account.magic.sent'))).toBeInTheDocument();
   });
 

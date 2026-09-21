@@ -48,6 +48,10 @@ public record MailTemplateProperties(URI publicBaseUrl, URI logoUrl) {
         if (!logoUrl.isAbsolute()) {
             throw new IllegalArgumentException("notification.mail.logo-url debe ser absoluta");
         }
+        if ("https".equalsIgnoreCase(publicBaseUrl.getScheme())
+                && !"https".equalsIgnoreCase(logoUrl.getScheme())) {
+            throw new IllegalArgumentException("notification.mail.logo-url debe usar HTTPS");
+        }
     }
 
 }

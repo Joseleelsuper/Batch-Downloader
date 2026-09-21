@@ -8,9 +8,9 @@ import type {
   OwnBundlePage,
 } from '../types/account';
 
-export async function requestMagicLink(email: string): Promise<void> {
+export async function requestMagicLink(email: string, locale = 'es'): Promise<void> {
   await requestJson<void>('/api/v1/auth/magic-link/request', {
-    method: 'POST', body: JSON.stringify({ email }),
+    method: 'POST', body: JSON.stringify({ email, locale }),
   });
 }
 

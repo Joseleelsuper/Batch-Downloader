@@ -30,7 +30,7 @@ describe('API de cuenta', () => {
 
     expect(requestJsonMock.mock.calls).toEqual([
       ['/api/v1/auth/magic-link/request', {
-        method: 'POST', body: JSON.stringify({ email: 'user@example.com' }),
+        method: 'POST', body: JSON.stringify({ email: 'user@example.com', locale: 'es' }),
       }],
       ['/api/v1/auth/magic-link/confirm', {
         method: 'POST', body: JSON.stringify({ token: 'magic-token' }),
