@@ -1,10 +1,9 @@
 {
   "account.adminLogin.title": "Acceso de administración",
   "account.adminLogin.link": "Acceso de administración",
-  "account.magic.title": "Accede con tu correo",
-  "account.magic.instructions": "Te enviaremos un enlace de acceso de un solo uso. No necesitas contraseña.",
+  "account.magic.title": "Inicia sesión",
   "account.magic.submit": "Enviar enlace de acceso",
-  "account.magic.sent": "Si el correo es válido, recibirás un enlace para iniciar sesión. Revisa tu bandeja de entrada.",
+  "account.magic.sent": "Revisa tu bandeja de entrada",
   "account.magic.failed": "No se pudo enviar el enlace de acceso.",
   "account.userLogin.link": "Acceso para usuarios",
   "login.invalid": "Credenciales inválidas.",

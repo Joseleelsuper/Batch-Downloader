@@ -50,10 +50,25 @@
   justify-content: space-between;
 }
 
-.auth-admin-link {
-  padding-top: 14px;
+.auth-switch-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 10px 14px;
+  color: var(--teal-dark);
+  background: var(--teal-soft);
+  border: 1px solid color-mix(in srgb, var(--teal) 24%, var(--border));
+  border-radius: 6px;
+  font-weight: 700;
   text-align: center;
-  border-top: 1px solid var(--border);
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.auth-switch-link:hover {
+  background: color-mix(in srgb, var(--teal-soft) 72%, var(--teal) 28%);
+  border-color: var(--teal);
 }
 
 .account-shell {

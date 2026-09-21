@@ -132,7 +132,6 @@ export function UserLoginPage() {
   return (
     <AuthCard>
       <h2>{t('account.magic.title')}</h2>
-      <p>{t('account.magic.instructions')}</p>
       <form className="auth-form" onSubmit={submit} noValidate>
         <label>{t('account.email')}
           <input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
@@ -141,7 +140,7 @@ export function UserLoginPage() {
         {message ? <p className="form-message" role="status">{message}</p> : null}
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.magic.submit')}</button>
       </form>
-      <Link className="auth-admin-link" to="/admin/login">{t('account.adminLogin.link')}</Link>
+      <Link className="auth-switch-link" to="/admin/login">{t('account.adminLogin.link')}</Link>
     </AuthCard>
   );
 }
@@ -191,7 +190,7 @@ export function AdminLoginPage() {
         {error ? <p className="error-banner">{error}</p> : null}
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
       </form>
-      <Link to="/login">{t('account.userLogin.link')}</Link>
+      <Link className="auth-switch-link" to="/login">{t('account.userLogin.link')}</Link>
     </AuthCard>
   );
 }

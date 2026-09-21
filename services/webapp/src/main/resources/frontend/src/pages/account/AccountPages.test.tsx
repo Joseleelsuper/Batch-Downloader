@@ -49,6 +49,8 @@ describe('account flows', () => {
     );
 
     expect(container.querySelector('input[type="password"]')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Inicia sesión' })).toBeInTheDocument();
+    expect(screen.queryByText('Te enviaremos un enlace de acceso de un solo uso. No necesitas contraseña.')).toBeNull();
     fireEvent.change(container.querySelector('input[type="email"]')!, {
       target: { value: 'person@example.com' },
     });
@@ -56,6 +58,7 @@ describe('account flows', () => {
 
     await waitFor(() => expect(request).toHaveBeenCalledWith('person@example.com', 'es'));
     expect(await screen.findByText(t('account.magic.sent'))).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: t('account.adminLogin.link') })).toHaveClass('auth-switch-link');
   });
 
   it('consume el token del fragmento, lo elimina de la URL y conserva el destino', async () => {
@@ -93,6 +96,8 @@ describe('account flows', () => {
         </AuthProvider>
       </MemoryRouter>,
     );
+    expect(screen.getByRole('heading', { name: t('account.adminLogin.title') })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: t('account.userLogin.link') })).toHaveClass('auth-switch-link');
     const inputs = container.querySelectorAll('input');
     fireEvent.change(inputs[0], { target: { value: 'admin' } });
     fireEvent.change(inputs[1], { target: { value: 'secret' } });
