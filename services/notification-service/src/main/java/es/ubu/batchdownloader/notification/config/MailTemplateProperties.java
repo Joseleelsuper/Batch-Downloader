@@ -3,6 +3,7 @@ package es.ubu.batchdownloader.notification.config;
 import java.net.URI;
 import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * Configura la base pública de enlaces y el recurso visual de los correos de identidad.
@@ -36,6 +37,7 @@ public record MailTemplateProperties(URI publicBaseUrl, URI logoUrl) {
      * @throws IllegalArgumentException si la URI no es absoluta.
      * @throws NullPointerException si falta la zona o la base pública.
      */
+    @ConstructorBinding
     public MailTemplateProperties {
         publicBaseUrl = Objects.requireNonNull(
                 publicBaseUrl, "notification.mail.public-base-url no puede ser null");
