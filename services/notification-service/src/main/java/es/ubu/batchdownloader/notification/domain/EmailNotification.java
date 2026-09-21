@@ -20,6 +20,7 @@ import java.util.UUID;
  * @param recipient Dirección de correo del destinatario, sin nombre visible ni lista de
  *     direcciones.
  *
+ * @param locale Código de idioma capturado al solicitar el enlace.
  * @param template Finalidad del correo, que determina sus parámetros y proveedor.
  * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
@@ -37,6 +38,7 @@ public record EmailNotification(
         String correlationId,
         String causationId,
         String recipient,
+        String locale,
         Template template,
         Map<String, Object> parameters) {
 
@@ -72,6 +74,9 @@ public record EmailNotification(
         occurredAt = Objects.requireNonNull(occurredAt, "occurredAt no puede ser null");
         correlationId = requireText(correlationId, "correlationId");
         recipient = requireText(recipient, "recipient");
+        locale = locale == null || locale.isBlank()
+                ? "es"
+                : locale.strip().toLowerCase(java.util.Locale.ROOT);
         template = Objects.requireNonNull(template, "template no puede ser null");
         parameters = Map.copyOf(Objects.requireNonNull(parameters, "parameters no puede ser null"));
     }
@@ -89,6 +94,23 @@ public record EmailNotification(
             throw new IllegalArgumentException("Falta el parámetro obligatorio " + name);
         }
         return value.toString().strip();
+    }
+
+    /**
+     * Lee la duración anunciada al destinatario, conservando compatibilidad con eventos antiguos.
+     *
+     * @return minutos positivos de validez del enlace.
+     */
+    public long expiryMinutes() {
+        Object value = parameters.get("expiresInMinutes");
+        if (value == null) return 15;
+        try {
+            long minutes = Long.parseLong(value.toString());
+            if (minutes <= 0) throw new NumberFormatException();
+            return minutes;
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("expiresInMinutes debe ser un entero positivo");
+        }
     }
 
     /**

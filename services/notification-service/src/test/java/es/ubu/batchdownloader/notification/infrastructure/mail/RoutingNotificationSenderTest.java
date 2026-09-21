@@ -42,7 +42,7 @@ class RoutingNotificationSenderTest {
     private static EmailNotification notification(EmailNotification.Template template) {
         return new EmailNotification(
                 UUID.randomUUID(), Instant.parse("2026-08-08T10:00:00Z"),
-                UUID.randomUUID().toString(), null, "person@example.com", template,
-                Map.of("username", "person", "token", "encrypted-token"));
+                UUID.randomUUID().toString(), null, "person@example.com", "es", template,
+                Map.of("username", "person", "token", "encrypted-token", "expiresInMinutes", 15));
     }
 }

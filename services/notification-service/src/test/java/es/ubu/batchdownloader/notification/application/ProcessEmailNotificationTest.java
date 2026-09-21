@@ -68,8 +68,9 @@ class ProcessEmailNotificationTest {
                 "magic-link-84338aa2",
                 null,
                 "persona@example.com",
+                "es",
                 EmailNotification.Template.MAGIC_LINK,
-                Map.of("username", "persona", "token", "enc:v1:test"));
+                Map.of("username", "persona", "token", "enc:v1:test", "expiresInMinutes", 15));
     }
 
     /**

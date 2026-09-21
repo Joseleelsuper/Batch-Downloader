@@ -27,6 +27,8 @@ import org.springframework.stereotype.Component;
 public class NotificationRequestedMessageMapper {
 
     private static final Pattern EMAIL = Pattern.compile("^[^\\s@,;<>]+@[^\\s@,;<>]+$");
+    private static final Pattern LOCALE = Pattern.compile(
+            "^[A-Za-z]{2,12}(?:[-_][A-Za-z0-9]{2,12})*$");
 
     /**
      * Nombres configurados de exchange, colas y claves de enrutamiento.
@@ -81,6 +83,7 @@ public class NotificationRequestedMessageMapper {
                     requireText(message.correlationId(), "correlationId"),
                     message.causationId(),
                     recipient,
+                    validateLocale(payload.locale()),
                     template,
                     parameters);
         } catch (IllegalArgumentException | NullPointerException exception) {
@@ -119,11 +122,19 @@ public class NotificationRequestedMessageMapper {
         parameters.forEach(this::validateScalarParameter);
         switch (template) {
             case MAGIC_LINK -> {
-                requireParameter(parameters, "username");
                 String token = requireParameter(parameters, "token");
                 if (!NotificationTokenEnvelope.isVersion1(token)) {
                     throw new InvalidNotificationEventException(
                             "payload.parameters.token debe usar el sobre enc:v1");
+                }
+                Object expiry = parameters.get("expiresInMinutes");
+                if (expiry != null) {
+                    try {
+                        if (Long.parseLong(expiry.toString()) <= 0) throw new NumberFormatException();
+                    } catch (NumberFormatException exception) {
+                        throw new InvalidNotificationEventException(
+                                "payload.parameters.expiresInMinutes debe ser positivo", exception);
+                    }
                 }
             }
         }
@@ -161,6 +172,14 @@ public class NotificationRequestedMessageMapper {
             throw new InvalidNotificationEventException("payload.recipient no es un email válido");
         }
         return recipient;
+    }
+
+    private String validateLocale(String value) {
+        String locale = value == null || value.isBlank() ? "es" : value.strip();
+        if (!LOCALE.matcher(locale).matches()) {
+            throw new InvalidNotificationEventException("payload.locale no es válido");
+        }
+        return locale;
     }
 
     /**

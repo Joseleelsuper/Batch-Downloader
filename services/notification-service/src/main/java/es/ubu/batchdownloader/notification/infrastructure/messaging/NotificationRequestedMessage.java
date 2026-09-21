@@ -41,6 +41,8 @@ public record NotificationRequestedMessage(
      * @param recipient Dirección de correo del destinatario, sin nombre visible ni lista de
      *     direcciones.
      *
+     * @param locale Código de idioma capturado al solicitar el enlace; puede faltar en eventos
+     *     antiguos.
      * @param template Finalidad del correo, que determina sus parámetros y proveedor.
      * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
@@ -53,6 +55,7 @@ public record NotificationRequestedMessage(
      */
     public record Payload(
             String recipient,
+            String locale,
             String template,
             Map<String, Object> parameters) {}
 }

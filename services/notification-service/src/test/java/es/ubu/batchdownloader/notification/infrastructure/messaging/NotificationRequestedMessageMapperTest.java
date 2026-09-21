@@ -154,6 +154,6 @@ class NotificationRequestedMessageMapperTest {
                 "correlation-123",
                 "magic-link-event-456",
                 new NotificationRequestedMessage.Payload(
-                        "persona@example.com", template, parameters));
+                        "persona@example.com", "es", template, parameters));
     }
 }

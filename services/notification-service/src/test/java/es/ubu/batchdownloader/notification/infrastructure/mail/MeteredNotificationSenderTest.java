@@ -84,7 +84,8 @@ class MeteredNotificationSenderTest {
                 "magic-link-request",
                 null,
                 "person@example.test",
+                "es",
                 EmailNotification.Template.MAGIC_LINK,
-                Map.of("username", "person", "token", "enc:v1:test"));
+                Map.of("username", "person", "token", "enc:v1:test", "expiresInMinutes", 15));
     }
 }
