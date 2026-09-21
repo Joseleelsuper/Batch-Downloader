@@ -1,0 +1,11 @@
+{
+  "email.magicLink.subject": "",
+  "email.magicLink.greeting": "",
+  "email.magicLink.intro": "",
+  "email.magicLink.linkText": "",
+  "email.magicLink.linkSuffix": "",
+  "email.magicLink.expiry": "",
+  "email.magicLink.doNotShare": "",
+  "email.magicLink.wrongRecipient": "",
+  "email.magicLink.logoAlt": ""
+}

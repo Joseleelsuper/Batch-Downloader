@@ -9,11 +9,12 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Publica el catálogo español como JSON UTF-8 y permite revalidarlo mediante su ETag.
+ * Publica cualquier catálogo publicado como JSON UTF-8 y permite revalidarlo mediante su ETag.
  * Devuelve 200 con contenido o 304 cuando el navegador ya conserva esa representación,
  * aplicando la duración de caché pública configurada y revalidación obligatoria.
  *
@@ -28,10 +29,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/locales")
 public class LocaleController {
 
-    /**
-     * Valor compartido que fija s p a n i s h  l o c a l e para el comportamiento del componente.
-     */
-    private static final String SPANISH_LOCALE = "es";
     /**
      * Valor compartido que fija u t f 8  j s o n para el comportamiento del componente.
      */
@@ -62,14 +59,15 @@ public class LocaleController {
     }
 
     /**
-     * Consulta el catálogo español y aplica la petición condicional del navegador.
+     * Consulta el catálogo solicitado y aplica la petición condicional del navegador.
      *
      * @param request Petición HTTP que contiene los validadores condicionales del navegador.
      * @return 200 con JSON, 304 si no cambió o 404 si el idioma no está disponible.
      */
-    @GetMapping(value = "/es", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<byte[]> spanish(ServletWebRequest request) {
-        return getLocale.execute(SPANISH_LOCALE)
+    @GetMapping(value = "/{locale}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<byte[]> locale(
+            @PathVariable String locale, ServletWebRequest request) {
+        return getLocale.execute(locale)
                 .map(document -> responseFor(request, document))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

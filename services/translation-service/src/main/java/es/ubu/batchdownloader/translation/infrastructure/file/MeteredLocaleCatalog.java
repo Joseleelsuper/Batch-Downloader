@@ -38,7 +38,7 @@ public final class MeteredLocaleCatalog implements LocaleCatalog {
     /**
      * Consulta el idioma y registra hit o miss cuando existe instrumentación.
      *
-     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+     * @param locale Código exacto del idioma solicitado.
      * @return el mismo documento o ausencia devueltos por el catálogo de archivos.
      */
     @Override

@@ -28,6 +28,7 @@ import facetDirectory from '@batch-locales/es/facet-directory.json';
 import home from '@batch-locales/es/home.json';
 import legal from '@batch-locales/es/legal.json';
 import login from '@batch-locales/es/login.json';
+import magicLinkEmail from '@batch-locales/es/magic-link-email.json';
 import errorPage from '@batch-locales/es/error.json';
 import shared from '@batch-locales/es/shared.json';
 
@@ -43,6 +44,7 @@ const bundledMessages = {
   ...linuxInstaller,
   ...authenticationShared,
   ...login,
+  ...magicLinkEmail,
   ...accountLayout,
   ...accountDashboard,
   ...accountBundles,
