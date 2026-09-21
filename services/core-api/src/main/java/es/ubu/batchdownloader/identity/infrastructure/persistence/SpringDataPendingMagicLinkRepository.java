@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.LockModeType;
 
 /** Consultas bloqueantes y limpieza de solicitudes de acceso pendientes. */
@@ -23,6 +24,7 @@ interface SpringDataPendingMagicLinkRepository
     Optional<PendingMagicLinkEntity> findByHashForUpdate(@Param("hash") String tokenHash);
 
     @Modifying
+    @Transactional
     @Query("delete from PendingMagicLinkEntity request where request.consumedAt is not null "
             + "or request.expiresAt <= :now")
     int deleteExpiredOrConsumed(@Param("now") Instant now);
