@@ -66,20 +66,19 @@ class ComposeHealthTest(unittest.TestCase):
             ),
         )
 
-    def test_semantic_capability_requires_successful_migration(self) -> None:
+    def test_semantic_capability_requires_healthy_service(self) -> None:
         statuses = {
             service: daemon(service)
             for service in compose_health.CAPABILITIES["semantic"]
         }
-        statuses["semantic-migrate"] = completed_job("semantic-migrate")
+        statuses["semantic-service"] = daemon("semantic-service", "unhealthy")
 
         state, problems = compose_health.capability_readiness(
             "semantic", statuses, required=False
         )
 
-        self.assertEqual("ready", state)
-        self.assertEqual([], problems)
-        self.assertIn("semantic-migrate", compose_health.JOBS)
+        self.assertEqual("degraded", state)
+        self.assertEqual(["semantic-service"], problems)
 
     def test_parse_ps_accepts_json_lines(self) -> None:
         output = (

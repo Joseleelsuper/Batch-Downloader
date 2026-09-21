@@ -43,7 +43,6 @@ DAEMONS = frozenset(
 JOBS = frozenset(
     {
         "minio-init",
-        "semantic-migrate",
         "scraper-python314t-benchmark",
         "scraper-python314-control",
         "scraper-python314-benchmark-report",
@@ -62,7 +61,6 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
     "rabbitmq": {},
     "minio": {},
     "minio-init": {"minio": "service_healthy"},
-    "semantic-migrate": {"postgres": "service_healthy"},
     "scraper-api": {"mysql": "service_healthy"},
     "scraper-scheduler": {"scraper-api": "service_healthy"},
     "webapp": {
@@ -74,7 +72,7 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
         "scraper-api": "service_healthy",
         "minio-init": "service_completed_successfully",
     },
-    "semantic-service": {"semantic-migrate": "service_completed_successfully"},
+    "semantic-service": {"postgres": "service_healthy"},
     "semantic-indexer": {
         "semantic-service": "service_healthy",
         "scraper-api": "service_healthy",
@@ -85,7 +83,10 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
         "scraper-python314t-benchmark": "service_completed_successfully",
         "scraper-python314-control": "service_completed_successfully",
     },
-    "notification-service": {"rabbitmq": "service_healthy"},
+    "notification-service": {
+        "rabbitmq": "service_healthy",
+        "translation-service": "service_healthy",
+    },
     "download-worker": {
         "rabbitmq": "service_healthy",
         "minio-init": "service_completed_successfully",
@@ -106,7 +107,6 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
     ),
     "semantic": (
         "postgres",
-        "semantic-migrate",
         "scraper-api",
         "semantic-service",
         "semantic-indexer",
@@ -126,7 +126,6 @@ SERVICE_PRIORITY = {
     "rabbitmq": 0,
     "minio": 0,
     "minio-init": 1,
-    "semantic-migrate": 1,
     "scraper-api": 1,
     "semantic-service": 1,
     "translation-service": 1,
