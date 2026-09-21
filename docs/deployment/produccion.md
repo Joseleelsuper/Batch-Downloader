@@ -40,7 +40,6 @@ CORE_API_REQUIRE_HTTPS=true
 CORE_API_COOKIE_SECURE=true
 MINIO_ZIP_QUOTA=10GB
 CORE_API_FLYWAY_TARGET=19
-NOTIFICATION_MAIL_LOGO_URL=https://batchdownloader.dev/assets/batch-downloader-logo.png
 SCRAPER_ALEMBIC_TARGET=20260914_0021
 SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 ```
@@ -49,9 +48,8 @@ SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 secretos de GitHub requeridos son `COOLIFY_URL`, `COOLIFY_TOKEN` y
 `COOLIFY_APP_UUID`.
 
-La URL del logo debe ser pública y HTTPS para que Resend pueda descargarla al
-renderizar el HTML del mensaje. El enlace mágico conserva el TTL configurado en
-`CORE_API_MAGIC_LINK_TTL` (15 minutos por defecto).
+El enlace mágico conserva el TTL configurado en `CORE_API_MAGIC_LINK_TTL`
+(15 minutos por defecto).
 
 ## Modelo y copias
 

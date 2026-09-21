@@ -100,7 +100,8 @@ class ResendNotificationSenderTest {
                 .contains("/login#token=a%20token%2Bwith%2Fslashes");
         assertThat(body.path("html").asText())
                 .contains("&lt;Ada &amp; friends&gt;")
-                .doesNotContain("<Ada & friends>");
+                .doesNotContain("<Ada & friends>")
+                .doesNotContain("<img");
     }
 
     /**
@@ -242,8 +243,7 @@ class ResendNotificationSenderTest {
                 "email.magicLink.linkSuffix", "para iniciar sesión en Batch Downloader.",
                 "email.magicLink.expiry", "Tendrás {minutes}min para entrar.",
                 "email.magicLink.doNotShare", "No lo compartas con nadie.",
-                "email.magicLink.wrongRecipient", "Si no conoces esta web, alguien puso mal su correo. Puedes ignorar este mensaje.",
-                "email.magicLink.logoAlt", "Batch Downloader");
+                "email.magicLink.wrongRecipient", "Si no conoces esta web, alguien puso mal su correo. Puedes ignorar este mensaje.");
     }
 
     /**

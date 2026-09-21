@@ -189,17 +189,12 @@ public class ResendNotificationSender {
                 .replace("{minutes}", Long.toString(notification.expiryMinutes()));
         String doNotShare = message(catalog, "email.magicLink.doNotShare");
         String wrongRecipient = message(catalog, "email.magicLink.wrongRecipient");
-        String logoAlt = message(catalog, "email.magicLink.logoAlt");
         String text = greeting + "\n\n"
                 + intro + " " + linkText + " (" + url + ") " + linkSuffix
                 + "\n\n" + expiry + " " + doNotShare
                 + "\n\n" + wrongRecipient;
         String html = "<div style=\"font-family:Arial,sans-serif;line-height:1.5;max-width:600px;"
                 + "margin:0 auto;padding:24px\">"
-                + "<p style=\"text-align:center;margin:0 0 24px\"><img src=\""
-                + HtmlUtils.htmlEscape(mail.logoUrl().toString()) + "\" alt=\""
-                + HtmlUtils.htmlEscape(logoAlt)
-                + "\" style=\"display:block;width:100%;max-width:420px;height:auto;margin:0 auto\"></p>"
                 + "<p>" + HtmlUtils.htmlEscape(greeting) + "</p>"
                 + "<p>" + HtmlUtils.htmlEscape(intro) + " <a href=\""
                 + HtmlUtils.htmlEscape(url) + "\">" + HtmlUtils.htmlEscape(linkText)

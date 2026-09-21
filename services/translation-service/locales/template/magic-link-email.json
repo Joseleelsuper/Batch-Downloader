@@ -6,6 +6,5 @@
   "email.magicLink.linkSuffix": "",
   "email.magicLink.expiry": "",
   "email.magicLink.doNotShare": "",
-  "email.magicLink.wrongRecipient": "",
-  "email.magicLink.logoAlt": ""
+  "email.magicLink.wrongRecipient": ""
 }

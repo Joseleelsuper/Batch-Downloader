@@ -1,7 +1,6 @@
 package es.ubu.batchdownloader.notification.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.net.URI;
 import org.junit.jupiter.api.Test;
@@ -14,23 +13,12 @@ class MailTemplatePropertiesTest {
     void bindsTheCanonicalConstructorWhenSpringCreatesThePropertiesBean() {
         new ApplicationContextRunner()
                 .withUserConfiguration(PropertiesConfiguration.class)
-                .withPropertyValues(
-                        "notification.mail.public-base-url=https://batch.example.com",
-                        "notification.mail.logo-url=https://cdn.example.com/logo.png")
+                .withPropertyValues("notification.mail.public-base-url=https://batch.example.com")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
-                    assertThat(context.getBean(MailTemplateProperties.class).logoUrl())
-                            .isEqualTo(URI.create("https://cdn.example.com/logo.png"));
+                    assertThat(context.getBean(MailTemplateProperties.class).publicBaseUrl())
+                            .isEqualTo(URI.create("https://batch.example.com"));
                 });
-    }
-
-    @Test
-    void requiresHttpsLogoWhenPublicWebIsHttps() {
-        assertThatThrownBy(() -> new MailTemplateProperties(
-                URI.create("https://batch.example.com"),
-                URI.create("http://batch.example.com/assets/logo.png")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("notification.mail.logo-url debe usar HTTPS");
     }
 
     @Configuration(proxyBeanMethods = false)
