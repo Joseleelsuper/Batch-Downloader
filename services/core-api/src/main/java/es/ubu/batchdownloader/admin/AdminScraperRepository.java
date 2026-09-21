@@ -3,11 +3,9 @@ package es.ubu.batchdownloader.admin;
 import es.ubu.batchdownloader.admin.AdminAuditDtos.AdminAuditItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperEvent;
-import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperMetricItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueState;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
-import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperSnapshotItem;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.ResultSet;
@@ -188,64 +186,7 @@ public class AdminScraperRepository {
     }
 
     /**
-     * Selecciona entre una y doscientas capturas recientes y las invierte para representar la
-     * evolución cronológica.
-     *
-     * @param limit Máximo solicitado; se acota al intervalo documentado por cada consulta.
-     * @return capturas de métricas ordenadas desde la más antigua de la selección.
-     */
-    public List<ScraperMetricItem> metrics(int limit) {
-        return jdbc.query(
-                """
-                SELECT available, review, unavailable, queued_searcher_filter,
-                       queued_filter_scraper, queued_scraper_so_filter,
-                       queued_so_filter_descriptor, captured_at
-                FROM scraper_metric_snapshots
-                ORDER BY captured_at DESC
-                LIMIT ?
-                """,
-                (rs, rowNum) -> new ScraperMetricItem(
-                        rs.getInt("available"),
-                        rs.getInt("review"),
-                        rs.getInt("unavailable"),
-                        rs.getInt("queued_searcher_filter"),
-                        rs.getInt("queued_filter_scraper"),
-                        rs.getInt("queued_scraper_so_filter"),
-                        rs.getInt("queued_so_filter_descriptor"),
-                        rs.getTimestamp("captured_at").toLocalDateTime()),
-                Math.max(1, Math.min(limit, 200))).reversed();
-    }
-
-    /**
-     * Busca las treinta capturas todavía vigentes más recientes y conserva la primera de cada
-     * etapa.
-     *
-     * @return como máximo una captura por etapa, según el orden de recencia.
-     */
-    public List<ScraperSnapshotItem> snapshots() {
-        Map<String, ScraperSnapshotItem> byStage = new LinkedHashMap<>();
-        List<ScraperSnapshotItem> snapshots = jdbc.query(
-                """
-                SELECT stage, package_id, app_name, url, html, captured_at
-                FROM scraper_worker_snapshots
-                WHERE expires_at >= NOW()
-                ORDER BY captured_at DESC
-                LIMIT 30
-                """,
-                (rs, rowNum) -> new ScraperSnapshotItem(
-                        rs.getString("stage"),
-                        rs.getString("package_id"),
-                        rs.getString("app_name"),
-                        rs.getString("url"),
-                        rs.getString("html"),
-                        rs.getTimestamp("captured_at").toLocalDateTime()));
-        snapshots.forEach(snapshot -> byStage.putIfAbsent(snapshot.stage(), snapshot));
-        return List.copyOf(byStage.values());
-    }
-
-    /**
-     * Agrupa versión, colas, sesenta capturas de métricas y snapshots vigentes en el evento
-     * scraper.changed.
+     * Agrupa versión y colas vigentes en el evento scraper.changed.
      *
      * @return estado administrativo listo para serializar y enviar por WebSocket.
      */
@@ -254,14 +195,12 @@ public class AdminScraperRepository {
                 "scraper.changed",
                 scraperVersion(),
                 queues(),
-                metrics(60),
-                snapshots(),
                 LocalDateTime.now());
     }
 
     /**
-     * Combina las últimas fechas de trabajos, métricas, snapshots y latidos en una huella corta
-     * para detectar cambios de estado.
+     * Combina las últimas fechas de trabajos y latidos en una huella corta para detectar cambios
+     * de estado.
      *
      * @return hash hexadecimal opaco; no es una versión de software ni una huella criptográfica.
      */
@@ -270,8 +209,6 @@ public class AdminScraperRepository {
                 """
                 SELECT CONCAT(
                     COALESCE((SELECT UNIX_TIMESTAMP(MAX(updated_at)) FROM scraper_work_items), 0), ':',
-                    COALESCE((SELECT UNIX_TIMESTAMP(MAX(captured_at)) FROM scraper_metric_snapshots), 0), ':',
-                    COALESCE((SELECT UNIX_TIMESTAMP(MAX(captured_at)) FROM scraper_worker_snapshots), 0), ':',
                     COALESCE((SELECT UNIX_TIMESTAMP(MAX(heartbeat_at)) FROM scrape_runs), 0)
                 )
                 """,

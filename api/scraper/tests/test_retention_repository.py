@@ -11,9 +11,7 @@ from app.db.base import Base
 from app.db.models import (
     ResolverLog,
     ScraperCommand,
-    ScraperMetricSnapshot,
     ScrapeRun,
-    ScraperWorkerSnapshot,
     ScraperWorkItem,
 )
 from app.repositories.pipeline import (
@@ -57,20 +55,6 @@ async def test_pruner_respects_boundaries_leases_and_per_table_batches(
     db_session.add_all((first_old, second_old, boundary, queued, leased))
     db_session.add_all(
         (
-            ScraperMetricSnapshot(captured_at=old_31),
-            ScraperMetricSnapshot(captured_at=now),
-            ScraperWorkerSnapshot(
-                worker_id="old-worker",
-                stage="scraper",
-                captured_at=old_31,
-                expires_at=old_31,
-            ),
-            ScraperWorkerSnapshot(
-                worker_id="active-worker",
-                stage="scraper",
-                captured_at=now,
-                expires_at=now + timedelta(minutes=5),
-            ),
             ResolverLog(phase="resolve", status="failed", created_at=old_91),
             ResolverLog(phase="resolve", status="ok", created_at=now),
             ScraperCommand(
@@ -106,8 +90,6 @@ async def test_pruner_respects_boundaries_leases_and_per_table_batches(
     await db_session.commit()
 
     assert first.work_items == 1
-    assert first.metric_snapshots == 1
-    assert first.worker_snapshots == 1
     assert first.resolver_logs == 1
     assert first.commands == 1
     assert first.runs == 1
@@ -124,8 +106,6 @@ async def test_pruner_respects_boundaries_leases_and_per_table_batches(
     second = await RetentionRepository(db_session).prune(now=now, batch_size=1)
     await db_session.commit()
     assert second.work_items == 1
-    assert second.metric_snapshots == 0
-    assert second.worker_snapshots == 0
     assert second.resolver_logs == 0
     assert second.commands == 0
     assert second.runs == 0

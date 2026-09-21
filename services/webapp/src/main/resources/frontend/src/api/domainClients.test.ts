@@ -47,10 +47,8 @@ import {
   enqueueMissingScraperDescriptions,
   fetchAdminCurrentRun,
   fetchAdminLogs,
-  fetchAdminMetrics,
   fetchAdminQueues,
   fetchAdminRuns,
-  fetchAdminSnapshots,
   pruneTerminalScraperQueueItems,
   recoverStuckScraperQueueItems,
   retryFailedScraperQueueItems,
@@ -473,8 +471,6 @@ describe('current identity', () => {
     await confirmInstallerAbsence('app/id', {} as never);
     await fetchAdminLogs();
     await fetchAdminQueues();
-    await fetchAdminMetrics();
-    await fetchAdminSnapshots();
     await recoverStuckScraperQueueItems();
     await retryFailedScraperQueueItems();
     await pruneTerminalScraperQueueItems();

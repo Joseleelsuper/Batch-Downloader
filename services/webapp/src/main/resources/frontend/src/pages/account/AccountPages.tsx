@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FolderPlus,
   LockKeyhole,
+  LogOut,
   Save,
   Trash2,
   UserRound,
@@ -475,14 +476,17 @@ export function AccountLayout() {
     navigate('/login', { replace: true });
   }
   return <div className="account-shell">
-    <aside className="account-nav">
-      <Link className="brand" to="/"><img className="brand-icon" src="/assets/icon.ico" alt="" /><span>Batch Downloader</span></Link>
+    <aside className="account-nav admin-sidebar">
+      <Link className="brand admin-brand" to="/">
+        <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
+        <h1>{t('app.title')}</h1>
+      </Link>
       <nav>
         <NavLink to="/dashboard" end><Clock3 size={18} />{t('account.nav.dashboard')}</NavLink>
         <NavLink to="/dashboard/bundles"><Boxes size={18} />{t('account.nav.bundles')}</NavLink>
         <NavLink to="/profile"><UserRound size={18} />{t('account.nav.profile')}</NavLink>
       </nav>
-      <button type="button" onClick={signOut}>{t('nav.logout')}</button>
+      <button type="button" onClick={signOut}><LogOut size={18} />{t('nav.logout')}</button>
     </aside>
     <main className="account-content"><Outlet /></main>
   </div>;

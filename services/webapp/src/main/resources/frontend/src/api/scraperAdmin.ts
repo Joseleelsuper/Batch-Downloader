@@ -2,12 +2,10 @@ import type {
   ContentEnqueueResult,
   ResolverLogItem,
   ScraperEvent,
-  ScraperMetricItem,
   ScraperQueueMaintenanceResult,
   ScraperQueueState,
   ScraperRunRequestResponse,
   ScraperRunSummary,
-  ScraperSnapshotItem,
   ScrapeScope,
 } from '../types/catalog';
 import { API_BASE, requestJson } from './http';
@@ -36,14 +34,6 @@ export function fetchAdminLogs(): Promise<ResolverLogItem[]> {
 
 export function fetchAdminQueues(): Promise<ScraperQueueState[]> {
   return requestJson('/api/v1/admin/scraper/queues');
-}
-
-export function fetchAdminMetrics(): Promise<ScraperMetricItem[]> {
-  return requestJson('/api/v1/admin/scraper/metrics');
-}
-
-export function fetchAdminSnapshots(): Promise<ScraperSnapshotItem[]> {
-  return requestJson('/api/v1/admin/scraper/snapshots');
 }
 
 export function recoverStuckScraperQueueItems(): Promise<ScraperQueueMaintenanceResult> {

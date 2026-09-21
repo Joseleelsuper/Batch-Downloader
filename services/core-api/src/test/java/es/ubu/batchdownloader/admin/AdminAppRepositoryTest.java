@@ -55,8 +55,6 @@ class AdminAppRepositoryTest {
 
         assertThat(repository.deleteAll()).isZero();
 
-        verify(jdbc).update("DELETE FROM scraper_worker_snapshots");
-        verify(jdbc).update("DELETE FROM scraper_metric_snapshots");
         verify(jdbc).update("DELETE FROM scraper_work_items");
     }
 

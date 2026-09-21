@@ -10,25 +10,20 @@ See Also:
 """
 from __future__ import annotations
 
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.json_safe import json_safe
 from app.core.time import utc_now
-from app.db.enums import ResolutionStatus, ScrapeRunStatus
+from app.db.enums import ScrapeRunStatus
 from app.db.models import (
-    DownloadSource,
-    ScraperMetricSnapshot,
     ScrapeRun,
-    ScraperWorkerSnapshot,
     ScraperWorkItem,
-    SoftwareApp,
 )
 
 QUEUE_SEARCHER_FILTER = "searcher_filter"
@@ -42,12 +37,6 @@ QUEUE_SO_FILTER_DESCRIPTOR = "so_filter_descriptor"
 QUEUE_MANUAL_INSTALLER_ENRICHMENT = "manual_installer_enrichment"
 
 QUEUE_WEBSITE_APP_DISCOVERY = "website_app_discovery"
-
-
-# Las instantáneas alimentan el monitor administrativo en vivo; son vistas previas,
-# nunca un archivo de una página oficial. Acota la entrada antes de sanearla para que
-# una página grande no monopolice un worker del scraper durante una pasada de regex.
-MAX_SNAPSHOT_HTML_BYTES = 24_000
 
 
 STATUS_QUEUED = "queued"
@@ -98,60 +87,6 @@ class QueueState:
     counts: dict[str, int]
 
     items: list[QueuePreviewItem]
-
-
-
-@dataclass(frozen=True)
-class WorkerSnapshotView:
-    """Expone la vista previa vigente más reciente de una etapa para el monitor administrativo.
-
-    Attributes:
-        stage, package_id, app_name: Etapa y aplicación observadas.
-        url, html: Página y HTML de muestra, ya acotado al guardarlo.
-        captured_at: Instante UTC de captura.
-    """
-    stage: str
-
-    package_id: str | None
-
-    app_name: str | None
-
-    url: str | None
-
-    html: str | None
-
-    captured_at: object
-
-
-
-@dataclass(frozen=True)
-class MetricSnapshotView:
-    """Expone una muestra histórica de disponibilidad y profundidad de las cuatro colas del
-    pipeline.
-
-    Attributes:
-        available, review, unavailable: Recuentos de aplicaciones por estado observado de sus
-            fuentes.
-        queued_searcher_filter, queued_filter_scraper, queued_scraper_so_filter,
-            queued_so_filter_descriptor: Trabajo en cola o en procesamiento por transición
-            entre etapas.
-        captured_at: Instante de la muestra.
-    """
-    available: int
-
-    review: int
-
-    unavailable: int
-
-    queued_searcher_filter: int
-
-    queued_filter_scraper: int
-
-    queued_scraper_so_filter: int
-
-    queued_so_filter_descriptor: int
-
-    captured_at: object
 
 
 
@@ -649,163 +584,6 @@ class PipelineRepository:
             )
         return states
 
-    async def save_snapshot(
-        self,
-        *,
-        run_id: uuid.UUID | None,
-        worker_id: str,
-        stage: str,
-        package_id: str | None,
-        app_name: str | None,
-        url: str | None,
-        html: str | None,
-        ttl_seconds: int = 900,
-    ) -> None:
-        """Acota y depura el HTML y guarda una vista previa con caducidad sin tocar la ejecución
-        activa ni podar otras instantáneas.
-
-        Args:
-            run_id: Identidad recibida por compatibilidad; la instantánea se guarda con
-                run_id=None para no bloquear la ejecución.
-            worker_id: Identidad del consumidor que reserva o captura trabajo.
-            stage: Etapa que identifica la vista previa del worker.
-            package_id: Identidad de paquete u operación, única dentro de cada cola.
-            app_name: Nombre visible de aplicación, opcional durante las primeras etapas.
-            url: Página observada durante el trabajo, o None si no existe.
-            html: HTML de vista previa opcional; se limita antes de retirar scripts y
-                manejadores inline.
-            ttl_seconds: Vigencia de la instantánea en segundos desde la captura.
-        """
-        now = utc_now()
-        self.session.add(
-            ScraperWorkerSnapshot(
-            # Las instantáneas son una vista en vivo de mejor esfuerzo. Referenciar la
-            # ejecución que se actualiza hace que cada inserción bloquee su FK y puede
-            # interbloquear workers concurrentes con `set_current`.
-                run_id=None,
-                worker_id=worker_id,
-                stage=stage,
-                package_id=package_id,
-                app_name=app_name,
-                url=url,
-                html=sanitize_snapshot_html(html),
-                captured_at=now,
-                expires_at=now + timedelta(seconds=ttl_seconds),
-            )
-        )
-        await self.session.flush()
-
-    async def prune_expired_snapshots(self) -> int:
-        """Elimina vistas previas cuya caducidad es anterior al instante actual y hace flush.
-
-        Returns:
-            recuento comunicado por el driver, o cero si no está disponible.
-        """
-        result = await self.session.execute(
-            delete(ScraperWorkerSnapshot).where(
-                ScraperWorkerSnapshot.expires_at < utc_now()
-            )
-        )
-        await self.session.flush()
-        return statement_rowcount(result)
-
-    async def latest_snapshots(self) -> list[WorkerSnapshotView]:
-        """Busca la captura no caducada más reciente de cada etapa del monitor, desde searcher
-        hasta descriptor.
-
-        Returns:
-            vistas existentes en el orden de las etapas.
-        """
-        snapshots: list[WorkerSnapshotView] = []
-        for stage in ("searcher", "filter", "scraper", "so_filter", "descriptor"):
-            snapshot = await self.session.scalar(
-                select(ScraperWorkerSnapshot)
-                .where(ScraperWorkerSnapshot.stage == stage)
-                .where(ScraperWorkerSnapshot.expires_at >= utc_now())
-                .order_by(ScraperWorkerSnapshot.captured_at.desc())
-                .limit(1)
-            )
-            if snapshot:
-                snapshots.append(
-                    WorkerSnapshotView(
-                        stage=snapshot.stage,
-                        package_id=snapshot.package_id,
-                        app_name=snapshot.app_name,
-                        url=snapshot.url,
-                        html=snapshot.html,
-                        captured_at=snapshot.captured_at,
-                    )
-                )
-        return snapshots
-
-    async def save_metric_snapshot(self, run_id: uuid.UUID | None = None) -> None:
-        """Recuenta disponibilidad por estados de fuentes y profundidad de colas y guarda una
-        muestra histórica asociada a la ejecución opcional.
-
-        Args:
-            run_id: Ejecución asociada; None no restringe la consulta o permite trabajo
-                independiente.
-        """
-        available = await self._count_apps_with_statuses(
-            [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value],
-        )
-        review = await self._count_apps_with_statuses(
-            [ResolutionStatus.REQUIRES_MANUAL_REVIEW.value],
-            exclude_available=True,
-        )
-        unavailable = await self._count_apps_with_statuses(
-            [ResolutionStatus.MISSING.value, ResolutionStatus.BROKEN.value],
-            exclude_available=True,
-            exclude_review=True,
-        )
-        queued_searcher_filter = await self._count_queue(QUEUE_SEARCHER_FILTER)
-        queued_filter_scraper = await self._count_queue(QUEUE_FILTER_SCRAPER)
-        queued_scraper_so_filter = await self._count_queue(QUEUE_SCRAPER_SO_FILTER)
-        queued_so_filter_descriptor = await self._count_queue(QUEUE_SO_FILTER_DESCRIPTOR)
-        self.session.add(
-            ScraperMetricSnapshot(
-                run_id=run_id,
-                available=available,
-                review=review,
-                unavailable=unavailable,
-                queued_searcher_filter=queued_searcher_filter,
-                queued_filter_scraper=queued_filter_scraper,
-                queued_scraper_so_filter=queued_scraper_so_filter,
-                queued_so_filter_descriptor=queued_so_filter_descriptor,
-                captured_at=utc_now(),
-            )
-        )
-        await self.session.flush()
-
-    async def metric_snapshots(self, limit: int = 60) -> list[MetricSnapshotView]:
-        """Lee las muestras más recientes y las devuelve en orden temporal ascendente para
-        dibujar la serie.
-
-        Args:
-            limit: Máximo de elementos de la vista solicitada.
-
-        Returns:
-            hasta limit muestras, de más antigua a más reciente.
-        """
-        result = await self.session.scalars(
-            select(ScraperMetricSnapshot)
-            .order_by(ScraperMetricSnapshot.captured_at.desc())
-            .limit(limit)
-        )
-        return [
-            MetricSnapshotView(
-                available=item.available,
-                review=item.review,
-                unavailable=item.unavailable,
-                queued_searcher_filter=item.queued_searcher_filter,
-                queued_filter_scraper=item.queued_filter_scraper,
-                queued_scraper_so_filter=item.queued_scraper_so_filter,
-                queued_so_filter_descriptor=item.queued_so_filter_descriptor,
-                captured_at=item.captured_at,
-            )
-            for item in reversed(list(result))
-        ]
-
     async def _count_queue(
         self,
         queue: str,
@@ -831,118 +609,6 @@ class PipelineRepository:
         if run_id is not None:
             statement = statement.where(ScraperWorkItem.run_id == run_id)
         return int(await self.session.scalar(statement) or 0)
-
-    async def _count_apps_with_statuses(
-        self,
-        statuses: list[str],
-        *,
-        exclude_available: bool = False,
-        exclude_review: bool = False,
-    ) -> int:
-        """Cuenta aplicaciones activas con una fuente de los estados solicitados y aplica
-        exclusiones para evitar solapar categorías.
-        Para direct/fallback exige además validación válida de la fuente.
-
-        Args:
-            statuses: Estados de resolución de fuentes que se incluyen en el recuento.
-            exclude_available: True excluye aplicaciones que tienen otra fuente directa o
-                fallback válida.
-            exclude_review: True excluye aplicaciones que tienen una fuente pendiente de
-                revisión.
-
-        Returns:
-            cantidad de aplicaciones que cumple los criterios.
-        """
-        source_query = (
-            select(DownloadSource.id)
-            .where(DownloadSource.software_app_id == SoftwareApp.id)
-            .where(DownloadSource.resolution_status.in_(statuses))
-        )
-        if set(statuses) == {ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value}:
-            source_query = source_query.where(DownloadSource.validation_status == "valid")
-        source_exists = source_query.limit(1).exists()
-        stmt = (
-            select(func.count(SoftwareApp.id))
-            .where(SoftwareApp.app_status == "active")
-            .where(source_exists)
-        )
-        if exclude_available:
-            available_exists = (
-                select(DownloadSource.id)
-                .where(DownloadSource.software_app_id == SoftwareApp.id)
-                .where(
-                    DownloadSource.resolution_status.in_(
-                        [ResolutionStatus.DIRECT.value, ResolutionStatus.FALLBACK.value]
-                    )
-                )
-                .where(DownloadSource.validation_status == "valid")
-                .limit(1)
-                .exists()
-            )
-            stmt = stmt.where(~available_exists)
-        if exclude_review:
-            review_exists = (
-                select(DownloadSource.id)
-                .where(DownloadSource.software_app_id == SoftwareApp.id)
-                .where(
-                    DownloadSource.resolution_status
-                    == ResolutionStatus.REQUIRES_MANUAL_REVIEW.value
-                )
-                .limit(1)
-                .exists()
-            )
-            stmt = stmt.where(~review_exists)
-        return int(await self.session.scalar(stmt) or 0)
-
-
-def sanitize_snapshot_html(html: str | None) -> str | None:
-    """Acota la entrada y retira bloques script y atributos de evento inline antes de volver a
-    limitar el resultado.
-    Es una depuración de vista previa, no un sanitizador HTML general para insertar contenido
-    arbitrario sin aislamiento.
-
-    Args:
-        html: HTML de vista previa opcional; se limita antes de retirar scripts y manejadores
-            inline.
-
-    Returns:
-        HTML de muestra o None si no se recibió contenido.
-    """
-    if not html:
-        return None
-
-    bounded = truncate_snapshot_bytes(html)
-        # La expresión anterior de etiquetas script anidadas podía retroceder en exceso
-        # con scripts grandes. Este patrón acotado y no anidado basta para la vista previa
-        # del monitor y mantiene un coste predecible.
-    cleaned = re.sub(
-        r"<script\b[^>]*>.*?(?:</script\s*>|\Z)",
-        "",
-        bounded,
-        flags=re.I | re.S,
-    )
-    cleaned = re.sub(r"\s+on[a-z]+\s*=\s*(['\"]).*?\1", "", cleaned, flags=re.I | re.S)
-    cleaned = re.sub(r"\s+on[a-z]+\s*=\s*[^\s>]+", "", cleaned, flags=re.I)
-    return truncate_snapshot_bytes(cleaned)
-
-
-def truncate_snapshot_bytes(value: str) -> str:
-    """Recorta el contenido a 24000 bytes UTF-8 sin cortar caracteres y añade una marca de
-    truncamiento cuando hace falta.
-
-    Args:
-        value: HTML original que debe acotarse para la vista previa.
-
-    Returns:
-        texto original o prefijo acotado más el comentario de truncamiento, cuyos bytes son
-            adicionales al límite.
-    """
-    encoded = value.encode("utf-8", errors="ignore")
-    if len(encoded) <= MAX_SNAPSHOT_HTML_BYTES:
-        return value
-    preview = encoded[:MAX_SNAPSHOT_HTML_BYTES].decode("utf-8", errors="ignore")
-    return preview + "\n<!-- snapshot truncated -->"
-
 
 def truncate(value: str | None, max_length: int) -> str | None:
     """Conserva textos cortos y sustituye el final de los largos por tres puntos dentro del

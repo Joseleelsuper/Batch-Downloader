@@ -859,9 +859,13 @@ describe('public support pages', () => {
       'href',
       'https://joseleelportfolio.vercel.app/',
     );
-    expect(screen.getByRole('link', { name: 'Código en GitHub' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Código fuente' })).toHaveAttribute(
       'href',
       'https://github.com/Joseleelsuper/Batch-Downloader',
+    );
+    expect(screen.getByRole('link', { name: 'Memoria' })).toHaveAttribute(
+      'href',
+      'https://github.com/Joseleelsuper/Batch-Downloader-Memoria/releases/latest',
     );
     expect(screen.getByRole('link', { name: 'Portfolio' }).querySelector('svg')).not.toBeNull();
   });
@@ -952,12 +956,14 @@ describe('scraper pipeline', () => {
   afterEach(() => cleanup());
 
   it('presents SO Filter and ignores the removed icon enrichment queue', () => {
-    render(<ScraperQueues queues={[
+    const { container } = render(<ScraperQueues queues={[
       queue('scraper_so_filter', 'Pendiente de clasificar'),
       queue('so_filter_descriptor', 'Pendiente de descripción'),
       queue('icon_enrichment', 'Trabajo de iconos antiguo'),
     ]} />);
 
+    expect(container.querySelector('.pipeline-stages')).not.toBeNull();
+    expect(container.querySelector('.pipeline-queues')).not.toBeNull();
     expect(screen.getByText('Scraper -> SO Filter')).toBeInTheDocument();
     expect(screen.getByText('SO Filter')).toBeInTheDocument();
     expect(screen.getByText('SO Filter -> Descriptor')).toBeInTheDocument();

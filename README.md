@@ -148,7 +148,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `POST` | `/api/v1/admin/app-discoveries` | `ADMIN` | Analiza una web oficial. |
 | `GET`, `POST` | `/api/v1/admin/app-discoveries/{discoveryId}`, `/api/v1/admin/app-discoveries/{discoveryId}/apply` | `ADMIN` | Consulta o aplica un descubrimiento. |
 | `GET`, `POST` | `/api/v1/admin/scraper/runs` | `ADMIN` | Lista o crea ejecuciones del scraper. |
-| `GET` | `/api/v1/admin/scraper/current`, `/api/v1/admin/scraper/logs`, `/api/v1/admin/scraper/queues`, `/api/v1/admin/scraper/metrics`, `/api/v1/admin/scraper/snapshots`, `/api/v1/admin/scraper/event` | `ADMIN` | Consulta ejecución, logs, colas, métricas, snapshots o el último evento. |
+| `GET` | `/api/v1/admin/scraper/current`, `/api/v1/admin/scraper/logs`, `/api/v1/admin/scraper/queues`, `/api/v1/admin/scraper/event` | `ADMIN` | Consulta ejecución, logs, colas o el último evento. |
 | `POST` | `/api/v1/admin/scraper/queues/recover-stuck`, `/api/v1/admin/scraper/queues/retry-failed`, `/api/v1/admin/scraper/queues/prune-terminal` | `ADMIN` | Recupera, reintenta o limpia elementos de cola. |
 | `POST` | `/api/v1/admin/scraper/commands` | `ADMIN` | Envía un comando durable al scraper. |
 | `POST` | `/api/v1/admin/scraper/descriptions/enqueue-missing` | `ADMIN` | Encola descripciones ausentes. |

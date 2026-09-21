@@ -43,7 +43,7 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
     /**
      * Conecta la consulta del estado del scraper con la serialización de mensajes WebSocket.
      *
-     * @param scraper Consulta de colas, métricas, snapshots y versión del scraper.
+     * @param scraper Consulta de colas y versión del scraper.
      * @param objectMapper Serializador del evento WebSocket administrativo.
      */
     public AdminScraperNotifier(AdminScraperRepository scraper, ObjectMapper objectMapper) {

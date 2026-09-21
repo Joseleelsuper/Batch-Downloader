@@ -536,6 +536,8 @@ describe('account flows', () => {
       </MemoryRouter>,
     );
     await waitFor(() => expect(container.querySelector('.account-shell')).not.toBeNull());
+    expect(container.querySelector('.account-nav.admin-sidebar')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: 'Batch Downloader', level: 1 })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: t('nav.logout') }));
     expect(await screen.findByTestId('location')).toHaveTextContent('/login');
     expect(accountApi.logout).toHaveBeenCalledOnce();

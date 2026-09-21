@@ -1,4 +1,5 @@
 import {
+  BookOpenText,
   BrainCircuit,
   Boxes,
   Globe2,
@@ -250,9 +251,13 @@ function Footer() {
             <Github aria-hidden="true" />
             <span>{t('footer.github')}</span>
           </a>
+          <a href="https://github.com/Joseleelsuper/Batch-Downloader-Memoria/releases/latest" target="_blank" rel="noreferrer">
+            <BookOpenText aria-hidden="true" />
+            <span>{t('footer.memory')}</span>
+          </a>
         </section>
       </div>
-      <p className="site-footer-meta">Batch Downloader MVP</p>
+      <p className="site-footer-meta">Batch Downloader</p>
     </footer>
   );
 }

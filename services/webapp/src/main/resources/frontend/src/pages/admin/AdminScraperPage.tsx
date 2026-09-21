@@ -6,10 +6,8 @@ import {
   enqueueMissingScraperDescriptions,
   fetchAdminCurrentRun,
   fetchAdminLogs,
-  fetchAdminMetrics,
   fetchAdminQueues,
   fetchAdminRuns,
-  fetchAdminSnapshots,
   pruneTerminalScraperQueueItems,
   recoverStuckScraperQueueItems,
   retryFailedScraperQueueItems,
@@ -20,10 +18,8 @@ import { ScraperQueues } from '../../components/admin/ScraperQueues';
 import { useTranslation, type Translator } from '../../services/i18n';
 import type {
   ResolverLogItem,
-  ScraperMetricItem,
   ScraperQueueState,
   ScraperRunSummary,
-  ScraperSnapshotItem,
   ScrapeScope,
 } from '../../types/catalog';
 import { formatDate } from '../../utils/date';
@@ -34,27 +30,21 @@ export function AdminScraperPage() {
   const [runs, setRuns] = useState<ScraperRunSummary[]>([]);
   const [logs, setLogs] = useState<ResolverLogItem[]>([]);
   const [queues, setQueues] = useState<ScraperQueueState[]>([]);
-  const [metrics, setMetrics] = useState<ScraperMetricItem[]>([]);
-  const [snapshots, setSnapshots] = useState<ScraperSnapshotItem[]>([]);
   const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
   const [message, setMessage] = useState<string | null>(null);
   const [enrichmentAction, setEnrichmentAction] = useState<'descriptions' | null>(null);
 
   async function load() {
-    const [nextCurrent, nextRuns, nextLogs, nextQueues, nextMetrics, nextSnapshots] = await Promise.all([
+    const [nextCurrent, nextRuns, nextLogs, nextQueues] = await Promise.all([
       fetchAdminCurrentRun(),
       fetchAdminRuns(),
       fetchAdminLogs(),
       fetchAdminQueues(),
-      fetchAdminMetrics(),
-      fetchAdminSnapshots(),
     ]);
     setCurrent(nextCurrent);
     setRuns(nextRuns);
     setLogs(nextLogs);
     setQueues(nextQueues);
-    setMetrics(nextMetrics);
-    setSnapshots(nextSnapshots);
   }
 
   useEffect(() => {
@@ -65,8 +55,6 @@ export function AdminScraperPage() {
 
   useEffect(() => connectScraperEvents((event) => {
     setQueues(event.queues);
-    setMetrics(event.metrics);
-    setSnapshots(event.snapshots);
   }, setSocketState), []);
 
   async function command(value: 'pause' | 'resume' | 'stop' | 'force_stop') {
@@ -152,9 +140,13 @@ export function AdminScraperPage() {
           <span>{t('admin.scraper.currentPhase')}</span>
           <strong>{current?.currentPhase ?? '-'}</strong>
         </div>
-        <div>
+        <div className="scraper-status-progress">
           <span>{t('admin.scraper.progress')}</span>
-          <strong>{current ? formatScrapeProgress(t, current) : '-'}</strong>
+          {current ? (
+            <strong className="scraper-progress-summary">
+              {scrapeProgressItems(t, current).map((item) => <span key={item}>{item}</span>)}
+            </strong>
+          ) : <strong>-</strong>}
         </div>
       </div>
       <div className="button-row">
@@ -188,8 +180,6 @@ export function AdminScraperPage() {
         <strong>{socketState}</strong>
       </div>
       <ScraperQueues queues={queues} />
-      <ScraperMetricsChart metrics={metrics} />
-      <ScraperSnapshots snapshots={snapshots} />
       <div className="admin-grid-two">
         <AdminTable
           title={t('admin.scraper.runs')}
@@ -216,75 +206,11 @@ export function AdminScraperPage() {
   );
 }
 
-function ScraperMetricsChart({ metrics }: Readonly<{ metrics: ScraperMetricItem[] }>) {
-  const t = useTranslation();
-  const width = 720;
-  const height = 190;
-  const maxValue = Math.max(1, ...metrics.flatMap((item) => [item.available, item.review, item.unavailable]));
-  return (
-    <div className="admin-card scraper-chart-card">
-      <div className="scraper-section-heading">
-        <h3>{t('admin.scraper.metrics')}</h3>
-      </div>
-      {metrics.length ? (
-        <svg className="scraper-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('admin.scraper.metrics')}>
-          <polyline points={metricPoints(metrics, 'available', width, height, maxValue)} className="metric-line metric-line-available" />
-          <polyline points={metricPoints(metrics, 'review', width, height, maxValue)} className="metric-line metric-line-review" />
-          <polyline points={metricPoints(metrics, 'unavailable', width, height, maxValue)} className="metric-line metric-line-unavailable" />
-        </svg>
-      ) : <p className="empty-state">{t('admin.table.empty')}</p>}
-      <div className="metric-legend">
-        <span className="legend-available">{t('catalog.filter.available')}</span>
-        <span className="legend-review">{t('catalog.filter.review')}</span>
-        <span className="legend-unavailable">{t('catalog.filter.missing')}</span>
-      </div>
-    </div>
-  );
-}
-
-function ScraperSnapshots({ snapshots }: Readonly<{ snapshots: ScraperSnapshotItem[] }>) {
-  const t = useTranslation();
-  const [selectedStage, setSelectedStage] = useState<string | null>(null);
-  const selected = snapshots.find((snapshot) => snapshot.stage === selectedStage) ?? snapshots[0];
-  useEffect(() => {
-    if (!selectedStage && snapshots[0]) setSelectedStage(snapshots[0].stage);
-  }, [selectedStage, snapshots]);
-  return (
-    <div className="admin-card scraper-snapshot-card">
-      <div className="scraper-section-heading">
-        <h3>{t('admin.scraper.snapshot')}</h3>
-        <div className="snapshot-tabs">
-          {snapshots.map((snapshot) => (
-            <button
-              className={snapshot.stage === selected?.stage ? 'snapshot-tab-active' : ''}
-              key={snapshot.stage}
-              onClick={() => setSelectedStage(snapshot.stage)}
-              type="button"
-            >
-              {snapshot.stage}
-            </button>
-          ))}
-        </div>
-      </div>
-      {selected ? (
-        <>
-          <div className="snapshot-meta">
-            <span>{selected.appName || selected.packageId || '-'}</span>
-            <span>{selected.url || '-'}</span>
-          </div>
-          <iframe
-            className="snapshot-frame"
-            sandbox=""
-            srcDoc={selected.html || `<p>${t('admin.scraper.snapshotEmpty')}</p>`}
-            title={t('admin.scraper.snapshot')}
-          />
-        </>
-      ) : <p className="empty-state">{t('admin.table.empty')}</p>}
-    </div>
-  );
-}
-
 function formatScrapeProgress(t: Translator, run: ScraperRunSummary): string {
+  return scrapeProgressItems(t, run).join(' · ');
+}
+
+function scrapeProgressItems(t: Translator, run: ScraperRunSummary): string[] {
   return [
     t('admin.scraper.progress.resolved', { count: run.appsResolved }),
     t('admin.scraper.progress.discovered', { count: run.appsDiscovered }),
@@ -293,23 +219,7 @@ function formatScrapeProgress(t: Translator, run: ScraperRunSummary): string {
     t('admin.scraper.progress.review', { count: run.appsNeedsReview }),
     t('admin.scraper.progress.confirmedMissing', { count: run.appsConfirmedMissing }),
     t('admin.scraper.progress.transient', { count: run.appsTransientFailed }),
-  ].join(' · ');
-}
-
-function metricPoints(
-  metrics: ScraperMetricItem[],
-  key: 'available' | 'review' | 'unavailable',
-  width: number,
-  height: number,
-  maxValue: number,
-): string {
-  if (!metrics.length) return '';
-  const xStep = metrics.length === 1 ? 0 : width / (metrics.length - 1);
-  return metrics.map((item, index) => {
-    const x = Math.round(index * xStep);
-    const y = Math.round(height - (item[key] / maxValue) * (height - 24) - 12);
-    return `${x},${y}`;
-  }).join(' ');
+  ];
 }
 
 function scraperControlState(t: Translator, current: ScraperRunSummary | null) {

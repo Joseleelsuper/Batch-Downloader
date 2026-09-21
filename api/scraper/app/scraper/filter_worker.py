@@ -168,15 +168,6 @@ class FilterWorker:
                         payload,
                         runtime.run_id,
                     )
-                    await pipeline.save_snapshot(
-                        run_id=runtime.run_id,
-                        worker_id=self.worker_id,
-                        stage="filter",
-                        package_id=app.package_id,
-                        app_name=app.name,
-                        url=official_url,
-                        html=None,
-                    )
                     await session.commit()
                 await finish_item(self.settings, item, "complete", None)
             except Exception as exc:

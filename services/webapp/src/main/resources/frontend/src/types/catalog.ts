@@ -443,39 +443,16 @@ export interface ScraperQueueState {
   items: ScraperQueueItem[];
 }
 
-export interface ScraperMetricItem {
-  available: number;
-  review: number;
-  unavailable: number;
-  queuedSearcherFilter: number;
-  queuedFilterScraper: number;
-  queuedScraperSoFilter?: number;
-  queuedSoFilterDescriptor?: number;
-  queuedScraperDescriptor?: number;
-  capturedAt: string;
-}
-
 export interface ContentEnqueueResult {
   matched: number;
   enqueued: number;
   alreadyActive: number;
 }
 
-export interface ScraperSnapshotItem {
-  stage: string;
-  packageId?: string | null;
-  appName?: string | null;
-  url?: string | null;
-  html?: string | null;
-  capturedAt: string;
-}
-
 export interface ScraperEvent {
   type: 'scraper.changed';
   version: string;
   queues: ScraperQueueState[];
-  metrics: ScraperMetricItem[];
-  snapshots: ScraperSnapshotItem[];
   generatedAt: string;
 }
 

@@ -216,8 +216,8 @@ class DescriptorWorker:
         runtime: PipelineRuntime | None,
         item: ScraperWorkItem,
     ) -> bool:
-        """Carga la aplicación, genera o reutiliza su descripción, guarda snapshot y completa,
-        descarta o falla el mensaje.
+        """Carga la aplicación, genera o reutiliza su descripción y completa, descarta o falla el
+        mensaje.
 
         Args:
             runtime: Estado compartido del pipeline.
@@ -246,16 +246,6 @@ class DescriptorWorker:
                     UrlProtector(self.settings.url_protection_secret),
                 )
                 logs = ResolverLogRepository(session)
-                pipeline = PipelineRepository(session)
-                await pipeline.save_snapshot(
-                    run_id=runtime.run_id if runtime else item.run_id,
-                    worker_id=self.worker_id,
-                    stage="descriptor",
-                    package_id=payload.get("package_id") or item.package_id,
-                    app_name=item.app_name,
-                    url=None,
-                    html=None,
-                )
                 result = await AppDescriptionEnricher(
                     self.settings,
                     catalog,
@@ -350,8 +340,8 @@ class SOFilterWorker:
         item: ScraperWorkItem,
         runtime: PipelineRuntime | None,
     ) -> bool:
-        """Recalcula plataformas, guarda snapshot, encola descriptor y reintenta fallos según el
-        límite configurado.
+        """Recalcula plataformas, encola descriptor y reintenta fallos según el límite
+        configurado.
 
         Args:
             item: Mensaje de pipeline reservado.
@@ -391,15 +381,6 @@ class SOFilterWorker:
                     await finish_item(self.settings, item, "discard", "software_app_missing")
                     return True
                 systems = await catalog.sources.refresh_operating_systems(app_id)
-                await pipeline.save_snapshot(
-                    run_id=item.run_id,
-                    worker_id=self.worker_id,
-                    stage="so_filter",
-                    package_id=software_app.winstall_id,
-                    app_name=software_app.name,
-                    url=None,
-                    html=None,
-                )
                 await enqueue_descriptor_for_app(
                     catalog,
                     pipeline,

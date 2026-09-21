@@ -16,9 +16,7 @@ from app.db.enums import ScrapeRunStatus
 from app.db.models import (
     ResolverLog,
     ScraperCommand,
-    ScraperMetricSnapshot,
     ScrapeRun,
-    ScraperWorkerSnapshot,
     ScraperWorkItem,
 )
 from app.repositories.pipeline import (
@@ -29,7 +27,7 @@ from app.repositories.pipeline import (
 )
 
 WORK_ITEM_RETENTION_DAYS = 30
-"""Conservación de métricas, instantáneas y elementos terminales."""
+"""Conservación de elementos terminales."""
 
 RUN_LOG_RETENTION_DAYS = 90
 """Conservación de ejecuciones, comandos consumidos y logs técnicos."""
@@ -52,8 +50,7 @@ class RetentionResult:
     """Desglosa las filas retiradas de cada categoría durante una pasada de retención.
 
     Attributes:
-        work_items, metric_snapshots, worker_snapshots: Tareas terminales e instantáneas
-            operativas eliminadas.
+        work_items: Tareas terminales eliminadas.
         resolver_logs, commands, runs: Registros, comandos terminales y ejecuciones históricas
             retirados.
         compacted_payloads: Payloads terminales de las dos primeras etapas liberados sin borrar
@@ -61,8 +58,6 @@ class RetentionResult:
     """
 
     work_items: int = 0
-    metric_snapshots: int = 0
-    worker_snapshots: int = 0
     resolver_logs: int = 0
     commands: int = 0
     runs: int = 0
@@ -78,8 +73,6 @@ class RetentionResult:
         return sum(
             (
                 self.work_items,
-                self.metric_snapshots,
-                self.worker_snapshots,
                 self.resolver_logs,
                 self.commands,
                 self.runs,
@@ -145,22 +138,6 @@ class RetentionRepository:
             ),
             batch_size,
         )
-        metric_snapshots = await self._delete_ids(
-            ScraperMetricSnapshot,
-            ScraperMetricSnapshot.id,
-            ScraperMetricSnapshot.captured_at,
-            (ScraperMetricSnapshot.captured_at < operational_cutoff,),
-            batch_size,
-        )
-        worker_snapshots = await self._delete_ids(
-            ScraperWorkerSnapshot,
-            ScraperWorkerSnapshot.id,
-            ScraperWorkerSnapshot.expires_at,
-            (ScraperWorkerSnapshot.expires_at < current,),
-            batch_size,
-            max_batches=PAYLOAD_COMPACTION_MAX_BATCHES,
-            max_seconds=PAYLOAD_COMPACTION_MAX_SECONDS,
-        )
         resolver_logs = await self._delete_ids(
             ResolverLog,
             ResolverLog.id,
@@ -183,12 +160,6 @@ class RetentionRepository:
         referenced_work = select(ScraperWorkItem.id).where(
             ScraperWorkItem.run_id == ScrapeRun.id
         ).exists()
-        referenced_metrics = select(ScraperMetricSnapshot.id).where(
-            ScraperMetricSnapshot.run_id == ScrapeRun.id
-        ).exists()
-        referenced_snapshots = select(ScraperWorkerSnapshot.id).where(
-            ScraperWorkerSnapshot.run_id == ScrapeRun.id
-        ).exists()
         referenced_commands = select(ScraperCommand.id).where(
             ScraperCommand.id == ScrapeRun.request_id
         ).exists()
@@ -207,16 +178,12 @@ class RetentionRepository:
                 ScrapeRun.finished_at.is_not(None),
                 ScrapeRun.finished_at < history_cutoff,
                 ~referenced_work,
-                ~referenced_metrics,
-                ~referenced_snapshots,
                 ~referenced_commands,
             ),
             batch_size,
         )
         return RetentionResult(
             work_items=work_items,
-            metric_snapshots=metric_snapshots,
-            worker_snapshots=worker_snapshots,
             resolver_logs=resolver_logs,
             commands=commands,
             runs=runs,

@@ -1813,62 +1813,6 @@ paths:
           $ref: '#/components/responses/Forbidden'
       x-required-roles:
       - ADMIN
-  /admin/scraper/metrics:
-    get:
-      operationId: listScraperMetrics
-      summary: Consultar las últimas métricas del Scraper
-      tags:
-      - Administración
-      description: Requiere sesión ADMIN.
-      responses:
-        '200':
-          description: Consultar las últimas métricas del Scraper.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ScraperMetricItem'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      parameters:
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          format: int32
-          default: 60
-      x-required-roles:
-      - ADMIN
-  /admin/scraper/snapshots:
-    get:
-      operationId: getScraperSnapshots
-      summary: Consultar las instantáneas operativas de los workers
-      tags:
-      - Administración
-      description: Requiere sesión ADMIN.
-      responses:
-        '200':
-          description: Consultar las instantáneas operativas de los workers.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ScraperSnapshotItem'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      x-required-roles:
-      - ADMIN
   /admin/scraper/event:
     get:
       operationId: getScraperEvent
@@ -4021,57 +3965,6 @@ components:
           format: date-time
       required:
       - attempts
-    ScraperMetricItem:
-      type: object
-      properties:
-        available:
-          type: integer
-          format: int32
-        review:
-          type: integer
-          format: int32
-        unavailable:
-          type: integer
-          format: int32
-        queuedSearcherFilter:
-          type: integer
-          format: int32
-        queuedFilterScraper:
-          type: integer
-          format: int32
-        queuedScraperSoFilter:
-          type: integer
-          format: int32
-        queuedSoFilterDescriptor:
-          type: integer
-          format: int32
-        capturedAt:
-          type: string
-          format: date-time
-      required:
-      - available
-      - review
-      - unavailable
-      - queuedSearcherFilter
-      - queuedFilterScraper
-      - queuedScraperSoFilter
-      - queuedSoFilterDescriptor
-    ScraperSnapshotItem:
-      type: object
-      properties:
-        stage:
-          type: string
-        packageId:
-          type: string
-        appName:
-          type: string
-        url:
-          type: string
-        html:
-          type: string
-        capturedAt:
-          type: string
-          format: date-time
     ScraperEvent:
       type: object
       properties:
@@ -4083,14 +3976,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ScraperQueueState'
-        metrics:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScraperMetricItem'
-        snapshots:
-          type: array
-          items:
-            $ref: '#/components/schemas/ScraperSnapshotItem'
         generatedAt:
           type: string
           format: date-time

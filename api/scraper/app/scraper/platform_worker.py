@@ -690,15 +690,15 @@ class PlatformScraperWorker:
 
     async def _collect_html_official_candidates(
         self,
-        runtime: ScrapeRuntime,
-        app: WinstallApp,
+        _runtime: ScrapeRuntime,
+        _app: WinstallApp,
         official_url: str,
     ) -> list[InstallerCandidate]:
         """Lee HTML oficial, extrae enlaces y sigue hasta cuatro landing pages en paralelo.
 
         Args:
-            runtime: Estado compartido de la ejecución y sus workers.
-            app: Aplicación Winstall normalizada.
+            _runtime: Contexto de ejecución no requerido por la estrategia HTML.
+            _app: Aplicación no requerida por la estrategia HTML.
             official_url: Página oficial que sirve de origen o Referer.
 
         Returns:
@@ -717,19 +717,6 @@ class PlatformScraperWorker:
                     html = response.text
         except Exception:
             html = ""
-
-        async with async_session_local()() as session:
-            pipeline = PipelineRepository(session)
-            await pipeline.save_snapshot(
-                run_id=runtime.run_id,
-                worker_id=self.worker_id,
-                stage="scraper",
-                package_id=app.package_id,
-                app_name=app.name,
-                url=official_url,
-                html=html,
-            )
-            await session.commit()
 
         candidates = await run_cpu_bound(extract_candidates, html, official_url) if html else []
         candidates.extend(await self._collect_download_landing_candidates(official_url, candidates))
