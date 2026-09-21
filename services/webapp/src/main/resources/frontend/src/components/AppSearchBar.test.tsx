@@ -24,7 +24,7 @@ describe('AppSearchBar', () => {
     fireEvent.click(trigger);
 
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('Primero as últimas aplicaciones añadidas')).toBeVisible();
+    expect(screen.getByText('Primero las últimas aplicaciones añadidas.')).toBeVisible();
     expect(screen.getByText('Primero las aplicaciones con más descargas.')).toBeVisible();
 
     fireEvent.click(screen.getByRole('option', { name: /Más descargadas/ }));
