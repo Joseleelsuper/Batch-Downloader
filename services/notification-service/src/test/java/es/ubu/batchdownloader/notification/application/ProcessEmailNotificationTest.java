@@ -57,8 +57,7 @@ class ProcessEmailNotificationTest {
     private EmailNotification notification;
 
     /**
-     * Crea puertos aislados y una solicitud de ZIP disponible con identidad estable para cada
-     * prueba.
+     * Crea puertos aislados y una solicitud de acceso con identidad estable para cada prueba.
      */
     @BeforeEach
     void setUp() {
@@ -66,14 +65,11 @@ class ProcessEmailNotificationTest {
         notification = new EmailNotification(
                 EVENT_ID,
                 Instant.parse("2026-07-11T10:00:00Z"),
-                "download-job-84338aa2",
+                "magic-link-84338aa2",
                 null,
                 "persona@example.com",
-                EmailNotification.Template.DOWNLOAD_READY,
-                Map.of(
-                        "jobId", "84338aa2-b2f0-47d1-9054-5760ac883d74",
-                        "downloadUrl", "https://downloads.example.com/job.zip",
-                        "expiresAt", "2026-07-12T10:00:00Z"));
+                EmailNotification.Template.MAGIC_LINK,
+                Map.of("username", "persona", "token", "enc:v1:test"));
     }
 
     /**
@@ -112,15 +108,14 @@ class ProcessEmailNotificationTest {
     void recordsTheFailureAndPropagatesItForRabbitRetry() {
         when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
                 .thenReturn(NotificationInbox.ClaimResult.ACQUIRED);
-        org.springframework.mail.MailSendException mailFailure =
-                new org.springframework.mail.MailSendException("SMTP no disponible");
+        IllegalStateException mailFailure = new IllegalStateException("Proveedor no disponible");
         org.mockito.Mockito.doThrow(mailFailure).when(sender).send(notification);
 
         assertThatThrownBy(() -> processor.handle(notification))
                 .isInstanceOf(NotificationProcessingException.class)
                 .hasCause(mailFailure);
 
-        verify(inbox).markFailed(EVENT_ID, "SMTP no disponible");
+        verify(inbox).markFailed(EVENT_ID, "Proveedor no disponible");
         verify(inbox, never()).markProcessed(EVENT_ID);
     }
 

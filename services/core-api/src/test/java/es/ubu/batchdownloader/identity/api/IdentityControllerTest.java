@@ -57,8 +57,7 @@ class IdentityControllerTest {
         UserAccount account = mock(UserAccount.class);
         UUID accountId = UUID.randomUUID();
         IdentityView identity = new IdentityView(
-                accountId, "admin", "admin@example.test", true, UserRole.ADMIN, true,
-                Instant.EPOCH);
+                accountId, "admin", "admin@example.test", true, UserRole.ADMIN, Instant.EPOCH);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(currentAccount.require(authentication)).thenReturn(account);
         when(account.id()).thenReturn(accountId);

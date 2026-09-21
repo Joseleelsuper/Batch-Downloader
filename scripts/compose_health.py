@@ -35,7 +35,6 @@ DAEMONS = frozenset(
         "core-api",
         "semantic-service",
         "semantic-indexer",
-        "mailpit",
         "notification-service",
         "download-worker",
         "translation-service",
@@ -86,7 +85,6 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
         "scraper-python314t-benchmark": "service_completed_successfully",
         "scraper-python314-control": "service_completed_successfully",
     },
-    "mailpit": {},
     "notification-service": {"rabbitmq": "service_healthy"},
     "download-worker": {
         "rabbitmq": "service_healthy",
@@ -127,7 +125,6 @@ SERVICE_PRIORITY = {
     "postgres": 0,
     "rabbitmq": 0,
     "minio": 0,
-    "mailpit": 0,
     "minio-init": 1,
     "semantic-migrate": 1,
     "scraper-api": 1,

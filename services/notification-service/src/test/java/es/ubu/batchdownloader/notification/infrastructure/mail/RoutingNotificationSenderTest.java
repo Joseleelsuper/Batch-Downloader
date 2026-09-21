@@ -1,7 +1,6 @@
 package es.ubu.batchdownloader.notification.infrastructure.mail;
 
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import java.time.Instant;
@@ -11,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
- * Comprueba la selección de proveedor para cada familia de plantillas de correo.
+ * Comprueba el envío de los correos de acceso mediante el proveedor configurado.
  *
  * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
  * @since 0.1.0
@@ -20,36 +19,17 @@ import org.mockito.Mockito;
  */
 class RoutingNotificationSenderTest {
     /**
-     * Comprueba que verificación de correo y restablecimiento de contraseña se envían únicamente
-     * mediante Resend.
+     * Comprueba que los enlaces mágicos de acceso se envían únicamente mediante Resend.
      */
     @Test
     void routesOnlyAuthenticationMailThroughResend() {
         ResendNotificationSender resend = Mockito.mock(ResendNotificationSender.class);
-        SmtpNotificationSender smtp = Mockito.mock(SmtpNotificationSender.class);
-        RoutingNotificationSender routing = new RoutingNotificationSender(resend, smtp);
-        EmailNotification verification = notification(EmailNotification.Template.EMAIL_VERIFICATION);
+        RoutingNotificationSender routing = new RoutingNotificationSender(resend);
+        EmailNotification magicLink = notification(EmailNotification.Template.MAGIC_LINK);
 
-        routing.send(verification);
+        routing.send(magicLink);
 
-        verify(resend).send(verification);
-        verifyNoInteractions(smtp);
-    }
-
-    /**
-     * Comprueba que los avisos de ZIP disponible y descarga fallida se entregan mediante SMTP.
-     */
-    @Test
-    void keepsDownloadMailOnSmtp() {
-        ResendNotificationSender resend = Mockito.mock(ResendNotificationSender.class);
-        SmtpNotificationSender smtp = Mockito.mock(SmtpNotificationSender.class);
-        RoutingNotificationSender routing = new RoutingNotificationSender(resend, smtp);
-        EmailNotification ready = notification(EmailNotification.Template.DOWNLOAD_READY);
-
-        routing.send(ready);
-
-        verify(smtp).send(ready);
-        verifyNoInteractions(resend);
+        verify(resend).send(magicLink);
     }
 
     /**
@@ -63,8 +43,6 @@ class RoutingNotificationSenderTest {
         return new EmailNotification(
                 UUID.randomUUID(), Instant.parse("2026-08-08T10:00:00Z"),
                 UUID.randomUUID().toString(), null, "person@example.com", template,
-                template == EmailNotification.Template.EMAIL_VERIFICATION
-                        ? Map.of("username", "person", "token", "legacy-token")
-                        : Map.of("jobId", UUID.randomUUID().toString()));
+                Map.of("username", "person", "token", "encrypted-token"));
     }
 }

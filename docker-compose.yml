@@ -116,20 +116,6 @@ services:
       - ./docker/minio/core-policy.json:/config/core-policy.json:ro
       - ./docker/minio/worker-policy.json:/config/worker-policy.json:ro
 
-  mailpit:
-    image: axllent/mailpit:v1.30.0
-    cpu_shares: 128
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${MAILPIT_SMTP_HOST_PORT}:1025"
-      - "127.0.0.1:${MAILPIT_UI_HOST_PORT}:8025"
-    healthcheck:
-      test: ["CMD", "/mailpit", "readyz"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
 volumes:
   mysql_data:
   postgres_data:

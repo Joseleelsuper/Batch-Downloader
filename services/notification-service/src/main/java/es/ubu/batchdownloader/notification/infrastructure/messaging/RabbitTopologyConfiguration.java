@@ -34,7 +34,7 @@ public class RabbitTopologyConfiguration {
      * @return exchange compartido al que se enlaza la cola de notificaciones.
      */
     @Bean
-    TopicExchange downloadEventsExchange(RabbitTopologyProperties properties) {
+    TopicExchange notificationExchange(RabbitTopologyProperties properties) {
         return new TopicExchange(properties.exchange(), true, false);
     }
 
@@ -79,17 +79,17 @@ public class RabbitTopologyConfiguration {
      * conversor.
      *
      * @param notificationQueue Cola durable de entrada que recibe solicitudes de correo.
-     * @param downloadEventsExchange Exchange topic compartido de eventos del productor.
+     * @param notificationExchange Exchange topic compartido de solicitudes de correo.
      * @param properties Nombres configurados de exchanges, colas y claves de enrutamiento.
      * @return enlace de entrada del consumidor.
      */
     @Bean
     Binding notificationRequestedBinding(
             Queue notificationQueue,
-            TopicExchange downloadEventsExchange,
+            TopicExchange notificationExchange,
             RabbitTopologyProperties properties) {
         return BindingBuilder.bind(notificationQueue)
-                .to(downloadEventsExchange)
+                .to(notificationExchange)
                 .with(properties.routingKey());
     }
 

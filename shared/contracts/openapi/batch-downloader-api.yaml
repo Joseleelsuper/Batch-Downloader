@@ -11,28 +11,22 @@ servers:
 security:
   - sessionCookie: []
 paths:
-  /auth/register:
+  /auth/magic-link/request:
     post:
-      operationId: registerUser
-      summary: Registrar una cuenta
+      operationId: requestMagicLink
+      summary: Solicitar un enlace de acceso
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RegisterRequest'
+              $ref: '#/components/schemas/MagicLinkRequest'
       responses:
         '202':
-          description: Cuenta creada; la verificación de correo queda encolada.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
+          description: Solicitud aceptada sin revelar si existe la cuenta.
         '400':
           $ref: '#/components/responses/BadRequest'
-        '409':
-          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/RateLimited'
         '503':
@@ -41,20 +35,20 @@ paths:
           $ref: '#/components/responses/Forbidden'
       parameters:
       - $ref: '#/components/parameters/CsrfToken'
-  /auth/login:
+  /auth/magic-link/confirm:
     post:
-      operationId: login
-      summary: Iniciar una sesión
+      operationId: confirmMagicLink
+      summary: Confirmar un enlace de acceso
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              $ref: '#/components/schemas/TokenRequest'
       responses:
         '200':
-          description: Sesión iniciada.
+          description: Sesión iniciada con el enlace de acceso.
           headers:
             Set-Cookie:
               schema:
@@ -63,10 +57,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: La contraseña es correcta, pero el correo todavía no está verificado.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '410':
+          description: Enlace caducado o utilizado.
           content:
             application/json:
               schema:
@@ -75,6 +69,8 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '403':
+          $ref: '#/components/responses/Forbidden'
       parameters:
       - $ref: '#/components/parameters/CsrfToken'
   /auth/logout:
@@ -106,128 +102,6 @@ paths:
           description: No existe una sesión autenticada.
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /auth/email-verification/confirm:
-    post:
-      operationId: confirmEmailVerification
-      summary: Confirmar una dirección de correo
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TokenRequest'
-      responses:
-        '204':
-          description: Correo verificado.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '410':
-          description: Token caducado o utilizado.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-  /auth/email-verification/resend:
-    post:
-      operationId: resendEmailVerification
-      summary: Reenviar la verificación con respuesta uniforme
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EmailRequest'
-      responses:
-        '202':
-          description: Solicitud aceptada sin revelar si existe la cuenta.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-  /auth/password-reset/request:
-    post:
-      operationId: requestPasswordReset
-      summary: Solicitar recuperación de contraseña
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - email
-              properties:
-                email:
-                  type: string
-                  format: email
-                  maxLength: 254
-      responses:
-        '202':
-          description: Solicitud aceptada aunque el correo no exista.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-  /auth/password-reset/confirm:
-    post:
-      operationId: confirmPasswordReset
-      summary: Confirmar una recuperación de contraseña
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - token
-              - password
-              properties:
-                token:
-                  type: string
-                password:
-                  type: string
-                  minLength: 8
-                  description: Entre 8 caracteres y 72 bytes UTF-8, con mayúscula, minúscula, número y carácter
-                    especial.
-      responses:
-        '204':
-          description: Contraseña actualizada.
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '410':
-          description: Token caducado o utilizado.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
   /users/me:
     get:
       operationId: getOwnProfile
@@ -2168,38 +2042,6 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
       security: []
-  /auth/preferences:
-    patch:
-      operationId: updateNotificationPreferences
-      summary: Actualizar la preferencia de avisos de descarga de la cuenta
-      tags:
-      - Identidad
-      description: Las mutaciones desde el navegador requieren CSRF.
-      responses:
-        '200':
-          description: Actualizar la preferencia de avisos de descarga de la cuenta.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PreferencesRequest'
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
-      x-required-roles:
-      - USER
 components:
   securitySchemes:
     sessionCookie:
@@ -2462,31 +2304,15 @@ components:
         missing: {type: integer, format: int64, minimum: 0}
         missingWithoutActiveEvidence: {type: integer, format: int64, minimum: 0}
         review: {type: integer, format: int64, minimum: 0}
-    RegisterRequest:
+    MagicLinkRequest:
       type: object
       additionalProperties: false
-      required: [email, password]
+      required: [email]
       properties:
         email:
           type: string
           format: email
           maxLength: 254
-        password:
-          type: string
-          minLength: 8
-          description: Entre 8 caracteres y 72 bytes UTF-8, con mayúscula, minúscula, número y carácter especial.
-    LoginRequest:
-      type: object
-      additionalProperties: false
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          format: email
-          maxLength: 254
-        password:
-          type: string
-          description: Máximo de 72 bytes UTF-8. Las cuentas antiguas pueden conservar una contraseña más corta hasta que la cambien.
     AdminLoginRequest:
       type: object
       additionalProperties: false
@@ -2497,15 +2323,6 @@ components:
         password:
           type: string
           description: Máximo de 72 bytes UTF-8.
-    EmailRequest:
-      type: object
-      additionalProperties: false
-      required: [email]
-      properties:
-        email:
-          type: string
-          format: email
-          maxLength: 254
     UsernameUpdateRequest:
       type: object
       additionalProperties: false
@@ -2517,13 +2334,15 @@ components:
           maxLength: 40
     TokenRequest:
       type: object
+      additionalProperties: false
       required: [token]
       properties:
         token:
           type: string
+          maxLength: 256
     User:
       type: object
-      required: [id, username, email, emailVerified, role, notifyOnJobCompletion, createdAt]
+      required: [id, username, email, emailVerified, role, createdAt]
       properties:
         id:
           type: string
@@ -2538,8 +2357,6 @@ components:
         role:
           type: string
           enum: [USER, ADMIN]
-        notifyOnJobCompletion:
-          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -3210,9 +3027,6 @@ components:
           items:
             type: string
             enum: [windows, linux, macos]
-        notifyWhenReady:
-          type: boolean
-          default: false
       oneOf:
         - required: [appIds]
         - required: [bundleId]
@@ -4063,10 +3877,3 @@ components:
           type: string
         token:
           type: string
-    PreferencesRequest:
-      type: object
-      properties:
-        notifyOnJobCompletion:
-          type: boolean
-      required:
-      - notifyOnJobCompletion

@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Define el enrutamiento durable de solicitudes de correo y de entregas descartadas.
  *
- * @param exchange Exchange de eventos de descarga al que se suscribe el servicio.
+ * @param exchange Exchange AMQP interno al que se suscribe el servicio.
  * @param routingKey Clave de enrutamiento recibida de RabbitMQ.
  * @param queue Cola durable de solicitudes de correo.
  * @param deadLetterExchange Exchange que recibe entregas rechazadas definitivamente.
@@ -32,7 +32,7 @@ public record RabbitTopologyProperties(
     /**
      * Exige nombres no vacíos para exchanges, colas y claves y elimina espacios exteriores.
      *
-     * @param exchange Exchange de eventos de descarga al que se suscribe el servicio.
+     * @param exchange Exchange AMQP interno al que se suscribe el servicio.
      * @param routingKey Clave de enrutamiento recibida de RabbitMQ.
      * @param queue Cola durable de solicitudes de correo.
      * @param deadLetterExchange Exchange que recibe entregas rechazadas definitivamente.

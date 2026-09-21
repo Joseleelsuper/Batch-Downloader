@@ -90,8 +90,8 @@ class AdminBootstrapTest {
 
     @Test
     void neverPromotesAUserThatCollidesWithTheConfiguredAdminName() {
-        UserAccount user = UserAccount.register(
-                "admin", "admin", "user@example.com", "user@example.com", "user-hash", NOW);
+        UserAccount user = UserAccount.createUser(
+                "admin", "admin", "user@example.com", "user@example.com", NOW);
         when(users.findByNormalizedUsername("admin")).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> bootstrap().run(arguments))

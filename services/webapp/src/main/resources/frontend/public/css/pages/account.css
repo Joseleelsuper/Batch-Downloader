@@ -43,7 +43,6 @@
   resize: vertical;
 }
 
-.auth-links,
 .editor-actions {
   display: flex;
   flex-wrap: wrap;

@@ -887,7 +887,6 @@ describe('admin bundle editor', () => {
       email: 'admin@example.test',
       emailVerified: true,
       role: 'ADMIN',
-      notifyOnJobCompletion: false,
       createdAt: '2026-08-08T00:00:00Z',
     });
     vi.spyOn(bundlesApi, 'fetchBundles').mockResolvedValue({

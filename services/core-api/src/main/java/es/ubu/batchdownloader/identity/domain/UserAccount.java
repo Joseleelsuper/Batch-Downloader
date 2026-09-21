@@ -5,8 +5,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Conserva la identidad UUID de una cuenta y sus invariantes de credenciales, verificación, rol y
- * preferencias sin depender de frameworks.
+ * Conserva la identidad UUID de una cuenta y sus invariantes de identidad y rol sin depender de
+ * frameworks.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.identity.application.IdentityService
@@ -49,10 +49,6 @@ public final class UserAccount {
      */
     private final UserRole role;
     /**
-     * Preferencia vigente de recibir correo cuando termina una descarga.
-     */
-    private boolean notifyOnJobCompletion;
-    /**
      * Indica que la cuenta está habilitada para autenticarse y utilizar sus recursos.
      */
     private boolean enabled;
@@ -82,9 +78,8 @@ public final class UserAccount {
      * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
      * @param emailVerified Indica que se ha confirmado el control del correo de la cuenta.
      * @param role Rol USER o ADMIN que determina el acceso permitido.
-     * @param notifyOnJobCompletion Preferencia vigente de recibir correo cuando termina una
-     *     descarga.
-     * @param enabled Habilita el acceso de la cuenta o la preferencia de correo según el método.
+     * @param enabled Indica que la cuenta está habilitada para autenticarse y utilizar sus
+     *     recursos.
      * @param createdAt Instante de creación original del agregado.
      * @param updatedAt Instante del último cambio de la cuenta.
      * @param version Versión persistida utilizada para detectar escrituras concurrentes.
@@ -98,7 +93,6 @@ public final class UserAccount {
             String passwordHash,
             boolean emailVerified,
             UserRole role,
-            boolean notifyOnJobCompletion,
             boolean enabled,
             Instant createdAt,
             Instant updatedAt,
@@ -108,10 +102,16 @@ public final class UserAccount {
         this.normalizedUsername = requireText(normalizedUsername, "normalizedUsername");
         this.email = requireText(email, "email");
         this.normalizedEmail = requireText(normalizedEmail, "normalizedEmail");
-        this.passwordHash = requireText(passwordHash, "passwordHash");
         this.emailVerified = emailVerified;
         this.role = Objects.requireNonNull(role);
-        this.notifyOnJobCompletion = notifyOnJobCompletion;
+        if (role == UserRole.ADMIN) {
+            this.passwordHash = requireText(passwordHash, "passwordHash");
+        } else {
+            if (passwordHash != null) {
+                throw new IllegalArgumentException("USER accounts cannot have a password");
+            }
+            this.passwordHash = null;
+        }
         this.enabled = enabled;
         this.createdAt = Objects.requireNonNull(createdAt);
         this.updatedAt = Objects.requireNonNull(updatedAt);
@@ -119,28 +119,25 @@ public final class UserAccount {
     }
 
     /**
-     * Crea una cuenta USER habilitada, pendiente de verificar correo y con avisos de descarga
-     * activados.
+     * Crea una cuenta USER habilitada, pendiente de verificar el correo y sin contraseña.
      *
      * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
      * @param normalizedUsername Nombre recortado y en minúsculas usado para búsquedas y unicidad.
      * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
      *     normalizada.
      * @param normalizedEmail Correo recortado y en minúsculas para consulta y unicidad.
-     * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
      * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
      * @return cuenta nueva con UUID aleatorio y versión cero.
      */
-    public static UserAccount register(
+    public static UserAccount createUser(
             String username,
             String normalizedUsername,
             String email,
             String normalizedEmail,
-            String passwordHash,
             Instant now) {
         return new UserAccount(
-                UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, passwordHash,
-                false, UserRole.USER, true, true, now, now, 0);
+                UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, null,
+                false, UserRole.USER, true, now, now, 0);
     }
 
     /**
@@ -164,7 +161,7 @@ public final class UserAccount {
             Instant now) {
         return new UserAccount(
                 UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, passwordHash,
-                true, UserRole.ADMIN, true, true, now, now, 0);
+                true, UserRole.ADMIN, true, now, now, 0);
     }
 
     /**
@@ -180,9 +177,8 @@ public final class UserAccount {
      * @param passwordHash Hash de contraseña almacenado, nunca la contraseña original.
      * @param emailVerified Indica que se ha confirmado el control del correo de la cuenta.
      * @param role Rol USER o ADMIN que determina el acceso permitido.
-     * @param notifyOnJobCompletion Preferencia vigente de recibir correo cuando termina una
-     *     descarga.
-     * @param enabled Habilita el acceso de la cuenta o la preferencia de correo según el método.
+     * @param enabled Indica que la cuenta está habilitada para autenticarse y utilizar sus
+     *     recursos.
      * @param createdAt Instante de creación original del agregado.
      * @param updatedAt Instante del último cambio de la cuenta.
      * @param version Versión persistida utilizada para detectar escrituras concurrentes.
@@ -197,13 +193,12 @@ public final class UserAccount {
             String passwordHash,
             boolean emailVerified,
             UserRole role,
-            boolean notifyOnJobCompletion,
             boolean enabled,
             Instant createdAt,
             Instant updatedAt,
             long version) {
         return new UserAccount(id, username, normalizedUsername, email, normalizedEmail, passwordHash,
-                emailVerified, role, notifyOnJobCompletion, enabled, createdAt, updatedAt, version);
+                emailVerified, role, enabled, createdAt, updatedAt, version);
     }
 
     /**
@@ -217,13 +212,13 @@ public final class UserAccount {
     }
 
     /**
-     * Sustituye el hash por uno no vacío y registra la fecha de cambio; la invalidación de sesiones
-     * corresponde al caso de uso.
+     * Sustituye el hash administrativo por uno no vacío y registra la fecha de cambio.
      *
      * @param encodedPassword Hash calculado antes de actualizar el agregado de cuenta.
      * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
      */
     public void changePassword(String encodedPassword, Instant now) {
+        if (role != UserRole.ADMIN) throw new IllegalStateException("USER accounts have no password");
         passwordHash = requireText(encodedPassword, "encodedPassword");
         updatedAt = Objects.requireNonNull(now);
     }
@@ -239,18 +234,6 @@ public final class UserAccount {
     public void changeUsername(String value, String normalizedValue, Instant now) {
         username = requireText(value, "username");
         normalizedUsername = requireText(normalizedValue, "normalizedUsername");
-        updatedAt = Objects.requireNonNull(now);
-    }
-
-    /**
-     * Actualiza únicamente la preferencia de correo y la fecha de modificación.
-     *
-     * @param enabled true para recibir avisos al terminar descargas; no habilita ni deshabilita la
-     *     cuenta.
-     * @param now Instante actual que se guarda en la transición o se compara con el vencimiento.
-     */
-    public void updateNotificationPreference(boolean enabled, Instant now) {
-        notifyOnJobCompletion = enabled;
         updatedAt = Objects.requireNonNull(now);
     }
 
@@ -316,12 +299,6 @@ public final class UserAccount {
      * @return Rol USER o ADMIN que determina el acceso permitido.
      */
     public UserRole role() { return role; }
-    /**
-     * Preferencia vigente de recibir correo cuando termina una descarga.
-     *
-     * @return Preferencia vigente de recibir correo cuando termina una descarga.
-     */
-    public boolean notifyOnJobCompletion() { return notifyOnJobCompletion; }
     /**
      * Indica que la cuenta está habilitada para autenticarse y utilizar sus recursos.
      *

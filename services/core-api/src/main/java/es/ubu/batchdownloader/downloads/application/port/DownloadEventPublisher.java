@@ -1,11 +1,10 @@
 package es.ubu.batchdownloader.downloads.application.port;
 
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
-import es.ubu.batchdownloader.identity.domain.UserAccount;
 
 /**
- * Registra las solicitudes de procesamiento, cancelación y correo que deben sobrevivir al commit
- * del trabajo.
+ * Registra las solicitudes de procesamiento y cancelación que deben sobrevivir al commit del
+ * trabajo.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.downloads.application.DownloadJobService
@@ -28,11 +27,4 @@ public interface DownloadEventPublisher {
      * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     void cancellationRequested(DownloadJob job);
-    /**
-     * Solicita el correo de resultado para un propietario cuya preferencia ya ha sido comprobada.
-     *
-     * @param owner Cuenta destinataria con dirección de correo y preferencia de idioma.
-     * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
-     */
-    void terminalNotificationRequested(UserAccount owner, DownloadJob job);
 }

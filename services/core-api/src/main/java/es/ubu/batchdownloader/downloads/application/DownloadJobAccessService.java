@@ -58,7 +58,7 @@ public class DownloadJobAccessService {
      */
     private final DownloadEventPublisher events;
     /**
-     * Coordinador de difusión después del commit y solicitudes de correo.
+     * Coordinador de difusión después del commit.
      */
     private final DownloadJobNotifications notifications;
 
@@ -71,7 +71,7 @@ public class DownloadJobAccessService {
      * @param clock Reloj que determina cuotas, cambios de estado y vencimientos.
      * @param limits Cuotas de admisión y duraciones de conservación y firma del ZIP.
      * @param events Publicador de solicitudes durables mediante el outbox de la transacción actual.
-     * @param notifications Coordinador de difusión después del commit y solicitudes de correo.
+     * @param notifications Coordinador de difusión después del commit.
      */
     public DownloadJobAccessService(DownloadJobStore jobs, ZipUriSigner zipUris, Clock clock, DownloadLimits limits, DownloadEventPublisher events, DownloadJobNotifications notifications) {
         this.jobs = jobs;

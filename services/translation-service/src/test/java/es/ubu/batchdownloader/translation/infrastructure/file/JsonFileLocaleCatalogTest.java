@@ -75,7 +75,7 @@ class JsonFileLocaleCatalogTest {
         assertThat(messages.size()).isEqualTo(expectedMessages);
         assertThat(messages.has("catalog.title")).isTrue();
         assertThat(messages.has("admin.apps.subtitle")).isTrue();
-        assertThat(messages.has("account.login.title")).isTrue();
+        assertThat(messages.has("account.magic.title")).isTrue();
         assertThat(messages.has("error.unexpected_error.title")).isTrue();
         assertThat(messages.has("legal.privacy.title")).isTrue();
         assertThat(messages.has("legal.lastUpdated")).isTrue();

@@ -1,46 +1,43 @@
 package es.ubu.batchdownloader.identity.api;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import es.ubu.batchdownloader.common.RateLimitException;
 import org.junit.jupiter.api.Test;
 
-/** Verifica los límites locales de autenticación. */
+/** Verifica las cuotas de login administrativo y enlaces de acceso. */
 class AuthRateLimiterTest {
     @Test
-    void limitsLoginByIpAndNormalizedUsername() {
-        AuthRateLimiter limiter = new AuthRateLimiter(10, 3, 3);
-        for (int attempt = 0; attempt < 10; attempt++) {
-            limiter.login("203.0.113.8", " User ");
-        }
+    void limitsAdminLoginByIpAndNormalizedUsername() {
+        AuthRateLimiter limiter = new AuthRateLimiter(2, 3, 20);
+        limiter.adminLogin("203.0.113.8", " Admin ");
+        limiter.adminLogin("203.0.113.8", "admin");
 
-        assertThatThrownBy(() -> limiter.login("203.0.113.8", "user"))
-                .isInstanceOf(RateLimitException.class)
-                .satisfies(exception -> org.assertj.core.api.Assertions.assertThat(
-                        ((RateLimitException) exception).retryAfterSeconds()).isEqualTo(60));
-    }
-
-    @Test
-    void limitsRegistrationAndResetPerIpAndEmail() {
-        AuthRateLimiter limiter = new AuthRateLimiter(10, 3, 3);
-        for (int attempt = 0; attempt < 3; attempt++) {
-            limiter.registration("203.0.113.9", "user@example.test");
-            limiter.reset("203.0.113.9", "user@example.test");
-        }
-
-        assertThatThrownBy(() -> limiter.registration("203.0.113.9", "user@example.test"))
-                .isInstanceOf(RateLimitException.class);
-        assertThatThrownBy(() -> limiter.reset("203.0.113.9", "user@example.test"))
+        assertThatThrownBy(() -> limiter.adminLogin("203.0.113.8", "admin"))
                 .isInstanceOf(RateLimitException.class);
     }
 
     @Test
-    void reservesTheVerificationQuotaWithoutChangingTheLoginResponse() {
-        AuthRateLimiter limiter = new AuthRateLimiter(10, 3, 3, 2);
+    void limitsMagicRequestsByEmailAndIp() {
+        AuthRateLimiter limiter = new AuthRateLimiter(10, 2, 2);
+        limiter.magicLinkRequest("203.0.113.9", "user@example.test");
+        limiter.magicLinkRequest("203.0.113.10", "user@example.test");
+        assertThatThrownBy(() -> limiter.magicLinkRequest("203.0.113.11", "user@example.test"))
+                .isInstanceOf(RateLimitException.class);
 
-        assertThat(limiter.tryVerification("203.0.113.10", "user@example.test")).isTrue();
-        assertThat(limiter.tryVerification("203.0.113.10", "user@example.test")).isTrue();
-        assertThat(limiter.tryVerification("203.0.113.10", "user@example.test")).isFalse();
+        AuthRateLimiter byIp = new AuthRateLimiter(10, 10, 2);
+        byIp.magicLinkRequest("203.0.113.9", "one@example.test");
+        byIp.magicLinkRequest("203.0.113.9", "two@example.test");
+        assertThatThrownBy(() -> byIp.magicLinkRequest("203.0.113.9", "three@example.test"))
+                .isInstanceOf(RateLimitException.class);
+    }
+
+    @Test
+    void limitsMagicConfirmationsSeparatelyFromRequests() {
+        AuthRateLimiter limiter = new AuthRateLimiter(2, 3, 20);
+        limiter.magicLinkConfirmation("203.0.113.10");
+        limiter.magicLinkConfirmation("203.0.113.10");
+        assertThatThrownBy(() -> limiter.magicLinkConfirmation("203.0.113.10"))
+                .isInstanceOf(RateLimitException.class);
     }
 }

@@ -21,7 +21,6 @@ import org.springframework.security.core.userdetails.UserDetails;
  *     UUID.
  * @param role Rol USER o ADMIN que determina el acceso permitido.
  * @see es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount
- * @see es.ubu.batchdownloader.identity.infrastructure.security.AccountSessionService
  * @since 0.1.0
  * @version 0.1.0
  * @category Identidad

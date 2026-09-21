@@ -18,10 +18,10 @@
       "required": ["recipient", "template", "parameters"],
       "properties": {
         "recipient": { "type": "string", "format": "email" },
-        "template": { "enum": ["EMAIL_VERIFICATION", "PASSWORD_RESET", "DOWNLOAD_READY", "DOWNLOAD_FAILED"] },
+        "template": { "enum": ["MAGIC_LINK"] },
         "parameters": {
           "type": "object",
-          "description": "Parámetros de plantilla. En EMAIL_VERIFICATION y PASSWORD_RESET, token debe ser un sobre AES-GCM enc:v1:; el texto claro se rechaza.",
+          "description": "Parámetros de plantilla. En MAGIC_LINK, token debe ser un sobre AES-GCM enc:v1:; el texto claro se rechaza.",
           "additionalProperties": { "type": ["string", "number", "boolean"] }
         }
       }

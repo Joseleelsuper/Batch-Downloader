@@ -23,7 +23,7 @@ import org.springframework.web.util.HtmlUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * Envía por Resend los correos de verificación y restablecimiento de contraseña.
+ * Envía por Resend los enlaces mágicos de acceso.
  *
  * Descifra el token únicamente al componer el enlace y usa eventId como clave de idempotencia.
  * Los estados 429 y 5xx admiten reintento; otros rechazos y errores de contenido son permanentes.
@@ -49,7 +49,7 @@ public class ResendNotificationSender {
      * acotado.
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
-     * @param mail Base pública utilizada para construir enlaces de verificación y restablecimiento.
+     * @param mail Base pública utilizada para construir el enlace mágico de acceso.
      * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      */
@@ -71,7 +71,7 @@ public class ResendNotificationSender {
      * acotado.
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
-     * @param mail Base pública utilizada para construir enlaces de verificación y restablecimiento.
+     * @param mail Base pública utilizada para construir el enlace mágico de acceso.
      * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      * @param client Cliente HTTP inyectable para controlar respuestas y fallos de transporte.
@@ -159,7 +159,7 @@ public class ResendNotificationSender {
      * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
      *     el envío.
      *
-     * @return asunto y cuerpos del correo; nunca una plantilla de descarga.
+     * @return asunto y cuerpos del correo de acceso.
      * @throws es.ubu.batchdownloader.notification.application.PermanentNotificationException si la
      *     plantilla no pertenece a identidad.
      *
@@ -174,17 +174,11 @@ public class ResendNotificationSender {
         String action;
         String ignored;
         switch (notification.template()) {
-            case EMAIL_VERIFICATION -> {
-                path = "verify-email";
-                subject = "Confirma tu correo de Batch Downloader";
-                action = "Confirmar mi correo";
-                ignored = "Si no has creado esta cuenta, puedes ignorar este mensaje.";
-            }
-            case PASSWORD_RESET -> {
-                path = "reset-password";
-                subject = "Restablece tu contraseña de Batch Downloader";
-                action = "Elegir una nueva contraseña";
-                ignored = "Si no has solicitado el cambio, puedes ignorar este mensaje.";
+            case MAGIC_LINK -> {
+                path = "login";
+                subject = "Inicia sesión en Batch Downloader";
+                action = "Iniciar sesión";
+                ignored = "Si no has solicitado este enlace, puedes ignorar este mensaje.";
             }
             default -> throw new PermanentNotificationException("resend_template_not_supported");
         }
@@ -198,19 +192,19 @@ public class ResendNotificationSender {
     }
 
     /**
-     * Construye un enlace público de identidad con el token codificado como parámetro de consulta.
+     * Construye un enlace público de identidad con el token codificado en el fragmento.
      *
      * @param path Segmento de la pantalla de identidad que recibirá el token.
      * @param token Token descifrado de un solo uso; solo se incorpora al enlace enviado al
      *     destinatario.
      *
-     * @return URI de la pantalla de verificación o restablecimiento.
+     * @return URI de la pantalla de acceso que recibirá el token.
      */
     private String actionUrl(String path, String token) {
         String encodedToken = URLEncoder.encode(token, StandardCharsets.UTF_8).replace("+", "%20");
         return UriComponentsBuilder.fromUri(mail.publicBaseUrl())
                 .pathSegment(path)
-                .queryParam("token", encodedToken)
+                .fragment("token=" + encodedToken)
                 .build(true)
                 .toUriString();
     }

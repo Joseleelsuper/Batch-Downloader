@@ -91,7 +91,7 @@ class ResendNotificationSenderTest {
         assertThat(body.path("to").get(0).asText()).isEqualTo("person@example.com");
         assertThat(body.path("text").asText())
                 .contains("<Ada & friends>")
-                .contains("/verify-email?token=a%20token%2Bwith%2Fslashes");
+                .contains("/login#token=a%20token%2Bwith%2Fslashes");
         assertThat(body.path("html").asText())
                 .contains("&lt;Ada &amp; friends&gt;")
                 .doesNotContain("<Ada & friends>");
@@ -163,8 +163,7 @@ class ResendNotificationSenderTest {
                 new ResendProperties(
                         URI.create("https://api.resend.com"), "", "",
                         Duration.ofSeconds(1), Duration.ofSeconds(1)),
-                new MailTemplateProperties(
-                        "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com")),
+                new MailTemplateProperties(URI.create("https://batch.example.com")),
                 new NotificationTokenEnvelope(KEY), mapper);
 
         assertThatThrownBy(() -> disabled.send(notification("Ada", "token")))
@@ -182,8 +181,7 @@ class ResendNotificationSenderTest {
         ResendProperties properties = new ResendProperties(
                 baseUrl, "test-resend-key", "Batch Downloader <no-reply@example.com>",
                 Duration.ofSeconds(1), Duration.ofSeconds(1));
-        MailTemplateProperties mail = new MailTemplateProperties(
-                "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com"));
+        MailTemplateProperties mail = new MailTemplateProperties(URI.create("https://batch.example.com"));
 
         new ApplicationContextRunner()
                 .withBean(ResendProperties.class, () -> properties)
@@ -206,8 +204,7 @@ class ResendNotificationSenderTest {
                 new ResendProperties(
                         baseUrl, "test-resend-key", "Batch Downloader <no-reply@example.com>",
                         Duration.ofSeconds(1), requestTimeout),
-                new MailTemplateProperties(
-                        "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com")),
+                new MailTemplateProperties(URI.create("https://batch.example.com")),
                 new NotificationTokenEnvelope(KEY), mapper);
     }
 
@@ -225,7 +222,7 @@ class ResendNotificationSenderTest {
         return new EmailNotification(
                 UUID.randomUUID(), Instant.parse("2026-08-08T10:00:00Z"),
                 UUID.randomUUID().toString(), null, "person@example.com",
-                EmailNotification.Template.EMAIL_VERIFICATION,
+                EmailNotification.Template.MAGIC_LINK,
                 Map.of("username", username, "token", envelope));
     }
 

@@ -67,7 +67,7 @@ class RabbitTopologyConfigurationTest {
     @Test
     void bindsTheCanonicalCommandAndTheDeadLetterQueue() {
         Queue queue = configuration.notificationQueue(properties);
-        TopicExchange exchange = configuration.downloadEventsExchange(properties);
+        TopicExchange exchange = configuration.notificationExchange(properties);
         Binding notificationBinding = configuration.notificationRequestedBinding(
                 queue, exchange, properties);
         Queue deadQueue = configuration.notificationDeadLetterQueue(properties);

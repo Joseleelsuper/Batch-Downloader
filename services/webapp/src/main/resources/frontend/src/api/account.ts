@@ -8,9 +8,15 @@ import type {
   OwnBundlePage,
 } from '../types/account';
 
-export function login(email: string, password: string): Promise<AuthUser> {
-  return requestJson<AuthUser>('/api/v1/auth/login', {
-    method: 'POST', body: JSON.stringify({ email, password }),
+export async function requestMagicLink(email: string): Promise<void> {
+  await requestJson<void>('/api/v1/auth/magic-link/request', {
+    method: 'POST', body: JSON.stringify({ email }),
+  });
+}
+
+export function confirmMagicLink(token: string): Promise<AuthUser> {
+  return requestJson<AuthUser>('/api/v1/auth/magic-link/confirm', {
+    method: 'POST', body: JSON.stringify({ token }),
   });
 }
 
@@ -31,37 +37,6 @@ export async function adminLogout(): Promise<void> {
 export async function me(): Promise<AuthUser | null> {
   const identity = await requestJson<AuthUser | undefined>('/api/v1/auth/me');
   return identity ?? null;
-}
-
-export function registerAccount(email: string, password: string): Promise<AuthUser> {
-  return requestJson<AuthUser>('/api/v1/auth/register', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
-}
-
-export async function confirmEmail(token: string): Promise<void> {
-  await requestJson<void>('/api/v1/auth/email-verification/confirm', {
-    method: 'POST', body: JSON.stringify({ token }),
-  });
-}
-
-export async function resendVerification(email: string): Promise<void> {
-  await requestJson<void>('/api/v1/auth/email-verification/resend', {
-    method: 'POST', body: JSON.stringify({ email }),
-  });
-}
-
-export async function requestPasswordReset(email: string): Promise<void> {
-  await requestJson<void>('/api/v1/auth/password-reset/request', {
-    method: 'POST', body: JSON.stringify({ email }),
-  });
-}
-
-export async function resetPassword(token: string, password: string): Promise<void> {
-  await requestJson<void>('/api/v1/auth/password-reset/confirm', {
-    method: 'POST', body: JSON.stringify({ token, password }),
-  });
 }
 
 export function fetchProfile(): Promise<AuthUser> {

@@ -7,8 +7,8 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 const BASE_URL = (__ENV.BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
 const APP_IDS = csv(__ENV.APP_IDS);
 const READY_JOB_IDS = csv(__ENV.READY_JOB_IDS);
-const USERNAME_PREFIX = __ENV.USERNAME_PREFIX || '';
-const USER_PASSWORD = __ENV.USER_PASSWORD || '';
+const MAGIC_LINK_TOKENS = parseJsonArray(__ENV.MAGIC_LINK_TOKENS);
+const FINAL_MAGIC_LINK_TOKENS = parseJsonArray(__ENV.FINAL_MAGIC_LINK_TOKENS);
 const FINAL_RANGE = __ENV.FINAL_RANGE || '';
 const SESSION_VUS = 1000;
 const JOB_VUS = 50;
@@ -117,14 +117,14 @@ export async function jobAndSse() {
       if (initial.status !== 200) {
         return { status: initial.status, stage: 'csrf', heartbeats: 0, jobs: 0 };
       }
-      const login = await fetch('/api/v1/auth/login', {
+      const magicLink = await fetch('/api/v1/auth/magic-link/confirm', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': initial.body.token },
-        body: JSON.stringify({ username: input.username, password: input.password }),
+        body: JSON.stringify({ token: input.magicToken }),
       });
-      if (login.status !== 200) {
-        return { status: login.status, stage: 'login', heartbeats: 0, jobs: 0 };
+      if (magicLink.status !== 200) {
+        return { status: magicLink.status, stage: 'magic_link', heartbeats: 0, jobs: 0 };
       }
 
       const authenticated = await csrf();
@@ -167,8 +167,7 @@ export async function jobAndSse() {
         }, input.durationMs);
       });
     }, {
-      username: `${USERNAME_PREFIX}${account}`,
-      password: USER_PASSWORD,
+      magicToken: MAGIC_LINK_TOKENS[account - 1] || '',
       appId: APP_IDS[(account - 1) % APP_IDS.length],
       durationMs: Number(__ENV.SSE_DURATION_MS || 610000),
     });
@@ -192,7 +191,7 @@ export async function jobAndSse() {
 export function finalDelivery() {
   requireFinalInputs();
   const account = exec.scenario.iterationInTest + 1;
-  if (!login(account)) return;
+  if (!login(account, FINAL_MAGIC_LINK_TOKENS)) return;
 
   const jobId = READY_JOB_IDS[account - 1];
   const redirect = http.get(
@@ -226,17 +225,28 @@ export function finalDelivery() {
   });
 }
 
-function login(account) {
+function login(account, tokens) {
   const token = csrfToken();
-  if (!token) return false;
+  const magicToken = tokens[account - 1] || '';
+  if (!token || !magicToken) return false;
   const response = http.post(
-    `${BASE_URL}/api/v1/auth/login`,
-    JSON.stringify({ username: `${USERNAME_PREFIX}${account}`, password: USER_PASSWORD }),
+    `${BASE_URL}/api/v1/auth/magic-link/confirm`,
+    JSON.stringify({ token: magicToken }),
     { ...apiParams('auth'), headers: jsonHeaders(token) },
   );
   record(response, [200]);
   check(response, { 'login is accepted': (value) => value.status === 200 });
   return response.status === 200;
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
 }
 
 function csrfToken() {
@@ -271,13 +281,16 @@ function requireJobInputs() {
   if (APP_IDS.length < 2) {
     exec.test.abort('APP_IDS must contain at least two controlled application IDs');
   }
-  if (!USERNAME_PREFIX || !USER_PASSWORD) {
-    exec.test.abort('USERNAME_PREFIX and USER_PASSWORD are required for 50 jobs');
+  if (MAGIC_LINK_TOKENS.length < JOB_VUS) {
+    exec.test.abort('MAGIC_LINK_TOKENS must contain one current token for each job VU');
   }
 }
 
 function requireFinalInputs() {
   requireJobInputs();
+  if (FINAL_MAGIC_LINK_TOKENS.length !== JOB_VUS) {
+    exec.test.abort('FINAL_MAGIC_LINK_TOKENS must contain one current token for each final-delivery VU');
+  }
   if (READY_JOB_IDS.length !== JOB_VUS) {
     exec.test.abort('READY_JOB_IDS must contain exactly 50 jobs owned by accounts 1..50');
   }

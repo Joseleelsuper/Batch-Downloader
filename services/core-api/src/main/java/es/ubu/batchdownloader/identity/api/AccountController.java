@@ -80,7 +80,7 @@ public class AccountController {
      * Recupera los datos actuales de la cuenta habilitada asociada a la sesión.
      *
      * @param authentication Autenticación actual de Spring, o null si el visitante no tiene sesión.
-     * @return identidad y preferencias sin credenciales.
+     * @return identidad sin credenciales.
      */
     @GetMapping
     IdentityView me(Authentication authentication) {

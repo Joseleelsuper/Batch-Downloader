@@ -342,7 +342,6 @@ export interface AuthUser {
   email: string;
   emailVerified: boolean;
   role: 'USER' | 'ADMIN';
-  notifyOnJobCompletion: boolean;
   createdAt: string;
 }
 

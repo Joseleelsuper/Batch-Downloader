@@ -24,8 +24,9 @@ límite global de jobs no terminales.
 - k6 con el módulo oficial `k6/browser` y Chromium.
 - Al menos dos aplicaciones de laboratorio de 1-2 GB y tamaño declarado, bajo
   control del operador, en `APP_IDS=id-1,id-2`.
-- Cincuenta cuentas `USERNAME_PREFIX1..50` con la misma `USER_PASSWORD`. Cada
-  cuenta crea un job, por lo que no se depende de los límites anónimos por IP.
+- Cincuenta cuentas USER ya creadas y un token magic link vigente por cuenta en
+  `MAGIC_LINK_TOKENS` (JSON array). Cada token se consume una sola vez; no se
+  puede reutilizar el mismo token en otra ejecución.
 - Para probar la entrega final, exactamente 50 UUID en `READY_JOB_IDS`, en el
   mismo orden de propietarios: el primer job pertenece a la cuenta 1, etc.
 
@@ -40,8 +41,7 @@ Carga API, admisión, cola y SSE:
 ```powershell
 $env:BASE_URL = 'https://batch.example.test'
 $env:APP_IDS = 'uuid-fuente-1,uuid-fuente-2'
-$env:USERNAME_PREFIX = 'load-user-'
-$env:USER_PASSWORD = 'contraseña-de-laboratorio'
+$env:MAGIC_LINK_TOKENS = '["token-1", "token-2", "...", "token-50"]'
 $env:K6_BROWSER_HEADLESS = 'true'
 k6 run .\tst\load\capacity.js
 ```
@@ -51,6 +51,7 @@ no se define `FINAL_RANGE`:
 
 ```powershell
 $env:READY_JOB_IDS = (Get-Content .\ready-job-ids.txt) -join ','
+$env:FINAL_MAGIC_LINK_TOKENS = '["token-final-1", "token-final-2", "...", "token-final-50"]'
 k6 run .\tst\load\capacity.js
 ```
 

@@ -15,8 +15,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Persiste las credenciales, identidad estable, rol y preferencias de la cuenta con control
- * optimista de actualizaciones.
+ * Persiste las credenciales, identidad estable y rol de la cuenta con control optimista de
+ * actualizaciones.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.identity.domain.UserAccount
@@ -58,7 +58,7 @@ class UserAccountEntity {
     /**
      * Hash de contraseña almacenado, nunca la contraseña original.
      */
-    @Column(name = "password_hash", nullable = false, length = 100)
+    @Column(name = "password_hash", nullable = true, length = 100)
     private String passwordHash;
     /**
      * Indica que se ha confirmado el control del correo de la cuenta.
@@ -72,12 +72,7 @@ class UserAccountEntity {
     @Column(nullable = false, length = 16)
     private UserRole role;
     /**
-     * Preferencia vigente de recibir correo cuando termina una descarga.
-     */
-    @Column(name = "notify_on_job_completion", nullable = false)
-    private boolean notifyOnJobCompletion;
-    /**
-     * Habilita el acceso de la cuenta o la preferencia de correo según el método.
+     * Habilita el acceso de la cuenta.
      */
     @Column(nullable = false)
     private boolean enabled;
@@ -129,7 +124,6 @@ class UserAccountEntity {
         passwordHash = account.passwordHash();
         emailVerified = account.emailVerified();
         role = account.role();
-        notifyOnJobCompletion = account.notifyOnJobCompletion();
         enabled = account.enabled();
         createdAt = account.createdAt();
         updatedAt = account.updatedAt();
@@ -143,7 +137,7 @@ class UserAccountEntity {
     UserAccount toDomain() {
         return UserAccount.rehydrate(
                 id, username, normalizedUsername, email, normalizedEmail, passwordHash, emailVerified, role,
-                notifyOnJobCompletion, enabled, createdAt, updatedAt, version);
+                enabled, createdAt, updatedAt, version);
     }
 
     /**

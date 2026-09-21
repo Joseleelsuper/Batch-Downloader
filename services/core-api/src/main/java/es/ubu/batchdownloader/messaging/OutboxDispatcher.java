@@ -28,7 +28,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.messaging.OutboxWriter
  * @see es.ubu.batchdownloader.messaging.OutboxEventRepository
- * @see es.ubu.batchdownloader.messaging.NotificationOutboxCutover
  * @since 0.1.0
  * @version 0.1.0
  * @category Mensajería y retención
@@ -62,7 +61,6 @@ class OutboxDispatcher {
     /** Delimita las transacciones breves de reclamación y confirmación. */
     private final TransactionTemplate transactions;
     private final OutboxPayloadSanitizer payloadSanitizer;
-    private final NotificationOutboxCutover notificationCutover;
 
     /**
      * Compone persistencia, confirmación AMQP, duración de reservas y retirada de tokens tras el
@@ -91,8 +89,7 @@ class OutboxDispatcher {
             @Value("${app.messaging.outbox-claim-lease}") Duration claimLease,
             @Value("${app.messaging.outbox-confirm-timeout}") Duration confirmTimeout,
             TransactionTemplate transactions,
-            OutboxPayloadSanitizer payloadSanitizer,
-            NotificationOutboxCutover notificationCutover) {
+            OutboxPayloadSanitizer payloadSanitizer) {
         this.repository = repository;
         this.rabbitTemplate = rabbitTemplate;
         this.clock = clock;
@@ -101,7 +98,6 @@ class OutboxDispatcher {
         this.confirmTimeout = confirmTimeout;
         this.transactions = transactions;
         this.payloadSanitizer = payloadSanitizer;
-        this.notificationCutover = notificationCutover;
     }
 
     /**
@@ -110,7 +106,6 @@ class OutboxDispatcher {
      */
     @Scheduled(fixedDelayString = "${app.messaging.outbox-delay}")
     public void publishPending() {
-        if (!notificationCutover.completed()) return;
         for (ClaimedEvent event : claimPending()) {
             try {
                 Message message = MessageBuilder

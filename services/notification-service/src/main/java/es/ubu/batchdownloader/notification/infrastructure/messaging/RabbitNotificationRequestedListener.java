@@ -87,7 +87,7 @@ public class RabbitNotificationRequestedListener {
      *     comunica un fallo permanente.
      *
      * @throws
-     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidNotificationEventException si
      *     el JSON o el contrato de entrada no son válidos.
      */
     @RabbitListener(queues = "${notification.rabbit.queue}")
@@ -115,7 +115,7 @@ public class RabbitNotificationRequestedListener {
      * @param payload Bytes del sobre JSON recibidos de RabbitMQ.
      * @return sobre todavía pendiente de validación funcional.
      * @throws
-     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException si
+     *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidNotificationEventException si
      *     Jackson no puede leer los bytes conforme al esquema del mensaje.
      */
     private NotificationRequestedMessage deserialize(byte[] payload) {
@@ -123,7 +123,7 @@ public class RabbitNotificationRequestedListener {
             return eventReader.readValue(payload);
         } catch (IOException exception) {
             int sampleLength = Math.min(payload.length, 120);
-            throw new InvalidDownloadEventException(
+            throw new InvalidNotificationEventException(
                     "Payload JSON inválido (muestra limitada a " + sampleLength + " bytes)", exception);
         }
     }

@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 
 /**
  * Deriva nombres iniciales del correo y aplica el formato manual y la normalización compartidos por
- * registro y edición.
+ * creación automática y edición.
  *
  * @see es.ubu.batchdownloader.identity.application.IdentityService
  * @see es.ubu.batchdownloader.identity.domain.UserAccount

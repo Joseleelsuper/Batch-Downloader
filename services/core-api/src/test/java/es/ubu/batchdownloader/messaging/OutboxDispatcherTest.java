@@ -82,8 +82,7 @@ class OutboxDispatcherTest {
                 lease,
                 Duration.ofSeconds(2),
                 transactions,
-                new OutboxPayloadSanitizer(new ObjectMapper()),
-                completedCutover());
+                new OutboxPayloadSanitizer(new ObjectMapper()));
 
         dispatcher.publishPending();
 
@@ -96,11 +95,5 @@ class OutboxDispatcherTest {
                 any(CorrelationData.class));
         ordered.verify(repository).findByIdAndClaimToken(eq(eventId), any(UUID.class));
         verify(repository).save(event);
-    }
-
-    private static NotificationOutboxCutover completedCutover() {
-        NotificationOutboxCutover cutover = mock(NotificationOutboxCutover.class);
-        when(cutover.completed()).thenReturn(true);
-        return cutover;
     }
 }

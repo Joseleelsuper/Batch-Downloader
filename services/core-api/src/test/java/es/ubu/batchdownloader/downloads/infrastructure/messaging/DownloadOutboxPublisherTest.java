@@ -30,7 +30,7 @@ class DownloadOutboxPublisherTest {
         OutboxWriter outbox = Mockito.mock(OutboxWriter.class);
         DownloadJobItem item = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), Instant.now());
         DownloadJob job = DownloadJob.queue(
-                UUID.randomUUID(), null, null, List.of(item), 1, 0, false,
+                UUID.randomUUID(), null, null, List.of(item), 1, 0,
                 Instant.now(), Instant.now().plusSeconds(3600));
 
         new DownloadOutboxPublisher(outbox).jobRequested(job);
@@ -57,7 +57,7 @@ class DownloadOutboxPublisherTest {
         DownloadJobItem item = DownloadJobItem.manual(
                 UUID.randomUUID(), "Aplicación manual", "https://example.com", Instant.now());
         DownloadJob job = DownloadJob.queue(
-                UUID.randomUUID(), null, null, List.of(item), 1, 0, false,
+                UUID.randomUUID(), null, null, List.of(item), 1, 0,
                 Instant.now(), Instant.now().plusSeconds(3600));
 
         new DownloadOutboxPublisher(outbox).jobRequested(job);

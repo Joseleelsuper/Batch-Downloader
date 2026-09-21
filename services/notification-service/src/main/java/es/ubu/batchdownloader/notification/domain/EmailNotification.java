@@ -10,7 +10,8 @@ import java.util.UUID;
  *
  * Conserva la identidad de la entrega para el inbox y la idempotencia del proveedor; copia los
  * parámetros para impedir modificaciones posteriores. La validación específica de cada plantilla
- * se realiza al convertir el mensaje de RabbitMQ.
+ * se realiza al convertir el mensaje de RabbitMQ. Solo se admiten correos de acceso mediante
+ * magic link.
  *
  * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
  * @param occurredAt Instante UTC en que el productor emitió el evento.
@@ -100,8 +101,7 @@ public record EmailNotification(
     }
 
     /**
-     * Selecciona el contenido y los parámetros requeridos: identidad en Resend o estado de descarga
-     * en SMTP.
+     * Selecciona el contenido y los parámetros requeridos del correo de identidad.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
@@ -111,21 +111,9 @@ public record EmailNotification(
      */
     public enum Template {
         /**
-         * Solicita confirmar la dirección de correo mediante un token cifrado de un solo uso.
+         * Solicita iniciar sesión mediante un token cifrado de un solo uso.
          */
-        EMAIL_VERIFICATION,
-        /**
-         * Solicita restablecer la contraseña mediante un token cifrado de un solo uso.
-         */
-        PASSWORD_RESET,
-        /**
-         * Comunica que el ZIP está disponible y cuándo caduca.
-         */
-        DOWNLOAD_READY,
-        /**
-         * Comunica el fallo de preparación del trabajo y su código.
-         */
-        DOWNLOAD_FAILED
+        MAGIC_LINK,
     }
 
     /**
