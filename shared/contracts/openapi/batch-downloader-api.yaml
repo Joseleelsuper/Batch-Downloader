@@ -2313,6 +2313,10 @@ components:
           type: string
           format: email
           maxLength: 254
+        locale:
+          type: string
+          maxLength: 32
+          pattern: '^[A-Za-z]{2,12}(?:[-_][A-Za-z0-9]{2,12})*$'
     AdminLoginRequest:
       type: object
       additionalProperties: false

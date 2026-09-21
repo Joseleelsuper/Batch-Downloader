@@ -122,6 +122,7 @@ class CoreMySqlMigrationTest {
             assertThat(tableExists(connection, "catalog_source_projections")).isFalse();
             assertThat(tableExists(connection, "catalog_app_projections")).isFalse();
             assertThat(tableExists(connection, "software_requests")).isFalse();
+            assertThat(tableExists(connection, "pending_magic_link_requests")).isTrue();
             assertThat(columnNullable(connection, "download_job_linux_context", "linux_target"))
                     .isFalse();
             assertThat(columnNullable(connection, "download_job_linux_context", "architecture"))
@@ -166,7 +167,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("18");
+            assertThat(flywayVersion(connection)).isEqualTo("19");
         }
     }
 

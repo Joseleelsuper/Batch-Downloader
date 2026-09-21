@@ -2,7 +2,6 @@ package es.ubu.batchdownloader.identity.infrastructure.messaging;
 
 import es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
-import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.messaging.OutboxWriter;
 import java.util.Map;
 import java.util.UUID;
@@ -23,14 +22,21 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
     }
 
     @Override
-    public void magicLinkRequested(UserAccount user, String rawToken) {
+    public void magicLinkRequested(
+            String aggregateType,
+            UUID aggregateId,
+            String recipient,
+            String rawToken,
+            String locale,
+            long expiresInMinutes) {
         outbox.append(
-                "user", user.id(), EVENT_TYPE, ROUTING_KEY, UUID.randomUUID(), null,
+                aggregateType, aggregateId, EVENT_TYPE, ROUTING_KEY, UUID.randomUUID(), null,
                 Map.of(
-                        "recipient", user.email(),
+                        "recipient", recipient,
+                        "locale", locale,
                         "template", "MAGIC_LINK",
                         "parameters", Map.of(
-                                "username", user.username(),
+                                "expiresInMinutes", expiresInMinutes,
                                 "token", tokenEnvelope.encrypt(rawToken))));
     }
 }

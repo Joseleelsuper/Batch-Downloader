@@ -6,8 +6,10 @@ import es.ubu.batchdownloader.common.GoneException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.identity.application.port.IdentityEventPublisher;
 import es.ubu.batchdownloader.identity.application.port.IdentityTokenStore;
+import es.ubu.batchdownloader.identity.application.port.PendingMagicLinkStore;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
+import es.ubu.batchdownloader.identity.domain.PendingMagicLink;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +23,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -31,9 +34,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class IdentityService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final char[] USERNAME_SUFFIX = "0123456789abcdefghijklmnopqrstuvwxyz".toCharArray();
+    private static final Pattern LOCALE = Pattern.compile(
+            "^[A-Za-z]{2,12}(?:[-_][A-Za-z0-9]{2,12})*$");
 
     private final UserAccountStore users;
     private final IdentityTokenStore tokens;
+    private final PendingMagicLinkStore pending;
     private final IdentityEventPublisher events;
     private final Clock clock;
     private final Duration magicLinkTtl;
@@ -41,11 +47,13 @@ public class IdentityService {
     public IdentityService(
             UserAccountStore users,
             IdentityTokenStore tokens,
+            PendingMagicLinkStore pending,
             IdentityEventPublisher events,
             Clock clock,
             @Value("${app.auth.magic-link-ttl}") Duration magicLinkTtl) {
         this.users = users;
         this.tokens = tokens;
+        this.pending = pending;
         this.events = events;
         this.clock = clock;
         this.magicLinkTtl = magicLinkTtl;
@@ -54,31 +62,49 @@ public class IdentityService {
     /** Solicita un enlace sin revelar si el correo ya tenía cuenta. */
     @Transactional
     public void requestMagicLink(String email) {
+        requestMagicLink(email, "es");
+    }
+
+    /** Solicita un enlace capturando el idioma actual y difiriendo la cuenta desconocida. */
+    @Transactional
+    public void requestMagicLink(String email, String locale) {
         String cleanEmail = cleanEmail(email);
         String normalizedEmail = normalize(cleanEmail);
+        String cleanLocale = normalizeLocale(locale);
         UserAccount user = users.findByNormalizedEmail(normalizedEmail).orElse(null);
         if (user == null) {
-            user = createUser(cleanEmail, normalizedEmail);
-        }
-        if (user.enabled() && user.role() == UserRole.USER) {
-            issueMagicLink(user);
+            issuePendingMagicLink(cleanEmail, normalizedEmail, cleanLocale);
+        } else if (user.enabled() && user.role() == UserRole.USER) {
+            issueMagicLink(user, cleanLocale);
         }
     }
 
     /** Consume el enlace, confirma el correo y devuelve la cuenta autenticada. */
     @Transactional
     public UserAccount consumeMagicLink(String rawToken) {
-        IdentityToken token = requireUsableToken(rawToken, true);
-        UserAccount user = users.findById(token.userId())
-                .filter(account -> account.enabled() && account.role() == UserRole.USER)
-                .orElseThrow(this::invalidToken);
-        Instant now = clock.instant();
-        token.consume(now);
-        if (!user.emailVerified()) {
-            user.verifyEmail(now);
+        String hash = hashToken(rawToken);
+        IdentityToken token = tokens.findByHashForUpdate(hash).orElse(null);
+        if (token != null) {
+            requireUsableToken(token);
+            UserAccount user = users.findById(token.userId())
+                    .filter(account -> account.enabled() && account.role() == UserRole.USER)
+                    .orElseThrow(this::invalidToken);
+            Instant now = clock.instant();
+            token.consume(now);
+            if (!user.emailVerified()) user.verifyEmail(now);
+            users.save(user);
+            tokens.save(token);
+            return user;
         }
+        PendingMagicLink request = pending.findByHashForUpdate(hash)
+                .orElseThrow(this::invalidToken);
+        requireUsablePending(request);
+        Instant now = clock.instant();
+        UserAccount user = createUser(request.email(), request.normalizedEmail());
+        user.verifyEmail(now);
         users.save(user);
-        tokens.save(token);
+        request.consume(now);
+        pending.save(request);
         return user;
     }
 
@@ -145,21 +171,38 @@ public class IdentityService {
                 "username_generation_failed", "No se pudo reservar un username para la cuenta.");
     }
 
-    private void issueMagicLink(UserAccount user) {
+    private void issueMagicLink(UserAccount user, String locale) {
         Instant now = clock.instant();
         tokens.invalidateUnconsumedForUser(user.id(), now);
         String rawToken = newRawToken();
         tokens.save(IdentityToken.issue(user.id(), hashToken(rawToken), now.plus(magicLinkTtl), now));
-        events.magicLinkRequested(user, rawToken);
+        events.magicLinkRequested(
+                "user", user.id(), user.email(), rawToken, locale, magicLinkTtl.toMinutes());
     }
 
-    private IdentityToken requireUsableToken(String rawToken, boolean forUpdate) {
-        String hash = hashToken(rawToken);
-        IdentityToken token = (forUpdate ? tokens.findByHashForUpdate(hash) : tokens.findByHash(hash))
-                .orElseThrow(this::invalidToken);
+    private void issuePendingMagicLink(String email, String normalizedEmail, String locale) {
+        Instant now = clock.instant();
+        String rawToken = newRawToken();
+        PendingMagicLink request = pending.findByNormalizedEmailForUpdate(normalizedEmail)
+                .orElseGet(() -> PendingMagicLink.issue(
+                        email, normalizedEmail, hashToken(rawToken), locale,
+                        now.plus(magicLinkTtl), now));
+        if (!request.tokenHash().equals(hashToken(rawToken))) {
+            request.renew(hashToken(rawToken), locale, now.plus(magicLinkTtl), now);
+        }
+        pending.save(request);
+        events.magicLinkRequested(
+                "pending_magic_link", request.id(), email, rawToken, locale, magicLinkTtl.toMinutes());
+    }
+
+    private void requireUsableToken(IdentityToken token) {
         if (token.consumedAt() != null) throw usedToken();
         if (!token.expiresAt().isAfter(clock.instant())) throw expiredToken();
-        return token;
+    }
+
+    private void requireUsablePending(PendingMagicLink request) {
+        if (request.consumedAt() != null) throw usedToken();
+        if (!request.expiresAt().isAfter(clock.instant())) throw expiredToken();
     }
 
     private BadRequestException invalidToken() {
@@ -184,6 +227,14 @@ public class IdentityService {
 
     public static String normalize(String value) {
         return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeLocale(String value) {
+        String locale = value == null || value.isBlank() ? "es" : value.strip();
+        if (!LOCALE.matcher(locale).matches()) {
+            throw new BadRequestException("locale_invalid", "El idioma no es válido.");
+        }
+        return locale.toLowerCase(Locale.ROOT);
     }
 
     public static String hashToken(String rawToken) {

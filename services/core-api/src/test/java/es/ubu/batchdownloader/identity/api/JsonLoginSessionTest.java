@@ -34,9 +34,9 @@ class JsonLoginSessionTest {
         request.setRemoteAddr("127.0.0.1");
 
         assertThat(controller.requestMagicLink(
-                new IdentityController.MagicLinkRequest("person@example.com"), request).getStatusCode().value())
+                new IdentityController.MagicLinkRequest("person@example.com", "es"), request).getStatusCode().value())
                 .isEqualTo(202);
-        verify(identities).requestMagicLink("person@example.com");
+        verify(identities).requestMagicLink("person@example.com", "es");
     }
 
     @Test

@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -58,7 +59,7 @@ public class IdentityController {
     ResponseEntity<Void> requestMagicLink(
             @Valid @RequestBody MagicLinkRequest request, HttpServletRequest servletRequest) {
         rateLimiter.magicLinkRequest(clientIp(servletRequest), request.email());
-        identities.requestMagicLink(request.email());
+        identities.requestMagicLink(request.email(), request.locale());
         return ResponseEntity.accepted().build();
     }
 
@@ -111,7 +112,11 @@ public class IdentityController {
         return request.getRemoteAddr();
     }
 
-    record MagicLinkRequest(@NotBlank @Email @Size(max = 254) String email) {}
+    record MagicLinkRequest(
+            @NotBlank @Email @Size(max = 254) String email,
+            @Pattern(regexp = "^[A-Za-z]{2,12}(?:[-_][A-Za-z0-9]{2,12})*$")
+            @Size(max = 32)
+            String locale) {}
 
     record TokenRequest(@NotBlank @Size(max = 256) String token) {}
 
