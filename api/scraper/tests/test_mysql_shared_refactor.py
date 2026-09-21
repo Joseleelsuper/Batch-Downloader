@@ -75,7 +75,7 @@ def test_companion_entrypoints_hold_contractive_migrations_behind_a_gate() -> No
         / "resources"
         / "application.properties"
     ).read_text(encoding="utf-8")
-    assert "spring.flyway.target=${CORE_API_FLYWAY_TARGET:16.2}" in properties
+    assert "spring.flyway.target=${CORE_API_FLYWAY_TARGET:19}" in properties
 
 
 def test_models_publish_new_relationship_and_access_paths() -> None:
