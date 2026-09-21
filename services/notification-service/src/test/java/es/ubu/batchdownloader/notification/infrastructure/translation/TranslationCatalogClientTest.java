@@ -6,12 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
 import es.ubu.batchdownloader.notification.application.RetryableNotificationException;
 import es.ubu.batchdownloader.notification.config.TranslationProperties;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -67,14 +67,41 @@ class TranslationCatalogClientTest {
                 .hasMessage("translation_temporarily_unavailable");
     }
 
+    @Test
+    void rejectsMalformedLocalesBeforeCallingTranslationService() {
+        TranslationCatalogClient client = client(Duration.ofMinutes(5));
+
+        assertThatThrownBy(() -> client.catalog("../es"))
+                .isInstanceOf(PermanentNotificationException.class)
+                .hasMessage("translation_locale_invalid");
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void classifiesRejectedRequestsAsPermanent() {
+        TranslationCatalogClient client = client(Duration.ofMinutes(5));
+
+        assertThatThrownBy(() -> client.catalog("pt"))
+                .isInstanceOf(PermanentNotificationException.class)
+                .hasMessage("translation_request_rejected");
+    }
+
+    @Test
+    void rejectsMalformedCatalogs() {
+        TranslationCatalogClient client = client(Duration.ofMinutes(5));
+
+        assertThatThrownBy(() -> client.catalog("it"))
+                .isInstanceOf(PermanentNotificationException.class)
+                .hasMessage("translation_catalog_invalid");
+    }
+
     private TranslationCatalogClient client(Duration cacheTtl) {
         return new TranslationCatalogClient(
                 new TranslationProperties(
                         URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
                         Duration.ofSeconds(1), Duration.ofSeconds(1), cacheTtl, "es"),
                 new ObjectMapper(),
-                Clock.fixed(Instant.parse("2026-09-21T10:00:00Z"), ZoneOffset.UTC),
-                HttpClient.newHttpClient());
+                Clock.fixed(Instant.parse("2026-09-21T10:00:00Z"), ZoneOffset.UTC));
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -85,8 +112,13 @@ class TranslationCatalogClientTest {
             exchange.sendResponseHeaders(404, -1);
         } else if ("de".equals(locale)) {
             exchange.sendResponseHeaders(503, -1);
+        } else if ("pt".equals(locale)) {
+            exchange.sendResponseHeaders(400, -1);
         } else {
-            byte[] body = "{\"email.magicLink.greeting\":\"Hola.\"}".getBytes(StandardCharsets.UTF_8);
+            String payload = "it".equals(locale)
+                    ? "{"
+                    : "{\"email.magicLink.greeting\":\"Hola.\"}";
+            byte[] body = payload.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
         }
