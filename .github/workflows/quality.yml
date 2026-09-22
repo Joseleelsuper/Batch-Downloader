@@ -11,7 +11,111 @@ permissions:
   pull-requests: read
 
 jobs:
+  changes:
+    name: Detect covered changes
+    runs-on: ubuntu-latest
+    outputs:
+      java: ${{ steps.filter.outputs.java }}
+      scraper: ${{ steps.filter.outputs.scraper }}
+      semantic: ${{ steps.filter.outputs.semantic }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+      compose: ${{ steps.filter.outputs.compose }}
+      linux_installer: ${{ steps.filter.outputs.linux_installer }}
+      sonar: ${{ steps.filter.outputs.sonar }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: Match changed files to test coverage
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            mapfile -t changed_files < <(git diff --name-only --diff-filter=ACDMRT "${BASE_SHA}" "${HEAD_SHA}")
+          elif [[ "${BEFORE_SHA}" =~ ^0+$ ]]; then
+            mapfile -t changed_files < <(git diff-tree --root --no-commit-id --name-only -r "${HEAD_SHA}")
+          else
+            mapfile -t changed_files < <(git diff --name-only --diff-filter=ACDMRT "${BEFORE_SHA}" "${HEAD_SHA}")
+          fi
+
+          java=false
+          scraper=false
+          semantic=false
+          frontend=false
+          contracts=false
+          compose=false
+          linux_installer=false
+          sonar=false
+
+          for file in "${changed_files[@]}"; do
+            case "${file}" in
+              pom.xml|shared/java-contracts/*|services/core-api/src/*|services/core-api/pom.xml|services/download-worker/src/*|services/download-worker/pom.xml|services/notification-service/src/*|services/notification-service/pom.xml|services/translation-service/src/*|services/translation-service/pom.xml)
+                java=true
+                ;;
+            esac
+            case "${file}" in
+              api/scraper/*)
+                scraper=true
+                ;;
+            esac
+            case "${file}" in
+              services/semantic-service/*)
+                semantic=true
+                ;;
+            esac
+            case "${file}" in
+              services/webapp/src/main/resources/frontend/*)
+                frontend=true
+                ;;
+            esac
+            case "${file}" in
+              shared/contracts/*|scripts/quality/*|services/core-api/src/main/java/*|services/translation-service/src/main/java/*|services/webapp/src/main/resources/frontend/src/api/*)
+                contracts=true
+                ;;
+            esac
+            case "${file}" in
+              docker-compose.yml|docker-compose.ghcr.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env.example|api/scraper/.env.scheduler.example|services/*/.env.example|docker/*|scripts/compose_health.py|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
+                compose=true
+                ;;
+            esac
+            case "${file}" in
+              scripts/linux-installer/*|services/download-worker/src/main/resources/linux-installer/*)
+                linux_installer=true
+                ;;
+            esac
+            case "${file}" in
+              sonar-project.properties)
+                sonar=true
+                ;;
+            esac
+          done
+
+          if [[ "${java}" == true || "${scraper}" == true || "${semantic}" == true || "${frontend}" == true || "${contracts}" == true ]]; then
+            sonar=true
+          fi
+
+          {
+            echo "java=${java}"
+            echo "scraper=${scraper}"
+            echo "semantic=${semantic}"
+            echo "frontend=${frontend}"
+            echo "contracts=${contracts}"
+            echo "compose=${compose}"
+            echo "linux_installer=${linux_installer}"
+            echo "sonar=${sonar}"
+          } >> "${GITHUB_OUTPUT}"
+
   java:
+    needs: changes
+    if: needs.changes.outputs.java == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -24,6 +128,8 @@ jobs:
         run: mvn -B verify
 
   scraper:
+    needs: changes
+    if: needs.changes.outputs.scraper == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,6 +149,8 @@ jobs:
       - run: pytest --cov=app --cov-report=term-missing --cov-report=xml
 
   scraper-free-threaded:
+    needs: changes
+    if: needs.changes.outputs.scraper == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -61,6 +169,8 @@ jobs:
           --tasks 20 --repetitions 2
 
   semantic:
+    needs: changes
+    if: needs.changes.outputs.semantic == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -78,6 +188,8 @@ jobs:
       - run: pytest --cov=app --cov-report=term-missing --cov-report=xml
 
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -96,6 +208,8 @@ jobs:
       - run: npm run build
 
   contracts:
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -118,6 +232,8 @@ jobs:
         run: npx --yes @asyncapi/cli@3.4.2 validate shared/contracts/asyncapi/messaging.yaml
 
   compose:
+    needs: changes
+    if: needs.changes.outputs.compose == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -136,6 +252,8 @@ jobs:
         run: python -m unittest discover -s scripts/deployment/tests -v
 
   linux-installer:
+    needs: changes
+    if: needs.changes.outputs.linux_installer == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -146,10 +264,15 @@ jobs:
 
   sonar:
     if: >-
-      github.event_name == 'push' ||
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.sonar == 'true' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled') &&
+      (github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository)
-    needs: [java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose, linux-installer]
+      github.event.pull_request.head.repo.full_name == github.repository))
+    needs: [changes, java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose, linux-installer]
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -174,13 +297,23 @@ jobs:
         run: |
           echo "::error::Configure the SONAR_TOKEN repository secret before running SonarCloud analysis."
           exit 1
-      - run: mvn -B verify
+      - name: Compile Java for Sonar without running tests
+        if: needs.changes.outputs.java != 'true'
+        run: mvn -B -DskipTests test-compile
+      - name: Verify Java services for Sonar coverage
+        if: needs.changes.outputs.java == 'true'
+        run: mvn -B verify
       - run: pip install -r api/scraper/requirements-dev.txt
+        if: needs.changes.outputs.scraper == 'true'
       - run: pytest api/scraper --cov=api/scraper/app --cov-report=xml:api/scraper/coverage.xml
+        if: needs.changes.outputs.scraper == 'true'
       - run: pip install -e "./services/semantic-service[test]"
+        if: needs.changes.outputs.semantic == 'true'
       - run: pytest --cov=app --cov-report=xml
+        if: needs.changes.outputs.semantic == 'true'
         working-directory: services/semantic-service
       - run: npm ci && npm run test:coverage
+        if: needs.changes.outputs.frontend == 'true'
         working-directory: services/webapp/src/main/resources/frontend
       - name: SonarQube scan
         uses: SonarSource/sonarqube-scan-action@v6
