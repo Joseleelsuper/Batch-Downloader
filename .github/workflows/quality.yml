@@ -82,7 +82,7 @@ jobs:
                 ;;
             esac
             case "${file}" in
-              docker-compose.yml|docker-compose.ghcr.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env.example|api/scraper/.env.scheduler.example|services/*/.env.example|docker/*|scripts/compose_health.py|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
+              docker-compose.yml|docker-compose.ghcr.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env.example|services/*/.env.example|docker/*|scripts/compose_health.py|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
                 compose=true
                 ;;
             esac
