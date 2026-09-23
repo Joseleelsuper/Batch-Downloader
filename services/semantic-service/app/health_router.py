@@ -13,7 +13,6 @@ from app.http_context import (
     database,
     heartbeat_store,
     require_internal_service_token,
-    runtime_for,
     settings,
     store,
 )
@@ -45,12 +44,9 @@ async def health() -> dict[str, object]:
         and active[0].model_version == descriptor.model_version
         else None
     )
-    search_ready = active_model is not None
-    if active_model is not None:
-        try:
-            await asyncio.to_thread(runtime_for(active_model).warmup)
-        except Exception:
-            search_ready = False
+    # La sonda administrativa debe ser barata: cargar y ejecutar el modelo aquí puede superar
+    # el timeout de Core en un arranque en frío. La búsqueda valida el runtime al usarlo.
+    search_ready = active_model is not None and artifact_ready
 
     worker: dict[str, object] = {
         "present": False,

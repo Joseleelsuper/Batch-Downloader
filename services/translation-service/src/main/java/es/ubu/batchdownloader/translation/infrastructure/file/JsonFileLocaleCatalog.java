@@ -26,10 +26,11 @@ import java.util.stream.Stream;
 import org.springframework.stereotype.Repository;
 
 /**
- * Lee y valida al arrancar las páginas template y es y conserva un único JSON español en memoria.
+ * Lee y valida al arrancar las páginas de plantilla y de todos los idiomas publicados y conserva
+ * un JSON fusionado por idioma en memoria.
  *
- * Exige paridad de archivos y claves, texto español no vacío y ausencia de claves duplicadas
- * dentro de una página o entre páginas. Calcula el ETag sobre los bytes que sirve el controlador.
+ * Exige paridad de archivos y claves, textos no vacíos y ausencia de claves duplicadas dentro de
+ * una página o entre páginas. Calcula un ETag por idioma sobre los bytes que sirve el controlador.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.translation.application.port.LocaleCatalog
@@ -43,20 +44,11 @@ import org.springframework.stereotype.Repository;
 public class JsonFileLocaleCatalog implements LocaleCatalog {
 
     /**
-     * Valor compartido que fija s p a n i s h  l o c a l e para el comportamiento del componente.
-     */
-    private static final String SPANISH_LOCALE = "es";
-    /**
      * Referencia estable utilizada para construir o validar t e m p l a t e  d i r e c t o r y.
      */
     private static final String TEMPLATE_DIRECTORY = "template";
     /**
-     * Referencia estable utilizada para construir o validar s p a n i s h  d i r e c t o r y.
-     */
-    private static final String SPANISH_DIRECTORY = "es";
-
-    /**
-     * Estado {@code cache} mantenido por {@code JsonFileLocaleCatalog}.
+     * Catálogos fusionados por idioma, cargados y validados una sola vez durante el arranque.
      */
     private final Map<String, LocaleDocument> cache;
 
@@ -74,25 +66,63 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
         ObjectMapper strictMapper = strictObjectMapper();
         Map<String, ObjectNode> templatePages = readPages(
                 localesPath.resolve(TEMPLATE_DIRECTORY), strictMapper);
-        Map<String, ObjectNode> spanishPages = readPages(
-                localesPath.resolve(SPANISH_DIRECTORY), strictMapper);
         validateTemplate(templatePages);
-        ObjectNode spanish = validateSpanishLocale(templatePages, spanishPages, strictMapper);
-        byte[] spanishContent = writeBytes(spanish, strictMapper);
-        cache = Map.of(
-                SPANISH_LOCALE,
-                new LocaleDocument(SPANISH_LOCALE, spanishContent, calculateEtag(spanishContent)));
+        Map<String, Map<String, ObjectNode>> localePages = readLocalePages(localesPath, strictMapper);
+        Map<String, LocaleDocument> documents = new LinkedHashMap<>();
+        localePages.forEach((locale, pages) -> {
+            ObjectNode merged = validateLocale(templatePages, pages, locale, strictMapper);
+            byte[] content = writeBytes(merged, strictMapper);
+            documents.put(locale, new LocaleDocument(locale, content, calculateEtag(content)));
+        });
+        cache = Map.copyOf(documents);
     }
 
     /**
      * Consulta el documento precargado, sin realizar E/S ni volver a fusionar páginas.
      *
-     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
-     * @return documento español, o Optional vacío para otro código.
+     * @param locale Código exacto del idioma solicitado.
+     * @return documento publicado, o Optional vacío para otro código.
      */
     @Override
     public Optional<LocaleDocument> findByLocale(String locale) {
         return Optional.ofNullable(cache.get(locale));
+    }
+
+    /**
+     * Lee todos los directorios de idiomas publicados, excluyendo la plantilla de referencia.
+     *
+     * @param localesPath Raíz que contiene template y los directorios de idiomas.
+     * @param mapper Lector JSON estricto compartido durante la carga.
+     * @return páginas indexadas por código de idioma.
+     */
+    private Map<String, Map<String, ObjectNode>> readLocalePages(
+            Path localesPath, ObjectMapper mapper) {
+        if (!Files.isDirectory(localesPath)) {
+            throw new LocaleCatalogConfigurationException(
+                    "No existe el directorio raíz de traducciones: " + localesPath.getFileName());
+        }
+        List<Path> directories;
+        try (Stream<Path> paths = Files.list(localesPath)) {
+            directories = paths
+                    .filter(Files::isDirectory)
+                    .filter(path -> !TEMPLATE_DIRECTORY.equals(path.getFileName().toString()))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
+        } catch (IOException exception) {
+            throw new LocaleCatalogConfigurationException(
+                    "No se pudo listar la raíz de traducciones " + localesPath.getFileName(),
+                    exception);
+        }
+        if (directories.isEmpty()) {
+            throw new LocaleCatalogConfigurationException(
+                    "No hay directorios de idiomas publicados en " + localesPath.getFileName());
+        }
+        Map<String, Map<String, ObjectNode>> result = new LinkedHashMap<>();
+        for (Path directory : directories) {
+            String locale = directory.getFileName().toString();
+            result.put(locale, readPages(directory, mapper));
+        }
+        return result;
     }
 
     /**
@@ -223,50 +253,52 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     }
 
     /**
-     * Comprueba la paridad de páginas y claves y textos españoles no vacíos; devuelve su fusión
-     * validada.
+     * Comprueba la paridad de páginas y claves y textos no vacíos; devuelve la fusión validada de
+     * un idioma.
      *
      * @param templatePages Páginas de referencia con las claves admitidas para cada archivo.
-     * @param spanishPages Páginas del idioma español que deben coincidir con la plantilla.
+     * @param localePages Páginas del idioma que deben coincidir con la plantilla.
+     * @param locale Código del idioma utilizado en los mensajes de error y en la métrica.
      * @param mapper Lector/serializador JSON configurado para rechazar claves duplicadas.
-     * @return catálogo español completo sin claves repetidas.
+     * @return catálogo completo del idioma sin claves repetidas.
      * @throws
      *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
      *     faltan o sobran páginas o claves, hay valores inválidos o se repiten claves entre páginas.
      */
-    private ObjectNode validateSpanishLocale(
-            Map<String, ObjectNode> templatePages, Map<String, ObjectNode> spanishPages,
-            ObjectMapper mapper) {
-        Set<String> missingPages = difference(templatePages.keySet(), spanishPages.keySet());
-        Set<String> unexpectedPages = difference(spanishPages.keySet(), templatePages.keySet());
+    private ObjectNode validateLocale(
+            Map<String, ObjectNode> templatePages, Map<String, ObjectNode> localePages,
+            String locale, ObjectMapper mapper) {
+        Set<String> missingPages = difference(templatePages.keySet(), localePages.keySet());
+        Set<String> unexpectedPages = difference(localePages.keySet(), templatePages.keySet());
         if (!missingPages.isEmpty() || !unexpectedPages.isEmpty()) {
-            throw new LocaleCatalogConfigurationException(
-                    "Las páginas de es no coinciden con template; faltan=" + missingPages
-                            + ", sobran=" + unexpectedPages);
+            throw new LocaleCatalogConfigurationException("Las páginas de " + locale
+                    + " no coinciden con template; faltan=" + missingPages
+                    + ", sobran=" + unexpectedPages);
         }
         for (Map.Entry<String, ObjectNode> page : templatePages.entrySet()) {
             String pageName = page.getKey();
-            ObjectNode spanishPage = spanishPages.get(pageName);
+            ObjectNode localePage = localePages.get(pageName);
             Set<String> expectedKeys = fieldNames(page.getValue());
-            Set<String> actualKeys = fieldNames(spanishPage);
+            Set<String> actualKeys = fieldNames(localePage);
             Set<String> missingKeys = difference(expectedKeys, actualKeys);
             Set<String> unexpectedKeys = difference(actualKeys, expectedKeys);
             if (!missingKeys.isEmpty() || !unexpectedKeys.isEmpty()) {
                 throw new LocaleCatalogConfigurationException(
-                        "La página es/" + pageName + " no coincide con template/" + pageName
+                        "La página " + locale + "/" + pageName + " no coincide con template/"
+                                + pageName
                                 + "; faltan=" + missingKeys + ", sobran=" + unexpectedKeys);
             }
-            Iterator<Map.Entry<String, JsonNode>> fields = spanishPage.properties().iterator();
+            Iterator<Map.Entry<String, JsonNode>> fields = localePage.properties().iterator();
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> field = fields.next();
                 if (!field.getValue().isTextual() || field.getValue().textValue().isBlank()) {
-                    throw new LocaleCatalogConfigurationException(
-                            "La traducción española debe ser texto no vacío para la clave "
-                                    + field.getKey() + " en " + pageName);
+                    throw new LocaleCatalogConfigurationException("La traducción de " + locale
+                            + " debe ser texto no vacío para la clave " + field.getKey()
+                            + " en " + pageName);
                 }
             }
         }
-        return mergePages(spanishPages, mapper, SPANISH_DIRECTORY);
+        return mergePages(localePages, mapper, locale);
     }
 
     /**

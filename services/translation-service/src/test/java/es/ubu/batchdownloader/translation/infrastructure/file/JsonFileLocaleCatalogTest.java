@@ -33,7 +33,7 @@ class JsonFileLocaleCatalogTest {
     private Path localeDirectory;
 
     /**
-     * Comprueba que una estructura válida publica el JSON español y lo conserva en caché.
+     * Comprueba que una estructura válida publica los idiomas y conserva sus documentos en caché.
      */
     @Test
     void loadsAndCachesAValidSpanishCatalog() throws IOException {
@@ -41,6 +41,8 @@ class JsonFileLocaleCatalogTest {
         write("template", "home.json", "{\"farewell\":\"\"}");
         write("es", "shared.json", "{\"greeting\":\"Hola\"}");
         write("es", "home.json", "{\"farewell\":\"Adiós\"}");
+        write("en", "shared.json", "{\"greeting\":\"Hello\"}");
+        write("en", "home.json", "{\"farewell\":\"Bye\"}");
 
         JsonFileLocaleCatalog catalog = catalog();
 
@@ -51,7 +53,7 @@ class JsonFileLocaleCatalogTest {
                 .isEqualTo(new ObjectMapper().readTree(
                         "{\"greeting\":\"Hola\",\"farewell\":\"Adiós\"}"));
         assertThat(first.etag()).matches("\"[0-9a-f]{64}\"");
-        assertThat(catalog.findByLocale("en")).isEmpty();
+        assertThat(catalog.findByLocale("en")).isPresent();
     }
 
     /** Comprueba que el catálogo real conserva todas las claves tras dividirse por páginas. */
@@ -75,7 +77,7 @@ class JsonFileLocaleCatalogTest {
         assertThat(messages.size()).isEqualTo(expectedMessages);
         assertThat(messages.has("catalog.title")).isTrue();
         assertThat(messages.has("admin.apps.subtitle")).isTrue();
-        assertThat(messages.has("account.login.title")).isTrue();
+        assertThat(messages.has("account.magic.title")).isTrue();
         assertThat(messages.has("error.unexpected_error.title")).isTrue();
         assertThat(messages.has("legal.privacy.title")).isTrue();
         assertThat(messages.has("legal.lastUpdated")).isTrue();
@@ -88,7 +90,7 @@ class JsonFileLocaleCatalogTest {
     }
 
     /**
-     * Comprueba que falta de una clave de plantilla impide construir el catálogo español.
+     * Comprueba que falta de una clave de plantilla impide construir cualquier catálogo.
      */
     @Test
     void failsFastWhenTheSpanishCatalogMissesATemplateKey() throws IOException {

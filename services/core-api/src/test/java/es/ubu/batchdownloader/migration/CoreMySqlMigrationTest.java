@@ -122,6 +122,7 @@ class CoreMySqlMigrationTest {
             assertThat(tableExists(connection, "catalog_source_projections")).isFalse();
             assertThat(tableExists(connection, "catalog_app_projections")).isFalse();
             assertThat(tableExists(connection, "software_requests")).isFalse();
+            assertThat(tableExists(connection, "pending_magic_link_requests")).isTrue();
             assertThat(columnNullable(connection, "download_job_linux_context", "linux_target"))
                     .isFalse();
             assertThat(columnNullable(connection, "download_job_linux_context", "architecture"))
@@ -129,7 +130,9 @@ class CoreMySqlMigrationTest {
             assertThat(columnNullable(connection, "download_job_linux_context", "dependencies"))
                     .isFalse();
             assertThat(tableExists(connection, "oauth_identities")).isFalse();
-            assertThat(columnNullable(connection, "core_users", "password_hash")).isFalse();
+            assertThat(columnNullable(connection, "core_users", "password_hash")).isTrue();
+            assertThat(columnCount(connection, "core_users", "notify_on_job_completion")).isZero();
+            assertThat(columnCount(connection, "download_jobs", "notify_when_ready")).isZero();
             execute(connection, """
                     INSERT INTO admin_audit_logs (
                         id, actor, action, target_type, target_id, safe_metadata, created_at
@@ -164,7 +167,7 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("18");
+            assertThat(flywayVersion(connection)).isEqualTo("19");
         }
     }
 
@@ -186,7 +189,7 @@ class CoreMySqlMigrationTest {
                     id, username, normalized_username, email, normalized_email, password_hash,
                     email_verified, role, enabled, created_at, updated_at
                 ) VALUES (?, 'migration-user', 'migration-user', 'migration@example.test',
-                    'migration@example.test', 'migration-password-hash', TRUE, 'USER', TRUE, NOW(6), NOW(6))
+                    'migration@example.test', NULL, TRUE, 'USER', TRUE, NOW(6), NOW(6))
                 """, userId);
     }
 
@@ -217,9 +220,9 @@ class CoreMySqlMigrationTest {
             throws SQLException {
         execute(connection, """
                 INSERT INTO download_jobs (
-                    id, owner_id, status, progress, cancellation_requested, notify_when_ready,
+                    id, owner_id, status, progress, cancellation_requested,
                     requested_count, accepted_count, omitted_count, created_at, updated_at, expires_at
-                ) VALUES (?, ?, 'QUEUED', 0, FALSE, FALSE, 1, 1, 0, NOW(6), NOW(6), ?)
+                ) VALUES (?, ?, 'QUEUED', 0, FALSE, 1, 1, 0, NOW(6), NOW(6), ?)
                 """, jobId.toString(), userId, LocalDateTime.now().plusHours(1));
     }
 

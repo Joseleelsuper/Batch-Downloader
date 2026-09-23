@@ -12,8 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Aplica eventos del worker al estado persistido y prepara la difusión y el correo asociados a cada
- * transición.
+ * Aplica eventos del worker al estado persistido y prepara la difusión asociada a cada transición.
  *
  * @see es.ubu.batchdownloader.downloads.domain.DownloadJob
  * @see es.ubu.batchdownloader.downloads.application.DownloadJobNotifications
@@ -37,18 +36,17 @@ public class DownloadJobEventHandler {
      */
     private final DownloadLimits limits;
     /**
-     * Coordinador de difusión después del commit y solicitudes de correo.
+     * Coordinador de difusión después del commit.
      */
     private final DownloadJobNotifications notifications;
 
     /**
-     * Conecta persistencia, reloj, límite de retención y notificaciones para aplicar eventos del
-     * worker.
+     * Conecta persistencia, reloj, límite de retención y difusión para aplicar eventos del worker.
      *
      * @param jobs Persistencia de trabajos, elementos, contexto Linux y reservas de admisión.
      * @param clock Reloj que determina cuotas, cambios de estado y vencimientos.
      * @param limits Cuotas de admisión y duraciones de conservación y firma del ZIP.
-     * @param notifications Coordinador de difusión después del commit y solicitudes de correo.
+     * @param notifications Coordinador de difusión después del commit.
      */
     public DownloadJobEventHandler(DownloadJobStore jobs, Clock clock, DownloadLimits limits, DownloadJobNotifications notifications) {
         this.jobs = jobs;
@@ -99,7 +97,7 @@ public class DownloadJobEventHandler {
 
     /**
      * Guarda el resultado descargable limitando el vencimiento del worker a la retención
-     * configurada y solicita aviso de finalización.
+     * configurada y difunde el estado confirmado.
      *
      * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
      * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
@@ -114,7 +112,7 @@ public class DownloadJobEventHandler {
 
     /**
      * Guarda el resultado descargable limitando el vencimiento del worker a la retención
-     * configurada y solicita aviso de finalización.
+     * configurada y difunde el estado confirmado.
      *
      * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
      * @param status Estado del trabajo o elemento correspondiente al evento o proyección.
@@ -152,7 +150,6 @@ public class DownloadJobEventHandler {
                 status, objectKey, artifactSizeBytes, artifactSha256, effectiveExpiry, now);
         DownloadJob saved = jobs.save(job);
         notifications.notifyAfterSave(saved);
-        notifications.requestTerminalNotification(saved);
     }
 
     /**
@@ -176,8 +173,7 @@ public class DownloadJobEventHandler {
     }
 
     /**
-     * Registra el fallo global y solicita difusión y correo según la preferencia vigente del
-     * propietario.
+     * Registra el fallo global y solicita su difusión después del commit.
      *
      * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
      * @param errorCode Código seguro del fallo del elemento o null si no hay un fallo que
@@ -191,7 +187,6 @@ public class DownloadJobEventHandler {
         job.fail(errorCode, clock.instant());
         DownloadJob saved = jobs.save(job);
         notifications.notifyAfterSave(saved);
-        notifications.requestTerminalNotification(saved);
     }
 
     /**

@@ -6,11 +6,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 /**
- * Retira el token cifrado de correos de verificación y recuperación una vez confirmado el envío al
+ * Retira el token cifrado de correos de acceso una vez confirmado el envío al
  * broker, conservando el resto del sobre para retención y diagnóstico.
  *
  * @see es.ubu.batchdownloader.messaging.OutboxDispatcher
- * @see es.ubu.batchdownloader.messaging.NotificationOutboxCutover
  * @since 0.1.0
  * @version 0.1.0
  * @category Mensajería y retención
@@ -29,7 +28,7 @@ class OutboxPayloadSanitizer {
     }
 
     /**
-     * Para las dos plantillas de identidad elimina parameters.token y marca deliveryTokenPurged;
+     * Para la plantilla de enlace mágico elimina parameters.token y marca deliveryTokenPurged;
      * otros eventos o plantillas conservan su contenido.
      *
      * @param eventType Tipo de evento que identifica su contrato de carga.
@@ -44,7 +43,7 @@ class OutboxPayloadSanitizer {
             JsonNode root = mapper.readTree(payload);
             JsonNode body = root.path("payload");
             String template = body.path("template").asText();
-            if (!"EMAIL_VERIFICATION".equals(template) && !"PASSWORD_RESET".equals(template)) {
+            if (!"MAGIC_LINK".equals(template)) {
                 return payload;
             }
             JsonNode parameters = body.path("parameters");

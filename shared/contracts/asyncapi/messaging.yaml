@@ -141,10 +141,12 @@ components:
       name: notification.email.requested.v1
       title: Correo transaccional solicitado
       description: >-
-        Mantiene el envelope y schemaVersion 1. Para EMAIL_VERIFICATION y
-        PASSWORD_RESET, parameters.token se publica como un sobre AES-GCM
+        Mantiene el envelope y schemaVersion 1. Para MAGIC_LINK,
+        locale captura el idioma seleccionado al solicitar el enlace y es opcional
+        para conservar compatibilidad con eventos antiguos. Si se incluye
+        parameters.expiresInMinutes, representa el TTL real del enlace;
+        parameters.token se publica como un sobre AES-GCM
         versionado con prefijo enc:v1:. El consumidor rechaza texto claro y
-        versiones desconocidas. Los eventos DOWNLOAD_READY y DOWNLOAD_FAILED
-        continúan sin token de entrega.
+        versiones desconocidas. Solo se admiten solicitudes MAGIC_LINK.
       payload:
         $ref: '../schemas/notification-requested.json'

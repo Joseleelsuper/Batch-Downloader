@@ -153,7 +153,7 @@ public final class ScraperOperationsDtos {
      * @param id UUID estable del registro, inspección, ejecución o propuesta representada.
      * @param packageId Identificador Winstall o manual de la aplicación, distinto de su UUID
      *     público.
-     * @param appName Nombre visible de la aplicación asociada al elemento o instantánea.
+     * @param appName Nombre visible de la aplicación asociada al elemento.
      * @param status Estado persistido del flujo o registro descrito, distinto del estado público
      *     del catálogo.
      * @param attempts Número de intentos registrados del elemento de cola.
@@ -196,68 +196,11 @@ public final class ScraperOperationsDtos {
             List<ScraperQueueItem> items) {}
 
     /**
-     * Conserva una muestra temporal del estado público y la ocupación de las transiciones del
-     * scraper.
-     *
-     * @param available Aplicaciones con instalador seleccionable en la muestra de métricas.
-     * @param review Aplicaciones activas cuyo estado público es review.
-     * @param unavailable Aplicaciones sin instalador seleccionable en la muestra.
-     * @param queuedSearcherFilter Pendientes en la transición de búsqueda a filtrado.
-     * @param queuedFilterScraper Pendientes en la transición de filtrado a inspección.
-     * @param queuedScraperSoFilter Pendientes en la transición de inspección a filtrado de
-     *     plataforma.
-     * @param queuedSoFilterDescriptor Pendientes en la transición de plataforma a generación de
-     *     descripción.
-     * @param capturedAt Fecha de captura de la métrica o instantánea.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     * @since 0.1.0
-     * @version 0.1.0
-     * @category Administración
-     */
-    public record ScraperMetricItem(
-            int available,
-            int review,
-            int unavailable,
-            int queuedSearcherFilter,
-            int queuedFilterScraper,
-            int queuedScraperSoFilter,
-            int queuedSoFilterDescriptor,
-            LocalDateTime capturedAt) {}
-
-    /**
-     * Expone una referencia de la última captura de una etapa para seguir su actividad desde
-     * administración.
-     *
-     * @param stage Etapa del pipeline que capturó la instantánea.
-     * @param packageId Identificador Winstall o manual de la aplicación, distinto de su UUID
-     *     público.
-     * @param appName Nombre visible de la aplicación asociada al elemento o instantánea.
-     * @param url Página pública de referencia de la instantánea administrativa.
-     * @param html Contenido de instantánea que expone el repositorio; puede ser un marcador cuando
-     *     no se conserva HTML.
-     * @param capturedAt Fecha de captura de la métrica o instantánea.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     * @since 0.1.0
-     * @version 0.1.0
-     * @category Administración
-     */
-    public record ScraperSnapshotItem(
-            String stage,
-            String packageId,
-            String appName,
-            String url,
-            String html,
-            LocalDateTime capturedAt) {}
-
-    /**
-     * Agrupa versión, colas, métricas e instantáneas para actualizar el panel administrativo de
-     * forma coherente.
+     * Agrupa versión y colas para actualizar el panel administrativo de forma coherente.
      *
      * @param type Tipo de evento administrativo del scraper.
      * @param version Token opaco calculado a partir del estado observado.
      * @param queues Estados y muestras de las colas persistentes.
-     * @param metrics Muestras recientes de ocupación y estado del catálogo.
-     * @param snapshots Instantáneas recientes de sincronización para seguimiento administrativo.
      * @param generatedAt Instante UTC en que se construye la estadística o evento.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @since 0.1.0
@@ -268,8 +211,6 @@ public final class ScraperOperationsDtos {
             String type,
             String version,
             List<ScraperQueueState> queues,
-            List<ScraperMetricItem> metrics,
-            List<ScraperSnapshotItem> snapshots,
             LocalDateTime generatedAt) {}
 
     /**

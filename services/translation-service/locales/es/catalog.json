@@ -63,14 +63,14 @@
   "catalog.selection.selected": "Descarga seleccionada",
   "catalog.selection.summary": "{count}/{limit} aplicaciones seleccionadas",
   "catalog.sort.downloads": "Más descargadas",
-  "catalog.sort.downloads.description": "Primero las aplicaciones con más descargas completadas.",
+  "catalog.sort.downloads.description": "Primero las aplicaciones con más descargas.",
   "catalog.sort.name": "Nombre",
-  "catalog.sort.name.description": "Orden alfabético de la A a la Z.",
+  "catalog.sort.name.description": "Orden alfabético.",
   "catalog.alphabet.aria": "Índice alfabético de aplicaciones",
   "catalog.alphabet.letter": "Ir a la letra {letter}, {count} aplicaciones",
   "catalog.alphabet.empty": "No hay aplicaciones que empiecen por {letter}",
   "catalog.sort.toggle": "Cambiar orden",
   "catalog.sort.updated": "Actualizadas",
-  "catalog.sort.updated.description": "Primero las aplicaciones actualizadas más recientemente.",
+  "catalog.sort.updated.description": "Primero las últimas aplicaciones añadidas.",
   "catalog.title": "Catálogo de aplicaciones"
 }

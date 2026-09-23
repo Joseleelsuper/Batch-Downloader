@@ -1,15 +1,14 @@
 import {
   Boxes,
-  Check,
   Clock3,
   Download,
   ExternalLink,
   FolderPlus,
   LockKeyhole,
+  LogOut,
   Save,
   Trash2,
   UserRound,
-  X,
 } from 'lucide-react';
 import {
   type FormEvent,
@@ -27,29 +26,25 @@ import {
   useParams,
 } from 'react-router-dom';
 import {
-  confirmEmail,
+  confirmMagicLink,
   createOwnBundle,
   deleteOwnBundle,
   fetchDashboard,
   fetchOwnBundle,
   fetchOwnBundles,
-  registerAccount,
-  requestPasswordReset,
-  resendVerification,
-  resetPassword,
+  requestMagicLink,
   updateOwnBundle,
   updateProfile,
 } from '../../api/account';
-import { adminLogin, login } from '../../api/account';
+import { adminLogin } from '../../api/account';
 import { fetchApps } from '../../api/catalogApps';
 import { ApiRequestError } from '../../api/http';
 import { useAuth } from '../../auth/AuthContext';
-import { useTranslation, type Translator } from '../../services/i18n';
+import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSummary } from '../../types/account';
 import type { CatalogApp } from '../../types/catalog';
 
 const MAXIMUM_EMAIL_LENGTH = 254;
-const MINIMUM_PASSWORD_CHARACTERS = 8;
 const MAXIMUM_PASSWORD_UTF8_BYTES = 72;
 
 function apiMessage(t: Translator, error: unknown, fallbackKey: string): string {
@@ -59,16 +54,6 @@ function apiMessage(t: Translator, error: unknown, fallbackKey: string): string 
     if (translated !== key) return translated;
   }
   return t(fallbackKey);
-}
-
-function fieldMessage(error: unknown, field: string): string | null {
-  if (!(error instanceof ApiRequestError)) return null;
-  const fieldErrors = error.details.fieldErrors;
-  if (!fieldErrors || typeof fieldErrors !== 'object') return null;
-  const messages = (fieldErrors as Record<string, unknown>)[field];
-  if (Array.isArray(messages) && typeof messages[0] === 'string') return messages[0];
-  if (typeof messages === 'string') return messages;
-  return null;
 }
 
 function emailIssue(t: Translator, email: string): string | null {
@@ -81,78 +66,10 @@ function passwordBytes(password: string): number {
   return new TextEncoder().encode(password).length;
 }
 
-function newPasswordIssue(t: Translator, password: string): string | null {
-  if (Array.from(password).length < MINIMUM_PASSWORD_CHARACTERS) return t('account.password.tooShort');
-  if (passwordBytes(password) > MAXIMUM_PASSWORD_UTF8_BYTES) return t('account.password.tooLong');
-  if (!/\p{Lu}/u.test(password)) return t('account.password.missingUppercase');
-  if (!/\p{Ll}/u.test(password)) return t('account.password.missingLowercase');
-  if (!/\p{N}/u.test(password)) return t('account.password.missingNumber');
-  if (!/[^\p{L}\p{N}\s]/u.test(password)) return t('account.password.missingSpecial');
-  return null;
-}
-
 function loginPasswordIssue(t: Translator, password: string): string | null {
   if (!password) return t('account.password.required');
   if (passwordBytes(password) > MAXIMUM_PASSWORD_UTF8_BYTES) return t('account.password.tooLong');
   return null;
-}
-
-function PasswordGuidance({ password }: Readonly<{ password: string }>) {
-  const t = useTranslation();
-  const compositionIcons = [
-    { glyph: 'uppercase', label: t('account.password.missingUppercase') },
-    { glyph: 'lowercase', label: t('account.password.missingLowercase') },
-    { glyph: 'numbers', label: t('account.password.missingNumber') },
-    { glyph: 'asterisk', label: t('account.password.missingSpecial') },
-  ];
-  const rules = [
-    {
-      id: 'minimum',
-      label: t('account.password.rule.minimum'),
-      passed: Array.from(password).length >= MINIMUM_PASSWORD_CHARACTERS,
-    },
-    {
-      id: 'composition',
-      label: t('account.password.rule.composition'),
-      passed: /\p{Lu}/u.test(password)
-        && /\p{Ll}/u.test(password)
-        && /\p{N}/u.test(password)
-        && /[^\p{L}\p{N}\s]/u.test(password),
-    },
-  ];
-  const passedRules = rules.filter((rule) => rule.passed).length;
-
-  return <div id="password-guidance" className="password-requirements">
-    <p className="password-requirements-title">{t('account.password.rulesTitle')}</p>
-    <ul className="password-rules">
-      {rules.map((rule) => {
-        const Icon = rule.passed ? Check : X;
-        return <li key={rule.id} className={rule.passed ? 'is-passed' : 'is-pending'}>
-          <Icon size={17} strokeWidth={2.5} aria-hidden="true" />
-          {rule.id === 'composition' ? <span
-            className="password-composition-icons"
-            role="img"
-            aria-label={rule.label}
-          >
-            {compositionIcons.map((icon) => <span
-              key={icon.glyph}
-              className="material-symbols-outlined password-composition-symbol"
-              title={icon.label}
-              aria-hidden="true"
-            >{icon.glyph}</span>)}
-          </span> : <span>{rule.label}</span>}
-          <span className="sr-only"> — {rule.passed
-            ? t('account.password.rule.met')
-            : t('account.password.rule.unmet')}</span>
-        </li>;
-      })}
-    </ul>
-    <p className="sr-only" role="status" aria-live="polite">
-      {t('account.password.rulesStatus')
-        .replace('{passed}', String(passedRules))
-        .replace('{total}', String(rules.length))}
-    </p>
-  </div>;
 }
 
 function AuthCard({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -161,31 +78,52 @@ function AuthCard({ children }: Readonly<{ children: React.ReactNode }>) {
 
 export function UserLoginPage() {
   const t = useTranslation();
+  const locale = useLocale();
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [token] = useState(() => new URLSearchParams(location.hash.slice(1)).get('token'));
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const processedToken = useRef<string | null>(null);
   const destination = destinationFrom(location.state, '/dashboard');
+
+  useEffect(() => {
+    if (!location.hash) return;
+    navigate('/login', { replace: true, state: location.state });
+  }, [location.hash, location.state, navigate]);
+
+  useEffect(() => {
+    if (!token || processedToken.current === token) return;
+    processedToken.current = token;
+    setSubmitting(true);
+    void confirmMagicLink(token)
+      .then((account) => {
+        auth.setAuthenticated(account);
+        navigate(destination, { replace: true });
+      })
+      .catch((cause) => setError(apiMessage(t, cause, 'account.magic.failed')))
+      .finally(() => setSubmitting(false));
+  }, [auth, destination, navigate, t, token]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
-    const validationError = emailIssue(t, email) ?? loginPasswordIssue(t, password);
+    const validationError = emailIssue(t, email);
     if (validationError) {
       setError(validationError);
       return;
     }
     setSubmitting(true);
     setError(null);
+    setMessage(null);
     try {
-      const account = await login(email, password);
-      auth.setAuthenticated(account);
-      navigate(destination, { replace: true });
+      await requestMagicLink(email, locale);
+      setMessage(t('account.magic.sent'));
     } catch (cause) {
-      setError(apiMessage(t, cause, 'account.login.invalid'));
+      setError(apiMessage(t, cause, 'account.magic.failed'));
     } finally {
       setSubmitting(false);
     }
@@ -193,22 +131,20 @@ export function UserLoginPage() {
 
   return (
     <AuthCard>
-      <h2>{t('account.login.title')}</h2>
+      <h2>{t('account.magic.title')}</h2>
       <form className="auth-form" onSubmit={submit} noValidate>
         <label>{t('account.email')}
           <input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
         </label>
-        <label>{t('login.password')}
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
-        </label>
         {error ? <p className="error-banner">{error}</p> : null}
-        <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
+        {message ? <p className="form-message" role="status">{message}</p> : null}
+        <div className="auth-actions">
+          <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.magic.submit')}</button>
+          <Link className="auth-switch-link" to="/admin/login" aria-label={t('account.adminLogin.link')} title={t('account.adminLogin.link')}>
+            <span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>
+          </Link>
+        </div>
       </form>
-      <div className="auth-links">
-        <Link to="/register">{t('account.register.link')}</Link>
-        <Link to="/forgot-password">{t('account.forgot.link')}</Link>
-      </div>
-      <Link className="auth-admin-link" to="/admin/login">{t('account.adminLogin.link')}</Link>
     </AuthCard>
   );
 }
@@ -256,214 +192,15 @@ export function AdminLoginPage() {
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
         </label>
         {error ? <p className="error-banner">{error}</p> : null}
-        <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
+        <div className="auth-actions">
+          <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
+          <Link className="auth-switch-link" to="/login" aria-label={t('account.userLogin.link')} title={t('account.userLogin.link')}>
+            <span className="material-symbols-outlined" aria-hidden="true">person</span>
+          </Link>
+        </div>
       </form>
-      <Link to="/login">{t('account.userLogin.link')}</Link>
     </AuthCard>
   );
-}
-
-export function RegisterPage() {
-  const t = useTranslation();
-  const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return;
-    const emailValidationError = emailIssue(t, email);
-    if (emailValidationError) {
-      setError(emailValidationError);
-      return;
-    }
-    if (password !== confirmation) {
-      setError(t('account.password.mismatch'));
-      return;
-    }
-    const passwordValidationError = newPasswordIssue(t, password);
-    if (passwordValidationError) {
-      setError(passwordValidationError);
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      await registerAccount(email, password);
-      navigate('/verify-email', { replace: true, state: { email } });
-    } catch (cause) {
-      setError(fieldMessage(cause, 'email') ?? fieldMessage(cause, 'password')
-        ?? apiMessage(t, cause, 'account.register.failed'));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <AuthCard>
-      <h2>{t('account.register.title')}</h2>
-      <form className="auth-form" onSubmit={submit} noValidate>
-        <label>{t('account.email')}<input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
-        <label>{t('login.password')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" aria-describedby="password-guidance" required /></label>
-        <label>{t('account.password.confirm')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></label>
-        <PasswordGuidance password={password} />
-        {error ? <p className="error-banner">{error}</p> : null}
-        <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.register.submit')}</button>
-      </form>
-      <Link to="/login">{t('account.login.link')}</Link>
-    </AuthCard>
-  );
-}
-
-export function VerifyEmailPage() {
-  const t = useTranslation();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [token] = useState(() => new URLSearchParams(location.search).get('token'));
-  const processedToken = useRef<string | null>(null);
-  const [email, setEmail] = useState((location.state as { email?: string } | null)?.email ?? '');
-  const [state, setState] = useState<'waiting' | 'checking' | 'success' | 'error'>(token ? 'checking' : 'waiting');
-  const [message, setMessage] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!location.search) return;
-    navigate('/verify-email', { replace: true, state: location.state });
-  }, [location.search, location.state, navigate]);
-
-  useEffect(() => {
-    if (!token || processedToken.current === token) return;
-    processedToken.current = token;
-    void confirmEmail(token)
-      .then(() => setState('success'))
-      .catch((cause) => {
-        setMessage(apiMessage(t, cause, 'account.verify.failed'));
-        setState('error');
-      });
-  }, [t, token]);
-
-  async function resend(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return;
-    const validationError = emailIssue(t, email);
-    if (validationError) {
-      setMessage(validationError);
-      return;
-    }
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      await resendVerification(email);
-      setMessage(t('account.verify.resent'));
-    } catch (cause) {
-      setMessage(apiMessage(t, cause, 'account.verify.resendFailed'));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <AuthCard>
-      <h2>{t('account.verify.title')}</h2>
-      {state === 'checking' ? <p>{t('account.verify.checking')}</p> : null}
-      {state === 'success' ? <><p className="form-message">{t('account.verify.success')}</p><Link to="/login">{t('account.login.link')}</Link></> : null}
-      {state === 'error' ? <p className="error-banner">{message}</p> : null}
-      {state === 'waiting' || state === 'error' ? (
-        <form className="auth-form" onSubmit={resend} noValidate>
-          <p>{t('account.verify.instructions')}</p>
-          <label>{t('account.email')}<input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
-          <button type="submit" className="secondary-button" disabled={submitting}>{t('account.verify.resend')}</button>
-          {state === 'waiting' && message ? <p className="form-message">{message}</p> : null}
-        </form>
-      ) : null}
-    </AuthCard>
-  );
-}
-
-export function ForgotPasswordPage() {
-  const t = useTranslation();
-  const [email, setEmail] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return;
-    const validationError = emailIssue(t, email);
-    if (validationError) {
-      setMessage(validationError);
-      return;
-    }
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      await requestPasswordReset(email);
-      setMessage(t('account.forgot.sent'));
-    } catch (cause) {
-      setMessage(apiMessage(t, cause, 'account.forgot.failed'));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-  return <AuthCard><h2>{t('account.forgot.title')}</h2><form className="auth-form" onSubmit={submit} noValidate>
-    <label>{t('account.email')}<input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
-    <button className="primary-button" type="submit" disabled={submitting}>{t('account.forgot.submit')}</button>
-    {message ? <p className="form-message">{message}</p> : null}
-  </form><Link to="/login">{t('account.login.link')}</Link></AuthCard>;
-}
-
-export function ResetPasswordPage() {
-  const t = useTranslation();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [token] = useState(() => new URLSearchParams(location.search).get('token'));
-  const [password, setPassword] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [complete, setComplete] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (location.search) navigate('/reset-password', { replace: true });
-  }, [location.search, navigate]);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting || !token) return;
-    if (password !== confirmation) {
-      setError(t('account.password.mismatch'));
-      return;
-    }
-    const passwordValidationError = newPasswordIssue(t, password);
-    if (passwordValidationError) {
-      setError(passwordValidationError);
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      await resetPassword(token, password);
-      setComplete(true);
-    } catch (cause) {
-      setError(apiMessage(t, cause, 'account.reset.failed'));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return <AuthCard><h2>{t('account.reset.title')}</h2>
-    {!token && !complete ? <p className="error-banner">{t('account.reset.missingToken')}</p> : null}
-    {complete ? <><p className="form-message">{t('account.reset.success')}</p><Link to="/login">{t('account.login.link')}</Link></> : null}
-    {token && !complete ? <form className="auth-form" onSubmit={submit} noValidate>
-      <label>{t('login.password')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" aria-describedby="password-guidance" required /></label>
-      <label>{t('account.password.confirm')}<input type="password" minLength={MINIMUM_PASSWORD_CHARACTERS} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></label>
-      <PasswordGuidance password={password} />
-      {error ? <p className="error-banner">{error}</p> : null}
-      <button className="primary-button" type="submit" disabled={submitting}>{t('account.reset.submit')}</button>
-    </form> : null}
-  </AuthCard>;
 }
 
 export function AccountLayout() {
@@ -475,14 +212,17 @@ export function AccountLayout() {
     navigate('/login', { replace: true });
   }
   return <div className="account-shell">
-    <aside className="account-nav">
-      <Link className="brand" to="/"><img className="brand-icon" src="/assets/icon.ico" alt="" /><span>Batch Downloader</span></Link>
+    <aside className="account-nav admin-sidebar">
+      <Link className="brand admin-brand" to="/">
+        <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
+        <h1>{t('app.title')}</h1>
+      </Link>
       <nav>
         <NavLink to="/dashboard" end><Clock3 size={18} />{t('account.nav.dashboard')}</NavLink>
         <NavLink to="/dashboard/bundles"><Boxes size={18} />{t('account.nav.bundles')}</NavLink>
         <NavLink to="/profile"><UserRound size={18} />{t('account.nav.profile')}</NavLink>
       </nav>
-      <button type="button" onClick={signOut}>{t('nav.logout')}</button>
+      <button type="button" onClick={signOut}><LogOut size={18} />{t('nav.logout')}</button>
     </aside>
     <main className="account-content"><Outlet /></main>
   </div>;

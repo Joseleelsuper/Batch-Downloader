@@ -18,7 +18,7 @@ public interface LocaleCatalog {
     /**
      * Consulta el catálogo por su código exacto de idioma.
      *
-     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+     * @param locale Código exacto del idioma solicitado.
      * @return documento disponible, o Optional vacío si el idioma no está publicado.
      */
     Optional<LocaleDocument> findByLocale(String locale);

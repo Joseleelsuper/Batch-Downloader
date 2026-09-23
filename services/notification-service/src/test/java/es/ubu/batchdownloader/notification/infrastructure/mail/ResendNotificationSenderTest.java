@@ -13,6 +13,7 @@ import es.ubu.batchdownloader.notification.application.RetryableNotificationExce
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
 import es.ubu.batchdownloader.notification.config.ResendProperties;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
+import es.ubu.batchdownloader.notification.infrastructure.translation.TranslationCatalogClient;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -27,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
@@ -45,6 +47,7 @@ class ResendNotificationSenderTest {
     private final AtomicReference<String> retryAfter = new AtomicReference<>();
     private final AtomicReference<CapturedRequest> captured = new AtomicReference<>();
     private final AtomicInteger delayMillis = new AtomicInteger();
+    private TranslationCatalogClient translations;
     private HttpServer server;
     /**
      * Emisor aislado para probar el intercambio HTTP.
@@ -60,6 +63,8 @@ class ResendNotificationSenderTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/emails", this::handle);
         server.start();
+        translations = Mockito.mock(TranslationCatalogClient.class);
+        Mockito.when(translations.catalog("es")).thenReturn(catalog("Hola."));
         URI baseUrl = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         sender = sender(baseUrl, Duration.ofSeconds(1));
     }
@@ -78,6 +83,7 @@ class ResendNotificationSenderTest {
      */
     @Test
     void sendsEscapedHtmlAndTextWithStableIdempotency() throws Exception {
+        Mockito.when(translations.catalog("es")).thenReturn(catalog("Hola <Ada & friends>"));
         EmailNotification notification = notification("<Ada & friends>", "a token+with/slashes");
 
         sender.send(notification);
@@ -91,10 +97,11 @@ class ResendNotificationSenderTest {
         assertThat(body.path("to").get(0).asText()).isEqualTo("person@example.com");
         assertThat(body.path("text").asText())
                 .contains("<Ada & friends>")
-                .contains("/verify-email?token=a%20token%2Bwith%2Fslashes");
+                .contains("/login#token=a%20token%2Bwith%2Fslashes");
         assertThat(body.path("html").asText())
                 .contains("&lt;Ada &amp; friends&gt;")
-                .doesNotContain("<Ada & friends>");
+                .doesNotContain("<Ada & friends>")
+                .doesNotContain("<img");
     }
 
     /**
@@ -163,9 +170,8 @@ class ResendNotificationSenderTest {
                 new ResendProperties(
                         URI.create("https://api.resend.com"), "", "",
                         Duration.ofSeconds(1), Duration.ofSeconds(1)),
-                new MailTemplateProperties(
-                        "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com")),
-                new NotificationTokenEnvelope(KEY), mapper);
+                new MailTemplateProperties(URI.create("https://batch.example.com")),
+                new NotificationTokenEnvelope(KEY), translations, mapper);
 
         assertThatThrownBy(() -> disabled.send(notification("Ada", "token")))
                 .isInstanceOf(PermanentNotificationException.class)
@@ -182,13 +188,13 @@ class ResendNotificationSenderTest {
         ResendProperties properties = new ResendProperties(
                 baseUrl, "test-resend-key", "Batch Downloader <no-reply@example.com>",
                 Duration.ofSeconds(1), Duration.ofSeconds(1));
-        MailTemplateProperties mail = new MailTemplateProperties(
-                "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com"));
+        MailTemplateProperties mail = new MailTemplateProperties(URI.create("https://batch.example.com"));
 
         new ApplicationContextRunner()
                 .withBean(ResendProperties.class, () -> properties)
                 .withBean(MailTemplateProperties.class, () -> mail)
                 .withBean(NotificationTokenEnvelope.class, () -> new NotificationTokenEnvelope(KEY))
+                .withBean(TranslationCatalogClient.class, () -> translations)
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(ResendNotificationSender.class)
                 .run(context -> assertThat(context).hasSingleBean(ResendNotificationSender.class));
@@ -206,9 +212,8 @@ class ResendNotificationSenderTest {
                 new ResendProperties(
                         baseUrl, "test-resend-key", "Batch Downloader <no-reply@example.com>",
                         Duration.ofSeconds(1), requestTimeout),
-                new MailTemplateProperties(
-                        "smtp@example.com", "Europe/Madrid", URI.create("https://batch.example.com")),
-                new NotificationTokenEnvelope(KEY), mapper);
+                new MailTemplateProperties(URI.create("https://batch.example.com")),
+                new NotificationTokenEnvelope(KEY), translations, mapper);
     }
 
     /**
@@ -224,9 +229,21 @@ class ResendNotificationSenderTest {
                 : new NotificationTokenEnvelope(KEY).encrypt(token);
         return new EmailNotification(
                 UUID.randomUUID(), Instant.parse("2026-08-08T10:00:00Z"),
-                UUID.randomUUID().toString(), null, "person@example.com",
-                EmailNotification.Template.EMAIL_VERIFICATION,
-                Map.of("username", username, "token", envelope));
+                UUID.randomUUID().toString(), null, "person@example.com", "es",
+                EmailNotification.Template.MAGIC_LINK,
+                Map.of("username", username, "token", envelope, "expiresInMinutes", 15));
+    }
+
+    private static Map<String, String> catalog(String greeting) {
+        return Map.of(
+                "email.magicLink.subject", "Inicia sesión en Batch Downloader",
+                "email.magicLink.greeting", greeting,
+                "email.magicLink.intro", "Haz",
+                "email.magicLink.linkText", "click aquí",
+                "email.magicLink.linkSuffix", "para iniciar sesión en Batch Downloader.",
+                "email.magicLink.expiry", "Tendrás {minutes}min para entrar.",
+                "email.magicLink.doNotShare", "No lo compartas con nadie.",
+                "email.magicLink.wrongRecipient", "Si no conoces esta web, alguien puso mal su correo. Puedes ignorar este mensaje.");
     }
 
     /**

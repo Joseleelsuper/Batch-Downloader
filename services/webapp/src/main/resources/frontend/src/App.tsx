@@ -1,4 +1,5 @@
 import {
+  BookOpenText,
   BrainCircuit,
   Boxes,
   Globe2,
@@ -60,29 +61,13 @@ const DashboardPage = lazyNamed(
   () => import('./pages/account/AccountPages'),
   'DashboardPage',
 );
-const ForgotPasswordPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
-  'ForgotPasswordPage',
-);
 const ProfilePage = lazyNamed(
   () => import('./pages/account/AccountPages'),
   'ProfilePage',
 );
-const RegisterPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
-  'RegisterPage',
-);
-const ResetPasswordPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
-  'ResetPasswordPage',
-);
 const UserLoginPage = lazyNamed(
   () => import('./pages/account/AccountPages'),
   'UserLoginPage',
-);
-const VerifyEmailPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
-  'VerifyEmailPage',
 );
 
 export default function App() {
@@ -106,10 +91,6 @@ function AppRoutes() {
           <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
           <Route path="bundles/:slug" element={<BundleDetailPage />} />
           <Route path="login" element={<UserLoginPage />} />
-          <Route path="register" element={<RegisterPage />} />
-          <Route path="verify-email" element={<VerifyEmailPage />} />
-          <Route path="forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="error" element={<PublicErrorPage />} />
           <Route path="terms" element={<LegalPage kind="terms" />} />
           <Route path="privacy" element={<LegalPage kind="privacy" />} />
@@ -233,7 +214,6 @@ function Footer() {
           <Link to="/">{t('nav.home')}</Link>
           <Link to="/catalog">{t('nav.catalog')}</Link>
           <Link to="/login">{t('footer.login')}</Link>
-          <Link to="/register">{t('footer.register')}</Link>
         </nav>
         <nav className="site-footer-column" aria-labelledby="footer-legal-title">
           <h2 id="footer-legal-title">{t('footer.legal')}</h2>
@@ -250,9 +230,13 @@ function Footer() {
             <Github aria-hidden="true" />
             <span>{t('footer.github')}</span>
           </a>
+          <a href="https://github.com/Joseleelsuper/Batch-Downloader-Memoria/releases/latest" target="_blank" rel="noreferrer">
+            <BookOpenText aria-hidden="true" />
+            <span>{t('footer.memory')}</span>
+          </a>
         </section>
       </div>
-      <p className="site-footer-meta">Batch Downloader MVP</p>
+      <p className="site-footer-meta">Batch Downloader</p>
     </footer>
   );
 }

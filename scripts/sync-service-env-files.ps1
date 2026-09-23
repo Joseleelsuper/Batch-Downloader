@@ -44,9 +44,9 @@ function Test-SensitiveSetting {
         [AllowEmptyString()][string]$ExampleValue
     )
 
-    # PASSWORD_RESET_TTL describe una duracion, no una credencial. Se consideran
+    # Las duraciones de autenticacion no son credenciales. Se consideran
     # sensibles las contrasenas terminales/hashes y los tokens o claves reales.
-    $sensitiveName = $Name -match "(?i)(PASSWORD$|PASSWORD_HASH$|PASS$|SECRET|(^|_)TOKEN($|_)|API_KEY|ACCESS_KEY|PRIVATE_KEY|SIGNING_KEY|ADMIN_(EMAIL|USERNAME|PASSWORD)|SMTP_USERNAME)"
+    $sensitiveName = $Name -match "(?i)(PASSWORD$|PASSWORD_HASH$|PASS$|SECRET|(^|_)TOKEN($|_)|API_KEY|ACCESS_KEY|PRIVATE_KEY|SIGNING_KEY|ADMIN_(EMAIL|USERNAME|PASSWORD))"
     $placeholderValue = $ExampleValue -match "(?i)(change[_-]?me|replace-with|your[_-])"
     return $sensitiveName -or $placeholderValue
 }

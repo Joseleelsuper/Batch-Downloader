@@ -47,6 +47,7 @@ public class CatalogStatisticsRepository {
      * @return estadísticas públicas sin contar de nuevo cada aplicación.
      */
     public CatalogStatsResponse stats() {
+        ensureCounterRow();
         StatsSnapshot snapshot = jdbc.queryForObject("""
                 SELECT total_count, available_count, review_count, missing_count
                 FROM catalog_counters
@@ -71,6 +72,7 @@ public class CatalogStatisticsRepository {
      * @return token textual de versión y cantidades.
      */
     public String cacheVersion() {
+        ensureCounterRow();
         return jdbc.queryForObject(
                 """
                 SELECT CONCAT(version, ':', total_count, ':', available_count, ':', review_count, ':', missing_count)
@@ -79,6 +81,41 @@ public class CatalogStatisticsRepository {
                 """,
                 String.class,
                 1);
+    }
+
+    /**
+     * Restaura el singleton vacío después de una limpieza de datos que conserve el esquema.
+     *
+     * <p>Las migraciones lo crean en instalaciones normales, pero el catálogo debe seguir
+     * sirviendo respuestas vacías si se eliminan sus filas operativas durante un reinicio.
+     */
+    private void ensureCounterRow() {
+        int inserted = jdbc.update("""
+                INSERT IGNORE INTO catalog_counters (
+                    id, total_count, available_count, review_count, missing_count, version, updated_at
+                ) VALUES (1, 0, 0, 0, 0, 0, UTC_TIMESTAMP(6))
+                """);
+        if (inserted > 0) {
+            jdbc.update("""
+                    UPDATE catalog_counters
+                    SET total_count = (SELECT COUNT(*) FROM software_apps),
+                        available_count = (
+                            SELECT COALESCE(SUM(catalog_status = 'available'), 0)
+                            FROM software_apps
+                        ),
+                        review_count = (
+                            SELECT COALESCE(SUM(catalog_status = 'review'), 0)
+                            FROM software_apps
+                        ),
+                        missing_count = (
+                            SELECT COALESCE(SUM(catalog_status = 'missing'), 0)
+                            FROM software_apps
+                        ),
+                        version = version + 1,
+                        updated_at = UTC_TIMESTAMP(6)
+                    WHERE id = 1
+                    """);
+        }
     }
 
     /**

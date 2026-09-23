@@ -163,9 +163,6 @@ public class DownloadJobService {
      * @param selection Aplicaciones, plataformas, fuente exacta y destino Linux de la misma
      *     solicitud.
      *
-     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
-     *     solo para cuentas autenticadas.
-     *
      * @return vista inicial del trabajo admitido.
      * @throws es.ubu.batchdownloader.common.BadRequestException si la selección o el destino no son
      *     válidos o exceden el máximo.
@@ -180,7 +177,7 @@ public class DownloadJobService {
      *     disponible o no se admite ninguna aplicación.
      */
     @Transactional
-    public DownloadJobView create(RequestOwner owner, DownloadSelection selection, boolean notifyWhenReady) {
+    public DownloadJobView create(RequestOwner owner, DownloadSelection selection) {
         LinuxTarget target = LinuxTarget.optional(selection.linuxTarget(), selection.targetArchitecture(), selection.operatingSystems());
         LinkedHashSet<UUID> appIds = normalizedAppIds(selection);
         validateAppSelection(appIds, selection);
@@ -200,7 +197,7 @@ public class DownloadJobService {
                     "Ninguna de las aplicaciones seleccionadas tiene un instalador o una página oficial segura.");
         }
         return persistJob(owner, items, new PersistJobContext(
-                List.copyOf(appIds), originalAppIds, omittedCount, notifyWhenReady, now, target));
+                List.copyOf(appIds), originalAppIds, omittedCount, now, target));
     }
 
     private void validatePreviewSelection(DownloadSelection selection, LinuxTarget target) {
@@ -349,7 +346,6 @@ public class DownloadJobService {
                 items,
                 persisted.appIds().size(),
                 persisted.omittedCount(),
-                persisted.notifyWhenReady() && owner.authenticated(),
                 persisted.now(),
                 persisted.now().plus(limits.zipRetention())));
         events.jobRequested(job);
@@ -369,7 +365,6 @@ public class DownloadJobService {
             List<UUID> appIds,
             List<UUID> originalAppIds,
             int omittedCount,
-            boolean notifyWhenReady,
             Instant now,
             LinuxTarget target) {}
 

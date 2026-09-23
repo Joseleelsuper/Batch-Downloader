@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Expone identidad, correo, rol y preferencias de una cuenta sin transportar contraseña ni su hash.
+ * Expone identidad, correo y rol de una cuenta sin transportar contraseña ni su hash.
  *
  * @param id UUID estable del agregado que se consulta o reconstruye.
  * @param username Nombre visible de la cuenta, distinto de su UUID de identidad.
@@ -14,7 +14,6 @@ import java.util.UUID;
  *     normalizada.
  * @param emailVerified Indica que se ha confirmado el control del correo de la cuenta.
  * @param role Rol USER o ADMIN que determina el acceso permitido.
- * @param notifyOnJobCompletion Preferencia vigente de recibir correo cuando termina una descarga.
  * @param createdAt Instante de creación original del agregado.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.identity.domain.UserAccount
@@ -29,11 +28,10 @@ public record IdentityView(
         String email,
         boolean emailVerified,
         UserRole role,
-        boolean notifyOnJobCompletion,
         Instant createdAt) {
 
     /**
-     * Proyecta los campos de identidad y preferencias que pueden viajar en respuestas de cuenta.
+     * Proyecta los campos de identidad que pueden viajar en respuestas de cuenta.
      *
      * @param user Cuenta destinataria de la consulta, token, evento o proyección.
      * @return vista sin credenciales del agregado.
@@ -41,6 +39,6 @@ public record IdentityView(
     public static IdentityView from(UserAccount user) {
         return new IdentityView(
                 user.id(), user.username(), user.email(), user.emailVerified(), user.role(),
-                user.notifyOnJobCompletion(), user.createdAt());
+                user.createdAt());
     }
 }

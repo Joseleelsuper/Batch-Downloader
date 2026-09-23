@@ -44,14 +44,12 @@ class DownloadJobTest {
                 List.of(DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW)),
                 2,
                 1,
-                true,
                 NOW,
                 NOW.plusSeconds(3600));
 
         assertThat(job.requestedCount()).isEqualTo(2);
         assertThat(job.acceptedCount()).isOne();
         assertThat(job.omittedCount()).isOne();
-        assertThat(job.notifyWhenReady()).isTrue();
         assertThat(job.anonymousOwnerHash()).isEqualTo("browser-hash");
     }
 
@@ -68,7 +66,6 @@ class DownloadJobTest {
                 List.of(DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW)),
                 1,
                 0,
-                false,
                 NOW,
                 NOW.plusSeconds(3600));
 
@@ -91,7 +88,6 @@ class DownloadJobTest {
                         List.of(DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW)),
                         1,
                         0,
-                        false,
                         NOW,
                         NOW.plusSeconds(3600)))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -113,7 +109,6 @@ class DownloadJobTest {
                 List.of(first, second),
                 2,
                 0,
-                false,
                 NOW,
                 NOW.plusSeconds(3600));
 
@@ -138,7 +133,7 @@ class DownloadJobTest {
     void persistsArtifactMetadataAndResetsItemsWhenCapacityDefersTheJob() {
         DownloadJobItem item = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW);
         DownloadJob job = DownloadJob.queue(
-                UUID.randomUUID(), null, null, List.of(item), 1, 0, false,
+                UUID.randomUUID(), null, null, List.of(item), 1, 0,
                 NOW, NOW.plusSeconds(3600));
         job.updateItem(
                 item.id(), DownloadItemStatus.COMPLETED, 128,

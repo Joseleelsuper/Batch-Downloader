@@ -58,57 +58,19 @@ class NotificationRequestedMessageMapperTest {
     }
 
     /**
-     * Comprueba que un aviso canónico de ZIP disponible conserva identificadores y parámetros al
-     * convertirse al dominio.
-     */
-    @Test
-    void mapsTheCanonicalDownloadReadyRequest() {
-        NotificationRequestedMessage message = message(
-                "DOWNLOAD_READY",
-                Map.of(
-                        "jobId", "84338aa2-b2f0-47d1-9054-5760ac883d74",
-                        "expiresAt", "2026-07-12T10:00:00Z"));
-
-        EmailNotification result = mapper.map(message, ROUTING_KEY);
-
-        assertThat(result.eventId()).isEqualTo(EVENT_ID);
-        assertThat(result.template()).isEqualTo(EmailNotification.Template.DOWNLOAD_READY);
-        assertThat(result.recipient()).isEqualTo("persona@example.com");
-        assertThat(result.parameters()).doesNotContainKey("downloadUrl");
-    }
-
-    /**
      * Comprueba que las plantillas de identidad publicadas por Core aceptan sus parámetros y sobres
      * cifrados.
      */
     @Test
     void supportsTheIdentityTemplatesPublishedByCoreApi() {
         NotificationRequestedMessage message = message(
-                "EMAIL_VERIFICATION",
+                "MAGIC_LINK",
                 Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
 
         EmailNotification result = mapper.map(message, ROUTING_KEY);
 
-        assertThat(result.template()).isEqualTo(EmailNotification.Template.EMAIL_VERIFICATION);
+        assertThat(result.template()).isEqualTo(EmailNotification.Template.MAGIC_LINK);
         assertThat(result.requiredParameter("username")).isEqualTo("Ada");
-    }
-
-    /**
-     * Comprueba la compatibilidad del alias errorCode en avisos de fallo.
-     */
-    @Test
-    void acceptsErrorCodeAsTheFailureCodeFallback() {
-        NotificationRequestedMessage message = message(
-                "DOWNLOAD_FAILED",
-                Map.of(
-                        "jobId", "84338aa2-b2f0-47d1-9054-5760ac883d74",
-                        "errorCode", "REMOTE_DOWNLOAD_FAILED",
-                        "failureMessage", "No se pudo recuperar un instalador"));
-
-        EmailNotification result = mapper.map(message, ROUTING_KEY);
-
-        assertThat(result.template()).isEqualTo(EmailNotification.Template.DOWNLOAD_FAILED);
-        assertThat(result.parameters()).containsEntry("errorCode", "REMOTE_DOWNLOAD_FAILED");
     }
 
     /**
@@ -117,7 +79,7 @@ class NotificationRequestedMessageMapperTest {
     @Test
     void rejectsUnsupportedSchemaVersions() {
         NotificationRequestedMessage original = message(
-                "PASSWORD_RESET",
+                "MAGIC_LINK",
                 Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
         NotificationRequestedMessage unsupported = new NotificationRequestedMessage(
                 original.eventId(),
@@ -129,7 +91,7 @@ class NotificationRequestedMessageMapperTest {
                 original.payload());
 
         assertThatThrownBy(() -> mapper.map(unsupported, ROUTING_KEY))
-                .isInstanceOf(InvalidDownloadEventException.class)
+                .isInstanceOf(InvalidNotificationEventException.class)
                 .hasMessageContaining("Versión");
     }
 
@@ -139,11 +101,11 @@ class NotificationRequestedMessageMapperTest {
     @Test
     void rejectsARoutingKeyThatDoesNotMatchTheContract() {
         NotificationRequestedMessage message = message(
-                "PASSWORD_RESET",
+                "MAGIC_LINK",
                 Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
 
-        assertThatThrownBy(() -> mapper.map(message, "batch.events.v1.download.job.ready"))
-                .isInstanceOf(InvalidDownloadEventException.class)
+        assertThatThrownBy(() -> mapper.map(message, "batch.events.v1.unrelated"))
+                .isInstanceOf(InvalidNotificationEventException.class)
                 .hasMessageContaining("Routing key");
     }
 
@@ -153,11 +115,11 @@ class NotificationRequestedMessageMapperTest {
     @Test
     void rejectsNonScalarParameters() {
         NotificationRequestedMessage message = message(
-                "PASSWORD_RESET",
+                "MAGIC_LINK",
                 Map.of("username", "Ada", "token", Map.of("nested", "invalid")));
 
         assertThatThrownBy(() -> mapper.map(message, ROUTING_KEY))
-                .isInstanceOf(InvalidDownloadEventException.class)
+                .isInstanceOf(InvalidNotificationEventException.class)
                 .hasMessageContaining("string, number o boolean");
     }
 
@@ -168,11 +130,11 @@ class NotificationRequestedMessageMapperTest {
     @Test
     void rejectsPlaintextIdentityTokens() {
         NotificationRequestedMessage message = message(
-                "PASSWORD_RESET",
+                "MAGIC_LINK",
                 Map.of("username", "Ada", "token", "legacy-plaintext-token"));
 
         assertThatThrownBy(() -> mapper.map(message, ROUTING_KEY))
-                .isInstanceOf(InvalidDownloadEventException.class)
+                .isInstanceOf(InvalidNotificationEventException.class)
                 .hasMessageContaining("enc:v1");
     }
 
@@ -190,8 +152,8 @@ class NotificationRequestedMessageMapperTest {
                 EmailNotification.SCHEMA_VERSION,
                 OCCURRED_AT,
                 "correlation-123",
-                "download-ready-event-456",
+                "magic-link-event-456",
                 new NotificationRequestedMessage.Payload(
-                        "persona@example.com", template, parameters));
+                        "persona@example.com", "es", template, parameters));
     }
 }

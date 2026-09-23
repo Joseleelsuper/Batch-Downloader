@@ -359,7 +359,7 @@ class SearcherWorker:
         app: WinstallApp,
         payload: dict[str, Any],
     ) -> int:
-        """Encola el payload, guarda snapshot y devuelve profundidad con reintentos de pool.
+        """Encola el payload y devuelve profundidad con reintentos de pool.
 
         Args:
             runtime: Estado compartido de la ejecución.
@@ -381,15 +381,6 @@ class SearcherWorker:
                 depth = await pipeline.queue_depth(
                     QUEUE_SEARCHER_FILTER,
                     run_id=runtime.run_id,
-                )
-                await pipeline.save_snapshot(
-                    run_id=runtime.run_id,
-                    worker_id=self.worker_id,
-                    stage="searcher",
-                    package_id=app.package_id,
-                    app_name=app.name,
-                    url=payload["winstall_url"],
-                    html=None,
                 )
                 await session.commit()
                 return depth

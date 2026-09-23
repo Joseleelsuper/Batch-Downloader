@@ -1,14 +1,14 @@
 {
   "account.adminLogin.title": "Acceso de administración",
   "account.adminLogin.link": "Acceso de administración",
-  "account.login.invalid": "No se pudo iniciar sesión.",
-  "account.login.link": "Volver al inicio de sesión",
-  "account.login.title": "Inicia sesión",
+  "account.magic.title": "Inicia sesión",
+  "account.magic.submit": "Enviar enlace de acceso",
+  "account.magic.sent": "Revisa tu bandeja de entrada",
+  "account.magic.failed": "No se pudo enviar el enlace de acceso.",
   "account.userLogin.link": "Acceso para usuarios",
   "login.invalid": "Credenciales inválidas.",
   "login.checkingSession": "Comprobando sesión...",
   "login.password": "Contraseña",
   "login.submit": "Entrar",
-  "login.title": "Acceso administrador",
   "login.username": "Usuario"
 }

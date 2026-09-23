@@ -95,11 +95,6 @@ class DownloadJobEntity {
     @Column(name = "cancellation_requested", nullable = false)
     private boolean cancellationRequested;
     /**
-     * Estado {@code notifyWhenReady} mantenido por {@code DownloadJobEntity}.
-     */
-    @Column(name = "notify_when_ready", nullable = false)
-    private boolean notifyWhenReady;
-    /**
      * Estado {@code requestedCount} mantenido por {@code DownloadJobEntity}.
      */
     @Column(name = "requested_count", nullable = false)
@@ -178,7 +173,6 @@ class DownloadJobEntity {
         waitReason = job.waitReason();
         retryAt = job.retryAt();
         cancellationRequested = job.cancellationRequested();
-        notifyWhenReady = job.notifyWhenReady();
         requestedCount = job.requestedCount();
         acceptedCount = job.acceptedCount();
         omittedCount = job.omittedCount();
@@ -218,7 +212,7 @@ class DownloadJobEntity {
         return DownloadJob.rehydrate(
                 id, ownerId, anonymousOwnerHash, anonymousIpHash,
                 status, progress, objectKey, artifactSizeBytes, artifactSha256, waitReason, retryAt,
-                failureCode, cancellationRequested, notifyWhenReady,
+                failureCode, cancellationRequested,
                 requestedCount, acceptedCount, omittedCount, createdAt, updatedAt, expiresAt,
                 items.stream().map(DownloadJobItemEntity::toDomain).toList(), version);
     }

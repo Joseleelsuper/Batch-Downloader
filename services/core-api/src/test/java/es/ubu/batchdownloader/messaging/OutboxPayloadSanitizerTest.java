@@ -12,7 +12,7 @@ class OutboxPayloadSanitizerTest {
     @Test
     void purgesAuthenticationDeliveryCiphertextAfterPublication() throws Exception {
         String payload = """
-                {"payload":{"template":"EMAIL_VERIFICATION","recipient":"person@example.com",
+                {"payload":{"template":"MAGIC_LINK","recipient":"person@example.com",
                 "parameters":{"username":"person","token":"enc:v1:sensitive"}}}
                 """;
 
@@ -24,10 +24,4 @@ class OutboxPayloadSanitizerTest {
         assertThat(sanitized.toString()).doesNotContain("enc:v1:sensitive");
     }
 
-    @Test
-    void leavesDownloadAndUnrelatedEventsUntouched() {
-        String download = "{\"payload\":{\"template\":\"DOWNLOAD_READY\",\"parameters\":{\"token\":\"legacy\"}}}";
-        assertThat(sanitizer.afterPublish("notification.email.requested", download)).isEqualTo(download);
-        assertThat(sanitizer.afterPublish("download.job.requested", download)).isEqualTo(download);
-    }
 }

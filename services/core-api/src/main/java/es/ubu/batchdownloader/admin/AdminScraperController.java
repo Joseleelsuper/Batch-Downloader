@@ -4,13 +4,11 @@ import es.ubu.batchdownloader.admin.AdminAuditDtos.AdminAuditItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperEvent;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperCommandRequest;
-import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperMetricItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueMaintenanceResult;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueState;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunRequest;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunRequestResponse;
-import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperSnapshotItem;
 import jakarta.validation.Valid;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import java.util.List;
@@ -143,29 +141,7 @@ public class AdminScraperController {
     }
 
     /**
-     * Consulta mediciones recientes de las etapas del scraper.
-     *
-     * @param limit Máximo solicitado de registros; el repositorio aplica el límite propio de cada
-     *     consulta.
-     * @return proyección administrativa del estado persistido.
-     */
-    @GetMapping("/api/v1/admin/scraper/metrics")
-    public List<ScraperMetricItem> metrics(@RequestParam(defaultValue = "60") int limit) {
-        return scraper.metrics(limit);
-    }
-
-    /**
-     * Consulta las instantáneas persistidas de sincronización de Winstall.
-     *
-     * @return proyección administrativa del estado persistido.
-     */
-    @GetMapping("/api/v1/admin/scraper/snapshots")
-    public List<ScraperSnapshotItem> snapshots() {
-        return scraper.snapshots();
-    }
-
-    /**
-     * Reúne una instantánea administrativa con versión para actualizar la interfaz.
+     * Reúne el estado administrativo con versión para actualizar la interfaz.
      *
      * @return proyección administrativa del estado persistido.
      */

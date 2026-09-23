@@ -8,6 +8,7 @@ import es.ubu.batchdownloader.notification.application.RetryableNotificationExce
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
 import es.ubu.batchdownloader.notification.config.ResendProperties;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
+import es.ubu.batchdownloader.notification.infrastructure.translation.TranslationCatalogClient;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -23,7 +24,7 @@ import org.springframework.web.util.HtmlUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /**
- * Envía por Resend los correos de verificación y restablecimiento de contraseña.
+ * Envía por Resend los enlaces mágicos de acceso.
  *
  * Descifra el token únicamente al componer el enlace y usa eventId como clave de idempotencia.
  * Los estados 429 y 5xx admiten reintento; otros rechazos y errores de contenido son permanentes.
@@ -40,6 +41,7 @@ public class ResendNotificationSender {
     private final ResendProperties properties;
     private final MailTemplateProperties mail;
     private final NotificationTokenEnvelope tokens;
+    private final TranslationCatalogClient translations;
     private final ObjectMapper mapper;
     private final HttpClient client;
 
@@ -49,8 +51,9 @@ public class ResendNotificationSender {
      * acotado.
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
-     * @param mail Base pública utilizada para construir enlaces de verificación y restablecimiento.
+     * @param mail Base pública utilizada para construir el enlace mágico de acceso.
      * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
+     * @param translations Cliente interno de catálogos de correo.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      */
     @Autowired
@@ -58,8 +61,9 @@ public class ResendNotificationSender {
             ResendProperties properties,
             MailTemplateProperties mail,
             NotificationTokenEnvelope tokens,
+            TranslationCatalogClient translations,
             ObjectMapper mapper) {
-        this(properties, mail, tokens, mapper, HttpClient.newBuilder()
+        this(properties, mail, tokens, translations, mapper, HttpClient.newBuilder()
                 .connectTimeout(properties.connectTimeout())
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build());
@@ -71,8 +75,9 @@ public class ResendNotificationSender {
      * acotado.
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
-     * @param mail Base pública utilizada para construir enlaces de verificación y restablecimiento.
+     * @param mail Base pública utilizada para construir el enlace mágico de acceso.
      * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
+     * @param translations Cliente interno de catálogos de correo.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      * @param client Cliente HTTP inyectable para controlar respuestas y fallos de transporte.
      */
@@ -80,11 +85,13 @@ public class ResendNotificationSender {
             ResendProperties properties,
             MailTemplateProperties mail,
             NotificationTokenEnvelope tokens,
+            TranslationCatalogClient translations,
             ObjectMapper mapper,
             HttpClient client) {
         this.properties = properties;
         this.mail = mail;
         this.tokens = tokens;
+        this.translations = translations;
         this.mapper = mapper;
         this.client = client;
     }
@@ -110,7 +117,7 @@ public class ResendNotificationSender {
         Rendered rendered;
         try {
             rendered = render(notification);
-        } catch (PermanentNotificationException exception) {
+        } catch (PermanentNotificationException | RetryableNotificationException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             throw new PermanentNotificationException("resend_notification_invalid");
@@ -153,13 +160,13 @@ public class ResendNotificationSender {
     }
 
     /**
-     * Descifra el token y compone versiones de texto y HTML de la acción de identidad, escapando el
+     * Descifra el token y compone versiones de texto y HTML del correo localizado, escapando el
      * HTML.
      *
      * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
      *     el envío.
      *
-     * @return asunto y cuerpos del correo; nunca una plantilla de descarga.
+     * @return asunto y cuerpos del correo de acceso.
      * @throws es.ubu.batchdownloader.notification.application.PermanentNotificationException si la
      *     plantilla no pertenece a identidad.
      *
@@ -167,50 +174,59 @@ public class ResendNotificationSender {
      *     descifrarse.
      */
     private Rendered render(EmailNotification notification) {
-        String username = notification.requiredParameter("username");
         String token = tokens.decrypt(notification.requiredParameter("token"));
-        String path;
-        String subject;
-        String action;
-        String ignored;
+        Map<String, String> catalog = translations.catalog(notification.locale());
         switch (notification.template()) {
-            case EMAIL_VERIFICATION -> {
-                path = "verify-email";
-                subject = "Confirma tu correo de Batch Downloader";
-                action = "Confirmar mi correo";
-                ignored = "Si no has creado esta cuenta, puedes ignorar este mensaje.";
-            }
-            case PASSWORD_RESET -> {
-                path = "reset-password";
-                subject = "Restablece tu contraseña de Batch Downloader";
-                action = "Elegir una nueva contraseña";
-                ignored = "Si no has solicitado el cambio, puedes ignorar este mensaje.";
-            }
+            case MAGIC_LINK -> { }
             default -> throw new PermanentNotificationException("resend_template_not_supported");
         }
-        String url = actionUrl(path, token);
-        String text = "Hola, " + username + ":\n\n" + action + ":\n" + url + "\n\n" + ignored;
-        String html = "<p>Hola, " + HtmlUtils.htmlEscape(username) + ":</p>"
-                + "<p><a href=\"" + HtmlUtils.htmlEscape(url) + "\">"
-                + HtmlUtils.htmlEscape(action) + "</a></p><p>"
-                + HtmlUtils.htmlEscape(ignored) + "</p>";
-        return new Rendered(subject, text, html);
+        String url = actionUrl("login", token);
+        String greeting = message(catalog, "email.magicLink.greeting");
+        String intro = message(catalog, "email.magicLink.intro");
+        String linkText = message(catalog, "email.magicLink.linkText");
+        String linkSuffix = message(catalog, "email.magicLink.linkSuffix");
+        String expiry = message(catalog, "email.magicLink.expiry")
+                .replace("{minutes}", Long.toString(notification.expiryMinutes()));
+        String doNotShare = message(catalog, "email.magicLink.doNotShare");
+        String wrongRecipient = message(catalog, "email.magicLink.wrongRecipient");
+        String text = greeting + "\n\n"
+                + intro + " " + linkText + " (" + url + ") " + linkSuffix
+                + "\n\n" + expiry + " " + doNotShare
+                + "\n\n" + wrongRecipient;
+        String html = "<div style=\"font-family:Arial,sans-serif;line-height:1.5;max-width:600px;"
+                + "margin:0 auto;padding:24px\">"
+                + "<p>" + HtmlUtils.htmlEscape(greeting) + "</p>"
+                + "<p>" + HtmlUtils.htmlEscape(intro) + " <a href=\""
+                + HtmlUtils.htmlEscape(url) + "\">" + HtmlUtils.htmlEscape(linkText)
+                + "</a> " + HtmlUtils.htmlEscape(linkSuffix) + "</p>"
+                + "<p>" + HtmlUtils.htmlEscape(expiry) + " "
+                + HtmlUtils.htmlEscape(doNotShare) + "</p>"
+                + "<p>" + HtmlUtils.htmlEscape(wrongRecipient) + "</p></div>";
+        return new Rendered(message(catalog, "email.magicLink.subject"), text, html);
+    }
+
+    private String message(Map<String, String> catalog, String key) {
+        String value = catalog.get(key);
+        if (value == null || value.isBlank()) {
+            throw new PermanentNotificationException("resend_translation_missing");
+        }
+        return value;
     }
 
     /**
-     * Construye un enlace público de identidad con el token codificado como parámetro de consulta.
+     * Construye un enlace público de identidad con el token codificado en el fragmento.
      *
      * @param path Segmento de la pantalla de identidad que recibirá el token.
      * @param token Token descifrado de un solo uso; solo se incorpora al enlace enviado al
      *     destinatario.
      *
-     * @return URI de la pantalla de verificación o restablecimiento.
+     * @return URI de la pantalla de acceso que recibirá el token.
      */
     private String actionUrl(String path, String token) {
         String encodedToken = URLEncoder.encode(token, StandardCharsets.UTF_8).replace("+", "%20");
         return UriComponentsBuilder.fromUri(mail.publicBaseUrl())
                 .pathSegment(path)
-                .queryParam("token", encodedToken)
+                .fragment("token=" + encodedToken)
                 .build(true)
                 .toUriString();
     }

@@ -8,17 +8,24 @@ export function ScraperQueues({ queues }: Readonly<{ queues: ScraperQueueState[]
   const filterScraper = queues.find((queue) => queue.queue === 'filter_scraper');
   const scraperSoFilter = queues.find((queue) => queue.queue === 'scraper_so_filter');
   const soFilterDescriptor = queues.find((queue) => queue.queue === 'so_filter_descriptor');
+  const stages = [
+    [t('admin.scraper.stage.searcher'), searcherFilter?.queued ?? 0],
+    [t('admin.scraper.stage.filter'), filterScraper?.queued ?? 0],
+    [t('admin.scraper.stage.scraper'), filterScraper?.inProgress ?? 0],
+    [t('admin.scraper.stage.soFilter'), scraperSoFilter?.inProgress ?? 0],
+    [t('admin.scraper.stage.descriptor'), soFilterDescriptor?.inProgress ?? 0],
+  ] as const;
   return (
     <div className="scraper-pipeline admin-card">
-      <PipelineStage title={t('admin.scraper.stage.searcher')} count={searcherFilter?.queued ?? 0} />
-      <QueueColumn title={t('admin.scraper.queue.searcherFilter')} queue={searcherFilter} />
-      <PipelineStage title={t('admin.scraper.stage.filter')} count={filterScraper?.queued ?? 0} />
-      <QueueColumn title={t('admin.scraper.queue.filterScraper')} queue={filterScraper} />
-      <PipelineStage title={t('admin.scraper.stage.scraper')} count={filterScraper?.inProgress ?? 0} />
-      <QueueColumn title={t('admin.scraper.queue.scraperSoFilter')} queue={scraperSoFilter} />
-      <PipelineStage title={t('admin.scraper.stage.soFilter')} count={scraperSoFilter?.inProgress ?? 0} />
-      <QueueColumn title={t('admin.scraper.queue.soFilterDescriptor')} queue={soFilterDescriptor} />
-      <PipelineStage title={t('admin.scraper.stage.descriptor')} count={soFilterDescriptor?.inProgress ?? 0} />
+      <div className="pipeline-stages">
+        {stages.map(([title, count]) => <PipelineStage key={title} title={title} count={count} />)}
+      </div>
+      <div className="pipeline-queues">
+        <QueueColumn title={t('admin.scraper.queue.searcherFilter')} queue={searcherFilter} />
+        <QueueColumn title={t('admin.scraper.queue.filterScraper')} queue={filterScraper} />
+        <QueueColumn title={t('admin.scraper.queue.scraperSoFilter')} queue={scraperSoFilter} />
+        <QueueColumn title={t('admin.scraper.queue.soFilterDescriptor')} queue={soFilterDescriptor} />
+      </div>
     </div>
   );
 }

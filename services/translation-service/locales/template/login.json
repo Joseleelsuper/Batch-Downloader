@@ -1,14 +1,14 @@
 {
   "account.adminLogin.title": "",
   "account.adminLogin.link": "",
-  "account.login.invalid": "",
-  "account.login.link": "",
-  "account.login.title": "",
+  "account.magic.title": "",
+  "account.magic.submit": "",
+  "account.magic.sent": "",
+  "account.magic.failed": "",
   "account.userLogin.link": "",
   "login.checkingSession": "",
   "login.invalid": "",
   "login.password": "",
   "login.submit": "",
-  "login.title": "",
   "login.username": ""
 }

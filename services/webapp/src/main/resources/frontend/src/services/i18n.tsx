@@ -25,15 +25,12 @@ import catalogPage from '@batch-locales/es/catalog.json';
 import downloads from '@batch-locales/es/downloads.json';
 import linuxInstaller from '@batch-locales/es/linux-installer.json';
 import facetDirectory from '@batch-locales/es/facet-directory.json';
-import forgotPassword from '@batch-locales/es/forgot-password.json';
 import home from '@batch-locales/es/home.json';
 import legal from '@batch-locales/es/legal.json';
 import login from '@batch-locales/es/login.json';
+import magicLinkEmail from '@batch-locales/es/magic-link-email.json';
 import errorPage from '@batch-locales/es/error.json';
-import register from '@batch-locales/es/register.json';
-import resetPassword from '@batch-locales/es/reset-password.json';
 import shared from '@batch-locales/es/shared.json';
-import verifyEmail from '@batch-locales/es/verify-email.json';
 
 const bundledMessages = {
   ...shared,
@@ -47,10 +44,7 @@ const bundledMessages = {
   ...linuxInstaller,
   ...authenticationShared,
   ...login,
-  ...register,
-  ...verifyEmail,
-  ...forgotPassword,
-  ...resetPassword,
+  ...magicLinkEmail,
   ...accountLayout,
   ...accountDashboard,
   ...accountBundles,
@@ -73,11 +67,13 @@ type TranslationCatalog = Readonly<Record<TranslationKey, string>>;
 type LocaleFetcher = typeof fetch;
 
 interface StoredLocale {
+  locale?: string;
   etag?: string;
   messages: Partial<Record<TranslationKey, string>>;
 }
 
 interface LocaleState {
+  locale: string;
   catalog: TranslationCatalog;
   etag?: string;
 }
@@ -88,6 +84,7 @@ interface I18nProviderProps {
 }
 
 const STORAGE_KEY = 'batch-downloader.locale.es.v1';
+const DEFAULT_LOCALE = 'es';
 const REQUEST_TIMEOUT_MS = 1_800;
 const BUNDLED_CATALOG: TranslationCatalog = Object.freeze({ ...bundledMessages });
 const BUNDLED_KEYS = new Set<string>(Object.keys(BUNDLED_CATALOG));
@@ -108,21 +105,29 @@ function mergedCatalog(messages?: Partial<Record<TranslationKey, string>>): Tran
   return Object.freeze({ ...BUNDLED_CATALOG, ...messages });
 }
 
+function validLocale(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z]{2,12}(?:[-_][A-Za-z0-9]{2,12})*$/.test(value)) {
+    return DEFAULT_LOCALE;
+  }
+  return value.toLowerCase();
+}
+
 function readStoredLocale(): LocaleState {
-  if (typeof window === 'undefined') return { catalog: BUNDLED_CATALOG };
+  if (typeof window === 'undefined') return { locale: DEFAULT_LOCALE, catalog: BUNDLED_CATALOG };
 
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (!stored) return { catalog: BUNDLED_CATALOG };
-    const candidate = JSON.parse(stored) as { etag?: unknown; messages?: unknown };
+    if (!stored) return { locale: DEFAULT_LOCALE, catalog: BUNDLED_CATALOG };
+    const candidate = JSON.parse(stored) as { locale?: unknown; etag?: unknown; messages?: unknown };
     const messages = parseMessages(candidate.messages);
-    if (!messages) return { catalog: BUNDLED_CATALOG };
+    if (!messages) return { locale: DEFAULT_LOCALE, catalog: BUNDLED_CATALOG };
     return {
+      locale: validLocale(candidate.locale),
       catalog: mergedCatalog(messages),
       etag: typeof candidate.etag === 'string' ? candidate.etag : undefined,
     };
   } catch {
-    return { catalog: BUNDLED_CATALOG };
+    return { locale: DEFAULT_LOCALE, catalog: BUNDLED_CATALOG };
   }
 }
 
@@ -163,7 +168,7 @@ export function I18nProvider({ children, fetcher = DEFAULT_FETCHER }: Readonly<I
 
     async function refreshLocale() {
       try {
-        const response = await fetcher('/api/v1/locales/es', {
+        const response = await fetcher(`/api/v1/locales/${encodeURIComponent(locale.locale)}`, {
           credentials: 'include',
           headers: revalidationEtag.current
             ? { 'If-None-Match': revalidationEtag.current }
@@ -177,13 +182,14 @@ export function I18nProvider({ children, fetcher = DEFAULT_FETCHER }: Readonly<I
         if (!messages) throw new Error('invalid_locale_catalog');
 
         const nextLocale: LocaleState = {
+          locale: locale.locale,
           catalog: mergedCatalog(messages),
           etag: response.headers.get('ETag') ?? undefined,
         };
         if (controller.signal.aborted) return;
         revalidationEtag.current = nextLocale.etag;
         setLocale(nextLocale);
-        persistLocale({ etag: nextLocale.etag, messages });
+        persistLocale({ locale: nextLocale.locale, etag: nextLocale.etag, messages });
       } catch {
         // Red, timeout o respuesta inválida: conservar el catálogo vigente.
       } finally {
@@ -196,16 +202,25 @@ export function I18nProvider({ children, fetcher = DEFAULT_FETCHER }: Readonly<I
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [fetcher]);
+  }, [fetcher, locale.locale]);
 
   const translator = useMemo<Translator>(
     () => (key, params) => formatMessage(locale.catalog, key, params),
     [locale.catalog],
   );
 
-  return <I18nContext.Provider value={translator}>{children}</I18nContext.Provider>;
+  return <I18nContext.Provider value={translator}>
+    <LocaleContext.Provider value={locale.locale}>{children}</LocaleContext.Provider>
+  </I18nContext.Provider>;
 }
+
+const LocaleContext = createContext<string>(DEFAULT_LOCALE);
 
 export function useTranslation(): Translator {
   return useContext(I18nContext);
+}
+
+/** Devuelve el locale capturado por el proveedor para asociarlo a eventos asíncronos. */
+export function useLocale(): string {
+  return useContext(LocaleContext);
 }

@@ -1,6 +1,5 @@
 package es.ubu.batchdownloader.identity.infrastructure.security;
 
-import es.ubu.batchdownloader.common.ForbiddenException;
 import es.ubu.batchdownloader.common.UnauthorizedException;
 import es.ubu.batchdownloader.identity.application.PasswordPolicy;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
@@ -13,8 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * Comprueba credenciales de usuario y administración con hash de relleno para cuentas ausentes y
- * exige las condiciones propias de cada rol.
+ * Comprueba las credenciales de administración con hash de relleno para cuentas ausentes.
  *
  * @see es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal
  * @see es.ubu.batchdownloader.identity.application.PasswordPolicy
@@ -45,35 +43,6 @@ public class AccountAuthenticator {
     }
 
     /**
-     * Comprueba correo, contraseña, habilitación y rol USER antes de exigir correo verificado;
-     * limita la entrada a 72 bytes UTF-8.
-     *
-     * @param email Correo de la cuenta; se conserva recortado y se compara mediante su versión
-     *     normalizada.
-     * @param rawPassword Contraseña sin hash que no debe persistirse ni registrarse.
-     * @return autenticación sin credenciales con UUID de la cuenta.
-     * @throws es.ubu.batchdownloader.common.UnauthorizedException si no coinciden las credenciales
-     *     o la cuenta no es un USER habilitado.
-     * @throws es.ubu.batchdownloader.common.ForbiddenException solo si las credenciales son
-     *     correctas pero el correo no está verificado.
-     */
-    public Authentication authenticateUser(String email, String rawPassword) {
-        PasswordPolicy.requireSupportedForLogin(rawPassword);
-        String normalizedEmail = email.strip().toLowerCase(Locale.ROOT);
-        UserAccount account = users.findByNormalizedEmail(normalizedEmail).orElse(null);
-        String encoded = account != null ? account.passwordHash() : dummyHash;
-        boolean matches = passwords.matches(rawPassword, encoded);
-        if (!matches || account == null || !account.enabled() || account.role() != UserRole.USER) {
-            throw invalidCredentials();
-        }
-        if (!account.emailVerified()) {
-            throw new ForbiddenException(
-                    "email_not_verified", "Debes verificar tu correo antes de iniciar sesión.");
-        }
-        return authenticated(account);
-    }
-
-    /**
      * Comprueba nombre normalizado, contraseña, habilitación y rol ADMIN usando el mismo hash de
      * relleno para identidades ausentes.
      *
@@ -87,7 +56,9 @@ public class AccountAuthenticator {
         PasswordPolicy.requireSupportedForLogin(rawPassword);
         String normalized = username.strip().toLowerCase(Locale.ROOT);
         UserAccount account = users.findByNormalizedUsername(normalized).orElse(null);
-        String encoded = account != null ? account.passwordHash() : dummyHash;
+        String encoded = account != null && account.passwordHash() != null
+                ? account.passwordHash()
+                : dummyHash;
         boolean matches = passwords.matches(rawPassword, encoded);
         if (!matches || account == null || !account.enabled() || account.role() != UserRole.ADMIN) {
             throw invalidCredentials();

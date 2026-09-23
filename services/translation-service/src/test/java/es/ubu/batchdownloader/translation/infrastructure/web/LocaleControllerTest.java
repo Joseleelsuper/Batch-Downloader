@@ -20,7 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * Comprueba el contrato HTTP del catálogo español y su revalidación condicional con ETag.
+ * Comprueba el contrato HTTP de los catálogos publicados y su revalidación condicional con ETag.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.translation.infrastructure.web.LocaleController
@@ -51,9 +51,12 @@ class LocaleControllerTest {
     @BeforeEach
     void setUp() {
         LocaleDocument document = new LocaleDocument("es", CONTENT, ETAG);
-        LocaleCatalog catalog = locale -> "es".equals(locale)
-                ? Optional.of(document)
-                : Optional.empty();
+        LocaleDocument english = new LocaleDocument("en", CONTENT, "\"en-etag\"");
+        LocaleCatalog catalog = locale -> switch (locale) {
+            case "es" -> Optional.of(document);
+            case "en" -> Optional.of(english);
+            default -> Optional.empty();
+        };
         GetLocale getLocale = new GetLocale(catalog);
         TranslationProperties properties = new TranslationProperties(
                 Path.of("locales"), Duration.ofHours(1));
@@ -62,7 +65,7 @@ class LocaleControllerTest {
     }
 
     /**
-     * Comprueba que GET del español devuelve JSON UTF-8, ETag y las cabeceras de caché
+     * Comprueba que GET de un idioma devuelve JSON UTF-8, ETag y las cabeceras de caché
      * configuradas.
      */
     @Test
@@ -92,11 +95,11 @@ class LocaleControllerTest {
     }
 
     /**
-     * Comprueba que la versión uno no expone una ruta para un idioma no publicado.
+     * Comprueba que un idioma no publicado devuelve 404.
      */
     @Test
-    void exposesOnlyTheSpanishLocaleInVersionOne() throws Exception {
-        mockMvc.perform(get("/api/v1/locales/en"))
+    void returnsNotFoundForAnUnpublishedLocale() throws Exception {
+        mockMvc.perform(get("/api/v1/locales/fr"))
                 .andExpect(status().isNotFound());
     }
 }

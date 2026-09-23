@@ -225,17 +225,16 @@ services:
       CORE_API_DB_POOL_MIN: 2
       CORE_API_DB_POOL_MAX: 5
       CORE_API_DB_POOL_TIMEOUT: 2000
-      CORE_API_FLYWAY_TARGET: ${CORE_API_FLYWAY_TARGET:-16}
+      CORE_API_FLYWAY_TARGET: ${CORE_API_FLYWAY_TARGET:-19}
       CORE_API_AUTH_HASH_CONCURRENCY: 2
       CORE_API_AUTH_HASH_QUEUE: 20
       CORE_API_AUTH_HASH_WAIT: 2s
       CORE_API_AUTH_LOGIN_MAX_PER_MINUTE: 10
-      CORE_API_AUTH_REGISTER_MAX_PER_HOUR: 3
-      CORE_API_AUTH_RESET_MAX_PER_HOUR: 3
-      CORE_API_AUTH_VERIFICATION_RESEND_MAX_PER_HOUR: 3
+      CORE_API_AUTH_MAGIC_LINK_MAX_PER_EMAIL_HOUR: 3
+      CORE_API_AUTH_MAGIC_LINK_MAX_PER_IP_HOUR: 20
       CORE_API_SESSION_TIMEOUT: 8h
-      CORE_API_VERIFICATION_TTL: 24h
-      CORE_API_PASSWORD_RESET_TTL: 1h
+      CORE_API_MAGIC_LINK_TTL: 15m
+      CORE_API_MAGIC_LINK_PENDING_CLEANUP_INTERVAL: 1m
       CORE_API_OUTBOX_DELAY: 1s
       CORE_API_OUTBOX_CLAIM_LEASE: 5m
       CORE_API_OUTBOX_CONFIRM_TIMEOUT: 2s
@@ -292,21 +291,6 @@ services:
       retries: 12
       start_period: 120s
 
-  semantic-migrate:
-    image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
-    pull_policy: always
-    command: ["python", "-m", "app.migrator"]
-    environment:
-      SEMANTIC_DATABASE_HOST: postgres
-      SEMANTIC_DATABASE_PORT: 5432
-      SEMANTIC_DATABASE_NAME: ${POSTGRES_DB}
-      SEMANTIC_DATABASE_USERNAME: ${POSTGRES_USER}
-      SEMANTIC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-    restart: "no"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   semantic-service:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-semantic-service:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
     pull_policy: always
@@ -330,8 +314,8 @@ services:
     ports:
       - "127.0.0.1:${SEMANTIC_SERVICE_HOST_PORT}:8000"
     depends_on:
-      semantic-migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     volumes:
       - semantic_models:/models
     healthcheck:
@@ -382,21 +366,6 @@ services:
       retries: 3
       start_period: 120s
 
-  mailpit:
-    image: axllent/mailpit:v1.30.0
-    profiles: ["local-mail"]
-    cpu_shares: 128
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${MAILPIT_SMTP_HOST_PORT}:1025"
-      - "127.0.0.1:${MAILPIT_UI_HOST_PORT}:8025"
-    healthcheck:
-      test: ["CMD", "/mailpit", "readyz"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   notification-service:
     image: ${GHCR_REGISTRY}/${GHCR_OWNER}/${GHCR_IMAGE_PREFIX}-notification-service:${GHCR_IMAGE_TAG:?GHCR_IMAGE_TAG is required}
     pull_policy: always
@@ -416,22 +385,16 @@ services:
       NOTIFICATION_SERVICE_RETENTION_INTERVAL: 6h
       NOTIFICATION_SERVICE_HEARTBEAT_INTERVAL: 10s
       NOTIFICATION_SERVICE_HEARTBEAT_STALE_AFTER: 1m
+      NOTIFICATION_SERVICE_TRANSLATION_URL: http://translation-service:8080
+      NOTIFICATION_SERVICE_TRANSLATION_CONNECT_TIMEOUT: 2s
+      NOTIFICATION_SERVICE_TRANSLATION_REQUEST_TIMEOUT: 5s
+      NOTIFICATION_SERVICE_TRANSLATION_CACHE_TTL: 5m
+      NOTIFICATION_SERVICE_TRANSLATION_FALLBACK_LOCALE: es
       RABBITMQ_HOST: ${RABBITMQ_HOST}
       RABBITMQ_PORT: ${RABBITMQ_PORT}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
       RABBITMQ_COMMAND_EXCHANGE: ${RABBITMQ_COMMAND_EXCHANGE}
-      NOTIFICATION_SERVICE_SMTP_HOST: ${NOTIFICATION_SERVICE_SMTP_HOST:-mailpit}
-      NOTIFICATION_SERVICE_SMTP_PORT: ${NOTIFICATION_SERVICE_SMTP_PORT:-1025}
-      NOTIFICATION_SERVICE_SMTP_AUTH: ${NOTIFICATION_SERVICE_SMTP_AUTH:-false}
-      NOTIFICATION_SERVICE_SMTP_STARTTLS: ${NOTIFICATION_SERVICE_SMTP_STARTTLS:-false}
-      NOTIFICATION_SERVICE_SMTP_CONNECTION_TIMEOUT_MS: 5000
-      NOTIFICATION_SERVICE_SMTP_TIMEOUT_MS: 10000
-      NOTIFICATION_SERVICE_SMTP_WRITE_TIMEOUT_MS: 10000
-      NOTIFICATION_SERVICE_SMTP_USERNAME: ${NOTIFICATION_SERVICE_SMTP_USERNAME}
-      NOTIFICATION_SERVICE_SMTP_PASSWORD: ${NOTIFICATION_SERVICE_SMTP_PASSWORD}
-      NOTIFICATION_SERVICE_MAIL_FROM: ${NOTIFICATION_SERVICE_MAIL_FROM:-no-reply@batch-downloader.local}
-      NOTIFICATION_SERVICE_MAIL_ZONE_ID: Europe/Madrid
       NOTIFICATION_SERVICE_RESEND_BASE_URL: https://api.resend.com
       NOTIFICATION_SERVICE_RESEND_CONNECT_TIMEOUT: 2s
       NOTIFICATION_SERVICE_RESEND_REQUEST_TIMEOUT: 10s
@@ -445,6 +408,8 @@ services:
       - "127.0.0.1:${NOTIFICATION_SERVICE_HOST_PORT}:8080"
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      translation-service:
         condition: service_healthy
     volumes:
       - notification_service_data:/app/data

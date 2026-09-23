@@ -66,23 +66,19 @@ class ComposeHealthTest(unittest.TestCase):
             ),
         )
 
-    def test_semantic_capability_requires_successful_migration(self) -> None:
+    def test_semantic_capability_requires_healthy_service(self) -> None:
         statuses = {
             service: daemon(service)
             for service in compose_health.CAPABILITIES["semantic"]
         }
-        statuses["semantic-migrate"] = completed_job("semantic-migrate")
+        statuses["semantic-service"] = daemon("semantic-service", "unhealthy")
 
         state, problems = compose_health.capability_readiness(
             "semantic", statuses, required=False
         )
 
-        self.assertEqual("ready", state)
-        self.assertEqual([], problems)
-        self.assertIn("semantic-migrate", compose_health.JOBS)
-
-    def test_notifications_do_not_require_the_development_mailpit(self) -> None:
-        self.assertNotIn("mailpit", compose_health.CAPABILITIES["notifications"])
+        self.assertEqual("degraded", state)
+        self.assertEqual(["semantic-service"], problems)
 
     def test_parse_ps_accepts_json_lines(self) -> None:
         output = (
@@ -199,26 +195,6 @@ class ComposeHealthTest(unittest.TestCase):
         errors = compose_health.validate_parity(local, ghcr)
 
         self.assertIn("paridad:core-api: configuración funcional distinta", errors)
-
-    def test_parity_allows_a_production_only_profile(self) -> None:
-        local = {
-            "services": {
-                "mailpit": {"restart": "unless-stopped"},
-                **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
-            }
-        }
-        ghcr = {
-            "services": {
-                "mailpit": {
-                    "restart": "unless-stopped",
-                    "profiles": ["local-mail"],
-                }
-            }
-        }
-
-        errors = compose_health.validate_parity(local, ghcr)
-
-        self.assertEqual([], errors)
 
     def test_parity_allows_embedded_production_configs(self) -> None:
         local = {

@@ -5,12 +5,10 @@ import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import org.springframework.stereotype.Component;
 
 /**
- * Selecciona Resend para identidad y SMTP para resultados de descarga según la plantilla del
- * evento.
+ * Entrega los correos de acceso al proveedor Resend.
  *
  * @see es.ubu.batchdownloader.notification.application.port.NotificationSender
  * @see es.ubu.batchdownloader.notification.infrastructure.mail.ResendNotificationSender
- * @see es.ubu.batchdownloader.notification.infrastructure.mail.SmtpNotificationSender
  * @since 0.1.0
  * @version 0.1.0
  * @category Notificaciones
@@ -18,31 +16,24 @@ import org.springframework.stereotype.Component;
 @Component
 public class RoutingNotificationSender implements NotificationSender {
     private final ResendNotificationSender resend;
-    private final SmtpNotificationSender smtp;
 
     /**
-     * Asocia cada familia de plantillas con su proveedor configurado.
+     * Asocia el proveedor HTTP de enlaces mágicos.
      *
-     * @param resend Proveedor HTTP de correos de verificación y restablecimiento de contraseña.
-     * @param smtp Proveedor SMTP de avisos sobre descargas.
+     * @param resend Proveedor HTTP de enlaces mágicos de acceso.
      */
-    public RoutingNotificationSender(ResendNotificationSender resend, SmtpNotificationSender smtp) {
+    public RoutingNotificationSender(ResendNotificationSender resend) {
         this.resend = resend;
-        this.smtp = smtp;
     }
 
     /**
-     * Entrega verificaciones y restablecimientos a Resend, y avisos de descarga a SMTP; propaga los
-     * errores del proveedor.
+     * Entrega el enlace mágico a Resend y propaga los errores del proveedor.
      *
      * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para
      *     el envío.
      */
     @Override
     public void send(EmailNotification notification) {
-        switch (notification.template()) {
-            case EMAIL_VERIFICATION, PASSWORD_RESET -> resend.send(notification);
-            case DOWNLOAD_READY, DOWNLOAD_FAILED -> smtp.send(notification);
-        }
+        resend.send(notification);
     }
 }

@@ -39,7 +39,7 @@ MINIO_PUBLIC_ENDPOINT=https://downloads.batchdownloader.dev
 CORE_API_REQUIRE_HTTPS=true
 CORE_API_COOKIE_SECURE=true
 MINIO_ZIP_QUOTA=10GB
-CORE_API_FLYWAY_TARGET=16
+CORE_API_FLYWAY_TARGET=19
 SCRAPER_ALEMBIC_TARGET=20260914_0021
 SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 ```
@@ -47,6 +47,9 @@ SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 `GHCR_IMAGE_TAG` siempre debe ser `sha-` seguido del commit completo. Los
 secretos de GitHub requeridos son `COOLIFY_URL`, `COOLIFY_TOKEN` y
 `COOLIFY_APP_UUID`.
+
+El enlace mágico conserva el TTL configurado en `CORE_API_MAGIC_LINK_TTL`
+(15 minutos por defecto).
 
 ## Modelo y copias
 

@@ -156,8 +156,7 @@ public class DownloadJobController {
         workerCapacity.requireAvailable();
         DownloadJobView created = jobs.create(owner,
                 new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()),
-                        request.sourceRef(), request.linuxTarget(), request.targetArchitecture()),
-                request.notifyWhenReady());
+                        request.sourceRef(), request.linuxTarget(), request.targetArchitecture()));
         ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.ACCEPTED);
         if (anonymous && (browserToken == null || browserToken.isBlank())) {
             response.header(HttpHeaders.SET_COOKIE, ownerCookie(token).toString());
@@ -498,8 +497,6 @@ public class DownloadJobController {
      *     política de selección.
      * @param sourceRef UUID de la fuente exacta; null permite selección automática o representa una
      *     alternativa manual.
-     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
-     *     solo para cuentas autenticadas.
      * @param linuxTarget Gestor Linux opcional; junto con arquitectura define un destino explícito.
      * @param targetArchitecture Arquitectura Linux opcional que acompaña al gestor explícito.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
@@ -512,7 +509,6 @@ public class DownloadJobController {
             String bundleId,
             List<String> operatingSystems,
             UUID sourceRef,
-            boolean notifyWhenReady,
             String linuxTarget,
             String targetArchitecture) {}
 }

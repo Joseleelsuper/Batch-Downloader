@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { adminLogin, adminLogout, login, logout, me } from './account';
+import { adminLogin, adminLogout, confirmMagicLink, logout, me, requestMagicLink } from './account';
 import {
   applyManualInstallerInspection,
   applyWebsiteAppDiscovery,
@@ -47,10 +47,8 @@ import {
   enqueueMissingScraperDescriptions,
   fetchAdminCurrentRun,
   fetchAdminLogs,
-  fetchAdminMetrics,
   fetchAdminQueues,
   fetchAdminRuns,
-  fetchAdminSnapshots,
   pruneTerminalScraperQueueItems,
   recoverStuckScraperQueueItems,
   retryFailedScraperQueueItems,
@@ -449,7 +447,8 @@ describe('current identity', () => {
     await fetchBundle('bundle/slug');
     await createAdminBundle({ name: 'Bundle' });
     await updateAdminBundle('bundle/id', { name: 'Nuevo' });
-    await login('user@example.com', 'secret');
+    await requestMagicLink('user@example.com');
+    await confirmMagicLink('magic-token');
     await adminLogin('admin', 'secret');
     await logout();
     await adminLogout();
@@ -473,8 +472,6 @@ describe('current identity', () => {
     await confirmInstallerAbsence('app/id', {} as never);
     await fetchAdminLogs();
     await fetchAdminQueues();
-    await fetchAdminMetrics();
-    await fetchAdminSnapshots();
     await recoverStuckScraperQueueItems();
     await retryFailedScraperQueueItems();
     await pruneTerminalScraperQueueItems();

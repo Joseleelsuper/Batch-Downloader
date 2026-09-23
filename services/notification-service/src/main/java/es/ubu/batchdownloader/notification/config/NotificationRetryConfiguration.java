@@ -1,7 +1,7 @@
 package es.ubu.batchdownloader.notification.config;
 
 import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
-import es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidDownloadEventException;
+import es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidNotificationEventException;
 import java.time.Duration;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.beans.factory.annotation.Value;
@@ -72,7 +72,7 @@ class NotificationRetryConfiguration {
         Throwable current = exception;
         while (current != null) {
             if (current instanceof PermanentNotificationException
-                    || current instanceof InvalidDownloadEventException
+                    || current instanceof InvalidNotificationEventException
                     || current instanceof AmqpRejectAndDontRequeueException) {
                 return true;
             }

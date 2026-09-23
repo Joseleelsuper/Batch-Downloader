@@ -73,11 +73,6 @@ public final class DownloadJob {
      */
     private boolean cancellationRequested;
     /**
-     * El propietario solicita aviso al terminar; la admisión lo habilita solo para cuentas
-     * autenticadas.
-     */
-    private final boolean notifyWhenReady;
-    /**
      * Cantidad seleccionada, incluidas dependencias Linux añadidas.
      */
     private final int requestedCount;
@@ -135,9 +130,6 @@ public final class DownloadJob {
      * @param cancellationRequested Se ha solicitado cancelar y el agregado ya no admite progreso
      *     posterior.
      *
-     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
-     *     solo para cuentas autenticadas.
-     *
      * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
      * @param acceptedCount Número de elementos realmente incluidos; coincide con el tamaño de
      *     items.
@@ -167,7 +159,6 @@ public final class DownloadJob {
             Instant retryAt,
             String failureCode,
             boolean cancellationRequested,
-            boolean notifyWhenReady,
             int requestedCount,
             int acceptedCount,
             int omittedCount,
@@ -189,7 +180,6 @@ public final class DownloadJob {
         this.retryAt = retryAt;
         this.failureCode = failureCode;
         this.cancellationRequested = cancellationRequested;
-        this.notifyWhenReady = notifyWhenReady;
         this.requestedCount = requestedCount;
         this.acceptedCount = acceptedCount;
         this.omittedCount = omittedCount;
@@ -218,9 +208,6 @@ public final class DownloadJob {
      * @param items Elementos en orden de admisión; el agregado conserva una copia de la lista.
      * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
      * @param omittedCount Aplicaciones solicitadas sin instalador ni alternativa manual aceptada.
-     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
-     *     solo para cuentas autenticadas.
-     *
      * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
      * @param expiresAt Instante límite de disponibilidad del ZIP.
      * @return nuevo agregado todavía no persistido.
@@ -232,13 +219,12 @@ public final class DownloadJob {
             List<DownloadJobItem> items,
             int requestedCount,
             int omittedCount,
-            boolean notifyWhenReady,
             Instant now,
             Instant expiresAt) {
         return new DownloadJob(
                 UUID.randomUUID(), ownerId, anonymousOwnerHash, anonymousIpHash,
                 DownloadJobStatus.QUEUED, 0, null, null, null, null, null, null, false,
-                notifyWhenReady, requestedCount, items.size(), omittedCount,
+                requestedCount, items.size(), omittedCount,
                 now, now, expiresAt, items, 0);
     }
 
@@ -257,9 +243,6 @@ public final class DownloadJob {
      * @param cancellationRequested Se ha solicitado cancelar y el agregado ya no admite progreso
      *     posterior.
      *
-     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
-     *     solo para cuentas autenticadas.
-     *
      * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
      * @param acceptedCount Número de elementos realmente incluidos; coincide con el tamaño de
      *     items.
@@ -275,13 +258,13 @@ public final class DownloadJob {
     public static DownloadJob rehydrate(
             UUID id, UUID ownerId, String anonymousOwnerHash, String anonymousIpHash,
             DownloadJobStatus status, int progress, String objectKey, String failureCode,
-            boolean cancellationRequested, boolean notifyWhenReady,
+            boolean cancellationRequested,
             int requestedCount, int acceptedCount, int omittedCount,
             Instant createdAt, Instant updatedAt, Instant expiresAt, List<DownloadJobItem> items, long version) {
         return new DownloadJob(
                 id, ownerId, anonymousOwnerHash, anonymousIpHash, status, progress, objectKey,
                 null, null, null, null, failureCode,
-                cancellationRequested, notifyWhenReady, requestedCount, acceptedCount, omittedCount,
+                cancellationRequested, requestedCount, acceptedCount, omittedCount,
                 createdAt, updatedAt, expiresAt, items, version);
     }
 
@@ -310,9 +293,6 @@ public final class DownloadJob {
      * @param cancellationRequested Se ha solicitado cancelar y el agregado ya no admite progreso
      *     posterior.
      *
-     * @param notifyWhenReady El propietario solicita aviso al terminar; la admisión lo habilita
-     *     solo para cuentas autenticadas.
-     *
      * @param requestedCount Cantidad seleccionada, incluidas dependencias Linux añadidas.
      * @param acceptedCount Número de elementos realmente incluidos; coincide con el tamaño de
      *     items.
@@ -329,14 +309,14 @@ public final class DownloadJob {
             UUID id, UUID ownerId, String anonymousOwnerHash, String anonymousIpHash,
             DownloadJobStatus status, int progress, String objectKey,
             Long artifactSizeBytes, String artifactSha256, String waitReason, Instant retryAt,
-            String failureCode, boolean cancellationRequested, boolean notifyWhenReady,
+            String failureCode, boolean cancellationRequested,
             int requestedCount, int acceptedCount, int omittedCount,
             Instant createdAt, Instant updatedAt, Instant expiresAt,
             List<DownloadJobItem> items, long version) {
         return new DownloadJob(
                 id, ownerId, anonymousOwnerHash, anonymousIpHash, status, progress, objectKey,
                 artifactSizeBytes, artifactSha256, waitReason, retryAt, failureCode,
-                cancellationRequested, notifyWhenReady, requestedCount, acceptedCount, omittedCount,
+                cancellationRequested, requestedCount, acceptedCount, omittedCount,
                 createdAt, updatedAt, expiresAt, items, version);
     }
 
@@ -629,14 +609,6 @@ public final class DownloadJob {
      * @return Se ha solicitado cancelar y el agregado ya no admite progreso posterior.
      */
     public boolean cancellationRequested() { return cancellationRequested; }
-    /**
-     * El propietario solicita aviso al terminar; la admisión lo habilita solo para cuentas
-     * autenticadas.
-     *
-     * @return El propietario solicita aviso al terminar; la admisión lo habilita solo para cuentas
-     *     autenticadas.
-     */
-    public boolean notifyWhenReady() { return notifyWhenReady; }
     /**
      * Cantidad seleccionada, incluidas dependencias Linux añadidas.
      *

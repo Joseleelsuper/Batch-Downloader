@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  confirmEmail,
+  confirmMagicLink,
   createOwnBundle,
   deleteOwnBundle,
   fetchDashboard,
@@ -8,10 +8,7 @@ import {
   fetchOwnBundle,
   fetchOwnBundles,
   fetchProfile,
-  registerAccount,
-  requestPasswordReset,
-  resendVerification,
-  resetPassword,
+  requestMagicLink,
   updateOwnBundle,
   updateProfile,
 } from './account';
@@ -27,28 +24,16 @@ describe('API de cuenta', () => {
     requestJsonMock.mockResolvedValue(undefined as never);
   });
 
-  it('construye las solicitudes de registro y recuperación de identidad', async () => {
-    await registerAccount('user@example.com', 'secret');
-    await confirmEmail('confirm-token');
-    await resendVerification('user@example.com');
-    await requestPasswordReset('user@example.com');
-    await resetPassword('reset-token', 'new-secret');
+  it('construye las solicitudes de enlace de acceso', async () => {
+    await requestMagicLink('user@example.com');
+    await confirmMagicLink('magic-token');
 
     expect(requestJsonMock.mock.calls).toEqual([
-      ['/api/v1/auth/register', {
-        method: 'POST', body: JSON.stringify({ email: 'user@example.com', password: 'secret' }),
+      ['/api/v1/auth/magic-link/request', {
+        method: 'POST', body: JSON.stringify({ email: 'user@example.com', locale: 'es' }),
       }],
-      ['/api/v1/auth/email-verification/confirm', {
-        method: 'POST', body: JSON.stringify({ token: 'confirm-token' }),
-      }],
-      ['/api/v1/auth/email-verification/resend', {
-        method: 'POST', body: JSON.stringify({ email: 'user@example.com' }),
-      }],
-      ['/api/v1/auth/password-reset/request', {
-        method: 'POST', body: JSON.stringify({ email: 'user@example.com' }),
-      }],
-      ['/api/v1/auth/password-reset/confirm', {
-        method: 'POST', body: JSON.stringify({ token: 'reset-token', password: 'new-secret' }),
+      ['/api/v1/auth/magic-link/confirm', {
+        method: 'POST', body: JSON.stringify({ token: 'magic-token' }),
       }],
     ]);
   });

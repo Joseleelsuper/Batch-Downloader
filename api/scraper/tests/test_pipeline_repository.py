@@ -1,4 +1,4 @@
-"""Caracteriza reservas, recuperación de colas y vistas previas sobre SQLite en memoria."""
+"""Caracteriza reservas y recuperación de colas sobre SQLite en memoria."""
 from datetime import timedelta
 from uuid import uuid4
 
@@ -9,9 +9,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.time import utc_now
 from app.db.base import Base
-from app.db.models import ScrapeRun, ScraperWorkerSnapshot, ScraperWorkItem
+from app.db.models import ScrapeRun, ScraperWorkItem
 from app.repositories.pipeline import (
-    MAX_SNAPSHOT_HTML_BYTES,
     QUEUE_FILTER_SCRAPER,
     QUEUE_SCRAPER_SO_FILTER,
     QUEUE_SEARCHER_FILTER,
@@ -22,7 +21,6 @@ from app.repositories.pipeline import (
     STATUS_IN_PROGRESS,
     STATUS_QUEUED,
     PipelineRepository,
-    sanitize_snapshot_html,
 )
 
 
@@ -347,63 +345,6 @@ async def test_active_package_ids_detects_only_live_upstream_work(db_session) ->
     )
 
     assert package_ids == {"Vendor.Active"}
-
-
-def test_snapshot_html_is_bounded_before_sanitizing_large_pages() -> None:
-    """Aporta HTML grande con script y texto multibyte y comprueba límite de muestra, eliminación
-    del script y marca de truncamiento.
-    """
-    html = "<html><script>" + ("a" * 100_000) + "</script>" + ("\u00f1" * 100_000) + "</html>"
-
-    sanitized = sanitize_snapshot_html(html)
-
-    assert sanitized is not None
-    assert len(sanitized.encode("utf-8")) <= MAX_SNAPSHOT_HTML_BYTES + 32
-    assert "<script" not in sanitized.lower()
-
-    truncated = sanitize_snapshot_html("<html>" + ("a" * 100_000))
-    assert truncated is not None
-    assert "snapshot truncated" in truncated
-
-
-@pytest.mark.asyncio
-async def test_snapshot_insert_does_not_prune_or_lock_the_active_run(db_session) -> None:
-    """Guarda una muestra junto a otra caducada y comprueba que insertar no poda ni asocia
-    run_id; la poda explícita elimina después la caducada.
-
-    Args:
-        db_session: Sesión SQLite aislada de la prueba.
-    """
-    expired = ScraperWorkerSnapshot(
-        worker_id="previous-worker",
-        stage="scraper",
-        captured_at=utc_now() - timedelta(hours=1),
-        expires_at=utc_now() - timedelta(seconds=1),
-    )
-    db_session.add(expired)
-    await db_session.commit()
-
-    repository = PipelineRepository(db_session)
-    await repository.save_snapshot(
-        run_id=uuid4(),
-        worker_id="scraper-worker",
-        stage="scraper",
-        package_id="Vendor.App",
-        app_name="Vendor App",
-        url="https://example.com",
-        html="<html>snapshot</html>",
-    )
-    await db_session.commit()
-
-    snapshots = list(await db_session.scalars(select(ScraperWorkerSnapshot)))
-    current = next(snapshot for snapshot in snapshots if snapshot.worker_id == "scraper-worker")
-    assert len(snapshots) == 2
-    assert current.run_id is None
-
-    assert await repository.prune_expired_snapshots() == 1
-    await db_session.commit()
-    remaining = list(await db_session.scalars(select(ScraperWorkerSnapshot)))
-    assert [snapshot.worker_id for snapshot in remaining] == ["scraper-worker"]
 
 
 def work_item(package_id: str, status: str, lease_expires_at):

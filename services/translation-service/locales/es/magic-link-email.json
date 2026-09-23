@@ -1,0 +1,10 @@
+{
+  "email.magicLink.subject": "Inicia sesión en Batch Downloader",
+  "email.magicLink.greeting": "Hola.",
+  "email.magicLink.intro": "Haz",
+  "email.magicLink.linkText": "click aquí",
+  "email.magicLink.linkSuffix": "para iniciar sesión en Batch Downloader.",
+  "email.magicLink.expiry": "Tendrás {minutes}min para entrar.",
+  "email.magicLink.doNotShare": "No lo compartas con nadie.",
+  "email.magicLink.wrongRecipient": "Si no conoces esta web, alguien puso mal su correo. Puedes ignorar este mensaje."
+}

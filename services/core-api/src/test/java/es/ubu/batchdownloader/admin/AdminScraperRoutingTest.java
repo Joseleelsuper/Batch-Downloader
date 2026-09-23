@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.admin;
 
 import static org.mockito.Mockito.mock;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -9,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-/** Verifica que ya no existan rutas capaces de borrar trabajo pendiente o arrendado. */
+/** Verifica que las rutas administrativas retiradas ya no sean accesibles. */
 class AdminScraperRoutingTest {
     private MockMvc mvc;
 
@@ -31,6 +32,18 @@ class AdminScraperRoutingTest {
     @Test
     void rejectsRemovedClearAllRoute() throws Exception {
         mvc.perform(post("/api/v1/admin/scraper/queues/clear-all"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void rejectsRemovedMetricsRoute() throws Exception {
+        mvc.perform(get("/api/v1/admin/scraper/metrics"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void rejectsRemovedSnapshotsRoute() throws Exception {
+        mvc.perform(get("/api/v1/admin/scraper/snapshots"))
                 .andExpect(status().isNotFound());
     }
 }

@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import {
   I18nProvider,
   t,
+  useLocale,
   useTranslation,
   type TranslationKey,
 } from './i18n';
@@ -26,6 +27,10 @@ function Message({ translationKey }: Readonly<{ translationKey: TranslationKey }
   return <span>{translate(translationKey)}</span>;
 }
 
+function LocaleProbe() {
+  return <output data-testid="locale">{useLocale()}</output>;
+}
+
 describe('I18nProvider', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -43,12 +48,13 @@ describe('I18nProvider', () => {
 
     render(
       <I18nProvider fetcher={fetcher}>
-        <Message translationKey="nav.home" />
+        <><Message translationKey="nav.home" /><LocaleProbe /></>
       </I18nProvider>,
     );
 
     expect(screen.getByText('Inicio guardado')).toBeInTheDocument();
     await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/locales/es');
     expect(fetcher.mock.calls[0]?.[1]?.headers).toEqual({ 'If-None-Match': '"locale-1"' });
   });
 
@@ -68,6 +74,7 @@ describe('I18nProvider', () => {
     expect(await screen.findByText('Portada remota')).toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}')).toEqual({
       etag: '"locale-2"',
+      locale: 'es',
       messages: { 'nav.home': 'Portada remota' },
     });
   });

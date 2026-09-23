@@ -3,8 +3,6 @@ package es.ubu.batchdownloader.identity.infrastructure.persistence;
 import es.ubu.batchdownloader.identity.domain.IdentityToken;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
@@ -14,8 +12,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * Mapea hash, finalidad, consumo y vencimiento de un token a JPA con versión para concurrencia
- * optimista.
+ * Mapea hash, consumo y vencimiento de un enlace a JPA con versión para concurrencia optimista.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.identity.domain.IdentityToken
@@ -46,12 +43,6 @@ class IdentityTokenEntity {
     @Column(name = "token_hash", length = 64, nullable = false, unique = true)
     private String tokenHash;
     /**
-     * Finalidad del token: verificación de correo o restablecimiento de contraseña.
-     */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "token_type", length = 32, nullable = false)
-    private IdentityToken.Type type;
-    /**
      * Instante a partir del cual el token deja de ser utilizable, incluido el propio límite.
      */
     @Column(name = "expires_at", nullable = false)
@@ -80,7 +71,7 @@ class IdentityTokenEntity {
     /**
      * Crea la entidad de un token conservando UUID, versión y estado.
      *
-     * @param token Agregado de token que conserva hash, finalidad, vencimiento y consumo.
+     * @param token Agregado de token que conserva hash, vencimiento y consumo.
      * @return entidad nueva con los datos del agregado.
      */
     static IdentityTokenEntity from(IdentityToken token) {
@@ -92,15 +83,14 @@ class IdentityTokenEntity {
     }
 
     /**
-     * Copia finalidad, hash y fechas del token sin sustituir la identidad ni la versión que
+     * Copia hash y fechas del token sin sustituir la identidad ni la versión que
      * gestiona JPA.
      *
-     * @param token Agregado de token que conserva hash, finalidad, vencimiento y consumo.
+     * @param token Agregado de token que conserva hash, vencimiento y consumo.
      */
     void updateFrom(IdentityToken token) {
         userId = token.userId();
         tokenHash = token.tokenHash();
-        type = token.type();
         expiresAt = token.expiresAt();
         consumedAt = token.consumedAt();
         createdAt = token.createdAt();
@@ -112,6 +102,6 @@ class IdentityTokenEntity {
      * @return agregado equivalente a la fila persistida.
      */
     IdentityToken toDomain() {
-        return IdentityToken.rehydrate(id, userId, tokenHash, type, expiresAt, consumedAt, createdAt, version);
+        return IdentityToken.rehydrate(id, userId, tokenHash, expiresAt, consumedAt, createdAt, version);
     }
 }

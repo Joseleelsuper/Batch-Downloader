@@ -7,8 +7,8 @@ import java.nio.charset.StandardCharsets;
  * Valida contraseñas nuevas por longitud y composición y limita las de acceso a lo que BCrypt puede
  * procesar íntegramente.
  *
- * @see es.ubu.batchdownloader.identity.application.IdentityService
- * @see es.ubu.batchdownloader.identity.application.port.PasswordHasher
+ * @see es.ubu.batchdownloader.identity.infrastructure.persistence.AdminBootstrap
+ * @see es.ubu.batchdownloader.identity.infrastructure.security.AccountAuthenticator
  * @since 0.1.0
  * @version 0.1.0
  * @category Identidad

@@ -16,8 +16,7 @@ class AccountProfileServiceTest {
         IdentityService identities = Mockito.mock(IdentityService.class);
         UUID userId = UUID.randomUUID();
         IdentityView changed = new IdentityView(
-                userId, "new-name", "person@example.com", true, UserRole.USER, true,
-                Instant.EPOCH);
+                userId, "new-name", "person@example.com", true, UserRole.USER, Instant.EPOCH);
         when(identities.updateUsername(userId, "new-name")).thenReturn(changed);
         AccountProfileService profiles = new AccountProfileService(identities);
 

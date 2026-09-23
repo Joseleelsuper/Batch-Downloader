@@ -21,22 +21,6 @@ import org.springframework.data.repository.query.Param;
  */
 interface OutboxEventRepository extends JpaRepository<OutboxEventEntity, UUID> {
     /**
-     * Bloquea todas las solicitudes de correo no publicadas para completar la migración inicial de
-     * sus tokens.
-     *
-     * @return solicitudes pendientes en orden de creación.
-     */
-    @Query(value = """
-            SELECT *
-            FROM core_outbox_events
-            WHERE published_at IS NULL
-              AND event_type = 'notification.email.requested'
-            ORDER BY occurred_at ASC
-            FOR UPDATE
-            """, nativeQuery = true)
-    List<OutboxEventEntity> findPendingNotificationRequestsForUpdate();
-
-    /**
      * Bloquea hasta cincuenta eventos disponibles con reserva ausente o vencida, omitiendo filas
      * bloqueadas por otros publicadores.
      *

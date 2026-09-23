@@ -52,8 +52,7 @@ public class AdminIdentityController {
      *     está habilitada.
      * @param contexts Repositorio donde se guarda la autenticación de la nueva sesión.
      * @param sessions Estrategia que renueva identificador de sesión y token CSRF al entrar.
-     * @param rateLimiter Cuotas separadas de acceso, registro, recuperación y reenvío de
-     *     verificación.
+     * @param rateLimiter Cuota exclusiva para intentos de acceso administrativo.
      */
     public AdminIdentityController(
             IdentityService identities,
@@ -85,7 +84,7 @@ public class AdminIdentityController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest servletRequest,
             HttpServletResponse servletResponse) {
-        rateLimiter.login(servletRequest.getRemoteAddr(), request.username());
+        rateLimiter.adminLogin(servletRequest.getRemoteAddr(), request.username());
         Authentication authentication = authenticator.authenticateAdmin(request.username(), request.password());
         sessions.onAuthentication(authentication, servletRequest, servletResponse);
         SecurityContext context = SecurityContextHolder.createEmptyContext();

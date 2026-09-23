@@ -1,6 +1,7 @@
 """Comprueba separacion entre presencia del API y disponibilidad del modelo local."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -38,6 +39,38 @@ async def test_health_keeps_index_contract_when_database_is_unavailable(
         "builtAt": None,
     }
     assert payload["indexer"]["reason"] == "database_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_health_reports_ready_model_without_warming_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La consulta administrativa no carga ni ejecuta el modelo dentro de su timeout corto."""
+    def fail_if_runtime_is_loaded(_model: object) -> None:
+        raise AssertionError("health_must_not_load_embedding_runtime")
+
+    descriptor = SimpleNamespace(model_version="local-model-v1", dimensions=768)
+    active_model = SimpleNamespace(model_version="local-model-v1")
+    monkeypatch.setattr(main, "runtime_for", fail_if_runtime_is_loaded, raising=False)
+    monkeypatch.setattr(main.database, "healthy", lambda: True)
+    monkeypatch.setattr(
+        main.store,
+        "semantic_status",
+        lambda: {"index": {"expected": 10, "indexed": 10, "complete": True}},
+    )
+    monkeypatch.setattr(main, "current_model_manifest", lambda: descriptor)
+    monkeypatch.setattr(main, "model_directory_ready", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(main.store, "active_model", lambda: (active_model, "index-v1"))
+    monkeypatch.setattr(main, "worker_heartbeat_statuses", lambda: {})
+
+    payload = await main.health()
+
+    assert payload["searchReady"] is True
+    assert payload["model"] == {
+        "version": "local-model-v1",
+        "dimensions": 768,
+        "artifactReady": True,
+    }
 
 
 @pytest.mark.asyncio

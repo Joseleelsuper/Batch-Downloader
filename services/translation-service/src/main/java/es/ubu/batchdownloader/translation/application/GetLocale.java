@@ -36,7 +36,7 @@ public class GetLocale {
      * Busca el documento del idioma indicado sin crear ni combinar traducciones durante la
      * petición.
      *
-     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+     * @param locale Código exacto del idioma solicitado.
      * @return documento del idioma, o Optional vacío si no está publicado.
      */
     public Optional<LocaleDocument> execute(String locale) {

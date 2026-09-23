@@ -624,8 +624,6 @@ async def prune_retained_records() -> None:
             "scraper_retention_pruned",
             total=result.total,
             work_items=result.work_items,
-            metric_snapshots=result.metric_snapshots,
-            worker_snapshots=result.worker_snapshots,
             resolver_logs=result.resolver_logs,
             commands=result.commands,
             runs=result.runs,

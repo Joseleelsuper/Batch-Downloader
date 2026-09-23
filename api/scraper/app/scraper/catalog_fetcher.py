@@ -235,7 +235,7 @@ class CatalogFetcher:
             await asyncio.sleep(2)
 
     async def _heartbeat(self, runtime: PipelineRuntime) -> None:
-        """Guarda heartbeat y snapshots métricos mientras los workers siguen activos.
+        """Guarda el heartbeat mientras los workers siguen activos.
 
         Args:
             runtime: Estado compartido del pipeline.
@@ -243,9 +243,7 @@ class CatalogFetcher:
         while not runtime.all_workers_done.is_set():
             async with async_session_local()() as session:
                 runs = ScrapeRunRepository(session, self.settings)
-                pipeline = PipelineRepository(session)
                 await runs.heartbeat(runtime.run_id, **runtime.counters.__dict__)
-                await pipeline.save_metric_snapshot(runtime.run_id)
                 await session.commit()
             await asyncio.sleep(5)
 
@@ -307,8 +305,7 @@ class CatalogFetcher:
             raise ValueError("selected_scope_limit_exceeded")
 
     async def _recover_pipeline(self) -> bool:
-        """Restablece leases expirados, recupera trabajos huérfanos y poda snapshots en una
-        sesión independiente.
+        """Restablece leases expirados y recupera trabajos huérfanos en una sesión independiente.
 
         Returns:
             True si queda trabajo pendiente.
@@ -317,13 +314,10 @@ class CatalogFetcher:
             pipeline = PipelineRepository(session)
             recovered_items = await pipeline.reset_expired_leases()
             orphaned_run_items = await pipeline.recover_orphaned_run_items()
-            pruned_snapshots = await pipeline.prune_expired_snapshots()
             pending_work = await pipeline.has_pending_work()
             await session.commit()
         if recovered_items:
             logger.warning("scraper_pipeline_leases_recovered", count=recovered_items)
         if orphaned_run_items:
             logger.warning("scraper_orphaned_run_items_recovered", count=orphaned_run_items)
-        if pruned_snapshots:
-            logger.info("scraper_snapshots_pruned", count=pruned_snapshots)
         return pending_work

@@ -5,6 +5,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 MIGRATION = ROOT / "alembic" / "versions" / "20260822_0017_runtime_memory_and_totals.py"
+REMOVE_SNAPSHOTS_MIGRATION = (
+    ROOT / "alembic" / "versions" / "20260920_0023_remove_scraper_snapshots.py"
+)
 
 
 def test_active_run_checks_use_the_singleton_lock_without_sorting() -> None:
@@ -38,3 +41,14 @@ def test_migration_indexes_history_prunes_only_transient_data_and_exposes_totals
     assert "DELETE FROM scrape_runs" not in migration
     assert "DELETE FROM resolver_logs" not in migration
     assert "DELETE FROM software_apps" not in migration
+
+
+def test_remove_snapshots_migration_drops_both_transient_tables() -> None:
+    """La revisión final retira ambas tablas y permite restaurar sólo su esquema vacío."""
+    migration = REMOVE_SNAPSHOTS_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "20260914_0022"' in migration
+    assert 'op.drop_table("scraper_worker_snapshots")' in migration
+    assert 'op.drop_table("scraper_metric_snapshots")' in migration
+    assert 'op.create_table(\n        "scraper_worker_snapshots"' in migration
+    assert 'op.create_table(\n        "scraper_metric_snapshots"' in migration

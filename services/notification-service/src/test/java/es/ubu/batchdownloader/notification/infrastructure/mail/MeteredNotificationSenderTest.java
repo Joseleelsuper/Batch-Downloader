@@ -42,7 +42,7 @@ class MeteredNotificationSenderTest {
 
         verify(delegate).send(notification);
         assertThat(registry.get("notification_send")
-                .tags("template", "download_ready", "outcome", "success")
+                .tags("template", "magic_link", "outcome", "success")
                 .timer()
                 .count()).isEqualTo(1);
         assertThat(registry.get("notification_send").timer().getId().getTags())
@@ -67,7 +67,7 @@ class MeteredNotificationSenderTest {
         assertThatThrownBy(() -> sender.send(notification)).isSameAs(failure);
 
         assertThat(registry.get("notification_send")
-                .tags("template", "download_ready", "outcome", "failure")
+                .tags("template", "magic_link", "outcome", "failure")
                 .timer()
                 .count()).isEqualTo(1);
     }
@@ -81,10 +81,11 @@ class MeteredNotificationSenderTest {
         return new EmailNotification(
                 UUID.randomUUID(),
                 Instant.parse("2026-08-22T08:00:00Z"),
-                "download-job",
+                "magic-link-request",
                 null,
                 "person@example.test",
-                EmailNotification.Template.DOWNLOAD_READY,
-                Map.of());
+                "es",
+                EmailNotification.Template.MAGIC_LINK,
+                Map.of("username", "person", "token", "enc:v1:test", "expiresInMinutes", 15));
     }
 }

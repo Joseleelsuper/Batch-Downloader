@@ -20,9 +20,8 @@ export type CreateDownloadJobRequest = Partial<LinuxSelection> & (
     appIds: string[];
     sourceRef?: string;
     operatingSystems?: OperatingSystem[];
-    notifyWhenReady?: boolean;
   }
-  | { bundleId: string; operatingSystems?: OperatingSystem[]; notifyWhenReady?: boolean });
+  | { bundleId: string; operatingSystems?: OperatingSystem[] });
 
 export function previewLinuxDownload(request: CreateDownloadJobRequest): Promise<LinuxPreview> {
   return requestJson<LinuxPreview>('/api/v1/download-jobs/linux-preview', {

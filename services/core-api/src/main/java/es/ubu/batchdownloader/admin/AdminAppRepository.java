@@ -233,8 +233,8 @@ public class AdminAppRepository {
     }
 
     /**
-     * Borra el catálogo, trabajos y snapshots del scraper y pone a cero los contadores de bundles
-     * cuando no hay actividad pendiente.
+     * Borra el catálogo y los trabajos del scraper y pone a cero los contadores de bundles cuando
+     * no hay actividad pendiente.
      *
      * @return número de aplicaciones existentes antes del borrado.
      * @throws es.ubu.batchdownloader.common.ConflictException si el scraper tiene ejecuciones o
@@ -244,8 +244,6 @@ public class AdminAppRepository {
     public int deleteAll() {
         assertScraperIdleForDeletion();
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM software_apps", Integer.class);
-        jdbc.update("DELETE FROM scraper_worker_snapshots");
-        jdbc.update("DELETE FROM scraper_metric_snapshots");
         jdbc.update("DELETE FROM scraper_work_items");
         deleteApps("", List.of());
         jdbc.update(

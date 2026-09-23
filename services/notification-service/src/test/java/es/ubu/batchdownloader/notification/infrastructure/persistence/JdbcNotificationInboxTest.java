@@ -98,7 +98,7 @@ class JdbcNotificationInboxTest {
 
         assertThat(inbox.claim(eventId, "notification.email.requested"))
                 .isEqualTo(NotificationInbox.ClaimResult.ACQUIRED);
-        inbox.markFailed(eventId, "SMTP no disponible");
+        inbox.markFailed(eventId, "Proveedor no disponible");
 
         assertThat(inbox.claim(eventId, "notification.email.requested"))
                 .isEqualTo(NotificationInbox.ClaimResult.ACQUIRED);

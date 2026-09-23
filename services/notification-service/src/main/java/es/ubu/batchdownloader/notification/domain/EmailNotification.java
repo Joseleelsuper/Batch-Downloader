@@ -10,7 +10,8 @@ import java.util.UUID;
  *
  * Conserva la identidad de la entrega para el inbox y la idempotencia del proveedor; copia los
  * parámetros para impedir modificaciones posteriores. La validación específica de cada plantilla
- * se realiza al convertir el mensaje de RabbitMQ.
+ * se realiza al convertir el mensaje de RabbitMQ. Solo se admiten correos de acceso mediante
+ * magic link.
  *
  * @param eventId UUID del evento; identifica la misma entrega en todos sus reintentos.
  * @param occurredAt Instante UTC en que el productor emitió el evento.
@@ -19,6 +20,7 @@ import java.util.UUID;
  * @param recipient Dirección de correo del destinatario, sin nombre visible ni lista de
  *     direcciones.
  *
+ * @param locale Código de idioma capturado al solicitar el enlace.
  * @param template Finalidad del correo, que determina sus parámetros y proveedor.
  * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
@@ -36,6 +38,7 @@ public record EmailNotification(
         String correlationId,
         String causationId,
         String recipient,
+        String locale,
         Template template,
         Map<String, Object> parameters) {
 
@@ -71,6 +74,9 @@ public record EmailNotification(
         occurredAt = Objects.requireNonNull(occurredAt, "occurredAt no puede ser null");
         correlationId = requireText(correlationId, "correlationId");
         recipient = requireText(recipient, "recipient");
+        locale = locale == null || locale.isBlank()
+                ? "es"
+                : locale.strip().toLowerCase(java.util.Locale.ROOT);
         template = Objects.requireNonNull(template, "template no puede ser null");
         parameters = Map.copyOf(Objects.requireNonNull(parameters, "parameters no puede ser null"));
     }
@@ -91,6 +97,23 @@ public record EmailNotification(
     }
 
     /**
+     * Lee la duración anunciada al destinatario, conservando compatibilidad con eventos antiguos.
+     *
+     * @return minutos positivos de validez del enlace.
+     */
+    public long expiryMinutes() {
+        Object value = parameters.get("expiresInMinutes");
+        if (value == null) return 15;
+        try {
+            long minutes = Long.parseLong(value.toString());
+            if (minutes <= 0) throw new NumberFormatException();
+            return minutes;
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("expiresInMinutes debe ser un entero positivo");
+        }
+    }
+
+    /**
      * Identifica la solicitud de correo almacenada en el inbox.
      *
      * @return tipo notification.email.requested compartido por productores y consumidores.
@@ -100,8 +123,7 @@ public record EmailNotification(
     }
 
     /**
-     * Selecciona el contenido y los parámetros requeridos: identidad en Resend o estado de descarga
-     * en SMTP.
+     * Selecciona el contenido y los parámetros requeridos del correo de identidad.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
@@ -111,21 +133,9 @@ public record EmailNotification(
      */
     public enum Template {
         /**
-         * Solicita confirmar la dirección de correo mediante un token cifrado de un solo uso.
+         * Solicita iniciar sesión mediante un token cifrado de un solo uso.
          */
-        EMAIL_VERIFICATION,
-        /**
-         * Solicita restablecer la contraseña mediante un token cifrado de un solo uso.
-         */
-        PASSWORD_RESET,
-        /**
-         * Comunica que el ZIP está disponible y cuándo caduca.
-         */
-        DOWNLOAD_READY,
-        /**
-         * Comunica el fallo de preparación del trabajo y su código.
-         */
-        DOWNLOAD_FAILED
+        MAGIC_LINK,
     }
 
     /**
