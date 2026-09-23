@@ -41,10 +41,8 @@ jobs:
         with:
           ref: ${{ env.RELEASE_SHA }}
 
-      - name: Refuse automatic schema promotion
-        run: |
-          grep -qx 'CORE_API_FLYWAY_TARGET=16' .env.example
-          grep -qx 'SCRAPER_ALEMBIC_TARGET=20260914_0021' .env.example
+      - name: Validate repository schema targets
+        run: python -m scripts.deployment.coolify_release --check-repository-schema-targets
 
       - name: Test release automation
         run: python -m unittest discover -s scripts/deployment/tests -v
