@@ -269,9 +269,9 @@ jobs:
       needs.changes.outputs.sonar == 'true' &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled') &&
-      (github.event_name == 'push' ||
-      (github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository))
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     needs: [changes, java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose, linux-installer]
     runs-on: ubuntu-latest
     env:
