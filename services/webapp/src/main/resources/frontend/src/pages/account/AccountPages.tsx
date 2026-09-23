@@ -138,9 +138,13 @@ export function UserLoginPage() {
         </label>
         {error ? <p className="error-banner">{error}</p> : null}
         {message ? <p className="form-message" role="status">{message}</p> : null}
-        <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.magic.submit')}</button>
+        <div className="auth-actions">
+          <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.magic.submit')}</button>
+          <Link className="auth-switch-link" to="/admin/login" aria-label={t('account.adminLogin.link')} title={t('account.adminLogin.link')}>
+            <span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>
+          </Link>
+        </div>
       </form>
-      <Link className="auth-switch-link" to="/admin/login">{t('account.adminLogin.link')}</Link>
     </AuthCard>
   );
 }
@@ -188,9 +192,13 @@ export function AdminLoginPage() {
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
         </label>
         {error ? <p className="error-banner">{error}</p> : null}
-        <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
+        <div className="auth-actions">
+          <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
+          <Link className="auth-switch-link" to="/login" aria-label={t('account.userLogin.link')} title={t('account.userLogin.link')}>
+            <span className="material-symbols-outlined" aria-hidden="true">person</span>
+          </Link>
+        </div>
       </form>
-      <Link className="auth-switch-link" to="/login">{t('account.userLogin.link')}</Link>
     </AuthCard>
   );
 }

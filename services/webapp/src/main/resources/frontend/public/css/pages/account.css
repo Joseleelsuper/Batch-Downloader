@@ -1,6 +1,7 @@
 .auth-card {
   display: grid;
   gap: 16px;
+  width: min(500px, 100%);
   background: var(--surface, #fff);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -12,6 +13,18 @@
 .bundle-fields {
   display: grid;
   gap: 14px;
+}
+
+.auth-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 10px;
+}
+
+.auth-actions .primary-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
 }
 
 .auth-form label,
@@ -54,16 +67,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
-  padding: 10px 14px;
+  width: 44px;
+  height: 44px;
   color: var(--teal-dark);
   background: var(--teal-soft);
   border: 1px solid color-mix(in srgb, var(--teal) 24%, var(--border));
   border-radius: 6px;
-  font-weight: 700;
-  text-align: center;
   text-decoration: none;
   transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.auth-switch-link .material-symbols-outlined {
+  font-size: 22px;
+  line-height: 1;
 }
 
 .auth-switch-link:hover {
