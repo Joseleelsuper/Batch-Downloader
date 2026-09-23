@@ -93,6 +93,16 @@ class CoreMySqlMigrationTest {
                     """, UUID.randomUUID().toString());
         }
         flyway.repair();
+        org.assertj.core.api.Assertions.assertThatThrownBy(flyway::migrate)
+                .isInstanceOf(FlywayException.class)
+                .hasMessageContaining("V17");
+
+        try (Connection connection = connection()) {
+            assertThat(flywayVersion(connection)).isEqualTo("16.2");
+            assertThat(count(connection, "software_requests")).isEqualTo(1L);
+            execute(connection, "DELETE FROM software_requests");
+        }
+        flyway.repair();
         flyway.migrate();
     }
 
@@ -254,6 +264,7 @@ class CoreMySqlMigrationTest {
             case "bundle_tags" -> "SELECT COUNT(*) FROM bundle_tags";
             case "bundle_stars" -> "SELECT COUNT(*) FROM bundle_stars";
             case "SPRING_SESSION" -> "SELECT COUNT(*) FROM SPRING_SESSION";
+            case "software_requests" -> "SELECT COUNT(*) FROM software_requests";
             default -> throw new IllegalArgumentException("Tabla no permitida: " + table);
         };
         try (Statement statement = connection.createStatement();

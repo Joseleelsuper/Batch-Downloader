@@ -1,8 +1,8 @@
--- Las proyecciones históricas no tienen consumidores. Se aborta si contienen datos para no
--- ocultar una instalación externa que todavía dependa de ellas.
-DROP PROCEDURE IF EXISTS assert_catalog_projection_tables_empty;
+-- Las tablas retiradas deben estar vacías para evitar perder datos pendientes o
+-- ocultar una instalación externa que todavía dependa de las proyecciones.
+DROP PROCEDURE IF EXISTS assert_retired_tables_empty;
 DELIMITER $$
-CREATE PROCEDURE assert_catalog_projection_tables_empty()
+CREATE PROCEDURE assert_retired_tables_empty()
 BEGIN
     SET @catalog_projection_has_rows = 0;
     IF EXISTS (
@@ -42,11 +42,30 @@ BEGIN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'V17 aborted: catalog projection tables are not empty';
     END IF;
+    SET @software_requests_has_rows = 0;
+    IF EXISTS (
+           SELECT 1
+           FROM information_schema.tables
+           WHERE table_schema = DATABASE()
+             AND table_name = 'software_requests'
+             AND table_type = 'BASE TABLE'
+       )
+    THEN
+        SET @software_requests_check =
+            'SELECT EXISTS (SELECT 1 FROM software_requests LIMIT 1) INTO @software_requests_has_rows';
+        PREPARE software_requests_statement FROM @software_requests_check;
+        EXECUTE software_requests_statement;
+        DEALLOCATE PREPARE software_requests_statement;
+    END IF;
+    IF @software_requests_has_rows = 1 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'V17 aborted: software_requests is not empty';
+    END IF;
 END$$
 DELIMITER ;
 
-CALL assert_catalog_projection_tables_empty();
-DROP PROCEDURE assert_catalog_projection_tables_empty;
+CALL assert_retired_tables_empty();
+DROP PROCEDURE assert_retired_tables_empty;
 
 DROP TABLE IF EXISTS catalog_source_projections;
 DROP TABLE IF EXISTS catalog_app_projections;

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from unittest import mock
 
@@ -12,6 +14,7 @@ from scripts.deployment import coolify_release
 def production_values(tag: str) -> dict[str, str]:
     values = {key: "configured" for key in coolify_release.REQUIRED_VALUES}
     values.update(coolify_release.FIXED_PRODUCTION_VALUES)
+    values.update(coolify_release.repository_schema_targets())
     values["GHCR_IMAGE_TAG"] = tag
     return values
 
@@ -135,13 +138,47 @@ class CoolifyReleaseTest(unittest.TestCase):
             request.call_args_list,
         )
 
-    def test_validation_rejects_schema_promotion(self) -> None:
+    def test_repository_schema_targets_are_read_from_example(self) -> None:
+        self.assertEqual(
+            {
+                "CORE_API_FLYWAY_TARGET": "19",
+                "SCRAPER_ALEMBIC_TARGET": "20260914_0021",
+            },
+            coolify_release.repository_schema_targets(),
+        )
+
+    def test_repository_schema_targets_reject_duplicates(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            configuration = Path(temporary_directory) / ".env.example"
+            configuration.write_text(
+                "CORE_API_FLYWAY_TARGET=19\n"
+                "CORE_API_FLYWAY_TARGET=20\n"
+                "SCRAPER_ALEMBIC_TARGET=20260914_0021\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(coolify_release.ReleaseError, "aparece más de una vez"):
+                coolify_release.repository_schema_targets(configuration)
+
+    def test_validation_rejects_schema_target_drift(self) -> None:
         tag = f"sha-{'a' * 40}"
         values = production_values(tag)
-        values["CORE_API_FLYWAY_TARGET"] = "18"
+        values["CORE_API_FLYWAY_TARGET"] = "16"
 
-        with self.assertRaises(coolify_release.ReleaseError):
+        with self.assertRaisesRegex(coolify_release.ReleaseError, "CORE_API_FLYWAY_TARGET"):
             coolify_release.validate_environment(values)
+
+    def test_release_drift_stops_before_coolify_mutation(self) -> None:
+        previous = "a" * 40
+        release = "b" * 40
+        client = FakeCoolifyClient(previous, f"sha-{previous}")
+        client.values["CORE_API_FLYWAY_TARGET"] = "16"
+
+        with self.assertRaisesRegex(coolify_release.ReleaseError, "CORE_API_FLYWAY_TARGET"):
+            coolify_release.perform_release(client, release)
+
+        self.assertEqual([], client.actions)
+        self.assertEqual(0, client.deployments)
 
     def test_success_updates_commit_and_immutable_tag(self) -> None:
         previous = "a" * 40

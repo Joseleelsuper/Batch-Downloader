@@ -33,7 +33,8 @@ latest_backup() {
 wait_for_mysql() {
   local attempt
   for attempt in {1..60}; do
-    if docker exec "${MYSQL_CONTAINER}" mysqladmin ping -uroot -prestore-only --silent; then
+    if docker exec "${MYSQL_CONTAINER}" \
+      mysql -uroot -prestore-only --execute='SELECT 1' >/dev/null 2>&1; then
       return
     fi
     sleep 2
@@ -55,7 +56,7 @@ wait_for_postgres() {
 }
 
 verify_mysql() {
-  local backup
+  local backup check_tables check_output table_count
   backup="$(latest_backup "${BACKUP_ROOT}/mysql" 'mysql-*.sql.gz')"
   docker run --detach --name "${MYSQL_CONTAINER}" --network none \
     --tmpfs /var/lib/mysql:rw,size=3g \
@@ -65,9 +66,30 @@ verify_mysql() {
   wait_for_mysql
   gzip --decompress --stdout "${backup}" \
     | docker exec --interactive "${MYSQL_CONTAINER}" mysql -uroot -prestore-only restore
-  docker exec "${MYSQL_CONTAINER}" mysqlcheck -uroot -prestore-only --databases restore >/dev/null
+  table_count="$(docker exec "${MYSQL_CONTAINER}" mysql -uroot -prestore-only \
+    --batch --skip-column-names --database=restore \
+    --execute="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")"
+  if [[ ! "${table_count}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "La copia MySQL no restauró ninguna tabla de usuario." >&2
+    return 1
+  fi
+  check_tables="$(docker exec "${MYSQL_CONTAINER}" mysql -uroot -prestore-only \
+    --batch --skip-column-names --database=restore \
+    --init-command="SET SESSION group_concat_max_len=65535" \
+    --execute="SELECT CONCAT('CHECK TABLE ', GROUP_CONCAT(CONCAT(CHAR(96), REPLACE(table_name, CHAR(96), CONCAT(CHAR(96), CHAR(96))), CHAR(96)) SEPARATOR ', '), ';') FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")"
+  if [[ -z "${check_tables}" ]]; then
+    echo "No se pudieron preparar las comprobaciones de las tablas MySQL." >&2
+    return 1
+  fi
+  check_output="$(docker exec "${MYSQL_CONTAINER}" mysql -uroot -prestore-only \
+    --batch --skip-column-names --database=restore --execute="${check_tables}")"
+  if ! awk -F '\t' 'NF != 4 || $3 != "status" || $4 != "OK" { print; failed = 1 }
+    END { exit failed }' <<<"${check_output}"; then
+    echo "La comprobación CHECK TABLE detectó errores en la copia restaurada." >&2
+    return 1
+  fi
   docker rm -f "${MYSQL_CONTAINER}" >/dev/null
-  echo "MySQL restaurado y comprobado desde ${backup}."
+  echo "MySQL restaurado y comprobado: ${table_count} tablas desde ${backup}."
 }
 
 verify_postgres() {
