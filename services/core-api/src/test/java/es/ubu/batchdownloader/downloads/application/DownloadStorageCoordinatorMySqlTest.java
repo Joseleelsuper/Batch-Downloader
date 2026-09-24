@@ -223,6 +223,116 @@ class DownloadStorageCoordinatorMySqlTest {
         verify(disk).delete(missing); verify(disk).delete(dirty); assertThat(reserved()).isZero();
     }
 
+    @Test void schedulerRecoversInventoryAndMetadataFailuresWithoutBypassingHead() throws Exception {
+        UUID head = estimating(Collections.singletonList(null)), next = queued(1024);
+        ReflectionTestUtils.setField(coordinator, "reconciled", false);
+        when(disk.inventory()).thenThrow(new IllegalStateException("worker unavailable"))
+                .thenReturn(new DownloadStorage.Inventory(List.of(), 30 * GIB));
+        when(disk.revalidateSize(any())).thenThrow(new IllegalStateException("metadata unavailable")).thenReturn(100L);
+        tickAndWait();
+        assertThat(dispatched).isEmpty();
+        assertThatThrownBy(() -> coordinator.transferAllowed(head)).hasMessageContaining("conciliando");
+        tickAndWait();
+        assertThat(dispatched).isEmpty();
+        assertThat(phase(head)).isEqualTo("ESTIMATING");
+        tickAndWait(); tickAndWait();
+        assertThat(dispatched).containsExactly(head, next);
+        assertThat(reserved()).isEqualTo(DownloadStorageBudget.peak(100) + 1024);
+    }
+
+    @Test void schedulerRetriesCleanupAndRetiresOnlyOldReceipts() throws Exception {
+        UUID id = ready(1024);
+        doThrow(new IllegalStateException("storage busy")).doNothing().when(disk).delete(id);
+        clock.advance(61); tickAndWait();
+        assertThat(phase(id)).isEqualTo("CLEANING"); assertThat(reserved()).isEqualTo(1024);
+        tickAndWait();
+        assertThat(countJobs()).isZero(); assertThat(reserved()).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM download_job_receipts", Long.class)).isEqualTo(1);
+        clock.advance(3601); tickAndWait();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM download_job_receipts", Long.class)).isZero();
+        verify(disk, times(2)).delete(id);
+    }
+
+    @Test void savingHeartbeatsRequireRealProgressAndCannotKeepStalledFileForever() {
+        UUID id = ready(1024); start(id);
+        assertThatThrownBy(() -> coordinator.complete(id, 1024)).hasMessageContaining("completo");
+        assertThatThrownBy(() -> coordinator.touch(id, "saving", 1025)).hasMessageContaining("disponible");
+        clock.advance(240); coordinator.touch(id, "saving", 512);
+        clock.advance(240); coordinator.touch(id, "saving", 512); call("expireInactive");
+        assertThat(coordinator.transferAllowed(id)).isTrue();
+        clock.advance(61); coordinator.touch(id, "saving", 512); call("expireInactive");
+        assertThat(coordinator.transferAllowed(id)).isFalse();
+        coordinator.touch(id, "saving", 1024);
+        assertThat(number(id, "delivery_bytes")).isEqualTo(512);
+        assertThatThrownBy(() -> start(id)).hasMessageContaining("disponible");
+        assertThat(reserved()).isEqualTo(1024);
+    }
+
+    @Test void invalidEstimatesFailVisiblyThenPurgeWithoutASecondDeletion() {
+        UUID unknown = estimating(Collections.singletonList(null)); call("estimate", unknown);
+        UUID overflow = estimating(List.of(Long.MAX_VALUE)); call("estimate", overflow);
+        assertThat(jdbc.queryForObject("SELECT failure_code FROM download_jobs WHERE id=?", String.class, unknown.toString()))
+                .isEqualTo("download_size_unavailable");
+        assertThat(jdbc.queryForObject("SELECT failure_code FROM download_jobs WHERE id=?", String.class, overflow.toString()))
+                .isEqualTo("download_budget_exceeded");
+        call("cleanup", unknown); assertThat(countJobs()).isEqualTo(2);
+        clock.advance(61); call("cleanup", unknown); call("cleanup", overflow);
+        assertThat(countJobs()).isZero(); assertThat(reserved()).isZero();
+        verify(disk, never()).delete(any());
+        assertThatThrownBy(() -> coordinator.touch(unknown, "waiting", 0)).hasMessageContaining("No existe");
+    }
+
+    @Test void workerCannotReopenReadyOrOversizeJobsAndFailedAttemptIsStillObservable() {
+        UUID id = queued(1024); call("dispatch"); UUID attempt = attempt(id);
+        assertThat(coordinator.worker(id, attempt, "START", 0).allowed()).isTrue();
+        assertThat(coordinator.worker(id, attempt, "HEARTBEAT", 0).allowed()).isTrue();
+        assertThat(coordinator.worker(id, attempt, "RESERVE", 512).allowed()).isTrue();
+        assertThat(reserved()).isEqualTo(1024);
+        assertThat(coordinator.worker(id, attempt, "RESERVE", DownloadStorageBudget.LIMIT + 1).allowed()).isFalse();
+        assertThat(coordinator.worker(id, attempt, "READY", 2048).allowed()).isFalse();
+        assertThatThrownBy(() -> coordinator.prepared(id, 0L)).hasMessageContaining("reserva");
+        assertThatThrownBy(() -> coordinator.prepared(id, 2048L)).hasMessageContaining("reserva");
+        assertThat(coordinator.worker(id, attempt, "REQUEUE", DownloadStorageBudget.LIMIT + 1).cancelled()).isTrue();
+        assertThat(reserved()).isZero();
+        assertThat(coordinator.acceptsEvent(id, attempt.toString(), "download.job.failed")).isTrue();
+        assertThat(coordinator.acceptsEvent(id, attempt.toString(), "download.job.ready")).isFalse();
+        assertThat(coordinator.acceptsEvent(id, null, "download.job.failed")).isFalse();
+        UUID prepared = queued(1024); call("dispatch");
+        coordinator.prepared(prepared, null);
+        assertThat(coordinator.worker(prepared, attempt(prepared), "HEARTBEAT", 0).cancelled()).isTrue();
+        assertThat(coordinator.worker(prepared, attempt(prepared), "REQUEUE", 2048).cancelled()).isTrue();
+        assertThat(reserved()).isEqualTo(1024);
+    }
+
+    @Test void restartAccountsLegacyReadyAndLiveWorkerBytesBeforeAdmission() {
+        UUID legacyReady = ready(4096), legacyRunning = queued(4096), running = queued(1024);
+        jdbc.update("UPDATE download_job_storage SET phase='RECONCILING',reserved_bytes=0 WHERE job_id IN (?,?)",
+                legacyReady.toString(), legacyRunning.toString());
+        call("dispatch");
+        when(disk.inventory()).thenReturn(new DownloadStorage.Inventory(List.of(
+                new DownloadStorage.StoredJob(legacyReady, 2048, false),
+                new DownloadStorage.StoredJob(legacyRunning, 4096, true),
+                new DownloadStorage.StoredJob(running, 8192, true)), 20 * GIB));
+        call("reconcile");
+        assertThat(phase(legacyReady)).isEqualTo("READY");
+        assertThat(phase(legacyRunning)).isEqualTo("CLEANING");
+        assertThat(phase(running)).isEqualTo("RUNNING");
+        assertThat(reserved()).isEqualTo(2048 + 4096 + 8192);
+        assertThat(coordinator.transferAllowed(legacyReady)).isTrue();
+        call("cleanup", legacyRunning);
+        assertThat(reserved()).isEqualTo(2048 + 8192);
+    }
+
+    private void tickAndWait() throws InterruptedException {
+        coordinator.tick();
+        var ticking = (java.util.concurrent.atomic.AtomicBoolean) ReflectionTestUtils.getField(coordinator, "ticking");
+        var operations = (Set<?>) ReflectionTestUtils.getField(coordinator, "operations");
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while ((ticking.get() || !operations.isEmpty()) && System.nanoTime() < deadline) Thread.sleep(10);
+        assertThat(ticking.get()).isFalse();
+        assertThat(operations).isEmpty();
+    }
+
     private UUID estimating(List<Long> sizes) {
         DownloadJob job = DownloadJob.queue(null,"browser","ip", List.of(DownloadJobItem.manual(UUID.randomUUID(),"App","https://example.test",clock.instant())),1,0,clock.instant(),clock.instant().plusSeconds(3600));
         domain.put(job.id(),job);

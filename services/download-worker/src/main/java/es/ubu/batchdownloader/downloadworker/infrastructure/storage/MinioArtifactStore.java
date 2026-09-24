@@ -124,6 +124,7 @@ public class MinioArtifactStore implements ArtifactStore {
             try (PipedInputStream pipeInput = new PipedInputStream(pipeBuffer);
                     PipedOutputStream pipe = new PipedOutputStream(pipeInput);
                     InputStream input = new ProducerAwareInputStream(pipeInput, producerFailure)) {
+                var uploadStopped = new java.util.concurrent.CompletableFuture<Void>();
                 Thread uploader = Thread.ofVirtual().name("minio-multipart-upload").start(() -> {
                     try {
                         client.putObject(PutObjectArgs.builder()
@@ -139,6 +140,8 @@ public class MinioArtifactStore implements ArtifactStore {
                         } catch (IOException ignored) {
                             // La excepción original conserva la causa útil.
                         }
+                    } finally {
+                        uploadStopped.complete(null);
                     }
                 });
                 CountingOutputStream counting = new CountingOutputStream(
@@ -161,12 +164,9 @@ public class MinioArtifactStore implements ArtifactStore {
                 try {
                     uploader.join();
                 } catch (InterruptedException exception) {
-                    uploader.interrupt();
+                    // Interrumpir el wrapper síncrono del SDK dejaría vivo su futuro HTTP.
                     try { input.close(); } catch (IOException ignored) { /* Se espera al uploader igualmente. */ }
-                    while (uploader.isAlive()) {
-                        try { uploader.join(); }
-                        catch (InterruptedException again) { /* La limpieza espera el cierre real. */ }
-                    }
+                    uploadStopped.join(); // Espera no interrumpible: ya no quedan escrituras ni cierres pendientes.
                     Thread.currentThread().interrupt();
                     throw new InfrastructureException("minio_upload_interrupted", exception);
                 }
@@ -265,6 +265,9 @@ public class MinioArtifactStore implements ArtifactStore {
                 }
             }
             return usage;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new InfrastructureException("minio_inventory_failed", exception);
         } catch (Exception exception) {
             throw new InfrastructureException("minio_inventory_failed", exception);
         }
@@ -287,6 +290,9 @@ public class MinioArtifactStore implements ArtifactStore {
                     .bucket(properties.bucket()).prefix(prefix).recursive(true).build()).iterator().hasNext()) {
                 throw new IOException("Job files still present after cleanup");
             }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new InfrastructureException("minio_cleanup_failed", exception);
         } catch (Exception exception) {
             throw new InfrastructureException("minio_cleanup_failed", exception);
         }

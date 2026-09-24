@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -107,7 +108,7 @@ public class DownloadDeliveryService {
             storage.transferStarted(job.id(), transfer.id);
             try (InputStream input = minio.getObject(GetObjectArgs.builder().bucket(bucket)
                     .object(job.objectKey()).offset(start).length(length).build())) {
-                transfer.input = input;
+                transfer.input.set(input);
                 byte[] buffer = new byte[64 * 1024];
                 long remaining = length;
                 long reportedAt = System.nanoTime();
@@ -139,7 +140,7 @@ public class DownloadDeliveryService {
 
     /** Reintenta el mismo recibo si SQL falla, incluso si START confirmó sin devolver respuesta. */
     private void finish(Transfer transfer) {
-        synchronized (transfer) {
+        synchronized (transfer.completionLock) {
             if (!transfers.contains(transfer)) return;
             try {
                 storage.transferFinished(transfer.jobId, transfer.id);
@@ -200,7 +201,8 @@ public class DownloadDeliveryService {
         private final UUID id = UUID.randomUUID();
         private final UUID jobId;
         private final OutputStream output;
-        private volatile InputStream input;
+        private final Object completionLock = new Object();
+        private final AtomicReference<InputStream> input = new AtomicReference<>();
         private volatile long progressAt = System.nanoTime();
         private volatile boolean finished;
 
@@ -211,7 +213,8 @@ public class DownloadDeliveryService {
 
         private void close() {
             try {
-                if (input != null) input.close();
+                InputStream current = input.getAndSet(null);
+                if (current != null) current.close();
             } catch (IOException ignored) {
                 // El cierre del otro extremo puede haber interrumpido ya el socket.
             }

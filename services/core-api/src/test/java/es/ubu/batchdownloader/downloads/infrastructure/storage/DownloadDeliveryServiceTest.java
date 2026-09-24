@@ -33,6 +33,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import okhttp3.Headers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -167,6 +168,50 @@ class DownloadDeliveryServiceTest {
             assertThat(reading.await(5, TimeUnit.SECONDS)).isTrue();
             when(storage.transferAllowed(jobId)).thenReturn(false);
             service.closeInactiveTransfers();
+            assertThatThrownBy(() -> transfer.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(IOException.class);
+            verify(storage).transferFinished(eq(jobId), any(UUID.class));
+        }
+    }
+
+    @Test
+    void concurrentClosersCloseTheInputOnceWithoutReleasingAnActiveReader() throws Exception {
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch finishReading = new CountDownLatch(1);
+        AtomicInteger closures = new AtomicInteger();
+        InputStream blocked = new InputStream() {
+            @Override
+            public int read() throws IOException {
+                reading.countDown();
+                try {
+                    if (!finishReading.await(5, TimeUnit.SECONDS)) throw new IOException("Timeout de la prueba.");
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(exception);
+                }
+                return -1;
+            }
+
+            @Override
+            public void close() { closures.incrementAndGet(); }
+        };
+        when(minio.getObject(any(GetObjectArgs.class))).thenReturn(source(blocked));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var transfer = executor.submit(() -> {
+                service.write(jobId, request, response);
+                return null;
+            });
+            try {
+                assertThat(reading.await(5, TimeUnit.SECONDS)).isTrue();
+                when(storage.transferAllowed(jobId)).thenReturn(false);
+                var watchdog = executor.submit(service::closeInactiveTransfers);
+                var shutdown = executor.submit(service::close);
+                watchdog.get(5, TimeUnit.SECONDS);
+                shutdown.get(5, TimeUnit.SECONDS);
+                assertThat(closures).hasValue(1);
+                verify(storage, never()).transferFinished(any(), any());
+            } finally {
+                finishReading.countDown();
+            }
             assertThatThrownBy(() -> transfer.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(IOException.class);
             verify(storage).transferFinished(eq(jobId), any(UUID.class));
         }
