@@ -67,6 +67,23 @@ class InternalDownloadJobMetadataControllerTest {
     @MockitoBean
     private DownloadJobAccessService jobs;
 
+    @MockitoBean
+    private es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator storage;
+
+    @Test
+    void storageRequiresTokenAndAllowsInternalHttpWithoutCsrf() throws Exception {
+        UUID attempt = UUID.randomUUID();
+        String body = "{\"attemptId\":\"" + attempt + "\",\"action\":\"RESERVE\",\"bytes\":1024}";
+        mvc.perform(post("/internal/v1/download-jobs/{id}/storage", JOB_ID)
+                .contentType("application/json").content(body)).andExpect(status().isUnauthorized());
+        when(storage.worker(JOB_ID, attempt, "RESERVE", 1024)).thenReturn(
+                new es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator.StorageReply(true, 1024, false, 10737418240L));
+        mvc.perform(post("/internal/v1/download-jobs/{id}/storage", JOB_ID)
+                .header("X-Internal-Service-Token", "test-internal-service-token")
+                .contentType("application/json").content(body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.reservedBytes").value(1024));
+    }
+
     /**
      * Dato compartido {@code users} para los escenarios de prueba.
      */

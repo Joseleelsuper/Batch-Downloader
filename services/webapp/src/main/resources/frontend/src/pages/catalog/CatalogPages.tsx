@@ -34,6 +34,7 @@ import { AppSearchBar } from '../../components/AppSearchBar';
 import { AppTable } from '../../components/AppTable';
 import { Pagination } from '../../components/Pagination';
 import { useDownloadJob } from '../../hooks/useDownloadJob';
+import { chooseDownloadDestination, isDestinationCancelled } from '../../downloads/delivery';
 import { useTranslation, type Translator } from '../../services/i18n';
 import type {
   AppDetails,
@@ -317,6 +318,8 @@ export function CatalogPage() {
     setValidatingSelection(true);
     setError(null);
     try {
+      const destination = chooseDownloadDestination();
+      await destination;
       const validation = await validateCatalogSelection(
         Array.from(selectedDownloadIdsRef.current),
         fetchAppDetails,
@@ -335,9 +338,9 @@ export function CatalogPage() {
       await downloadJob.start({
         appIds: validIds,
         operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
-      }, t('download.job.selectionLabel', { count: validIds.length }));
-    } catch {
-      setError(t('catalog.error.zip'));
+      }, t('download.job.selectionLabel', { count: validIds.length }), destination);
+    } catch (cause) {
+      if (!isDestinationCancelled(cause)) setError(t('catalog.error.zip'));
     } finally {
       setValidatingSelection(false);
     }

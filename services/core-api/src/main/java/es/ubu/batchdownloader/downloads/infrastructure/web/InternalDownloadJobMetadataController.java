@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.downloads.infrastructure.web;
 
 import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService;
+import es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator;
 import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService.DownloadItemMetadata;
 import es.ubu.batchdownloader.common.UnauthorizedException;
 import jakarta.validation.Valid;
@@ -41,6 +42,7 @@ public class InternalDownloadJobMetadataController {
      * Estado {@code expectedToken} mantenido por {@code InternalDownloadJobMetadataController}.
      */
     private final byte[] expectedToken;
+    private final DownloadStorageCoordinator storage;
 
     /**
      * Conecta la consulta de metadatos y conserva en UTF-8 la credencial interna esperada.
@@ -51,8 +53,10 @@ public class InternalDownloadJobMetadataController {
      */
     public InternalDownloadJobMetadataController(
             DownloadJobAccessService jobs,
+            DownloadStorageCoordinator storage,
             @Value("${app.scraper-internal-service-token}") String internalServiceToken) {
         this.jobs = jobs;
+        this.storage = storage;
         this.expectedToken = internalServiceToken.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -105,5 +109,17 @@ public class InternalDownloadJobMetadataController {
      */
     record DownloadItemMetadataRequest(
             @NotEmpty @Size(max = 100) List<@NotNull UUID> itemIds) {}
+
+    @PostMapping("/{jobId}/storage")
+    DownloadStorageCoordinator.StorageReply storage(
+            @PathVariable UUID jobId, @Valid @RequestBody StorageRequest request,
+            @RequestHeader(value = "X-Internal-Service-Token", required = false) String suppliedToken) {
+        requireInternalToken(suppliedToken);
+        return storage.worker(jobId, request.attemptId(), request.action(), request.bytes());
+    }
+
+    record StorageRequest(@NotNull UUID attemptId,
+            @jakarta.validation.constraints.NotBlank String action,
+            @jakarta.validation.constraints.PositiveOrZero long bytes) {}
 
 }

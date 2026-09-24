@@ -41,6 +41,7 @@ public class MinioArtifactStore implements ArtifactStore {
      * Estado {@code client} mantenido por {@code MinioArtifactStore}.
      */
     private final MinioClient client;
+    private final MinioMultipartClient multipart;
     /**
      * Estado {@code properties} mantenido por {@code MinioArtifactStore}.
      */
@@ -59,8 +60,14 @@ public class MinioArtifactStore implements ArtifactStore {
      *     acceso.
      */
     public MinioArtifactStore(MinioClient client, StorageProperties properties) {
+        this(client, properties, new MinioMultipartClient(io.minio.MinioAsyncClient.builder()
+                .endpoint(properties.endpoint()).credentials(properties.accessKey(), properties.secretKey()).build()));
+    }
+
+    MinioArtifactStore(MinioClient client, StorageProperties properties, MinioMultipartClient multipart) {
         this.client = client;
         this.properties = properties;
+        this.multipart = multipart;
     }
 
     /**
@@ -117,6 +124,7 @@ public class MinioArtifactStore implements ArtifactStore {
             try (PipedInputStream pipeInput = new PipedInputStream(pipeBuffer);
                     PipedOutputStream pipe = new PipedOutputStream(pipeInput);
                     InputStream input = new ProducerAwareInputStream(pipeInput, producerFailure)) {
+                var uploadStopped = new java.util.concurrent.CompletableFuture<Void>();
                 Thread uploader = Thread.ofVirtual().name("minio-multipart-upload").start(() -> {
                     try {
                         client.putObject(PutObjectArgs.builder()
@@ -132,6 +140,8 @@ public class MinioArtifactStore implements ArtifactStore {
                         } catch (IOException ignored) {
                             // La excepción original conserva la causa útil.
                         }
+                    } finally {
+                        uploadStopped.complete(null);
                     }
                 });
                 CountingOutputStream counting = new CountingOutputStream(
@@ -154,8 +164,10 @@ public class MinioArtifactStore implements ArtifactStore {
                 try {
                     uploader.join();
                 } catch (InterruptedException exception) {
+                    // Interrumpir el wrapper síncrono del SDK dejaría vivo su futuro HTTP.
+                    try { input.close(); } catch (IOException ignored) { /* Se espera al uploader igualmente. */ }
+                    uploadStopped.join(); // Espera no interrumpible: ya no quedan escrituras ni cierres pendientes.
                     Thread.currentThread().interrupt();
-                    uploader.interrupt();
                     throw new InfrastructureException("minio_upload_interrupted", exception);
                 }
                 if (producerFailure.get() != null) {
@@ -226,6 +238,82 @@ public class MinioArtifactStore implements ArtifactStore {
         }
     }
 
+    @Override
+    public java.util.Map<java.util.UUID, Long> jobUsage(java.util.Collection<java.util.UUID> knownJobs) {
+        ensureBucket();
+        java.util.Map<java.util.UUID, Long> usage = new java.util.HashMap<>();
+        try {
+            for (Result<Item> result : client.listObjects(ListObjectsArgs.builder()
+                    .bucket(properties.bucket()).prefix("jobs/").recursive(true).build())) {
+                Item item = result.get();
+                addUsage(usage, item.objectName(), item.size());
+            }
+            var jobIds = new java.util.HashSet<>(knownJobs);
+            jobIds.addAll(usage.keySet());
+            for (java.util.UUID jobId : jobIds) {
+                for (var upload : incompleteJob(jobId)) {
+                    long bytes = 0;
+                    int marker = 0;
+                    io.minio.messages.ListPartsResult parts;
+                    do {
+                        parts = multipart.listPartsAsync(properties.bucket(), null, upload.objectName(),
+                                1000, marker, upload.uploadId(), null, null).get().result();
+                        for (io.minio.messages.Part part : parts.partList()) bytes = Math.addExact(bytes, part.partSize());
+                        marker = parts.nextPartNumberMarker();
+                    } while (parts.isTruncated());
+                    addUsage(usage, upload.objectName(), bytes);
+                }
+            }
+            return usage;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new InfrastructureException("minio_inventory_failed", exception);
+        } catch (Exception exception) {
+            throw new InfrastructureException("minio_inventory_failed", exception);
+        }
+    }
+
+    @Override
+    public void deleteJob(java.util.UUID jobId) {
+        ensureBucket();
+        String prefix = "jobs/" + jobId + "/";
+        try {
+            for (var upload : incompleteJob(jobId)) {
+                multipart.abortMultipartUploadAsync(properties.bucket(), null, upload.objectName(),
+                        upload.uploadId(), null, null).get();
+            }
+            for (Result<Item> result : client.listObjects(ListObjectsArgs.builder()
+                    .bucket(properties.bucket()).prefix(prefix).recursive(true).build())) {
+                delete(result.get().objectName());
+            }
+            if (!incompleteJob(jobId).isEmpty() || client.listObjects(ListObjectsArgs.builder()
+                    .bucket(properties.bucket()).prefix(prefix).recursive(true).build()).iterator().hasNext()) {
+                throw new IOException("Job files still present after cleanup");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new InfrastructureException("minio_cleanup_failed", exception);
+        } catch (Exception exception) {
+            throw new InfrastructureException("minio_cleanup_failed", exception);
+        }
+    }
+
+    private java.util.List<MinioMultipartClient.PendingUpload> incompleteJob(java.util.UUID jobId) throws Exception {
+        // MinIO solo lista multipart para una clave exacta; jobs/ no devuelve sus descendientes.
+        // El inbox conserva cada jobId antes de escribir estas dos únicas claves del worker.
+        var uploads = new java.util.ArrayList<MinioMultipartClient.PendingUpload>();
+        uploads.addAll(multipart.incomplete(properties.bucket(), "jobs/" + jobId + "/bundle.zip"));
+        uploads.addAll(multipart.incomplete(properties.bucket(), "jobs/" + jobId + "/manifest.json"));
+        return uploads;
+    }
+
+    private void addUsage(java.util.Map<java.util.UUID, Long> usage, String key, long bytes) {
+        String[] parts = key.split("/", 3);
+        if (parts.length == 3 && parts[0].equals("jobs")) {
+            usage.merge(java.util.UUID.fromString(parts[1]), bytes, Math::addExact);
+        }
+    }
+
     /**
      * Comprueba o crea el bucket una sola vez por instancia bajo un cerrojo y conserva la
      * inicialización satisfactoria.
@@ -280,7 +368,7 @@ public class MinioArtifactStore implements ArtifactStore {
                     .object(objectKey)
                     .build());
         } catch (Exception ignored) {
-            // El SDK aborta el multipart; el ciclo de vida actúa como respaldo adicional.
+            // La limpieza confirmada del trabajo reintenta objetos y partes antes de liberar reserva.
         }
     }
 

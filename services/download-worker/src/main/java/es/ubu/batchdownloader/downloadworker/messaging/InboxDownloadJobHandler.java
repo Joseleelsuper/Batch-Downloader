@@ -22,6 +22,8 @@ public final class InboxDownloadJobHandler implements DownloadJobHandler {
     private final InboxRepository inbox;
     private final DownloadProperties properties;
     private final DownloadJobHandler delegate;
+    private final java.util.concurrent.ConcurrentHashMap<java.util.UUID,
+            java.util.concurrent.CompletableFuture<Void>> running = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Conecta reserva, duración del arrendamiento y siguiente etapa de procesamiento.
@@ -48,6 +50,21 @@ public final class InboxDownloadJobHandler implements DownloadJobHandler {
      */
     @Override
     public void handle(DownloadJobRequestedEvent event) {
+        var completion = new java.util.concurrent.CompletableFuture<Void>();
+        var previous = running.putIfAbsent(event.eventId(), completion);
+        if (previous != null) { previous.join(); return; }
+        try {
+            process(event);
+            completion.complete(null);
+        } catch (RuntimeException exception) {
+            completion.completeExceptionally(exception);
+            throw exception;
+        } finally {
+            running.remove(event.eventId(), completion);
+        }
+    }
+
+    private void process(DownloadJobRequestedEvent event) {
         if (!inbox.tryStart(event.eventId(), properties.inboxLease())) {
             LOGGER.info(
                     "Ignoring duplicate download event eventId={} jobId={}",

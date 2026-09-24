@@ -29,6 +29,34 @@ function job(status: DownloadJob['status']): DownloadJob {
 }
 
 describe('DownloadJobPanel', () => {
+  it('explains the physical budget and the FIFO wait without exposing a raw error code', () => {
+    const view = render(<DownloadJobPanel job={{ ...job('FAILED'), failureCode: 'download_budget_exceeded' }}
+      onCancel={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/espacio estimado.*10 GiB.*instaladores temporales y el ZIP/)).toBeInTheDocument();
+    view.rerender(<DownloadJobPanel job={{ ...job('FAILED'), failureCode: 'storage_budget_exceeded' }}
+      onCancel={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/espacio real.*10 GiB.*instaladores temporales y el ZIP/)).toBeInTheDocument();
+    view.rerender(<DownloadJobPanel job={{ ...job('QUEUED'), waitReason: 'storage_budget_wait' }}
+      onCancel={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/tamaño real necesita una reserva mayor/)).toBeInTheDocument();
+    view.rerender(<DownloadJobPanel job={{ ...job('FAILED'), failureCode: 'download_size_unavailable' }}
+      onCancel={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/No se pudo estimar el espacio del trabajo/)).toBeInTheDocument();
+  });
+
+  it('distinguishes FIFO, preparation and delivery progress', () => {
+    const view = render(<DownloadJobPanel job={{ ...job('QUEUED'), queuePosition: 2, estimatedBytes: 2 ** 20 }}
+      onCancel={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/Posición en la cola: 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Tamaño estimado.*1.0 MiB/)).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Preparación del ZIP' })).toHaveAttribute('value', '35');
+    view.rerender(<DownloadJobPanel job={{ ...job('READY'), artifactSizeBytes: 100, deliveryBytes: 25,
+      deliveryStatus: 'TRANSFERRING' }} saving onCancel={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByRole('progressbar', { name: 'Transferencia del ZIP' })).toHaveAttribute('value', '25');
+    expect(screen.getByRole('button', { name: 'Obtener ZIP' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Cerrar' })).not.toBeInTheDocument();
+  });
+
   it('permite cancelar un trabajo activo', () => {
     const onCancel = vi.fn();
     render(<DownloadJobPanel job={job('DOWNLOADING')} onCancel={onCancel} onClose={vi.fn()} />);
@@ -36,17 +64,14 @@ describe('DownloadJobPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
 
     expect(onCancel).toHaveBeenCalledOnce();
-    expect(screen.queryByRole('link', { name: /Obtener ZIP/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Obtener ZIP/i })).not.toBeInTheDocument();
   });
 
   it('expone el ZIP únicamente cuando el trabajo está listo', () => {
-    render(<DownloadJobPanel job={job('READY')} onCancel={vi.fn()} onClose={vi.fn()} />);
-
-    const link = screen.getByRole('link', { name: /Obtener ZIP/i });
-    expect(link).toHaveAttribute(
-      'href',
-      '/api/v1/download-jobs/a51d185b-1966-4c51-83e2-9b2f523f47ce/file',
-    );
+    const download = vi.fn();
+    render(<DownloadJobPanel job={job('READY')} onDownload={download} onCancel={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Obtener ZIP/i }));
+    expect(download).toHaveBeenCalledOnce();
     expect(screen.queryByRole('button', { name: 'Cancelar' })).not.toBeInTheDocument();
   });
 
@@ -68,7 +93,7 @@ describe('DownloadJobPanel', () => {
 
     render(<DownloadJobPanel job={partial} onCancel={vi.fn()} onClose={vi.fn()} />);
 
-    expect(screen.getByText('Completado parcialmente')).toBeInTheDocument();
+    expect(screen.getByText('ZIP preparado parcialmente')).toBeInTheDocument();
     expect(screen.getByText('Instaladores listos')).toBeInTheDocument();
     expect(screen.getByText('Con problemas')).toBeInTheDocument();
     expect(screen.getByText('Aplicación fallida')).toBeInTheDocument();
@@ -79,7 +104,7 @@ describe('DownloadJobPanel', () => {
     );
     fireEvent.click(screen.getByText('Detalles técnicos'));
     expect(screen.getByText('source_revalidation_failed')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Obtener ZIP/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Obtener ZIP/i })).toBeInTheDocument();
   });
 
   it('muestra el código terminal de un trabajo fallido sin ofrecer un ZIP', () => {
@@ -90,7 +115,7 @@ describe('DownloadJobPanel', () => {
     expect(screen.getByText('Fallido')).toBeInTheDocument();
     expect(screen.getByText('Problema del servicio de descarga')).toBeInTheDocument();
     expect(screen.getByText('La aplicación no pudo descargarse por un error inesperado.')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Obtener ZIP/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Obtener ZIP/i })).not.toBeInTheDocument();
   });
 
   it('mantiene disponible el ZIP cuando solo contiene accesos manuales', () => {
@@ -111,7 +136,7 @@ describe('DownloadJobPanel', () => {
     expect(screen.getByText('Descarga desde la web oficial')).toBeInTheDocument();
     expect(screen.getByText('Aplicación de ejemplo')).toBeInTheDocument();
     expect(screen.getByText(/incluirá accesos \.url/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Obtener ZIP/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Obtener ZIP/i })).toBeInTheDocument();
   });
 
   it('no convierte una página oficial insegura en un enlace', () => {

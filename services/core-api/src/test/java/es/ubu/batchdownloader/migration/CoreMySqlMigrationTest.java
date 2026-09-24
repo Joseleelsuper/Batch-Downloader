@@ -177,7 +177,9 @@ class CoreMySqlMigrationTest {
             connection.setAutoCommit(true);
             assertThat(downloadCount(connection, appId)).isEqualTo(2L);
 
-            assertThat(flywayVersion(connection)).isEqualTo("19");
+            assertThat(tableExists(connection, "download_job_storage")).isTrue();
+            assertThat(tableExists(connection, "download_job_receipts")).isTrue();
+            assertThat(flywayVersion(connection)).isEqualTo("20");
         }
     }
 

@@ -28,6 +28,7 @@ from app.application.source_resolution import (
     SourceNotFoundError,
     SourceRevalidationTransientError,
     resolve_source,
+    resolve_source_size,
 )
 from app.core.config import Settings, get_settings
 from app.core.url_protector import UrlProtector
@@ -43,6 +44,7 @@ from app.schemas.internal import (
     GenerateDescriptionRequest,
     GenerateDescriptionResult,
     InternalSourceResolution,
+    InternalSourceSize,
     ManualInstallerApplyRequest,
     ManualInstallerApplyResult,
     ManualInstallerInspectionRequest,
@@ -157,6 +159,25 @@ async def semantic_documents(
         ],
         nextAfterAppId=next_after,
     )
+
+
+@internal_router.get(
+    "/sources/{source_ref}/size",
+    response_model=InternalSourceSize,
+    response_model_by_alias=True,
+    responses={401: {}, 404: {}},
+)
+async def get_source_size(
+    source_ref: str,
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> InternalSourceSize:
+    """Consulta el tamaño para la admisión de descargas sin iniciar el instalador."""
+    try:
+        return await resolve_source_size(source_ref, session, settings)
+    except SourceNotFoundError as exception:
+        raise HTTPException(status_code=404, detail={"code": str(exception)}) from exception
 
 
 @internal_router.get(

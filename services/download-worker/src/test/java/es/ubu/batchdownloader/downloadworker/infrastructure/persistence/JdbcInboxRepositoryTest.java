@@ -40,7 +40,9 @@ class JdbcInboxRepositoryTest {
                     event_id VARCHAR(64) PRIMARY KEY,
                     status VARCHAR(24) NOT NULL,
                     started_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    completed_at TIMESTAMP WITH TIME ZONE NULL
+                    completed_at TIMESTAMP WITH TIME ZONE NULL,
+                    pending_result CLOB NULL,
+                    job_id VARCHAR(36) NULL
                 )
                 """);
         repository = new JdbcInboxRepository(jdbc, Clock.systemUTC());
@@ -72,5 +74,38 @@ class JdbcInboxRepositoryTest {
         repository.release(eventId);
 
         assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
+    }
+
+    @Test
+    void sealedReadySurvivesFailureReleaseAndWorkerRestart() {
+        UUID eventId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
+        repository.saveReady(eventId, jobId, "{\"result\":\"READY\"}");
+        repository.release(eventId);
+        repository.recoverAbandoned();
+        assertThat(repository.pendingReady(eventId)).isEqualTo("{\"result\":\"READY\"}");
+        assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
+        repository.complete(eventId);
+        assertThat(repository.pendingReady(eventId)).isNull();
+        assertThat(repository.tryStart(eventId, Duration.ZERO)).isFalse();
+        assertThat(repository.trackedJobs()).containsExactly(jobId);
+        repository.clearReady(jobId);
+        assertThat(repository.trackedJobs()).isEmpty();
+    }
+
+    @Test
+    void remembersJobsWithOnlyMultipartAcrossFailureAndRestartUntilConfirmedCleanup() {
+        UUID eventId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
+        repository.rememberJob(eventId, jobId);
+        repository.release(eventId);
+        repository.recoverAbandoned();
+        assertThat(repository.trackedJobs()).containsExactly(jobId);
+        assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
+        repository.clearReady(jobId);
+        repository.complete(eventId);
+        assertThat(repository.trackedJobs()).isEmpty();
     }
 }

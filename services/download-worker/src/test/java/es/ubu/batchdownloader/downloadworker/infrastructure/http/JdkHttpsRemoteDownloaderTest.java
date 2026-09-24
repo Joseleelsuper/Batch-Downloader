@@ -312,11 +312,9 @@ class JdkHttpsRemoteDownloaderTest {
         DownloadProperties properties = new DownloadProperties(
                 10,
                 maxFileSize,
-                DataSize.ofMegabytes(10),
                 3,
                 Duration.ofSeconds(1),
                 Duration.ofSeconds(10),
-                1,
                 Duration.ofMinutes(5),
                 temp.toString());
         PublicHttpsUriPolicy policy = new PublicHttpsUriPolicy(host -> {

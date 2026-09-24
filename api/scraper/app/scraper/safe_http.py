@@ -4,7 +4,9 @@ y descubrimientos.
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qsl, urlparse, urlunparse
+from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
+
+import httpx
 
 from app.scraper.http import (
     FetchRequest,
@@ -82,6 +84,37 @@ async def validate_public_https_url(url: str) -> str:
     if not await domain_has_public_dns(hostname):
         raise SafeHttpError("dns_not_public")
     return normalized
+
+
+async def probe_public_resource_size(
+    url: str, *, timeout: float, max_redirects: int
+) -> int | None:
+    """Consulta solo HEAD y valida HTTPS, DNS y credenciales antes de cada salto.
+
+    No lee el cuerpo ni recurre a GET cuando el proveedor no anuncia un tamaño válido.
+    """
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=False,
+        headers={"Accept-Encoding": "identity", "User-Agent": "BatchDownloaderScraper/0.1"},
+    ) as client:
+        for _redirect in range(max_redirects + 1):
+            url = await validate_public_https_url(url)
+            async with client.stream("HEAD", url) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        return None
+                    url = urljoin(url, location)
+                    continue
+                if response.status_code != 200:
+                    return None
+                size = response.headers.get("content-length", "")
+                if not size.isascii() or not size.isdecimal() or len(size) > 19:
+                    return None
+                value = int(size)
+                return value if 0 < value <= 2**63 - 1 else None
+    return None
 
 
 def has_sensitive_query(url: str) -> bool:

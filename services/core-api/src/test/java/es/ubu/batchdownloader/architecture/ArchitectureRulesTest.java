@@ -34,10 +34,10 @@ class ArchitectureRulesTest {
             .should().dependOnClassesThat(simpleName("DownloadJobService")
                     .or(simpleName("DownloadJobAccessService")));
 
-    /** La expiración no inicia trabajos nuevos ni solicita resoluciones al catálogo. */
+    /** El planificador reutiliza trabajos admitidos sin crear nuevas selecciones. */
     @ArchTest
     static final ArchRule EXPIRATION_DOES_NOT_ADMIT_DOWNLOADS = noClasses()
-            .that().haveSimpleName("DownloadJobExpiration")
+            .that().haveSimpleName("DownloadStorageCoordinator")
             .should().dependOnClassesThat(simpleName("DownloadJobService")
                     .or(simpleName("CatalogSourceLookup")));
 }

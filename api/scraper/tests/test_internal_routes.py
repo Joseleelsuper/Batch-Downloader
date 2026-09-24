@@ -9,7 +9,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.internal_routes import INTERNAL_SERVICE_TOKEN_HEADER, internal_router
@@ -176,6 +176,100 @@ async def test_current_manual_inspection_returns_null_when_none_is_open(
 
     assert response.status_code == 200
     assert response.json() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("known_size,probed_size", [(4096, None), (None, 8192), (0, None)])
+async def test_source_size_releases_transaction_before_probe(
+    internal_api: InternalApiFixture, monkeypatch, known_size, probed_size
+) -> None:
+    """Los tamaños conocidos evitan la red y HEAD nunca ocupa una conexión SQL."""
+    _, source, url = await internal_api.add_source(confidence="validated")
+    source.size_bytes = known_size
+    await internal_api.session.commit()
+    probes = []
+
+    async def probe(candidate_url: str, **_kwargs) -> int | None:
+        assert not internal_api.session.in_transaction()
+        assert candidate_url == url
+        probes.append(candidate_url)
+        return probed_size
+
+    monkeypatch.setattr("app.application.source_resolution.probe_public_resource_size", probe)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{source.id}/size",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "sourceRef": str(source.id), "expectedSizeBytes": known_size or probed_size
+    }
+    assert probes == ([] if known_size else [url])
+    assert not internal_api.session.in_transaction()
+    await internal_api.session.refresh(source)
+    assert source.size_bytes == (known_size if probed_size is None else probed_size)
+
+
+@pytest.mark.asyncio
+async def test_source_size_does_not_overwrite_a_concurrent_source_revision(
+    internal_api: InternalApiFixture, monkeypatch
+) -> None:
+    """Un HEAD de la URL anterior no contamina la revisión editada mientras esperaba."""
+    _, source, _ = await internal_api.add_source(confidence="validated")
+    source.size_bytes = None
+    await internal_api.session.commit()
+
+    async def probe(_url: str, **_kwargs) -> int:
+        assert not internal_api.session.in_transaction()
+        source.resolved_url_encrypted = UrlProtector(URL_SECRET).protect(
+            "https://downloads.example.test/replaced.exe"
+        )
+        await internal_api.session.commit()
+        return 8192
+
+    monkeypatch.setattr("app.application.source_resolution.probe_public_resource_size", probe)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{source.id}/size",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 200
+    assert response.json()["expectedSizeBytes"] is None
+    await internal_api.session.refresh(source)
+    assert source.size_bytes is None
+
+
+@pytest.mark.asyncio
+async def test_source_size_timeout_keeps_unknown_estimate_without_transaction(
+    internal_api: InternalApiFixture, monkeypatch
+) -> None:
+    _, source, _ = await internal_api.add_source(confidence="validated")
+    source.size_bytes = None
+    await internal_api.session.commit()
+
+    async def probe(_url: str, **_kwargs) -> int:
+        assert not internal_api.session.in_transaction()
+        raise httpx.ReadTimeout("metadata timeout")
+
+    monkeypatch.setattr("app.application.source_resolution.probe_public_resource_size", probe)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{source.id}/size",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 200
+    assert response.json()["expectedSizeBytes"] is None
+    assert not internal_api.session.in_transaction()
+
+
+@pytest.mark.asyncio
+async def test_source_size_requires_token_and_existing_reference(
+    internal_api: InternalApiFixture,
+) -> None:
+    path = f"/internal/v1/sources/{uuid4()}/size"
+    assert (await internal_api.client.get(path)).status_code == 401
+    response = await internal_api.client.get(
+        path, headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    )
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -1092,6 +1186,7 @@ async def test_internal_resolution_revalidates_expired_candidate_before_revealin
                 prueba.
         """
         assert candidate.url == download_url
+        assert not internal_api.session.in_transaction()
         return ValidationResult(
             ok=True,
             url=candidate.url,
@@ -1117,6 +1212,85 @@ async def test_internal_resolution_revalidates_expired_candidate_before_revealin
     assert response.json()["trustStatus"] == "VERIFIED"
     assert resolved.expires_at > utc_now()
     assert resolved.validation_status == ValidationStatus.VALID.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["url", "source_state", "metadata", "editorial"])
+@pytest.mark.parametrize("valid_result", [True, False])
+async def test_expired_resolution_never_overwrites_changes_during_network_validation(
+    internal_api: InternalApiFixture, monkeypatch, change, valid_result
+) -> None:
+    app, resolved, _ = await internal_api.add_source(
+        confidence="validated", expires_in_hours=-1
+    )
+    previous_checked = resolved.checked_at
+    edited_url = UrlProtector(URL_SECRET).protect("https://example.test/edited.exe")
+    changed_metadata = {"validation_confidence": "validated", "expected_sha256": "b" * 64}
+
+    async def validate(_validator, candidate):
+        assert not internal_api.session.in_transaction()
+        async with AsyncSession(internal_api.session.bind, expire_on_commit=False) as editor:
+            if change == "url":
+                statement = update(ResolvedSource).where(ResolvedSource.id == resolved.id).values(
+                    resolved_url_encrypted=edited_url
+                )
+            elif change == "source_state":
+                statement = update(DownloadSource).where(
+                    DownloadSource.id == resolved.download_source_id
+                ).values(resolution_status="requires_manual_review", validation_status="unchecked")
+            elif change == "metadata":
+                statement = update(ResolvedSource).where(ResolvedSource.id == resolved.id).values(
+                    metadata_json=changed_metadata
+                )
+            else:
+                statement = update(SoftwareApp).where(SoftwareApp.id == app.id).values(
+                    version=SoftwareApp.version + 1
+                )
+            await editor.execute(statement)
+            await editor.commit()
+        return ValidationResult(
+            ok=valid_result, url=candidate.url, final_url=candidate.url,
+            confidence=ValidationConfidence.VALIDATED, reason=None if valid_result else "http_404",
+            size_bytes=8192,
+        )
+
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "source_revalidation_changed"
+    assert not internal_api.session.in_transaction()
+    await internal_api.session.refresh(resolved)
+    assert resolved.checked_at == previous_checked
+    assert resolved.size_bytes == 4096
+    assert resolved.validation_status == "valid"
+    if change == "url":
+        assert resolved.resolved_url_encrypted == edited_url
+    if change == "metadata":
+        assert resolved.metadata_json == changed_metadata
+
+
+@pytest.mark.asyncio
+async def test_linux_signature_does_not_keep_the_resolution_transaction_open(
+    internal_api: InternalApiFixture, monkeypatch
+) -> None:
+    _, resolved, _ = await internal_api.add_source(confidence="validated")
+    resolved.source.operating_system = "linux"
+    await internal_api.session.commit()
+
+    async def signature(_profile):
+        assert not internal_api.session.in_transaction()
+        return "c2lnbmF0dXJl"
+
+    monkeypatch.setattr("app.application.source_resolution.bundled_signature", signature)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 200
+    assert response.json()["signatureBase64"] == "c2lnbmF0dXJl"
 
 
 @pytest.mark.asyncio

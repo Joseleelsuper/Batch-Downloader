@@ -1,119 +1,95 @@
 # Download Worker
 
-Download Worker consume los comandos versionados de RabbitMQ, resuelve las
-fuentes en el scraper, descarga los instaladores en temporales acotados, genera
-el ZIP en MinIO y publica el progreso de vuelta a Core. Las URLs resueltas nunca
-se incluyen en eventos, manifests ni logs.
+Consume comandos de RabbitMQ, revalida fuentes en el scraper, descarga los
+instaladores en temporales, genera el ZIP en MinIO y publica progreso a Core.
+Las URLs de instaladores no aparecen en eventos, manifiestos ni logs.
 
-## Pipeline y capacidad
+## Capacidad en Oracle
 
-Las fases `RESOLVING`, `DOWNLOADING` y `PACKAGING` son independientes. Un
-trabajo termina todas sus descargas antes de adquirir el semáforo de
-empaquetado; por tanto, esperar a crear o subir el ZIP no bloquea plazas de
-descarga remota.
+El perfil está preparado para **2 OCPU y 12 GB de RAM**. Core administra un
+presupuesto global de **10 GiB (10.737.418.240 bytes)** en MySQL. Cuenta las
+reservas del pico físico: temporales, ZIP y margen de multipart/metadatos. No
+hay límite de cantidad de trabajos concurrentes ni ejecución exclusiva de
+trabajos grandes. La cola es FIFO estricta: ningún trabajo adelanta a una
+cabecera que todavía no cabe.
 
-El perfil incluido para un VPS de 8 vCore, 24 GB de RAM y 200 GB de NVMe usa:
+La estimación suma los tamaños conocidos y sustituye los ausentes por la
+mediana del trabajo, o del catálogo si todos faltan, tras intentar revalidar
+sus metadatos. El worker comprueba la reserva antes de escribir y solicita
+ampliación si el tamaño real crece. Si no cabe, elimina el intento parcial y
+lo reencola conservando su posición; si excede el presupuesto total, falla.
 
-| Variable | Valor | Función |
-| --- | ---: | --- |
-| `DOWNLOAD_WORKER_JOB_CONCURRENCY` | `8` | Consumidores y plazas de trabajos normales. |
-| `DOWNLOAD_WORKER_CONCURRENCY` | `16` | Descargas HTTP globales. |
-| `DOWNLOAD_WORKER_PER_JOB_CONCURRENCY` | `2` | Descargas simultáneas dentro de un trabajo. |
-| `DOWNLOAD_WORKER_PACKAGING_CONCURRENCY` | `4` | ZIP y subidas a MinIO simultáneos. |
-| `DOWNLOAD_WORKER_ZIP_LEVEL` | `0` | ZIP sin compresión para reducir CPU y temporales. |
-| `DOWNLOAD_WORKER_LARGE_JOB_THRESHOLD` | `2GB` | Umbral de ejecución exclusiva. |
-| `DOWNLOAD_WORKER_MAX_TOTAL_SIZE` | `20GB` | Tamaño máximo de un trabajo. |
-| `DOWNLOAD_WORKER_MIN_FREE_SPACE` | `30GB` | Reserva mínima del volumen temporal. |
-| `MINIO_ZIP_QUOTA` | `120GB` | Cuota lógica y física del bucket. |
+Los hilos virtuales permiten esperar por red sin ocupar un hilo de plataforma
+por trabajo. RabbitMQ conserva el ACK pendiente hasta terminar la operación
+duradera; su consumidor asíncrono no limita la concurrencia de trabajos.
+La inbox H2 persistente conserva el `jobId` y el resultado pendiente antes de
+confirmar RabbitMQ: permite recuperar multipart y reenviar el mismo evento tras
+un reinicio. Su volumen es necesario para la recuperación. El identificador del
+comando protege contra eventos atrasados de un intento anterior.
 
-Un trabajo con tamaño total declarado de hasta 2 GB consume una plaza. Si
-supera el umbral o falta cualquier tamaño, consume las ocho plazas y se ejecuta
-en exclusiva. Cada hostname de origen dispone, además, de un semáforo justo de
-dos transferencias.
+| Recurso | Ajuste |
+| --- | --- |
+| Empaquetados simultáneos | `DOWNLOAD_WORKER_PACKAGING_CONCURRENCY=2` |
+| Compresión | `DOWNLOAD_WORKER_ZIP_LEVEL=0` |
+| HTTP por trabajo/origen | Dos conexiones en cada caso |
+| Espacio libre del host | `DOWNLOAD_WORKER_MIN_FREE_SPACE=8GB`, separado del presupuesto |
+| Bucket MinIO | `MINIO_ZIP_QUOTA=10GB`, defensa adicional a la reserva física de Core |
 
-Antes de iniciar el tráfico se reserva el tamaño temporal estimado completo y
-el espacio estimado del artefacto. La admisión interna comprueba también el
-espacio utilizable, los bytes ya almacenados en MinIO, las reservas en vuelo y
-la cuota. Si no hay margen seguro:
+MinIO conserva los binarios de `RELEASE.2025-04-22T22-12-26Z`: el mirror se fija
+al mismo SHA-256 del índice original de Quay, con AMD64 y ARM64. La imagen incluye
+`mc RELEASE.2025-04-16T18-13-26Z` y también ejecuta la inicialización.
+[Procedencia del mirror](https://github.com/minio/minio/discussions/21320).
 
-- se publica `download.job.deferred` con `waitReason` y `retryAt`;
-- el mensaje pasa a `download-worker.download.job.capacity-wait.v1`;
-- su TTL de 30 segundos lo devuelve a la cola principal;
-- el trabajo permanece `QUEUED` y no consume un intento de fallo.
+## Entrega y limpieza
 
-La cola principal tiene ocho consumidores y `prefetch=1`. Las cancelaciones
-usan un container independiente con dos consumidores y `prefetch=1`, de modo
-que no se multiplican por la concurrencia de trabajos. La espera de semáforos
-comprueba periódicamente la cancelación.
+Core sirve el ZIP mediante `GET /api/v1/download-jobs/{id}/file` con `200/206`,
+`Range` y buffers acotados; Nginx no crea una copia temporal. `HEAD` devuelve
+metadatos sin abrir una transferencia. Tras empaquetar y borrar temporales,
+se reduce la reserva al espacio que queda ocupado por el artefacto.
+El evento `download.job.ready` incluye `storageBytes` (ZIP y manifiesto) para
+aplicar disponibilidad y reserva atómicamente. El campo es opcional en el
+esquema para conservar compatibilidad con eventos históricos; los nuevos
+emisores siempre lo publican después de terminar subidas y borrar temporales.
 
-## Política HTTP
+En Edge/Chrome compatibles, la web elige destino durante el clic inicial,
+escribe directamente al archivo y confirma el guardado después de cerrar la
+escritura y verificar el número de bytes. En los demás navegadores se conserva
+la descarga normal, sin afirmar que el ZIP esté guardado en disco.
 
-Cada instalador puede reintentarse dos veces, además del intento inicial, solo
-ante timeout, HTTP `408`, `429` o `5xx`. `Retry-After` se respeta hasta un máximo
-de 30 segundos. Otros `4xx`, hashes incorrectos, límites de tamaño y datos
-inválidos no se reintentan. Cada intento fallido elimina su temporal y el
-siguiente empieza desde cero; no se implementa reanudación parcial.
+- Guardado confirmado: solicitar limpieza inmediata.
+- Un minuto sin conexiones: limpiar el trabajo abandonado.
+- Transferencia conectada sin avanzar cinco minutos: interrumpir y limpiar.
+- Espera FIFO conectada: conservar el trabajo mediante latidos cada 15 segundos.
 
-Los límites existentes de DNS público, HTTPS, redirecciones y presupuesto total
-se aplican en cada intento. El wrapper de reintento queda dentro de la reserva
-global, por trabajo y por hostname, por lo que ningún retry elude los límites de
-concurrencia.
+La limpieza espera a que terminen escrituras y transferencias, elimina
+temporales, objetos y multipart y después libera la reserva. Si falla un
+borrado, conserva la reserva y lo reintenta. Queda un recibo mínimo de
+propietario durante una hora para reintentos idempotentes y límites de frecuencia,
+sin archivos ni reserva. Los datos operativos y el ZIP desaparecen. Core reconcilia el inventario al iniciar
+antes de admitir nuevos trabajos.
+En la primera promoción hay que drenar los trabajos antiguos y limpiar sus
+archivos por `jobId` antes de activar el nuevo esquema de recuperación.
+El lifecycle de MinIO a 24 horas está deshabilitado: solo el coordinador limpia
+las descargas, para no borrar transferencias largas que siguen avanzando.
 
-## Artefactos y eventos
+Los endpoints internos, protegidos con el token de servicio, son:
 
-El worker escribe `jobs/{jobId}/bundle.zip` con una clave determinista y publica
-eventos de esquema 1:
-
-- `download.job.progressed`, para progreso e items individuales;
-- `download.job.ready`, con `artifactSizeBytes` y `artifactSha256` del ZIP;
-- `download.job.deferred`, para esperas no terminales de capacidad;
-- `download.job.failed`, para errores terminales.
-
-La inbox hace idempotente cada `eventId`. Una redelivery sobrescribe el mismo
-objeto y Core conserva compatibilidad con eventos `ready` anteriores que no
-incluyan metadatos. La retención efectiva del worker y Core es de 6 horas; el
-lifecycle de MinIO elimina objetos a las 24 horas como red de seguridad y el
-barrido server-side elimina multipart inactivos tras 24 horas.
-
-El worker usa `MINIO_WORKER_ACCESS_KEY` y `MINIO_WORKER_SECRET_KEY`, cuyo usuario
-solo puede listar el bucket y crear, borrar o gestionar multipart bajo
-`jobs/*`. No utiliza las credenciales root.
-
-## Métricas y alertas
-
-`/actuator/prometheus` publica, entre otras:
-
-- `download_worker_queue_depth`, `download_worker_capacity_wait_queue_depth`,
-  `download_worker_queue_consumers` y `download_worker_queue_wait_seconds`;
-- `download_worker_active_jobs`, `download_worker_active_downloads` y
-  `download_worker_host_active_downloads`, junto con
-  `download_worker_job_capacity_wait_seconds` y
-  `download_worker_host_wait_seconds`;
-- `download_worker_active_packagings` y
-  `download_worker_packaging_wait_seconds`;
-- `download_worker_temporary_bytes`, `download_worker_disk_reserved_bytes`,
-  `download_worker_disk_usable_bytes` y
-  `download_worker_disk_minimum_free_bytes`;
-- `download_worker_artifact_stored_bytes`,
-  `download_worker_artifact_reserved_bytes` y
-  `download_worker_artifact_quota_bytes`;
-- `download_worker_capacity_deferred_total` y
-  `download_worker_remote_retries_total`.
-
-Las reglas de ejemplo están en `docker/prometheus/download-alerts.yml`: cola por
-encima de 40 durante 5 minutos, cuota al 90 %, menos de 30 GB disponibles y
-crecimiento de aplazamientos por capacidad.
+| Servicio y ruta | Uso |
+| --- | --- |
+| Core `POST /internal/v1/download-jobs/{id}/storage` | Reclamar, ampliar, reducir o reencolar la reserva del intento. |
+| Worker `GET /internal/v1/storage/inventory` | Inventario de temporales, objetos, multipart y bytes disponibles. |
+| Worker `DELETE /internal/v1/jobs/{id}/files` | Cancelar escritores y confirmar ausencia de todos los archivos antes del `204`. |
 
 ## Verificación
 
-Desde la raíz del repositorio:
+El transporte de instaladores conserva HTTPS, validación DNS/SSRF, hashes y
+dos reintentos ante timeout, `408`, `429` o `5xx`. Cada intento fallido elimina
+su temporal; la reanudación `Range` corresponde a la entrega del ZIP al usuario.
 
 ```bash
 mvn -B -pl services/download-worker test
-docker compose --env-file .env.example -f docker-compose.yml config --quiet
-docker compose --env-file .env.example -f docker-compose.ghcr.yml config --quiet
 ```
 
-La prueba de carga reproducible para el perfil completo está documentada en
-`tst/load/README.md`. Su ejecución queda deliberadamente fuera de las pruebas de
-compilación porque necesita un despliegue ya iniciado y fuentes controladas.
+Observar métricas de trabajos, descargas, empaquetados, disco y errores, junto
+con la suma de `download_job_storage.reserved_bytes` en MySQL. La prueba de
+carga con fuentes controladas está en [`tst/load/README.md`](../../tst/load/README.md).

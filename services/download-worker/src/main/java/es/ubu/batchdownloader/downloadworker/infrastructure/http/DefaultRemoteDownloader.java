@@ -257,10 +257,8 @@ public final class DefaultRemoteDownloader implements RemoteDownloader {
         } catch (IOException exception) {
             throw new DownloadRejectedException("local_io_error", exception);
         } catch (RuntimeException exception) {
-            if (exception instanceof DownloadRejectedException rejected) {
-                throw rejected;
-            }
-            throw new DownloadRejectedException("local_io_error", exception);
+            // Conserva las denegaciones de reserva: requieren limpiar y volver a la cola FIFO.
+            throw exception;
         }
         String sha256 = HexFormat.of().formatHex(digest.digest());
         return new DownloadedArtifact(

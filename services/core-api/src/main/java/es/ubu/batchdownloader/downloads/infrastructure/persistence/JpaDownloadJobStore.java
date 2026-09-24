@@ -4,6 +4,7 @@ import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
+import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -69,6 +70,7 @@ class JpaDownloadJobStore implements DownloadJobStore {
     private final SpringDataDownloadJobRepository repository;
     /** Ejecuta las actualizaciones dirigidas de progreso. */
     private final JdbcTemplate jdbc;
+    private final EntityManager entities;
 
     /**
      * Conecta el repositorio de agregados y SQL que participa en la misma transacción de Spring.
@@ -77,9 +79,10 @@ class JpaDownloadJobStore implements DownloadJobStore {
      *     optimista.
      * @param jdbc Acceso SQL que participa en la transacción de Spring del llamador.
      */
-    JpaDownloadJobStore(SpringDataDownloadJobRepository repository, JdbcTemplate jdbc) {
+    JpaDownloadJobStore(SpringDataDownloadJobRepository repository, JdbcTemplate jdbc, EntityManager entities) {
         this.repository = repository;
         this.jdbc = jdbc;
+        this.entities = entities;
     }
 
     /**
@@ -103,7 +106,7 @@ class JpaDownloadJobStore implements DownloadJobStore {
     public DownloadJob save(DownloadJob job) {
         DownloadJobEntity entity = repository.findById(job.id()).orElseGet(() -> DownloadJobEntity.from(job));
         entity.updateFrom(job);
-        return repository.save(entity).toDomain();
+        return repository.saveAndFlush(entity).toDomain();
     }
 
     /**
@@ -151,7 +154,8 @@ class JpaDownloadJobStore implements DownloadJobStore {
      */
     @Override
     public long countAnonymousCreatedSince(String anonymousOwnerHash, Instant createdAfter) {
-        return repository.countByAnonymousOwnerHashAndCreatedAtGreaterThanEqual(anonymousOwnerHash, createdAfter);
+        return jdbc.queryForObject("SELECT COUNT(*) FROM download_job_receipts WHERE anonymous_owner_hash=? AND created_at>=?",
+                Long.class, anonymousOwnerHash, java.sql.Timestamp.from(createdAfter));
     }
 
     /**
@@ -162,7 +166,8 @@ class JpaDownloadJobStore implements DownloadJobStore {
      */
     @Override
     public long countAnonymousIpCreatedSince(String anonymousIpHash, Instant createdAfter) {
-        return repository.countByAnonymousIpHashAndCreatedAtGreaterThanEqual(anonymousIpHash, createdAfter);
+        return jdbc.queryForObject("SELECT COUNT(*) FROM download_job_receipts WHERE anonymous_ip_hash=? AND created_at>=?",
+                Long.class, anonymousIpHash, java.sql.Timestamp.from(createdAfter));
     }
 
     /**
@@ -262,6 +267,10 @@ class JpaDownloadJobStore implements DownloadJobStore {
                 status.name(),
                 java.sql.Timestamp.from(now),
                 jobId.toString());
-        return findById(jobId);
+        return repository.findById(jobId).map(entity -> {
+            // SQL actualizó también las versiones: refresca la entidad y sus items ya gestionados.
+            entities.refresh(entity);
+            return entity.toDomain();
+        });
     }
 }

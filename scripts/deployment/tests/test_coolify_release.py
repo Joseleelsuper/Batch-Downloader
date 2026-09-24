@@ -141,7 +141,7 @@ class CoolifyReleaseTest(unittest.TestCase):
     def test_repository_schema_targets_are_read_from_example(self) -> None:
         self.assertEqual(
             {
-                "CORE_API_FLYWAY_TARGET": "19",
+                "CORE_API_FLYWAY_TARGET": "20",
                 "SCRAPER_ALEMBIC_TARGET": "20260914_0021",
             },
             coolify_release.repository_schema_targets(),
@@ -167,6 +167,29 @@ class CoolifyReleaseTest(unittest.TestCase):
 
         with self.assertRaisesRegex(coolify_release.ReleaseError, "CORE_API_FLYWAY_TARGET"):
             coolify_release.validate_environment(values)
+
+    def test_oracle_profile_does_not_require_retired_or_compose_only_limits(self) -> None:
+        values = production_values(f"sha-{'a' * 40}")
+        for key in (
+            "DOWNLOAD_WORKER_MAX_TOTAL_SIZE",
+            "DOWNLOAD_WORKER_CONCURRENCY",
+            "DOWNLOAD_WORKER_JOB_CONCURRENCY",
+            "DOWNLOAD_WORKER_LARGE_JOB_THRESHOLD",
+            "DOWNLOAD_WORKER_PACKAGING_CONCURRENCY",
+            "DOWNLOAD_WORKER_ZIP_LEVEL",
+        ):
+            values.pop(key, None)
+
+        coolify_release.validate_environment(values)
+
+    def test_oracle_profile_rejects_storage_budget_or_disk_margin_drift(self) -> None:
+        for key in ("MINIO_ZIP_QUOTA", "DOWNLOAD_WORKER_MIN_FREE_SPACE"):
+            with self.subTest(key=key):
+                values = production_values(f"sha-{'a' * 40}")
+                values[key] = "20GB"
+
+                with self.assertRaisesRegex(coolify_release.ReleaseError, key):
+                    coolify_release.validate_environment(values)
 
     def test_release_drift_stops_before_coolify_mutation(self) -> None:
         previous = "a" * 40

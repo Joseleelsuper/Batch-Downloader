@@ -22,7 +22,7 @@ import org.springframework.util.unit.DataSize;
  * @param quota Límite lógico de objetos persistidos más reservas en vuelo.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.downloadworker.infrastructure.storage.MinioArtifactStore
- * @see es.ubu.batchdownloader.downloadworker.application.ArtifactCapacity
+ * @see es.ubu.batchdownloader.downloadworker.application.JobStorageReservation
  * @since 0.1.0
  * @version 0.1.0
  * @category Configuración del worker

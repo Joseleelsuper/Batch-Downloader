@@ -3,6 +3,7 @@
 El índice usa el parser del JDK y no carga Spring ni arranca servicios. La comprobación
 de DTO compara propiedades de records que tienen un esquema equivalente declarado.
 """
+import ast
 import json
 from fnmatch import fnmatchcase
 import re
@@ -15,7 +16,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 ALIASES = {'IdentityView':'User', 'BundleDetails':'Bundle', 'BundleSearchResponse':'BundlePage',
-           'AppSearchResponse':'AppPage', 'AppListItem':'App'}
+           'AppSearchResponse':'AppPage', 'AppListItem':'App', 'DownloadJobView':'DownloadJob'}
 
 
 def normalized(path):
@@ -68,6 +69,7 @@ class HttpContractTest(unittest.TestCase):
                         cls.routes[(match[1].lower(), normalized(route))] = symbol
         cls.operations = {}
         for path, item in cls.spec['paths'].items():
+            if item.get('x-service') == 'scraper': continue
             for method in ('get','post','put','patch','delete'):
                 if method not in item: continue
                 operation = item[method]
@@ -79,6 +81,38 @@ class HttpContractTest(unittest.TestCase):
     def test_effective_routes_match_controllers(self):
         """Cada verbo y ruta efectivos existen en ambos lados, incluido el prefijo del servidor."""
         self.assertEqual(set(self.routes), set(self.operations))
+
+    def test_scraper_size_probe_matches_python_route_and_model(self):
+        """Contrasta el probe documentado con FastAPI sin importar ni iniciar el scraper."""
+        routes = ast.parse((ROOT / 'api/scraper/app/api/internal_routes.py').read_text(encoding='utf-8'))
+        handler = next(node for node in routes.body if isinstance(node, ast.AsyncFunctionDef)
+                       and node.name == 'get_source_size')
+        decorator = next(node for node in handler.decorator_list if isinstance(node, ast.Call)
+                         and isinstance(node.func, ast.Attribute) and node.func.attr == 'get')
+        router = next(node.value for node in routes.body if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == decorator.func.value.id
+                              for target in node.targets))
+        prefix = next(keyword.value.value for keyword in router.keywords if keyword.arg == 'prefix')
+        path = prefix + decorator.args[0].value
+        documented = [(route, item) for route, item in self.spec['paths'].items()
+                      if item.get('x-service') == 'scraper']
+        self.assertEqual([normalized(path)], [normalized(route) for route, _ in documented])
+        operation = documented[0][1]['get']
+        self.assertEqual([{'internalServiceToken': []}], operation['security'])
+        self.assertTrue(any(isinstance(node, ast.Name) and node.id == 'require_internal_service_token'
+                            for argument in handler.args.args if argument.annotation
+                            for node in ast.walk(argument.annotation)))
+        declared_responses = ast.literal_eval(next(keyword.value for keyword in decorator.keywords
+                                                  if keyword.arg == 'responses'))
+        self.assertTrue({str(status) for status in declared_responses}.issubset(operation['responses']))
+        model_name = next(keyword.value.id for keyword in decorator.keywords if keyword.arg == 'response_model')
+        self.assertEqual(f'#/components/schemas/{model_name}',
+                         operation['responses']['200']['content']['application/json']['schema']['$ref'])
+        models = ast.parse((ROOT / 'api/scraper/app/schemas/internal.py').read_text(encoding='utf-8'))
+        model = next(node for node in models.body if isinstance(node, ast.ClassDef) and node.name == model_name)
+        aliases = {keyword.value.value for node in model.body if isinstance(node, ast.AnnAssign)
+                   and isinstance(node.value, ast.Call) for keyword in node.value.keywords if keyword.arg == 'alias'}
+        self.assertEqual(aliases, set(self.spec['components']['schemas'][model_name]['properties']))
 
     def test_declared_status_and_record_properties(self):
         """Los códigos anotados y propiedades de records conservan su forma pública documentada."""

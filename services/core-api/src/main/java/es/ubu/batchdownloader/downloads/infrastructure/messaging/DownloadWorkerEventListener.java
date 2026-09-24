@@ -3,6 +3,7 @@ package es.ubu.batchdownloader.downloads.infrastructure.messaging;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.downloads.application.DownloadJobEventHandler;
+import es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator;
 import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
 import java.nio.charset.StandardCharsets;
@@ -46,6 +47,7 @@ public class DownloadWorkerEventListener {
      * Estado {@code clock} mantenido por {@code DownloadWorkerEventListener}.
      */
     private final Clock clock;
+    private final DownloadStorageCoordinator storage;
 
     /**
      * Conecta lectura del sobre, reserva SQL del inbox y aplicación transaccional de los cambios.
@@ -59,11 +61,13 @@ public class DownloadWorkerEventListener {
             ObjectMapper objectMapper,
             JdbcTemplate jdbc,
             DownloadJobEventHandler jobs,
-            Clock clock) {
+            Clock clock,
+            DownloadStorageCoordinator storage) {
         this.objectMapper = objectMapper;
         this.jdbc = jdbc;
         this.jobs = jobs;
         this.clock = clock;
+        this.storage = storage;
     }
 
     /**
@@ -78,6 +82,7 @@ public class DownloadWorkerEventListener {
     @Transactional
     public void receive(Message message) {
         WorkerEvent event = parse(message);
+        if (!storage.acceptsEvent(uuid(event.payload(), "jobId"), event.attemptId(), event.type())) return;
         if (!claim(event.eventId(), event.type())) {
             return;
         }
@@ -104,7 +109,7 @@ public class DownloadWorkerEventListener {
             if (envelope.path("schemaVersion").asInt(-1) != 1 || !isWorkerEvent(type)) {
                 throw invalid("unsupported_download_event");
             }
-            return new WorkerEvent(eventId, type, envelope.path("payload"));
+            return new WorkerEvent(eventId, type, envelope.path("payload"), optionalText(envelope, "causationId"));
         } catch (AmqpRejectAndDontRequeueException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -174,6 +179,11 @@ public class DownloadWorkerEventListener {
         if ((sizeBytes == null) != (sha256 == null)) {
             throw invalid("invalid_download_artifact_metadata");
         }
+        Long storageBytes = nullableLong(payload, "storageBytes");
+        if (storageBytes != null && (storageBytes <= 0 || sizeBytes != null && storageBytes < sizeBytes)) {
+            throw invalid("invalid_download_storage_metadata");
+        }
+        storage.prepared(jobId, storageBytes);
         if (sizeBytes == null && sha256 == null) {
             jobs.applyReady(jobId, status, objectKey, expiresAt);
         } else {
@@ -329,5 +339,5 @@ public class DownloadWorkerEventListener {
      * @version 0.1.0
      * @category Descargas
      */
-    private record WorkerEvent(UUID eventId, String type, JsonNode payload) {}
+    private record WorkerEvent(UUID eventId, String type, JsonNode payload, String attemptId) {}
 }

@@ -7,7 +7,6 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { downloadJobFileUrl } from '../api/downloads';
 import {
   DOWNLOADABLE_DOWNLOAD_STATUSES,
   TERMINAL_DOWNLOAD_STATUSES,
@@ -23,6 +22,8 @@ interface Props {
   connectionError?: boolean;
   actionError?: string | null;
   autoDownloadAttempted?: boolean;
+  saving?: boolean;
+  onDownload?: () => void;
   onCancel: () => void;
   onClose: () => void;
   onToggleMinimized?: () => void;
@@ -34,6 +35,9 @@ const MANUAL_DOWNLOAD_ERROR = 'manual_download_required';
 
 function publicFailureMessage(t: Translator, code?: string | null): string {
   if (!code) return t('download.job.failure.generic');
+  const key = `download.job.apiError.${code}`;
+  const specific = t(key);
+  if (specific !== key) return specific;
   if (code.startsWith('source_')) return t('download.job.failure.source');
   if (/(remote|network|dns|redirect|http|io|unavailable)/i.test(code)) {
     return t('download.job.failure.network');
@@ -73,6 +77,8 @@ export function DownloadJobPanel({
   connectionError = false,
   actionError = null,
   autoDownloadAttempted = false,
+  saving = false,
+  onDownload,
   onCancel,
   onClose,
   onToggleMinimized,
@@ -94,9 +100,18 @@ export function DownloadJobPanel({
     { key: 'pending', value: pending, tone: 'neutral' },
     { key: 'omitted', value: job.omittedCount, tone: 'neutral' },
   ].filter((metric) => metric.key === 'downloaded' || metric.value > 0);
-  const statusKey = `download.job.status.${job.status.toLowerCase()}`;
   const terminal = TERMINAL_DOWNLOAD_STATUSES.has(job.status);
   const downloadable = DOWNLOADABLE_DOWNLOAD_STATUSES.has(job.status);
+  const waitKey = `download.job.wait.${job.waitReason}`;
+  const waitMessage = job.waitReason && !terminal && t(waitKey) !== waitKey ? t(waitKey) : null;
+  const deliveryFinished = job.deliveryStatus === 'SAVED' || job.deliveryStatus === 'CLEANING';
+  const statusKey = downloadable && job.deliveryStatus && job.deliveryStatus !== 'WAITING'
+    ? `download.job.delivery.${job.deliveryStatus.toLowerCase()}`
+    : `download.job.status.${job.status.toLowerCase()}`;
+  const progress = downloadable
+    ? deliveryFinished ? 100 : job.artifactSizeBytes
+      ? Math.min(100, Math.floor((job.deliveryBytes ?? 0) * 100 / job.artifactSizeBytes)) : 0
+    : job.progress;
 
   return (
     <section
@@ -110,7 +125,7 @@ export function DownloadJobPanel({
           <span>{t(statusKey)}</span>
         </div>
         <div className="download-job-heading-actions">
-          {!terminal && onToggleMinimized ? (
+          {(!terminal || saving) && onToggleMinimized ? (
             <button
               type="button"
               className="icon-action"
@@ -120,16 +135,24 @@ export function DownloadJobPanel({
               {minimized ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
             </button>
           ) : null}
-          {terminal ? (
+          {terminal && !saving ? (
             <button type="button" className="icon-action" onClick={onClose} aria-label={t('common.close')}>
               <X size={17} />
             </button>
           ) : null}
         </div>
       </div>
-      <progress max={100} value={job.progress}>{job.progress}%</progress>
+      <progress max={100} value={progress}
+        aria-label={t(downloadable ? 'download.job.deliveryProgress' : 'download.job.preparationProgress')}>
+        {progress}%
+      </progress>
       {minimized ? null : (
         <>
+          {job.queuePosition ? <p>{t('download.job.queuePosition', { position: job.queuePosition })}</p> : null}
+          {waitMessage ? <p>{waitMessage}</p> : null}
+          {job.estimatedBytes != null ? <p>{t('download.job.estimatedSize', {
+            size: `${(job.estimatedBytes / 1024 ** 2).toFixed(1)} MiB`,
+          })}</p> : null}
           <dl className="download-job-metrics" aria-label={t('download.job.metrics')}>
             {metrics.map((metric) => (
               <div data-tone={metric.tone} key={metric.key}>
@@ -217,15 +240,15 @@ export function DownloadJobPanel({
               })}
             </div>
           ) : null}
-          {downloadable && autoDownloadAttempted ? (
+          {downloadable && autoDownloadAttempted && !saving && !deliveryFinished ? (
             <p className="download-job-auto-notice">{t('download.job.autoAttempted')}</p>
           ) : null}
           <div className="download-job-actions">
-            {downloadable ? (
-              <a className="primary-button compact-button" href={downloadJobFileUrl(job.id)}>
+            {downloadable && !deliveryFinished ? (
+              <button type="button" className="primary-button compact-button" onClick={onDownload} disabled={saving}>
                 <FileDown size={17} />
                 {t('download.job.getZip')}
-              </a>
+              </button>
             ) : null}
             {CANCELLABLE_STATUSES.has(job.status) ? (
               <button

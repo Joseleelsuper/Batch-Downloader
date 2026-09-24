@@ -50,6 +50,7 @@ class OperationalRetentionPrunerTest {
                 .doesNotContain("processed_at IS NULL");
         assertThat(statements.getAllValues().get(2))
                 .contains("status IN ('READY', 'PARTIAL', 'MANUAL_ONLY', 'FAILED', 'CANCELLED', 'EXPIRED')")
+                .contains("NOT EXISTS (SELECT 1 FROM download_job_storage")
                 .doesNotContain("QUEUED", "RESOLVING", "DOWNLOADING", "PACKAGING");
         assertThat(cutoffs.getAllValues()).containsExactly(
                 Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),

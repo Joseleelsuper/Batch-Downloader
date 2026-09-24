@@ -22,6 +22,7 @@ public final class DownloadBudget {
      * Bytes contabilizados, incluidos los que causaron superar el límite.
      */
     private final AtomicLong consumedBytes = new AtomicLong();
+    private final java.util.function.LongConsumer beforeWrite;
 
     /**
      * Inicializa el presupuesto compartido con consumo cero y exige un límite positivo.
@@ -31,10 +32,15 @@ public final class DownloadBudget {
      * @throws IllegalArgumentException si el máximo total es cero o negativo.
      */
     public DownloadBudget(long maxTotalBytes) {
+        this(maxTotalBytes, ignored -> {});
+    }
+
+    public DownloadBudget(long maxTotalBytes, java.util.function.LongConsumer beforeWrite) {
         if (maxTotalBytes <= 0) {
             throw new IllegalArgumentException("maxTotalBytes must be positive");
         }
         this.maxTotalBytes = maxTotalBytes;
+        this.beforeWrite = beforeWrite;
     }
 
     /**
@@ -54,6 +60,7 @@ public final class DownloadBudget {
         if (total > maxTotalBytes) {
             throw new DownloadRejectedException("total_size_limit_exceeded");
         }
+        beforeWrite.accept(bytes);
     }
 
     /**

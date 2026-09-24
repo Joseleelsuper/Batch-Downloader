@@ -8,6 +8,7 @@ import * as adminAppsApi from './api/adminApps';
 import * as bundlesApi from './api/bundles';
 import * as catalogAppsApi from './api/catalogApps';
 import * as downloadsApi from './api/downloads';
+import * as delivery from './downloads/delivery';
 import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, ScraperQueueState } from './types/catalog';
 
 function memoryStorage(): Storage {
@@ -72,6 +73,7 @@ describe('catalog workspace', () => {
     vi.spyOn(accountApi, 'me').mockResolvedValue(null);
     vi.spyOn(catalogAppsApi, 'connectCatalogEvents').mockReturnValue(() => undefined);
     vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
+    vi.spyOn(downloadsApi, 'reportDownloadActivity').mockResolvedValue(undefined);
     vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({
       data: [],
       page: 1,
@@ -566,6 +568,7 @@ describe('catalog workspace', () => {
   });
 
   it('sends only apps that remain selectable after validation', async () => {
+    const picker = vi.spyOn(delivery, 'chooseDownloadDestination').mockResolvedValue({ createWritable: vi.fn() });
     const staleApp: CatalogApp = {
       ...catalogApp,
       id: 'app-2',
@@ -607,12 +610,14 @@ describe('catalog workspace', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación obsoleta' }));
     fireEvent.click(screen.getByRole('button', { name: 'Descargar ZIP' }));
+    expect(picker).toHaveBeenCalledOnce();
 
     await waitFor(() => expect(createDownloadJob).toHaveBeenCalledWith({
       appIds: ['app-1'],
       operatingSystems: undefined,
     }));
     expect(screen.getByText('1/100')).toBeInTheDocument();
+    expect(picker).toHaveBeenCalledOnce();
   });
 
   it('removes legacy pending status from the URL and loads Disponibles', async () => {

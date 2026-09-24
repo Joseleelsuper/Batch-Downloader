@@ -61,6 +61,7 @@ public class DownloadJobAccessService {
      * Coordinador de difusión después del commit.
      */
     private final DownloadJobNotifications notifications;
+    private final DownloadStorageCoordinator storage;
 
     /**
      * Conecta persistencia, identidad temporal y notificaciones para las operaciones sobre trabajos
@@ -73,13 +74,14 @@ public class DownloadJobAccessService {
      * @param events Publicador de solicitudes durables mediante el outbox de la transacción actual.
      * @param notifications Coordinador de difusión después del commit.
      */
-    public DownloadJobAccessService(DownloadJobStore jobs, ZipUriSigner zipUris, Clock clock, DownloadLimits limits, DownloadEventPublisher events, DownloadJobNotifications notifications) {
+    public DownloadJobAccessService(DownloadJobStore jobs, ZipUriSigner zipUris, Clock clock, DownloadLimits limits, DownloadEventPublisher events, DownloadJobNotifications notifications, DownloadStorageCoordinator storage) {
         this.jobs = jobs;
         this.zipUris = zipUris;
         this.clock = clock;
         this.limits = limits;
         this.events = events;
         this.notifications = notifications;
+        this.storage = storage;
     }
 
     /**
@@ -114,7 +116,7 @@ public class DownloadJobAccessService {
      */
     @Transactional(readOnly = true)
     public DownloadJobView get(RequestOwner owner, UUID jobId) {
-        return DownloadJobView.from(accessibleJob(owner, jobId)).withLinuxContext(jobs.linuxContext(jobId));
+        return storage.decorate(DownloadJobView.from(accessibleJob(owner, jobId)).withLinuxContext(jobs.linuxContext(jobId)));
     }
 
     /**
@@ -174,7 +176,7 @@ public class DownloadJobAccessService {
             jobs.save(job);
             events.cancellationRequested(job);
         }
-        DownloadJobView view = DownloadJobView.from(job);
+        DownloadJobView view = storage.decorate(DownloadJobView.from(job));
         notifications.notifyAfterCommit(view);
         return view;
     }

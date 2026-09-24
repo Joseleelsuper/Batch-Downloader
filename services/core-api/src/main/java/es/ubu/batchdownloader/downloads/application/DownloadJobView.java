@@ -50,7 +50,27 @@ public record DownloadJobView(
         String artifactSha256,
         String waitReason,
         Instant retryAt,
-        LinuxContext linux) {
+        LinuxContext linux,
+        Long estimatedBytes,
+        long reservedBytes,
+        Long queuePosition,
+        String deliveryStatus,
+        long deliveryBytes) {
+
+    public DownloadJobView(UUID id, DownloadJobStatus status, int progress, int requestedCount,
+            int acceptedCount, int omittedCount, String failureCode, List<Item> items, Instant createdAt,
+            Instant expiresAt, Long artifactSizeBytes, String artifactSha256, String waitReason,
+            Instant retryAt, LinuxContext linux) {
+        this(id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode, items,
+                createdAt, expiresAt, artifactSizeBytes, artifactSha256, waitReason, retryAt, linux,
+                null, 0, null, "WAITING", 0);
+    }
+
+    public DownloadJobView withStorage(Long estimated, long reserved, Long position, String delivery, long bytes) {
+        return new DownloadJobView(id, status, progress, requestedCount, acceptedCount, omittedCount,
+                failureCode, items, createdAt, expiresAt, artifactSizeBytes, artifactSha256, waitReason,
+                retryAt, linux, estimated, reserved, position, delivery, bytes);
+    }
 
     /**
      * Conserva gestor, arquitectura y dependencias añadidas para que la recuperación del trabajo
@@ -108,7 +128,8 @@ public record DownloadJobView(
      */
     public DownloadJobView withLinuxContext(LinuxContext context) {
         return new DownloadJobView(id, status, progress, requestedCount, acceptedCount, omittedCount,
-                failureCode, items, createdAt, expiresAt, artifactSizeBytes, artifactSha256, waitReason, retryAt, context);
+                failureCode, items, createdAt, expiresAt, artifactSizeBytes, artifactSha256, waitReason, retryAt,
+                context, estimatedBytes, reservedBytes, queuePosition, deliveryStatus, deliveryBytes);
     }
 
     /**

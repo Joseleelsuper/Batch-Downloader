@@ -8,6 +8,7 @@ import es.ubu.batchdownloader.downloadworker.domain.DownloadModels.FailedDownloa
 import es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore.StoredArtifact;
+import es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger;
 import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -46,13 +47,13 @@ public class DownloadJobProcessor {
     private final DownloadProperties properties;
     private final Clock clock;
     private final DownloadCancellationRegistry cancellations;
-    private final JobCapacity jobCapacity;
+    private final JobStorageLedger ledger;
+    private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.concurrent.CompletableFuture<Void>> active =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<UUID, JobStorageReservation> reservations =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final Semaphore packagingSemaphore;
     private final DownloadWorkerMetrics metrics;
-    /** Reserva global del SSD para los temporales en vuelo. */
-    private final TemporaryDiskCapacity diskCapacity;
-    /** Cuota del bucket y reservas de ZIP todavía no visibles en MinIO. */
-    private final ArtifactCapacity artifactCapacity;
     /** Publicación de eventos separada de la orquestación. */
     private final DownloadEventEmitter events;
     /** Ciclo de vida aislado de archivos y objetos incompletos. */
@@ -80,13 +81,10 @@ public class DownloadJobProcessor {
      * @param clock Reloj para fechar el progreso y las decisiones del coordinador.
      * @param cancellations Registro que conecta las solicitudes de cancelación con los futuros del
      *     trabajo.
-     * @param jobCapacity Admisión justa de trabajos normales y exclusivos.
+     * @param ledger Reserva duradera y autorización del intento en Core.
      * @param packagingSemaphore Permisos compartidos para limitar los ZIP que se comprimen
      *     simultáneamente.
      * @param metrics Contadores y temporizadores de actividad, temporales y empaquetado.
-     * @param diskCapacity Reservas y comprobaciones de espacio del volumen temporal.
-     * @param artifactCapacity Cuota lógica de almacenamiento; null omite esta comprobación en
-     *     composiciones de prueba.
      * @param events Publicador de progreso y resultados que conserva identidad determinista de
      *     eventos.
      * @param files Creación y limpieza de temporales y compensación de objetos incompletos.
@@ -103,11 +101,9 @@ public class DownloadJobProcessor {
             DownloadProperties properties,
             Clock clock,
             DownloadCancellationRegistry cancellations,
-            JobCapacity jobCapacity,
+            JobStorageLedger ledger,
             @Qualifier("packagingSemaphore") Semaphore packagingSemaphore,
             DownloadWorkerMetrics metrics,
-            TemporaryDiskCapacity diskCapacity,
-            ArtifactCapacity artifactCapacity,
             DownloadEventEmitter events,
             DownloadJobFiles files,
             ManualShortcutWriter manualShortcuts,
@@ -120,11 +116,9 @@ public class DownloadJobProcessor {
         this.properties = properties;
         this.clock = clock;
         this.cancellations = cancellations;
-        this.jobCapacity = jobCapacity;
+        this.ledger = ledger;
         this.packagingSemaphore = packagingSemaphore;
         this.metrics = metrics;
-        this.diskCapacity = diskCapacity;
-        this.artifactCapacity = artifactCapacity;
         this.events = events;
         this.files = files;
         this.manualShortcuts = manualShortcuts;
@@ -135,107 +129,172 @@ public class DownloadJobProcessor {
 
     /**
      * Valida la selección, reserva capacidad, completa descargas y alternativas manuales y
-     * transmite el ZIP al almacén. Publica éxito, fallo total o aplazamiento; en todas las salidas
-     * libera reservas y temporales e intenta retirar objetos sin resultado confirmado.
+     * transmite el ZIP al almacén. La capacidad se libera solo tras borrado confirmado; un
+     * resultado sellado se conserva para recuperarlo ante confirmación ambigua del broker.
      *
      * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de
      *     eventos.
-     * @throws es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException si no hay
-     *     capacidad segura; publica antes una espera de treinta segundos cuando el transporte lo
-     *     permite.
      * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si una fase
      *     de infraestructura impide completar el trabajo y debe actuar la política del consumidor.
      */
     public void process(DownloadJobRequestedEvent event) {
+        UUID jobId = event.payload().jobId();
+        var completion = new java.util.concurrent.CompletableFuture<Void>();
+        java.util.concurrent.CompletableFuture<Void> existing;
+        while ((existing = active.putIfAbsent(jobId, completion)) != null) existing.join();
+        cancellations.writerStarted(jobId);
+        metrics.jobStarted();
+        try {
+            processAttempt(event);
+        } finally {
+            cancellations.writerFinished(jobId);
+            metrics.jobFinished();
+            active.remove(jobId, completion);
+            completion.complete(null);
+        }
+    }
+
+    /** La respuesta de limpieza nunca precede a la terminación real de las escrituras. */
+    public void clean(UUID jobId) {
+        cancellations.cancel(jobId);
+        var running = active.get(jobId);
+        if (running != null) running.join();
+        files.clean(jobId, true);
+        events.clearReady(jobId);
+    }
+
+    public java.util.Map<UUID, Long> usage() { return files.usage(events.trackedJobs()); }
+    public boolean active(UUID jobId) { return active.containsKey(jobId); }
+    public java.util.Set<UUID> activeJobs() { return java.util.Set.copyOf(active.keySet()); }
+
+    /** Mantiene el fence también cuando un proveedor todavía no ha enviado el siguiente bloque. */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 10_000)
+    void heartbeatAttempts() {
+        reservations.forEach((jobId, reservation) -> Thread.ofVirtual().start(() -> {
+            try { reservation.heartbeat(); }
+            catch (CancellationException cancelled) {
+                // El fence se guarda en esta reserva; nunca cancela un intento posterior del mismo job.
+            }
+            catch (InfrastructureException unavailable) {
+                // El siguiente bloque vuelve a comprobar Core y falla cerrado mientras siga ausente.
+            }
+        }));
+    }
+
+    private void processAttempt(DownloadJobRequestedEvent event) {
         if (event.occurredAt() != null && !event.occurredAt().isAfter(clock.instant())) {
             metrics.queueWait(Duration.between(event.occurredAt(), clock.instant()));
         }
+        UUID jobId = event.payload().jobId();
+        var pending = events.replayReady(event);
+        if (pending != null) {
+            ledger.update(jobId, event.eventId(), "READY", pending.storageBytes());
+            return;
+        }
+        JobStorageLedger.State state = ledger.update(jobId, event.eventId(), "START", 0);
+        if (!state.allowed() || state.cancelled()) return;
+        events.rememberJob(event.eventId(), jobId);
+        var volume = new AtomicReference<java.nio.file.FileStore>();
+        JobStorageReservation reservation = new JobStorageReservation(ledger, jobId, event.eventId(), state,
+                bytes -> {
+                    try {
+                        if (volume.get() == null) {
+                            volume.set(java.nio.file.Files.getFileStore(Path.of(properties.tempDirectory())));
+                        }
+                        long free = volume.get().getUsableSpace();
+                        if (free - bytes < properties.minFreeSpace().toBytes()) {
+                            throw new CapacityDeferredException("temporary_storage_busy", null);
+                        }
+                    } catch (IOException exception) {
+                        throw new CapacityDeferredException("temporary_storage_busy", exception);
+                    }
+                });
         String invalidReason = resolutions.invalidReason(event);
         if (invalidReason != null) {
             events.failed(event, invalidReason, event.payload().items().size());
+            files.clean(jobId, true);
+            events.clearReady(jobId);
+            ledger.update(jobId, event.eventId(), "CLEANED", 0);
             return;
         }
-        UUID jobId = event.payload().jobId();
-        Path jobDirectory = null;
         String prefix = "jobs/" + jobId;
         String manifestObjectKey = prefix + "/manifest.json";
         String zipObjectKey = prefix + "/bundle.zip";
-        boolean readyPublished = false;
+        boolean sealed = false;
+        boolean requeue = false;
+        boolean finished = false;
+        reservations.put(jobId, reservation);
         try {
             if (cancellations.cancelled(jobId)) {
-                return;
+                throw new CancellationException("download_job_cancelled");
             }
-            diskCapacity.requireAvailable(Path.of(properties.tempDirectory()));
+            // Recupera restos del mismo intento tras reiniciar, antes de generar nuevos bytes.
+            files.clean(jobId, true);
             DownloadResolutionService.PreparedDownloads prepared = resolutions.resolve(event);
             if (cancellations.cancelled(jobId)) {
-                return;
+                throw new CancellationException("download_job_cancelled");
             }
-            int weight = resolutions.capacityWeight(prepared.resolved());
-            try (JobCapacity.Lease ignored =
-                    jobCapacity.acquire(weight, () -> cancellations.cancelled(jobId))) {
-                jobDirectory = files.createDirectory(jobId);
-                long estimatedBytes = resolutions.estimatedBytes(prepared.resolved());
-                long artifactEstimate = artifactEstimate(estimatedBytes);
-                try (TemporaryDiskCapacity.Lease diskLease =
-                                diskCapacity.reserve(jobDirectory, estimatedBytes);
-                        ArtifactCapacity.Lease ignoredArtifact = artifactCapacity == null
-                                ? null
-                                : artifactCapacity.reserve(artifactEstimate)) {
-                    Path activeDirectory = jobDirectory;
-                    int window = weight > 1 ? 1 : properties.perJobConcurrency();
-                    DownloadPipeline pipeline = pipelines.create(
-                            event, prepared.resolved(), activeDirectory, window);
-                    ArchivePreparation preparation = prepareArchive(
-                            event, prepared.failed(), pipeline, activeDirectory);
-                    // La promesa ya se ha materializado: el FileStore refleja ahora los bytes
-                    // reales y la reserva estimada deja de contarlos por duplicado.
-                    diskLease.completed();
-                    Timer.Sample wait = metrics.startPackagingWait();
-                    try {
-                        acquirePackaging(jobId);
-                    } finally {
-                        metrics.stopPackagingWait(wait);
-                    }
-                    metrics.packagingStarted();
-                    try {
-                        AtomicReference<ArchiveOutcome> outcomeReference = new AtomicReference<>();
-                        StoredArtifact storedZip = artifactStore.putStreaming(
-                                zipObjectKey,
-                                "application/zip",
-                                properties.multipartPartSize().toBytes(),
-                                output -> archiveBuilder.build(
-                                        output,
-                                        properties.zipLevel(),
-                                        writer -> outcomeReference.set(writeArchive(preparation, writer))));
-                        ArchiveOutcome outcome = outcomeReference.get();
-                        if (outcome == null) {
-                            throw new InfrastructureException(
-                                    "zip_outcome_missing",
-                                    new IllegalStateException("Archive produced no result"));
-                        }
-                        if (cancellations.cancelled(jobId)) return;
-                        artifactStore.putBytes(
-                                manifestObjectKey,
-                                outcome.manifest(),
-                                "application/json",
-                                properties.multipartPartSize().toBytes());
-                        if (cancellations.cancelled(jobId)) return;
-                        events.ready(
-                                event,
-                                outcome.status(),
-                                outcome.successfulItems(),
-                                outcome.failedItems(),
-                                storedZip,
-                                zipObjectKey);
-                        readyPublished = true;
-                    } finally {
-                        metrics.packagingFinished();
-                        packagingSemaphore.release();
-                    }
+            Path activeDirectory = files.createDirectory(jobId);
+            DownloadBudget budget = new DownloadBudget(state.budgetBytes(), reservation::consume);
+            ArchivePreparation preparation;
+            try (DownloadPipeline pipeline = pipelines.create(
+                    event, prepared.resolved(), activeDirectory, properties.perJobConcurrency(), budget)) {
+                preparation = prepareArchive(event, prepared.failed(), pipeline, activeDirectory, budget);
+            }
+            Timer.Sample wait = metrics.startPackagingWait();
+            try {
+                acquirePackaging(jobId, reservation);
+            } finally {
+                metrics.stopPackagingWait(wait);
+            }
+            metrics.packagingStarted();
+            try {
+                AtomicReference<ArchiveOutcome> outcomeReference = new AtomicReference<>();
+                StoredArtifact storedZip = artifactStore.putStreaming(
+                        zipObjectKey,
+                        "application/zip",
+                        properties.multipartPartSize().toBytes(),
+                        output -> archiveBuilder.build(
+                                reservation.guard(output),
+                                properties.zipLevel(),
+                                writer -> outcomeReference.set(writeArchive(preparation, writer))));
+                ArchiveOutcome outcome = outcomeReference.get();
+                if (outcome == null) {
+                    throw new InfrastructureException(
+                            "zip_outcome_missing",
+                            new IllegalStateException("Archive produced no result"));
                 }
+                if (cancellations.cancelled(jobId)) throw new CancellationException("download_job_cancelled");
+                reservation.consume(outcome.manifest().length);
+                artifactStore.putBytes(
+                        manifestObjectKey,
+                        outcome.manifest(),
+                        "application/json",
+                        properties.multipartPartSize().toBytes());
+                if (cancellations.cancelled(jobId)) throw new CancellationException("download_job_cancelled");
+                files.clean(jobId, false);
+                // Sellado previo al recibo: un commit/confirm ambiguo nunca permite borrar el ZIP.
+                sealed = true;
+                events.ready(
+                        event,
+                        outcome.status(),
+                        outcome.successfulItems(),
+                        outcome.failedItems(),
+                        storedZip,
+                        zipObjectKey,
+                        Math.addExact(storedZip.sizeBytes(), outcome.manifest().length));
+                ledger.update(jobId, event.eventId(), "READY",
+                        Math.addExact(storedZip.sizeBytes(), outcome.manifest().length));
+            } finally {
+                metrics.packagingFinished();
+                packagingSemaphore.release();
             }
         } catch (AllDownloadsFailedException exception) {
             events.failed(event, "all_downloads_failed", exception.failedItems());
+            finished = true;
+        } catch (DownloadRejectedException exception) {
+            events.failed(event, exception.code(), event.payload().items().size());
+            finished = true;
         } catch (CapacityDeferredException exception) {
             Instant retryAt = clock.instant().plus(Duration.ofSeconds(30));
             metrics.capacityDeferred(exception.reason());
@@ -246,36 +305,24 @@ public class DownloadJobProcessor {
                 // el siguiente intento volverá a publicarlo sin consumir el presupuesto de fallo.
                 exception.addSuppressed(publishFailure);
             }
-            throw exception;
+            requeue = true;
         } catch (CancellationException exception) {
-            if (!cancellations.cancelled(jobId)) {
-                throw exception;
-            }
+            events.failed(event, "download_job_cancelled", event.payload().items().size());
+            finished = true;
         } finally {
-            if (!readyPublished) {
-                files.deleteStored(zipObjectKey);
-                files.deleteStored(manifestObjectKey);
+            try {
+                if (!sealed) {
+                    files.clean(jobId, true);
+                    events.clearReady(jobId);
+                    if (requeue) ledger.update(jobId, event.eventId(), "REQUEUE", reservation.requiredBytes());
+                    else if (finished) {
+                        ledger.update(jobId, event.eventId(), "CLEANED", 0);
+                    }
+                }
+            } finally {
+                reservations.remove(jobId, reservation);
+                cancellations.finish(jobId);
             }
-            cancellations.finish(jobId);
-            if (jobDirectory != null) {
-                files.removeDirectory(jobDirectory);
-            }
-        }
-    }
-
-    /**
-     * Añade el mayor margen entre un MiB y el uno por ciento de la descarga para reservar cabeceras
-     * y manifiesto del ZIP.
-     *
-     * @param downloadedBytes Estimación del conjunto de instaladores en bytes antes de comprimir.
-     * @return estimación con margen; máximo total configurado si desborda la suma.
-     */
-    private long artifactEstimate(long downloadedBytes) {
-        long overhead = Math.max(1024L * 1024, downloadedBytes / 100);
-        try {
-            return Math.addExact(downloadedBytes, overhead);
-        } catch (ArithmeticException exception) {
-            return properties.maxTotalSize().toBytes();
         }
     }
 
@@ -289,9 +336,10 @@ public class DownloadJobProcessor {
      * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
      *     interrumpe el hilo; conserva la interrupción.
      */
-    private void acquirePackaging(UUID jobId) {
+    private void acquirePackaging(UUID jobId, JobStorageReservation reservation) {
         try {
             while (!packagingSemaphore.tryAcquire(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                reservation.heartbeat();
                 if (cancellations.cancelled(jobId)) {
                     throw new CancellationException("download_job_cancelled");
                 }
@@ -320,7 +368,8 @@ public class DownloadJobProcessor {
             DownloadJobRequestedEvent event,
             List<FailedDownload> resolutionFailures,
             DownloadPipeline pipeline,
-            Path jobDirectory) {
+            Path jobDirectory,
+            DownloadBudget budget) {
         List<DownloadedArtifact> downloaded = new ArrayList<>();
         List<FailedDownload> failed = new ArrayList<>(resolutionFailures);
         while (pipeline.hasNext()) {
@@ -342,7 +391,7 @@ public class DownloadJobProcessor {
             }
         }
 
-        ManualShortcutWriter.Result shortcuts = manualShortcuts.write(event, failed, jobDirectory);
+        ManualShortcutWriter.Result shortcuts = manualShortcuts.write(event, failed, jobDirectory, budget);
         if (downloaded.isEmpty() && shortcuts.entries().isEmpty()) {
             throw new AllDownloadsFailedException(failed.size());
         }
