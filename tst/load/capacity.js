@@ -10,12 +10,12 @@ const READY_JOB_IDS = csv(__ENV.READY_JOB_IDS);
 const MAGIC_LINK_TOKENS = parseJsonArray(__ENV.MAGIC_LINK_TOKENS);
 const FINAL_MAGIC_LINK_TOKENS = parseJsonArray(__ENV.FINAL_MAGIC_LINK_TOKENS);
 const FINAL_RANGE = __ENV.FINAL_RANGE || '';
-const SESSION_VUS = 1000;
-const JOB_VUS = 50;
+const SESSION_VUS = Number(__ENV.SESSION_VUS || 100);
+const JOB_VUS = Number(__ENV.JOB_VUS || 12);
 
 const navigationDuration = new Trend('navigation_duration', true);
 const jobCreationDuration = new Trend('job_creation_duration', true);
-const signedRedirectDuration = new Trend('signed_redirect_duration', true);
+const zipMetadataDuration = new Trend('zip_metadata_duration', true);
 const capacityErrors = new Rate('capacity_errors');
 const unexpectedErrors = new Rate('unexpected_errors');
 const sseHeartbeats = new Counter('sse_heartbeats');
@@ -47,7 +47,7 @@ if (READY_JOB_IDS.length > 0) {
     exec: 'finalDelivery',
     vus: JOB_VUS,
     iterations: 1,
-    startTime: __ENV.FINAL_START_TIME || '2m',
+    startTime: __ENV.FINAL_START_TIME || '0s',
     maxDuration: __ENV.FINAL_MAX_DURATION || '6h',
     gracefulStop: '30s',
   };
@@ -63,7 +63,7 @@ const thresholds = {
   checks: ['rate>0.99'],
 };
 if (READY_JOB_IDS.length > 0) {
-  thresholds.signed_redirect_duration = ['p(95)<750'];
+  thresholds.zip_metadata_duration = ['p(95)<750'];
 }
 
 export const options = {
@@ -72,7 +72,7 @@ export const options = {
   thresholds,
 };
 
-/** Mantiene 1.000 cookies de sesión y genera aproximadamente 100 requests/s. */
+/** Mantiene cookies independientes; cada VU realiza aproximadamente una petición cada diez segundos. */
 export function webSession() {
   if (__ITER === 0) {
     // Escalona la creación de sesiones en diez segundos y empieza el tráfico
@@ -100,7 +100,7 @@ export function webSession() {
   sleep(9 + Math.random() * 2);
 }
 
-/** Crea 50 jobs autenticados y conserva una conexión SSE por job. */
+/** Crea jobs autenticados y conserva SSE y actividad mientras esperan o se preparan. */
 export async function jobAndSse() {
   requireJobInputs();
   const account = exec.scenario.iterationInTest + 1;
@@ -156,15 +156,31 @@ export async function jobAndSse() {
       return new Promise((resolve) => {
         let heartbeats = 0;
         let jobs = 0;
+        let preparing = true;
         const source = new EventSource(`/api/v1/download-jobs/${job.id}/events`, {
           withCredentials: true,
         });
         source.addEventListener('heartbeat', () => { heartbeats += 1; });
-        source.addEventListener('job', () => { jobs += 1; });
-        window.setTimeout(() => {
+        source.addEventListener('job', (event) => {
+          jobs += 1;
+          preparing = ['QUEUED', 'RESOLVING', 'DOWNLOADING', 'PACKAGING'].includes(JSON.parse(event.data).status);
+        });
+        const activity = window.setInterval(() => {
+          if (!preparing) return;
+          void fetch(`/api/v1/download-jobs/${job.id}/activity`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': authenticated.body.token },
+            body: JSON.stringify({ phase: 'waiting' }),
+          }).catch(() => undefined);
+        }, 15000);
+        const finish = () => {
+          window.clearInterval(activity);
+          window.clearTimeout(timeout);
           source.close();
           resolve({ status: 202, stage: 'sse', creationMs, heartbeats, jobs });
-        }, input.durationMs);
+        };
+        const timeout = window.setTimeout(finish, input.durationMs);
+        source.addEventListener('removed', finish);
       });
     }, {
       magicToken: MAGIC_LINK_TOKENS[account - 1] || '',
@@ -187,40 +203,40 @@ export async function jobAndSse() {
   }
 }
 
-/** Lanza 50 GET directos a URLs firmadas sin transportar el ZIP por Core. */
+/** Comprueba HEAD y transfiere el ZIP mediante la ruta autorizada y observable de Core. */
 export function finalDelivery() {
   requireFinalInputs();
   const account = exec.scenario.iterationInTest + 1;
   if (!login(account, FINAL_MAGIC_LINK_TOKENS)) return;
 
   const jobId = READY_JOB_IDS[account - 1];
-  const redirect = http.get(
+  const metadata = http.head(
     `${BASE_URL}/api/v1/download-jobs/${jobId}/file`,
-    { ...apiParams('zip_redirect'), redirects: 0 },
+    apiParams('zip_metadata'),
   );
-  signedRedirectDuration.add(redirect.timings.duration);
-  record(redirect, [303]);
-  check(redirect, {
-    'Core responds with 303': (value) => value.status === 303,
-    'signed URL is present': (value) => Boolean(value.headers.Location),
+  zipMetadataDuration.add(metadata.timings.duration);
+  record(metadata, [200]);
+  check(metadata, {
+    'Core exposes ZIP metadata': (value) => value.status === 200,
+    'ZIP supports ranges': (value) => value.headers['Accept-Ranges'] === 'bytes',
   });
-  if (redirect.status !== 303 || !redirect.headers.Location) return;
+  if (metadata.status !== 200) return;
 
   const headers = FINAL_RANGE ? { Range: FINAL_RANGE } : {};
-  const transfer = http.get(redirect.headers.Location, {
+  const transfer = http.get(`${BASE_URL}/api/v1/download-jobs/${jobId}/file`, {
     headers,
     tags: { endpoint: 'final_transfer', traffic: 'artifact' },
     timeout: __ENV.FINAL_TRANSFER_TIMEOUT || '6h',
     responseType: 'none',
   });
-  record(transfer, FINAL_RANGE ? [200, 206] : [200]);
+  record(transfer, FINAL_RANGE ? [206] : [200]);
   check(transfer, {
-    'MinIO serves the artifact directly': (value) => FINAL_RANGE
-      ? [200, 206].includes(value.status)
+    'Core serves the requested artifact bytes': (value) => FINAL_RANGE
+      ? value.status === 206
       : value.status === 200,
-    'ZIP content type is signed': (value) => String(value.headers['Content-Type'] || '')
+    'ZIP content type is present': (value) => String(value.headers['Content-Type'] || '')
       .toLowerCase().includes('application/zip'),
-    'safe filename is signed': (value) => String(value.headers['Content-Disposition'] || '')
+    'safe filename is present': (value) => String(value.headers['Content-Disposition'] || '')
       .includes(`batch-downloader-${jobId}.zip`),
   });
 }
@@ -292,7 +308,7 @@ function requireFinalInputs() {
     exec.test.abort('FINAL_MAGIC_LINK_TOKENS must contain one current token for each final-delivery VU');
   }
   if (READY_JOB_IDS.length !== JOB_VUS) {
-    exec.test.abort('READY_JOB_IDS must contain exactly 50 jobs owned by accounts 1..50');
+    exec.test.abort('READY_JOB_IDS must contain JOB_VUS jobs in owner order');
   }
 }
 

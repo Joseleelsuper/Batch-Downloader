@@ -82,6 +82,7 @@ public class DownloadInboxRetentionPruner {
                 SELECT event_id
                 FROM download_inbox
                 WHERE status = 'COMPLETED'
+                  AND job_id IS NULL
                   AND completed_at IS NOT NULL
                   AND completed_at < ?
                 ORDER BY completed_at ASC, event_id ASC
@@ -93,7 +94,7 @@ public class DownloadInboxRetentionPruner {
         int deletedRows = 0;
         for (String eventId : eventIds) {
             deletedRows += jdbc.update(
-                    "DELETE FROM download_inbox WHERE event_id = ? AND status = 'COMPLETED'",
+                    "DELETE FROM download_inbox WHERE event_id = ? AND status = 'COMPLETED' AND job_id IS NULL",
                     eventId);
         }
         return deletedRows;

@@ -15,7 +15,6 @@ import es.ubu.batchdownloader.downloadworker.application.FilenamePolicy;
 import es.ubu.batchdownloader.downloadworker.ports.PublicUriPolicy;
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler;
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor;
-import es.ubu.batchdownloader.downloadworker.application.JobCapacity;
 import es.ubu.batchdownloader.downloadworker.infrastructure.archive.ZipArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.DnsHostResolver;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.HostResolver;
@@ -44,13 +43,10 @@ import io.minio.MinioClient;
 import jakarta.validation.Validator;
 import java.net.http.HttpClient;
 import java.time.Clock;
-import java.util.concurrent.ArrayBlockingQueue;
+import es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger;
+import es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpJobStorageLedger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -101,8 +97,8 @@ public class WorkerConfiguration {
             DownloadWorkerMetrics metrics, DownloadEventEmitter events, Clock clock, DownloadJobFiles files) {
         DownloadPipeline.Dependencies dependencies = new DownloadPipeline.Dependencies(
                 executor, downloader, filenames, properties, cancellations, metrics, events, clock, files);
-        return (event, items, directory, window) -> new DownloadPipeline(
-                event, items, directory, window, dependencies);
+        return (event, items, directory, window, budget) -> new DownloadPipeline(
+                event, items, directory, window, budget, dependencies);
     }
 
     /**
@@ -114,8 +110,9 @@ public class WorkerConfiguration {
      * @return emisor de transiciones con identidad determinista.
      */
     @Bean
-    DownloadEventEmitter downloadEvents(EventPublisher publisher, StorageProperties storage, Clock clock) {
-        return new DownloadEventEmitter(publisher, storage, clock);
+    DownloadEventEmitter downloadEvents(EventPublisher publisher, StorageProperties storage, Clock clock,
+            InboxRepository inbox, ObjectMapper mapper) {
+        return new DownloadEventEmitter(publisher, storage, clock, inbox, mapper);
     }
 
     /**
@@ -352,6 +349,12 @@ public class WorkerConfiguration {
         return new HttpJobItemMetadataLookup(coreApiHttpClient, objectMapper, properties);
     }
 
+    @Bean
+    JobStorageLedger jobStorageLedger(@Qualifier("coreApiHttpClient") HttpClient client,
+            ObjectMapper mapper, CoreApiProperties properties) {
+        return new HttpJobStorageLedger(client, mapper, properties);
+    }
+
     /**
      * Configura destino y credenciales del cliente S3 sin iniciar todavía una subida.
      *
@@ -410,50 +413,19 @@ public class WorkerConfiguration {
      * @param clock Reloj UTC compartido para eventos, reservas y métricas.
      * @return repositorio local de mensajes procesados.
      */
-    @Bean
+    @Bean(initMethod = "recoverAbandoned")
+    @org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization
     InboxRepository inboxRepository(JdbcTemplate jdbcTemplate, Clock clock) {
         return new JdbcInboxRepository(jdbcTemplate, clock);
     }
 
     /**
-     * Crea y arranca un pool fijo con cola acotada al mismo tamaño y rechazo por saturación, usando
-     * hilos daemon identificables; Spring lo apaga al cerrar.
-     *
-     * @param properties Configuración tipada de destinos, límites o credenciales que utiliza el
-     *     componente construido.
+     * Usa hilos virtuales para esperas de red sin un techo arbitrario de trabajos.
      * @return ejecutor global de resolución y transferencia.
      */
     @Bean(destroyMethod = "shutdown")
-    ExecutorService downloadExecutor(DownloadProperties properties) {
-        AtomicInteger sequence = new AtomicInteger();
-        ThreadFactory factory = runnable -> {
-            Thread thread = new Thread(runnable, "artifact-download-" + sequence.incrementAndGet());
-            thread.setDaemon(true);
-            return thread;
-        };
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                properties.concurrency(),
-                properties.concurrency(),
-                0,
-                TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(properties.concurrency()),
-                factory,
-                new ThreadPoolExecutor.AbortPolicy());
-        executor.prestartAllCoreThreads();
-        return executor;
-    }
-
-    /**
-     * Configura el semáforo justo de trabajos con los permisos globales y sus métricas.
-     *
-     * @param properties Configuración tipada de destinos, límites o credenciales que utiliza el
-     *     componente construido.
-     * @param registry Registro de ocupación y espera de permisos globales.
-     * @return gestor de trabajos normales y exclusivos.
-     */
-    @Bean
-    JobCapacity jobCapacity(DownloadProperties properties, MeterRegistry registry) {
-        return new JobCapacity(properties.jobConcurrency(), registry);
+    ExecutorService downloadExecutor() {
+        return java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
     }
 
     /**

@@ -233,32 +233,26 @@ public class RabbitTopologyConfiguration {
     }
 
     /**
-     * Fija un mensaje prefetched por consumidor, número estable de consumidores igual a
-     * jobConcurrency y rechazo sin reencolado por defecto.
+     * Recibe asincrónicamente todos los trabajos ya admitidos por el ledger de Core.
      *
      * @param connectionFactory Conexiones AMQP del proceso utilizadas por los contenedores de
      *     consumidores.
      * @param rabbitMessageConverter Conversor JSON común de los sobres de eventos.
-     * @param downloadRetryInterceptor Política de intentos y recuperación terminal aplicada al
-     *     consumidor.
-     * @param downloadProperties Límites de ejecución que determinan el número de consumidores de
-     *     trabajos.
      * @return factoría de consumidores de trabajos con conversión JSON y reintentos.
      */
     @Bean(name = "downloadRabbitListenerContainerFactory")
     SimpleRabbitListenerContainerFactory downloadRabbitListenerContainerFactory(
             ConnectionFactory connectionFactory,
-            MessageConverter rabbitMessageConverter,
-            RetryOperationsInterceptor downloadRetryInterceptor,
-            DownloadProperties downloadProperties) {
+            MessageConverter rabbitMessageConverter) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(rabbitMessageConverter);
-        factory.setAdviceChain(downloadRetryInterceptor);
-        factory.setDefaultRequeueRejected(false);
-        factory.setPrefetchCount(1);
-        factory.setConcurrentConsumers(downloadProperties.jobConcurrency());
-        factory.setMaxConcurrentConsumers(downloadProperties.jobConcurrency());
+        // CompletableFuture mantiene el ACK pendiente sin ocupar un consumidor por trabajo.
+        // La admisión duradera por bytes de Core limita la carga, no un máximo de trabajos.
+        factory.setDefaultRequeueRejected(true);
+        factory.setPrefetchCount(0);
+        factory.setConcurrentConsumers(1);
+        factory.setMaxConcurrentConsumers(1);
         return factory;
     }
 

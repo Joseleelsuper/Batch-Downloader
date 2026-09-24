@@ -51,12 +51,12 @@ class DownloadInboxRetentionPrunerTest {
         ArgumentCaptor<Timestamp> cutoff = ArgumentCaptor.forClass(Timestamp.class);
         verify(jdbc).queryForList(query.capture(), eq(String.class), cutoff.capture(), eq(500));
         assertThat(query.getValue())
-                .contains("status = 'COMPLETED'", "completed_at IS NOT NULL", "LIMIT ?")
+                .contains("status = 'COMPLETED'", "completed_at IS NOT NULL", "job_id IS NULL", "LIMIT ?")
                 .doesNotContain("PROCESSING");
         assertThat(cutoff.getValue())
                 .isEqualTo(Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")));
         verify(jdbc, org.mockito.Mockito.times(2)).update(
-                eq("DELETE FROM download_inbox WHERE event_id = ? AND status = 'COMPLETED'"),
+                eq("DELETE FROM download_inbox WHERE event_id = ? AND status = 'COMPLETED' AND job_id IS NULL"),
                 anyString());
         assertThat(affected).isEqualTo(2);
     }

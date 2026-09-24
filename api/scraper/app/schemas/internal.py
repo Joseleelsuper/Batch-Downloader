@@ -57,6 +57,15 @@ class InternalSourceResolution(BaseModel):
     signature_base64: str | None = Field(default=None, alias="signatureBase64")
 
 
+class InternalSourceSize(BaseModel):
+    """Devuelve el tamaño estimable de una fuente sin exponer su URL privada."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    source_ref: str = Field(alias="sourceRef")
+    expected_size_bytes: int | None = Field(alias="expectedSizeBytes", gt=0)
+
+
 
 class ContentEnqueueResult(BaseModel):
     """Resume una solicitud de enriquecimiento distinguiendo coincidencias, tareas nuevas y
@@ -604,4 +613,3 @@ class WebsiteAppDiscoveryApplyResult(BaseModel):
     installer_count: int = Field(alias="installerCount")
 
     warnings: list[str] = Field(default_factory=list)
-

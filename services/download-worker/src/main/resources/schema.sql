@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS download_inbox (
     completed_at TIMESTAMP WITH TIME ZONE NULL
 );
 
+ALTER TABLE download_inbox ADD COLUMN IF NOT EXISTS pending_result CLOB NULL;
+ALTER TABLE download_inbox ADD COLUMN IF NOT EXISTS job_id VARCHAR(36) NULL;
+
 CREATE INDEX IF NOT EXISTS ix_download_inbox_status_started
     ON download_inbox (status, started_at);
 

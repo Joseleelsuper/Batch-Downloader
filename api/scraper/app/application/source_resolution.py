@@ -8,11 +8,15 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+from copy import deepcopy
 from datetime import datetime
+from typing import cast
 from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -24,6 +28,7 @@ from app.domain.source_resolution import SourceTrustStatus, source_trust_status
 from app.repositories.catalog import CatalogRepository
 from app.schemas.internal import (
     InternalSourceResolution,
+    InternalSourceSize,
 )
 from app.schemas.linux_install import default_profile
 from app.scraper.candidates import InstallerCandidate, infer_operating_system
@@ -32,6 +37,7 @@ from app.scraper.installer_policy import (
     known_official_candidates_for_package,
 )
 from app.scraper.linux_install import bundled_signature
+from app.scraper.safe_http import SafeHttpError, probe_public_resource_size
 from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 
 
@@ -54,6 +60,63 @@ class SourceRevalidationTransientError(RuntimeError):
         resolve_source: Propaga el aplazamiento al adaptador HTTP.
         _is_transient_revalidation_failure: Clasifica respuestas y evidencias recuperables.
     """
+
+
+async def resolve_source_size(
+    source_ref: str, session: AsyncSession, settings: Settings
+) -> InternalSourceSize:
+    """Lee el tamaño o consulta HEAD sin retener conexión ni bloqueo durante la red.
+
+    Solo persiste el tamaño si la misma revisión de la fuente sigue sin tamaño; una
+    edición concurrente nunca recibe metadatos de la URL anterior.
+    """
+    catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
+    resolved = await catalog.get_resolved_source_by_ref(source_ref)
+    if resolved is None:
+        raise SourceNotFoundError("source_not_found")
+    response = InternalSourceSize(
+        sourceRef=str(resolved.id),
+        expectedSizeBytes=resolved.size_bytes if (resolved.size_bytes or 0) > 0 else None,
+    )
+    url = catalog.reveal_url(resolved) if _parent_source_is_available(resolved) else None
+    revision = (
+        resolved.id,
+        resolved.resolved_url_encrypted,
+        resolved.checked_at,
+        resolved.status,
+        resolved.validation_status,
+    )
+    await session.commit()
+    if response.expected_size_bytes is not None or url is None:
+        return response
+    try:
+        async with asyncio.timeout(settings.request_timeout_seconds):
+            size = await probe_public_resource_size(
+                url,
+                timeout=settings.request_timeout_seconds,
+                max_redirects=settings.max_redirects,
+            )
+    except (SafeHttpError, httpx.HTTPError, TimeoutError, ValueError):
+        return response
+    if size is None:
+        return response
+    result = await session.execute(
+        update(ResolvedSource)
+        .where(
+            ResolvedSource.id == revision[0],
+            ResolvedSource.resolved_url_encrypted == revision[1],
+            ResolvedSource.checked_at == revision[2],
+            ResolvedSource.status == revision[3],
+            ResolvedSource.validation_status == revision[4],
+            or_(ResolvedSource.size_bytes.is_(None), ResolvedSource.size_bytes <= 0),
+        )
+        .values(size_bytes=size)
+        .execution_options(synchronize_session=False)
+    )
+    await session.commit()
+    if cast(CursorResult, result).rowcount:
+        response.expected_size_bytes = size
+    return response
 
 
 async def resolve_source(
@@ -123,7 +186,6 @@ async def resolve_source(
     )
     profile = None
     app_name = None
-    signature = None
     if resolved.source.operating_system == "linux":
         row = resolved.install_profile
         profile = (
@@ -144,8 +206,6 @@ async def resolve_source(
         app_name = await session.scalar(
             select(SoftwareApp.name).where(SoftwareApp.id == resolved.source.software_app_id)
         )
-        if trust_status == SourceTrustStatus.VERIFIED:
-            signature = await bundled_signature(profile)
     response = InternalSourceResolution(
         sourceRef=str(resolved.id),
         appId=str(resolved.source.software_app_id),
@@ -161,9 +221,11 @@ async def resolve_source(
         version=resolved.version,
         extension=resolved.extension,
         installationProfile=profile,
-        signatureBase64=signature,
+        signatureBase64=None,
     )
     await session.commit()
+    if profile is not None and trust_status == SourceTrustStatus.VERIFIED:
+        response.signature_base64 = await bundled_signature(profile)
     return response
 
 
@@ -266,10 +328,10 @@ async def _revalidate_expired_source(
     settings: Settings,
     session: AsyncSession,
 ) -> str | None:
-    """Refresca bajo bloqueo la misma resolución y reutiliza una validación concurrente si ya
-    existe.
-    Si sigue caducada, valida su URL o un respaldo oficial compatible; confirma aceptación,
-    caducidad terminal o aplazamiento sin cambiar su identidad.
+    """Lee una revisión bajo bloqueo breve y valida sin retener la conexión durante la red.
+
+    Recomprueba la revisión antes de confirmar aceptación o caducidad; una edición concurrente
+    aplaza el intento sin sobrescribir los cambios.
 
     Args:
         resolved: Resolución persistida cuyo instalador y fuente se comprueban.
@@ -285,9 +347,8 @@ async def _revalidate_expired_source(
         SourceRevalidationTransientError: Si el resultado debe reintentarse sin invalidar
             definitivamente la fuente.
     """
-    # Una lectura actual bajo bloqueo de fila evita duplicar la validación de red.
-    # ``populate_existing`` en el repositorio también observa una renovación o una
-    # invalidación terminal confirmada mientras esta solicitud esperaba.
+    # ``populate_existing`` observa renovaciones e invalidaciones previas a esta lectura.
+    # La comparación posterior impide aplicar una comprobación sobre una revisión editada.
     locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
     if locked is None:
         await session.commit()
@@ -328,12 +389,20 @@ async def _revalidate_expired_source(
         asset_kind=str(metadata.get("asset_kind") or "") or None,
         referer=resolved.source.initial_url,
     )
+    revision = _revalidation_revision(resolved)
+    await session.commit()
     candidate, result = await _validate_revalidation_candidate(
         resolved,
         candidate,
         settings,
         session,
     )
+    locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
+    if locked is None or _revalidation_revision(locked) != revision:
+        await session.commit()
+        raise SourceRevalidationTransientError("source_revalidation_changed")
+    resolved = locked
+    metadata = dict(resolved.metadata_json or {})
 
     now = utc_now()
     final_url = result.final_url or candidate.url
@@ -354,6 +423,21 @@ async def _revalidate_expired_source(
         return None
 
     return await _accept_revalidation(resolved, catalog, session, candidate, result, now)
+
+
+def _revalidation_revision(resolved: ResolvedSource) -> tuple:
+    """Copia datos que la validación lee o escribe, incluida la revisión editorial de sus padres."""
+    source = resolved.source
+    app = source.software_app
+    return deepcopy((
+        resolved.resolved_url_encrypted, resolved.checked_at, resolved.expires_at,
+        resolved.status, resolved.validation_status, resolved.metadata_json,
+        resolved.filename, resolved.extension, resolved.content_type, resolved.size_bytes,
+        resolved.version, resolved.release_rank, resolved.is_latest, resolved.version_status,
+        source.version, source.updated_at, source.resolution_status, source.validation_status,
+        source.catalog_available, source.initial_url, source.operating_system, source.architecture,
+        app.version, app.updated_at, app.app_status, app.winstall_id, app.latest_version,
+    ))
 
 
 async def _accept_revalidation(

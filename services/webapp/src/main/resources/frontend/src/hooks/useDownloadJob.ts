@@ -5,6 +5,7 @@ import {
   useDownloadJobs,
 } from '../downloads/DownloadJobsContext';
 import type { DownloadJob } from '../types/catalog';
+import type { DownloadFileHandle } from '../downloads/delivery';
 
 export type { DownloadJobRequest };
 
@@ -16,11 +17,12 @@ export function useDownloadJob() {
   const [localError, setLocalError] = useState(false);
   const entry = jobId ? downloads.jobs.find((candidate) => candidate.id === jobId) : undefined;
 
-  const start = useCallback(async (request: DownloadJobRequest, label?: string) => {
+  const start = useCallback(async (request: DownloadJobRequest, label?: string,
+    destination?: Promise<DownloadFileHandle | undefined>) => {
     if (startInFlight.current) return startInFlight.current;
     setStarting(true);
     setLocalError(false);
-    const operation = downloads.start(request, label);
+    const operation = downloads.start(request, label, destination);
     startInFlight.current = operation;
     try {
       const created = await operation;
@@ -61,6 +63,7 @@ export function useDownloadJob() {
     error: localError || Boolean(entry?.connectionError || entry?.actionError),
     start,
     cancel,
+    download: () => entry ? downloads.download(entry.id) : Promise.resolve(),
     clear,
   };
 }

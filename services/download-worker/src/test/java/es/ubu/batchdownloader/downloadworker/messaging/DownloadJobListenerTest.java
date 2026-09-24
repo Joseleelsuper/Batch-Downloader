@@ -10,7 +10,6 @@ import static org.mockito.Mockito.when;
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor;
 import es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException;
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler;
-import es.ubu.batchdownloader.downloadworker.config.MessagingProperties;
 import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
@@ -26,7 +25,6 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -59,11 +57,9 @@ class DownloadJobListenerTest {
     private final DownloadProperties properties = new DownloadProperties(
             10,
             DataSize.ofMegabytes(10),
-            DataSize.ofMegabytes(20),
             3,
             Duration.ofSeconds(1),
             Duration.ofSeconds(10),
-            2,
             Duration.ofMinutes(5),
             "/tmp");
     /**
@@ -74,6 +70,22 @@ class DownloadJobListenerTest {
             new InboxDownloadJobHandler(inbox, properties, processor::process));
     private final DownloadWorkerHeartbeat heartbeat = mock(DownloadWorkerHeartbeat.class);
     private final DownloadJobListener listener = new DownloadJobListener(handler, heartbeat);
+
+    @Test
+    void asynchronousAckWaitsForDurableProcessing() throws Exception {
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        DownloadJobListener async = new DownloadJobListener(ignored -> {
+            started.countDown();
+            try { release.await(); }
+            catch (InterruptedException exception) { throw new RuntimeException(exception); }
+        }, heartbeat);
+        var completion = async.receiveAsync(event(EventTypes.CURRENT_VERSION));
+        org.assertj.core.api.Assertions.assertThat(started.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(completion).isNotDone();
+        release.countDown();
+        completion.get(2, java.util.concurrent.TimeUnit.SECONDS);
+    }
 
     /**
      * Deniega la reserva del inbox y comprueba que no se procesa ni se completa el evento.
@@ -140,25 +152,16 @@ class DownloadJobListenerTest {
      * fallo de procesamiento.
      */
     @Test
-    void routesCapacityWaitWithoutThrowingIntoTheFailureRetryInterceptor() {
+    void neverBypassesCoreFifoWithRabbitCapacityRequeue() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
         DownloadJobHandler deferred = ignored -> {
             throw new CapacityDeferredException(
                     "temporary_storage_busy", new IllegalStateException("full"));
         };
-        RabbitTemplate rabbit = mock(RabbitTemplate.class);
-        MessagingProperties messaging = new MessagingProperties(
-                "commands", "events", "download.job.requested", "jobs",
-                "download.job.cancel-requested", "cancellations", "dlx", "dlq",
-                "capacity-wait", Duration.ofSeconds(30), 3, Duration.ofSeconds(1),
-                2.0, Duration.ofSeconds(10));
-        DownloadJobListener capacityListener = new DownloadJobListener(
-                deferred, heartbeat, rabbit, messaging);
+        DownloadJobListener capacityListener = new DownloadJobListener(deferred, heartbeat);
 
-        capacityListener.receive(event);
+        assertThatThrownBy(() -> capacityListener.receive(event)).isInstanceOf(CapacityDeferredException.class);
 
-        verify(rabbit).convertAndSend("", "capacity-wait", event);
-        verify(heartbeat).success();
         verify(heartbeat, never()).failure(org.mockito.ArgumentMatchers.any());
     }
 

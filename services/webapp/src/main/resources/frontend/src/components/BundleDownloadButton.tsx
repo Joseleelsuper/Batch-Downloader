@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Download, FileDown } from 'lucide-react';
-import { downloadJobFileUrl } from '../api/downloads';
 import { useDownloadJob } from '../hooks/useDownloadJob';
 import { useTranslation } from '../services/i18n';
 import type {
@@ -34,7 +33,7 @@ export function BundleDownloadButton({
   compact = false,
 }: Readonly<Props>) {
   const t = useTranslation();
-  const { job, starting, error, start } = useDownloadJob();
+  const { job, starting, error, start, download } = useDownloadJob();
   const [internalOperatingSystem, setInternalOperatingSystem] = useState<OperatingSystem | null>(null);
   const availability = platformAvailability.length
     ? platformAvailability
@@ -108,7 +107,7 @@ export function BundleDownloadButton({
         className="primary-button compact-button"
         type="button"
         disabled={starting || active || overLimit || !hasCompatiblePlatform}
-        onClick={ready && job ? () => window.location.assign(downloadJobFileUrl(job.id)) : startBundle}
+        onClick={ready && job ? () => void download() : startBundle}
         title={overLimit
           ? t('bundle.tooLarge')
           : !hasCompatiblePlatform

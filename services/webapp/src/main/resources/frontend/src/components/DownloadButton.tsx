@@ -1,5 +1,4 @@
 import { Download } from 'lucide-react';
-import { downloadJobFileUrl } from '../api/downloads';
 import { useDownloadJob } from '../hooks/useDownloadJob';
 import { useTranslation } from '../services/i18n';
 import type { OperatingSystem } from '../types/catalog';
@@ -14,7 +13,7 @@ interface Props {
 
 export function DownloadButton({ appId, appName, sourceRef, operatingSystem, disabled }: Readonly<Props>) {
   const t = useTranslation();
-  const { job, starting, error, start } = useDownloadJob();
+  const { job, starting, error, start, download } = useDownloadJob();
   const ready = Boolean(job && ['READY', 'PARTIAL', 'MANUAL_ONLY'].includes(job.status));
   const active = Boolean(job && ![
     'READY',
@@ -27,7 +26,7 @@ export function DownloadButton({ appId, appName, sourceRef, operatingSystem, dis
 
   function handleDownload() {
     if (ready && job) {
-      window.location.assign(downloadJobFileUrl(job.id));
+      void download();
       return;
     }
     void start(

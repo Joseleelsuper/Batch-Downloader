@@ -227,6 +227,7 @@ public final class DownloadEvents {
      * @param status READY, PARTIAL o MANUAL_ONLY según el contenido entregable.
      * @param objectKey Clave del ZIP confirmado en almacenamiento; Core genera el acceso temporal.
      * @param sizeBytes Longitud del ZIP completo confirmado, en bytes.
+     * @param storageBytes Ocupación confirmada de ZIP y manifiesto, tras borrar todos los temporales.
      * @param sha256 SHA-256 hexadecimal calculado durante la escritura del ZIP.
      * @param successfulItems Cantidad de instaladores completos incluidos en el ZIP.
      * @param failedItems Cantidad de elementos sin instalador completado, incluidos los que ofrecen
@@ -242,6 +243,7 @@ public final class DownloadEvents {
             String status,
             String objectKey,
             long sizeBytes,
+            long storageBytes,
             String sha256,
             int successfulItems,
             int failedItems,

@@ -76,7 +76,8 @@ public final class ManualShortcutWriter {
     Result write(
             DownloadJobRequestedEvent event,
             List<FailedDownload> failures,
-            Path jobDirectory) {
+            Path jobDirectory,
+            DownloadBudget budget) {
         Map<UUID, DownloadItemMetadata> metadata = metadata(event, failures);
         if (failures.isEmpty()) {
             return new Result(List.of(), Map.of(), metadata);
@@ -93,7 +94,7 @@ public final class ManualShortcutWriter {
             }
             String filename = filenamePolicy.manualShortcutFilename(item.appName(), usedNames);
             Path shortcut = shortcutsDirectory.resolve(filename);
-            writeShortcut(shortcutsDirectory, shortcut, officialPage);
+            writeShortcut(shortcutsDirectory, shortcut, officialPage, budget);
             String archivePath = "Descargas manuales/" + filename;
             entries.add(new ArchiveEntry(archivePath, shortcut));
             pathsByItem.put(failure.itemId(), archivePath);
@@ -143,13 +144,13 @@ public final class ManualShortcutWriter {
      * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si no se
      *     puede crear el directorio o escribir el acceso.
      */
-    private void writeShortcut(Path directory, Path shortcut, URI officialPage) {
+    private void writeShortcut(Path directory, Path shortcut, URI officialPage, DownloadBudget budget) {
         try {
             Files.createDirectories(directory);
-            Files.writeString(
-                    shortcut,
-                    "[InternetShortcut]\r\nURL=" + officialPage.toASCIIString() + "\r\n",
-                    StandardCharsets.UTF_8);
+            byte[] bytes = ("[InternetShortcut]\r\nURL=" + officialPage.toASCIIString() + "\r\n")
+                    .getBytes(StandardCharsets.UTF_8);
+            budget.consume(bytes.length);
+            Files.write(shortcut, bytes);
         } catch (IOException exception) {
             throw new InfrastructureException("manual_shortcut_creation_failed", exception);
         }

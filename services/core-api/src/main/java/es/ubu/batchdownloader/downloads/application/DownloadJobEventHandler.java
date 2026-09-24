@@ -39,6 +39,7 @@ public class DownloadJobEventHandler {
      * Coordinador de difusión después del commit.
      */
     private final DownloadJobNotifications notifications;
+    private final DownloadStorageCoordinator storage;
 
     /**
      * Conecta persistencia, reloj, límite de retención y difusión para aplicar eventos del worker.
@@ -48,11 +49,12 @@ public class DownloadJobEventHandler {
      * @param limits Cuotas de admisión y duraciones de conservación y firma del ZIP.
      * @param notifications Coordinador de difusión después del commit.
      */
-    public DownloadJobEventHandler(DownloadJobStore jobs, Clock clock, DownloadLimits limits, DownloadJobNotifications notifications) {
+    public DownloadJobEventHandler(DownloadJobStore jobs, Clock clock, DownloadLimits limits, DownloadJobNotifications notifications, DownloadStorageCoordinator storage) {
         this.jobs = jobs;
         this.clock = clock;
         this.limits = limits;
         this.notifications = notifications;
+        this.storage = storage;
     }
 
     /**
@@ -82,6 +84,11 @@ public class DownloadJobEventHandler {
             long bytesDownloaded,
             String sha256,
             String errorCode) {
+        DownloadJob previous = requireJob(jobId);
+        boolean advanced = !previous.status().terminal() && previous.items().stream()
+                .filter(item -> item.id().equals(itemId) && !item.status().terminal())
+                .anyMatch(item -> bytesDownloaded > item.bytesDownloaded()
+                        || status.ordinal() > item.status().ordinal());
         DownloadJob job = jobs.applyProgress(
                         jobId,
                         itemId,
@@ -92,6 +99,7 @@ public class DownloadJobEventHandler {
                         clock.instant())
                 .orElseThrow(() -> new NotFoundException(
                         "download_job_not_found", "No existe el trabajo."));
+        if (advanced) storage.processingProgress(jobId);
         notifications.notifyAfterSave(job);
     }
 

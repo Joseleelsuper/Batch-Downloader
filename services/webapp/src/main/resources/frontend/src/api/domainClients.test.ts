@@ -354,7 +354,10 @@ describe('current identity', () => {
       data: JSON.stringify(downloadJob('READY')),
     }));
     expect(onJob).toHaveBeenCalledWith(expect.objectContaining({ status: 'READY' }));
-    expect(source.close).toHaveBeenCalled();
+    expect(source.close).not.toHaveBeenCalled();
+    source.dispatchEvent(new MessageEvent('removed', { data: 'job/id' }));
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
+    expect(source.close).toHaveBeenCalledOnce();
     disconnect();
   });
 
@@ -374,6 +377,26 @@ describe('current identity', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(TypeError));
     await vi.advanceTimersByTimeAsync(5_000);
     expect(onJob).toHaveBeenCalledWith(expect.objectContaining({ status: 'READY' }));
+    disconnect();
+  });
+
+  it('keeps polling after preparation and stops once automatic cleanup removes the job', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    vi.stubGlobal('EventSource', undefined);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(downloadJob('READY'))))
+      .mockResolvedValueOnce(new Response(JSON.stringify(downloadJob('EXPIRED'))))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'not_found' }), { status: 404 }));
+    vi.stubGlobal('fetch', fetcher);
+    const onJob = vi.fn();
+    const onError = vi.fn();
+    const disconnect = connectDownloadJobEvents('job/id', onJob, onError);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(onJob.mock.calls.map(([job]) => (job as DownloadJob).status)).toEqual(['READY', 'EXPIRED']);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
     disconnect();
   });
 

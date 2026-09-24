@@ -3,10 +3,8 @@ package es.ubu.batchdownloader.downloads.application;
 import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.RateLimitException;
-import es.ubu.batchdownloader.common.ServiceUnavailableException;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup;
-import es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
@@ -45,10 +43,6 @@ public class DownloadJobService {
      */
     private final CatalogSourceLookup sources;
     /**
-     * Publicador de solicitudes durables mediante el outbox de la transacción actual.
-     */
-    private final DownloadEventPublisher events;
-    /**
      * Reloj que determina cuotas, cambios de estado y vencimientos.
      */
     private final Clock clock;
@@ -56,6 +50,7 @@ public class DownloadJobService {
      * Cuotas de admisión y duraciones de conservación y firma del ZIP.
      */
     private final DownloadLimits limits;
+    private final DownloadStorageCoordinator storage;
 
     /**
      * Conecta selección de fuentes, persistencia, publicación durable y límites de admisión.
@@ -64,16 +59,15 @@ public class DownloadJobService {
      * @param sources Consulta del catálogo que conserva fuentes exactas, compatibilidad y
      *     dependencias Linux.
      *
-     * @param events Publicador de solicitudes durables mediante el outbox de la transacción actual.
      * @param clock Reloj que determina cuotas, cambios de estado y vencimientos.
      * @param limits Cuotas de admisión y duraciones de conservación y firma del ZIP.
      */
-    public DownloadJobService(DownloadJobStore jobs, CatalogSourceLookup sources, DownloadEventPublisher events, Clock clock, DownloadLimits limits) {
+    public DownloadJobService(DownloadJobStore jobs, CatalogSourceLookup sources, Clock clock, DownloadLimits limits, DownloadStorageCoordinator storage) {
         this.jobs = jobs;
         this.sources = sources;
-        this.events = events;
         this.clock = clock;
         this.limits = limits;
+        this.storage = storage;
     }
 
     /**
@@ -170,9 +164,6 @@ public class DownloadJobService {
      * @throws es.ubu.batchdownloader.common.RateLimitException si la cuenta, el navegador o la IP
      *     exceden su cuota.
      *
-     * @throws es.ubu.batchdownloader.common.ServiceUnavailableException si se alcanza el máximo
-     *     global de trabajos pendientes.
-     *
      * @throws es.ubu.batchdownloader.common.ConflictException si la fuente exacta no está
      *     disponible o no se admite ninguna aplicación.
      */
@@ -182,9 +173,10 @@ public class DownloadJobService {
         LinkedHashSet<UUID> appIds = normalizedAppIds(selection);
         validateAppSelection(appIds, selection);
         List<UUID> originalAppIds = List.copyOf(appIds);
+        // Obtener el guard antes de la primera lectura: REPEATABLE READ debe ver las cuotas ya confirmadas.
+        jobs.lockAdmission();
         if (target != null) appIds.addAll(sources.expandLinuxDependencies(appIds));
         validateDependencyLimit(appIds);
-        jobs.lockAdmission();
         Instant now = clock.instant();
         enforceAdmission(owner, now);
         Map<UUID, CatalogSourceLookup.VerifiedSource> selected = selectSources(appIds, target, selection);
@@ -256,24 +248,10 @@ public class DownloadJobService {
     }
 
     private void enforceAdmission(RequestOwner owner, Instant now) {
-        if (jobs.countNonTerminal() >= limits.globalMaxPendingJobs()) {
-            throw new ServiceUnavailableException(
-                    "service_busy", "La cola de descargas está llena. Inténtalo de nuevo.", 30);
-        }
         if (owner.authenticated()) {
-            enforceAuthenticatedLimit(owner);
             return;
         }
         enforceAnonymousLimits(owner, now);
-    }
-
-    private void enforceAuthenticatedLimit(RequestOwner owner) {
-        if (jobs.countNonTerminalByOwner(owner.userId()) >= limits.authenticatedMaxActiveJobs()) {
-            throw new RateLimitException(
-                    "rate_limited",
-                    "La cuenta ya tiene el máximo de descargas activas o pendientes.",
-                    60);
-        }
     }
 
     private Map<UUID, CatalogSourceLookup.VerifiedSource> selectSources(
@@ -348,9 +326,9 @@ public class DownloadJobService {
                 persisted.omittedCount(),
                 persisted.now(),
                 persisted.now().plus(limits.zipRetention())));
-        events.jobRequested(job);
+        storage.enqueue(job);
         if (persisted.target() == null) {
-            return DownloadJobView.from(job);
+            return storage.decorate(DownloadJobView.from(job));
         }
         var linuxContext = new DownloadJobView.LinuxContext(
                 persisted.target().manager(), persisted.target().architecture(),
@@ -358,7 +336,7 @@ public class DownloadJobService {
                         .filter(id -> !persisted.originalAppIds().contains(id))
                         .toList());
         jobs.saveLinuxContext(job.id(), linuxContext);
-        return DownloadJobView.from(job).withLinuxContext(linuxContext);
+        return storage.decorate(DownloadJobView.from(job).withLinuxContext(linuxContext));
     }
 
     private record PersistJobContext(
@@ -369,8 +347,7 @@ public class DownloadJobService {
             LinuxTarget target) {}
 
     /**
-     * Aplica cuota de trabajos activos por navegador y creaciones en la última hora por navegador
-     * y, cuando existe, IP.
+     * Aplica la frecuencia de creaciones por navegador y, cuando existe, IP.
      *
      * @param owner Identidad autenticada o hashes del navegador que solicita acceso o creación.
      * @param now Instante de la transición o consulta de cuotas obtenido del reloj del caso de uso.
@@ -382,10 +359,6 @@ public class DownloadJobService {
      */
     private void enforceAnonymousLimits(RequestOwner owner, Instant now) {
         String browserHash = owner.requireAnonymousOwnerHash();
-        if (jobs.countAnonymousNonTerminal(browserHash) >= limits.anonymousMaxActiveJobs()) {
-            throw new RateLimitException(
-                    "anonymous_active_jobs_limit", "Este navegador ya tiene el máximo de descargas en curso.");
-        }
         Instant hourAgo = now.minus(Duration.ofHours(1));
         if (jobs.countAnonymousCreatedSince(browserHash, hourAgo) >= limits.anonymousMaxCreatesPerHour()) {
             throw new RateLimitException(
