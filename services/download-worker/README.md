@@ -35,6 +35,11 @@ comando protege contra eventos atrasados de un intento anterior.
 | Espacio libre del host | `DOWNLOAD_WORKER_MIN_FREE_SPACE=8GB`, separado del presupuesto |
 | Bucket MinIO | `MINIO_ZIP_QUOTA=10GB`, defensa adicional a la reserva física de Core |
 
+MinIO conserva los binarios de `RELEASE.2025-04-22T22-12-26Z`: el mirror se fija
+al mismo SHA-256 del índice original de Quay, con AMD64 y ARM64. La imagen incluye
+`mc RELEASE.2025-04-16T18-13-26Z` y también ejecuta la inicialización.
+[Procedencia del mirror](https://github.com/minio/minio/discussions/21320).
+
 ## Entrega y limpieza
 
 Core sirve el ZIP mediante `GET /api/v1/download-jobs/{id}/file` con `200/206`,

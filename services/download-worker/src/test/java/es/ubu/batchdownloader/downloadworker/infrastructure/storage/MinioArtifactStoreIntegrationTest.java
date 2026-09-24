@@ -18,7 +18,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class MinioArtifactStoreIntegrationTest {
     @Container
     static final GenericContainer<?> MINIO = new GenericContainer<>(
-            "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z")
+            "ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e")
             .withEnv("MINIO_ROOT_USER", "test-worker")
             .withEnv("MINIO_ROOT_PASSWORD", "test-worker-secret")
             .withExposedPorts(9000)

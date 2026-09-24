@@ -66,7 +66,8 @@ services:
       start_period: 60s
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # Mismo digest de quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z; ver README del worker.
+    image: ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     restart: unless-stopped
     cpu_shares: 1024
     command: server /data --console-address ":9001"
@@ -89,7 +90,8 @@ services:
       start_period: 30s
 
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    # La imagen del servidor ya incluye mc RELEASE.2025-04-16T18-13-26Z.
+    image: ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     restart: "no"
     depends_on:
       minio:
