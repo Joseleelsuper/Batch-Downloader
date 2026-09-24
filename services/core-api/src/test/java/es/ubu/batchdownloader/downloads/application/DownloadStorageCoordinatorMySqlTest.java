@@ -268,6 +268,20 @@ class DownloadStorageCoordinatorMySqlTest {
         assertThat(reserved()).isEqualTo(1024);
     }
 
+    @Test void connectedJobCanWaitForPackagingCapacityLongerThanTheDeliveryStallTimeout() {
+        UUID id = queued(1024); call("dispatch");
+        for (int minute = 0; minute < 10; minute++) {
+            clock.advance(50);
+            coordinator.touch(id, "waiting", 0);
+            assertThat(coordinator.worker(id, attempt(id), "HEARTBEAT", 0).allowed()).isTrue();
+            call("expireInactive");
+        }
+        assertThat(phase(id)).isEqualTo("RUNNING"); assertThat(reserved()).isEqualTo(1024);
+        clock.advance(61); call("expireInactive");
+        assertThat(phase(id)).isEqualTo("CLEANING");
+        assertThat(reserved()).isEqualTo(1024);
+    }
+
     @Test void invalidEstimatesFailVisiblyThenPurgeWithoutASecondDeletion() {
         UUID unknown = estimating(Collections.singletonList(null)); call("estimate", unknown);
         UUID overflow = estimating(List.of(Long.MAX_VALUE)); call("estimate", overflow);

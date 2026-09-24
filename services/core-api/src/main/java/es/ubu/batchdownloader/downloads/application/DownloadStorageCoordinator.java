@@ -362,7 +362,7 @@ public class DownloadStorageCoordinator {
                     WHERE s.phase NOT IN ('CLEANING','CLEANED') AND
                       (j.cancellation_requested=1 OR j.status IN ('FAILED','CANCELLED','EXPIRED')
                        OR (s.active_transfers=0 AND s.last_activity_at < ?)
-                       OR (s.phase IN ('RUNNING','READY') AND s.last_progress_at < ?))
+                       OR (s.phase='READY' AND s.last_progress_at < ?))
                     """, Timestamp.from(clock.instant().minusSeconds(60)), Timestamp.from(clock.instant().minusSeconds(300)));
             return null;
         });

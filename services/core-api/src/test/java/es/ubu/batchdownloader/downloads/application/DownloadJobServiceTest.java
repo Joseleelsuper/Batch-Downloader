@@ -347,7 +347,7 @@ class DownloadJobServiceTest {
         }
     }
 
-    /** Los mensajes repetidos sin avance no reinician la caducidad de cinco minutos. */
+    /** Los mensajes repetidos sin avance no falsean el instante del último progreso. */
     @Test
     void recordsProcessingActivityOnlyWhenBytesOrStageAdvance() {
         var item = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW);
