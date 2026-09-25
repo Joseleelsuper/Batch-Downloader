@@ -125,6 +125,8 @@ components:
     downloadJobReady:
       name: download.job.ready.v1
       title: ZIP disponible
+      summary: Publicado después de terminar subidas y borrar temporales. storageBytes suma ZIP y manifiesto
+        para aplicar el estado READY y reducir la reserva en la misma transacción de Core.
       payload:
         $ref: '../schemas/zip-generated.json'
     downloadJobFailed:

@@ -131,53 +131,6 @@ public final class DownloadResolutionService {
     }
 
     /**
-     * Asigna todos los permisos a tamaños desconocidos, sumas desbordadas o trabajos que superan el
-     * umbral grande; los demás consumen un permiso.
-     *
-     * @param items Fuentes resueltas que conservan los identificadores de los elementos admitidos.
-     * @return uno para trabajo normal o la capacidad completa configurada.
-     */
-    int capacityWeight(List<ResolvedDownloadItem> items) {
-        long total = 0;
-        for (ResolvedDownloadItem item : items) {
-            if (item.expectedSizeBytes() == null || item.expectedSizeBytes() < 0) {
-                return properties.jobConcurrency();
-            }
-            if (Long.MAX_VALUE - total < item.expectedSizeBytes()) {
-                return properties.jobConcurrency();
-            }
-            total += item.expectedSizeBytes();
-            if (total > properties.largeJobThreshold().toBytes()) {
-                return properties.jobConcurrency();
-            }
-        }
-        return 1;
-    }
-
-    /**
-     * Suma tamaños conocidos hasta el máximo total; usa ese máximo como reserva defensiva ante
-     * tamaños desconocidos, negativos o desbordamiento.
-     *
-     * @param items Fuentes resueltas que conservan los identificadores de los elementos admitidos.
-     * @return estimación acotada del conjunto en bytes.
-     */
-    long estimatedBytes(List<ResolvedDownloadItem> items) {
-        long maximum = properties.maxTotalSize().toBytes();
-        long total = 0;
-        for (ResolvedDownloadItem item : items) {
-            Long expected = item.expectedSizeBytes();
-            if (expected == null || expected < 0) return maximum;
-            try {
-                total = Math.addExact(total, expected);
-            } catch (ArithmeticException exception) {
-                return maximum;
-            }
-            if (total >= maximum) return maximum;
-        }
-        return total;
-    }
-
-    /**
      * Publica RESOLVING, envía una tarea y actualiza los futuros que deben recibir cancelación.
      *
      * @param event Solicitud validada con identidad del trabajo, selección exacta y correlación de

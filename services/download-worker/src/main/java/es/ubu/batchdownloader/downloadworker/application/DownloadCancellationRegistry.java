@@ -35,6 +35,7 @@ public class DownloadCancellationRegistry {
      * Estado {@code activeTasks} mantenido por {@code DownloadCancellationRegistry}.
      */
     private final ConcurrentHashMap<UUID, List<Future<?>>> activeTasks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, java.util.Set<Thread>> writers = new ConcurrentHashMap<>();
 
     /**
      * Registra el instante de cancelación y solicita interrupción de todos los futuros actualmente
@@ -45,6 +46,17 @@ public class DownloadCancellationRegistry {
     public void cancel(UUID jobId) {
         cancellations.put(jobId, Instant.now());
         activeTasks.getOrDefault(jobId, List.of()).forEach(task -> task.cancel(true));
+        writers.getOrDefault(jobId, java.util.Set.of()).forEach(Thread::interrupt);
+    }
+
+    void writerStarted(UUID jobId) {
+        writers.computeIfAbsent(jobId, ignored -> ConcurrentHashMap.newKeySet()).add(Thread.currentThread());
+        if (cancelled(jobId)) Thread.currentThread().interrupt();
+    }
+
+    void writerFinished(UUID jobId) {
+        var current = writers.get(jobId);
+        if (current != null) current.remove(Thread.currentThread());
     }
 
     /**
@@ -79,7 +91,8 @@ public class DownloadCancellationRegistry {
      */
     public void finish(UUID jobId) {
         activeTasks.remove(jobId);
-        cancellations.remove(jobId);
+        writers.remove(jobId);
+        // Una cancelación ya confirmada también debe bloquear entregas AMQP atrasadas.
     }
 
     /**

@@ -42,7 +42,7 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
      * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     @Override
-    public void jobRequested(DownloadJob job) {
+    public UUID jobRequested(DownloadJob job) {
         var items = job.items().stream().map(item -> {
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("itemId", item.id());
@@ -50,7 +50,7 @@ class DownloadOutboxPublisher implements DownloadEventPublisher {
             value.put("sourceRef", item.sourceRef());
             return value;
         }).toList();
-        outbox.append(
+        return outbox.append(
                 "download-job", job.id(), "download.job.requested",
                 "download.job.requested", job.id(), null,
                 Map.of(

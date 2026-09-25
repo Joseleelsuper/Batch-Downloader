@@ -144,6 +144,11 @@ export interface DownloadJob {
   expiresAt: string;
   artifactSizeBytes?: number | null;
   artifactSha256?: string | null;
+  estimatedBytes?: number | null;
+  reservedBytes?: number;
+  queuePosition?: number | null;
+  deliveryStatus?: 'WAITING' | 'TRANSFERRING' | 'SAVED' | 'CLEANING';
+  deliveryBytes?: number;
   waitReason?: string | null;
   retryAt?: string | null;
 }

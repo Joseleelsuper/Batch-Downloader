@@ -145,6 +145,17 @@ public interface ArtifactStore {
         return 0L;
     }
 
+    /** Objetos y partes incompletas por trabajo, para reconciliar el ledger tras un reinicio. */
+    default java.util.Map<java.util.UUID, Long> jobUsage(java.util.Collection<java.util.UUID> knownJobs) {
+        return java.util.Map.of();
+    }
+
+    /** Borra todo el prefijo, incluyendo multipart; solo retorna cuando se confirma su ausencia. */
+    default void deleteJob(java.util.UUID jobId) {
+        delete("jobs/" + jobId + "/bundle.zip");
+        delete("jobs/" + jobId + "/manifest.json");
+    }
+
     /**
      * Cuenta los bytes que el flujo subyacente aceptó para calcular la longitud del objeto mientras
      * se genera.

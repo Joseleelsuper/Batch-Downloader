@@ -1,7 +1,9 @@
 package es.ubu.batchdownloader.downloads.infrastructure.web;
 
 import es.ubu.batchdownloader.downloads.application.DownloadJobView;
+import es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier;
+import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -15,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -22,8 +25,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.lang.Nullable;
 
 /**
- * Mantiene suscripciones SSE por trabajo, agrupa progreso durante 250 ms y entrega los estados
- * terminales inmediatamente antes de cerrar la conexión.
+ * Mantiene suscripciones SSE por trabajo hasta su purga, agrupando el progreso durante 250 ms.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier
@@ -50,6 +52,8 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     private final Set<UUID> scheduled = ConcurrentHashMap.newKeySet();
     /** Crea emisores; se inyecta en pruebas para observar el coalescing. */
     private final Supplier<SseEmitter> emitterFactory;
+    private final DownloadJobStore jobs;
+    private final ObjectProvider<DownloadStorageCoordinator> storage;
     /** Programa coalescing y heartbeats sin ocupar hilos HTTP. */
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, runnable -> {
         Thread thread = new Thread(runnable, "download-sse");
@@ -67,8 +71,10 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     @Autowired
     public SseDownloadJobNotifier(
             @Value("${app.download.sse-heartbeat}") Duration heartbeat,
-            @Nullable MeterRegistry registry) {
-        this(heartbeat, () -> new SseEmitter(SSE_TIMEOUT_MILLIS));
+            @Nullable MeterRegistry registry,
+            DownloadJobStore jobs,
+            ObjectProvider<DownloadStorageCoordinator> storage) {
+        this(heartbeat, () -> new SseEmitter(SSE_TIMEOUT_MILLIS), jobs, storage);
         if (registry != null) {
             registry.gauge(
                     "core_download_sse_connections_active",
@@ -82,21 +88,14 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
      * conexiones activas.
      *
      * @param heartbeat Intervalo entre señales SSE; se limita por abajo a un segundo.
-     */
-    public SseDownloadJobNotifier(Duration heartbeat) {
-        this(heartbeat, () -> new SseEmitter(SSE_TIMEOUT_MILLIS));
-    }
-
-    /**
-     * Configura emisores y latidos periódicos; el registro de métricas, cuando existe, observa
-     * conexiones activas.
-     *
-     * @param heartbeat Intervalo entre señales SSE; se limita por abajo a un segundo.
      * @param emitterFactory Factoría de conexiones SSE, sustituible por emisores controlados en las
      *     pruebas.
      */
-    SseDownloadJobNotifier(Duration heartbeat, Supplier<SseEmitter> emitterFactory) {
+    SseDownloadJobNotifier(Duration heartbeat, Supplier<SseEmitter> emitterFactory,
+            DownloadJobStore jobs, ObjectProvider<DownloadStorageCoordinator> storage) {
         this.emitterFactory = emitterFactory;
+        this.jobs = jobs;
+        this.storage = storage;
         long intervalMillis = Math.max(1_000, heartbeat.toMillis());
         scheduler.scheduleAtFixedRate(
                 this::heartbeat, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
@@ -107,7 +106,7 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
      * autorizada.
      *
      * @param initial Vista ya autorizada del trabajo que se envía al abrir la suscripción.
-     * @return emisor de la suscripción; un estado terminal puede completarlo inmediatamente.
+     * @return emisor que permanece abierto durante la entrega y limpieza del archivo.
      */
     public SseEmitter subscribe(DownloadJobView initial) {
         SseEmitter emitter = emitterFactory.get();
@@ -132,7 +131,7 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     public void changed(DownloadJobView job) {
         if (job.status().terminal()) {
             pending.remove(job.id());
-            send(job);
+            scheduler.execute(() -> send(job));
             return;
         }
         pending.put(job.id(), job);
@@ -181,19 +180,52 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
      * Envía un evento heartbeat con el instante actual a cada conexión y retira las que ya no
      * aceptan escritura.
      */
-    private void heartbeat() {
-        emitters.forEach((jobId, jobEmitters) -> jobEmitters.forEach(emitter -> {
+    void heartbeat() {
+        emitters.forEach((jobId, jobEmitters) -> {
             try {
-                emitter.send(SseEmitter.event().name("heartbeat").data(Instant.now().toString()));
-            } catch (IOException | IllegalStateException exception) {
-                remove(jobId, emitter);
+                var job = jobs.findById(jobId);
+                if (job.isEmpty()) {
+                    removed(jobId);
+                    return;
+                }
+                DownloadStorageCoordinator coordinator = storage.getObject();
+                coordinator.touch(jobId, "waiting", 0);
+                send(coordinator.decorate(DownloadJobView.from(job.get())
+                        .withLinuxContext(jobs.linuxContext(jobId))));
+            } catch (RuntimeException exception) {
+                // Un fallo temporal de lectura no debe cortar observadores todavía conectados.
             }
-        }));
+            jobEmitters.forEach(emitter -> {
+                try {
+                    emitter.send(SseEmitter.event().name("heartbeat").data(Instant.now().toString()));
+                } catch (IOException | IllegalStateException exception) {
+                    remove(jobId, emitter);
+                }
+            });
+        });
+    }
+
+    /** Avisa solo después de la purga y cierra todas las conexiones del trabajo. */
+    @Override
+    public void removed(UUID jobId) {
+        pending.remove(jobId);
+        var jobEmitters = emitters.remove(jobId);
+        if (jobEmitters == null) return;
+        scheduler.execute(() -> {
+            for (SseEmitter emitter : jobEmitters) {
+                try {
+                    emitter.send(SseEmitter.event().name("removed").data(jobId.toString()));
+                } catch (IOException | IllegalStateException ignored) {
+                    // Una desconexión previa no impide cerrar el resto de observadores.
+                } finally {
+                    emitter.complete();
+                }
+            }
+        });
     }
 
     /**
-     * Envía un evento job con identidad y vista; completa estados terminales y retira conexiones
-     * que fallan.
+     * Envía un evento job con identidad y vista y retira conexiones que fallan.
      *
      * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      * @param emitter Conexión SSE que recibe la vista o debe retirarse del registro.
@@ -201,9 +233,6 @@ public class SseDownloadJobNotifier implements DownloadJobNotifier {
     private void send(DownloadJobView job, SseEmitter emitter) {
         try {
             emitter.send(SseEmitter.event().name("job").id(job.id().toString()).data(job));
-            if (job.status().terminal()) {
-                emitter.complete();
-            }
         } catch (IOException | IllegalStateException exception) {
             remove(job.id(), emitter);
         }

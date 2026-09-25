@@ -19,4 +19,7 @@ public interface DownloadJobNotifier {
      * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
     void changed(DownloadJobView job);
+
+    /** Notifica la purga confirmada y cierra los observadores del trabajo. */
+    default void removed(java.util.UUID jobId) {}
 }

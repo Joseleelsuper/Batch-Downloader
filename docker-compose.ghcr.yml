@@ -66,7 +66,8 @@ services:
       start_period: 60s
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # Mismo digest de quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z; ver README del worker.
+    image: ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     restart: unless-stopped
     cpu_shares: 1024
     command: server /data --console-address ":9001"
@@ -89,7 +90,8 @@ services:
       start_period: 30s
 
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    # La imagen del servidor ya incluye mc RELEASE.2025-04-16T18-13-26Z.
+    image: ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     restart: "no"
     depends_on:
       minio:
@@ -219,13 +221,12 @@ services:
       CORE_API_SCRAPER_API_URL: http://scraper-api:8000
       CORE_API_SEMANTIC_SERVICE_URL: http://semantic-service:8000
       CORE_API_DOWNLOAD_WORKER_URL: http://download-worker:8080
-      CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT: 1s
       CORE_API_SEMANTIC_REQUEST_TIMEOUT: 3s
       CORE_API_BCRYPT_STRENGTH: 12
       CORE_API_DB_POOL_MIN: 2
       CORE_API_DB_POOL_MAX: 5
       CORE_API_DB_POOL_TIMEOUT: 2000
-      CORE_API_FLYWAY_TARGET: ${CORE_API_FLYWAY_TARGET:-19}
+      CORE_API_FLYWAY_TARGET: ${CORE_API_FLYWAY_TARGET:-20}
       CORE_API_AUTH_HASH_CONCURRENCY: 2
       CORE_API_AUTH_HASH_QUEUE: 20
       CORE_API_AUTH_HASH_WAIT: 2s
@@ -264,11 +265,8 @@ services:
       DOWNLOAD_MAX_APPS: 100
       DOWNLOAD_ZIP_RETENTION: 6h
       DOWNLOAD_PRESIGNED_URL_TTL: 5m
-      DOWNLOAD_ANONYMOUS_MAX_ACTIVE_JOBS: 2
       DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR: 10
       DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR: 30
-      DOWNLOAD_AUTHENTICATED_MAX_ACTIVE_JOBS: 3
-      DOWNLOAD_GLOBAL_MAX_PENDING_JOBS: 50
       DOWNLOAD_SSE_HEARTBEAT: 20s
       CORE_API_CATALOG_CACHE_MAXIMUM_SIZE: 512
       CORE_API_CATALOG_CACHE_TTL: 15s
@@ -456,12 +454,9 @@ services:
       DOWNLOAD_WORKER_MAX_REDIRECTS: 5
       DOWNLOAD_WORKER_CONNECT_TIMEOUT: 10s
       DOWNLOAD_WORKER_REQUEST_TIMEOUT: 15m
-      DOWNLOAD_WORKER_CONCURRENCY: 16
-      DOWNLOAD_WORKER_JOB_CONCURRENCY: 8
       DOWNLOAD_WORKER_PER_JOB_CONCURRENCY: 2
-      DOWNLOAD_WORKER_PACKAGING_CONCURRENCY: 4
+      DOWNLOAD_WORKER_PACKAGING_CONCURRENCY: 2
       DOWNLOAD_WORKER_ZIP_LEVEL: 0
-      DOWNLOAD_WORKER_LARGE_JOB_THRESHOLD: 2GB
       DOWNLOAD_WORKER_MULTIPART_PART_SIZE: 16MB
       DOWNLOAD_WORKER_INBOX_LEASE: 30m
       DOWNLOAD_WORKER_RETENTION_INTERVAL: 6h
@@ -479,8 +474,7 @@ services:
       MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
       SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
       DOWNLOAD_WORKER_LINUX_INSTALLER_ENABLED: ${DOWNLOAD_WORKER_LINUX_INSTALLER_ENABLED:-true}
-      DOWNLOAD_WORKER_MAX_TOTAL_SIZE: ${DOWNLOAD_WORKER_MAX_TOTAL_SIZE:-20GB}
-      DOWNLOAD_WORKER_MIN_FREE_SPACE: ${DOWNLOAD_WORKER_MIN_FREE_SPACE:-30GB}
+      DOWNLOAD_WORKER_MIN_FREE_SPACE: ${DOWNLOAD_WORKER_MIN_FREE_SPACE:-8GB}
     cpu_shares: 768
     restart: unless-stopped
     ports:
@@ -590,7 +584,7 @@ configs:
         "Rules": [
           {
             "ID": "expire-download-jobs-after-24h",
-            "Status": "Enabled",
+            "Status": "Disabled",
             "Filter": {"Prefix": "jobs/"},
             "Expiration": {"Days": 1}
           }

@@ -43,6 +43,12 @@ public class JdbcInboxRepository implements InboxRepository {
         this.clock = clock;
     }
 
+    /** El H2 es exclusivo de este proceso: las ejecuciones anteriores ya no tienen escritores. */
+    public void recoverAbandoned() {
+        jdbc.update("UPDATE download_inbox SET started_at = ? WHERE status = 'PROCESSING'",
+                Timestamp.from(Instant.EPOCH));
+    }
+
     /**
      * Inserta una reserva nueva o, ante UUID duplicado, intenta recuperar únicamente una reserva
      * PROCESSING anterior al corte del arrendamiento.
@@ -85,21 +91,53 @@ public class JdbcInboxRepository implements InboxRepository {
     @Transactional
     public void complete(UUID eventId) {
         jdbc.update(
-                "UPDATE download_inbox SET status = 'COMPLETED', completed_at = ? WHERE event_id = ?",
+                "UPDATE download_inbox SET status = 'COMPLETED', completed_at = ?, pending_result = NULL WHERE event_id = ?",
                 Timestamp.from(clock.instant()),
                 eventId.toString());
     }
 
     /**
-     * Borra la fila solo si permanece PROCESSING para permitir otra entrega tras un fallo.
+     * Hace recuperable el intento fallido sin perder sus objetos ni el resultado pendiente.
      *
      * @param eventId UUID estable del evento de entrada que se deduplica.
      */
     @Override
     @Transactional
     public void release(UUID eventId) {
-        jdbc.update(
-                "DELETE FROM download_inbox WHERE event_id = ? AND status = 'PROCESSING'",
-                eventId.toString());
+        jdbc.update("UPDATE download_inbox SET started_at = ? WHERE event_id = ? AND status = 'PROCESSING'",
+                Timestamp.from(Instant.EPOCH), eventId.toString());
+    }
+
+    @Override
+    public void rememberJob(UUID eventId, UUID jobId) {
+        if (jdbc.update("UPDATE download_inbox SET job_id = ? WHERE event_id = ? AND status = 'PROCESSING'",
+                jobId.toString(), eventId.toString()) != 1) {
+            throw new IllegalStateException("download_inbox_reservation_missing");
+        }
+    }
+
+    @Override
+    public java.util.Set<UUID> trackedJobs() {
+        return new java.util.HashSet<>(jdbc.query("SELECT DISTINCT job_id FROM download_inbox WHERE job_id IS NOT NULL",
+                (rs, row) -> UUID.fromString(rs.getString(1))));
+    }
+
+    @Override
+    public void saveReady(UUID eventId, UUID jobId, String eventJson) {
+        if (jdbc.update("UPDATE download_inbox SET pending_result = ?, job_id = ? WHERE event_id = ? AND status = 'PROCESSING'",
+                eventJson, jobId.toString(), eventId.toString()) != 1) {
+            throw new IllegalStateException("download_inbox_reservation_missing");
+        }
+    }
+
+    @Override
+    public String pendingReady(UUID eventId) {
+        return jdbc.query("SELECT pending_result FROM download_inbox WHERE event_id = ?",
+                rs -> rs.next() ? rs.getString(1) : null, eventId.toString());
+    }
+
+    @Override
+    public void clearReady(UUID jobId) {
+        jdbc.update("UPDATE download_inbox SET pending_result = NULL, job_id = NULL WHERE job_id = ?", jobId.toString());
     }
 }

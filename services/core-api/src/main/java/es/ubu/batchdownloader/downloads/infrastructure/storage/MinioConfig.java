@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
  * Construye el cliente de acceso interno al almacén usado para limpiar artefactos de descarga.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @see es.ubu.batchdownloader.downloads.infrastructure.storage.MinioDownloadArtifactCleaner
+ * @see es.ubu.batchdownloader.downloads.infrastructure.storage.DownloadDeliveryService
  * @since 0.1.0
  * @version 0.1.0
  * @category Descargas

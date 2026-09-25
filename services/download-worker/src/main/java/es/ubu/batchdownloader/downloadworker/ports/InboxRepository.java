@@ -36,4 +36,13 @@ public interface InboxRepository {
      * @param eventId UUID estable del mensaje de entrada, conservado entre entregas duplicadas.
      */
     void release(UUID eventId);
+
+    /** Conserva la identidad antes de escribir, incluso si el proceso cae con solo partes multipart. */
+    void rememberJob(UUID eventId, UUID jobId);
+    java.util.Set<UUID> trackedJobs();
+
+    /** Resultado sellado antes de publicar, recuperable si se pierde el confirm del broker. */
+    void saveReady(UUID eventId, UUID jobId, String eventJson);
+    String pendingReady(UUID eventId);
+    void clearReady(UUID jobId);
 }

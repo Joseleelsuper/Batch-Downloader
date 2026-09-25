@@ -28,5 +28,5 @@ public interface DownloadPipelineFactory {
      * @return pipeline con presupuesto de bytes y nombres únicos independientes por trabajo.
      */
     DownloadPipeline create(DownloadJobRequestedEvent event, List<ResolvedDownloadItem> items,
-            Path directory, int window);
+            Path directory, int window, DownloadBudget budget);
 }

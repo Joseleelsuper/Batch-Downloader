@@ -21,13 +21,15 @@ public class DownloadJobNotifications {
      * Difusor de cambios de estado hacia consumidores suscritos.
      */
     private final DownloadJobNotifier notifier;
+    private final DownloadStorageCoordinator storage;
     /**
      * Conecta el difusor de cambios de estado hacia consumidores suscritos.
      *
      * @param notifier Difusor de cambios de estado hacia consumidores suscritos.
      */
-    public DownloadJobNotifications(DownloadJobNotifier notifier) {
+    public DownloadJobNotifications(DownloadJobNotifier notifier, DownloadStorageCoordinator storage) {
         this.notifier = notifier;
+        this.storage = storage;
     }
 
     /**
@@ -47,7 +49,7 @@ public class DownloadJobNotifications {
      */
     public void notifyAfterCommit(DownloadJobView view) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            notifier.changed(view);
+            notifier.changed(storage.decorate(view));
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -56,7 +58,7 @@ public class DownloadJobNotifications {
              */
             @Override
             public void afterCommit() {
-                notifier.changed(view);
+                notifier.changed(storage.decorate(view));
             }
         });
     }

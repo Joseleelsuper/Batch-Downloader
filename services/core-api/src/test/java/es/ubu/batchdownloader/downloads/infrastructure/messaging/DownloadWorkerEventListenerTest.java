@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.downloads.application.DownloadJobEventHandler;
+import es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -159,8 +160,41 @@ class DownloadWorkerEventListenerTest {
      * @return Resultado producido por {@code listener}.
      */
     private DownloadWorkerEventListener listener(JdbcTemplate jdbc, DownloadJobEventHandler jobs) {
+        DownloadStorageCoordinator storage = Mockito.mock(DownloadStorageCoordinator.class);
+        when(storage.acceptsEvent(any(), any(), any())).thenReturn(true);
         return new DownloadWorkerEventListener(
-                new ObjectMapper(), jdbc, jobs, Clock.fixed(Instant.parse("2026-07-13T12:00:00Z"), ZoneOffset.UTC));
+                new ObjectMapper(), jdbc, jobs, Clock.fixed(Instant.parse("2026-07-13T12:00:00Z"), ZoneOffset.UTC), storage);
+    }
+
+    @Test
+    void ignoresAStaleAttemptBeforeClaimingTheInbox() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
+        DownloadStorageCoordinator storage = Mockito.mock(DownloadStorageCoordinator.class);
+        UUID jobId = UUID.randomUUID();
+        String attemptId = UUID.randomUUID().toString();
+        var listener = new DownloadWorkerEventListener(new ObjectMapper(), jdbc, jobs,
+                Clock.systemUTC(), storage);
+        String event = ready(jobId).replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"causationId\":\"" + attemptId + "\"");
+        listener.receive(message(event));
+        verify(storage).acceptsEvent(jobId, attemptId, "download.job.ready");
+        verifyNoInteractions(jdbc, jobs);
+    }
+
+    @Test
+    void preparesStorageBeforePublishingTheReadyState() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(startsWith("INSERT IGNORE"), any(Object[].class))).thenReturn(1);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
+        DownloadStorageCoordinator storage = Mockito.mock(DownloadStorageCoordinator.class);
+        when(storage.acceptsEvent(any(), any(), any())).thenReturn(true);
+        UUID jobId = UUID.randomUUID();
+        var listener = new DownloadWorkerEventListener(new ObjectMapper(), jdbc, jobs, Clock.systemUTC(), storage);
+        listener.receive(message(readyWithMetadata(jobId).replace("\"sizeBytes\":2048", "\"sizeBytes\":2048,\"storageBytes\":2060")));
+        var order = Mockito.inOrder(storage, jobs);
+        order.verify(storage).prepared(jobId, 2060L);
+        order.verify(jobs).applyReady(org.mockito.ArgumentMatchers.eq(jobId), any(), anyString(),
+                org.mockito.ArgumentMatchers.eq(2048L), anyString(), any());
     }
 
     /**

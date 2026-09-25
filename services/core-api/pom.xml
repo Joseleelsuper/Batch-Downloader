@@ -127,6 +127,18 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <configuration>
+                    <!-- MinIO usa OkHttp y Boot configura Hikari en producción; las pruebas
+                         nuevas son los únicos consumidores directos de esas clases. -->
+                    <ignoredNonTestScopedDependencies>
+                        <ignoredNonTestScopedDependency>com.squareup.okhttp3:okhttp</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>com.zaxxer:HikariCP</ignoredNonTestScopedDependency>
+                    </ignoredNonTestScopedDependencies>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

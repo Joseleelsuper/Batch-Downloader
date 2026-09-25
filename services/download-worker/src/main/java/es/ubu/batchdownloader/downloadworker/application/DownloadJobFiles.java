@@ -102,6 +102,63 @@ public final class DownloadJobFiles {
         deleteRecursively(root);
     }
 
+    /** El borrado confirmado es requisito para liberar capacidad; los fallos se reintentan. */
+    public void clean(UUID jobId, boolean includeArtifacts) {
+        Path base = Path.of(properties.tempDirectory()).toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(base);
+            try (var directories = Files.list(base)) {
+                for (Path directory : directories.filter(path -> path.getFileName().toString()
+                        .startsWith(jobId + "-")).toList()) {
+                    Path checked = directory.toAbsolutePath().normalize();
+                    if (!checked.getParent().equals(base)) throw new IOException("Invalid temporary directory");
+                    long bytes = size(checked);
+                    try (var paths = Files.walk(checked)) {
+                        for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                            Files.deleteIfExists(path);
+                        }
+                    }
+                    metrics.temporaryRemoved(bytes);
+                }
+            }
+            if (includeArtifacts) artifactStore.deleteJob(jobId);
+        } catch (IOException exception) {
+            throw new InfrastructureException("download_cleanup_failed", exception);
+        }
+    }
+
+    public java.util.Map<UUID, Long> usage(java.util.Collection<UUID> knownJobs) {
+        java.util.Map<UUID, Long> usage = new java.util.HashMap<>(artifactStore.jobUsage(knownJobs));
+        Path base = Path.of(properties.tempDirectory());
+        try {
+            Files.createDirectories(base);
+            try (var paths = Files.list(base)) {
+                for (Path path : paths.toList()) {
+                    String name = path.getFileName().toString();
+                    if (name.length() > 36 && name.charAt(36) == '-') {
+                        try {
+                            UUID id = UUID.fromString(name.substring(0, 36));
+                            usage.merge(id, strictSize(path), Math::addExact);
+                        } catch (IllegalArgumentException ignored) {
+                            // No es un directorio creado por el worker.
+                        }
+                    }
+                }
+            }
+            return usage;
+        } catch (IOException exception) {
+            throw new InfrastructureException("download_inventory_failed", exception);
+        }
+    }
+
+    private long strictSize(Path root) throws IOException {
+        try (var paths = Files.walk(root)) {
+            long bytes = 0;
+            for (Path file : paths.filter(Files::isRegularFile).toList()) bytes = Math.addExact(bytes, Files.size(file));
+            return bytes;
+        }
+    }
+
     /**
      * Suma tamaños de archivos regulares para compensar la métrica de temporales; ignora archivos o
      * recorridos que no pueden leerse.

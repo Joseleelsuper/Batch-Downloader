@@ -6,27 +6,24 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.common.RateLimitException;
-import es.ubu.batchdownloader.common.ServiceUnavailableException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.port.CatalogSourceLookup;
-import es.ubu.batchdownloader.downloads.application.port.DownloadArtifactCleaner;
 import es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobNotifier;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
+import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -44,9 +41,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.SimpleTransactionStatus;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Agrupa los escenarios de prueba de {@code DownloadJobServiceTest}.
@@ -76,10 +70,7 @@ class DownloadJobServiceTest {
      * Dato compartido {@code notifier} para los escenarios de prueba.
      */
     @Mock private DownloadJobNotifier notifier;
-    /**
-     * Dato compartido {@code artifacts} para los escenarios de prueba.
-     */
-    @Mock private DownloadArtifactCleaner artifacts;
+    @Mock private DownloadStorageCoordinator storage;
 
     /**
      * Dato compartido {@code service} para los escenarios de prueba.
@@ -87,27 +78,23 @@ class DownloadJobServiceTest {
     private DownloadJobService service;
     private DownloadJobAccessService access;
     private DownloadJobEventHandler handler;
-    private DownloadJobExpiration expiration;
 
     /**
      * Prepara el estado necesario para los escenarios de prueba.
      */
     @BeforeEach
     void setUp() {
-        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
-        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         lenient().when(sources.findManualSources(any())).thenReturn(Map.of());
+        lenient().when(storage.decorate(any())).thenAnswer(invocation -> invocation.getArgument(0));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         DownloadLimits limits = new DownloadLimits(100, Duration.ofHours(24), Duration.ofMinutes(5),
-                2, 10, 30, 3, 50);
-        DownloadJobNotifications notifications = new DownloadJobNotifications(notifier);
-        service = new DownloadJobService(jobs, sources, events, clock, limits);
+                10, 30);
+        DownloadJobNotifications notifications = new DownloadJobNotifications(notifier, storage);
+        service = new DownloadJobService(jobs, sources, clock, limits, storage);
         access = new DownloadJobAccessService(jobs,
                 (objectKey, validity) -> URI.create("https://storage.example.test/" + objectKey),
-                clock, limits, events, notifications);
-        handler = new DownloadJobEventHandler(jobs, clock, limits, notifications);
-        expiration = new DownloadJobExpiration(jobs, artifacts, notifier, clock,
-                new TransactionTemplate(transactionManager));
+                clock, limits, events, notifications, storage);
+        handler = new DownloadJobEventHandler(jobs, clock, limits, notifications, storage);
         lenient().when(jobs.save(any(DownloadJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -136,7 +123,7 @@ class DownloadJobServiceTest {
         assertThat(view.items().getFirst().appName()).isEqualTo("Aplicación aceptada");
         assertThat(view.items().getFirst().officialPageUrl()).isEqualTo("https://example.com/app");
         ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
-        verify(events).jobRequested(job.capture());
+        verify(storage).enqueue(job.capture());
         assertThat(job.getValue().anonymousOwnerHash()).isEqualTo("browser-hash");
     }
 
@@ -165,7 +152,7 @@ class DownloadJobServiceTest {
         assertThat(view.acceptedCount()).isEqualTo(2);
         assertThat(view.omittedCount()).isZero();
         ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
-        verify(events).jobRequested(job.capture());
+        verify(storage).enqueue(job.capture());
         assertThat(job.getValue().items())
                 .filteredOn(item -> item.appId().equals(manualApp))
                 .singleElement()
@@ -194,7 +181,7 @@ class DownloadJobServiceTest {
 
         assertThat(view.acceptedCount()).isOne();
         ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
-        verify(events).jobRequested(job.capture());
+        verify(storage).enqueue(job.capture());
         assertThat(job.getValue().items().getFirst().sourceRef()).isEqualTo(sourceRef);
         verify(sources, never()).findVerifiedSources(any(), any());
     }
@@ -290,38 +277,41 @@ class DownloadJobServiceTest {
         assertThat(view.linux().architecture()).isEqualTo("aarch64");
         assertThat(view.linux().addedDependencyAppIds()).containsExactly(dependency);
         verify(jobs).saveLinuxContext(view.id(), view.linux());
-        verify(events).jobRequested(any(DownloadJob.class));
+        verify(storage).enqueue(any(DownloadJob.class));
+        var admission = inOrder(jobs, sources);
+        admission.verify(jobs).lockAdmission();
+        admission.verify(sources).expandLinuxDependencies(any());
+        admission.verify(jobs).countAnonymousCreatedSince("browser-hash", NOW.minusSeconds(3600));
     }
 
-    /**
-     * Comprueba el escenario {@code rejectsAnonymousCreationWhenItsActiveJobQuotaIsExhausted}.
-     */
+    /** Mantiene el límite de frecuencia aunque la capacidad ya no limite el número de trabajos. */
     @Test
-    void rejectsAnonymousCreationWhenItsActiveJobQuotaIsExhausted() {
-        when(jobs.countAnonymousNonTerminal("browser-hash")).thenReturn(2L);
+    void rejectsAnonymousCreationWhenItsHourlyQuotaIsExhausted() {
+        when(jobs.countAnonymousCreatedSince(eq("browser-hash"), any())).thenReturn(10L);
         UUID appId = UUID.randomUUID();
         DownloadSelection selection = new DownloadSelection(List.of(appId), List.of(), null, null, null);
         RequestOwner owner = new RequestOwner(null, "browser-hash", "ip-hash");
 
         assertThatThrownBy(() -> service.create(owner, selection))
                 .isInstanceOf(RateLimitException.class)
-                .hasMessageContaining("m\u00e1ximo");
+                .hasMessageContaining("hora");
 
         verify(sources, never()).findVerifiedSources(any(), any());
     }
 
     @Test
-    void rejectsTheFiftyFirstPendingJobAfterEightActiveAndFortyTwoQueued() {
-        when(jobs.countNonTerminal()).thenReturn(50L);
-
-        assertThatThrownBy(() -> service.create(new RequestOwner(null, "browser-hash", "ip-hash"), new DownloadSelection(List.of(UUID.randomUUID()), List.of("windows"), null, null, null)))
-                .isInstanceOfSatisfying(ServiceUnavailableException.class, exception -> {
-                    assertThat(exception.code()).isEqualTo("service_busy");
-                    assertThat(exception.retryAfterSeconds()).isEqualTo(30);
-                });
-
+    void queuesWithoutReadingTheOldActiveJobCaps() {
+        UUID appId = UUID.randomUUID();
+        when(sources.findVerifiedSources(any(), any())).thenReturn(Map.of(appId,
+                new CatalogSourceLookup.VerifiedSource(appId, UUID.randomUUID(), "windows", "x64", "App", null)));
+        var created = service.create(new RequestOwner(null, "browser-hash", "ip-hash"),
+                new DownloadSelection(List.of(appId), List.of("windows"), null, null, null));
+        assertThat(created.status()).isEqualTo(DownloadJobStatus.QUEUED);
         verify(jobs).lockAdmission();
-        verify(sources, never()).findVerifiedSources(any(), any());
+        verify(jobs, never()).countNonTerminal();
+        verify(jobs, never()).countAnonymousNonTerminal(any());
+        verify(storage).enqueue(any(DownloadJob.class));
+        verify(events, never()).jobRequested(any());
     }
 
     /**
@@ -357,33 +347,21 @@ class DownloadJobServiceTest {
         }
     }
 
-    /**
-     * Comprueba el escenario {@code expiresReadyJobsAndCleansEveryObjectUnderTheJobPrefix}.
-     */
+    /** Los mensajes repetidos sin avance no falsean el instante del último progreso. */
     @Test
-    void expiresReadyJobsAndCleansEveryObjectUnderTheJobPrefix() {
-        DownloadJob ready = DownloadJob.queue(
-                UUID.randomUUID(),
-                null,
-                null,
-                List.of(es.ubu.batchdownloader.downloads.domain.DownloadJobItem.queued(
-                        UUID.randomUUID(), UUID.randomUUID(), NOW.minusSeconds(3600))),
-                1,
-                0,
-                NOW.minusSeconds(3600),
-                NOW.minusSeconds(1));
-        ready.markReady(DownloadJobStatus.READY, "jobs/example/bundle.zip", NOW.minusSeconds(1), NOW.minusSeconds(1));
-        when(jobs.findDownloadableExpiredBefore(NOW)).thenReturn(List.of(ready));
-        doThrow(new IllegalStateException("minio unavailable"))
-                .doThrow(new IllegalStateException("minio unavailable"))
-                .doNothing()
-                .when(artifacts).deleteJobArtifacts(ready.id());
-
-        expiration.expireReadyJobs();
-
-        assertThat(ready.status()).isEqualTo(DownloadJobStatus.EXPIRED);
-        verify(artifacts, times(3)).deleteJobArtifacts(ready.id());
-        verify(notifier).changed(any(DownloadJobView.class));
+    void recordsProcessingActivityOnlyWhenBytesOrStageAdvance() {
+        var item = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), NOW);
+        item.progress(DownloadItemStatus.DOWNLOADING, 100, null, null, NOW);
+        var job = DownloadJob.queue(UUID.randomUUID(), null, null, List.of(item), 1, 0,
+                NOW, NOW.plusSeconds(3600));
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+        when(jobs.applyProgress(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any()))
+                .thenReturn(Optional.of(job));
+        handler.applyProgress(job.id(), item.id(), DownloadItemStatus.DOWNLOADING, 100, null, null);
+        verify(storage, never()).processingProgress(any());
+        handler.applyProgress(job.id(), item.id(), DownloadItemStatus.DOWNLOADING, 101, null, null);
+        handler.applyProgress(job.id(), item.id(), DownloadItemStatus.COMPLETED, 100, null, null);
+        verify(storage, org.mockito.Mockito.times(2)).processingProgress(job.id());
     }
 
     /**

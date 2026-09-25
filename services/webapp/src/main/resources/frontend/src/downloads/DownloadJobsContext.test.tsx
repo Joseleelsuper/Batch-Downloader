@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as downloadsApi from '../api/downloads';
 import { ApiRequestError } from '../api/http';
+import * as delivery from './delivery';
 import type { DownloadJob } from '../types/catalog';
 import {
   DownloadJobsProvider,
@@ -82,6 +83,7 @@ function ActionsHarness() {
         Minimizar
       </button>
       <button type="button" onClick={downloads.clearStartError}>Limpiar error</button>
+      <button type="button" onClick={() => void downloads.download(first?.id ?? 'missing')}>Reintentar entrega</button>
       <output data-testid="state">{JSON.stringify({ jobs: downloads.jobs, error: downloads.startError })}</output>
     </div>
   );
@@ -105,6 +107,13 @@ function LinuxHarness() {
 describe('DownloadJobsProvider', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    const storage = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    });
+    vi.spyOn(downloadsApi, 'reportDownloadActivity').mockResolvedValue(undefined);
     Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
       configurable: true,
       value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
@@ -118,6 +127,7 @@ describe('DownloadJobsProvider', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('keeps one subscription per job and attempts the automatic download exactly once', async () => {
@@ -148,7 +158,7 @@ describe('DownloadJobsProvider', () => {
 
     act(() => pushJob?.(job('READY', 100)));
     await waitFor(() => expect(click).toHaveBeenCalledOnce());
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(disconnect).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem('batch-downloader.download-jobs.v1'))
       .toContain('"autoDownloadAttempted":true');
 
@@ -189,6 +199,92 @@ describe('DownloadJobsProvider', () => {
       linuxTarget: 'apt',
       targetArchitecture: 'x86_64',
     }));
+  });
+
+  it('opens the destination in the click and waits for it before creating the job', async () => {
+    const handle: delivery.DownloadFileHandle = { createWritable: vi.fn() };
+    let selected!: (value: delivery.DownloadFileHandle) => void;
+    const picker = vi.spyOn(delivery, 'chooseDownloadDestination')
+      .mockImplementation(() => new Promise((resolve) => { selected = resolve; }));
+    const create = vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
+    let pushJob!: (value: DownloadJob) => void;
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockImplementation((_id, onJob) => {
+      pushJob = onJob;
+      return vi.fn();
+    });
+    const save = vi.spyOn(delivery, 'saveDownload').mockResolvedValue(undefined);
+    const link = vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink');
+    render(<DownloadJobsProvider><Harness /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    expect(picker).toHaveBeenCalledOnce();
+    expect(create).not.toHaveBeenCalled();
+    await act(async () => { selected(handle); });
+    act(() => pushJob({ ...job('READY', 100), artifactSizeBytes: 4 }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: JOB_ID, artifactSizeBytes: 4 }), handle, expect.any(Function), expect.any(Function),
+    ));
+    expect(link).not.toHaveBeenCalled();
+  });
+
+  it('preserves a chosen handle for a manual retry after an interrupted transfer', async () => {
+    const handle: delivery.DownloadFileHandle = { createWritable: vi.fn() };
+    const picker = vi.spyOn(delivery, 'chooseDownloadDestination').mockResolvedValue(handle);
+    vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue({ ...job('READY', 100), artifactSizeBytes: 4 });
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(vi.fn());
+    const save = vi.spyOn(delivery, 'saveDownload')
+      .mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(undefined);
+    render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('No se pudo preparar'));
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar entrega' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(picker).toHaveBeenCalledOnce();
+    expect(save.mock.calls.map((call) => call[1])).toEqual([handle, handle]);
+  });
+
+  it('keeps a locally saved ZIP marked saved after an ambiguous receipt and later SSE updates', async () => {
+    vi.spyOn(delivery, 'chooseDownloadDestination').mockResolvedValue({ createWritable: vi.fn() });
+    vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue({ ...job('READY', 100), artifactSizeBytes: 4 });
+    let pushJob!: (value: DownloadJob) => void;
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockImplementation((_id, onJob) => {
+      pushJob = onJob;
+      return vi.fn();
+    });
+    const save = vi.spyOn(delivery, 'saveDownload').mockImplementation(async (_job, _handle, _onBytes, onSaved) => {
+      onSaved?.();
+      throw new TypeError('receipt unavailable');
+    });
+    render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('El ZIP está guardado.'));
+    act(() => pushJob({ ...job('READY', 100), deliveryStatus: 'TRANSFERRING' }));
+    expect(screen.getByTestId('state')).toHaveTextContent('"deliveryStatus":"SAVED"');
+    expect(window.sessionStorage.getItem('batch-downloader.download-jobs.v1')).toContain('"locallySaved":true');
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar entrega' }));
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it('keeps queued jobs alive and stops waiting heartbeats once the ZIP is ready', async () => {
+    vi.useFakeTimers();
+    try {
+      let pushJob!: (value: DownloadJob) => void;
+      vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
+      vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockResolvedValue({ url: '/job.zip' });
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+      vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockImplementation((_id, onJob) => {
+        pushJob = onJob;
+        return vi.fn();
+      });
+      render(<DownloadJobsProvider><Harness /></DownloadJobsProvider>);
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Iniciar' })); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(75_000); });
+      expect(downloadsApi.reportDownloadActivity).toHaveBeenCalledTimes(6);
+      await act(async () => { pushJob(job('READY', 100)); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(75_000); });
+      expect(downloadsApi.reportDownloadActivity).toHaveBeenCalledTimes(6);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('cancels Linux selection without creating a job or showing a global error', async () => {

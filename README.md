@@ -112,8 +112,9 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 | `POST` | `/api/v1/download-jobs` | Público | Crea un trabajo y asigna su propietario. |
 | `GET`, `DELETE` | `/api/v1/download-jobs/{jobId}` | Propietario | Consulta o cancela un trabajo. |
 | `GET` | `/api/v1/download-jobs/{jobId}/events` | Propietario | Emite el progreso por SSE. |
-| `GET` | `/api/v1/download-jobs/{jobId}/file` | Propietario | Redirige al ZIP firmado. |
-| `GET` | `/api/v1/download-jobs/{jobId}/file-link` | Propietario | Devuelve el enlace firmado sin navegar. |
+| `GET`, `HEAD` | `/api/v1/download-jobs/{jobId}/file` | Propietario | Entrega ZIP por streaming 200/206 y admite un rango; HEAD consulta metadatos. |
+| `GET` | `/api/v1/download-jobs/{jobId}/file-link` | Propietario | Devuelve la ruta del archivo del mismo origen. |
+| `POST` | `/api/v1/download-jobs/{jobId}/activity`, `/complete` | Propietario + CSRF | Registra espera/guardado y confirma automáticamente el archivo cerrado para limpiar. |
 | `GET` | `/api/v1/locales/{locale}` | Público | Devuelve el catálogo publicado del idioma solicitado. |
 | `WS` | `/api/v1/catalog/ws` | Público | Notifica cambios del catálogo. |
 
@@ -161,11 +162,13 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Servicio | Método y ruta | Permiso | Descripción |
 | --- | --- | --- | --- |
 | Core | `POST /internal/v1/download-jobs/{jobId}/item-metadata` | Interno | Entrega al worker metadatos seguros de items fallidos. |
-| Download Worker | `POST /internal/v1/capacity/check` | Interno | Comprueba si existe capacidad temporal para admitir otro job. |
+| Core | `POST /internal/v1/download-jobs/{jobId}/storage` | Interno | Reserva global FIFO, identificada por el intento del worker. |
+| Download Worker | `GET /internal/v1/storage/inventory`, `DELETE /internal/v1/jobs/{jobId}/files` | Interno | Reconcilia espacio y confirma limpieza después de detener escritores. |
 | Scraper | `GET /api/health`, `/api/health/live`, `/api/health/ready` | Operativo | Salud general, liveness y readiness. |
 | Scraper | `GET /internal/v1/metrics` | Interno | Expone métricas Prometheus del pool. |
 | Scraper | `GET /internal/v1/semantic/documents` | Interno | Pagina documentos para el índice semántico. |
 | Scraper | `GET /internal/v1/sources/{sourceRef}/resolution` | Interno | Resuelve una fuente validada para descarga. |
+| Scraper | `GET /internal/v1/sources/{sourceRef}/size` | Interno | Revalida tamaño con HEAD sin retener conexión SQL durante la red; devuelve sourceRef y expectedSizeBytes, o null si no puede conocerlo. |
 | Scraper | `POST /internal/v1/content/descriptions/enqueue-missing`, `/internal/v1/content/descriptions/generate` | Interno | Encola descripciones o genera una concreta. |
 | Scraper | `POST /internal/v1/admin/apps/{appId}/manual-installer-inspections` | Interno | Crea una inspección de instaladores. |
 | Scraper | `GET /internal/v1/admin/apps/{appId}/manual-installer-inspections/current`, `/internal/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}` | Interno | Recupera la inspección actual o una concreta. |
@@ -180,7 +183,6 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Java | `GET /actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/info`, `/actuator/prometheus` | Operativo | Salud, información y métricas de Core, Worker, Notification y Translation. |
 | Documentación | `GET /v3/api-docs`, `/swagger-ui/index.html` | Público en Core | OpenAPI y Swagger UI de Core. |
 | Documentación | `GET /openapi.json`, `/docs`, `/redoc` | Operativo | OpenAPI, Swagger UI y ReDoc de Scraper y Semántico. |
-| Descargas | `GET /{bucket}/jobs/{jobId}/bundle.zip` | URL firmada | Sirve el ZIP desde el host de descargas de MinIO. |
 
 </details>
 
@@ -191,7 +193,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- |
 | `GHCR_REGISTRY`, `GHCR_OWNER`, `GHCR_IMAGE_PREFIX`, `GHCR_IMAGE_TAG` | Nombre y etiqueta de las imágenes publicadas. |
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST_PORT` | Credenciales, base y puerto host de MySQL. |
-| `SCRAPER_ALEMBIC_TARGET`, `CORE_API_FLYWAY_TARGET` | Puertas de migración del esquema compartido: `20260914_0021`/`19` tras validar la migración diferida de cuentas. |
+| `SCRAPER_ALEMBIC_TARGET`, `CORE_API_FLYWAY_TARGET` | Puertas de migración del esquema compartido: `20260914_0021`/`20`; Core añade reservas FIFO y entrega de descargas. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST_PORT` | Credenciales, base y puerto host de PostgreSQL/pgvector. |
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
@@ -226,10 +228,10 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- |
 | `CORE_API_SERVER_PORT`, `CORE_API_SCRAPER_API_URL`, `CORE_API_SEMANTIC_SERVICE_URL`, `CORE_API_DOWNLOAD_WORKER_URL`, `CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT`, `CORE_API_SEMANTIC_REQUEST_TIMEOUT`, `CORE_API_SEMANTIC_ADMIN_REQUEST_TIMEOUT` | Puerto, servicios internos y timeouts HTTP. |
 | `CORE_API_BCRYPT_STRENGTH`, `CORE_API_DB_POOL_MIN`, `CORE_API_DB_POOL_MAX`, `CORE_API_DB_POOL_TIMEOUT`, `CORE_API_AUTH_HASH_CONCURRENCY`, `CORE_API_AUTH_HASH_QUEUE`, `CORE_API_AUTH_HASH_WAIT` | Coste de hash, pool MySQL (2–5) y admisión de autenticación. |
-| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `19`, que añade las solicitudes temporales de magic link sin crear cuentas antes de confirmar el enlace. |
+| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `20`, que añade reservas FIFO, entrega y limpieza de descargas. |
 | `CORE_API_AUTH_LOGIN_MAX_PER_MINUTE`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_EMAIL_HOUR`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_IP_HOUR`, `CORE_API_SESSION_TIMEOUT`, `CORE_API_MAGIC_LINK_TTL`, `CORE_API_MAGIC_LINK_PENDING_CLEANUP_INTERVAL` | Rate limits de autenticación, caducidad de enlaces/sesiones y limpieza de solicitudes pendientes. |
 | `CORE_API_OUTBOX_DELAY`, `CORE_API_OUTBOX_CLAIM_LEASE`, `CORE_API_OUTBOX_CONFIRM_TIMEOUT`, `CORE_API_RETENTION_INTERVAL`, `CORE_API_REQUIRE_HTTPS`, `CORE_API_COOKIE_SECURE` | Outbox, retención y seguridad HTTP/cookies. |
-| `DOWNLOAD_MAX_APPS`, `DOWNLOAD_ZIP_RETENTION`, `DOWNLOAD_PRESIGNED_URL_TTL`, `DOWNLOAD_ANONYMOUS_MAX_ACTIVE_JOBS`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR`, `DOWNLOAD_AUTHENTICATED_MAX_ACTIVE_JOBS`, `DOWNLOAD_GLOBAL_MAX_PENDING_JOBS`, `DOWNLOAD_SSE_HEARTBEAT` | Cuotas, retención y eventos de trabajos de descarga. |
+| `DOWNLOAD_MAX_APPS`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR`, `DOWNLOAD_SSE_HEARTBEAT` | Tamaño de selección, frecuencia de creación y SSE; la concurrencia depende de bytes, sin cuotas por cantidad de trabajos. |
 | `CORE_API_CATALOG_CACHE_MAXIMUM_SIZE`, `CORE_API_CATALOG_CACHE_TTL`, `CORE_API_DOWNLOAD_EVENTS_QUEUE` | Caché de catálogo y cola de eventos. |
 
 </details>
@@ -244,8 +246,8 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `DOWNLOAD_WORKER_CAPACITY_WAIT_DELAY`, `DOWNLOAD_WORKER_CANCELLATION_CONCURRENCY`, `DOWNLOAD_WORKER_RETRY_ATTEMPTS`, `DOWNLOAD_WORKER_RETRY_INITIAL_INTERVAL`, `DOWNLOAD_WORKER_RETRY_MULTIPLIER`, `DOWNLOAD_WORKER_RETRY_MAX_INTERVAL` | Espera de capacidad, cancelaciones y reintentos. |
 | `DOWNLOAD_WORKER_ARTIFACT_RETENTION`, `DOWNLOAD_WORKER_SOURCE_RESOLVER_TIMEOUT`, `DOWNLOAD_WORKER_CORE_API_TIMEOUT` | Retención y timeouts internos. |
 | `DOWNLOAD_WORKER_MAX_ITEMS`, `DOWNLOAD_WORKER_MAX_FILE_SIZE`, `DOWNLOAD_WORKER_MAX_TOTAL_SIZE`, `DOWNLOAD_WORKER_MAX_REDIRECTS`, `DOWNLOAD_WORKER_CONNECT_TIMEOUT`, `DOWNLOAD_WORKER_REQUEST_TIMEOUT` | Límites de cada descarga. |
-| `DOWNLOAD_WORKER_CONCURRENCY`, `DOWNLOAD_WORKER_JOB_CONCURRENCY`, `DOWNLOAD_WORKER_PER_JOB_CONCURRENCY`, `DOWNLOAD_WORKER_PACKAGING_CONCURRENCY`, `DOWNLOAD_WORKER_ZIP_LEVEL` | Paralelismo global, por job y de empaquetado. |
-| `DOWNLOAD_WORKER_MIN_FREE_SPACE`, `DOWNLOAD_WORKER_LARGE_JOB_THRESHOLD`, `DOWNLOAD_WORKER_MULTIPART_PART_SIZE`, `DOWNLOAD_WORKER_TEMP_DIRECTORY` | Reserva de disco, jobs grandes, subida multipart y temporal. |
+| `DOWNLOAD_WORKER_PER_JOB_CONCURRENCY`, `DOWNLOAD_WORKER_PACKAGING_CONCURRENCY`, `DOWNLOAD_WORKER_ZIP_LEVEL` | Conexiones por trabajo y control de CPU: Oracle usa dos empaquetados y nivel ZIP cero. |
+| `DOWNLOAD_WORKER_MIN_FREE_SPACE`, `DOWNLOAD_WORKER_MULTIPART_PART_SIZE`, `DOWNLOAD_WORKER_TEMP_DIRECTORY` | Margen libre del host, subida multipart y temporal; no hay exclusividad por tamaño. |
 | `DOWNLOAD_WORKER_INBOX_LEASE`, `DOWNLOAD_WORKER_RETENTION_INTERVAL`, `DOWNLOAD_WORKER_HEARTBEAT_INTERVAL`, `DOWNLOAD_WORKER_HEARTBEAT_STALE_AFTER` | Lease, limpieza y salud del worker. |
 
 </details>
@@ -290,7 +292,12 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 
 ### Trabajo de descarga
 
-| Estado | Terminal | Descargable | Descripción |
+El presupuesto global de 10 GiB incluye temporales, ZIP, multipart y reservas.
+Los trabajos esperan en FIFO estricto si su pico estimado no cabe; crear uno
+devuelve 202 también en ese caso. `estimatedBytes`, `reservedBytes` y
+`queuePosition` muestran esta admisión. [Funcionamiento y limpieza](services/download-worker/README.md).
+
+| Estado | Preparación terminada | Descargable | Descripción |
 | --- | :---: | :---: | --- |
 | `QUEUED` | No | No | Aceptado y esperando worker o capacidad. |
 | `RESOLVING` | No | No | Resolviendo fuentes verificadas. |
@@ -301,7 +308,14 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `MANUAL_ONLY` | Sí | Sí | El ZIP contiene solamente accesos a descargas manuales. |
 | `FAILED` | Sí | No | El trabajo terminó sin un artefacto utilizable. |
 | `CANCELLED` | Sí | No | El propietario canceló el trabajo. |
-| `EXPIRED` | Sí | No | El artefacto superó su retención. |
+| `EXPIRED` | Sí | No | El artefacto se ha retirado durante la limpieza. |
+
+`READY` significa ZIP preparado. `deliveryStatus` distingue `WAITING`,
+`TRANSFERRING`, `SAVED` y `CLEANING`; `deliveryBytes` informa del avance de entrega.
+Solo el cierre correcto del archivo gestionado confirma el guardado. SSE sigue
+durante la entrega y emite `removed` después de limpiar; las lecturas posteriores
+devuelven 404. Sin conexión se limpia tras un minuto, o tras cinco minutos de
+transferencia sin avance; esperar conectado en FIFO mantiene el trabajo.
 
 ### Item de descarga
 

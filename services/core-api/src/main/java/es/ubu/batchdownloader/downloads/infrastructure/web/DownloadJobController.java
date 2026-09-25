@@ -8,11 +8,17 @@ import es.ubu.batchdownloader.downloads.application.DownloadSelection;
 import es.ubu.batchdownloader.downloads.application.DownloadJobView;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
+import es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator;
+import es.ubu.batchdownloader.downloads.infrastructure.storage.DownloadDeliveryService;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
-import java.net.URI;
+import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.LinkedHashSet;
@@ -83,15 +89,15 @@ public class DownloadJobController {
      * Estado {@code notifier} mantenido por {@code DownloadJobController}.
      */
     private final SseDownloadJobNotifier notifier;
-    /** Admisión rápida del almacenamiento temporal del worker. */
-    private final DownloadWorkerCapacityClient workerCapacity;
+    private final DownloadDeliveryService delivery;
+    private final DownloadStorageCoordinator storage;
     /**
      * Estado {@code secureCookie} mantenido por {@code DownloadJobController}.
      */
     private final boolean secureCookie;
 
     /**
-     * Conecta admisión, acceso, bundles y capacidad del worker con la configuración de la cookie
+     * Conecta admisión, acceso, bundles y entrega con la configuración de la cookie
      * anónima.
      *
      * @param jobs Caso de uso de admisión y previsualización de nuevas selecciones.
@@ -101,7 +107,8 @@ public class DownloadJobController {
      *     trabajo.
      * @param bundles Consulta de aplicaciones de bundles bajo sus permisos de acceso.
      * @param notifier Difusor SSE de instantáneas ya autorizadas.
-     * @param workerCapacity Cliente que comprueba capacidad temporal antes de admitir otro ZIP.
+     * @param delivery Entrega observable del ZIP mediante la ruta autorizada.
+     * @param storage Presupuesto, actividad y limpieza del trabajo.
      * @param secureCookie Activa el atributo Secure de la cookie anónima cuando el despliegue
      *     utiliza HTTPS.
      */
@@ -111,19 +118,21 @@ public class DownloadJobController {
             DownloadRequestOwner owners,
             BundleRepository bundles,
             SseDownloadJobNotifier notifier,
-            DownloadWorkerCapacityClient workerCapacity,
+            DownloadDeliveryService delivery,
+            DownloadStorageCoordinator storage,
             @Value("${app.download.anonymous-cookie-secure}") boolean secureCookie) {
         this.jobs = jobs;
         this.access = access;
         this.owners = owners;
         this.bundles = bundles;
         this.notifier = notifier;
-        this.workerCapacity = workerCapacity;
+        this.delivery = delivery;
+        this.storage = storage;
         this.secureCookie = secureCookie;
     }
 
     /**
-     * Valida selección o bundle y capacidad del worker antes de admitir el trabajo; crea una cookie
+     * Valida selección o bundle antes de encolar el trabajo; crea una cookie
      * opaca solo cuando falta identidad anónima.
      *
      * @param request Selección validada de aplicaciones o bundle, fuente exacta y destino Linux
@@ -137,8 +146,6 @@ public class DownloadJobController {
      * @return 202 con el trabajo admitido y, si corresponde, Set-Cookie para acceder después.
      * @throws es.ubu.batchdownloader.common.BadRequestException si la selección, plataforma o uso
      *     de fuente exacta son inválidos.
-     * @throws es.ubu.batchdownloader.common.ServiceUnavailableException si el worker o la cola no
-     *     tienen capacidad temporal.
      */
     @PostMapping
     ResponseEntity<DownloadJobView> create(
@@ -153,7 +160,6 @@ public class DownloadJobController {
         List<UUID> appIds = request.bundleId() == null
                 ? distinctAppIds(request.appIds())
                 : bundleAppIds(request.bundleId(), authentication);
-        workerCapacity.requireAvailable();
         DownloadJobView created = jobs.create(owner,
                 new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()),
                         request.sourceRef(), request.linuxTarget(), request.targetArchitecture()));
@@ -216,7 +222,7 @@ public class DownloadJobController {
      *     todavía no existe.
      * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
      *     cuotas.
-     * @return conexión SSE que termina cuando el trabajo alcanza un estado terminal.
+     * @return conexión SSE que permanece hasta la purga del trabajo.
      */
     @GetMapping(path = "/{jobId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter events(
@@ -251,7 +257,7 @@ public class DownloadJobController {
     }
 
     /**
-     * Obtiene permiso temporal de lectura del ZIP y redirige el navegador al almacén.
+     * Autoriza la lectura del ZIP y transmite sus bytes sin redirigir al almacén.
      *
      * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
      * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
@@ -260,24 +266,22 @@ public class DownloadJobController {
      *     todavía no existe.
      * @param servletRequest Solicitud HTTP de la que se obtiene la dirección remota para las
      *     cuotas.
-     * @return 303 con Location firmado; la disponibilidad y el propietario se validan antes de
-     *     firmar.
+     * @param servletResponse Respuesta sobre la que se transmite el archivo o su rango.
+     * @throws IOException si se interrumpe el transporte.
      */
     @GetMapping("/{jobId}/file")
-    ResponseEntity<Void> file(
+    void file(
             @PathVariable UUID jobId,
             Authentication authentication,
             @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
-            HttpServletRequest servletRequest) {
-        URI location = access.file(requestOwner(authentication, browserToken, servletRequest), jobId);
-        return ResponseEntity.status(HttpStatus.SEE_OTHER)
-                .header(HttpHeaders.LOCATION, location.toASCIIString())
-                .build();
+            HttpServletRequest servletRequest,
+            HttpServletResponse servletResponse) throws IOException {
+        access.get(requestOwner(authentication, browserToken, servletRequest), jobId);
+        delivery.write(jobId, servletRequest, servletResponse);
     }
 
     /**
-     * Entrega en JSON un enlace temporal del ZIP para clientes que no pueden seguir directamente la
-     * redirección.
+     * Entrega en JSON la ruta autorizada que registra actividad y permite reanudar el ZIP.
      *
      * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
      * @param authentication Sesión de Spring Security, o null cuando no hay una identidad
@@ -294,17 +298,49 @@ public class DownloadJobController {
             Authentication authentication,
             @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
             HttpServletRequest servletRequest) {
-        URI location = access.file(requestOwner(authentication, browserToken, servletRequest), jobId);
+        access.get(requestOwner(authentication, browserToken, servletRequest), jobId);
+        delivery.requireAvailable(jobId);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .body(new DownloadFileLink(location.toASCIIString()));
+                .body(new DownloadFileLink("/api/v1/download-jobs/" + jobId + "/file"));
     }
 
+    /** Actualiza actividad autorizada sin confundir el panel abierto con una transferencia. */
+    @PostMapping("/{jobId}/activity")
+    ResponseEntity<Void> activity(@PathVariable UUID jobId, @Valid @RequestBody DownloadActivity request,
+            Authentication authentication,
+            @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
+            HttpServletRequest servletRequest) {
+        access.get(requestOwner(authentication, browserToken, servletRequest), jobId);
+        storage.touch(jobId, request.phase(), request.bytesReceived() == null ? 0 : request.bytesReceived());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Confirma automáticamente el archivo cerrado en disco y solicita su limpieza. */
+    @PostMapping("/{jobId}/complete")
+    ResponseEntity<Void> complete(@PathVariable UUID jobId, @Valid @RequestBody DownloadCompletion request,
+            Authentication authentication,
+            @CookieValue(value = OWNER_COOKIE, required = false) String browserToken,
+            HttpServletRequest servletRequest) {
+        RequestOwner owner = requestOwner(authentication, browserToken, servletRequest);
+        if (storage.confirmed(owner, jobId, request.bytesReceived())) return ResponseEntity.noContent().build();
+        access.get(owner, jobId);
+        storage.complete(jobId, request.bytesReceived());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Latido del navegador durante la espera o la escritura gestionada del archivo. */
+    public record DownloadActivity(@NotNull @Pattern(regexp = "waiting|saving") String phase,
+            @PositiveOrZero Long bytesReceived) {}
+
+    /** Número de bytes escritos antes de cerrar correctamente el archivo del usuario. */
+    public record DownloadCompletion(@NotNull @PositiveOrZero Long bytesReceived) {}
+
     /**
-     * Transporta al navegador un permiso temporal de lectura del ZIP que no debe almacenarse en
+     * Transporta al navegador la ruta de lectura del ZIP que no debe almacenarse en
      * caché.
      *
-     * @param url Enlace temporal de lectura que el navegador puede abrir sin otra petición a Core.
+     * @param url Ruta relativa de lectura que vuelve a comprobar propietario y disponibilidad.
      * @since 0.1.0
      * @version 0.1.0
      * @category Descargas

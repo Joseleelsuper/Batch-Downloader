@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 public class DownloadWorkerMetrics {
     /** Descargas HTTP activas. */
     private final AtomicInteger activeDownloads = new AtomicInteger();
+    private final AtomicInteger activeJobs = new AtomicInteger();
     /** Bytes temporales todavía presentes. */
     private final AtomicLong temporaryBytes = new AtomicLong();
     /** ZIP que se están construyendo o subiendo. */
@@ -37,11 +38,15 @@ public class DownloadWorkerMetrics {
      */
     public DownloadWorkerMetrics(MeterRegistry registry) {
         this.registry = registry;
+        registry.gauge("download_worker_active_jobs", activeJobs);
         registry.gauge("download_worker_active_downloads", activeDownloads);
         registry.gauge("download_worker_temporary_bytes", temporaryBytes);
         registry.gauge("download_worker_active_packagings", activePackagings);
         packagingWait = registry.timer("download_worker_packaging_wait");
     }
+
+    public void jobStarted() { activeJobs.incrementAndGet(); }
+    public void jobFinished() { activeJobs.decrementAndGet(); }
 
     /**
      * Incrementa el número de transferencias actualmente activas.

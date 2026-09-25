@@ -1,5 +1,5 @@
 import type { DownloadJob, OperatingSystem } from '../types/catalog';
-import { API_BASE, requestJson } from './http';
+import { API_BASE, ApiRequestError, requestJson } from './http';
 import { createRetryScheduler } from './liveConnection';
 
 export type LinuxTarget = 'apt' | 'dnf' | 'pacman' | 'zypper' | 'portable';
@@ -30,9 +30,6 @@ export function previewLinuxDownload(request: CreateDownloadJobRequest): Promise
 }
 
 const pendingCreations = new Map<string, Promise<DownloadJob>>();
-const TERMINAL_STATUSES = new Set([
-  'READY', 'PARTIAL', 'MANUAL_ONLY', 'FAILED', 'CANCELLED', 'EXPIRED',
-]);
 
 export async function createDownloadJob(request: CreateDownloadJobRequest): Promise<DownloadJob> {
   const key = JSON.stringify(request);
@@ -66,7 +63,22 @@ export function downloadJobFileUrl(jobId: string): string {
 export function fetchDownloadJobFileLink(jobId: string): Promise<{ url: string }> {
   return requestJson<{ url: string }>(
     `/api/v1/download-jobs/${encodeURIComponent(jobId)}/file-link`,
+    { timeoutMs: 10_000 },
   );
+}
+
+export function reportDownloadActivity(
+  jobId: string, phase: 'waiting' | 'saving', bytesReceived?: number,
+): Promise<void> {
+  return requestJson(`/api/v1/download-jobs/${encodeURIComponent(jobId)}/activity`, {
+    method: 'POST', body: JSON.stringify({ phase, bytesReceived }), timeoutMs: 10_000,
+  });
+}
+
+export function completeDownloadJob(jobId: string, bytesReceived: number): Promise<void> {
+  return requestJson(`/api/v1/download-jobs/${encodeURIComponent(jobId)}/complete`, {
+    method: 'POST', body: JSON.stringify({ bytesReceived }), timeoutMs: 10_000,
+  });
 }
 
 export function connectDownloadJobEvents(
@@ -82,23 +94,23 @@ export function connectDownloadJobEvents(
   const accept = (job: DownloadJob) => {
     if (stopped) return;
     onJob(job);
-    if (TERMINAL_STATUSES.has(job.status)) {
-      source?.close();
-      polling.stop();
-    }
   };
   const poll = async () => {
     if (stopped) return;
     try {
       const job = await fetchDownloadJob(jobId);
       accept(job);
-      if (!TERMINAL_STATUSES.has(job.status)) {
-        pollingAttempt = 0;
-        polling.schedule(pollingAttempt);
-      }
+      pollingAttempt = 0;
+      polling.schedule(pollingAttempt);
     } catch (cause) {
       onError?.(cause);
-      polling.schedule(++pollingAttempt);
+      if (cause instanceof ApiRequestError && [401, 404].includes(cause.status)) {
+        stopped = true;
+        source?.close();
+        polling.stop();
+      } else {
+        polling.schedule(++pollingAttempt);
+      }
     }
   };
   const consume = (event: MessageEvent<string>) => {
@@ -118,7 +130,14 @@ export function connectDownloadJobEvents(
     );
     source.addEventListener('message', consume as EventListener);
     source.addEventListener('job', consume as EventListener);
+    source.addEventListener('removed', () => {
+      stopped = true;
+      source?.close();
+      polling.stop();
+      onError?.(new ApiRequestError(404, 'download_job_not_found'));
+    });
     source.addEventListener('error', () => {
+      if (stopped) return;
       source?.close();
       polling.schedule(0);
     });

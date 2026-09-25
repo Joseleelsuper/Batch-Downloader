@@ -125,6 +125,7 @@ public class OperationalRetentionPruner {
                 """
                 DELETE FROM download_jobs
                 WHERE status IN ('READY', 'PARTIAL', 'MANUAL_ONLY', 'FAILED', 'CANCELLED', 'EXPIRED')
+                  AND NOT EXISTS (SELECT 1 FROM download_job_storage s WHERE s.job_id=download_jobs.id)
                   AND updated_at < ?
                 ORDER BY updated_at ASC, id ASC
                 LIMIT ?

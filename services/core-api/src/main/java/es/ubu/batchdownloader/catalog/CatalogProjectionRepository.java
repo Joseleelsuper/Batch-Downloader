@@ -82,19 +82,19 @@ public class CatalogProjectionRepository {
      */
     public AppDetails details(String publicId) {
         UUID id = softwareAppId(publicId);
-        List<AppDetails> matches = jdbc.query(
+        List<AppBasics> matches = jdbc.query(
                 """
                 SELECT %s
                 FROM software_apps a
                 WHERE a.app_status = 'active' AND a.id = ?
                 LIMIT 1
                 """.formatted(APP_BASICS_COLUMNS),
-                (rs, rowNum) -> mapDetails(rs),
+                (rs, rowNum) -> readBasics(rs),
                 UuidBytes.fromUuid(id));
         if (matches.isEmpty()) {
             throw new NotFoundException("app_not_found", "La aplicacion no existe.");
         }
-        return matches.get(0);
+        return mapDetails(matches.get(0));
     }
 
     /**
@@ -232,13 +232,10 @@ public class CatalogProjectionRepository {
      * Enriquece una aplicación con procedencia, fuente principal, opciones exactas, plataformas y
      * notas de disponibilidad.
      *
-     * @param rs Fila SQL posicionada en una aplicación o fuente con las columnas de la consulta
-     *     correspondiente.
+     * @param app Metadatos base leídos antes de cerrar la consulta y liberar su conexión.
      * @return detalle completo sin exponer la URL final del instalador.
-     * @throws java.sql.SQLException si una columna de los metadatos no puede leerse.
      */
-    private AppDetails mapDetails(ResultSet rs) throws SQLException {
-        AppBasics app = readBasics(rs);
+    private AppDetails mapDetails(AppBasics app) {
         SourceSnapshot source = sourceFor(app.dbId()).effectiveFor(app.catalogStatus());
         List<DownloadOption> options = downloadOptions(app.dbId());
         return new AppDetails(

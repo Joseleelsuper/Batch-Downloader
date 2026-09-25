@@ -34,6 +34,8 @@ public final class DownloadEventEmitter {
     private final EventPublisher publisher;
     private final StorageProperties storage;
     private final Clock clock;
+    private final es.ubu.batchdownloader.downloadworker.ports.InboxRepository inbox;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
 
     /**
      * Conecta publicación, vigencia de resultados y reloj de eventos.
@@ -42,10 +44,14 @@ public final class DownloadEventEmitter {
      * @param storage Configuración de vigencia de resultados en almacenamiento.
      * @param clock Reloj para fechar el progreso y las decisiones del coordinador.
      */
-    public DownloadEventEmitter(EventPublisher publisher, StorageProperties storage, Clock clock) {
+    public DownloadEventEmitter(EventPublisher publisher, StorageProperties storage, Clock clock,
+            es.ubu.batchdownloader.downloadworker.ports.InboxRepository inbox,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
         this.publisher = publisher;
         this.storage = storage;
         this.clock = clock;
+        this.inbox = inbox;
+        this.mapper = mapper;
     }
 
     /**
@@ -61,6 +67,7 @@ public final class DownloadEventEmitter {
      *     mínimo de uno.
      * @param zip Tamaño y SHA-256 calculados al almacenar el ZIP completo.
      * @param zipObjectKey Clave del ZIP confirmado dentro del almacén del worker.
+     * @param storageBytes Bytes confirmados de ZIP y manifiesto tras limpiar temporales.
      */
     void ready(
             DownloadJobRequestedEvent event,
@@ -68,7 +75,8 @@ public final class DownloadEventEmitter {
             int successfulItems,
             int failedItems,
             StoredArtifact zip,
-            String zipObjectKey) {
+            String zipObjectKey,
+            long storageBytes) {
         Instant occurredAt = clock.instant();
         Duration ttl = storage.presignedUrlTtl().compareTo(Duration.ofDays(7)) > 0
                 ? Duration.ofDays(7)
@@ -78,19 +86,46 @@ public final class DownloadEventEmitter {
                 status,
                 zipObjectKey,
                 zip.sizeBytes(),
+                storageBytes,
                 zip.sha256(),
                 successfulItems,
                 failedItems,
                 occurredAt.plus(ttl));
-        publisher.publish(EventTypes.JOB_READY_ROUTING_KEY, new DownloadJobReadyEvent(
-                eventId(event.payload().jobId(), EventTypes.JOB_READY, "bundle"),
+        DownloadJobReadyEvent ready = new DownloadJobReadyEvent(
+                eventId(event.eventId(), EventTypes.JOB_READY, "bundle"),
                 EventTypes.JOB_READY,
                 EventTypes.CURRENT_VERSION,
                 occurredAt,
                 event.correlationId(),
                 event.eventId().toString(),
-                payload));
+                payload);
+        try {
+            inbox.saveReady(event.eventId(), event.payload().jobId(), mapper.writeValueAsString(ready));
+        } catch (java.io.IOException exception) {
+            throw new InfrastructureException("ready_receipt_failed", exception);
+        }
+        publisher.publish(EventTypes.JOB_READY_ROUTING_KEY, ready);
     }
+
+    DownloadReadyPayload replayReady(DownloadJobRequestedEvent command) {
+        String json = inbox.pendingReady(command.eventId());
+        if (json == null) return null;
+        try {
+            DownloadJobReadyEvent ready = mapper.readValue(json, DownloadJobReadyEvent.class);
+            if (!ready.payload().jobId().equals(command.payload().jobId())
+                    || !command.eventId().toString().equals(ready.causationId())) {
+                throw new IllegalStateException("ready_receipt_mismatch");
+            }
+            publisher.publish(EventTypes.JOB_READY_ROUTING_KEY, ready);
+            return ready.payload();
+        } catch (java.io.IOException exception) {
+            throw new InfrastructureException("ready_receipt_invalid", exception);
+        }
+    }
+
+    void clearReady(UUID jobId) { inbox.clearReady(jobId); }
+    void rememberJob(UUID eventId, UUID jobId) { inbox.rememberJob(eventId, jobId); }
+    java.util.Set<UUID> trackedJobs() { return inbox.trackedJobs(); }
 
     /**
      * Publica la transición de un elemento con identidad derivada del trabajo, elemento y estado,
@@ -121,7 +156,7 @@ public final class DownloadEventEmitter {
                 event.payload().jobId(), itemId, status, bytesDownloaded, sizeBytes, sha256, errorCode);
         publisher.publish(EventTypes.JOB_PROGRESSED_ROUTING_KEY, new DownloadJobProgressedEvent(
                 eventId(
-                        event.payload().jobId(),
+                        event.eventId(),
                         EventTypes.JOB_PROGRESSED,
                         itemId + ":" + status.toLowerCase(Locale.ROOT)),
                 EventTypes.JOB_PROGRESSED,
@@ -146,7 +181,7 @@ public final class DownloadEventEmitter {
         DownloadFailedPayload payload = new DownloadFailedPayload(
                 event.payload().jobId(), code, Math.max(1, failedItems));
         publisher.publish(EventTypes.JOB_FAILED_ROUTING_KEY, new DownloadJobFailedEvent(
-                eventId(event.payload().jobId(), EventTypes.JOB_FAILED, code),
+                eventId(event.eventId(), EventTypes.JOB_FAILED, code),
                 EventTypes.JOB_FAILED,
                 EventTypes.CURRENT_VERSION,
                 clock.instant(),
@@ -170,7 +205,7 @@ public final class DownloadEventEmitter {
                 event.payload().jobId(), reason, retryAt);
         publisher.publish(EventTypes.JOB_DEFERRED_ROUTING_KEY, new DownloadJobDeferredEvent(
                 eventId(
-                        event.payload().jobId(),
+                        event.eventId(),
                         EventTypes.JOB_DEFERRED,
                         Long.toString(retryAt.getEpochSecond())),
                 EventTypes.JOB_DEFERRED,
@@ -182,15 +217,15 @@ public final class DownloadEventEmitter {
     }
 
     /**
-     * Deriva un UUID reproducible del trabajo, tipo y discriminador codificados en UTF-8.
+     * Deriva un UUID reproducible del intento, tipo y discriminador codificados en UTF-8.
      *
-     * @param jobId UUID del trabajo cuya cancelación se comprueba durante la espera.
+     * @param attemptId UUID del comando que autoriza este intento FIFO.
      * @param type Tipo de evento del contrato de descargas.
      * @param discriminator Dato estable que distingue transiciones del mismo trabajo y tipo.
      * @return misma identidad para la misma transición lógica entre reintentos.
      */
-    private UUID eventId(UUID jobId, String type, String discriminator) {
+    private UUID eventId(UUID attemptId, String type, String discriminator) {
         return UUID.nameUUIDFromBytes(
-                (jobId + ":" + type + ":" + discriminator).getBytes(StandardCharsets.UTF_8));
+                (attemptId + ":" + type + ":" + discriminator).getBytes(StandardCharsets.UTF_8));
     }
 }

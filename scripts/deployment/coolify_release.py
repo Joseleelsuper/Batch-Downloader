@@ -71,7 +71,6 @@ FIXED_PRODUCTION_VALUES = {
     "CORE_API_REQUIRE_HTTPS": "true",
     "CORE_API_COOKIE_SECURE": "true",
     "RESEND_FROM_EMAIL": "no-reply@batchdownloader.dev",
-    "DOWNLOAD_WORKER_MAX_TOTAL_SIZE": "8GB",
     "DOWNLOAD_WORKER_MIN_FREE_SPACE": "8GB",
     "SEMANTIC_MODELS_VOLUME_NAME": "batch-downloader_semantic_models",
 }

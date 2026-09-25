@@ -9,6 +9,7 @@ export function GlobalDownloadJobOverlay() {
     jobs,
     startError,
     cancel,
+    download,
     dismiss,
     toggleMinimized,
     clearStartError,
@@ -50,6 +51,8 @@ export function GlobalDownloadJobOverlay() {
             connectionError={entry.connectionError}
             actionError={entry.actionError}
             autoDownloadAttempted={entry.autoDownloadAttempted}
+            saving={entry.saving}
+            onDownload={() => void download(entry.id)}
             onCancel={() => void cancel(entry.id).catch(() => undefined)}
             onClose={() => dismiss(entry.id)}
             onToggleMinimized={() => toggleMinimized(entry.id)}

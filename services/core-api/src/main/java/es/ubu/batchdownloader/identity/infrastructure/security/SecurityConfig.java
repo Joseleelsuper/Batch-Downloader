@@ -26,6 +26,7 @@ import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 
 /**
  * Configura autorización por rutas y roles, mutaciones con CSRF, renovación de sesión y capacidad
@@ -63,8 +64,9 @@ public class SecurityConfig {
             ObjectMapper objectMapper,
             CsrfTokenRepository csrfTokens,
             @Value("${app.security.require-https}") boolean requireHttps) throws Exception {
-        RequestMatcher internalDownloadMetadata = PathPatternRequestMatcher.withDefaults().matcher(
-                HttpMethod.POST, "/internal/v1/download-jobs/{jobId}/item-metadata");
+        RequestMatcher internalDownloadMetadata = new OrRequestMatcher(
+                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/internal/v1/download-jobs/{jobId}/item-metadata"),
+                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/internal/v1/download-jobs/{jobId}/storage"));
         http.csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokens)
                         .ignoringRequestMatchers(internalDownloadMetadata))

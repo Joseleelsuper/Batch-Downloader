@@ -20,7 +20,7 @@ public interface DownloadEventPublisher {
      *
      * @param job Agregado o vista persistida del trabajo cuya identidad y estado se procesan.
      */
-    void jobRequested(DownloadJob job);
+    java.util.UUID jobRequested(DownloadJob job);
     /**
      * Solicita al worker detener cooperativamente el trabajo y liberar sus recursos.
      *

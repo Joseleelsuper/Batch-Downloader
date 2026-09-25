@@ -550,7 +550,8 @@ paths:
               $ref: '#/components/schemas/CreateDownloadJobRequest'
       responses:
         '202':
-          description: Trabajo persistido y encolado.
+          description: Trabajo persistido en FIFO estricto. La falta de presupuesto de almacenamiento
+            lo mantiene en cola y no provoca un rechazo de capacidad.
           headers:
             Set-Cookie:
               description: Se emite para el primer trabajo anónimo y solo contiene un token aleatorio del
@@ -571,7 +572,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '429':
-          description: Cuota superada.
+          description: Frecuencia de creación superada; no hay cuota por número de trabajos simultáneos.
           content:
             application/json:
               schema:
@@ -767,7 +768,8 @@ paths:
       - $ref: '#/components/parameters/JobId'
       responses:
         '200':
-          description: Flujo SSE hasta alcanzar un estado terminal.
+          description: Eventos job y heartbeat durante preparación y entrega, incluido READY.
+            El evento removed contiene el UUID eliminado y cierra el seguimiento tras limpiar el trabajo.
           content:
             text/event-stream:
               schema:
@@ -775,21 +777,66 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
   /download-jobs/{jobId}/file:
-    get:
-      operationId: getDownloadJobFile
-      summary: Obtener el ZIP de un trabajo terminado
+    head:
+      operationId: headDownloadJobFile
+      summary: Consultar metadatos del ZIP sin iniciar una transferencia
       security: []
       parameters:
       - $ref: '#/components/parameters/JobId'
       responses:
-        '303':
-          description: Redirección a una URL firmada válida durante cinco minutos.
+        '200':
+          description: Metadatos del ZIP completo; no devuelve cuerpo ni mantiene activo el trabajo.
           headers:
-            Location:
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+            Accept-Ranges:
+              schema:
+                type: string
+                const: bytes
+            ETag:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      operationId: getDownloadJobFile
+      summary: Transferir el ZIP con seguimiento de actividad y reanudación
+      description: Streaming autenticado del mismo origen, sin caché ni redirección a MinIO.
+        Se admite un único rango de bytes; varios rangos o uno no satisfacible devuelven 416.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/JobId'
+      - name: Range
+        in: header
+        schema:
+          type: string
+        example: bytes=1048576-
+      - name: If-Range
+        in: header
+        description: ETag o fecha HTTP del ZIP; si no coincide, devuelve el archivo completo.
+        schema:
+          type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/DownloadZip'
+        '206':
+          $ref: '#/components/responses/DownloadZip'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '416':
+          description: Rango no válido. Content-Range informa del tamaño total; el cuerpo está vacío.
+          headers:
+            Content-Range:
               required: true
               schema:
                 type: string
-                format: uri
+                example: bytes */1048576
         '409':
           $ref: '#/components/responses/Conflict'
         '503':
@@ -803,15 +850,134 @@ paths:
       - $ref: '#/components/parameters/JobId'
       responses:
         '200':
-          description: URL firmada válida durante cinco minutos y no almacenable en caché.
+          description: Ruta relativa del endpoint file autorizado, con Cache-Control no-store.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DownloadFileLink'
         '409':
           $ref: '#/components/responses/Conflict'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /download-jobs/{jobId}/activity:
+    post:
+      operationId: reportDownloadActivity
+      summary: Mantener una espera conectada o informar del guardado gestionado
+      description: El navegador envía un latido cada 15 segundos. waiting no prolonga la vida de un ZIP
+        preparado; saving informa de bytes escritos. Sin conexiones se limpia tras un minuto;
+        una transferencia sin avance se detiene tras cinco minutos.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DownloadActivity'
+      responses:
+        '204':
+          description: Actividad registrada para el propietario.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /download-jobs/{jobId}/complete:
+    post:
+      operationId: completeDownloadJob
+      summary: Confirmar automáticamente el ZIP guardado y solicitar su limpieza
+      description: Solo se envía después de cerrar correctamente el archivo local y comprobar que
+        bytesReceived coincide con artifactSizeBytes. La confirmación es idempotente; un recibo mínimo
+        de propietario permanece una hora tras la purga para aceptar reintentos y conservar límites
+        de frecuencia, sin archivos ni reserva. Los demás recursos
+        del trabajo desaparecen y las lecturas devuelven 404. La reserva se libera después del borrado.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/JobId'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DownloadCompletion'
+      responses:
+        '204':
+          description: Guardado confirmado; limpieza solicitada o ya finalizada.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /internal/v1/download-jobs/{jobId}/storage:
+    servers:
+    - url: /
+    post:
+      operationId: updateInternalDownloadStorage
+      summary: Reclamar o ajustar la reserva del intento del worker
+      description: Serializa el presupuesto global de 10737418240 bytes en MySQL. Los intentos
+        obsoletos reciben cancelled y no pueden escribir ni recrear un trabajo eliminado.
+      security:
+      - internalServiceToken: []
+      parameters:
+      - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DownloadStorageRequest'
+      responses:
+        '200':
+          description: Resultado duradero de la operación de almacenamiento.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageReply'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /internal/v1/sources/{sourceRef}/size:
+    x-service: scraper
+    servers:
+    - url: http://scraper-api:8000
+    get:
+      operationId: getInternalSourceSize
+      summary: Revalidar el tamaño de una fuente sin iniciar el instalador
+      description: Probe HEAD con validación de destino público y redirecciones HTTPS.
+        La conexión de base de datos se libera durante la operación de red; si el tamaño
+        no puede conocerse, expectedSizeBytes es null. No expone la URL del instalador.
+      security:
+      - internalServiceToken: []
+      parameters:
+      - name: sourceRef
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Tamaño anunciado por el proveedor o null si no está disponible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalSourceSize'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /internal/v1/download-jobs/{jobId}/item-metadata:
     servers:
     - url: /
@@ -2116,6 +2282,37 @@ components:
         minLength: 16
         maxLength: 200
   responses:
+    DownloadZip:
+      description: ZIP completo (200) o el único rango solicitado (206), sin buffering de disco en el proxy.
+      headers:
+        Content-Length:
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        Accept-Ranges:
+          schema:
+            type: string
+            const: bytes
+        Content-Range:
+          description: Presente en 206; posición inicial, final y tamaño completo.
+          schema:
+            type: string
+        ETag:
+          schema:
+            type: string
+        Last-Modified:
+          schema:
+            type: string
+        Content-Disposition:
+          schema:
+            type: string
+      content:
+        application/zip:
+          schema:
+            type: string
+            format: binary
     BadRequest:
       description: Entrada no válida.
       content:
@@ -3126,7 +3323,61 @@ components:
       properties:
         url:
           type: string
-          format: uri
+          format: uri-reference
+          example: /api/v1/download-jobs/00000000-0000-0000-0000-000000000001/file
+    DownloadActivity:
+      type: object
+      additionalProperties: false
+      required: [phase]
+      properties:
+        phase:
+          type: string
+          enum: [waiting, saving]
+        bytesReceived:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+    DownloadCompletion:
+      type: object
+      additionalProperties: false
+      required: [bytesReceived]
+      properties:
+        bytesReceived:
+          type: integer
+          format: int64
+          minimum: 0
+    DownloadStorageRequest:
+      type: object
+      additionalProperties: false
+      required: [attemptId, action, bytes]
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [START, RESERVE, HEARTBEAT, READY, REQUEUE, CLEANED]
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    StorageReply:
+      type: object
+      additionalProperties: false
+      required: [allowed, reservedBytes, cancelled, budgetBytes]
+      properties:
+        allowed:
+          type: boolean
+        reservedBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        cancelled:
+          type: boolean
+        budgetBytes:
+          type: integer
+          format: int64
+          const: 10737418240
     DownloadItem:
       type: object
       required: [id, appId, appName, status, bytesDownloaded]
@@ -3197,6 +3448,30 @@ components:
           type: [integer, 'null']
           format: int64
           minimum: 0
+          description: Tamaño exacto del ZIP; obligatorio para confirmar el guardado gestionado.
+        estimatedBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+          description: Suma estimada de instaladores; usa la mediana del trabajo o del catálogo para tamaños ausentes.
+        reservedBytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Reserva del pico físico, incluyendo temporales, ZIP y margen de multipart/metadatos.
+        queuePosition:
+          type: [integer, 'null']
+          format: int64
+          minimum: 1
+          description: Posición FIFO entre trabajos pendientes; null cuando ya fue admitido.
+        deliveryStatus:
+          type: string
+          enum: [WAITING, TRANSFERRING, SAVED, CLEANING]
+        deliveryBytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Bytes de avance de entrega; TRANSFERRING no confirma que el archivo esté guardado.
         artifactSha256:
           type: [string, 'null']
           pattern: '^[a-f0-9]{64}$'
@@ -3211,6 +3486,17 @@ components:
         expiresAt:
           type: string
           format: date-time
+    InternalSourceSize:
+      type: object
+      required: [sourceRef, expectedSizeBytes]
+      properties:
+        sourceRef:
+          type: string
+          format: uuid
+        expectedSizeBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 1
     InternalDownloadItemMetadataRequest:
       type: object
       additionalProperties: false

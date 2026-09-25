@@ -54,17 +54,13 @@ class DownloadPropertiesBindingTest {
         MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.ofEntries(
                 Map.entry("download-worker.download.max-items", "100"),
                 Map.entry("download-worker.download.max-file-size", "4GB"),
-                Map.entry("download-worker.download.max-total-size", "20GB"),
                 Map.entry("download-worker.download.max-redirects", "5"),
                 Map.entry("download-worker.download.connect-timeout", "10s"),
                 Map.entry("download-worker.download.request-timeout", "15m"),
-                Map.entry("download-worker.download.concurrency", "16"),
-                Map.entry("download-worker.download.job-concurrency", "8"),
                 Map.entry("download-worker.download.per-job-concurrency", "2"),
-                Map.entry("download-worker.download.packaging-concurrency", "4"),
+                Map.entry("download-worker.download.packaging-concurrency", "2"),
                 Map.entry("download-worker.download.zip-level", "0"),
-                Map.entry("download-worker.download.min-free-space", "30GB"),
-                Map.entry("download-worker.download.large-job-threshold", "2GB"),
+                Map.entry("download-worker.download.min-free-space", "8GB"),
                 Map.entry("download-worker.download.multipart-part-size", "16MB"),
                 Map.entry("download-worker.download.inbox-lease", "30m"),
                 Map.entry("download-worker.download.temp-directory", "/tmp/batch-downloader")));
@@ -73,12 +69,10 @@ class DownloadPropertiesBindingTest {
                 .bind("download-worker.download", Bindable.of(DownloadProperties.class))
                 .orElseThrow(() -> new AssertionError("DownloadProperties was not bound"));
 
-        assertThat(properties.concurrency()).isEqualTo(16);
-        assertThat(properties.jobConcurrency()).isEqualTo(8);
         assertThat(properties.perJobConcurrency()).isEqualTo(2);
-        assertThat(properties.packagingConcurrency()).isEqualTo(4);
+        assertThat(properties.packagingConcurrency()).isEqualTo(2);
         assertThat(properties.zipLevel()).isZero();
-        assertThat(properties.minFreeSpace().toGigabytes()).isEqualTo(30);
+        assertThat(properties.minFreeSpace().toGigabytes()).isEqualTo(8);
         assertThat(properties.multipartPartSize().toMegabytes()).isEqualTo(16);
     }
 }

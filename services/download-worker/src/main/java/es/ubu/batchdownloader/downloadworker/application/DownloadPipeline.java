@@ -30,7 +30,7 @@ import java.util.concurrent.RejectedExecutionException;
  * @version 0.1.0
  * @category Procesamiento de descargas
  */
-public final class DownloadPipeline {
+public final class DownloadPipeline implements AutoCloseable {
     private final DownloadJobRequestedEvent event;
     private final List<ResolvedDownloadItem> items;
     private final Path jobDirectory;
@@ -49,6 +49,9 @@ public final class DownloadPipeline {
     private final Set<String> usedNames;
     private int submitted;
     private int completed;
+    private final java.util.concurrent.Phaser writers = new java.util.concurrent.Phaser(1);
+    private volatile boolean closed;
+    private final Set<Thread> writerThreads = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
      * Conecta los colaboradores del trabajo, crea su presupuesto y conjunto de nombres y lanza las
@@ -66,6 +69,7 @@ public final class DownloadPipeline {
             List<ResolvedDownloadItem> items,
             Path jobDirectory,
             int window,
+            DownloadBudget budget,
             Dependencies dependencies) {
         this.event = event;
         this.items = items;
@@ -80,7 +84,7 @@ public final class DownloadPipeline {
         this.clock = dependencies.clock();
         this.files = dependencies.files();
         this.completions = new ExecutorCompletionService<>(dependencies.executor());
-        this.budget = new DownloadBudget(dependencies.properties().maxTotalSize().toBytes());
+        this.budget = budget;
         this.usedNames = dependencies.filenamePolicy().newNameSet();
         while (submitted < this.window) {
             submitNext();
@@ -136,9 +140,23 @@ public final class DownloadPipeline {
                 event, clock.instant(), item.itemId(), "DOWNLOADING",
                 0, item.expectedSizeBytes(), null, null);
         try {
-            futures.add(completions.submit(() -> downloadOne(item)));
-            cancellations.track(event.payload().jobId(), futures);
+            writers.register();
+            futures.add(completions.submit(() -> {
+                writerThreads.add(Thread.currentThread());
+                cancellations.writerStarted(event.payload().jobId());
+                try {
+                    if (closed || cancellations.cancelled(event.payload().jobId())) {
+                        throw new CancellationException("download_job_cancelled");
+                    }
+                    return downloadOne(item);
+                } finally {
+                    cancellations.writerFinished(event.payload().jobId());
+                    writerThreads.remove(Thread.currentThread());
+                    writers.arriveAndDeregister();
+                }
+            }));
         } catch (RejectedExecutionException exception) {
+            writers.arriveAndDeregister();
             throw new InfrastructureException("download_executor_saturated", exception);
         }
     }
@@ -174,6 +192,7 @@ public final class DownloadPipeline {
                 metrics.downloadFinished();
             }
         } catch (DownloadRejectedException exception) {
+            if ("storage_budget_exceeded".equals(exception.code())) throw exception;
             return Attempt.failure(new FailedDownload(
                     resolved.itemId(), resolved.appId(), resolved.sourceRef(), filename, exception.code()));
         } catch (RuntimeException exception) {
@@ -183,6 +202,15 @@ public final class DownloadPipeline {
             }
             throw exception;
         }
+    }
+
+    /** Espera al cierre real de todos los archivos antes de permitir borrar y liberar la reserva. */
+    @Override
+    public void close() {
+        // No Future.cancel: puede impedir que una tarea pendiente llegue a su finally.
+        closed = true;
+        writerThreads.forEach(Thread::interrupt);
+        writers.arriveAndAwaitAdvance();
     }
 
     /**

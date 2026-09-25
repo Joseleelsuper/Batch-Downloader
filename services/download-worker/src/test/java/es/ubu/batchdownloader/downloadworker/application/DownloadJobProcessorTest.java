@@ -88,6 +88,143 @@ class DownloadJobProcessorTest {
      * Dato compartido {@code executor} para los escenarios de prueba.
      */
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private final Map<UUID, String> readyReceipts = new java.util.concurrent.ConcurrentHashMap<>();
+    private final es.ubu.batchdownloader.downloadworker.ports.InboxRepository inbox =
+            new es.ubu.batchdownloader.downloadworker.ports.InboxRepository() {
+                public boolean tryStart(UUID id, Duration lease) { return true; }
+                public void complete(UUID id) { readyReceipts.remove(id); }
+                public void release(UUID id) {}
+                public void rememberJob(UUID id, UUID jobId) {}
+                public java.util.Set<UUID> trackedJobs() { return java.util.Set.of(); }
+                public void saveReady(UUID id, UUID jobId, String json) { readyReceipts.put(id, json); }
+                public String pendingReady(UUID id) { return readyReceipts.get(id); }
+                public void clearReady(UUID jobId) { readyReceipts.values().removeIf(json -> json.contains(jobId.toString())); }
+            };
+    private es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger ledger = (job, attempt, action, bytes) ->
+            new es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger.State(true,
+                    DataSize.ofMegabytes(20).toBytes(), false, DataSize.ofMegabytes(20).toBytes());
+
+    @Test
+    void requeuesWithLargerReservationOnlyAfterAllFilesAreGone() throws Exception {
+        List<String> actions = new ArrayList<>();
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        ledger = (job, attempt, action, bytes) -> {
+            actions.add(action);
+            if (action.equals("REQUEUE")) {
+                assertThat(bytes).isGreaterThan(1);
+                assertThat(store.objects).isEmpty();
+                try (var paths = Files.list(temp)) { assertThat(paths).isEmpty(); }
+                catch (java.io.IOException exception) { throw new RuntimeException(exception); }
+            }
+            return new es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger.State(
+                    !action.equals("RESERVE"), 1, false, 100_000);
+        };
+        processor(localDownloader(), store, new RecordingPublisher(), 10).process(event(List.of(item("ok"))));
+        assertThat(actions).containsExactly("START", "RESERVE", "REQUEUE");
+    }
+
+    @Test
+    void cleanupFailureRetainsReservationAndPreventsRequeue() {
+        List<String> actions = new ArrayList<>();
+        MemoryArtifactStore store = new MemoryArtifactStore() {
+            private int cleanups;
+            @Override public void deleteJob(UUID jobId) {
+                if (++cleanups > 1) throw new IllegalStateException("storage unavailable");
+                super.deleteJob(jobId);
+            }
+        };
+        ledger = (job, attempt, action, bytes) -> {
+            actions.add(action);
+            return new es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger.State(
+                    !action.equals("RESERVE"), 1, false, 100_000);
+        };
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                processor(localDownloader(), store, new RecordingPublisher(), 10)
+                        .process(event(List.of(item("ok")))))
+                .isInstanceOf(IllegalStateException.class).hasMessage("storage unavailable");
+        assertThat(actions).containsExactly("START", "RESERVE");
+    }
+
+    @Test
+    void staleAttemptDoesNotDeleteReadyFiles() {
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        DownloadJobRequestedEvent event = event(List.of(item("ok")));
+        String key = "jobs/" + event.payload().jobId() + "/bundle.zip";
+        store.objects.put(key, new byte[]{1});
+        ledger = (job, attempt, action, bytes) ->
+                new es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger.State(false, 1, true, 100_000);
+        processor(localDownloader(), store, new RecordingPublisher(), 10).process(event);
+        assertThat(store.objects).containsKey(key);
+    }
+
+    @Test
+    void ambiguousReadyConfirmRetainsZipAndReplaysDurableResultWithoutDownloadingAgain() {
+        var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var downloads = new java.util.concurrent.atomic.AtomicInteger();
+        RecordingPublisher publisher = new RecordingPublisher() {
+            @Override public void publish(String key, Object value) {
+                super.publish(key, value);
+                if (key.equals(EventTypes.JOB_READY_ROUTING_KEY) && first.getAndSet(false)) {
+                    throw new InfrastructureException("broker_confirm_timeout", null);
+                }
+            }
+        };
+        MemoryArtifactStore store = new MemoryArtifactStore();
+        RemoteDownloader downloader = (item, filename, path, budget, max) -> {
+            downloads.incrementAndGet();
+            return localDownloader().download(item, filename, path, budget, max);
+        };
+        DownloadJobRequestedEvent command = event(List.of(item("ok")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                processor(downloader, store, publisher, 10).process(command))
+                .isInstanceOf(InfrastructureException.class);
+        assertThat(store.objects).containsKey("jobs/" + command.payload().jobId() + "/bundle.zip");
+        // Otro procesador representa el reinicio; utiliza el recibo duradero del mismo inbox.
+        processor(downloader, store, publisher, 10).process(command);
+        assertThat(downloads).hasValue(1);
+        var results = publisher.events.stream().filter(DownloadJobReadyEvent.class::isInstance)
+                .map(DownloadJobReadyEvent.class::cast).toList();
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0)).isEqualTo(results.get(1));
+    }
+
+    @Test
+    void cleanupWaitsForWriterToActuallyExitAfterInterruption() throws Exception {
+        CountDownLatch writing = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        RemoteDownloader downloader = (item, filename, target, budget, maximum) -> {
+            try {
+                budget.consume(1);
+                Files.createDirectories(target.getParent());
+                Files.write(target, new byte[]{1});
+                writing.countDown();
+                while (release.getCount() > 0) {
+                    try { release.await(); }
+                    catch (InterruptedException requested) { interrupted.countDown(); }
+                }
+                return new DownloadedArtifact(item.itemId(), item.appId(), item.sourceRef(), filename,
+                        target, 1, Hashing.sha256(target), null);
+            } catch (java.io.IOException exception) { throw new RuntimeException(exception); }
+        };
+        DownloadJobProcessor processor = processor(downloader, new MemoryArtifactStore(), new RecordingPublisher(), 10);
+        DownloadJobRequestedEvent event = event(List.of(item("ok")));
+        try (var jobs = Executors.newVirtualThreadPerTaskExecutor()) {
+            var processing = CompletableFuture.runAsync(() -> processor.process(event), jobs);
+            try {
+                assertThat(writing.await(2, TimeUnit.SECONDS)).isTrue();
+                var cleanup = CompletableFuture.runAsync(() -> processor.clean(event.payload().jobId()), jobs);
+                assertThat(interrupted.await(2, TimeUnit.SECONDS)).isTrue();
+                assertThat(cleanup).isNotDone();
+                release.countDown();
+                cleanup.get(2, TimeUnit.SECONDS);
+                try (var paths = Files.list(temp)) { assertThat(paths).isEmpty(); }
+            } finally {
+                release.countDown();
+                processing.handle((ignored, failure) -> null).get(2, TimeUnit.SECONDS);
+            }
+        }
+    }
 
     /**
      * Interrumpe el pool de la prueba al terminar cada escenario para no conservar tareas entre
@@ -159,9 +296,28 @@ class DownloadJobProcessorTest {
         assertThat(readyEvent.payload().status()).isEqualTo("PARTIAL");
         assertThat(readyEvent.payload().successfulItems()).isEqualTo(1);
         assertThat(readyEvent.payload().failedItems()).isEqualTo(1);
+        assertThat(readyEvent.payload().storageBytes()).isEqualTo(
+                store.objects.values().stream().mapToLong(bytes -> bytes.length).sum());
         try (var children = Files.list(temp)) {
             assertThat(children).isEmpty();
         }
+    }
+
+    @Test
+    void eachFifoAttemptHasDistinctEventIdsForTheSameJob() {
+        RecordingPublisher publisher = new RecordingPublisher();
+        DownloadJobProcessor processor = processor(localDownloader(), new MemoryArtifactStore(), publisher, 10);
+        DownloadJobRequestedEvent first = event(List.of(item("ok")));
+        processor.process(first);
+        var firstIds = publisher.events.stream().filter(DownloadJobProgressedEvent.class::isInstance)
+                .map(DownloadJobProgressedEvent.class::cast).map(DownloadJobProgressedEvent::eventId).toList();
+        publisher.events.clear();
+        DownloadJobRequestedEvent second = new DownloadJobRequestedEvent(UUID.randomUUID(), first.type(),
+                first.schemaVersion(), first.occurredAt(), first.correlationId(), null, first.payload());
+        processor.process(second);
+        var secondIds = publisher.events.stream().filter(DownloadJobProgressedEvent.class::isInstance)
+                .map(DownloadJobProgressedEvent.class::cast).map(DownloadJobProgressedEvent::eventId).toList();
+        assertThat(secondIds).doesNotContainAnyElementsOf(firstIds);
     }
 
     /**
@@ -528,11 +684,9 @@ class DownloadJobProcessorTest {
         DownloadProperties downloadProperties = new DownloadProperties(
                 maxItems,
                 DataSize.ofMegabytes(10),
-                DataSize.ofMegabytes(20),
                 3,
                 Duration.ofSeconds(1),
                 Duration.ofSeconds(10),
-                2,
                 Duration.ofMinutes(5),
                 temp.toString());
         StorageProperties storage = new StorageProperties(
@@ -543,15 +697,15 @@ class DownloadJobProcessorTest {
         DownloadCancellationRegistry cancellations = new DownloadCancellationRegistry();
         DownloadWorkerMetrics metrics = new DownloadWorkerMetrics(registry);
         FilenamePolicy filenames = new FilenamePolicy();
-        DownloadEventEmitter events = new DownloadEventEmitter(publisher, storage, clock);
+        DownloadEventEmitter events = new DownloadEventEmitter(publisher, storage, clock, inbox, mapper);
         DownloadJobFiles files = new DownloadJobFiles(store, metrics, downloadProperties);
         DownloadPipeline.Dependencies dependencies = new DownloadPipeline.Dependencies(
                 executor, downloader, filenames, downloadProperties, cancellations, metrics, events, clock, files);
-        DownloadPipelineFactory pipelines = (event, items, directory, window) -> new DownloadPipeline(
-                event, items, directory, window, dependencies);
+        DownloadPipelineFactory pipelines = (event, items, directory, window, budget) -> new DownloadPipeline(
+                event, items, directory, window, budget, dependencies);
         return new DownloadJobProcessor(pipelines, store, new ZipArchiveBuilder(), downloadProperties, clock,
-                cancellations, new JobCapacity(downloadProperties.jobConcurrency(), registry), packagingSemaphore,
-                metrics, new TemporaryDiskCapacity(downloadProperties), null, events, files,
+                cancellations, ledger,
+                packagingSemaphore, metrics, events, files,
                 new ManualShortcutWriter(metadataLookup, filenames,
                         new PublicHttpsUriPolicy(hostname -> List.of(publicAddress()))),
                 new DownloadManifestWriter(mapper, clock), new LinuxInstallerBundleWriter(mapper),
@@ -596,6 +750,8 @@ class DownloadJobProcessorTest {
                 return new DownloadedArtifact(
                         item.itemId(), item.appId(), item.sourceRef(), filename, target,
                         content.length, Hashing.sha256(target), null, item.installation());
+            } catch (RuntimeException exception) {
+                throw exception;
             } catch (Exception exception) {
                 throw new InfrastructureException("test_write_failed", exception);
             }

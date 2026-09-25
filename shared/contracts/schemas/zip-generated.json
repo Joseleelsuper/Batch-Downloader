@@ -21,6 +21,11 @@
         "status": { "enum": ["READY", "PARTIAL", "MANUAL_ONLY"] },
         "objectKey": { "type": "string", "minLength": 1 },
         "sizeBytes": { "type": "integer", "minimum": 1 },
+        "storageBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bytes físicos del ZIP y manifiesto después de borrar temporales y terminar subidas. Debe ser al menos sizeBytes. Los nuevos emisores siempre lo incluyen; es opcional para eventos históricos."
+        },
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "successfulItems": { "type": "integer", "minimum": 0 },
         "failedItems": { "type": "integer", "minimum": 0 },

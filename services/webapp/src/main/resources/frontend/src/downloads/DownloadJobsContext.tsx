@@ -13,12 +13,14 @@ import {
   connectDownloadJobEvents,
   createDownloadJob,
   fetchDownloadJobFileLink,
+  reportDownloadActivity,
 } from '../api/downloads';
 import type { CreateDownloadJobRequest, LinuxSelection } from '../api/downloads';
 import { LinuxTargetDialog } from './LinuxTargetDialog';
 import { ApiRequestError } from '../api/http';
 import { useTranslation, type Translator } from '../services/i18n';
 import type { DownloadJob } from '../types/catalog';
+import { chooseDownloadDestination, isDestinationCancelled, retryDeliveryRequest, saveDownload, type DownloadFileHandle } from './delivery';
 
 const STORAGE_KEY = 'batch-downloader.download-jobs.v1';
 
@@ -48,6 +50,8 @@ export interface TrackedDownloadJob {
   cancelling: boolean;
   connectionError: boolean;
   actionError: string | null;
+  saving?: boolean;
+  locallySaved?: boolean;
 }
 
 interface StoredDownloadJob {
@@ -55,13 +59,16 @@ interface StoredDownloadJob {
   label: string;
   autoDownloadAttempted: boolean;
   minimized: boolean;
+  locallySaved?: boolean;
 }
 
 interface DownloadJobsContextValue {
   jobs: TrackedDownloadJob[];
   startError: string | null;
-  start: (request: DownloadJobRequest, label?: string) => Promise<DownloadJob>;
+  start: (request: DownloadJobRequest, label?: string,
+    destination?: Promise<DownloadFileHandle | undefined>) => Promise<DownloadJob>;
   cancel: (jobId: string) => Promise<void>;
+  download: (jobId: string) => Promise<void>;
   dismiss: (jobId: string) => void;
   toggleMinimized: (jobId: string) => void;
   clearStartError: () => void;
@@ -85,6 +92,7 @@ function readStoredJobs(): TrackedDownloadJob[] {
         job: null,
         autoDownloadAttempted: stored.autoDownloadAttempted === true,
         minimized: stored.minimized === true,
+        locallySaved: stored.locallySaved === true,
         cancelling: false,
         connectionError: false,
         actionError: null,
@@ -102,6 +110,7 @@ function persistJobs(jobs: TrackedDownloadJob[]): void {
       label: entry.label,
       autoDownloadAttempted: entry.autoDownloadAttempted,
       minimized: entry.minimized,
+      locallySaved: entry.locallySaved === true,
     }));
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
   } catch {
@@ -130,6 +139,8 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
   const [jobs, setJobs] = useState<TrackedDownloadJob[]>(readStoredJobs);
   const [startError, setStartError] = useState<string | null>(null);
   const jobsRef = useRef(jobs);
+  const destinations = useRef(new Map<string, DownloadFileHandle>());
+  const deliveries = useRef(new Set<string>());
   const [linuxRequest, setLinuxRequest] = useState<DownloadJobRequest | null>(null);
   const linuxPending = useRef<{
     resolve: (selection: LinuxSelection) => void;
@@ -150,12 +161,16 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
 
   const updateJob = useCallback((jobId: string, job: DownloadJob) => {
     setJobs((current) => current.map((entry) => entry.id === jobId
-      ? { ...entry, job: { ...job, linux: job.linux ?? entry.job?.linux }, connectionError: false }
+      ? { ...entry, job: { ...job, linux: job.linux ?? entry.job?.linux,
+          deliveryStatus: entry.locallySaved && job.deliveryStatus !== 'CLEANING' ? 'SAVED' : job.deliveryStatus,
+        }, connectionError: false }
       : entry));
   }, []);
 
   const removeJob = useCallback((jobId: string) => {
     attemptedDownloads.current.delete(jobId);
+    destinations.current.delete(jobId);
+    try { window.localStorage.removeItem(`${STORAGE_KEY}.${jobId}.attempted`); } catch { /* unavailable */ }
     setJobs((current) => current.filter((entry) => entry.id !== jobId));
   }, []);
 
@@ -187,9 +202,86 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
     return true;
   }, []);
 
-  const start = useCallback(async (request: DownloadJobRequest, label?: string) => {
+  const deliver = useCallback(async (jobId: string, automatic: boolean) => {
+    const currentEntry = jobsRef.current.find((entry) => entry.id === jobId);
+    const job = currentEntry?.job;
+    if (!job || !DOWNLOADABLE_DOWNLOAD_STATUSES.has(job.status)
+        || currentEntry.locallySaved
+        || job.deliveryStatus === 'SAVED' || job.deliveryStatus === 'CLEANING'
+        || deliveries.current.has(jobId)) return;
+    if (automatic && !claimAutoDownload(jobId)) return;
+    deliveries.current.add(jobId);
+    let locallySaved = false;
+    const existingHandle = destinations.current.get(jobId);
+    const handlePromise = existingHandle || automatic
+      ? Promise.resolve(existingHandle) : chooseDownloadDestination();
+    void handlePromise.catch(() => undefined);
+    const perform = async () => {
+      const handle = await handlePromise;
+      const marker = `${STORAGE_KEY}.${jobId}.attempted`;
+      if (automatic) {
+        try {
+          if (window.localStorage.getItem(marker)) return;
+          window.localStorage.setItem(marker, 'true');
+        } catch { /* Web Locks still prevent overlapping transfers when storage is unavailable. */ }
+      }
+      setJobs((current) => current.map((entry) => entry.id === jobId
+        ? { ...entry, saving: Boolean(handle), actionError: null }
+        : entry));
+      if (handle) {
+        destinations.current.set(jobId, handle);
+        let lastRender = 0;
+        await saveDownload(job, handle, (bytes) => {
+          // Network chunks may arrive thousands of times per second.
+          if (bytes !== job.artifactSizeBytes && Date.now() - lastRender < 250) return;
+          lastRender = Date.now();
+          setJobs((current) => current.map((entry) => entry.id === jobId && entry.job
+            ? { ...entry, job: { ...entry.job, deliveryStatus: 'TRANSFERRING', deliveryBytes: bytes } }
+            : entry));
+        }, () => {
+          locallySaved = true;
+          setJobs((current) => current.map((entry) => entry.id === jobId && entry.job
+            ? { ...entry, locallySaved: true, job: { ...entry.job, deliveryStatus: 'SAVED' } }
+            : entry));
+        });
+      } else {
+        const { url } = await retryDeliveryRequest(() => fetchDownloadJobFileLink(jobId));
+        const link = document.createElement('a');
+        link.href = url;
+        link.hidden = true;
+        link.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+    };
+    try {
+      if (navigator.locks) {
+        await navigator.locks.request(`download:${jobId}`, { ifAvailable: true },
+          async (lock) => { if (lock) await perform(); });
+      } else {
+        await perform();
+      }
+    } catch (cause) {
+      if (cause instanceof ApiRequestError && cause.status === 404) removeJob(jobId);
+      else if (locallySaved) setJobs((current) => current.map((entry) => entry.id === jobId
+        ? { ...entry, actionError: t('download.job.receiptFailed') } : entry));
+      else if (!isDestinationCancelled(cause)) reportAutoDownloadError(jobId, cause);
+    } finally {
+      deliveries.current.delete(jobId);
+      setJobs((current) => current.map((entry) => entry.id === jobId
+        ? { ...entry, saving: false } : entry));
+    }
+  }, [claimAutoDownload, removeJob, reportAutoDownloadError, t]);
+
+  const download = useCallback((jobId: string) => deliver(jobId, false), [deliver]);
+
+  const start = useCallback(async (request: DownloadJobRequest, label?: string,
+    chosenDestination?: Promise<DownloadFileHandle | undefined>) => {
     setStartError(null);
     try {
+      // Must run directly in the original click, before any API request or Linux dialog.
+      const destination = await (chosenDestination ?? chooseDownloadDestination());
       let selectedRequest = request;
       if (request.operatingSystems?.length === 1 && request.operatingSystems[0] === 'linux'
           && (!request.linuxTarget || !request.targetArchitecture)) {
@@ -201,6 +293,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
         selectedRequest = { ...request, ...selection };
       }
       const created = await createDownloadJob(selectedRequest);
+      if (destination) destinations.current.set(created.id, destination);
       setJobs((current) => {
         const withoutStaleCopy = current.filter((entry) => entry.id !== created.id);
         return [...withoutStaleCopy, {
@@ -216,7 +309,8 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       });
       return created;
     } catch (cause) {
-      if (!(cause instanceof Error && cause.message === 'linux_selection_cancelled')) {
+      if (!isDestinationCancelled(cause)
+          && !(cause instanceof Error && cause.message === 'linux_selection_cancelled')) {
         setStartError(requestErrorMessage(t, cause));
       }
       throw cause;
@@ -248,6 +342,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       const entry = current.find((candidate) => candidate.id === jobId);
       if (!entry?.job || !TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status)) return current;
       attemptedDownloads.current.delete(jobId);
+      destinations.current.delete(jobId);
       return current.filter((candidate) => candidate.id !== jobId);
     });
   }, []);
@@ -263,10 +358,11 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
     startError,
     start,
     cancel,
+    download,
     dismiss,
     toggleMinimized,
     clearStartError: () => setStartError(null),
-  }), [cancel, dismiss, jobs, start, startError, toggleMinimized]);
+  }), [cancel, dismiss, download, jobs, start, startError, toggleMinimized]);
 
   return (
     <DownloadJobsContext.Provider value={value}>
@@ -288,8 +384,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
           key={entry.id}
           onJob={updateJob}
           onConnectionError={reportConnectionError}
-          onAutoDownloadError={reportAutoDownloadError}
-          claimAutoDownload={claimAutoDownload}
+          deliver={deliver}
         />
       ))}
     </DownloadJobsContext.Provider>
@@ -300,40 +395,43 @@ function DownloadJobTracker({
   entry,
   onJob,
   onConnectionError,
-  onAutoDownloadError,
-  claimAutoDownload,
+  deliver,
 }: Readonly<{
   entry: TrackedDownloadJob;
   onJob: (jobId: string, job: DownloadJob) => void;
   onConnectionError: (jobId: string, cause?: unknown) => void;
-  onAutoDownloadError: (jobId: string, cause?: unknown) => void;
-  claimAutoDownload: (jobId: string) => boolean;
+  deliver: (jobId: string, automatic: boolean) => Promise<void>;
 }>) {
   const terminal = entry.job ? TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status) : false;
   const jobStatus = entry.job?.status;
 
   useEffect(() => {
-    if (terminal) return undefined;
     return connectDownloadJobEvents(
       entry.id,
       (job) => onJob(entry.id, job),
       (cause) => onConnectionError(entry.id, cause),
     );
-  }, [entry.id, onConnectionError, onJob, terminal]);
+  }, [entry.id, onConnectionError, onJob]);
+
+  useEffect(() => {
+    if (terminal) return;
+    let pending = false;
+    const heartbeat = () => {
+      if (pending) return;
+      pending = true;
+      void reportDownloadActivity(entry.id, 'waiting')
+        .catch((cause: unknown) => onConnectionError(entry.id, cause))
+        .finally(() => { pending = false; });
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 15_000);
+    return () => window.clearInterval(timer);
+  }, [entry.id, onConnectionError, terminal]);
 
   useEffect(() => {
     if (!jobStatus || !DOWNLOADABLE_DOWNLOAD_STATUSES.has(jobStatus)) return;
-    if (!claimAutoDownload(entry.id)) return;
-    void fetchDownloadJobFileLink(entry.id).then(({ url }) => {
-      const link = document.createElement('a');
-      link.href = url;
-      link.hidden = true;
-      link.setAttribute('aria-hidden', 'true');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    }).catch((cause: unknown) => onAutoDownloadError(entry.id, cause));
-  }, [claimAutoDownload, entry.id, jobStatus, onAutoDownloadError]);
+    void deliver(entry.id, true);
+  }, [deliver, entry.id, jobStatus]);
 
   return null;
 }
