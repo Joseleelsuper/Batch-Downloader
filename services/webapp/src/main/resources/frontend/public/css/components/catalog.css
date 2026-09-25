@@ -1026,6 +1026,12 @@
   cursor: pointer;
 }
 
+@media (hover: hover) {
+  .search-mode-toggle button:hover:not(.search-mode-active) {
+    background: #edf4ff;
+  }
+}
+
 .search-mode-toggle .search-mode-active {
   color: #fff;
   background: var(--accent, #315efb);
