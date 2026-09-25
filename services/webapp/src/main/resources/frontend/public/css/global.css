@@ -90,3 +90,121 @@ button:disabled {
   border: 0;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .topbar .brand h1,
+  .topbar .main-nav a,
+  .topbar .admin-link,
+  .topbar .topbar-actions button,
+  .primary-link,
+  .primary-button,
+  .secondary-button,
+  .danger-button,
+  .download-button,
+  .section-heading a,
+  .app-compact-card,
+  .facet-link-row,
+  .filter-item,
+  .platform-filter,
+  .search-mode-toggle,
+  .pagination button,
+  .page-size select {
+    transition: transform 180ms ease;
+  }
+
+  .topbar .brand:focus-visible h1,
+  .topbar .main-nav a:focus-visible,
+  .topbar .admin-link:focus-visible,
+  .topbar .topbar-actions button:focus-visible {
+    transform: scale(1.01);
+  }
+
+  .section-heading a:focus-visible,
+  .primary-link:focus-visible,
+  .primary-button:focus-visible:not(:disabled),
+  .secondary-button:focus-visible:not(:disabled),
+  .danger-button:focus-visible:not(:disabled),
+  .download-button:focus-visible:not(:disabled),
+  .app-compact-card:focus-visible,
+  .facet-link-row:focus-within,
+  .pagination button:focus-visible:not(:disabled),
+  .page-size select:focus-visible {
+    position: relative;
+    z-index: 1;
+    transform: scale(1.01);
+  }
+
+  .filter-item:focus-visible {
+    position: relative;
+    z-index: 1;
+    transform: translateX(4px);
+  }
+
+  .platform-filter:focus-within {
+    position: relative;
+    z-index: 1;
+    transform: scale(1.01);
+  }
+
+  .search-mode-toggle:focus-within {
+    position: relative;
+    z-index: 1;
+    transform: translateY(-3px);
+  }
+
+  .content-page .bundle-detail-header .primary-button:focus-visible:not(:disabled),
+  .content-page .bundle-app-row .download-button:focus-visible:not(:disabled) {
+    position: relative;
+    z-index: 1;
+    transform: scale(1.01);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .topbar .brand h1:hover,
+  .topbar .main-nav a:hover,
+  .topbar .admin-link:hover,
+  .topbar .topbar-actions button:hover {
+    transform: scale(1.01);
+  }
+
+  .primary-link:hover:not(:disabled),
+  .primary-button:hover:not(:disabled),
+  .secondary-button:hover:not(:disabled),
+  .danger-button:hover:not(:disabled),
+  .download-button:hover:not(:disabled),
+  .section-heading a:hover,
+  .app-compact-card:hover,
+  .facet-link-row:hover,
+  .pagination button:hover:not(:disabled),
+  .page-size select:hover {
+    position: relative;
+    z-index: 1;
+    transform: scale(1.01);
+  }
+
+  .filter-item:hover {
+    position: relative;
+    z-index: 1;
+    transform: translateX(4px);
+  }
+
+  .platform-filter:hover {
+    position: relative;
+    z-index: 1;
+    transform: scale(1.01);
+  }
+
+  .search-mode-toggle:hover {
+    position: relative;
+    z-index: 1;
+    transform: translateY(-3px);
+  }
+
+  .content-page .bundle-detail-header .primary-button:hover:not(:disabled),
+  .content-page .bundle-app-row .download-button:hover:not(:disabled) {
+    position: relative;
+    z-index: 1;
+    transform: scale(1.01);
+  }
+}
+
