@@ -174,31 +174,42 @@ export function AdminScraperPage() {
       {heartbeatIsStale ? (
         <p className="form-message" role="alert">{t('admin.scraper.staleHeartbeat')}</p>
       ) : null}
-      <div className="button-row">
-        <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>{t('admin.scraper.pause')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
-        <button className="secondary-button danger-button" type="button" disabled={!controlState.forceStop.enabled} title={controlState.forceStop.reason} onClick={() => command('force_stop')}><Square size={16} />{t('admin.scraper.forceStop')}</button>
-        <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('incremental')}>{t('admin.scraper.runIncremental')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('unresolved')}>{t('admin.scraper.runUnresolved')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('full')}>{t('admin.scraper.runFull')}</button>
-      </div>
-      <div className="button-row queue-maintenance-row">
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('retry_failed')}><RefreshCw size={16} />{t('admin.scraper.retryFailed')}</button>
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('prune_terminal')}><Trash2 size={16} />{t('admin.scraper.pruneTerminal')}</button>
-      </div>
-      <div className="button-row queue-maintenance-row">
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={enrichmentAction !== null}
-          onClick={() => enqueueMissingDescriptions()}
-        >
-          <Wand2 size={16} />
-          {t('admin.scraper.enqueueMissingDescriptions')}
-        </button>
-      </div>
+      <section className="scraper-action-section admin-card" aria-labelledby="scraper-basic-actions-heading">
+        <h3 id="scraper-basic-actions-heading">{t('admin.scraper.actions.basic')}</h3>
+        <div className="button-row">
+          <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>{t('admin.scraper.pause')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
+          <button className="secondary-button danger-button" type="button" disabled={!controlState.forceStop.enabled} title={controlState.forceStop.reason} onClick={() => command('force_stop')}><Square size={16} />{t('admin.scraper.forceStop')}</button>
+        </div>
+      </section>
+      <section className="scraper-action-section admin-card" aria-labelledby="scraper-execution-heading">
+        <h3 id="scraper-execution-heading">{t('admin.scraper.actions.execution')}</h3>
+        <div className="button-row">
+          <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('incremental')}>{t('admin.scraper.runIncremental')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('unresolved')}>{t('admin.scraper.runUnresolved')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('full')}>{t('admin.scraper.runFull')}</button>
+        </div>
+      </section>
+      <section className="scraper-action-section admin-card" aria-labelledby="scraper-advanced-actions-heading">
+        <h3 id="scraper-advanced-actions-heading">{t('admin.scraper.actions.advanced')}</h3>
+        <div className="button-row queue-maintenance-row">
+          <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
+          <button className="secondary-button" type="button" onClick={() => maintainQueue('retry_failed')}><RefreshCw size={16} />{t('admin.scraper.retryFailed')}</button>
+          <button className="secondary-button" type="button" onClick={() => maintainQueue('prune_terminal')}><Trash2 size={16} />{t('admin.scraper.pruneTerminal')}</button>
+        </div>
+        <div className="button-row queue-maintenance-row">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={enrichmentAction !== null}
+            onClick={() => enqueueMissingDescriptions()}
+          >
+            <Wand2 size={16} />
+            {t('admin.scraper.enqueueMissingDescriptions')}
+          </button>
+        </div>
+      </section>
       {message ? <p className="form-message">{message}</p> : null}
       <div className="scraper-live-line">
         <span>{t('admin.scraper.liveState')}</span>

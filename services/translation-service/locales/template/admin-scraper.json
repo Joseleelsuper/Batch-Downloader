@@ -1,5 +1,8 @@
 {
   "admin.scraper.app": "",
+  "admin.scraper.actions.advanced": "",
+  "admin.scraper.actions.basic": "",
+  "admin.scraper.actions.execution": "",
   "admin.scraper.currentPhase": "",
   "admin.scraper.logs": "",
   "admin.scraper.liveState": "",

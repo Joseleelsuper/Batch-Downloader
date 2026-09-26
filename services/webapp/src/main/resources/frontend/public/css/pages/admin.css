@@ -152,6 +152,11 @@
   gap: 10px;
 }
 
+.scraper-action-section {
+  display: grid;
+  gap: 12px;
+}
+
 .queue-maintenance-row {
   margin-top: -4px;
 }

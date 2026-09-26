@@ -1,5 +1,8 @@
 {
   "admin.scraper.app": "App actual",
+  "admin.scraper.actions.advanced": "Avanzado",
+  "admin.scraper.actions.basic": "Acciones básicas",
+  "admin.scraper.actions.execution": "Ejecución del scraper",
   "admin.scraper.currentPhase": "Fase",
   "admin.scraper.logs": "Logs recientes",
   "admin.scraper.liveState": "Canal en vivo",
