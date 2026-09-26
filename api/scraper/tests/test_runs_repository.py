@@ -79,6 +79,122 @@ async def test_acquire_recovers_an_expired_coordinator_lease(session_factory) ->
         assert stale.active_lock is None
         assert stale.status == ScrapeRunStatus.FAILED.value
         assert stale.finished_at is not None
+        assert stale.heartbeat_at == stale_heartbeat
+
+
+@pytest.mark.asyncio
+async def test_recovery_keeps_a_recent_heartbeat_and_its_lock(session_factory) -> None:
+    """Una ejecución con latido reciente conserva su reserva exclusiva."""
+    recent = ScrapeRun(
+        active_lock=1,
+        status=ScrapeRunStatus.RUNNING.value,
+        worker_id="active-worker",
+        heartbeat_at=utc_now(),
+    )
+    async with session_factory() as session:
+        session.add(recent)
+        await session.commit()
+
+        recovered = await ScrapeRunRepository(session, Settings()).recover_running(
+            "stale heartbeat"
+        )
+        await session.commit()
+
+        assert recovered == 0
+        assert recent.active_lock == 1
+        assert recent.status == ScrapeRunStatus.RUNNING.value
+
+
+@pytest.mark.asyncio
+async def test_stale_recovery_fails_its_request_and_keeps_pending_requests_fifo(
+    session_factory,
+) -> None:
+    """La recuperación cierra la solicitud atascada y conserva la cola pendiente en orden."""
+    stale_heartbeat = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES + 1)
+    async with session_factory() as session:
+        repository = ScrapeRunRepository(session, Settings())
+        stale_request = await repository.enqueue_run_request(
+            scope=ScrapeScope.INCREMENTAL,
+            app_ids=None,
+            created_by="test-stale",
+        )
+        first_pending = await repository.enqueue_run_request(
+            scope=ScrapeScope.INCREMENTAL,
+            app_ids=None,
+            created_by="test-first",
+        )
+        second_pending = await repository.enqueue_run_request(
+            scope=ScrapeScope.FULL,
+            app_ids=None,
+            created_by="test-second",
+        )
+        stale_request.status = "running"
+        stale_run = ScrapeRun(
+            active_lock=1,
+            status=ScrapeRunStatus.RUNNING.value,
+            request_id=stale_request.id,
+            worker_id="stale-worker",
+            heartbeat_at=stale_heartbeat,
+        )
+        session.add(stale_run)
+        await session.commit()
+
+        recovered = await repository.recover_running("heartbeat expired")
+        await session.commit()
+
+        assert recovered == 1
+        assert stale_run.status == ScrapeRunStatus.FAILED.value
+        assert stale_run.active_lock is None
+        assert stale_run.heartbeat_at == stale_heartbeat
+        assert stale_request.status == ScrapeRunStatus.FAILED.value
+        assert first_pending.status == "pending"
+        assert second_pending.status == "pending"
+
+        claimed = await repository.next_pending_run_request()
+        assert claimed is not None
+        assert claimed.id == first_pending.id
+        await repository.consume_command(claimed, status="completed")
+        await session.commit()
+
+        claimed_next = await repository.next_pending_run_request()
+        assert claimed_next is not None
+        assert claimed_next.id == second_pending.id
+
+
+@pytest.mark.asyncio
+async def test_stopped_request_releases_its_active_run(session_factory) -> None:
+    """Al confirmar la cancelación, el run y su solicitud quedan fallidos y sin bloqueo."""
+    stale_heartbeat = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES + 1)
+    async with session_factory() as session:
+        repository = ScrapeRunRepository(session, Settings())
+        request = await repository.enqueue_run_request(
+            scope=ScrapeScope.INCREMENTAL,
+            app_ids=None,
+            created_by="test-watchdog",
+        )
+        request.status = "running"
+        run = ScrapeRun(
+            active_lock=1,
+            status=ScrapeRunStatus.RUNNING.value,
+            request_id=request.id,
+            worker_id="watchdog-worker",
+            heartbeat_at=stale_heartbeat,
+        )
+        session.add(run)
+        await session.commit()
+
+        assert await repository.stale_running_run_id(request.id) == run.id
+        failed_run_id = await repository.fail_running_request(
+            request.id,
+            "stale heartbeat",
+        )
+        await session.commit()
+
+        assert failed_run_id == run.id
+        assert run.status == ScrapeRunStatus.FAILED.value
+        assert run.active_lock is None
+        assert run.finished_at is not None
+        assert request.status == ScrapeRunStatus.FAILED.value
 
 
 @pytest.mark.asyncio

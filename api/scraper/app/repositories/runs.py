@@ -3,7 +3,7 @@ reanudación, parada y lanzamiento.
 """
 import socket
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -60,7 +60,9 @@ class ScrapeRunRepository:
             Exception: Los errores de persistencia distintos de una colisión de integridad se
                 propagan al llamador.
         """
-        stale_before = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES)
+        await self.recover_running(
+            "The coordinator lease expired before a new run was acquired."
+        )
         running = list(
             await self.session.scalars(
                 select(ScrapeRun)
@@ -68,22 +70,8 @@ class ScrapeRunRepository:
                 .with_for_update()
             )
         )
-        recovered_at = utc_now()
-        for active in running:
-            if active.heartbeat_at >= stale_before:
-                return None
-            active.status = ScrapeRunStatus.FAILED.value
-            active.active_lock = None
-            active.finished_at = recovered_at
-            active.heartbeat_at = recovered_at
-            active.current_phase = ScrapeRunStatus.FAILED.value
-            active.error_summary = "The coordinator lease expired before a new run was acquired."
-            if active.request_id:
-                await self.finish_run_request(
-                    active.request_id,
-                    status=ScrapeRunStatus.FAILED.value,
-                    message="The coordinator lease expired.",
-                )
+        if running:
+            return None
 
         run = ScrapeRun(
             active_lock=1,
@@ -125,8 +113,7 @@ class ScrapeRunRepository:
         run.heartbeat_at = utc_now()
 
     async def recover_running(self, error_summary: str) -> int:
-        """Marca fallidas las ejecuciones que seguían activas, libera exclusión, retira pausa y
-        parada y finaliza sus solicitudes asociadas.
+        """Recupera ejecuciones sin latido durante más de 90 minutos y conserva las recientes.
 
         Args:
             error_summary: Motivo resumido que se conserva al terminar o recuperar la
@@ -135,20 +122,17 @@ class ScrapeRunRepository:
         Returns:
             número de ejecuciones recuperadas tras hacer flush.
         """
+        stale_before = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES)
         result = await self.session.scalars(
-            select(ScrapeRun).where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+            select(ScrapeRun)
+            .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+            .where(ScrapeRun.heartbeat_at < stale_before)
+            .with_for_update(skip_locked=True)
         )
         runs = list(result)
         recovered_at = utc_now()
         for run in runs:
-            run.status = ScrapeRunStatus.FAILED.value
-            run.active_lock = None
-            run.finished_at = recovered_at
-            run.heartbeat_at = recovered_at
-            run.current_phase = ScrapeRunStatus.FAILED.value
-            run.stop_requested = False
-            run.paused_at = None
-            run.error_summary = error_summary
+            self._mark_run_failed(run, error_summary, recovered_at)
             if run.request_id:
                 await self.finish_run_request(
                     run.request_id,
@@ -157,6 +141,54 @@ class ScrapeRunRepository:
                 )
         await self.session.flush()
         return len(runs)
+
+    async def stale_running_run_id(self, request_id: uuid.UUID) -> uuid.UUID | None:
+        """Devuelve la ejecución de una solicitud cuyo latido ya superó el lease permitido."""
+        stale_before = utc_now() - timedelta(minutes=RUN_LOCK_STALE_MINUTES)
+        return await self.session.scalar(
+            select(ScrapeRun.id)
+            .where(ScrapeRun.request_id == request_id)
+            .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+            .where(ScrapeRun.heartbeat_at < stale_before)
+            .limit(1)
+        )
+
+    async def fail_running_request(
+        self,
+        request_id: uuid.UUID,
+        error_summary: str,
+    ) -> uuid.UUID | None:
+        """Cierra la ejecución activa de una solicitud después de detener su tarea."""
+        run = await self.session.scalar(
+            select(ScrapeRun)
+            .where(ScrapeRun.request_id == request_id)
+            .where(ScrapeRun.status == ScrapeRunStatus.RUNNING.value)
+            .with_for_update()
+        )
+        if run is None:
+            return None
+        self._mark_run_failed(run, error_summary, utc_now())
+        await self.finish_run_request(
+            request_id,
+            status=ScrapeRunStatus.FAILED.value,
+            message=error_summary,
+        )
+        await self.session.flush()
+        return run.id
+
+    @staticmethod
+    def _mark_run_failed(
+        run: ScrapeRun,
+        error_summary: str,
+        finished_at: datetime,
+    ) -> None:
+        run.status = ScrapeRunStatus.FAILED.value
+        run.active_lock = None
+        run.finished_at = finished_at
+        run.current_phase = ScrapeRunStatus.FAILED.value
+        run.stop_requested = False
+        run.paused_at = None
+        run.error_summary = error_summary
 
     async def heartbeat(self, run_id: uuid.UUID, **counters: int) -> None:
         """Renueva el latido y copia los contadores cuyos nombres existen en la entidad de

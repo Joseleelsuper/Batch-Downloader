@@ -24,6 +24,8 @@ import type {
 } from '../../types/catalog';
 import { formatDate } from '../../utils/date';
 
+const STALE_HEARTBEAT_MS = 90 * 60 * 1000;
+
 export function AdminScraperPage() {
   const t = useTranslation();
   const [current, setCurrent] = useState<ScraperRunSummary | null>(null);
@@ -33,6 +35,7 @@ export function AdminScraperPage() {
   const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
   const [message, setMessage] = useState<string | null>(null);
   const [enrichmentAction, setEnrichmentAction] = useState<'descriptions' | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   async function load() {
     const [nextCurrent, nextRuns, nextLogs, nextQueues] = await Promise.all([
@@ -49,7 +52,10 @@ export function AdminScraperPage() {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 10000);
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+      void load();
+    }, 10000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -119,6 +125,10 @@ export function AdminScraperPage() {
   }
 
   const controlState = scraperControlState(t, current);
+  const heartbeatTime = current ? parseUtcTimestamp(current.heartbeatAt) : Number.NaN;
+  const heartbeatIsStale = current?.status === 'running'
+    && Number.isFinite(heartbeatTime)
+    && now - heartbeatTime > STALE_HEARTBEAT_MS;
 
   return (
     <section className="admin-panel">
@@ -140,6 +150,18 @@ export function AdminScraperPage() {
           <span>{t('admin.scraper.currentPhase')}</span>
           <strong>{current?.currentPhase ?? '-'}</strong>
         </div>
+        <div>
+          <span>{t('admin.scraper.startedAt')}</span>
+          <strong>{current ? formatScraperDate(current.startedAt) : '-'}</strong>
+        </div>
+        <div>
+          <span>{t('admin.scraper.finishedAt')}</span>
+          <strong>{current?.finishedAt ? formatScraperDate(current.finishedAt) : '-'}</strong>
+        </div>
+        <div>
+          <span>{t('admin.scraper.heartbeatAt')}</span>
+          <strong>{current ? formatScraperDate(current.heartbeatAt) : '-'}</strong>
+        </div>
         <div className="scraper-status-progress">
           <span>{t('admin.scraper.progress')}</span>
           {current ? (
@@ -149,31 +171,45 @@ export function AdminScraperPage() {
           ) : <strong>-</strong>}
         </div>
       </div>
-      <div className="button-row">
-        <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>{t('admin.scraper.pause')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
-        <button className="secondary-button danger-button" type="button" disabled={!controlState.forceStop.enabled} title={controlState.forceStop.reason} onClick={() => command('force_stop')}><Square size={16} />{t('admin.scraper.forceStop')}</button>
-        <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('incremental')}>{t('admin.scraper.runIncremental')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('unresolved')}>{t('admin.scraper.runUnresolved')}</button>
-        <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('full')}>{t('admin.scraper.runFull')}</button>
-      </div>
-      <div className="button-row queue-maintenance-row">
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('retry_failed')}><RefreshCw size={16} />{t('admin.scraper.retryFailed')}</button>
-        <button className="secondary-button" type="button" onClick={() => maintainQueue('prune_terminal')}><Trash2 size={16} />{t('admin.scraper.pruneTerminal')}</button>
-      </div>
-      <div className="button-row queue-maintenance-row">
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={enrichmentAction !== null}
-          onClick={() => enqueueMissingDescriptions()}
-        >
-          <Wand2 size={16} />
-          {t('admin.scraper.enqueueMissingDescriptions')}
-        </button>
-      </div>
+      {heartbeatIsStale ? (
+        <p className="form-message" role="alert">{t('admin.scraper.staleHeartbeat')}</p>
+      ) : null}
+      <section className="scraper-action-section admin-card" aria-labelledby="scraper-basic-actions-heading">
+        <h3 id="scraper-basic-actions-heading">{t('admin.scraper.actions.basic')}</h3>
+        <div className="button-row">
+          <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>{t('admin.scraper.pause')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.stop.enabled} title={controlState.stop.reason} onClick={() => command('stop')}><Square size={16} />{t('admin.scraper.stop')}</button>
+          <button className="secondary-button danger-button" type="button" disabled={!controlState.forceStop.enabled} title={controlState.forceStop.reason} onClick={() => command('force_stop')}><Square size={16} />{t('admin.scraper.forceStop')}</button>
+        </div>
+      </section>
+      <section className="scraper-action-section admin-card" aria-labelledby="scraper-execution-heading">
+        <h3 id="scraper-execution-heading">{t('admin.scraper.actions.execution')}</h3>
+        <div className="button-row">
+          <button className="primary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('incremental')}>{t('admin.scraper.runIncremental')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('unresolved')}>{t('admin.scraper.runUnresolved')}</button>
+          <button className="secondary-button" type="button" disabled={!controlState.runOnce.enabled} title={controlState.runOnce.reason} onClick={() => requestRun('full')}>{t('admin.scraper.runFull')}</button>
+        </div>
+      </section>
+      <section className="scraper-action-section admin-card" aria-labelledby="scraper-advanced-actions-heading">
+        <h3 id="scraper-advanced-actions-heading">{t('admin.scraper.actions.advanced')}</h3>
+        <div className="button-row queue-maintenance-row">
+          <button className="secondary-button" type="button" onClick={() => maintainQueue('recover_stuck')}><RotateCcw size={16} />{t('admin.scraper.recoverStuck')}</button>
+          <button className="secondary-button" type="button" onClick={() => maintainQueue('retry_failed')}><RefreshCw size={16} />{t('admin.scraper.retryFailed')}</button>
+          <button className="secondary-button" type="button" onClick={() => maintainQueue('prune_terminal')}><Trash2 size={16} />{t('admin.scraper.pruneTerminal')}</button>
+        </div>
+        <div className="button-row queue-maintenance-row">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={enrichmentAction !== null}
+            onClick={() => enqueueMissingDescriptions()}
+          >
+            <Wand2 size={16} />
+            {t('admin.scraper.enqueueMissingDescriptions')}
+          </button>
+        </div>
+      </section>
       {message ? <p className="form-message">{message}</p> : null}
       <div className="scraper-live-line">
         <span>{t('admin.scraper.liveState')}</span>
@@ -204,6 +240,16 @@ export function AdminScraperPage() {
       </div>
     </section>
   );
+}
+
+function parseUtcTimestamp(value: string): number {
+  const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+  return Date.parse(hasTimezone ? value : `${value}Z`);
+}
+
+function formatScraperDate(value: string): string {
+  const timestamp = parseUtcTimestamp(value);
+  return Number.isFinite(timestamp) ? formatDate(new Date(timestamp).toISOString()) : '-';
 }
 
 function formatScrapeProgress(t: Translator, run: ScraperRunSummary): string {
@@ -250,70 +296,51 @@ function scraperControlState(t: Translator, current: ScraperRunSummary | null) {
   };
 }
 
+const LOG_DETAIL_LABELS = {
+  error: 'admin.log.error',
+  detail: 'admin.log.detail',
+  app_name: 'admin.log.app',
+  winstall_id: 'admin.log.winstallId',
+  current_phase: 'admin.log.phase',
+  last_known_step: 'admin.log.lastStep',
+  domain: 'admin.log.domain',
+  official_domain: 'admin.log.officialDomain',
+  reason: 'admin.log.reason',
+  elapsed_seconds: 'admin.log.elapsedSeconds',
+  timeout_seconds: 'admin.log.timeoutSeconds',
+  score: 'admin.log.score',
+  extension: 'admin.log.extension',
+  asset_kind: 'admin.log.type',
+  source: 'admin.log.source',
+  statement: 'admin.log.sqlStatement',
+} as const;
+const PRIMARY_LOG_LABELS = new Map<boolean, string>([
+  [true, 'admin.log.primary'],
+  [false, 'admin.log.alternate'],
+]);
+
 function formatLogDetails(t: Translator, log: ResolverLogItem): string {
   const metadata = parseSafeMetadata(log.safeMetadata);
-  const domain = metadataString(metadata, 'domain');
-  const reason = metadataString(metadata, 'reason');
-  const extension = metadataString(metadata, 'extension');
-  const assetKind = metadataString(metadata, 'asset_kind');
-  const source = metadataString(metadata, 'source');
-  const error = metadataString(metadata, 'error');
-  const detail = metadataString(metadata, 'detail');
-  const statement = metadataString(metadata, 'statement');
-  const winstallId = metadataString(metadata, 'winstall_id');
-  const appName = metadataString(metadata, 'app_name');
-  const currentPhase = metadataString(metadata, 'current_phase');
-  const lastKnownStep = metadataString(metadata, 'last_known_step');
-  const officialDomain = metadataString(metadata, 'official_domain');
-  const score = metadataNumber(metadata, 'score');
-  const elapsedSeconds = metadataNumber(metadata, 'elapsed_seconds');
-  const timeoutSeconds = metadataNumber(metadata, 'timeout_seconds');
-  const isPrimary = metadataBoolean(metadata, 'is_primary');
-  const details = [
-    error ? t('admin.log.error', { value: error }) : null,
-    detail ? t('admin.log.detail', { value: detail }) : null,
-    appName ? t('admin.log.app', { value: appName }) : null,
-    winstallId ? t('admin.log.winstallId', { value: winstallId }) : null,
-    currentPhase ? t('admin.log.phase', { value: currentPhase }) : null,
-    lastKnownStep && lastKnownStep !== currentPhase ? t('admin.log.lastStep', { value: lastKnownStep }) : null,
-    domain ? t('admin.log.domain', { value: domain }) : null,
-    officialDomain ? t('admin.log.officialDomain', { value: officialDomain }) : null,
-    reason ? t('admin.log.reason', { value: reason }) : null,
-    elapsedSeconds !== undefined ? t('admin.log.elapsedSeconds', { value: elapsedSeconds }) : null,
-    timeoutSeconds !== undefined ? t('admin.log.timeoutSeconds', { value: timeoutSeconds }) : null,
-    score !== undefined ? t('admin.log.score', { value: score }) : null,
-    extension ? t('admin.log.extension', { value: extension }) : null,
-    assetKind ? t('admin.log.type', { value: assetKind }) : null,
-    source ? t('admin.log.source', { value: source }) : null,
-    statement ? t('admin.log.sqlStatement') : null,
-    isPrimary !== undefined ? (isPrimary ? t('admin.log.primary') : t('admin.log.alternate')) : null,
-  ].filter(Boolean);
-  if (log.message && details.length) return `${log.message} - ${details.join('; ')}`;
-  if (details.length) return details.join('; ');
-  return log.message || t('admin.log.noDetails');
+  const visibleMetadata: Record<string, unknown> = {
+    ...metadata,
+    last_known_step: metadata.last_known_step === metadata.current_phase
+      ? undefined
+      : metadata.last_known_step,
+  };
+  const details = Object.entries(LOG_DETAIL_LABELS)
+    .map(([key, translation]) => [translation, visibleMetadata[key]] as const)
+    .filter(([, value]) => Boolean(value) || value === 0)
+    .map(([translation, value]) => t(translation, { value: String(value) }));
+  const primaryTranslation = PRIMARY_LOG_LABELS.get(metadata.is_primary as boolean);
+  const primaryDetail = primaryTranslation ? t(primaryTranslation) : undefined;
+  const detailText = [...details, primaryDetail].filter(Boolean).join('; ');
+  return [log.message, detailText].filter(Boolean).join(' - ') || t('admin.log.noDetails');
 }
 
 function parseSafeMetadata(value?: string | null): Record<string, unknown> {
-  if (!value) return {};
   try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+    return Object(JSON.parse(value || '{}')) as Record<string, unknown>;
   } catch {
     return {};
   }
-}
-
-function metadataString(metadata: Record<string, unknown>, key: string): string | undefined {
-  const value = metadata[key];
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function metadataNumber(metadata: Record<string, unknown>, key: string): number | undefined {
-  const value = metadata[key];
-  return typeof value === 'number' ? value : undefined;
-}
-
-function metadataBoolean(metadata: Record<string, unknown>, key: string): boolean | undefined {
-  const value = metadata[key];
-  return typeof value === 'boolean' ? value : undefined;
 }

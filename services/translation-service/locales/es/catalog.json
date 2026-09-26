@@ -12,8 +12,6 @@
   "app.details.version": "Última versión detectada",
   "app.details.viewSource": "Ver origen",
   "app.download": "Descargar",
-  "app.lastScrape": "Último rastreo",
-  "app.lastScrape.empty": "Sin rastreos todavía",
   "app.refresh": "Actualizar catálogo",
   "app.title": "Batch Downloader",
   "catalog.column.action": "Acción",

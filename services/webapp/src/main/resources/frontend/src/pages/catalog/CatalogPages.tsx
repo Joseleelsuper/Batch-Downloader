@@ -45,7 +45,6 @@ import type {
   FacetItem,
   FilterKey,
 } from '../../types/catalog';
-import { formatDate } from '../../utils/date';
 
 const DEFAULT_COUNTS: Record<FilterKey, number> = {
   all: 0,
@@ -388,9 +387,6 @@ export function CatalogPage() {
         {filtersVisible ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
       </button>
       <section className="catalog-panel">
-        <div className="catalog-header-row">
-          <span>{formatLastScrape(t, stats)}</span>
-        </div>
         <AppSearchBar
           value={query}
           sort={filters.sort}
@@ -613,10 +609,4 @@ export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
-}
-
-function formatLastScrape(t: Translator, stats: CatalogStats | null): string {
-  if (!stats?.lastScrape) return t('app.lastScrape.empty');
-  const date = stats.lastScrape.finishedAt ?? stats.lastScrape.heartbeatAt ?? stats.lastScrape.startedAt;
-  return `${t('app.lastScrape')}: ${formatDate(date)}`;
 }

@@ -406,6 +406,10 @@ class CatalogRepositoryTest {
                 org.assertj.core.data.MapEntry.entry("review", 2L),
                 org.assertj.core.data.MapEntry.entry("missing", 4L));
         assertThat(stats.generatedAt()).isEqualTo(LocalDateTime.of(2026, 8, 23, 1, 0));
+        assertThat(java.util.Arrays.stream(stats.getClass().getRecordComponents())
+                        .map(java.lang.reflect.RecordComponent::getName)
+                        .toList())
+                .containsExactly("total", "filters", "generatedAt");
 
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(jdbc).queryForObject(sql.capture(), any(RowMapper.class));

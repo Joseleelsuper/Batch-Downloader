@@ -1,5 +1,8 @@
 {
   "admin.scraper.app": "",
+  "admin.scraper.actions.advanced": "",
+  "admin.scraper.actions.basic": "",
+  "admin.scraper.actions.execution": "",
   "admin.scraper.currentPhase": "",
   "admin.scraper.logs": "",
   "admin.scraper.liveState": "",
@@ -46,5 +49,9 @@
   "admin.scraper.queue.filterScraper": "",
   "admin.scraper.queue.scraperSoFilter": "",
   "admin.scraper.queue.soFilterDescriptor": "",
-  "admin.scraper.enqueueMissingDescriptions": ""
+  "admin.scraper.enqueueMissingDescriptions": "",
+  "admin.scraper.startedAt": "",
+  "admin.scraper.finishedAt": "",
+  "admin.scraper.heartbeatAt": "",
+  "admin.scraper.staleHeartbeat": ""
 }

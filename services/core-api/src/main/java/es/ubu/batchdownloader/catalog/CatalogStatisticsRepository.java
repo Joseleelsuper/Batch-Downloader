@@ -2,9 +2,6 @@ package es.ubu.batchdownloader.catalog;
 
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
-import es.ubu.batchdownloader.catalog.CatalogDtos.LastScrapeRun;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -15,8 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Consulta contadores y última ejecución del scraper y produce versiones de invalidación para HTTP
- * y WebSocket.
+ * Consulta contadores del catálogo y produce versiones de invalidación para HTTP y WebSocket.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.catalog.CatalogRepository
@@ -42,7 +38,7 @@ public class CatalogStatisticsRepository {
     }
 
     /**
-     * Lee el singleton de contadores canónicos y añade última ejecución y fecha UTC de consulta.
+     * Lee el singleton de contadores canónicos y añade la fecha UTC de consulta.
      *
      * @return estadísticas públicas sin contar de nuevo cada aplicación.
      */
@@ -62,7 +58,7 @@ public class CatalogStatisticsRepository {
         filters.put("available", snapshot.available());
         filters.put("review", snapshot.review());
         filters.put("missing", snapshot.missing());
-        return new CatalogStatsResponse(snapshot.total(), filters, latestRun(), now());
+        return new CatalogStatsResponse(snapshot.total(), filters, now());
     }
 
     /**
@@ -160,48 +156,6 @@ public class CatalogStatisticsRepository {
         return Integer.toHexString(((appToken == null ? "" : appToken)
                 + "|" + (catalogToken == null ? "" : catalogToken)
                 + "|" + (runTokens.isEmpty() ? "" : runTokens.get(0))).hashCode());
-    }
-
-    /**
-     * Selecciona la ejecución más reciente por fecha de inicio y proyecta fechas, contadores y
-     * fase.
-     *
-     * @return última ejecución o null cuando no hay historial.
-     */
-    private LastScrapeRun latestRun() {
-        List<LastScrapeRun> runs = jdbc.query(
-                """
-                SELECT status, started_at, heartbeat_at, finished_at,
-                       apps_discovered, apps_resolved, apps_failed, apps_skipped,
-                       current_package_id, current_app_name, current_phase
-                FROM scrape_runs ORDER BY started_at DESC LIMIT 1
-                """,
-                (rs, rowNum) -> new LastScrapeRun(
-                        rs.getString("status"),
-                        rs.getTimestamp("started_at").toLocalDateTime(),
-                        rs.getTimestamp("heartbeat_at").toLocalDateTime(),
-                        nullableDate(rs, "finished_at"),
-                        rs.getInt("apps_discovered"),
-                        rs.getInt("apps_resolved"),
-                        rs.getInt("apps_failed"),
-                        rs.getInt("apps_skipped"),
-                        rs.getString("current_package_id"),
-                        rs.getString("current_app_name"),
-                        rs.getString("current_phase")));
-        return runs.isEmpty() ? null : runs.get(0);
-    }
-
-    /**
-     * Lee una fecha SQL opcional sin convertir la ausencia en una fecha artificial.
-     *
-     * @param resultSet Fila SQL de la que se lee una fecha nullable.
-     * @param column Nombre de una columna nullable que se interpreta con su tipo JDBC.
-     * @return fecha y hora local del timestamp o null.
-     * @throws java.sql.SQLException si falla la lectura de la columna.
-     */
-    private LocalDateTime nullableDate(ResultSet resultSet, String column) throws SQLException {
-        var value = resultSet.getTimestamp(column);
-        return value == null ? null : value.toLocalDateTime();
     }
 
     /**

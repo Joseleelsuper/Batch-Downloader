@@ -510,7 +510,7 @@ paths:
   /apps/stats:
     get:
       operationId: getCatalogStats
-      summary: Consultar estadísticas y último rastreo
+      summary: Consultar estadísticas del catálogo
       security: []
       responses:
         '200':
@@ -3177,7 +3177,7 @@ components:
       enum: [lexical, semantic]
     CatalogStats:
       type: object
-      required: [total, filters, lastScrape, generatedAt]
+      required: [total, filters, generatedAt]
       properties:
         total:
           type: integer
@@ -3198,8 +3198,6 @@ components:
             missing:
               type: integer
               format: int64
-        lastScrape:
-          type: [object, 'null']
         generatedAt:
           type: string
           format: date-time

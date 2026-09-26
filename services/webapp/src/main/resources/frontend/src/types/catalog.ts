@@ -69,16 +69,6 @@ export interface CatalogFacets {
 export interface CatalogStats {
   total: number;
   filters: Record<FilterKey, number>;
-  lastScrape: {
-    status: string;
-    startedAt: string;
-    heartbeatAt: string;
-    finishedAt?: string | null;
-    appsDiscovered: number;
-    appsResolved: number;
-    appsFailed: number;
-    appsSkipped?: number;
-  } | null;
   generatedAt: string;
 }
 

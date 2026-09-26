@@ -1,5 +1,8 @@
 {
   "admin.scraper.app": "App actual",
+  "admin.scraper.actions.advanced": "Avanzado",
+  "admin.scraper.actions.basic": "Acciones básicas",
+  "admin.scraper.actions.execution": "Ejecución del scraper",
   "admin.scraper.currentPhase": "Fase",
   "admin.scraper.logs": "Logs recientes",
   "admin.scraper.liveState": "Canal en vivo",
@@ -46,5 +49,9 @@
   "admin.scraper.queue.filterScraper": "Filter -> Scraper",
   "admin.scraper.queue.scraperSoFilter": "Scraper -> SO Filter",
   "admin.scraper.queue.soFilterDescriptor": "SO Filter -> Descriptor",
-  "admin.scraper.enqueueMissingDescriptions": "Encolar sin descripción"
+  "admin.scraper.enqueueMissingDescriptions": "Encolar sin descripción",
+  "admin.scraper.startedAt": "Inicio",
+  "admin.scraper.finishedAt": "Fin",
+  "admin.scraper.heartbeatAt": "Último latido",
+  "admin.scraper.staleHeartbeat": "El latido lleva más de 90 minutos sin actualizarse."
 }

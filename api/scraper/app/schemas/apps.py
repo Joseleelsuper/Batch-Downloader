@@ -118,44 +118,11 @@ class CatalogFilterStats(BaseModel):
 
 
 
-class LastScrapeRun(BaseModel):
-    """Resume estado, tiempos y progreso de la ejecución más reciente del scraper.
-
-    Attributes:
-        status: Resultado o estado de la ejecución.
-        started_at, heartbeat_at, finished_at: Inicio, último latido y fin; el fin es None
-            mientras no ha terminado.
-        apps_discovered, apps_resolved, apps_failed, apps_skipped: Contadores de aplicaciones
-            descubiertas, resueltas, fallidas y omitidas.
-    """
-    model_config = ConfigDict(populate_by_name=True)
-
-
-    status: str
-
-    started_at: datetime = Field(alias="startedAt")
-
-    heartbeat_at: datetime = Field(alias="heartbeatAt")
-
-    finished_at: datetime | None = Field(default=None, alias="finishedAt")
-
-    apps_discovered: int = Field(alias="appsDiscovered")
-
-    apps_resolved: int = Field(alias="appsResolved")
-
-    apps_failed: int = Field(alias="appsFailed")
-
-    apps_skipped: int = Field(default=0, alias="appsSkipped")
-
-
-
 class CatalogStatsResponse(BaseModel):
-    """Agrupa contadores del catálogo y última ejecución con el instante de generación de la
-    respuesta.
+    """Agrupa contadores del catálogo con el instante de generación de la respuesta.
 
     Attributes:
         total, filters: Total de aplicaciones y partición por estado del catálogo.
-        last_scrape: Resumen de la última ejecución, o None si aún no existe.
         generated_at: Instante en que se construyó esta respuesta.
     """
     model_config = ConfigDict(populate_by_name=True)
@@ -164,8 +131,6 @@ class CatalogStatsResponse(BaseModel):
     total: int
 
     filters: CatalogFilterStats
-
-    last_scrape: LastScrapeRun | None = Field(default=None, alias="lastScrape")
 
     generated_at: datetime = Field(alias="generatedAt")
 
@@ -297,4 +262,3 @@ class AppDetails(BaseModel):
     download_options: list[DownloadOption] = Field(default_factory=list, alias="downloadOptions")
 
     notes: str
-
