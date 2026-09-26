@@ -24,6 +24,8 @@ import type {
 } from '../../types/catalog';
 import { formatDate } from '../../utils/date';
 
+const STALE_HEARTBEAT_MS = 90 * 60 * 1000;
+
 export function AdminScraperPage() {
   const t = useTranslation();
   const [current, setCurrent] = useState<ScraperRunSummary | null>(null);
@@ -33,6 +35,7 @@ export function AdminScraperPage() {
   const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
   const [message, setMessage] = useState<string | null>(null);
   const [enrichmentAction, setEnrichmentAction] = useState<'descriptions' | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   async function load() {
     const [nextCurrent, nextRuns, nextLogs, nextQueues] = await Promise.all([
@@ -49,7 +52,10 @@ export function AdminScraperPage() {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 10000);
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+      void load();
+    }, 10000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -119,6 +125,10 @@ export function AdminScraperPage() {
   }
 
   const controlState = scraperControlState(t, current);
+  const heartbeatTime = current ? parseUtcTimestamp(current.heartbeatAt) : Number.NaN;
+  const heartbeatIsStale = current?.status === 'running'
+    && Number.isFinite(heartbeatTime)
+    && now - heartbeatTime > STALE_HEARTBEAT_MS;
 
   return (
     <section className="admin-panel">
@@ -140,6 +150,18 @@ export function AdminScraperPage() {
           <span>{t('admin.scraper.currentPhase')}</span>
           <strong>{current?.currentPhase ?? '-'}</strong>
         </div>
+        <div>
+          <span>{t('admin.scraper.startedAt')}</span>
+          <strong>{current ? formatScraperDate(current.startedAt) : '-'}</strong>
+        </div>
+        <div>
+          <span>{t('admin.scraper.finishedAt')}</span>
+          <strong>{current?.finishedAt ? formatScraperDate(current.finishedAt) : '-'}</strong>
+        </div>
+        <div>
+          <span>{t('admin.scraper.heartbeatAt')}</span>
+          <strong>{current ? formatScraperDate(current.heartbeatAt) : '-'}</strong>
+        </div>
         <div className="scraper-status-progress">
           <span>{t('admin.scraper.progress')}</span>
           {current ? (
@@ -149,6 +171,9 @@ export function AdminScraperPage() {
           ) : <strong>-</strong>}
         </div>
       </div>
+      {heartbeatIsStale ? (
+        <p className="form-message" role="alert">{t('admin.scraper.staleHeartbeat')}</p>
+      ) : null}
       <div className="button-row">
         <button className="secondary-button" type="button" disabled={!controlState.pause.enabled} title={controlState.pause.reason} onClick={() => command('pause')}>{t('admin.scraper.pause')}</button>
         <button className="secondary-button" type="button" disabled={!controlState.resume.enabled} title={controlState.resume.reason} onClick={() => command('resume')}>{t('admin.scraper.resume')}</button>
@@ -204,6 +229,16 @@ export function AdminScraperPage() {
       </div>
     </section>
   );
+}
+
+function parseUtcTimestamp(value: string): number {
+  const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+  return Date.parse(hasTimezone ? value : `${value}Z`);
+}
+
+function formatScraperDate(value: string): string {
+  const timestamp = parseUtcTimestamp(value);
+  return Number.isFinite(timestamp) ? formatDate(new Date(timestamp).toISOString()) : '-';
 }
 
 function formatScrapeProgress(t: Translator, run: ScraperRunSummary): string {

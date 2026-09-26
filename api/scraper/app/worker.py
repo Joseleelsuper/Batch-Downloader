@@ -40,7 +40,7 @@ from app.repositories.pipeline import (
     PipelineRepository,
 )
 from app.repositories.retention import RetentionRepository
-from app.repositories.runs import ScrapeRunRepository
+from app.repositories.runs import RUN_LOCK_STALE_MINUTES, ScrapeRunRepository
 from app.scraper.candidates import extract_version, infer_architecture, registered_domain
 from app.scraper.catalog_fetcher import CatalogFetcher
 from app.scraper.content_workers import (
@@ -61,6 +61,20 @@ from app.scraper.website_discovery import WebsiteAppDiscoveryWorker
 from app.scraper.winstall import WinstallClient
 
 logger = get_logger(__name__)
+
+SCRAPE_WATCHDOG_POLL_SECONDS = 30
+SCRAPE_CANCELLATION_TIMEOUT_SECONDS = 30
+STALE_SCRAPE_ERROR = (
+    f"Scrape stopped after its heartbeat exceeded the {RUN_LOCK_STALE_MINUTES}-minute lease."
+)
+
+
+class StaleScrapeCancellationTimeout(RuntimeError):
+    """Indica que una ejecución obsoleta no respondió a la cancelación del dispatcher."""
+
+
+class StaleScrapeRecoveryError(RuntimeError):
+    """Indica que no se pudo confirmar la recuperación de una ejecución detenida."""
 
 
 
@@ -380,11 +394,15 @@ async def run_request_dispatcher(instance_id: uuid.UUID) -> None:
                         )
                         await session.commit()
                     else:
-                        await CatalogFetcher(settings, session).scrape_once(
+                        await execute_scrape_with_watchdog(
+                            settings,
+                            session,
+                            request_id=request.id,
                             scope=scope,
                             selected_app_ids=selected_ids,
-                            request_id=request.id,
                         )
+        except (StaleScrapeCancellationTimeout, StaleScrapeRecoveryError):
+            raise
         except Exception as exc:
             logger.warning(
                 "scrape_request_dispatch_failed",
@@ -399,6 +417,135 @@ async def run_request_dispatcher(instance_id: uuid.UUID) -> None:
         else:
             await persist_scheduler_heartbeat(instance_id, action="success")
         await asyncio.sleep(2)
+
+
+async def execute_scrape_with_watchdog(
+    settings,
+    session,
+    *,
+    request_id: uuid.UUID,
+    scope: ScrapeScope,
+    selected_app_ids: list[uuid.UUID],
+) -> None:
+    """Vigila el latido de una solicitud y libera su ejecución solo tras detenerla."""
+    scrape_task = asyncio.create_task(
+        CatalogFetcher(settings, session).scrape_once(
+            scope=scope,
+            selected_app_ids=selected_app_ids,
+            request_id=request_id,
+        ),
+        name=f"scrape-run-{request_id}",
+    )
+    try:
+        while True:
+            stale_run_id = await wait_for_stale_scrape(settings, request_id, scrape_task)
+            if stale_run_id is None:
+                return
+            logger.warning(
+                "scrape_heartbeat_stale",
+                request_id=str(request_id),
+                run_id=str(stale_run_id),
+            )
+            await cancel_scrape_task(scrape_task, str(stale_run_id))
+            recovered_run_id = await persist_stale_scrape_recovery(
+                settings,
+                session,
+                request_id,
+            )
+            if recovered_run_id is not None:
+                logger.warning(
+                    "stale_scrape_recovered",
+                    request_id=str(request_id),
+                    run_id=str(recovered_run_id),
+                )
+            return
+    except asyncio.CancelledError:
+        if not scrape_task.done():
+            await cancel_scrape_task(scrape_task, str(request_id))
+        raise
+    except StaleScrapeCancellationTimeout:
+        raise
+    except StaleScrapeRecoveryError:
+        raise
+    except Exception:
+        if not scrape_task.done():
+            await cancel_scrape_task(scrape_task, str(request_id))
+        raise
+
+
+async def wait_for_stale_scrape(
+    settings,
+    request_id: uuid.UUID,
+    scrape_task: asyncio.Task,
+) -> uuid.UUID | None:
+    """Espera a que termine el scrape o detecta que su último latido ya caducó."""
+    while True:
+        done, _ = await asyncio.wait(
+            {scrape_task},
+            timeout=SCRAPE_WATCHDOG_POLL_SECONDS,
+        )
+        if scrape_task in done:
+            await scrape_task
+            return None
+        try:
+            async with AsyncSessionLocal() as watchdog_session:
+                repository = ScrapeRunRepository(watchdog_session, settings)
+                stale_run_id = await repository.stale_running_run_id(request_id)
+                await watchdog_session.rollback()
+        except SQLAlchemyError as exc:
+            logger.warning(
+                "scrape_watchdog_check_failed",
+                request_id=str(request_id),
+                error=exc.__class__.__name__,
+            )
+            continue
+        if stale_run_id is not None:
+            return stale_run_id
+
+
+async def persist_stale_scrape_recovery(
+    settings,
+    session,
+    request_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Revierte la sesión cancelada y confirma el fallo antes de liberar el dispatcher."""
+    try:
+        await session.rollback()
+        async with AsyncSessionLocal() as cleanup_session:
+            repository = ScrapeRunRepository(cleanup_session, settings)
+            recovered_run_id = await repository.fail_running_request(
+                request_id,
+                STALE_SCRAPE_ERROR,
+            )
+            await cleanup_session.commit()
+    except Exception as exc:
+        raise StaleScrapeRecoveryError(
+            f"Could not persist recovery for scrape request {request_id}."
+        ) from exc
+    return recovered_run_id
+
+
+async def cancel_scrape_task(scrape_task: asyncio.Task, run_id: str) -> None:
+    """Espera la cancelación antes de dejar que el dispatcher libere o abandone la ejecución."""
+    scrape_task.cancel()
+    done, _ = await asyncio.wait(
+        {scrape_task},
+        timeout=SCRAPE_CANCELLATION_TIMEOUT_SECONDS,
+    )
+    if scrape_task not in done:
+        raise StaleScrapeCancellationTimeout(
+            f"Scrape run {run_id} did not stop after cancellation."
+        )
+    try:
+        scrape_task.result()
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:  # noqa: BLE001 - la tarea vigilada ya terminó con su propio error
+        logger.warning(
+            "stale_scrape_finished_with_error",
+            run_id=run_id,
+            error=exc.__class__.__name__,
+        )
 
 
 async def persist_scheduler_heartbeat(
@@ -638,12 +785,15 @@ async def run_scheduler() -> None:
     settings = get_settings()
     instance_id = uuid.uuid4()
     await persist_scheduler_heartbeat(instance_id, action="success")
+    recovered = await recover_scheduler_runs()
+    if recovered:
+        logger.warning("scrape_running_locks_recovered", recovered=recovered)
     await prune_retained_records()
     scheduler = AsyncIOScheduler(timezone=settings.scheduler_zoneinfo)
     scheduler.add_job(
         enqueue_scrape_request,
         trigger="cron",
-        day_of_week="mon-sat",
+        day_of_week="mon-thu,sat-sun",
         hour=settings.scheduler_hour,
         minute=settings.scheduler_minute,
         kwargs={
@@ -667,7 +817,7 @@ async def run_scheduler() -> None:
     scheduler.add_job(
         enqueue_scrape_request,
         trigger="cron",
-        day_of_week="sun",
+        day_of_week="fri",
         hour=settings.scheduler_hour,
         minute=settings.scheduler_minute,
         kwargs={

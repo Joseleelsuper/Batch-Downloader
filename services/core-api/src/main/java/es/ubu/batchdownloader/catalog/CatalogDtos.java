@@ -359,27 +359,12 @@ public class CatalogDtos {
      * @version 0.1.0
      * @category Catálogo
      */
-    public record LastScrapeRun(
-            String status,
-            LocalDateTime startedAt,
-            LocalDateTime heartbeatAt,
-            LocalDateTime finishedAt,
-            int appsDiscovered,
-            int appsResolved,
-            int appsFailed,
-            int appsSkipped,
-            String currentPackageId,
-            String currentAppName,
-            String currentPhase) {}
-
     /**
-     * Entrega contadores públicos por estado y la última ejecución del scraper con fecha de
-     * generación.
+     * Entrega contadores públicos por estado y la fecha UTC de generación.
      *
      * @param total Número de aplicaciones que cumplen el conjunto completo de filtros antes de
      *     paginar.
      * @param filters Totales bajo all, available, review y missing.
-     * @param lastScrape Última ejecución registrada del scraper, o null si no hay historial.
      * @param generatedAt Instante UTC en que se construye la estadística o evento.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @since 0.1.0
@@ -389,7 +374,6 @@ public class CatalogDtos {
     public record CatalogStatsResponse(
             long total,
             Map<String, Long> filters,
-            LastScrapeRun lastScrape,
             LocalDateTime generatedAt) {}
 
     /**

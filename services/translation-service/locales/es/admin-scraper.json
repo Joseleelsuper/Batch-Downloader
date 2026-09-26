@@ -46,5 +46,9 @@
   "admin.scraper.queue.filterScraper": "Filter -> Scraper",
   "admin.scraper.queue.scraperSoFilter": "Scraper -> SO Filter",
   "admin.scraper.queue.soFilterDescriptor": "SO Filter -> Descriptor",
-  "admin.scraper.enqueueMissingDescriptions": "Encolar sin descripción"
+  "admin.scraper.enqueueMissingDescriptions": "Encolar sin descripción",
+  "admin.scraper.startedAt": "Inicio",
+  "admin.scraper.finishedAt": "Fin",
+  "admin.scraper.heartbeatAt": "Último latido",
+  "admin.scraper.staleHeartbeat": "El latido lleva más de 90 minutos sin actualizarse."
 }

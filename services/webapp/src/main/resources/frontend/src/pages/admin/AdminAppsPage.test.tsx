@@ -162,7 +162,6 @@ describe('AdminAppsPage', () => {
     vi.spyOn(catalogAppsApi, 'fetchCatalogStats').mockResolvedValue({
       total: 10,
       filters: { all: 10, available: 6, review: 3, missing: 1 },
-      lastScrape: null,
       generatedAt: '2026-07-28T08:00:00Z',
     });
     vi.spyOn(adminAppsApi, 'fetchAbsenceVerificationSummary').mockResolvedValue({

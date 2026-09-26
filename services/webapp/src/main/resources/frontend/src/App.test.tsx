@@ -83,7 +83,6 @@ describe('catalog workspace', () => {
     vi.spyOn(catalogAppsApi, 'fetchCatalogStats').mockResolvedValue({
       total: 0,
       filters: { all: 0, available: 0, review: 0, missing: 0 },
-      lastScrape: null,
       generatedAt: '2026-07-13T12:00:00Z',
     });
     vi.spyOn(catalogAppsApi, 'fetchCatalogFacets').mockResolvedValue({
@@ -149,7 +148,6 @@ describe('catalog workspace', () => {
     vi.mocked(catalogAppsApi.fetchCatalogStats).mockResolvedValue({
       total: 13_493,
       filters: { all: 13_493, available: 13_404, review: 88, missing: 1 },
-      lastScrape: null,
       generatedAt: '2026-07-16T08:00:00Z',
     });
 
