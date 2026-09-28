@@ -6,6 +6,12 @@ markers = [
 ]
 pythonpath = ["."]
 
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+fail_under = 69
+
 [tool.ruff]
 line-length = 100
 target-version = "py314"

@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.migration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -43,6 +44,7 @@ class CoreMySqlMigrationTest {
                             ) STORED,
                         catalog_review_source_count INT UNSIGNED NOT NULL DEFAULT 0,
                         normalized_name VARCHAR(180) NOT NULL,
+                        updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                         PRIMARY KEY (id)
                     )
                     """);
@@ -103,6 +105,9 @@ class CoreMySqlMigrationTest {
             execute(connection, "DELETE FROM software_requests");
         }
         flyway.repair();
+
+        assertProjectionTableBlocksV17(flyway, true);
+        assertProjectionTableBlocksV17(flyway, false);
         flyway.migrate();
     }
 
@@ -119,6 +124,7 @@ class CoreMySqlMigrationTest {
 
         try (Connection connection = connection()) {
             insertCatalogApp(connection, appId);
+            assertCatalogReviewSortUsesGeneratedPriority(connection);
             insertUser(connection, userId);
             insertBundleGraph(connection, bundleId, appId, userId);
             assertThat(count(connection, "SPRING_SESSION")).isZero();
@@ -195,6 +201,102 @@ class CoreMySqlMigrationTest {
                 """, appId.toString());
     }
 
+    private static void assertCatalogReviewSortUsesGeneratedPriority(Connection connection)
+            throws SQLException {
+        insertCatalogAppForSort(
+                connection,
+                UUID.randomUUID(),
+                "available",
+                "priority-recent",
+                LocalDateTime.of(2040, 1, 1, 0, 0));
+        insertCatalogAppForSort(
+                connection,
+                UUID.randomUUID(),
+                "available",
+                "priority-older",
+                LocalDateTime.of(2020, 1, 1, 0, 0));
+        insertCatalogAppForSort(
+                connection,
+                UUID.randomUUID(),
+                "review",
+                "priority-review",
+                LocalDateTime.of(2050, 1, 1, 0, 0));
+
+        try (Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("""
+                        SELECT normalized_name
+                        FROM software_apps
+                        WHERE app_status = 'active'
+                        ORDER BY catalog_review_priority ASC, updated_at DESC,
+                                 normalized_name ASC, id ASC
+                        """)) {
+            java.util.ArrayList<String> orderedNames = new java.util.ArrayList<>();
+            while (result.next()) {
+                orderedNames.add(result.getString(1));
+            }
+            assertThat(orderedNames).containsExactly(
+                    "priority-recent", "migration-test", "priority-older", "priority-review");
+        }
+    }
+
+    private static void insertCatalogAppForSort(
+            Connection connection,
+            UUID appId,
+            String status,
+            String normalizedName,
+            LocalDateTime updatedAt) throws SQLException {
+        execute(connection, """
+                INSERT INTO software_apps (
+                    id, app_status, catalog_status, catalog_review_source_count,
+                    normalized_name, updated_at
+                ) VALUES (UUID_TO_BIN(?), 'active', ?, 0, ?, ?)
+                """, appId.toString(), status, normalizedName, updatedAt);
+    }
+
+    private static void assertProjectionTableBlocksV17(Flyway flyway, boolean sourceTable)
+            throws SQLException {
+        UUID appId = UUID.randomUUID();
+        UUID sourceRef = UUID.randomUUID();
+        try (Connection connection = connection()) {
+            insertCatalogProjection(connection, appId);
+            if (sourceTable) {
+                execute(connection, """
+                        INSERT INTO catalog_source_projections (
+                            source_ref, app_id, trust_status, artifact_format, platform,
+                            architecture, size_bytes, sha256, updated_at
+                        ) VALUES (?, ?, 'trusted', 'zip', 'windows', 'x86_64', NULL, NULL, NOW(6))
+                        """, sourceRef.toString(), appId.toString());
+            }
+        }
+
+        assertThatThrownBy(flyway::migrate)
+                .isInstanceOf(FlywayException.class)
+                .hasMessageContaining("V17");
+
+        try (Connection connection = connection()) {
+            assertThat(flywayVersion(connection)).isEqualTo("16.2");
+            assertThat(count(connection, "catalog_app_projections")).isEqualTo(1L);
+            assertThat(count(connection, "catalog_source_projections"))
+                    .isEqualTo(sourceTable ? 1L : 0L);
+            if (sourceTable) {
+                execute(connection, "DELETE FROM catalog_source_projections WHERE source_ref = ?",
+                        sourceRef.toString());
+            }
+            execute(connection, "DELETE FROM catalog_app_projections WHERE app_id = ?",
+                    appId.toString());
+        }
+        flyway.repair();
+    }
+
+    private static void insertCatalogProjection(Connection connection, UUID appId)
+            throws SQLException {
+        execute(connection, """
+                INSERT INTO catalog_app_projections (
+                    app_id, slug, name, publisher, description, downloadable, updated_at
+                ) VALUES (?, ?, 'Migration projection', NULL, NULL, FALSE, NOW(6))
+                """, appId.toString(), "migration-projection-" + appId);
+    }
+
     private static void insertUser(Connection connection, String userId) throws SQLException {
         execute(connection, """
                 INSERT INTO core_users (
@@ -267,6 +369,8 @@ class CoreMySqlMigrationTest {
             case "bundle_stars" -> "SELECT COUNT(*) FROM bundle_stars";
             case "SPRING_SESSION" -> "SELECT COUNT(*) FROM SPRING_SESSION";
             case "software_requests" -> "SELECT COUNT(*) FROM software_requests";
+            case "catalog_app_projections" -> "SELECT COUNT(*) FROM catalog_app_projections";
+            case "catalog_source_projections" -> "SELECT COUNT(*) FROM catalog_source_projections";
             default -> throw new IllegalArgumentException("Tabla no permitida: " + table);
         };
         try (Statement statement = connection.createStatement();
