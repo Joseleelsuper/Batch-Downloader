@@ -18,8 +18,13 @@ import org.springframework.stereotype.Service;
 @Service
 public class SeoService {
     static final String BRAND = "Batch Downloader";
+    static final String APP_PREFIX = "/catalog/app/";
+    static final String BUNDLE_PREFIX = "/bundles/";
     private static final String INDEX = "index, follow";
     private static final String NOINDEX = "noindex, follow";
+    private static final String WEB_PAGE = "WebPage";
+    private static final Map<String, String> CATALOG_DEFAULT_FILTERS = Map.of(
+            "status", "available", "sort", "downloads", "page", "1", "pageSize", "12");
     private static final Map<String, List<String>> PUBLIC_PAGES = Map.of(
             "/", List.of("Descarga varias aplicaciones a la vez", "Busca aplicaciones para Windows, Linux y macOS, crea bundles y descarga sus instaladores juntos con Batch Downloader."),
             "/catalog", List.of("Catálogo de aplicaciones", "Encuentra aplicaciones para Windows, Linux y macOS por nombre, editor, etiquetas o búsqueda semántica. Prepara tus descargas en un solo lugar."),
@@ -50,7 +55,7 @@ public class SeoService {
                 || !(configured.getPath().isEmpty() || "/".equals(configured.getPath()))) {
             throw new IllegalArgumentException("invalid_public_base_url");
         }
-        baseUrl = publicBaseUrl.replaceAll("/+$", "");
+        baseUrl = publicBaseUrl.endsWith("/") ? publicBaseUrl.substring(0, publicBaseUrl.length() - 1) : publicBaseUrl;
     }
 
     public record Metadata(String title, String description, String canonicalUrl, String imageUrl,
@@ -63,22 +68,22 @@ public class SeoService {
         boolean filtered = filteredCatalog(requestedPath, path);
         if (staticPage != null) {
             return page(path, staticPage.getFirst(), staticPage.get(1), filtered ? NOINDEX : INDEX,
-                    "/".equals(path) ? "WebSite" : "WebPage", null);
+                    "/".equals(path) ? "WebSite" : WEB_PAGE, null);
         }
         String privateTitle = PRIVATE_PAGES.get(path);
         if (privateTitle == null && (path.matches("/dashboard/bundles/[^/]+/edit")
                 || path.matches("/admin/semantic/[^/]+"))) privateTitle = "Área personal";
         if (privateTitle != null) return privateShell(path, privateTitle);
-        if (path.startsWith("/catalog/app/") && oneSegment(path, "/catalog/app/")) {
-            return repository.app(path.substring("/catalog/app/".length()))
-                    .map(app -> page("/catalog/app/" + app.id(), app.name(),
+        if (path.startsWith(APP_PREFIX) && oneSegment(path, APP_PREFIX)) {
+            return repository.app(path.substring(APP_PREFIX.length()))
+                    .map(app -> page(APP_PREFIX + app.id(), app.name(),
                             fallback(app.description(), "Consulta " + app.name() + " y sus opciones de descarga en Batch Downloader."),
                             INDEX, "SoftwareApplication", app.publisher()))
                     .orElseGet(this::notFound);
         }
-        if (path.startsWith("/bundles/") && oneSegment(path, "/bundles/")) {
-            return repository.bundle(path.substring("/bundles/".length()))
-                    .map(bundle -> page("/bundles/" + bundle.id(), bundle.name(),
+        if (path.startsWith(BUNDLE_PREFIX) && oneSegment(path, BUNDLE_PREFIX)) {
+            return repository.bundle(path.substring(BUNDLE_PREFIX.length()))
+                    .map(bundle -> page(BUNDLE_PREFIX + bundle.id(), bundle.name(),
                             fallback(bundle.description(), "Explora las aplicaciones del bundle " + bundle.name() + " y descarga sus instaladores juntos."),
                             INDEX, "CollectionPage", null))
                     .orElseGet(this::notFound);
@@ -88,7 +93,7 @@ public class SeoService {
 
     public Resolution privateShell(String path, String title) {
         return page(path, title, "Accede a Batch Downloader para gestionar tu cuenta, tus bundles y tus descargas.",
-                NOINDEX, "WebPage", null);
+                NOINDEX, WEB_PAGE, null);
     }
 
     public Resolution notFound() {
@@ -100,7 +105,7 @@ public class SeoService {
     }
 
     private Resolution error(int status, String title, String description) {
-        Metadata safe = page("/", title, description, "noindex, nofollow", "WebPage", null).metadata();
+        Metadata safe = page("/", title, description, "noindex, nofollow", WEB_PAGE, null).metadata();
         return new Resolution(status, safe);
     }
 
@@ -134,7 +139,7 @@ public class SeoService {
             String path = uri.getPath();
             if (path == null || !path.startsWith("/") || path.contains("//")
                     || path.chars().anyMatch(c -> c < 32 || c == '\\')) return "";
-            return path.length() > 1 ? path.replaceAll("/+$", "") : path;
+            return path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
         } catch (IllegalArgumentException exception) {
             return "";
         }
@@ -142,8 +147,8 @@ public class SeoService {
 
     static Optional<String> bundleIdentifier(String requestedPath) {
         String path = path(requestedPath);
-        return path.startsWith("/bundles/") && oneSegment(path, "/bundles/")
-                ? Optional.of(path.substring("/bundles/".length())) : Optional.empty();
+        return path.startsWith(BUNDLE_PREFIX) && oneSegment(path, BUNDLE_PREFIX)
+                ? Optional.of(path.substring(BUNDLE_PREFIX.length())) : Optional.empty();
     }
 
     private static boolean oneSegment(String path, String prefix) {
@@ -161,14 +166,16 @@ public class SeoService {
             String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
             String value = parts.length > 1 ? URLDecoder.decode(parts[1], StandardCharsets.UTF_8).strip() : "";
             if (value.isEmpty()) continue;
-            if (Set.of("query", "tag", "publisher", "architecture").contains(key)) return true;
-            if (("status".equals(key) && !"available".equals(value))
-                    || ("sort".equals(key) && !"downloads".equals(value))
-                    || ("page".equals(key) && !"1".equals(value))
-                    || ("pageSize".equals(key) && !"12".equals(value))) return true;
+            if (isCatalogFilter(key, value)) return true;
             if ("os".equals(key)) systems.add(value);
         }
         return !systems.isEmpty() && !systems.equals(Set.of("windows", "linux", "macos"));
+    }
+
+    private static boolean isCatalogFilter(String key, String value) {
+        String defaultValue = CATALOG_DEFAULT_FILTERS.get(key);
+        return Set.of("query", "tag", "publisher", "architecture").contains(key)
+                || (defaultValue != null && !defaultValue.equals(value));
     }
 
     private static String fallback(String value, String alternative) {
@@ -253,7 +260,7 @@ public class SeoService {
         } else {
             long count = repository.sitemapCount(group);
             if ((long) (page - 1) * SeoRepository.SITEMAP_PAGE_SIZE >= count) return Optional.empty();
-            String prefix = "apps".equals(group) ? "/catalog/app/" : "/bundles/";
+            String prefix = "apps".equals(group) ? APP_PREFIX : BUNDLE_PREFIX;
             for (SeoRepository.SitemapEntry entry : repository.sitemapEntries(group, page)) {
                 xml.append("<url><loc>").append(escape(baseUrl + prefix + entry.id()))
                         .append("</loc><lastmod>").append(entry.updatedAt().toLocalDate())

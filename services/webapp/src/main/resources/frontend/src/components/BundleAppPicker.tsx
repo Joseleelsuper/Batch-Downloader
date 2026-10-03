@@ -16,7 +16,7 @@ interface Props {
 }
 
 /** Mantiene la selección independiente de la búsqueda paginada y del catálogo visible. */
-export function BundleAppPicker({ apps, onChange, administrator = false }: Props) {
+export function BundleAppPicker({ apps, onChange, administrator = false }: Readonly<Props>) {
   const t = useTranslation();
   const id = useId();
   const [{ query, page }, setSearch] = useState({ query: '', page: 1 });
@@ -60,7 +60,9 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Props
     const next = [...apps];
     [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
     onChange(next);
-    const action = nextIndex === 0 ? 'down' : nextIndex === apps.length - 1 ? 'up' : direction === -1 ? 'up' : 'down';
+    let action = direction === -1 ? 'up' : 'down';
+    if (nextIndex === 0) action = 'down';
+    else if (nextIndex === apps.length - 1) action = 'up';
     window.requestAnimationFrame(() => document.getElementById(`${id}-${action}-${apps[index].id}`)?.focus());
   }
 
@@ -70,6 +72,32 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Props
     window.requestAnimationFrame(() => {
       document.getElementById(neighbor ? `${id}-remove-${neighbor.id}` : `${id}-query`)?.focus();
     });
+  }
+
+  function searchStatus() {
+    if (loading) return t('bundlePicker.loading');
+    if (failed) return t('bundlePicker.failed');
+    if (!query.trim()) return t('bundlePicker.popular');
+    return t(total === 1 ? 'bundlePicker.oneResult' : 'bundlePicker.results', { count: total });
+  }
+
+  function renderResults() {
+    if (loading) return <div className="bundle-picker-placeholder" aria-hidden="true" />;
+    if (failed) return <button type="button" className="secondary-button" onClick={() => setRetry((value) => value + 1)}>{t('bundlePicker.retry')}</button>;
+    if (!results.length) return <p className="bundle-picker-empty">{t('bundlePicker.empty')}</p>;
+    return <ul className="bundle-picker-list">{results.map((app) => {
+      const selected = selectedIds.has(app.id);
+      return <li className="bundle-picker-row" key={app.id}>
+        <AppMiniIcon app={app} />
+        <div className="bundle-picker-app"><strong>{app.name}</strong><small>{app.publisher || app.packageId}</small></div>
+        <button type="button" className="bundle-picker-add" disabled={selected || apps.length >= MAX_APPS}
+          aria-label={t(selected ? 'bundlePicker.addedApp' : 'bundlePicker.addApp', { name: app.name })}
+          onClick={() => add(app)}>
+          {selected ? <Check size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}
+          <span>{t(selected ? 'bundlePicker.added' : 'bundlePicker.add')}</span>
+        </button>
+      </li>;
+    })}</ul>;
   }
 
   return <div className="bundle-app-picker">
@@ -86,27 +114,9 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Props
           onChange={(event) => setSearch({ query: event.target.value, page: 1 })}
           onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
       </label>
-      <p className="bundle-picker-status" role="status">
-        {loading ? t('bundlePicker.loading') : failed ? t('bundlePicker.failed')
-          : query.trim() ? t(total === 1 ? 'bundlePicker.oneResult' : 'bundlePicker.results', { count: total }) : t('bundlePicker.popular')}
-      </p>
+      <p className="bundle-picker-status"><output>{searchStatus()}</output></p>
       <div className="bundle-picker-results" aria-busy={loading}>
-        {loading ? <div className="bundle-picker-placeholder" aria-hidden="true" />
-          : failed ? <button type="button" className="secondary-button" onClick={() => setRetry((value) => value + 1)}>{t('bundlePicker.retry')}</button>
-            : !results.length ? <p className="bundle-picker-empty">{t('bundlePicker.empty')}</p>
-              : <ul className="bundle-picker-list">{results.map((app) => {
-                const selected = selectedIds.has(app.id);
-                return <li className="bundle-picker-row" key={app.id}>
-                  <AppMiniIcon app={app} />
-                  <div className="bundle-picker-app"><strong>{app.name}</strong><small>{app.publisher || app.packageId}</small></div>
-                  <button type="button" className="bundle-picker-add" disabled={selected || apps.length >= MAX_APPS}
-                    aria-label={t(selected ? 'bundlePicker.addedApp' : 'bundlePicker.addApp', { name: app.name })}
-                    onClick={() => add(app)}>
-                    {selected ? <Check size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}
-                    <span>{t(selected ? 'bundlePicker.added' : 'bundlePicker.add')}</span>
-                  </button>
-                </li>;
-              })}</ul>}
+        {renderResults()}
       </div>
       <nav className="bundle-picker-pagination" aria-label={t('bundlePicker.pagination')}>
         <button type="button" disabled={loading || failed || page <= 1} aria-label={t('catalog.pagination.previous')}
@@ -119,9 +129,9 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Props
     <section className="bundle-picker-panel bundle-picker-selection" aria-labelledby={`${id}-selected-title`}>
       <header className="bundle-picker-heading">
         <h3 id={`${id}-selected-title`}>{t('bundlePicker.selection')}</h3>
-        <p role="status">{t('bundlePicker.selected', { count: apps.length, limit: MAX_APPS })}</p>
+        <p><output>{t('bundlePicker.selected', { count: apps.length, limit: MAX_APPS })}</output></p>
       </header>
-      {apps.length >= MAX_APPS ? <p className="bundle-picker-limit" role="status">{t('bundlePicker.limit')}</p> : null}
+      {apps.length >= MAX_APPS ? <p className="bundle-picker-limit"><output>{t('bundlePicker.limit')}</output></p> : null}
       {apps.length ? <ol className="bundle-picker-list bundle-picker-selected-list">{apps.map((app, index) => <li className="bundle-picker-row" key={app.id}>
         <AppMiniIcon app={app} />
         <div className="bundle-picker-app"><strong>{app.name}</strong><small>{app.publisher || app.packageId}</small></div>

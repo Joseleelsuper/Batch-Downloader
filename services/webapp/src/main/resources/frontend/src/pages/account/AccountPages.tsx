@@ -25,6 +25,7 @@ import {
   useParams,
 } from 'react-router-dom';
 import {
+  adminLogin,
   confirmMagicLink,
   createOwnBundle,
   deleteOwnBundle,
@@ -35,7 +36,6 @@ import {
   updateOwnBundle,
   updateProfile,
 } from '../../api/account';
-import { adminLogin } from '../../api/account';
 import { ApiRequestError } from '../../api/http';
 import { useAuth } from '../../auth/AuthContext';
 import { BundleAppPicker } from '../../components/BundleAppPicker';
@@ -91,7 +91,7 @@ export function UserLoginPage() {
 
   useEffect(() => {
     if (!location.hash) return;
-    navigate('/login', { replace: true, state: location.state });
+    void navigate('/login', { replace: true, state: location.state });
   }, [location.hash, location.state, navigate]);
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export function UserLoginPage() {
     void confirmMagicLink(token)
       .then((account) => {
         auth.setAuthenticated(account);
-        navigate(destination, { replace: true });
+        return navigate(destination, { replace: true });
       })
       .catch((cause) => setError(apiMessage(t, cause, 'account.magic.failed')))
       .finally(() => setSubmitting(false));
@@ -136,7 +136,7 @@ export function UserLoginPage() {
           <input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
         </label>
         {error ? <p className="error-banner">{error}</p> : null}
-        {message ? <p className="form-message" role="status">{message}</p> : null}
+        {message ? <p className="form-message"><output>{message}</output></p> : null}
         <div className="auth-actions">
           <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.magic.submit')}</button>
           <Link className="auth-switch-link" to="/admin/login" aria-label={t('account.adminLogin.link')} title={t('account.adminLogin.link')}>
@@ -173,7 +173,7 @@ export function AdminLoginPage() {
     try {
       const account = await adminLogin(username, password);
       auth.setAuthenticated(account);
-      navigate(destination, { replace: true });
+      await navigate(destination, { replace: true });
     } catch (cause) {
       setError(apiMessage(t, cause, 'login.invalid'));
     } finally {
@@ -209,7 +209,7 @@ export function AccountLayout() {
   const navigate = useNavigate();
   async function signOut() {
     await auth.signOut();
-    navigate('/login', { replace: true });
+    void navigate('/login', { replace: true });
   }
   return <div className="account-shell">
     <aside className="account-nav admin-sidebar">
@@ -323,7 +323,7 @@ export function BundleEditorPage() {
       const saved = editing && id && bundle
         ? await updateOwnBundle(id, { ...input, visibility, expectedVersion: bundle.version })
         : await createOwnBundle(input);
-      navigate(`/dashboard/bundles/${saved.id}/edit`, { replace: true });
+      await navigate(`/dashboard/bundles/${saved.id}/edit`, { replace: true });
       setBundle(saved);
     } catch (cause) {
       setError(apiMessage(t, cause, 'account.bundles.saveFailed'));
@@ -335,7 +335,7 @@ export function BundleEditorPage() {
   async function remove() {
     if (!id || !window.confirm(t('account.bundles.deleteConfirm'))) return;
     setSubmitting(true);
-    try { await deleteOwnBundle(id); navigate('/dashboard/bundles', { replace: true }); }
+    try { await deleteOwnBundle(id); await navigate('/dashboard/bundles', { replace: true }); }
     catch (cause) { setError(apiMessage(t, cause, 'account.bundles.deleteFailed')); setSubmitting(false); }
   }
 

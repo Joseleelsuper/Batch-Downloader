@@ -52,7 +52,7 @@ function applyMetadata(value: SeoMetadata) {
   if (value.structuredData) {
     const script = document.createElement('script');
     script.type = 'application/ld+json';
-    script.textContent = JSON.stringify(value.structuredData).replace(/</g, '\\u003c');
+    script.textContent = JSON.stringify(value.structuredData).replace(/</g, String.raw`\u003c`);
     document.head.append(script);
   }
 }

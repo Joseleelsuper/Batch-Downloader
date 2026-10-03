@@ -76,8 +76,8 @@ public class SocialCardRenderer {
     }
 
     private static String sectionLabel(String path) {
-        if (path.startsWith("/catalog/app/")) return "APLICACIÓN DEL CATÁLOGO";
-        if (path.startsWith("/bundles/")) return "BUNDLE DE APLICACIONES";
+        if (path.startsWith(SeoService.APP_PREFIX)) return "APLICACIÓN DEL CATÁLOGO";
+        if (path.startsWith(SeoService.BUNDLE_PREFIX)) return "BUNDLE DE APLICACIONES";
         return switch (path) {
             case "/catalog" -> "CATÁLOGO DE APLICACIONES";
             case "/catalog/tags" -> "EXPLORA POR CATEGORÍA";
@@ -89,8 +89,8 @@ public class SocialCardRenderer {
     }
 
     private static String footerLabel(String path) {
-        if (path.startsWith("/catalog/app/")) return "FUENTES Y OPCIONES DE DESCARGA";
-        if (path.startsWith("/bundles/")) return "TUS APLICACIONES EN UN SOLO ZIP";
+        if (path.startsWith(SeoService.APP_PREFIX)) return "FUENTES Y OPCIONES DE DESCARGA";
+        if (path.startsWith(SeoService.BUNDLE_PREFIX)) return "TUS APLICACIONES EN UN SOLO ZIP";
         return switch (path) {
             case "/catalog/tags" -> "ETIQUETAS DEL CATÁLOGO";
             case "/catalog/editors" -> "EDITORES DE APLICACIONES";
@@ -101,7 +101,7 @@ public class SocialCardRenderer {
     }
 
     private static void drawIllustration(Graphics2D canvas, String path) {
-        if (path.startsWith("/catalog/app/")) {
+        if (path.startsWith(SeoService.APP_PREFIX)) {
             canvas.setColor(new Color(0x007F87));
             canvas.fillRoundRect(954, 40, 160, 113, 14, 14);
             canvas.setColor(Color.WHITE);
@@ -114,7 +114,7 @@ public class SocialCardRenderer {
             canvas.setColor(new Color(0x007F87));
             canvas.fillRoundRect(1017, 88, 70, 7, 4, 4);
             canvas.fillRoundRect(1017, 105, 52, 7, 4, 4);
-        } else if (path.startsWith("/bundles/")) {
+        } else if (path.startsWith(SeoService.BUNDLE_PREFIX)) {
             drawBox(canvas, 998, 49, 34);
             drawBox(canvas, 962, 101, 34);
             drawBox(canvas, 1_034, 101, 34);
@@ -144,10 +144,10 @@ public class SocialCardRenderer {
             while (end > 0 && metrics.stringWidth(remaining.substring(0, end) + "…") > width) {
                 end = remaining.offsetByCodePoints(end, -1);
             }
-            if (end == 0) break;
+            if (end == 0) return lines;
             if (lines.size() == limit - 1) {
                 lines.add(remaining.substring(0, end).stripTrailing() + "…");
-                break;
+                return lines;
             }
             int space = remaining.lastIndexOf(' ', end);
             if (space > 0) end = space;

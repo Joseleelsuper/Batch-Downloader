@@ -40,6 +40,7 @@ public class CatalogRepository {
      */
     private static final String REVIEW_LAST_ORDER =
             "a.catalog_review_priority ASC";
+    private static final String NAME_ID_ORDER = "a.normalized_name ASC, a.id ASC";
     /**
      * Valor compartido que representa c a t a l o g  s t a t u s e s en el contrato del módulo.
      */
@@ -351,14 +352,14 @@ public class CatalogRepository {
                 relevancePrefix == null || relevancePrefix.isBlank() ? "" : relevancePrefix;
         if ("relevance".equals(sort)) {
             return relevanceOrder.isEmpty()
-                    ? "a.download_count DESC, a.normalized_name ASC, a.id ASC"
-                    : relevanceOrder + "a.normalized_name ASC, a.id ASC";
+                    ? "a.download_count DESC, " + NAME_ID_ORDER
+                    : relevanceOrder + NAME_ID_ORDER;
         }
         String selectedOrder = switch (sort) {
             case "updated" ->
-                    "a.updated_at DESC, " + relevanceOrder + "a.normalized_name ASC, a.id ASC";
+                    "a.updated_at DESC, " + relevanceOrder + NAME_ID_ORDER;
             case "downloads" ->
-                    "a.download_count DESC, " + relevanceOrder + "a.normalized_name ASC, a.id ASC";
+                    "a.download_count DESC, " + relevanceOrder + NAME_ID_ORDER;
             default -> "a.normalized_name ASC, " + relevanceOrder + "a.id ASC";
         };
         return "name".equals(sort) ? selectedOrder : reviewLastOrder() + ", " + selectedOrder;

@@ -293,11 +293,11 @@ export function CatalogPage() {
     if (selectedId === app.id) {
       setSelectedId(undefined);
       setLoadingDetails(false);
-      navigate({ pathname: '/catalog', search: searchKey });
+      void navigate({ pathname: '/catalog', search: searchKey });
       return;
     }
     setSelectedId(app.id);
-    navigate({ pathname: `/catalog/app/${app.id}`, search: searchKey });
+    void navigate({ pathname: `/catalog/app/${app.id}`, search: searchKey });
   }
 
   function toggleDownloadSelection(app: CatalogApp) {

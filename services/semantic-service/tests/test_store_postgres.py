@@ -202,7 +202,8 @@ def test_partial_index_survives_add_update_remove_and_content_reversion(
     assert store.active_model() is None
     embed_next()
     partial = store.semantic_status()["index"]
-    assert partial["indexed"] == 1 and partial["expected"] == 2
+    assert partial["indexed"] == 1
+    assert partial["expected"] == 2
     assert partial["complete"] is False
     assert store.active_model() is not None
     assert store.acknowledge_scrape_run(model.model_version, run_id) is False

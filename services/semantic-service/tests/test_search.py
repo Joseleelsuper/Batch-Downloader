@@ -30,6 +30,7 @@ async def test_search_without_valid_vectors_remains_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(search_router.store, "active_model", lambda: None)
+    request = SemanticSearchRequest(query="editor")
     with pytest.raises(HTTPException) as error:
-        await search_router.semantic_search(SemanticSearchRequest(query="editor"))
+        await search_router.semantic_search(request)
     assert error.value.status_code == 503

@@ -105,7 +105,9 @@ class HttpContractTest(unittest.TestCase):
         declared_responses = ast.literal_eval(next(keyword.value for keyword in decorator.keywords
                                                   if keyword.arg == 'responses'))
         self.assertTrue({str(status) for status in declared_responses}.issubset(operation['responses']))
-        model_name = next(keyword.value.id for keyword in decorator.keywords if keyword.arg == 'response_model')
+        response_model = next((keyword.value for keyword in decorator.keywords
+                               if keyword.arg == 'response_model'), handler.returns)
+        model_name = ast.unparse(response_model)
         self.assertEqual(f'#/components/schemas/{model_name}',
                          operation['responses']['200']['content']['application/json']['schema']['$ref'])
         models = ast.parse((ROOT / 'api/scraper/app/schemas/internal.py').read_text(encoding='utf-8'))
@@ -131,8 +133,8 @@ class HttpContractTest(unittest.TestCase):
                             for argument in handler.args.args if argument.annotation
                             for node in ast.walk(argument.annotation)))
         self.assertIn('401', operation['responses'])
-        response_model = next(keyword.value for keyword in decorator.keywords
-                              if keyword.arg == 'response_model')
+        response_model = next((keyword.value for keyword in decorator.keywords
+                               if keyword.arg == 'response_model'), handler.returns)
         self.assertEqual('SemanticSourceStatus | None', ast.unparse(response_model))
         variants = operation['responses']['200']['content']['application/json']['schema']['oneOf']
         self.assertEqual({'null', 'object'}, {variant['type'] for variant in variants})

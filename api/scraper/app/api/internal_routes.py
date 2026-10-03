@@ -115,7 +115,6 @@ async def internal_metrics(
 
 @internal_router.get(
     "/semantic/source-status",
-    response_model=SemanticSourceStatus | None,
     response_model_by_alias=True,
     responses={401: {}},
 )
@@ -188,7 +187,6 @@ async def semantic_documents(
 
 @internal_router.get(
     "/sources/{source_ref}/size",
-    response_model=InternalSourceSize,
     response_model_by_alias=True,
     responses={401: {}, 404: {}},
 )

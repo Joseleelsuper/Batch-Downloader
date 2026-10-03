@@ -289,10 +289,10 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install browser-test dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
         working-directory: services/webapp/src/main/resources/frontend
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: node node_modules/playwright/cli.js install --with-deps chromium
         working-directory: services/webapp/src/main/resources/frontend
       - name: Run isolated end-to-end download scenario
         run: npm run test:download-flow

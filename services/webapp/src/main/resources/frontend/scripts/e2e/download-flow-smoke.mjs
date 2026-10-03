@@ -5,11 +5,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)),
   '..', '..', '..', '..', '..', '..', '..', '..');
+const executables = process.platform === 'win32'
+  ? { docker: 'C:/Program Files/Docker/Docker/resources/bin/docker.exe',
+    python: resolve(repositoryRoot, '.venv/Scripts/python.exe') }
+  : { docker: '/usr/bin/docker', python: '/usr/bin/python3' };
 const projectName = process.env.DOWNLOAD_FLOW_COMPOSE_PROJECT
   ?? `batch-downloader-download-flow-${process.pid}`;
 const applicationName = 'Codex Download Flow Smoke';
@@ -68,7 +72,7 @@ const composeArgs = [
 
 function compose(args, options = {}) {
   try {
-    return execFileSync('docker', [...composeArgs, ...args], {
+    return execFileSync(executables.docker, [...composeArgs, ...args], {
       cwd: repositoryRoot,
       env: composeEnvironment,
       encoding: 'utf8',
@@ -84,7 +88,7 @@ function compose(args, options = {}) {
 }
 
 function executeMySql(sql) {
-  const result = spawnSync('docker', [
+  const result = spawnSync(executables.docker, [
     ...composeArgs,
     'exec', '-T', 'mysql', 'sh', '-lc',
     'MYSQL_PWD="$MYSQL_PASSWORD" mysql --protocol=TCP -h 127.0.0.1 -u"$MYSQL_USER" -D "$MYSQL_DATABASE" --batch --skip-column-names',
@@ -114,7 +118,7 @@ async function reserveHostPorts() {
   const servers = [];
   const values = {};
   try {
-    for (const key of keys) {
+    await Promise.all(keys.map(async (key) => {
       const server = createServer();
       servers.push(server);
       await new Promise((resolveListen, rejectListen) => {
@@ -122,7 +126,7 @@ async function reserveHostPorts() {
         server.listen(0, '127.0.0.1', resolveListen);
       });
       values[key] = String(server.address().port);
-    }
+    }));
   } catch (error) {
     await Promise.all(servers.map((server) => new Promise((resolveClose) => server.close(resolveClose))));
     throw error;
@@ -235,7 +239,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     assert content == "[InternetShortcut]\r\nURL=https://8.8.8.8/manual\r\n", repr(content)
     print(json.dumps({"status": manifest["status"], "shortcut": shortcut, "files": sorted(names)}))
 `;
-  const result = spawnSync('python', ['-c', python, zipPath], {
+  const result = spawnSync(executables.python, ['-c', python, zipPath], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     maxBuffer: 1024 * 1024,
@@ -247,7 +251,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
   process.stdout.write(`Verified archive: ${result.stdout.trim()}\n`);
 }
 
-async function run() {
+export async function run() {
   const temporaryDirectory = mkdtempSync(resolve(tmpdir(), 'batch-downloader-manual-smoke-'));
   let browser;
   let reservations;
@@ -337,32 +341,39 @@ async function run() {
     } catch (logError) {
       process.stderr.write(`Unable to collect Compose logs: ${logError.message}\n`);
     }
-    throw error;
-  } finally {
-    try {
-      if (browser) await browser.close();
-    } finally {
-      try {
-        if (reservations) await reservations.close();
-      } finally {
-        const cleanup = spawnSync('docker', [...composeArgs, 'down', '--volumes', '--remove-orphans'], {
-          cwd: repositoryRoot,
-          env: composeEnvironment,
-          encoding: 'utf8',
-          maxBuffer: 5 * 1024 * 1024,
-          timeout: 180_000,
-        });
-        rmSync(temporaryDirectory, { recursive: true, force: true });
-        if (cleanup.status !== 0) {
-          process.stderr.write(cleanup.stderr || cleanup.stdout || 'Compose cleanup failed.\n');
-          if (!primaryError) throw new Error('Failed to remove the isolated Compose project');
-        }
+  }
+  const cleanupResults = await Promise.allSettled([
+    browser?.close(),
+    reservations?.close(),
+    Promise.resolve().then(() => {
+      const cleanup = spawnSync(executables.docker, [...composeArgs, 'down', '--volumes', '--remove-orphans'], {
+        cwd: repositoryRoot,
+        env: composeEnvironment,
+        encoding: 'utf8',
+        maxBuffer: 5 * 1024 * 1024,
+        timeout: 180_000,
+      });
+      rmSync(temporaryDirectory, { recursive: true, force: true });
+      if (cleanup.status !== 0) {
+        process.stderr.write(cleanup.stderr || cleanup.stdout || 'Compose cleanup failed.\n');
+        throw new Error('Failed to remove the isolated Compose project');
       }
+    }),
+  ]);
+  for (const result of cleanupResults) {
+    if (result.status === 'rejected') {
+      process.stderr.write(`Cleanup failed: ${result.reason}\n`);
+      primaryError ??= result.reason;
     }
   }
+  if (primaryError) throw primaryError;
 }
 
-run().catch((error) => {
-  process.stderr.write(`${error.stack ?? error}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    await run();
+  } catch (error) {
+    process.stderr.write(`${error.stack ?? error}\n`);
+    process.exitCode = 1;
+  }
+}

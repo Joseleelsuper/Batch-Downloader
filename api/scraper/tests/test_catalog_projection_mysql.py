@@ -969,7 +969,8 @@ async def assert_expand_backfilled_and_published_totals(
                 ),
                 {"source_id": source_id.bytes},
             )
-            assert isinstance(fingerprint, str) and len(fingerprint) == 64
+            assert isinstance(fingerprint, str)
+            assert len(fingerprint) == 64
             nullable = await connection.scalar(
                 text(
                     "SELECT IS_NULLABLE FROM information_schema.columns "

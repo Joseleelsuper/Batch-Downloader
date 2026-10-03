@@ -123,6 +123,30 @@ class SeoControllerTest {
     }
 
     @Test
+    void trailingSlashNormalizationPreservesCanonicalPathsAndRejectsAmbiguousSeparators() {
+        SeoService withTrailingSlash = new SeoService(new SeoRepository(jdbc), new ObjectMapper(), "https://batchdownloader.dev/");
+        assertThat(withTrailingSlash.resolve("/").metadata().canonicalUrl()).isEqualTo("https://batchdownloader.dev/");
+        assertThat(withTrailingSlash.resolve("/catalog/").metadata().canonicalUrl()).isEqualTo("https://batchdownloader.dev/catalog");
+        assertThat(withTrailingSlash.resolve("/catalog/app/editor/?ignored=true").metadata().canonicalUrl())
+                .isEqualTo("https://batchdownloader.dev/catalog/app/" + APP_ID);
+        for (String path : List.of("/catalog//", "/catalog/%2F", "/catalog/" + "/".repeat(4_000), "/catalog/%5C")) {
+            assertThat(withTrailingSlash.resolve(path).status()).as(path).isEqualTo(404);
+        }
+    }
+
+    @Test
+    void catalogDefaultsRemainIndexableWhileExplicitFiltersAreNoindex() {
+        for (String query : List.of("status=available", "sort=downloads", "page=1", "pageSize=12",
+                "os=windows&os=linux&os=macos", "query=&tag=%20&publisher&architecture=", "unknown=value")) {
+            assertThat(service.resolve("/catalog?" + query).metadata().robots()).as(query).isEqualTo("index, follow");
+        }
+        for (String query : List.of("status=review", "sort=relevance", "page=2", "pageSize=20",
+                "os=linux", "os=windows&os=linux", "query=editor", "tag=tools", "publisher=editor", "architecture=arm64")) {
+            assertThat(service.resolve("/catalog?" + query).metadata().robots()).as(query).isEqualTo("noindex, follow");
+        }
+    }
+
+    @Test
     void publicationChangesImmediatelyRemoveMetadataImagesAndSitemapWhileOwnerKeepsGenericShell() throws Exception {
         String path = "/bundles/tools";
         mvc.perform(get("/api/v1/seo/metadata").param("path", path))
@@ -209,6 +233,20 @@ class SeoControllerTest {
         assertThat(homeCard.getRGB(70, 550, 600, 50, null, 0, 600))
                 .isNotEqualTo(privacyCard.getRGB(70, 550, 600, 50, null, 0, 600));
         assertThat(app).isNotEqualTo(home);
+    }
+
+    @Test
+    void longUnbrokenAndMultilineCardTextCannotOverlapTheFooter() throws Exception {
+        SocialCardRenderer renderer = new SocialCardRenderer();
+        var original = ImageIO.read(new ByteArrayInputStream(renderer.render(service.resolve("/catalog/app/editor").metadata())));
+        for (String title : List.of("W".repeat(170), "Texto largo ".repeat(14))) {
+            jdbc.update("UPDATE software_apps SET name=?, description=? WHERE id=?", title, title.repeat(3), UuidBytes.fromUuid(APP_ID));
+            var card = ImageIO.read(new ByteArrayInputStream(renderer.render(service.resolve("/catalog/app/editor").metadata())));
+            assertThat(card.getRGB(70, 180, 1_060, 350, null, 0, 1_060))
+                    .isNotEqualTo(original.getRGB(70, 180, 1_060, 350, null, 0, 1_060));
+            assertThat(card.getRGB(70, 550, 1_060, 70, null, 0, 1_060))
+                    .isEqualTo(original.getRGB(70, 550, 1_060, 70, null, 0, 1_060));
+        }
     }
 
     @Test
