@@ -24,14 +24,13 @@ Antes del primer arranque, copia `.env.example` como `.env` y cambia sus credenc
 
 ### Stack completo
 
-Las migraciones de PostgreSQL semántico se aplican por separado: `up --build` no las ejecuta. Antes del primer arranque o tras añadir migraciones, prepara la base de datos y ejecuta el migrador con la imagen actual; las versiones ya aplicadas se verifican sin repetirlas.
+El scraper, Core y el servicio semántico aplican sus migraciones al arrancar. El servicio semántico aplica las versiones pendientes de PostgreSQL antes de aceptar peticiones; verifica los checksums sin repetir versiones y serializa los arranques simultáneos mediante un bloqueo de base de datos. Si una migración falla, el arranque se detiene y el indexador espera.
 
 ```powershell
-docker compose up -d postgres
-docker compose build semantic-service
-docker compose run --rm --no-deps semantic-service python -m app.migrator
 docker compose up --build --force-recreate
 ```
+
+Esto también se aplica a las imágenes GHCR desplegadas en Coolify. El comando `python -m app.migrator` sigue disponible para mantenimiento. Las migraciones no se revierten al volver a una imagen anterior: si su esquema es incompatible, se necesita una recuperación de base de datos planificada.
 
 ### Un servicio, BBDD o API
 
@@ -275,7 +274,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 <details>
 <summary><strong>Semantic Service</strong> — <code>services/semantic-service/.env.example</code></summary>
 
-La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea parcial, sin mezclar coincidencias literales. El indexador sondea el final del scraper cada 300 segundos por defecto y lo procesa también fuera de la ventana nocturna (01:00–07:00, Europe/Madrid); conserva además los barridos de esa ventana para otros cambios. El checkpoint solo avanza cuando termina de indexar o el catálogo está vacío, por lo que reinicios y fallos se reintentan. Requiere la migración `0010_scraper_index_checkpoint.sql`, aplicada con el comando del migrador indicado en Inicio rápido; no ejecutes el SQL suelto, ya que el migrador también registra la versión y su checksum.
+La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea parcial, sin mezclar coincidencias literales. El indexador sondea el final del scraper cada 300 segundos por defecto y lo procesa también fuera de la ventana nocturna (01:00–07:00, Europe/Madrid); conserva además los barridos de esa ventana para otros cambios. El checkpoint solo avanza cuando termina de indexar o el catálogo está vacío, por lo que reinicios y fallos se reintentan. La migración `0010_scraper_index_checkpoint.sql` se aplica automáticamente al arrancar el servicio semántico, registrando su versión y checksum.
 
 | Variables | Uso |
 | --- | --- |

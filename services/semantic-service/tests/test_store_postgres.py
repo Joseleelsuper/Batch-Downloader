@@ -5,9 +5,12 @@ import os
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 
 import pytest
+from fastapi import FastAPI
 
+from app import http_context
 from app.config import Settings
 from app.database import Database
 from app.model_validation import ModelDescriptor
@@ -73,6 +76,48 @@ def database(postgres_dsn: str) -> Iterator[Database]:
 
 def descriptor(version: str, dimensions: int) -> ModelDescriptor:
     return ModelDescriptor(version, dimensions, "query: ", "passage: ", 0.0)
+
+
+@pytest.mark.asyncio
+async def test_api_startup_applies_pending_migration_only_once(
+    database: Database, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Una base de la versión anterior se actualiza al arrancar y conserva datos al reiniciar."""
+    version = "9999_test_startup"
+    sql = "CREATE TABLE startup_migration_probe (id INTEGER PRIMARY KEY)"
+    migrations = database._migration_files() | {version: (sha256(sql.encode()).hexdigest(), sql)}
+    monkeypatch.setattr(Database, "_migration_files", staticmethod(lambda: migrations))
+    with pytest.raises(RuntimeError, match="semantic_schema_version_mismatch"):
+        database.verify_schema()
+
+    try:
+        for restart in range(2):
+            startup_database = Database(database.settings)
+            monkeypatch.setattr(http_context, "database", startup_database)
+            async with http_context.lifespan(FastAPI()):
+                startup_database.verify_schema()
+                if restart == 0:
+                    database.run(lambda conn: conn.execute(
+                        "INSERT INTO startup_migration_probe (id) VALUES (42)"
+                    ))
+                assert database.run(lambda conn: conn.execute(
+                    "SELECT id FROM startup_migration_probe"
+                ).fetchall()) == [{"id": 42}]
+                recorded = database.run(lambda conn: conn.execute(
+                    "SELECT checksum, applied_at FROM semantic_schema_migrations "
+                    "WHERE version = %s",
+                    (version,),
+                ).fetchone())
+                if restart == 0:
+                    first_application = recorded
+                else:
+                    assert recorded == first_application
+            assert startup_database.pool.closed
+    finally:
+        database.run(lambda conn: (
+            conn.execute("DROP TABLE IF EXISTS startup_migration_probe"),
+            conn.execute("DELETE FROM semantic_schema_migrations WHERE version = %s", (version,)),
+        ))
 
 
 def test_schema_removes_lifecycle_history_and_static_hnsw(database: Database) -> None:
