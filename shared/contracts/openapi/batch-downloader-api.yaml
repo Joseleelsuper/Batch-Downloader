@@ -1585,10 +1585,10 @@ paths:
       summary: Exportar el catálogo administrativo como CSV y auditar la descarga
       tags:
       - Administración
-      description: Requiere sesión ADMIN.
+      description: Requiere sesión ADMIN. El CSV incluye tags (separadas por punto y coma) y editor.
       responses:
         '200':
-          description: Exportar el catálogo administrativo como CSV y auditar la descarga.
+          description: CSV del catálogo administrativo con las columnas tags y editor; la descarga queda auditada.
           content:
             text/csv:
               schema:

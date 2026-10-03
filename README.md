@@ -132,7 +132,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `GET`, `POST` | `/api/v1/admin/bundles` | `ADMIN` | Lista o crea bundles administrados. |
 | `PATCH`, `DELETE` | `/api/v1/admin/bundles/{bundleId}` | `ADMIN` | Actualiza o elimina un bundle administrado. |
 | `GET`, `POST`, `DELETE` | `/api/v1/admin/apps` | `ADMIN` | Lista, crea o elimina todo el catálogo de aplicaciones. |
-| `GET` | `/api/v1/admin/apps/export.csv` | `ADMIN` | Exporta el catálogo en CSV. |
+| `GET` | `/api/v1/admin/apps/export.csv` | `ADMIN` | Exporta el catálogo en CSV con las columnas `tags` y `editor`; las etiquetas se separan con punto y coma. |
 | `PATCH`, `DELETE` | `/api/v1/admin/apps/{appId}` | `ADMIN` | Actualiza o elimina una aplicación. |
 | `PUT` | `/api/v1/admin/apps/{appId}/tags` | `ADMIN` | Reemplaza sus etiquetas. |
 | `PATCH` | `/api/v1/admin/apps/{appId}/sources/{sourceId}` | `ADMIN` | Actualiza una fuente de descarga. |

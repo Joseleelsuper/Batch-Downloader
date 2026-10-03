@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,7 @@ import java.time.Clock;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 
 /**
@@ -119,40 +121,41 @@ class AdminAppRepositoryTest {
                             "Steam",
                             "Valve.Steam",
                             "https://store.steampowered.com/about/",
-                            "windows",
-                            ".exe",
-                            "00000000-0000-0000-0000-000000000001"),
+                            "00000000-0000-0000-0000-000000000001",
+                            "00000000-0000-0000-0000-000000000002",
+                            null,
+                            "Valve"),
                             0),
-                    mapper.mapRow(row(
-                            "1",
-                            "Steam",
-                            "Valve.Steam",
-                            "https://store.steampowered.com/about/",
-                            "linux",
-                            ".deb",
-                            "00000000-0000-0000-0000-000000000002"),
-                            1),
                     mapper.mapRow(row(
                             "2",
                             "Comma, App",
                             "manual.comma-app",
                             null,
-                            "windows",
-                            ".msi",
-                            "00000000-0000-0000-0000-000000000003"),
-                            2));
+                            "00000000-0000-0000-0000-000000000003",
+                            null,
+                            null,
+                            null),
+                            1));
         });
+        doAnswer(invocation -> {
+                    RowCallbackHandler handler = invocation.getArgument(1);
+                    handler.processRow(tag("1", "games"));
+                    handler.processRow(tag("1", "store"));
+                    return null;
+                })
+                .when(jdbc)
+                .query(anyString(), any(RowCallbackHandler.class));
         AdminAppRepository repository = repository(jdbc, mock(CatalogRepository.class));
 
         AdminAppRepository.AppCsvExport export = repository.exportCsv();
 
         assertThat(export.rowCount()).isEqualTo(2);
         assertThat(export.content()).startsWith(
-                "Nombre,Winstall,URL,WindowsSourceRef,LinuxSourceRef,MacOSSourceRef\r\n");
+                "Nombre,Winstall,URL,WindowsSourceRef,LinuxSourceRef,MacOSSourceRef,tags,editor\r\n");
         assertThat(export.content()).contains(
-                "Steam,https://winstall.app/apps/Valve.Steam,https://store.steampowered.com/about/,00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002,None\r\n");
+                "Steam,https://winstall.app/apps/Valve.Steam,https://store.steampowered.com/about/,00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002,None,games; store,Valve\r\n");
         assertThat(export.content()).contains(
-                "\"Comma, App\",None,None,00000000-0000-0000-0000-000000000003,None,None\r\n");
+                "\"Comma, App\",None,None,00000000-0000-0000-0000-000000000003,None,None,None,None\r\n");
         assertThat(export.content()).doesNotContain("cdn.example.com", "resolved_url_encrypted");
     }
 
@@ -197,26 +200,36 @@ class AdminAppRepositoryTest {
      * @param name Nombre o etiqueta visible usada por la operación.
      * @param winstallId Identificador de la entidad que se procesa.
      * @param officialUrl URL o URI del recurso que se procesa.
-     * @param operatingSystem Valor de `operatingSystem` utilizado por el escenario.
-     * @param extension Valor de `extension` utilizado por el escenario.
-     * @param sourceRef Valor de `sourceRef` utilizado por el escenario.
+     * @param windowsSourceRef Referencia Windows del escenario.
+     * @param linuxSourceRef Referencia Linux del escenario.
+     * @param macosSourceRef Referencia macOS del escenario.
+     * @param publisher Editor del escenario.
      */
     private ResultSet row(
             String appKey,
             String name,
             String winstallId,
             String officialUrl,
-            String operatingSystem,
-            String extension,
-            String sourceRef) throws Exception {
+            String windowsSourceRef,
+            String linuxSourceRef,
+            String macosSourceRef,
+            String publisher) throws Exception {
         ResultSet rs = mock(ResultSet.class);
         when(rs.getString("app_key")).thenReturn(appKey);
         when(rs.getString("name")).thenReturn(name);
         when(rs.getString("winstall_id")).thenReturn(winstallId);
         when(rs.getString("official_url")).thenReturn(officialUrl);
-        when(rs.getString("operating_system")).thenReturn(operatingSystem);
-        when(rs.getString("extension")).thenReturn(extension);
-        when(rs.getString("source_ref")).thenReturn(sourceRef);
+        when(rs.getString("windows_source_ref")).thenReturn(windowsSourceRef);
+        when(rs.getString("linux_source_ref")).thenReturn(linuxSourceRef);
+        when(rs.getString("macos_source_ref")).thenReturn(macosSourceRef);
+        when(rs.getString("publisher")).thenReturn(publisher);
+        return rs;
+    }
+
+    private ResultSet tag(String appKey, String value) throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(rs.getString("app_key")).thenReturn(appKey);
+        when(rs.getString("tag")).thenReturn(value);
         return rs;
     }
 
