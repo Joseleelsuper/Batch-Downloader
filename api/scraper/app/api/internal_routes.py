@@ -10,6 +10,7 @@ See Also:
 from __future__ import annotations
 
 import secrets as secrets
+from datetime import UTC
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -39,6 +40,7 @@ from app.repositories.pipeline import (
     QUEUE_SO_FILTER_DESCRIPTOR,
     PipelineRepository,
 )
+from app.repositories.runs import ScrapeRunRepository
 from app.schemas.internal import (
     ContentEnqueueResult,
     GenerateDescriptionRequest,
@@ -51,6 +53,7 @@ from app.schemas.internal import (
     ManualInstallerInspectionView,
     SemanticDocument,
     SemanticDocumentPage,
+    SemanticSourceStatus,
     WebsiteAppDiscoveryApplyRequest,
     WebsiteAppDiscoveryApplyResult,
     WebsiteAppDiscoveryRequest,
@@ -111,6 +114,27 @@ async def internal_metrics(
 
 
 @internal_router.get(
+    "/semantic/source-status",
+    response_model_by_alias=True,
+    responses={401: {}},
+)
+async def semantic_source_status(
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SemanticSourceStatus | None:
+    """Expone una señal durable sin datos de catálogo ni credenciales del coordinador."""
+    run = await ScrapeRunRepository(session, settings).latest_finished()
+    if run is None or run.finished_at is None:
+        return None
+    return SemanticSourceStatus.model_validate({
+        "runId": run.id,
+        "finishedAt": run.finished_at.replace(tzinfo=UTC),
+        "status": run.status,
+    })
+
+
+@internal_router.get(
     "/semantic/documents",
     response_model=SemanticDocumentPage,
     response_model_by_alias=True,
@@ -163,7 +187,6 @@ async def semantic_documents(
 
 @internal_router.get(
     "/sources/{source_ref}/size",
-    response_model=InternalSourceSize,
     response_model_by_alias=True,
     responses={401: {}, 404: {}},
 )

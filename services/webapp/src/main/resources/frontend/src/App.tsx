@@ -19,6 +19,7 @@ import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { useTranslation } from './services/i18n';
 import { lazyNamed } from './routing/lazyNamed';
+import { PageMetadata } from './components/PageMetadata';
 import {
   AdminAuditPage,
   AdminBundlesPage,
@@ -81,6 +82,7 @@ function AppRoutes() {
 
   return (
     <DownloadJobsProvider>
+      <PageMetadata />
       <Suspense fallback={<RouteLoading />}>
         <Routes>
         <Route element={<PublicLayout auth={auth} onLogout={onLogout} />}>
@@ -95,6 +97,7 @@ function AppRoutes() {
           <Route path="terms" element={<LegalPage kind="terms" />} />
           <Route path="privacy" element={<LegalPage kind="privacy" />} />
           <Route path="admin/login" element={<AdminLoginPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
         <Route
           element={
@@ -125,7 +128,6 @@ function AppRoutes() {
           <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
       <GlobalDownloadJobOverlay />
@@ -163,7 +165,7 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
     <header className="topbar">
       <Link className="brand" to="/">
         <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
-        <h1>{t('app.title')}</h1>
+        <span className="brand-title">{t('app.title')}</span>
       </Link>
       <nav className="main-nav" aria-label={t('nav.main')}>
         <NavLink to="/">{t('nav.home')}</NavLink>
@@ -248,7 +250,7 @@ function PublicErrorPage() {
   return (
     <main className="content-page public-message-page">
       <section className="public-message-card" role="alert">
-        <h2>{t(`error.${knownError}.title`)}</h2>
+        <h1>{t(`error.${knownError}.title`)}</h1>
         <p>{t(`error.${knownError}.body`)}</p>
         <div className="public-message-actions">
           <Link className="primary-button" to="/login">{t('error.backToLogin')}</Link>
@@ -266,13 +268,12 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
     dateStyle: 'long',
   }).format(lastUpdated);
   const sections = kind === 'terms'
-    ? ['use', 'sources', 'availability']
-    : ['data', 'purpose', 'rights'];
+    ? ['service', 'account', 'use', 'bundles', 'sources', 'downloads', 'search', 'availability', 'contact']
+    : ['controller', 'data', 'purpose', 'technical', 'storage', 'publication', 'providers', 'retention', 'rights'];
   return (
     <main className="content-page legal-page">
       <header className="legal-page-header">
-        <span>{t('legal.eyebrow')}</span>
-        <h2>{t(`legal.${kind}.title`)}</h2>
+        <h1>{t(`legal.${kind}.title`)}</h1>
         <p>{t(`legal.${kind}.intro`)}</p>
         <p className="legal-last-updated">
           <span>{t('legal.lastUpdated')}</span>
@@ -282,11 +283,33 @@ function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
       <div className="legal-sections">
         {sections.map((section) => (
           <section key={section}>
-            <h3>{t(`legal.${kind}.${section}.title`)}</h3>
+            <h2>{t(`legal.${kind}.${section}.title`)}</h2>
             <p>{t(`legal.${kind}.${section}.body`)}</p>
+            {['controller', 'service', 'rights', 'contact'].includes(section) ? (
+              <a href="mailto:JoseGallardoC@protonmail.com">{t('legal.contact')}</a>
+            ) : null}
+            {section === 'providers' ? (
+              <a href="https://resend.com/legal/dpa" target="_blank" rel="noreferrer">{t('legal.providerPolicy')}</a>
+            ) : null}
+            {section === 'rights' ? (
+              <p><a href="https://www.aepd.es/derechos-y-deberes/conoce-tus-derechos" target="_blank" rel="noreferrer">{t('legal.authority')}</a></p>
+            ) : null}
           </section>
         ))}
       </div>
+    </main>
+  );
+}
+
+function NotFoundPage() {
+  const t = useTranslation();
+  return (
+    <main className="content-page public-message-page">
+      <section className="public-message-card">
+        <h1>{t('error.notFound.title')}</h1>
+        <p>{t('error.notFound.body')}</p>
+        <Link className="primary-button" to="/">{t('error.backToHome')}</Link>
+      </section>
     </main>
   );
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import httpx
@@ -23,6 +24,7 @@ from app.db.models import (
     DownloadSource,
     ManualInstallerInspection,
     ResolvedSource,
+    ScrapeRun,
     ScraperWorkItem,
     SoftwareApp,
     SoftwareAppTag,
@@ -162,6 +164,36 @@ async def internal_api() -> InternalApiFixture:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             yield InternalApiFixture(client=client, session=session)
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["completed", "partial", "failed"])
+async def test_semantic_source_status_requires_auth_and_returns_latest_terminal_run(
+    internal_api: InternalApiFixture, status: str,
+) -> None:
+    """La señal ignora runs activos y expone solamente el último final confirmado."""
+    path = "/internal/v1/semantic/source-status"
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    assert (await internal_api.client.get(path)).status_code == 401
+    assert (await internal_api.client.get(path, headers=headers)).json() is None
+    finished_at = datetime(2026, 10, 3, 10, 30)
+    latest = ScrapeRun(
+        id=uuid4(), status=status, worker_id="test", finished_at=finished_at,
+    )
+    internal_api.session.add_all([
+        ScrapeRun(
+            id=uuid4(), status="completed", worker_id="test",
+            finished_at=finished_at - timedelta(minutes=1),
+        ),
+        latest,
+        ScrapeRun(id=uuid4(), status="running", active_lock=1, worker_id="test"),
+    ])
+    await internal_api.session.commit()
+    response = await internal_api.client.get(path, headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {
+        "runId": str(latest.id), "finishedAt": "2026-10-03T10:30:00Z", "status": status,
+    }
 
 
 @pytest.mark.asyncio

@@ -161,7 +161,7 @@ export interface AppDetails extends CatalogApp {
 export type FilterKey = 'all' | 'available' | 'review' | 'missing';
 export type AdminAppFilter = FilterKey | 'unresolved';
 
-export type SortKey = 'name' | 'updated' | 'downloads';
+export type SortKey = 'name' | 'updated' | 'downloads' | 'relevance';
 
 export type ManualSuggestionSource =
   | 'current'

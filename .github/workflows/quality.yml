@@ -22,6 +22,7 @@ jobs:
       contracts: ${{ steps.filter.outputs.contracts }}
       compose: ${{ steps.filter.outputs.compose }}
       linux_installer: ${{ steps.filter.outputs.linux_installer }}
+      download_flow: ${{ steps.filter.outputs.download_flow }}
       sonar: ${{ steps.filter.outputs.sonar }}
     steps:
       - uses: actions/checkout@v5
@@ -53,6 +54,7 @@ jobs:
           contracts=false
           compose=false
           linux_installer=false
+          download_flow=false
           sonar=false
 
           for file in "${changed_files[@]}"; do
@@ -92,6 +94,11 @@ jobs:
                 ;;
             esac
             case "${file}" in
+              .github/workflows/quality.yml|.env.example|docker-compose.yml|docker-compose.ghcr.yml|docker/minio/*|api/scraper/*|services/core-api/*|services/download-worker/*|services/translation-service/*|services/webapp/*|shared/contracts/*|shared/java-contracts/*|scripts/e2e/*)
+                download_flow=true
+                ;;
+            esac
+            case "${file}" in
               sonar-project.properties)
                 sonar=true
                 ;;
@@ -110,6 +117,7 @@ jobs:
             echo "contracts=${contracts}"
             echo "compose=${compose}"
             echo "linux_installer=${linux_installer}"
+            echo "download_flow=${download_flow}"
             echo "sonar=${sonar}"
           } >> "${GITHUB_OUTPUT}"
 
@@ -124,6 +132,8 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
+      - name: Require Docker-backed migration tests
+        run: docker info
       - name: Verify Java services
         run: mvn -B verify
 
@@ -262,6 +272,41 @@ jobs:
           docker build -f scripts/linux-installer/Dockerfile.test -t batch-downloader-linux-installer:test .
           docker run --rm batch-downloader-linux-installer:test
 
+  download-flow-smoke:
+    name: Full browser download flow
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.download_flow == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: services/webapp/src/main/resources/frontend/package-lock.json
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install browser-test dependencies
+        run: npm ci --ignore-scripts
+        working-directory: services/webapp/src/main/resources/frontend
+      - name: Install Chromium
+        run: node node_modules/playwright/cli.js install --with-deps chromium
+        working-directory: services/webapp/src/main/resources/frontend
+      - name: Run isolated end-to-end download scenario
+        run: npm run test:download-flow
+        working-directory: services/webapp/src/main/resources/frontend
+        env:
+          DOWNLOAD_FLOW_COMPOSE_PROJECT: batch-downloader-download-flow-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Remove isolated Compose project and volumes
+        if: always()
+        run: >-
+          docker compose
+          --project-name batch-downloader-download-flow-${{ github.run_id }}-${{ github.run_attempt }}
+          --env-file .env.example -f docker-compose.yml
+          down --volumes --remove-orphans
+
   sonar:
     if: >-
       always() &&
@@ -272,7 +317,7 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.base.ref == 'main' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    needs: [changes, java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose, linux-installer]
+    needs: [changes, java, scraper, scraper-free-threaded, semantic, frontend, contracts, compose, linux-installer, download-flow-smoke]
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

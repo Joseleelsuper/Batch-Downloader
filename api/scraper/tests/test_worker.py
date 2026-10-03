@@ -10,8 +10,63 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.dialects import mysql
 
 import app.worker as worker
+from app.db.models import ScrapeRun
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("control", "expected"),
+    [
+        (None, False),
+        (SimpleNamespace(paused_at=None, stop_requested=False), False),
+        (SimpleNamespace(paused_at=datetime(2026, 9, 1), stop_requested=False), True),
+        (SimpleNamespace(paused_at=None, stop_requested=True), True),
+    ],
+)
+async def test_paused_or_stopping_queries_active_control_and_returns_its_state(
+    monkeypatch, control, expected
+) -> None:
+    statements = []
+
+    class Result:
+        def one_or_none(self):
+            return control
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, statement):
+            statements.append(statement)
+            return Result()
+
+    monkeypatch.setattr(worker, "AsyncSessionLocal", lambda: Session())
+
+    actual = await worker.ContentEnrichmentSupervisor._paused_or_stopping(object())
+
+    assert actual is expected
+    assert len(statements) == 1
+    statement = statements[0]
+    assert [column.key for column in statement.selected_columns] == [
+        ScrapeRun.paused_at.key,
+        ScrapeRun.stop_requested.key,
+    ]
+    sql = " ".join(
+        str(
+            statement.compile(
+                dialect=mysql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        ).split()
+    )
+    assert "WHERE scrape_runs.active_lock = 1" in sql
+    assert sql.endswith("LIMIT 1")
 
 
 @pytest.mark.asyncio

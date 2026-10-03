@@ -1,6 +1,8 @@
 {
   "error.backToHome": "Volver al inicio",
   "error.backToLogin": "Volver al login",
+  "error.notFound.title": "Página no encontrada",
+  "error.notFound.body": "La página no existe o ya no está disponible. Puedes volver al inicio y explorar el catálogo.",
   "error.unexpected_error.body": "No se pudo completar la solicitud. Regresa a una página segura y vuelve a intentarlo.",
   "error.unexpected_error.title": "Ha ocurrido un error"
 }

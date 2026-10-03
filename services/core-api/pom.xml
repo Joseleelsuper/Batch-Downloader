@@ -16,8 +16,8 @@
     <name>Batch Downloader Core API</name>
 
     <properties>
-        <jacoco.minimum.instruction>0.51</jacoco.minimum.instruction>
-        <jacoco.minimum.branch>0.44</jacoco.minimum.branch>
+        <jacoco.minimum.instruction>0.65</jacoco.minimum.instruction>
+        <jacoco.minimum.branch>0.52</jacoco.minimum.branch>
         <mockito.javaagent>-javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</mockito.javaagent>
     </properties>
 

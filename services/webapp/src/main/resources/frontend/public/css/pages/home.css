@@ -48,8 +48,8 @@
   text-transform: uppercase;
 }
 
-.public-message-card h2,
-.legal-page-header h2 {
+.public-message-card h1,
+.legal-page-header h1 {
   margin: 10px 0 12px;
   color: #101827;
   font-size: clamp(28px, 4vw, 40px);
@@ -137,7 +137,7 @@
   border-top: 1px solid var(--border);
 }
 
-.legal-sections h3 {
+.legal-sections h2 {
   margin: 0 0 8px;
   color: #152033;
   font-size: 18px;

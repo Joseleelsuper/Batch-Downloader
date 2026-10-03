@@ -88,6 +88,8 @@ function SemanticOverviewContent({
     ? `${integer(index.indexed)} / ${integer(index.expected)} (${percent(index.indexed / index.expected)})`
     : t('semantic.index.noData');
   const statusOk = overview.status === 'ok';
+  const incompleteIndexDetail = index && index.indexed > 0
+    ? t('semantic.index.partial') : t('semantic.index.incomplete');
   return (
     <>
       <div className="semantic-admin-summary">
@@ -112,7 +114,7 @@ function SemanticOverviewContent({
         <StatusCard
           title={t('semantic.index.title')}
           value={coverage}
-          detail={index?.complete ? t('semantic.index.complete') : t('semantic.index.incomplete')}
+          detail={index?.complete ? t('semantic.index.complete') : incompleteIndexDetail}
           tone={index?.complete ? 'success' : 'warning'}
         />
         <StatusCard

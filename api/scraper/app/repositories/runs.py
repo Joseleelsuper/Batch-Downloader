@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.core.config import Settings
 from app.core.time import utc_now
@@ -292,6 +293,23 @@ class ScrapeRunRepository:
         for key, value in counters.items():
             if hasattr(run, key):
                 setattr(run, key, value)
+
+    async def latest_finished(self) -> ScrapeRun | None:
+        """Lee el último final sin ordenar los manifiestos JSON voluminosos del run."""
+        return await self.session.scalar(
+            select(ScrapeRun)
+            .options(load_only(ScrapeRun.id, ScrapeRun.status, ScrapeRun.finished_at))
+            .where(
+                ScrapeRun.status.in_((
+                    ScrapeRunStatus.COMPLETED.value,
+                    ScrapeRunStatus.PARTIAL.value,
+                    ScrapeRunStatus.FAILED.value,
+                )),
+                ScrapeRun.finished_at.is_not(None),
+            )
+            .order_by(ScrapeRun.finished_at.desc(), ScrapeRun.id.desc())
+            .limit(1)
+        )
 
     async def next_pending_command(self) -> ScraperCommand | None:
         """Busca por antigüedad la primera orden pendiente de pause, resume, stop o force_stop.

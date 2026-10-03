@@ -85,7 +85,7 @@
   text-transform: uppercase;
 }
 
-.facet-header h2 {
+.facet-header h1 {
   margin: 4px 0 8px;
   color: #111827;
   font-size: clamp(28px, 4vw, 44px);

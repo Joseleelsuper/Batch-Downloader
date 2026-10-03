@@ -3,16 +3,16 @@ package es.ubu.batchdownloader.admin;
 import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Exporta el catálogo activo a CSV eligiendo el primer instalador descargable de cada plataforma
- * según el orden de prioridad de fuentes.
+ * Exporta el catálogo activo a CSV con el primer instalador descargable de cada plataforma,
+ * etiquetas y editor, según el orden de prioridad de fuentes.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see AdminAppRepository.AppCsvExport
@@ -34,45 +34,133 @@ public class AdminAppExportRepository {
     }
 
     /**
-     * Agrupa candidatos por aplicación en orden de nombre y elige por plataforma la primera
-     * referencia según versión, prioridad, puntuación y fecha de comprobación.
+     * Lee cada aplicación una sola vez y elige por plataforma la primera referencia según versión,
+     * prioridad, puntuación y fecha de comprobación.
      *
      * @return CSV con cabecera, referencias exactas y None donde falta un valor.
      */
     public AppCsvExport exportCsv() {
         List<ExportCandidate> candidates = jdbc.query(
                 """
-                SELECT HEX(a.id) AS app_key, a.name, a.winstall_id, a.official_url,
-                       ds.operating_system, rs.extension, BIN_TO_UUID(rs.id) AS source_ref
+                SELECT HEX(a.id) AS app_key, a.name, a.winstall_id, a.official_url, a.publisher,
+                       (
+                           SELECT BIN_TO_UUID(rs.id)
+                           FROM download_sources ds
+                           JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                               AND rs.catalog_downloadable = 1
+                           WHERE ds.software_app_id = a.id
+                               AND ds.catalog_available = 1
+                               AND (
+                                   LOWER(TRIM(COALESCE(ds.operating_system, ''))) LIKE '%windows%'
+                                   OR LOWER(TRIM(COALESCE(ds.operating_system, ''))) = 'win'
+                                   OR (
+                                       LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%windows%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) <> 'win'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%linux%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%mac%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%darwin%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%osx%'
+                                       AND TRIM(REPLACE(LOWER(COALESCE(rs.extension, '')), '.', ''))
+                                           IN ('exe', 'msi', 'msix', 'appx')
+                                   )
+                               )
+                           ORDER BY rs.is_latest DESC,
+                                    COALESCE(rs.release_rank, 9999) ASC,
+                                    (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
+                                    rs.score DESC,
+                                    rs.checked_at DESC
+                           LIMIT 1
+                       ) AS windows_source_ref,
+                       (
+                           SELECT BIN_TO_UUID(rs.id)
+                           FROM download_sources ds
+                           JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                               AND rs.catalog_downloadable = 1
+                           WHERE ds.software_app_id = a.id
+                               AND ds.catalog_available = 1
+                               AND (
+                                   LOWER(TRIM(COALESCE(ds.operating_system, ''))) LIKE '%linux%'
+                                   OR (
+                                       LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%windows%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) <> 'win'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%linux%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%mac%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%darwin%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%osx%'
+                                       AND TRIM(REPLACE(LOWER(COALESCE(rs.extension, '')), '.', ''))
+                                           IN ('deb', 'rpm', 'appimage', 'flatpak')
+                                   )
+                               )
+                           ORDER BY rs.is_latest DESC,
+                                    COALESCE(rs.release_rank, 9999) ASC,
+                                    (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
+                                    rs.score DESC,
+                                    rs.checked_at DESC
+                           LIMIT 1
+                       ) AS linux_source_ref,
+                       (
+                           SELECT BIN_TO_UUID(rs.id)
+                           FROM download_sources ds
+                           JOIN resolved_sources rs ON rs.download_source_id = ds.id
+                               AND rs.catalog_downloadable = 1
+                           WHERE ds.software_app_id = a.id
+                               AND ds.catalog_available = 1
+                               AND (
+                                   LOWER(TRIM(COALESCE(ds.operating_system, ''))) LIKE '%mac%'
+                                   OR LOWER(TRIM(COALESCE(ds.operating_system, ''))) LIKE '%darwin%'
+                                   OR LOWER(TRIM(COALESCE(ds.operating_system, ''))) LIKE '%osx%'
+                                   OR (
+                                       LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%windows%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) <> 'win'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%linux%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%mac%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%darwin%'
+                                       AND LOWER(TRIM(COALESCE(ds.operating_system, ''))) NOT LIKE '%osx%'
+                                       AND TRIM(REPLACE(LOWER(COALESCE(rs.extension, '')), '.', ''))
+                                           IN ('dmg', 'pkg')
+                                   )
+                               )
+                           ORDER BY rs.is_latest DESC,
+                                    COALESCE(rs.release_rank, 9999) ASC,
+                                    (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
+                                    rs.score DESC,
+                                    rs.checked_at DESC
+                           LIMIT 1
+                       ) AS macos_source_ref
                 FROM software_apps a
-                LEFT JOIN download_sources ds ON ds.software_app_id = a.id
-                    AND ds.catalog_available = 1
-                LEFT JOIN resolved_sources rs ON rs.download_source_id = ds.id
-                    AND rs.catalog_downloadable = 1
                 WHERE a.app_status = 'active'
-                ORDER BY a.normalized_name ASC,
-                         a.id ASC,
-                         rs.is_latest DESC,
-                         COALESCE(rs.release_rank, 9999) ASC,
-                         (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
-                         rs.score DESC,
-                         rs.checked_at DESC
+                ORDER BY a.normalized_name ASC, a.id ASC
                 """,
                 this::mapCandidate);
         Map<String, ExportRow> rows = new LinkedHashMap<>();
         for (ExportCandidate candidate : candidates) {
-            ExportRow row = rows.computeIfAbsent(candidate.appKey(), key -> new ExportRow(
+            rows.put(candidate.appKey(), new ExportRow(
                     candidate.name(),
                     winstallUrl(candidate.winstallId()),
-                    blankToNone(candidate.officialUrl())));
-            String platform = platformKey(candidate.operatingSystem(), candidate.extension());
-            if (platform != null && candidate.sourceRef() != null && !candidate.sourceRef().isBlank()) {
-                row.putIfMissing(platform, candidate.sourceRef());
-            }
+                    blankToNone(candidate.officialUrl()),
+                    blankToNone(candidate.windowsSourceRef()),
+                    blankToNone(candidate.linuxSourceRef()),
+                    blankToNone(candidate.macosSourceRef()),
+                    blankToNone(candidate.publisher())));
         }
 
+        jdbc.query(
+                """
+                SELECT HEX(tags.software_app_id) AS app_key, tags.tag
+                FROM software_app_tags tags
+                JOIN software_apps apps ON apps.id = tags.software_app_id
+                WHERE apps.app_status = 'active'
+                ORDER BY tags.software_app_id, tags.tag
+                """,
+                rs -> {
+                    ExportRow row = rows.get(rs.getString("app_key"));
+                    if (row != null) {
+                        row.addTag(rs.getString("tag"));
+                    }
+                });
+
         StringBuilder csv = new StringBuilder(
-                "Nombre,Winstall,URL,WindowsSourceRef,LinuxSourceRef,MacOSSourceRef\r\n");
+                "Nombre,Winstall,URL,WindowsSourceRef,LinuxSourceRef,MacOSSourceRef,tags,editor\r\n");
         for (ExportRow row : rows.values()) {
             csv.append(csvCell(row.name()))
                     .append(',')
@@ -85,16 +173,19 @@ public class AdminAppExportRepository {
                     .append(csvCell(row.linux()))
                     .append(',')
                     .append(csvCell(row.macos()))
+                    .append(',')
+                    .append(csvCell(String.join("; ", row.tags())))
+                    .append(',')
+                    .append(csvCell(row.editor()))
                     .append("\r\n");
         }
         return new AppCsvExport(csv.toString(), rows.size());
     }
 
     /**
-     * Extrae de una fila los metadatos de aplicación y su posible instalador sin perder los null de
-     * las uniones externas.
+     * Extrae metadatos de aplicación y la mejor referencia descargable de cada plataforma.
      *
-     * @param rs Fila SQL actual de una aplicación y su posible instalador.
+     * @param rs Fila SQL actual de una aplicación.
      * @param rowNum Índice de fila proporcionado por JDBC; no afecta al mapeo.
      * @return candidato a una fila de exportación.
      * @throws java.sql.SQLException si no se pueden leer las columnas de la fila.
@@ -105,9 +196,10 @@ public class AdminAppExportRepository {
                 rs.getString("name"),
                 rs.getString("winstall_id"),
                 rs.getString("official_url"),
-                rs.getString("operating_system"),
-                rs.getString("extension"),
-                rs.getString("source_ref"));
+                rs.getString("windows_source_ref"),
+                rs.getString("linux_source_ref"),
+                rs.getString("macos_source_ref"),
+                rs.getString("publisher"));
     }
 
     /**
@@ -132,35 +224,6 @@ public class AdminAppExportRepository {
      */
     private String blankToNone(String value) {
         return isBlank(value) ? "None" : value.trim();
-    }
-
-    /**
-     * Clasifica primero por sistema operativo y, si no se reconoce, por un formato de instalador
-     * conocido.
-     *
-     * @param operatingSystem Plataforma declarada en la fuente; se normaliza antes de clasificarla.
-     * @param extension Formato del instalador utilizado si la plataforma no se reconoce.
-     * @return windows, linux o macos; null si no hay una clasificación compatible.
-     */
-    private String platformKey(String operatingSystem, String extension) {
-        String os = operatingSystem == null ? "" : operatingSystem.toLowerCase(Locale.ROOT).trim();
-        if (os.contains("windows") || os.equals("win")) {
-            return "windows";
-        }
-        if (os.contains("linux")) {
-            return "linux";
-        }
-        if (os.contains("mac") || os.contains("darwin") || os.contains("osx")) {
-            return "macos";
-        }
-
-        String ext = extension == null ? "" : extension.toLowerCase(Locale.ROOT).replace(".", "").trim();
-        return switch (ext) {
-            case "exe", "msi", "msix", "appx" -> "windows";
-            case "deb", "rpm", "appimage", "flatpak" -> "linux";
-            case "dmg", "pkg" -> "macos";
-            default -> null;
-        };
     }
 
     /**
@@ -189,17 +252,17 @@ public class AdminAppExportRepository {
     }
 
     /**
-     * Conserva una combinación de aplicación y fuente para agruparla sin cambiar el orden de
-     * prioridad SQL.
+     * Representa una aplicación y sus referencias prioritarias ya limitadas a una por plataforma.
      *
-     * @param appKey UUID hexadecimal usado para agrupar todas las fuentes de una aplicación.
+     * @param appKey UUID hexadecimal usado para identificar la aplicación.
      * @param name Nombre visible de la aplicación.
      * @param winstallId Identificador del paquete Winstall; manual. identifica altas
      *     administrativas.
      * @param officialUrl Página oficial pública de la aplicación; no es un instalador resuelto.
-     * @param operatingSystem Plataforma declarada en la fuente; se normaliza antes de clasificarla.
-     * @param extension Formato del instalador utilizado si la plataforma no se reconoce.
-     * @param sourceRef UUID textual exacto de un instalador descargable.
+     * @param windowsSourceRef UUID textual exacto del instalador preferido para Windows.
+     * @param linuxSourceRef UUID textual exacto del instalador preferido para Linux.
+     * @param macosSourceRef UUID textual exacto del instalador preferido para macOS.
+     * @param publisher Editor singular de la aplicación.
      * @since 0.1.0
      * @version 0.1.0
      * @category Administración del catálogo
@@ -209,13 +272,13 @@ public class AdminAppExportRepository {
             String name,
             String winstallId,
             String officialUrl,
-            String operatingSystem,
-            String extension,
-            String sourceRef) {}
+            String windowsSourceRef,
+            String linuxSourceRef,
+            String macosSourceRef,
+            String publisher) {}
 
     /**
-     * Acumula como máximo una referencia exacta por plataforma, manteniendo None para las que no
-     * disponen de instalador.
+     * Conserva metadatos CSV ya normalizados y las etiquetas asociadas a una aplicación.
      *
      * @since 0.1.0
      * @version 0.1.0
@@ -234,48 +297,52 @@ public class AdminAppExportRepository {
          * Página oficial o None.
          */
         private final String officialUrl;
-        /**
-         * Referencia Windows o None.
-         */
-        private String windows = "None";
-        /**
-         * Referencia Linux o None.
-         */
-        private String linux = "None";
-        /**
-         * Referencia macOS o None.
-         */
-        private String macos = "None";
+        /** Referencia Windows o None. */
+        private final String windows;
+        /** Referencia Linux o None. */
+        private final String linux;
+        /** Referencia macOS o None. */
+        private final String macos;
+        /** Editor o None. */
+        private final String editor;
+        /** Etiquetas ordenadas de la aplicación. */
+        private final List<String> tags = new ArrayList<>();
 
         /**
-         * Inicializa los datos comunes de una aplicación antes de seleccionar sus instaladores por
-         * plataforma.
+         * Inicializa metadatos de aplicación y referencias prioritarias ya seleccionadas.
          *
          * @param name Nombre visible de la aplicación.
          * @param winstall Enlace a Winstall o el literal None si la aplicación es manual.
          * @param officialUrl Página oficial pública de la aplicación; no es un instalador resuelto.
+         * @param windows Referencia preferida para Windows o None.
+         * @param linux Referencia preferida para Linux o None.
+         * @param macos Referencia preferida para macOS o None.
+         * @param editor Editor o None.
          */
-        private ExportRow(String name, String winstall, String officialUrl) {
+        private ExportRow(
+                String name,
+                String winstall,
+                String officialUrl,
+                String windows,
+                String linux,
+                String macos,
+                String editor) {
             this.name = name;
             this.winstall = winstall;
             this.officialUrl = officialUrl;
+            this.windows = windows;
+            this.linux = linux;
+            this.macos = macos;
+            this.editor = editor;
         }
 
         /**
-         * Conserva la primera referencia de cada plataforma y descarta las siguientes, cuyo orden
-         * SQL expresa menor prioridad.
+         * Añade una etiqueta asociada a la aplicación.
          *
-         * @param platform Columna de destino: windows, linux o macos.
-         * @param sourceRef UUID textual exacto de un instalador descargable.
+         * @param tag Etiqueta visible del catálogo.
          */
-        private void putIfMissing(String platform, String sourceRef) {
-            if ("windows".equals(platform) && "None".equals(windows)) {
-                windows = sourceRef;
-            } else if ("linux".equals(platform) && "None".equals(linux)) {
-                linux = sourceRef;
-            } else if ("macos".equals(platform) && "None".equals(macos)) {
-                macos = sourceRef;
-            }
+        private void addTag(String tag) {
+            tags.add(tag);
         }
 
         /**
@@ -330,6 +397,24 @@ public class AdminAppExportRepository {
          */
         private String macos() {
             return macos;
+        }
+
+        /**
+         * Devuelve las etiquetas de la aplicación.
+         *
+         * @return etiquetas ordenadas.
+         */
+        private List<String> tags() {
+            return tags;
+        }
+
+        /**
+         * Devuelve editor para escribir la celda correspondiente.
+         *
+         * @return editor o None.
+         */
+        private String editor() {
+            return editor;
         }
     }
 }

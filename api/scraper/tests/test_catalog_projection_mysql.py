@@ -735,3 +735,423 @@ async def assert_projection_downgraded(mysql_url: str) -> None:
             assert counters_present == 0
     finally:
         await engine.dispose()
+
+
+@pytest.mark.mysql
+def test_mysql_shared_migrations_preserve_incompatible_history_and_apply_valid_contract(
+    mysql_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Comprueba el rechazo seguro de 0021/0022 y los cambios reales en MySQL 8.4."""
+    monkeypatch.setenv("SCRAPER_DATABASE_URL_OVERRIDE", mysql_url)
+    get_settings.cache_clear()
+    config = Config(str(SCRAPER_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(SCRAPER_ROOT / "alembic"))
+
+    try:
+        command.upgrade(config, "20260907_0020")
+        asyncio.run(assert_catalog_indexes(mysql_url))
+
+        duplicate_source_id = asyncio.run(seed_duplicate_fingerprints(mysql_url))
+        with pytest.raises(
+            RuntimeError,
+            match="0021_aborted_duplicate_resolved_source_fingerprint",
+        ):
+            command.upgrade(config, "20260914_0021")
+        asyncio.run(
+            assert_failed_expand_preserved_history(mysql_url, duplicate_source_id)
+        )
+
+        asyncio.run(delete_source_and_app(mysql_url, duplicate_source_id))
+        valid_source_id = asyncio.run(seed_single_unfingerprinted_source(mysql_url))
+        command.upgrade(config, "20260914_0021")
+        backfilled_fingerprint = asyncio.run(
+            assert_expand_backfilled_and_published_totals(mysql_url, valid_source_id)
+        )
+
+        asyncio.run(set_evaluation_index_visible(mysql_url, True))
+        with pytest.raises(RuntimeError, match="0022_aborted_index_not_measured"):
+            command.upgrade(config, "20260914_0022")
+        asyncio.run(assert_failed_contract_preserved_history(
+            mysql_url, valid_source_id, backfilled_fingerprint
+        ))
+
+        asyncio.run(set_evaluation_index_visible(mysql_url, False))
+        command.upgrade(config, "20260914_0022")
+        asyncio.run(assert_contract_removed_compatibility_objects(mysql_url, valid_source_id))
+        command.upgrade(config, "head")
+        asyncio.run(assert_snapshot_tables_removed(mysql_url))
+    finally:
+        get_settings.cache_clear()
+
+
+async def assert_catalog_indexes(mysql_url: str) -> None:
+    """Comprueba en la base las columnas generadas y los índices publicados por 0010/0019."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            rows = (
+                await connection.execute(
+                    text(
+                        "SELECT TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX, COLUMN_NAME "
+                        "FROM information_schema.statistics "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME IN "
+                        "('ix_software_apps_status_updated_name_id', "
+                        "'ix_resolved_sources_catalog_downloadable', "
+                        "'ix_software_apps_catalog_review_updated')"
+                    )
+                )
+            ).all()
+            indexes: dict[str, list[str]] = {}
+            for row in rows:
+                indexes.setdefault(str(row.INDEX_NAME), []).append(str(row.COLUMN_NAME))
+            assert indexes["ix_software_apps_status_updated_name_id"]
+            assert indexes["ix_resolved_sources_catalog_downloadable"]
+            assert indexes["ix_software_apps_catalog_review_updated"]
+            generated = await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.columns "
+                    "WHERE table_schema = DATABASE() AND table_name = 'resolved_sources' "
+                    "AND column_name = 'catalog_downloadable' "
+                    "AND generation_expression <> ''"
+                )
+            )
+            assert generated == 1
+    finally:
+        await engine.dispose()
+
+
+async def seed_duplicate_fingerprints(mysql_url: str) -> UUID:
+    """Crea dos filas históricas que colisionan cuando 0021 calcula su huella estable."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            now = utc_now()
+            app = SoftwareApp(
+                winstall_id="Migration.Duplicate",
+                slug="migration-duplicate",
+                name="Migration Duplicate",
+                normalized_name="migration duplicate",
+                app_status="active",
+                created_at=now,
+                updated_at=now,
+            )
+            source = DownloadSource(
+                software_app=app,
+                operating_system="windows",
+                architecture="x86_64",
+                resolution_status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+            )
+            source.resolved_sources = [
+                stale_candidate(source, filename="duplicate.exe"),
+                stale_candidate(source, filename="duplicate.exe"),
+            ]
+            session.add(app)
+            await session.flush()
+            source_id = source.id
+            await session.execute(
+                text(
+                    "UPDATE resolved_sources SET artifact_fingerprint = NULL "
+                    "WHERE download_source_id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            )
+            await session.commit()
+            return source_id
+    finally:
+        await engine.dispose()
+
+
+async def seed_single_unfingerprinted_source(mysql_url: str) -> UUID:
+    """Crea una fila histórica descargable para verificar backfill y totales de 0021."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            now = utc_now()
+            app = SoftwareApp(
+                winstall_id="Migration.Valid",
+                slug="migration-valid",
+                name="Migration Valid",
+                normalized_name="migration valid",
+                app_status="active",
+                created_at=now,
+                updated_at=now,
+            )
+            source = DownloadSource(
+                software_app=app,
+                operating_system="windows",
+                architecture="x86_64",
+                resolution_status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+            )
+            source.resolved_sources = [stale_candidate(source, filename="valid.exe")]
+            session.add(app)
+            await session.flush()
+            source_id = source.id
+            await session.execute(
+                text(
+                    "UPDATE resolved_sources SET artifact_fingerprint = NULL "
+                    "WHERE download_source_id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            )
+            await session.commit()
+            return source_id
+    finally:
+        await engine.dispose()
+
+
+async def delete_source_and_app(mysql_url: str, source_id: UUID) -> None:
+    """Retira los datos incompatibles tras comprobar que 0021 no los eliminó."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.begin() as connection:
+            source_count = await connection.scalar(
+                text("SELECT COUNT(*) FROM download_sources WHERE id = :source_id"),
+                {"source_id": source_id.bytes},
+            )
+            assert source_count == 1
+            await connection.execute(
+                text("DELETE FROM resolved_sources WHERE download_source_id = :source_id"),
+                {"source_id": source_id.bytes},
+            )
+            await connection.execute(
+                text("DELETE FROM download_sources WHERE id = :source_id"),
+                {"source_id": source_id.bytes},
+            )
+            deleted = await connection.execute(
+                text("DELETE FROM software_apps WHERE winstall_id = 'Migration.Duplicate'")
+            )
+            assert deleted.rowcount == 1
+    finally:
+        await engine.dispose()
+
+
+async def assert_failed_expand_preserved_history(mysql_url: str, source_id: UUID) -> None:
+    """Comprueba que 0021 conserva versión, identidad y fingerprints nulos al abortar."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            assert await connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == "20260907_0020"
+            rows = (
+                await connection.execute(
+                    text(
+                        "SELECT id, artifact_fingerprint FROM resolved_sources "
+                        "WHERE download_source_id = :source_id"
+                    ),
+                    {"source_id": source_id.bytes},
+                )
+            ).all()
+            assert len(rows) == 2
+            assert all(row.artifact_fingerprint is None for row in rows)
+    finally:
+        await engine.dispose()
+
+
+async def assert_expand_backfilled_and_published_totals(
+    mysql_url: str,
+    source_id: UUID,
+) -> str:
+    """Verifica el backfill, restricciones, índices invisibles y vista en MySQL."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            assert await connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == "20260914_0021"
+            fingerprint = await connection.scalar(
+                text(
+                    "SELECT artifact_fingerprint FROM resolved_sources "
+                    "WHERE download_source_id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            )
+            assert isinstance(fingerprint, str)
+            assert len(fingerprint) == 64
+            nullable = await connection.scalar(
+                text(
+                    "SELECT IS_NULLABLE FROM information_schema.columns "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'resolved_sources' "
+                    "AND COLUMN_NAME = 'artifact_fingerprint'"
+                )
+            )
+            assert nullable == "NO"
+            unique_index = await connection.scalar(
+                text(
+                    "SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.statistics "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'resolved_sources' "
+                    "AND INDEX_NAME = 'uq_resolved_sources_source_fingerprint' "
+                    "AND NON_UNIQUE = 0"
+                )
+            )
+            assert unique_index == 1
+            total_row = (
+                await connection.execute(
+                    text(
+                        "SELECT total_apps, available_apps, review_apps, missing_installer_apps "
+                        "FROM application_totals"
+                    )
+                )
+            ).one()
+            expected_totals = (
+                await connection.execute(
+                    text(
+                        "SELECT COUNT(catalog_status), "
+                        "COALESCE(SUM(catalog_status = 'available'), 0), "
+                        "COALESCE(SUM(catalog_status = 'review'), 0), "
+                        "COALESCE(SUM(catalog_status = 'missing'), 0) "
+                        "FROM software_apps"
+                    )
+                )
+            ).one()
+            assert tuple(total_row) == tuple(expected_totals)
+            app_status = await connection.scalar(
+                text(
+                    "SELECT app.catalog_status FROM software_apps AS app "
+                    "JOIN download_sources AS source ON source.software_app_id = app.id "
+                    "WHERE source.id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            )
+            assert app_status == "available"
+            visibility = await connection.scalar(
+                text(
+                    "SELECT IS_VISIBLE FROM information_schema.statistics "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'software_apps' "
+                    "AND INDEX_NAME = 'ix_software_apps_app_status'"
+                )
+            )
+            assert visibility == "NO"
+            return fingerprint
+    finally:
+        await engine.dispose()
+
+
+async def set_evaluation_index_visible(mysql_url: str, visible: bool) -> None:
+    """Cambia el estado físico del índice para probar el gate de 0022."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        visibility = "VISIBLE" if visible else "INVISIBLE"
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    f"ALTER TABLE software_apps ALTER INDEX "
+                    f"ix_software_apps_app_status {visibility}"
+                )
+            )
+    finally:
+        await engine.dispose()
+
+
+async def assert_failed_contract_preserved_history(
+    mysql_url: str,
+    source_id: UUID,
+    expected_fingerprint: str,
+) -> None:
+    """Comprueba que el bloqueo de 0022 conserva versión, datos y objetos compatibles."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            assert await connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == "20260914_0021"
+            assert await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.columns "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scraper_commands' "
+                    "AND COLUMN_NAME = 'run_id'"
+                )
+            ) == 1
+            assert await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.views "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'application_totals'"
+                )
+            ) == 1
+            assert await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM resolved_sources "
+                    "WHERE download_source_id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            ) == 1
+            fingerprint = await connection.scalar(
+                text(
+                    "SELECT artifact_fingerprint FROM resolved_sources "
+                    "WHERE download_source_id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            )
+            assert fingerprint == expected_fingerprint
+            assert await connection.scalar(
+                text(
+                    "SELECT IS_VISIBLE FROM information_schema.statistics "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'software_apps' "
+                    "AND INDEX_NAME = 'ix_software_apps_app_status'"
+                )
+            ) == "YES"
+    finally:
+        await engine.dispose()
+
+
+async def assert_contract_removed_compatibility_objects(
+    mysql_url: str,
+    source_id: UUID,
+) -> None:
+    """Comprueba que 0022 retira objetos evaluados y conserva artefactos ya migrados."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            assert await connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            ) == "20260914_0022"
+            assert await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.columns "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scraper_commands' "
+                    "AND COLUMN_NAME = 'run_id'"
+                )
+            ) == 0
+            assert await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.views "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'application_totals'"
+                )
+            ) == 0
+            assert await connection.scalar(
+                text(
+                    "SELECT artifact_fingerprint FROM resolved_sources "
+                    "WHERE download_source_id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            ) is not None
+            assert await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.statistics "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND INDEX_NAME IN "
+                    "('ix_resolved_sources_status', 'ix_scrape_runs_status', "
+                    "'ix_software_app_tags_app', 'ix_software_apps_app_status')"
+                )
+            ) == 0
+    finally:
+        await engine.dispose()
+
+
+async def assert_snapshot_tables_removed(mysql_url: str) -> None:
+    """Comprueba el resultado de retirar las tablas de snapshots en 0023."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.connect() as connection:
+            remaining = await connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
+                    "('scraper_worker_snapshots', 'scraper_metric_snapshots')"
+                )
+            )
+            assert remaining == 0
+    finally:
+        await engine.dispose()

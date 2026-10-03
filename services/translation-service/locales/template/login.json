@@ -10,5 +10,8 @@
   "login.invalid": "",
   "login.password": "",
   "login.submit": "",
-  "login.username": ""
+  "login.username": "",
+  "account.magic.privacyNotice": "",
+  "account.magic.privacyLink": "",
+  "account.magic.termsLink": ""
 }

@@ -11,6 +11,8 @@ import * as downloadsApi from './api/downloads';
 import * as delivery from './downloads/delivery';
 import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, ScraperQueueState } from './types/catalog';
 
+vi.mock('./components/PageMetadata', () => ({ PageMetadata: () => null }));
+
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
   return {
@@ -833,6 +835,25 @@ describe('public support pages', () => {
     vi.restoreAllMocks();
   });
 
+  it('explains the collected data and provides a private rights channel', async () => {
+    render(<MemoryRouter initialEntries={['/privacy']}><App /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Política de privacidad', level: 1 })).toBeInTheDocument();
+    expect(screen.getByText(/José Gallardo es el responsable/)).toBeInTheDocument();
+    expect(screen.getByText(/BATCH_SESSION/)).toHaveTextContent('BATCH_DOWNLOAD_OWNER');
+    expect(screen.getByText(/Resend solo se utiliza/)).toHaveTextContent('no enviamos publicidad');
+    expect(screen.getByText(/no implica el borrado inmediato/)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Contacto: JoseGallardoC@protonmail.com' })[0])
+      .toHaveAttribute('href', 'mailto:JoseGallardoC@protonmail.com');
+    expect(screen.getByRole('link', { name: 'Derechos y reclamaciones ante la AEPD' }))
+      .toHaveAttribute('href', 'https://www.aepd.es/derechos-y-deberes/conoce-tus-derechos');
+  });
+
+  it('keeps an unknown route on a real not-found page', async () => {
+    render(<MemoryRouter initialEntries={['/no-existe']}><App /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Página no encontrada', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Volver al inicio' })).toHaveAttribute('href', '/');
+  });
+
   it('shows the generic public error for an unknown code', async () => {
     render(
       <MemoryRouter initialEntries={['/error?code=legacy']}>
@@ -851,7 +872,7 @@ describe('public support pages', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Términos y condiciones', level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Términos y condiciones', level: 1 })).toBeInTheDocument();
     expect(screen.getByText('Última actualización')).toBeInTheDocument();
     expect(screen.getByText(/de \w+ de \d{4}/)).toHaveAttribute('datetime');
     expect(screen.getByRole('heading', { name: 'Páginas' })).toBeInTheDocument();
@@ -915,23 +936,19 @@ describe('admin bundle editor', () => {
     vi.restoreAllMocks();
   });
 
-  it('oculta del selector las aplicaciones que ya pertenecen al bundle', async () => {
-    const { container } = render(
+  it('marca las aplicaciones añadidas e impide duplicarlas en el bundle', async () => {
+    render(
       <MemoryRouter initialEntries={['/admin/bundles']}>
         <App />
       </MemoryRouter>,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /Launchers/ }));
-    await screen.findByText(catalogApp.name);
-
-    const picker = container.querySelector('.app-picker-results');
-    expect(picker).not.toBeNull();
-    expect(within(picker as HTMLElement).queryByText(catalogApp.name)).not.toBeInTheDocument();
-    expect(within(picker as HTMLElement).getByText('Aplicación candidata')).toBeInTheDocument();
-
-    fireEvent.click(within(picker as HTMLElement).getByRole('button', { name: /Aplicación candidata/ }));
-    expect(within(picker as HTMLElement).queryByText('Aplicación candidata')).not.toBeInTheDocument();
+    const add = await screen.findByRole('button', { name: 'Añadir Aplicación candidata' });
+    expect(screen.getByRole('button', { name: `${catalogApp.name} ya está en el bundle` })).toBeDisabled();
+    fireEvent.click(add);
+    expect(screen.getByRole('button', { name: 'Aplicación candidata ya está en el bundle' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Quitar Aplicación candidata' })).toBeEnabled();
   });
 });
 

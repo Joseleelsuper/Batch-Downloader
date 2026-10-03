@@ -3,6 +3,7 @@ de inspecciones y descubrimientos.
 """
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -114,6 +115,16 @@ class GenerateDescriptionResult(BaseModel):
 
     status: str
 
+
+
+class SemanticSourceStatus(BaseModel):
+    """Identifica el último final del Scraper que el indexador debe incorporar."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    run_id: UUID = Field(alias="runId")
+    finished_at: datetime = Field(alias="finishedAt")
+    status: Literal["completed", "partial", "failed"]
 
 
 class SemanticDocument(BaseModel):

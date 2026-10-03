@@ -28,7 +28,11 @@ def model_catalog_coverage(connection: Any, model_version: str) -> dict[str, Any
         CATALOG_SNAPSHOT_CTE + """
         SELECT COUNT(*) FILTER (WHERE d.active) AS expected,
                COUNT(*) FILTER (WHERE d.active AND e.content_hash = d.content_hash) AS indexed,
-               (SELECT snapshot_hash FROM catalog) AS snapshot_hash
+               (SELECT snapshot_hash FROM catalog) AS snapshot_hash,
+               encode(digest(COALESCE(string_agg(
+                   d.app_id::text || ':' || d.content_hash, '|' ORDER BY d.app_id
+               ) FILTER (WHERE d.active AND e.content_hash = d.content_hash), ''),
+                   'sha256'), 'hex') AS indexed_snapshot_hash
         FROM semantic_documents d
         LEFT JOIN software_embeddings e
           ON e.app_id = d.app_id AND e.model_version = %s

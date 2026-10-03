@@ -18,13 +18,17 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.RowCallbackHandler;
+import org.springframework.jdbc.core.RowMapper;
 
 /**
  * Agrupa los escenarios de prueba de {@code CatalogRepositoryTest}.
@@ -33,34 +37,54 @@ import org.springframework.jdbc.core.RowCallbackHandler;
  */
 class CatalogRepositoryTest {
     /** Comprueba que el enriquecimiento de cualquier conjunto usa cuatro consultas por lote. */
-    @Test
-    void listItemsUsesFourQueriesRegardlessOfRequestedCardinality() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 20})
+    void listItemsUsesBoundedQueriesRegardlessOfRequestedCardinality(int requestedCount)
+            throws Exception {
+        ListItemsResult requested = listItems(requestedCount);
+        ListItemsResult singleItem = listItems(1);
+
+        assertThat(requested.appIds()).hasSize(requestedCount);
+        assertThat(requested.queryCount()).isEqualTo(singleItem.queryCount()).isLessThanOrEqualTo(4);
+    }
+
+    private ListItemsResult listItems(int appCount) throws Exception {
         JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
-        UUID appId = UUID.randomUUID();
+        List<UUID> appIds = java.util.stream.IntStream.range(0, appCount)
+                .mapToObj(ignored -> UUID.randomUUID())
+                .toList();
+        AtomicInteger queryCount = new AtomicInteger();
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
                 .thenAnswer(invocation -> {
+                    queryCount.incrementAndGet();
                     RowMapper<?> mapper = invocation.getArgument(1);
-                    ResultSet row = org.mockito.Mockito.mock(ResultSet.class);
-                    when(row.getBytes("id"))
-                            .thenReturn(es.ubu.batchdownloader.common.UuidBytes.fromUuid(appId));
-                    when(row.getString("slug")).thenReturn("example");
-                    when(row.getString("name")).thenReturn("Example");
-                    when(row.getString("catalog_status")).thenReturn("available");
-                    when(row.getTimestamp("updated_at"))
-                            .thenReturn(Timestamp.valueOf(LocalDateTime.of(2026, 8, 5, 0, 0)));
-                    return List.of(mapper.mapRow(row, 0));
+                    List<Object> rows = new ArrayList<>();
+                    for (int index = 0; index < appIds.size(); index++) {
+                        ResultSet row = org.mockito.Mockito.mock(ResultSet.class);
+                        when(row.getBytes("id")).thenReturn(
+                                es.ubu.batchdownloader.common.UuidBytes.fromUuid(appIds.get(index)));
+                        when(row.getString("slug")).thenReturn("example-" + index);
+                        when(row.getString("name")).thenReturn("Example " + index);
+                        when(row.getString("catalog_status")).thenReturn("available");
+                        when(row.getTimestamp("updated_at"))
+                                .thenReturn(Timestamp.valueOf(LocalDateTime.of(2026, 8, 5, 0, 0)));
+                        rows.add(mapper.mapRow(row, index));
+                    }
+                    return rows;
                 });
-        doAnswer(invocation -> null)
+        doAnswer(invocation -> {
+                    queryCount.incrementAndGet();
+                    return null;
+                })
                 .when(jdbc)
                 .query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
-        CatalogRepository repository = repository(jdbc);
 
-        assertThat(repository.listItems(List.of(appId))).containsKey(appId);
-
-        verify(jdbc, times(1)).query(anyString(), any(RowMapper.class), any(Object[].class));
-        verify(jdbc, times(3)).query(
-                anyString(), any(RowCallbackHandler.class), any(Object[].class));
+        var result = repository(jdbc).listItems(appIds);
+        assertThat(result.keySet()).containsExactlyInAnyOrderElementsOf(appIds);
+        return new ListItemsResult(result.keySet(), queryCount.get());
     }
+
+    private record ListItemsResult(java.util.Set<UUID> appIds, int queryCount) {}
 
     /**
      * Comprueba el escenario {@code manualAppsExposeTheirSourcePageInsteadOfAFakeWinstallUrl}.
@@ -117,6 +141,41 @@ class CatalogRepositoryTest {
                 "CASE WHEN a.catalog_status", "SELECT a.*", "JOIN (", "page.search_score");
         assertThat(params.getValue()[0]).isEqualTo("epic games");
         assertThat(params.getValue()).contains("epic games%");
+    }
+
+    /** El selector de bundles antepone la coincidencia textual a nombre, fecha y estado. */
+    @Test
+    void relevanceSortPutsLiteralMatchesFirstAndKeepsStableTies() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        repository(jdbc).search(
+                new CatalogQuery("Epic Games", "all", null, null, List.of(), List.of()),
+                "relevance", 2, 20, SemanticCandidateSet.lexical());
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
+        assertThat(sql.getValue()).contains(
+                "ORDER BY search_score DESC, a.normalized_name ASC, a.id ASC LIMIT ? OFFSET ?");
+        assertThat(params.getValue()).endsWith(20, 20);
+    }
+
+    /** Una búsqueda vacía del selector permite descubrir aplicaciones populares. */
+    @Test
+    void relevanceWithoutQueryUsesDownloadsWithoutScoring() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        repository(jdbc).search(
+                new CatalogQuery(" ", "all", null, null, List.of(), List.of()),
+                "relevance", 1, 20, SemanticCandidateSet.lexical());
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue()).contains(
+                "ORDER BY a.download_count DESC, a.normalized_name ASC, a.id ASC")
+                .doesNotContain("search_score", "catalog_review_priority");
     }
 
     /**

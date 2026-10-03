@@ -1,0 +1,172 @@
+.bundle-account-editor,
+.bundle-admin-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  min-width: 0;
+}
+
+.bundle-editor-fields,
+.bundle-app-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.bundle-description-field,
+.bundle-publication-notice {
+  grid-column: 1 / -1;
+}
+
+.bundle-publication-notice,
+.auth-legal-notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.auth-legal-notice a {
+  color: var(--teal-dark);
+  text-underline-offset: 3px;
+}
+
+.bundle-app-picker {
+  align-items: start;
+}
+
+.bundle-picker-panel {
+  min-width: 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.bundle-picker-heading h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.bundle-picker-heading p,
+.bundle-picker-status,
+.bundle-picker-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.bundle-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.bundle-picker-search:focus-within {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.bundle-picker-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  outline: none;
+  caret-color: var(--teal-dark);
+}
+
+.bundle-picker-search input::placeholder { color: var(--muted); }
+.bundle-picker-search svg { flex-shrink: 0; }
+.bundle-picker-status { margin: 12px 0; }
+.bundle-picker-results { min-height: 180px; }
+.bundle-picker-placeholder { min-height: 180px; background: #f7fafc; }
+.bundle-picker-empty { padding: 24px 0; max-width: 45ch; }
+
+.bundle-picker-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 540px;
+  overflow-y: auto;
+  scrollbar-color: var(--border) var(--surface);
+  scrollbar-width: thin;
+}
+
+.bundle-picker-selected-list { margin-top: 16px; }
+
+.bundle-picker-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.bundle-picker-row:last-child { border-bottom: 0; }
+.bundle-picker-app { display: grid; gap: 4px; min-width: 0; }
+.bundle-picker-app strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.bundle-picker-app small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+
+.bundle-picker-add,
+.bundle-picker-row-actions button,
+.bundle-picker-pagination button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 36px;
+  min-height: 40px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--teal-dark);
+  background: var(--surface);
+}
+
+.bundle-picker-add { padding-inline: 10px; font-size: 13px; font-weight: 650; }
+.bundle-picker-add:hover:not(:disabled),
+.bundle-picker-row-actions button:hover:not(:disabled),
+.bundle-picker-pagination button:hover:not(:disabled) { background: var(--teal-soft); }
+.bundle-picker-add:disabled { color: var(--muted); }
+.bundle-picker-row-actions { display: flex; gap: 4px; }
+
+.bundle-picker-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bundle-picker-limit { margin: 14px 0 0; color: var(--teal-dark); font-size: 14px; }
+.bundle-save-button { justify-self: start; }
+
+@media (max-width: 1100px) {
+  .bundle-picker-selection .bundle-picker-row-actions { grid-column: 2 / -1; justify-self: end; }
+  .bundle-picker-selection .bundle-picker-app { grid-column: 2 / -1; }
+}
+
+@media (max-width: 820px) {
+  .bundle-app-picker,
+  .bundle-editor-fields { grid-template-columns: minmax(0, 1fr); }
+  .bundle-picker-panel { padding: 16px; }
+  .bundle-picker-row-actions button,
+  .bundle-picker-pagination button { min-width: 44px; min-height: 44px; }
+}
