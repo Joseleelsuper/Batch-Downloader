@@ -73,7 +73,7 @@ export function HomePage() {
     <main className="home-page">
       <section className="home-hero">
         <div>
-          <h2>{t('home.hero.title')}</h2>
+          <h1>{t('home.hero.title')}</h1>
           <p>{t('home.hero.body')}</p>
         </div>
         <Link className="primary-link" to="/catalog">

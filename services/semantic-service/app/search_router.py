@@ -31,7 +31,7 @@ router = APIRouter()
 )
 async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchResponse:
     """Codifica la consulta con el modelo activo y busca candidatos por similitud en su índice
-    completo.
+    disponible, aunque queden aplicaciones por indexar.
     Solicita un resultado adicional para detectar truncamiento y permite a Core decidir el
     fallback
     léxico de toda la petición cuando no puede utilizar la respuesta semántica.
@@ -45,7 +45,7 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
             truncamiento.
 
     Raises:
-        HTTPException: 503 si no hay índice activo completo o se agota el tiempo de
+        HTTPException: 503 si no hay vectores vigentes o se agota el tiempo de
             codificación; los guardas rechazan credencial o capacidad antes de entrar.
 
     See Also:
@@ -59,7 +59,7 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
             status_code=503,
             detail={"code": "semantic_index_not_ready"},
         )
-    model, index_version = active
+    model, _index_version = active
     try:
         runtime = runtime_for(model)
         vector = await asyncio.wait_for(
@@ -67,7 +67,7 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
             timeout=settings.search_timeout_seconds,
         )
         functional_limit = min(request.limit, settings.candidate_limit)
-        rows = await asyncio.to_thread(
+        rows, index_version = await asyncio.to_thread(
             store.exact_search,
             model=model,
             query_vector=vector,

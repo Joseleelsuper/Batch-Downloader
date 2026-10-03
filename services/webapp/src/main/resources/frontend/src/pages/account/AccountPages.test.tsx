@@ -84,6 +84,8 @@ describe('account flows', () => {
     await waitFor(() => expect(request).toHaveBeenCalledWith('person@example.com', 'es'));
     expect(await screen.findByText(t('account.magic.sent'))).toBeInTheDocument();
     expect(screen.getByRole('link', { name: t('account.adminLogin.link') })).toHaveClass('auth-switch-link');
+    expect(screen.getByRole('link', { name: t('account.magic.privacyLink') })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: t('account.magic.termsLink') })).toHaveAttribute('href', '/terms');
   });
 
   it('valida el correo y traduce los errores al solicitar el enlace', async () => {
@@ -190,7 +192,7 @@ describe('account flows', () => {
 
   it('crea un bundle privado usando el catálogo disponible', async () => {
     vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({
-      data: [app], page: 1, pageSize: 60, total: 1,
+      data: [app], page: 1, pageSize: 20, total: 1,
     });
     const create = vi.spyOn(accountApi, 'createOwnBundle').mockResolvedValue({
       id: 'bundle-id', slug: 'my-bundle', name: 'My bundle', description: '',
@@ -207,13 +209,13 @@ describe('account flows', () => {
     );
 
     await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalledWith(
-      expect.objectContaining({ filter: 'available' }), expect.any(AbortSignal),
+      expect.objectContaining({ filter: 'available', sort: 'relevance', pageSize: 20, searchMode: 'lexical' }), expect.any(AbortSignal),
     ));
     const textInputs = container.querySelectorAll('.bundle-fields input');
     fireEvent.change(textInputs[0], { target: { value: 'My bundle' } });
     fireEvent.change(textInputs[1], { target: { value: 'my-bundle' } });
     fireEvent.change(textInputs[2], { target: { value: 'tools' } });
-    fireEvent.click(await screen.findByRole('checkbox', { name: /Sample App/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir Sample App' }));
     fireEvent.submit(container.querySelector('form')!);
 
     await waitFor(() => expect(create).toHaveBeenCalledWith({
@@ -298,9 +300,8 @@ describe('account flows', () => {
     );
 
     expect(await screen.findByDisplayValue('Tools')).toBeInTheDocument();
-    const checkbox = await screen.findByRole('checkbox', { name: /Sample App/ });
-    expect(checkbox).toBeChecked();
-    fireEvent.click(checkbox);
+    fireEvent.click(await screen.findByRole('button', { name: 'Quitar Sample App' }));
+    expect(screen.getByText(t('account.bundles.publicationNotice'))).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'public' } });
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(update).toHaveBeenCalledWith(

@@ -1,6 +1,8 @@
 {
   "error.backToHome": "",
   "error.backToLogin": "",
+  "error.notFound.title": "",
+  "error.notFound.body": "",
   "error.unexpected_error.body": "",
   "error.unexpected_error.title": ""
 }

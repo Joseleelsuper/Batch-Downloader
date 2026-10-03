@@ -143,6 +143,41 @@ class CatalogRepositoryTest {
         assertThat(params.getValue()).contains("epic games%");
     }
 
+    /** El selector de bundles antepone la coincidencia textual a nombre, fecha y estado. */
+    @Test
+    void relevanceSortPutsLiteralMatchesFirstAndKeepsStableTies() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        repository(jdbc).search(
+                new CatalogQuery("Epic Games", "all", null, null, List.of(), List.of()),
+                "relevance", 2, 20, SemanticCandidateSet.lexical());
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
+        assertThat(sql.getValue()).contains(
+                "ORDER BY search_score DESC, a.normalized_name ASC, a.id ASC LIMIT ? OFFSET ?");
+        assertThat(params.getValue()).endsWith(20, 20);
+    }
+
+    /** Una búsqueda vacía del selector permite descubrir aplicaciones populares. */
+    @Test
+    void relevanceWithoutQueryUsesDownloadsWithoutScoring() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        repository(jdbc).search(
+                new CatalogQuery(" ", "all", null, null, List.of(), List.of()),
+                "relevance", 1, 20, SemanticCandidateSet.lexical());
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue()).contains(
+                "ORDER BY a.download_count DESC, a.normalized_name ASC, a.id ASC")
+                .doesNotContain("search_score", "catalog_review_priority");
+    }
+
     /**
      * Comprueba el escenario {@code
      * semanticSearchUsesOnlyEmbeddingCandidatesBeforeStructuredFilters}.

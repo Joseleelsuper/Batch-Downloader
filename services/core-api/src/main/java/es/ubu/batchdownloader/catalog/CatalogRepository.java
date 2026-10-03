@@ -338,11 +338,10 @@ public class CatalogRepository {
     }
 
     /**
-     * Da prioridad al orden solicitado y utiliza relevancia y UUID para desempatar; salvo en orden
-     * name coloca revisión al final.
+     * Construye un orden estable: relevance antepone puntuación, name conserva el alfabético
+     * y los órdenes por fecha o descargas relegan las aplicaciones en revisión.
      *
-     * @param sort name ordena por nombre; updated y downloads priorizan su fecha o contador antes
-     *     del desempate de relevancia.
+     * @param sort name, updated, downloads o relevance; sin consulta relevance usa descargas.
      * @param relevancePrefix Fragmento de orden de relevancia ya construido por código, nunca
      *     recibido del cliente.
      * @return fragmento ORDER BY construido solo con alternativas controladas.
@@ -350,6 +349,11 @@ public class CatalogRepository {
     private String orderBy(String sort, String relevancePrefix) {
         String relevanceOrder =
                 relevancePrefix == null || relevancePrefix.isBlank() ? "" : relevancePrefix;
+        if ("relevance".equals(sort)) {
+            return relevanceOrder.isEmpty()
+                    ? "a.download_count DESC, a.normalized_name ASC, a.id ASC"
+                    : relevanceOrder + "a.normalized_name ASC, a.id ASC";
+        }
         String selectedOrder = switch (sort) {
             case "updated" ->
                     "a.updated_at DESC, " + relevanceOrder + "a.normalized_name ASC, a.id ASC";

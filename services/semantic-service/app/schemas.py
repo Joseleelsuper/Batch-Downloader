@@ -59,7 +59,7 @@ class SemanticCandidate(BaseModel):
 
 
 class SemanticSearchResponse(BaseModel):
-    """Vincula los candidatos a una versión completa de modelo e índice e indica si el conjunto
+    """Vincula los candidatos a una instantánea del índice disponible e indica si el conjunto
     fue recortado.
 
     Attributes:

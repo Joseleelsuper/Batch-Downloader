@@ -7,7 +7,7 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --max-warnings=0",
-    "build": "npm run typecheck && vite build && node scripts/check-entry-budget.mjs",
+    "build": "npm run typecheck && vite build && node scripts/build-seo-head.mjs && node scripts/check-entry-budget.mjs",
     "preview": "vite preview",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",

@@ -95,7 +95,7 @@ class HttpContractTest(unittest.TestCase):
         prefix = next(keyword.value.value for keyword in router.keywords if keyword.arg == 'prefix')
         path = prefix + decorator.args[0].value
         documented = [(route, item) for route, item in self.spec['paths'].items()
-                      if item.get('x-service') == 'scraper']
+                      if item.get('x-service') == 'scraper' and normalized(route) == normalized(path)]
         self.assertEqual([normalized(path)], [normalized(route) for route, _ in documented])
         operation = documented[0][1]['get']
         self.assertEqual([{'internalServiceToken': []}], operation['security'])
@@ -113,6 +113,41 @@ class HttpContractTest(unittest.TestCase):
         aliases = {keyword.value.value for node in model.body if isinstance(node, ast.AnnAssign)
                    and isinstance(node.value, ast.Call) for keyword in node.value.keywords if keyword.arg == 'alias'}
         self.assertEqual(aliases, set(self.spec['components']['schemas'][model_name]['properties']))
+
+    def test_semantic_source_status_matches_python_route_and_nullable_model(self):
+        """La señal del Scraper conserva ruta interna, autenticación, campos y ausencia null."""
+        routes = ast.parse((ROOT / 'api/scraper/app/api/internal_routes.py').read_text(encoding='utf-8'))
+        handler = next(node for node in routes.body if isinstance(node, ast.AsyncFunctionDef)
+                       and node.name == 'semantic_source_status')
+        decorator = next(node for node in handler.decorator_list if isinstance(node, ast.Call)
+                         and isinstance(node.func, ast.Attribute) and node.func.attr == 'get')
+        self.assertEqual('/semantic/source-status', decorator.args[0].value)
+        item = self.spec['paths']['/internal/v1/semantic/source-status']
+        self.assertEqual('scraper', item['x-service'])
+        self.assertEqual([{'url': 'http://scraper-api:8000'}], item['servers'])
+        operation = item['get']
+        self.assertEqual([{'internalServiceToken': []}], operation['security'])
+        self.assertTrue(any(isinstance(node, ast.Name) and node.id == 'require_internal_service_token'
+                            for argument in handler.args.args if argument.annotation
+                            for node in ast.walk(argument.annotation)))
+        self.assertIn('401', operation['responses'])
+        response_model = next(keyword.value for keyword in decorator.keywords
+                              if keyword.arg == 'response_model')
+        self.assertEqual('SemanticSourceStatus | None', ast.unparse(response_model))
+        variants = operation['responses']['200']['content']['application/json']['schema']['oneOf']
+        self.assertEqual({'null', 'object'}, {variant['type'] for variant in variants})
+        schema = next(variant for variant in variants if variant['type'] == 'object')
+        models = ast.parse((ROOT / 'api/scraper/app/schemas/internal.py').read_text(encoding='utf-8'))
+        model = next(node for node in models.body if isinstance(node, ast.ClassDef)
+                     and node.name == 'SemanticSourceStatus')
+        fields = {node.target.id: node for node in model.body if isinstance(node, ast.AnnAssign)}
+        aliases = {next((keyword.value.value for keyword in node.value.keywords
+                         if keyword.arg == 'alias'), name) if isinstance(node.value, ast.Call)
+                   else name for name, node in fields.items()}
+        self.assertEqual(aliases, set(schema['properties']))
+        self.assertEqual(aliases, set(schema['required']))
+        self.assertEqual(list(ast.literal_eval(fields['status'].annotation.slice)),
+                         schema['properties']['status']['enum'])
 
     def test_declared_status_and_record_properties(self):
         """Los códigos anotados y propiedades de records conservan su forma pública documentada."""

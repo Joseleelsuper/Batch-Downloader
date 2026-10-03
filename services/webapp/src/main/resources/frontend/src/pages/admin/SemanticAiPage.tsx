@@ -112,7 +112,8 @@ function SemanticOverviewContent({
         <StatusCard
           title={t('semantic.index.title')}
           value={coverage}
-          detail={index?.complete ? t('semantic.index.complete') : t('semantic.index.incomplete')}
+          detail={index?.complete ? t('semantic.index.complete') : index && index.indexed > 0
+            ? t('semantic.index.partial') : t('semantic.index.incomplete')}
           tone={index?.complete ? 'success' : 'warning'}
         />
         <StatusCard

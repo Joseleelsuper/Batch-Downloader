@@ -30,7 +30,7 @@ export function BundleDetailPage() {
     <main className="content-page">
       <section className="bundle-detail-header">
         <div>
-          <h2>{bundle.name}</h2>
+          <h1>{bundle.name}</h1>
           <p>{bundle.description || t('bundle.fallbackDescription')}</p>
           <div className="tag-list">
             {bundle.tags.map((tag) => (

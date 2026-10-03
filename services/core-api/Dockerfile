@@ -15,7 +15,7 @@ FROM eclipse-temurin:26.0.1_8-jre
 
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl fontconfig fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /workspace/services/core-api/target/*.jar /app/app.jar
 

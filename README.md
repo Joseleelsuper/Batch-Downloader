@@ -24,7 +24,12 @@ Antes del primer arranque, copia `.env.example` como `.env` y cambia sus credenc
 
 ### Stack completo
 
+Las migraciones de PostgreSQL semántico se aplican por separado: `up --build` no las ejecuta. Antes del primer arranque o tras añadir migraciones, prepara la base de datos y ejecuta el migrador con la imagen actual; las versiones ya aplicadas se verifican sin repetirlas.
+
 ```powershell
+docker compose up -d postgres
+docker compose build semantic-service
+docker compose run --rm --no-deps semantic-service python -m app.migrator
 docker compose up --build --force-recreate
 ```
 
@@ -91,6 +96,8 @@ Permisos:
 - **Operativo** no tiene autenticación de aplicación y debe restringirse por red. Todas las operaciones `POST`, `PUT`, `PATCH` y `DELETE` realizadas desde el navegador requieren además el token obtenido en `GET /api/v1/auth/csrf`; los endpoints internos no usan CSRF.
 
 El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
+
+Las páginas públicas reciben HTML con metadatos y contenido legible antes de ejecutar React. Core resuelve la página y Nginx incorpora mediante SSI el fragmento de recursos del mismo build de Vite. `APP_PUBLIC_BASE_URL` fija el origen de las URL canónicas, el sitemap y las tarjetas PNG de 1200×630, generadas localmente con composición de página, aplicación o bundle. Los bundles privados no publican metadatos ni imágenes; las respuestas dinámicas usan `no-store`.
 
 <details>
 <summary><strong>API pública y de usuario</strong></summary>
@@ -167,6 +174,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Scraper | `GET /api/health`, `/api/health/live`, `/api/health/ready` | Operativo | Salud general, liveness y readiness. |
 | Scraper | `GET /internal/v1/metrics` | Interno | Expone métricas Prometheus del pool. |
 | Scraper | `GET /internal/v1/semantic/documents` | Interno | Pagina documentos para el índice semántico. |
+| Scraper | `GET /internal/v1/semantic/source-status` | Interno | Último run terminado (`completed`, `partial` o `failed`), o `null`; permite indexar después del scraper. |
 | Scraper | `GET /internal/v1/sources/{sourceRef}/resolution` | Interno | Resuelve una fuente validada para descarga. |
 | Scraper | `GET /internal/v1/sources/{sourceRef}/size` | Interno | Revalida tamaño con HEAD sin retener conexión SQL durante la red; devuelve sourceRef y expectedSizeBytes, o null si no puede conocerlo. |
 | Scraper | `POST /internal/v1/content/descriptions/enqueue-missing`, `/internal/v1/content/descriptions/generate` | Interno | Encola descripciones o genera una concreta. |
@@ -266,6 +274,8 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 
 <details>
 <summary><strong>Semantic Service</strong> — <code>services/semantic-service/.env.example</code></summary>
+
+La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea parcial, sin mezclar coincidencias literales. El indexador sondea el final del scraper cada 300 segundos por defecto y lo procesa también fuera de la ventana nocturna (01:00–07:00, Europe/Madrid); conserva además los barridos de esa ventana para otros cambios. El checkpoint solo avanza cuando termina de indexar o el catálogo está vacío, por lo que reinicios y fallos se reintentan. Requiere la migración `0010_scraper_index_checkpoint.sql`, aplicada con el comando del migrador indicado en Inicio rápido; no ejecutes el SQL suelto, ya que el migrador también registra la versión y su checksum.
 
 | Variables | Uso |
 | --- | --- |

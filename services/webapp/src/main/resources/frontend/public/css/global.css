@@ -14,6 +14,8 @@
 
 @import url("./components/details.css");
 
+@import url("./components/bundle-picker.css");
+
 @import url("./pages/home.css");
 
 @import url("./pages/facets.css");
@@ -91,7 +93,7 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .topbar .brand h1,
+  .topbar .brand-title,
   .topbar .main-nav a,
   .topbar .admin-link,
   .topbar .topbar-actions button,
@@ -111,7 +113,7 @@ button:disabled {
     transition: transform 180ms ease;
   }
 
-  .topbar .brand:focus-visible h1,
+  .topbar .brand:focus-visible .brand-title,
   .topbar .main-nav a:focus-visible,
   .topbar .admin-link:focus-visible,
   .topbar .topbar-actions button:focus-visible {
@@ -160,7 +162,7 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: no-preference) and (hover: hover) {
-  .topbar .brand h1:hover,
+  .topbar .brand-title:hover,
   .topbar .main-nav a:hover,
   .topbar .admin-link:hover,
   .topbar .topbar-actions button:hover {

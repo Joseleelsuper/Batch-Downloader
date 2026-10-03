@@ -1,9 +1,11 @@
 """Contiene las pruebas de `test_runs_repository`.
 """
 from datetime import timedelta
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
@@ -25,6 +27,45 @@ async def session_factory():
     factory = async_sessionmaker(engine, expire_on_commit=False)
     yield factory
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_latest_finished_ignores_active_runs_and_projects_no_large_json(
+    session_factory,
+) -> None:
+    """Desempata por UUID y carga solo la señal, aunque los manifiestos sean voluminosos."""
+    finished_at = utc_now()
+    manifest = [str(UUID(int=1))] * 10_000
+    async with session_factory() as session:
+        session.add_all([
+            ScrapeRun(
+                id=UUID(int=99), status="completed", worker_id="test",
+                finished_at=finished_at - timedelta(seconds=1),
+            ),
+            ScrapeRun(
+                id=UUID(int=1), status="partial", worker_id="test", finished_at=finished_at,
+            ),
+            ScrapeRun(
+                id=UUID(int=2), status="failed", worker_id="test", finished_at=finished_at,
+                target_app_ids_json=manifest, target_winstall_ids_json=manifest,
+            ),
+            ScrapeRun(
+                id=UUID(int=3), status="running", active_lock=1, worker_id="test",
+                finished_at=finished_at + timedelta(seconds=1),
+            ),
+        ])
+        await session.commit()
+
+    async with session_factory() as session:
+        latest = await ScrapeRunRepository(session, Settings()).latest_finished()
+        assert latest is not None
+        assert (latest.id, latest.status, latest.finished_at) == (
+            UUID(int=2), "failed", finished_at,
+        )
+        state = inspect(latest)
+        assert set(state.mapper.column_attrs.keys()) - state.unloaded == {
+            "id", "status", "finished_at",
+        }
 
 
 @pytest.mark.asyncio

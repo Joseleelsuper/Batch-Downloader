@@ -11,6 +11,167 @@ servers:
 security:
   - sessionCookie: []
 paths:
+  /seo/metadata:
+    get:
+      operationId: getPageMetadata
+      summary: Consultar metadatos pÃºblicos para navegaciÃ³n y vistas previas
+      security: []
+      parameters:
+      - name: path
+        in: query
+        description: Ruta local de la pÃ¡gina, opcionalmente con parÃ¡metros; nunca
+          una URL externa.
+        schema:
+          type: string
+          maxLength: 4096
+          default: /
+      responses:
+        '200':
+          description: Contenido pÃºblico o shell genÃ©rico; sin cachÃ© compartida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeoMetadata'
+        '404':
+          description: Ruta inexistente o no pÃºblica; sin revelar datos privados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeoMetadata'
+        '503':
+          description: Servicio temporalmente no disponible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeoMetadata'
+  /seo/html:
+    get:
+      operationId: getPageHtml
+      summary: Renderizar HTML inicial de la pÃ¡gina con recursos SSI de Nginx
+      description: El proxy sobrescribe X-Original-URI; path tiene precedencia. Los
+        bundles privados solo entregan un shell genÃ©rico a su propietario o administrador
+        autenticado.
+      security: []
+      parameters:
+      - name: path
+        in: query
+        description: Ruta local de la pÃ¡gina, opcionalmente con parÃ¡metros; nunca
+          una URL externa.
+        schema:
+          type: string
+          maxLength: 4096
+      - name: X-Original-URI
+        in: header
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Contenido pÃºblico o shell genÃ©rico; sin cachÃ© compartida.
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Ruta inexistente o no pÃºblica; sin revelar datos privados.
+          content:
+            text/html:
+              schema:
+                type: string
+        '503':
+          description: Servicio temporalmente no disponible.
+          content:
+            text/html:
+              schema:
+                type: string
+  /seo/image:
+    get:
+      operationId: getSocialCard
+      summary: Generar PNG de 1200 por 630 con metadatos pÃºblicos
+      description: Expuesto por Nginx como /social/card.png. Revalida visibilidad en
+        cada solicitud; no acepta una URL de imagen externa.
+      security: []
+      parameters:
+      - name: path
+        in: query
+        description: Ruta local de la pÃ¡gina, opcionalmente con parÃ¡metros; nunca
+          una URL externa.
+        schema:
+          type: string
+          maxLength: 4096
+          default: /
+      responses:
+        '200':
+          description: Tarjeta PNG; Cache-Control no-store.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Ruta inexistente o privada; cuerpo vacÃ­o.
+        '503':
+          description: Tarjeta temporalmente no disponible; cuerpo vacÃ­o.
+  /seo/robots.txt:
+    get:
+      operationId: getRobots
+      summary: Consultar reglas de rastreo y ubicaciÃ³n del sitemap
+      security: []
+      responses:
+        '200':
+          description: Expuesto por Nginx en /robots.txt.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '503':
+          description: Servicio temporalmente no disponible.
+  /seo/sitemap.xml:
+    get:
+      operationId: getSitemapIndex
+      summary: Consultar el Ã­ndice de sitemaps pÃºblicos
+      security: []
+      responses:
+        '200':
+          description: Expuesto por Nginx en /sitemap.xml.
+          content:
+            application/xml:
+              schema:
+                type: string
+        '503':
+          description: CatÃ¡logo temporalmente no disponible.
+  /seo/sitemap/{group}/{page}.xml:
+    get:
+      operationId: getSitemapPage
+      summary: Consultar hasta mil URLs pÃºblicas por pÃ¡gina
+      security: []
+      parameters:
+      - name: group
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - static
+          - apps
+          - bundles
+      - name: page
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      responses:
+        '200':
+          description: Expuesto por Nginx en /sitemap/{group}/{page}.xml; excluye bundles
+            privados.
+          content:
+            application/xml:
+              schema:
+                type: string
+        '404':
+          description: Grupo o pÃ¡gina inexistente.
+        '503':
+          description: CatÃ¡logo temporalmente no disponible.
   /auth/magic-link/request:
     post:
       operationId: requestMagicLink
@@ -420,13 +581,14 @@ paths:
           type: string
       - name: sort
         in: query
-        description: Orden principal de presentación, también cuando query y búsqueda semántica están activos.
+        description: Orden principal; relevance prioriza la puntuación con consulta y las descargas sin consulta. Los demás órdenes conservan su prioridad incluso al buscar.
         schema:
           type: string
           enum:
           - name
           - updated
           - downloads
+          - relevance
           default: name
       responses:
         '200':
@@ -948,6 +1110,40 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /internal/v1/semantic/source-status:
+    x-service: scraper
+    servers:
+    - url: http://scraper-api:8000
+    get:
+      operationId: getSemanticSourceStatus
+      summary: Consultar la última finalización del Scraper para indexación semántica
+      description: Señal durable de la última ejecución completed, partial o failed.
+        El indexador la consulta cada 300 segundos y procesa cambios también fuera
+        de la ventana nocturna; solo reconoce el run cuando termina de indexarlo.
+      security:
+      - internalServiceToken: []
+      responses:
+        '200':
+          description: Último final confirmado o null cuando aún no existe ninguno.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - type: 'null'
+                - type: object
+                  required: [runId, finishedAt, status]
+                  properties:
+                    runId:
+                      type: string
+                      format: uuid
+                    finishedAt:
+                      type: string
+                      format: date-time
+                    status:
+                      type: string
+                      enum: [completed, partial, failed]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /internal/v1/sources/{sourceRef}/size:
     x-service: scraper
     servers:
@@ -1151,6 +1347,7 @@ paths:
           - name
           - updated
           - downloads
+          - relevance
           default: updated
       - $ref: '#/components/parameters/Page'
       - $ref: '#/components/parameters/PageSize'
@@ -2374,6 +2571,40 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   schemas:
+    SeoMetadata:
+      type: object
+      required:
+      - title
+      - description
+      - canonicalUrl
+      - imageUrl
+      - imageAlt
+      - robots
+      - type
+      - structuredData
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        canonicalUrl:
+          type: string
+          format: uri
+        imageUrl:
+          type: string
+          format: uri
+        imageAlt:
+          type: string
+        robots:
+          type: string
+        type:
+          type: string
+          enum:
+          - website
+          - article
+        structuredData:
+          type: object
+          additionalProperties: true
     ScraperRunRequest:
       type: object
       additionalProperties: false

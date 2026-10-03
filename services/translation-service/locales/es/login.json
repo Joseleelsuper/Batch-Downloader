@@ -10,5 +10,8 @@
   "login.checkingSession": "Comprobando sesión...",
   "login.password": "Contraseña",
   "login.submit": "Entrar",
-  "login.username": "Usuario"
+  "login.username": "Usuario",
+  "account.magic.privacyNotice": "Usaremos tu correo para enviarte el enlace de acceso y gestionar tu cuenta.",
+  "account.magic.privacyLink": "Política de privacidad",
+  "account.magic.termsLink": "Términos y condiciones"
 }

@@ -49,6 +49,7 @@ class SemanticIndexer:
         *,
         progress: Callable[[str, int, int], None] | None = None,
         cancelled: Callable[[], bool] | None = None,
+        source_run_id: str | None = None,
     ) -> dict[str, object]:
         descriptor, _validation = validate_model_directory(
             Path(self.settings.model_dir),
@@ -97,6 +98,10 @@ class SemanticIndexer:
                     self.store.fail_jobs(jobs, exception.__class__.__name__)
                     raise
             coverage = self.store.coverage_and_promote(model.model_version)
+            acknowledged = (
+                self.store.acknowledge_scrape_run(model.model_version, source_run_id)
+                if source_run_id else False
+            )
             if progress:
                 progress(
                     "finalizing",
@@ -109,8 +114,31 @@ class SemanticIndexer:
                 "changed": changed,
                 "removed": removed,
                 "embedded": embedded,
+                "scrapeRunId": source_run_id,
+                "scrapeRunAcknowledged": acknowledged,
                 **coverage,
             }
+
+    def run_scheduled(self) -> dict[str, object] | None:
+        """Procesa finales nuevos a cualquier hora y conserva el barrido nocturno periódico."""
+        source_run_id = self._latest_scrape_run_id()
+        pending_run = source_run_id is not None and source_run_id != self.store.last_scrape_run_id()
+        if not pending_run and not self.settings.background_window_open():
+            return None
+        return self.run_once(source_run_id=source_run_id)
+
+    def _latest_scrape_run_id(self) -> str | None:
+        """Lee una señal durable antes del barrido para no consumir finales posteriores."""
+        response = httpx.get(
+            self.settings.scraper_api_url.rstrip("/") + "/internal/v1/semantic/source-status",
+            headers={
+                "X-Internal-Service-Token": self.settings.internal_service_token.get_secret_value(),
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        source = response.json()
+        return str(uuid.UUID(source["runId"])) if source is not None else None
 
     def _active_document_count(self) -> int:
         def query(connection: Any) -> int:
@@ -164,7 +192,7 @@ class SemanticIndexer:
                 next_after = page.get("nextAfterAppId")
                 if not next_after:
                     break
-        return seen, changed, self.store.finish_sweep(started)
+        return seen, changed, self.store.finish_sweep(started, model_version=model_version)
 
 
 def main() -> None:
@@ -182,13 +210,10 @@ def main() -> None:
     heartbeat.start()
     try:
         while True:
-            if arguments.loop and not indexer.settings.background_window_open():
-                heartbeat.success()
-                time.sleep(min(60.0, max(5.0, indexer.settings.index_interval_seconds)))
-                continue
             try:
-                report = indexer.run_once()
-                logger.info("semantic_index_completed %s", report)
+                report = indexer.run_scheduled() if arguments.loop else indexer.run_once()
+                if report is not None:
+                    logger.info("semantic_index_completed %s", report)
                 heartbeat.success()
             except Exception as exception:
                 heartbeat.failure(exception)

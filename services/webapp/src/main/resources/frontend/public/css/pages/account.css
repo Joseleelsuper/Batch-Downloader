@@ -40,8 +40,7 @@
 .profile-form input,
 .bundle-fields input,
 .bundle-fields textarea,
-.bundle-fields select,
-.bundle-catalog-picker > input {
+.bundle-fields select {
   width: 100%;
   min-height: 42px;
   padding: 9px 12px;
@@ -158,8 +157,7 @@
   color: var(--muted);
 }
 
-.account-grid,
-.bundle-account-editor {
+.account-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
@@ -180,8 +178,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-.account-list img,
-.bundle-catalog-picker img {
+.account-list img {
   width: 28px;
   height: 28px;
   object-fit: contain;
@@ -192,39 +189,13 @@
   gap: 3px;
 }
 
-.account-list small,
-.bundle-catalog-picker small {
+.account-list small {
   color: var(--muted);
 }
 
 .bundle-account-editor .editor-actions,
 .bundle-account-editor > .error-banner {
   grid-column: 1 / -1;
-}
-
-.bundle-catalog-picker {
-  display: grid;
-  gap: 12px;
-}
-
-.bundle-catalog-picker > div {
-  display: grid;
-  gap: 6px;
-  max-height: 480px;
-  overflow: auto;
-}
-
-.bundle-catalog-picker > div label {
-  display: grid;
-  grid-template-columns: auto 32px 1fr;
-  gap: 8px;
-  align-items: center;
-  padding: 8px;
-  border-radius: 6px;
-}
-
-.bundle-catalog-picker > div label:hover {
-  background: #f3f6f9;
 }
 
 @media (max-width: 820px) {

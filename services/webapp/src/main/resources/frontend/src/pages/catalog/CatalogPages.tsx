@@ -387,6 +387,7 @@ export function CatalogPage() {
         {filtersVisible ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
       </button>
       <section className="catalog-panel">
+        <h1 className="sr-only">{selected?.name ?? t('nav.catalog')}</h1>
         <AppSearchBar
           value={query}
           sort={filters.sort}
@@ -546,7 +547,7 @@ export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
       <section className="facet-header">
         <div>
           <span>{t('facet.header')}</span>
-          <h2>{title}</h2>
+          <h1>{title}</h1>
           <p>{subtitle}</p>
         </div>
         <Link className="secondary-button facet-back-link" to={{ pathname: '/catalog', search: canonicalSearchKey }}>

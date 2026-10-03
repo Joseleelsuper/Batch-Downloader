@@ -1,6 +1,5 @@
-import { ArrowDown, ArrowUp, Boxes, Plus, Save, X } from 'lucide-react';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { fetchAdminApps } from '../../api/adminApps';
+import { Boxes, Plus, Save } from 'lucide-react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { fetchAdminAudit } from '../../api/adminMeta';
 import {
   createAdminBundle,
@@ -10,7 +9,7 @@ import {
 } from '../../api/bundles';
 import { fetchCatalogStats } from '../../api/catalogApps';
 import { fetchAdminCurrentRun } from '../../api/scraperAdmin';
-import { AppMiniIcon } from '../../components/AppMiniIcon';
+import { BundleAppPicker } from '../../components/BundleAppPicker';
 import { AdminTable } from '../../components/admin/AdminTable';
 import { useTranslation } from '../../services/i18n';
 import type {
@@ -65,31 +64,11 @@ export function AdminBundlesPage() {
   const [selected, setSelected] = useState<BundleDetails | null>(null);
   const [form, setForm] = useState({ name: '', description: '', tags: '' });
   const [bundleApps, setBundleApps] = useState<CatalogApp[]>([]);
-  const [appQuery, setAppQuery] = useState('');
-  const [appResults, setAppResults] = useState<CatalogApp[]>([]);
   const [message, setMessage] = useState<string | null>(null);
-  const availableAppResults = useMemo(() => {
-    const selectedAppIds = new Set(bundleApps.map((app) => app.id));
-    return appResults.filter((app) => !selectedAppIds.has(app.id));
-  }, [appResults, bundleApps]);
 
   useEffect(() => {
     void loadBundles();
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchAdminApps({ query: appQuery, filter: 'all', sort: 'updated', page: 1, pageSize: 12 })
-      .then((response) => {
-        if (!cancelled) setAppResults(response.data);
-      })
-      .catch(() => {
-        if (!cancelled) setAppResults([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [appQuery]);
 
   async function loadBundles() {
     try {
@@ -117,25 +96,6 @@ export function AdminBundlesPage() {
     });
     setBundleApps(details.apps);
     setMessage(null);
-  }
-
-  function addBundleApp(app: CatalogApp) {
-    setBundleApps((current) => (current.some((item) => item.id === app.id) ? current : [...current, app]));
-  }
-
-  function removeBundleApp(appId: string) {
-    setBundleApps((current) => current.filter((app) => app.id !== appId));
-  }
-
-  function moveBundleApp(appId: string, direction: -1 | 1) {
-    setBundleApps((current) => {
-      const index = current.findIndex((app) => app.id === appId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-      return next;
-    });
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -168,7 +128,7 @@ export function AdminBundlesPage() {
   }
 
   return (
-    <section className="admin-panel two-column-admin">
+    <section className="admin-panel">
       <div>
         <div className="admin-section-heading">
           <h2>{t('admin.bundle.official')}</h2>
@@ -197,53 +157,21 @@ export function AdminBundlesPage() {
           ))}
         </div>
       </div>
-      <form className="admin-card editor-form" onSubmit={save}>
+      <form className="bundle-admin-editor" onSubmit={save}>
         <div className="editor-header">
           <div>
-            <span>{selected ? t('admin.bundle.editing') : t('admin.bundle.newBundle')}</span>
             <h3>{selected ? selected.name : t('admin.bundle.editor')}</h3>
           </div>
           {selected ? <small>{selected.id}</small> : null}
         </div>
-        <label>{t('admin.field.name')}<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-        <label>{t('admin.field.description')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-        <label>{t('admin.field.tags')}<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder={t('admin.bundle.placeholder.tags')} /></label>
-        <div className="bundle-app-editor">
-          <h4>{t('admin.bundle.apps')}</h4>
-          <div className="bundle-app-selected">
-            {bundleApps.length ? bundleApps.map((app, index) => (
-              <div className="bundle-app-edit-row" key={app.id}>
-                <AppMiniIcon app={app} />
-                <span>{app.name}</span>
-                <button type="button" onClick={() => moveBundleApp(app.id, -1)} disabled={index === 0} title={t('admin.bundle.moveUp')}>
-                  <ArrowUp size={16} />
-                </button>
-                <button type="button" onClick={() => moveBundleApp(app.id, 1)} disabled={index === bundleApps.length - 1} title={t('admin.bundle.moveDown')}>
-                  <ArrowDown size={16} />
-                </button>
-                <button type="button" onClick={() => removeBundleApp(app.id)} title={t('admin.bundle.removeApp')}>
-                  <X size={16} />
-                </button>
-              </div>
-            )) : <p className="empty-state">{t('admin.bundle.addAppsEmpty')}</p>}
-          </div>
-          <input
-            value={appQuery}
-            onChange={(event) => setAppQuery(event.target.value)}
-            placeholder={t('admin.bundle.searchApps')}
-          />
-          <div className="app-picker-results">
-            {availableAppResults.map((app) => (
-              <button type="button" key={app.id} onClick={() => addBundleApp(app)}>
-                <AppMiniIcon app={app} />
-                <span>{app.name}</span>
-                <Plus size={16} />
-              </button>
-            ))}
-          </div>
+        <div className="admin-card bundle-fields bundle-editor-fields">
+          <label>{t('admin.field.name')}<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+          <label>{t('admin.field.tags')}<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder={t('admin.bundle.placeholder.tags')} /></label>
+          <label className="bundle-description-field">{t('admin.field.description')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         </div>
+        <BundleAppPicker apps={bundleApps} onChange={setBundleApps} administrator />
         {message ? <span className="form-message">{message}</span> : null}
-        <button className="primary-button" type="submit">
+        <button className="primary-button bundle-save-button" type="submit">
           <Save size={17} />
           {selected ? t('common.saveChanges') : t('admin.bundle.create')}
         </button>

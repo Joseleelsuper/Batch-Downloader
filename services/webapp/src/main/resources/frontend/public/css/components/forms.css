@@ -80,7 +80,6 @@
 }
 
 .editor-section legend,
-.bundle-app-editor h4,
 .danger-zone h4 {
   color: #111827;
   font-size: 15px;
@@ -108,8 +107,7 @@
   line-height: 1.45;
 }
 
-.danger-zone input,
-.bundle-app-editor input {
+.danger-zone input {
   width: 100%;
   min-height: 40px;
   padding: 0 10px;

@@ -64,6 +64,20 @@ describe('SemanticAiPage', () => {
     expect(semanticApi.fetchSemanticOverview).toHaveBeenCalledTimes(2);
   });
 
+  it('distingue cobertura parcial de indisponibilidad de la búsqueda', async () => {
+    vi.mocked(semanticApi.fetchSemanticOverview).mockResolvedValue({
+      ...healthyOverview,
+      index: { ...healthyOverview.index, indexed: 4, complete: false },
+    });
+
+    render(<MemoryRouter><SemanticAiPage /></MemoryRouter>);
+
+    expect(await screen.findByText('Búsqueda semántica disponible')).toBeInTheDocument();
+    expect(screen.getByText(/4 \/ 10/)).toBeInTheDocument();
+    expect(screen.getByText('Cobertura parcial: la búsqueda utiliza las aplicaciones ya indexadas.')).toBeInTheDocument();
+    expect(screen.queryByText('Core usará la búsqueda literal de respaldo.')).not.toBeInTheDocument();
+  });
+
   it('expone un error de carga sin ocultar el título', async () => {
     vi.mocked(semanticApi.fetchSemanticOverview).mockRejectedValue(new Error('offline'));
 

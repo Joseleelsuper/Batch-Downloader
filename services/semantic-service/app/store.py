@@ -12,12 +12,6 @@ from app.embeddings import RegisteredModel, vector_literal
 from app.model_validation import ModelDescriptor
 
 
-def invalidate_complete_indexes(connection: Any) -> None:
-    """Retira disponibilidad mientras se reconstruyen vectores."""
-    connection.execute("UPDATE semantic_index_state SET complete = FALSE, built_at = now()")
-    connection.execute("UPDATE embedding_models SET active = FALSE")
-
-
 class SemanticStore:
     """Mantiene una sola version de modelo y la proyeccion indexable del catalogo."""
 
@@ -64,7 +58,7 @@ class SemanticStore:
                 SELECT m.*, s.index_version
                 FROM embedding_models m
                 JOIN semantic_index_state s ON s.model_version = m.model_version
-                WHERE m.active AND s.complete
+                WHERE m.active AND s.indexed_documents > 0
                 LIMIT 1
                 """
             ).fetchone()
@@ -114,10 +108,23 @@ class SemanticStore:
         query_vector: list[float],
         minimum_similarity: float,
         limit: int,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Lee candidatos y versión en la misma instantánea, aunque avance el indexador."""
         literal = vector_literal(query_vector)
 
         def query(connection: Any):
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            state = connection.execute(
+                """
+                SELECT s.index_version
+                FROM semantic_index_state s
+                JOIN embedding_models m ON m.model_version = s.model_version
+                WHERE s.model_version = %s AND m.active
+                """,
+                (model.model_version,),
+            ).fetchone()
+            if state is None:
+                raise RuntimeError("semantic_index_not_ready")
             rows = connection.execute(
                 """
                 SELECT e.app_id::text AS app_id,
@@ -133,7 +140,7 @@ class SemanticStore:
                 """,
                 (literal, model.model_version, literal, minimum_similarity, literal, limit),
             ).fetchall()
-            return [
+            candidates = [
                 {
                     "appId": row["app_id"],
                     "rank": index + 1,
@@ -141,6 +148,7 @@ class SemanticStore:
                 }
                 for index, row in enumerate(rows)
             ]
+            return candidates, state["index_version"]
 
         return self.database.run(query)
 
@@ -196,8 +204,7 @@ class SemanticStore:
                         WHERE app_id = %s AND model_version = %s AND content_hash = %s
                     )
                     ON CONFLICT(app_id, model_version, content_hash) DO UPDATE SET
-                        status = CASE WHEN embedding_jobs.status = 'completed'
-                            THEN embedding_jobs.status ELSE 'queued' END,
+                        status = 'queued',
                         available_at = now(), lease_owner = NULL, lease_until = NULL,
                         updated_at = now()
                     """,
@@ -211,18 +218,17 @@ class SemanticStore:
                     ),
                 )
             if changed:
-                invalidate_complete_indexes(connection)
+                self._refresh_index_state(connection, model_version)
 
         self.database.run(mutate)
         return changed
 
-    def finish_sweep(self, seen_at: datetime) -> int:
+    def finish_sweep(self, seen_at: datetime, *, model_version: str) -> int:
         def mutate(connection: Any) -> int:
             result = connection.execute(
                 "DELETE FROM semantic_documents WHERE seen_at < %s", (seen_at,)
             )
-            if result.rowcount:
-                invalidate_complete_indexes(connection)
+            self._refresh_index_state(connection, model_version)
             return result.rowcount
 
         return self.database.run(mutate)
@@ -297,6 +303,7 @@ class SemanticStore:
                     """,
                     (job["id"],),
                 )
+            self._refresh_index_state(connection, model_version)
 
         self.database.run(mutate)
 
@@ -318,54 +325,83 @@ class SemanticStore:
         )
 
     def coverage_and_promote(self, model_version: str) -> dict[str, Any]:
-        def mutate(connection: Any) -> dict[str, Any]:
-            coverage = model_catalog_coverage(connection, model_version)
-            expected = int(coverage["expected"] or 0)
-            indexed = int(coverage["indexed"] or 0)
-            complete = expected > 0 and expected == indexed
-            index_version = hashlib.sha256(
-                f"{model_version}:{coverage['snapshot_hash']}".encode()
-            ).hexdigest()[:20]
-            connection.execute(
-                """
-                INSERT INTO semantic_index_state(
-                    model_version, index_version, snapshot_hash, expected_documents,
-                    indexed_documents, complete, built_at, activated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, now(),
-                          CASE WHEN %s THEN now() ELSE NULL END)
-                ON CONFLICT(model_version) DO UPDATE SET
-                    index_version = EXCLUDED.index_version,
-                    snapshot_hash = EXCLUDED.snapshot_hash,
-                    expected_documents = EXCLUDED.expected_documents,
-                    indexed_documents = EXCLUDED.indexed_documents,
-                    complete = EXCLUDED.complete,
-                    built_at = now(),
-                    activated_at = CASE WHEN EXCLUDED.complete THEN now() ELSE NULL END
-                """,
-                (
-                    model_version,
-                    index_version,
-                    coverage["snapshot_hash"],
-                    expected,
-                    indexed,
-                    complete,
-                    complete,
-                ),
-            )
-            connection.execute(
-                """
-                UPDATE embedding_models
-                SET active = %s,
-                    activated_at = CASE WHEN %s THEN now() ELSE NULL END
-                WHERE model_version = %s
-                """,
-                (complete, complete, model_version),
-            )
-            return {
-                "expected": expected,
-                "indexed": indexed,
-                "complete": complete,
-                "indexVersion": index_version,
-            }
+        """Actualiza cobertura sin exigir el 100 % para servir los vectores vigentes."""
+        return self.database.run(
+            lambda connection: self._refresh_index_state(connection, model_version)
+        )
 
-        return self.database.run(mutate)
+    @staticmethod
+    def _refresh_index_state(connection: Any, model_version: str) -> dict[str, Any]:
+        """Publica contenido, cobertura y disponibilidad en la transacción del lote."""
+        coverage = model_catalog_coverage(connection, model_version)
+        expected = int(coverage["expected"] or 0)
+        indexed = int(coverage["indexed"] or 0)
+        complete = expected > 0 and expected == indexed
+        available = indexed > 0
+        index_version = hashlib.sha256(
+            f"{model_version}:{coverage['snapshot_hash']}:{coverage['indexed_snapshot_hash']}".encode()
+        ).hexdigest()[:20]
+        connection.execute(
+            """
+            INSERT INTO semantic_index_state(
+                model_version, index_version, snapshot_hash, expected_documents,
+                indexed_documents, complete, built_at, activated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, now(),
+                      CASE WHEN %s THEN now() ELSE NULL END)
+            ON CONFLICT(model_version) DO UPDATE SET
+                index_version = EXCLUDED.index_version,
+                snapshot_hash = EXCLUDED.snapshot_hash,
+                expected_documents = EXCLUDED.expected_documents,
+                indexed_documents = EXCLUDED.indexed_documents,
+                complete = EXCLUDED.complete,
+                built_at = now(),
+                activated_at = CASE WHEN EXCLUDED.indexed_documents > 0
+                    THEN COALESCE(semantic_index_state.activated_at, now()) ELSE NULL END
+            """,
+            (
+                model_version,
+                index_version,
+                coverage["snapshot_hash"],
+                expected,
+                indexed,
+                complete,
+                available,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE embedding_models
+            SET active = %s,
+                activated_at = CASE WHEN %s THEN COALESCE(activated_at, now()) ELSE NULL END
+            WHERE model_version = %s
+            """,
+            (available, available, model_version),
+        )
+        return {
+            "expected": expected,
+            "indexed": indexed,
+            "complete": complete,
+            "indexVersion": index_version,
+        }
+
+    def last_scrape_run_id(self) -> str | None:
+        """Consulta el último final del Scraper incorporado completamente al índice."""
+        def query(connection: Any) -> str | None:
+            row = connection.execute(
+                "SELECT last_scrape_run_id FROM semantic_index_state LIMIT 1"
+            ).fetchone()
+            return str(row["last_scrape_run_id"]) if row and row["last_scrape_run_id"] else None
+
+        return self.database.run(query)
+
+    def acknowledge_scrape_run(self, model_version: str, run_id: str) -> bool:
+        """No consume la señal si quedan documentos pendientes de indexar."""
+        return self.database.run(
+            lambda connection: connection.execute(
+                """
+                UPDATE semantic_index_state SET last_scrape_run_id = %s
+                WHERE model_version = %s AND (complete OR expected_documents = 0)
+                """,
+                (run_id, model_version),
+            ).rowcount > 0
+        )

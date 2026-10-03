@@ -13,7 +13,6 @@ import {
 import {
   type FormEvent,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -37,9 +36,9 @@ import {
   updateProfile,
 } from '../../api/account';
 import { adminLogin } from '../../api/account';
-import { fetchApps } from '../../api/catalogApps';
 import { ApiRequestError } from '../../api/http';
 import { useAuth } from '../../auth/AuthContext';
+import { BundleAppPicker } from '../../components/BundleAppPicker';
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSummary } from '../../types/account';
 import type { CatalogApp } from '../../types/catalog';
@@ -145,6 +144,7 @@ export function UserLoginPage() {
           </Link>
         </div>
       </form>
+      <p className="auth-legal-notice">{t('account.magic.privacyNotice')} <Link to="/privacy">{t('account.magic.privacyLink')}</Link> · <Link to="/terms">{t('account.magic.termsLink')}</Link></p>
     </AuthCard>
   );
 }
@@ -292,14 +292,12 @@ export function BundleEditorPage() {
   const editing = Boolean(id);
   const navigate = useNavigate();
   const [bundle, setBundle] = useState<OwnBundleDetails | null>(null);
-  const [catalog, setCatalog] = useState<CatalogApp[]>([]);
-  const [query, setQuery] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [slug, setSlug] = useState('');
   const [tags, setTags] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'public'>('private');
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<CatalogApp[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -308,25 +306,9 @@ export function BundleEditorPage() {
     fetchOwnBundle(id).then((value) => {
       setBundle(value); setName(value.name); setDescription(value.description ?? '');
       setSlug(value.slug); setTags(value.tags.join(', ')); setVisibility(value.visibility);
-      setSelected(value.apps.map((app) => app.id));
+      setSelected(value.apps);
     }).catch((cause) => setError(apiMessage(t, cause, 'account.bundles.failed')));
   }, [id, t]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void fetchApps({ query, filter: 'available', sort: 'name', page: 1, pageSize: 60 }, controller.signal)
-        .then((response) => setCatalog(response.data)).catch(() => setCatalog([]));
-    }, 180);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [query]);
-
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  function toggle(appId: string) {
-    setSelected((current) => current.includes(appId)
-      ? current.filter((value) => value !== appId)
-      : current.length < 100 ? [...current, appId] : current);
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -335,7 +317,7 @@ export function BundleEditorPage() {
     const input: OwnBundleInput = {
       name, description, slug,
       tags: tags.split(',').map((value) => value.trim()).filter(Boolean),
-      appIds: selected,
+      appIds: selected.map((app) => app.id),
     };
     try {
       const saved = editing && id && bundle
@@ -359,17 +341,15 @@ export function BundleEditorPage() {
 
   return <section className="account-page"><header><div><h2>{editing ? t('account.bundles.edit') : t('account.bundles.create')}</h2><p>{t('account.bundles.privateDefault')}</p></div></header>
     <form className="bundle-account-editor" onSubmit={submit}>
-      <div className="account-card bundle-fields">
+      <div className="account-card bundle-fields bundle-editor-fields">
         <label>{t('account.bundles.name')}<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={160} /></label>
         <label>{t('account.bundles.slug')}<input value={slug} onChange={(event) => setSlug(event.target.value)} maxLength={180} /></label>
-        <label>{t('account.bundles.description')}<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} /></label>
+        <label className="bundle-description-field">{t('account.bundles.description')}<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} /></label>
         <label>{t('account.bundles.tags')}<input value={tags} onChange={(event) => setTags(event.target.value)} /></label>
         {editing ? <label>{t('account.bundles.visibility')}<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'private' | 'public')}><option value="private">{t('account.private')}</option><option value="public">{t('account.public')}</option></select></label> : null}
+        {editing ? <p className="bundle-publication-notice">{t('account.bundles.publicationNotice')}</p> : null}
       </div>
-      <div className="account-card bundle-catalog-picker"><h3>{t('account.bundles.apps')}</h3><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('account.bundles.searchApps')} />
-        <small>{t('account.bundles.selected', { count: selected.length })}</small>
-        <div>{catalog.map((app) => <label key={app.id}><input type="checkbox" checked={selectedSet.has(app.id)} onChange={() => toggle(app.id)} />{app.iconUrl ? <img src={app.iconUrl} alt="" /> : null}<span>{app.name}</span></label>)}</div>
-      </div>
+      <BundleAppPicker apps={selected} onChange={setSelected} />
       {error ? <p className="error-banner">{error}</p> : null}
       <div className="editor-actions"><button className="primary-button" type="submit" disabled={submitting}><Save size={18} />{t('account.save')}</button>
         {editing ? <button className="danger-button" type="button" onClick={remove} disabled={submitting}><Trash2 size={18} />{t('account.delete')}</button> : null}</div>

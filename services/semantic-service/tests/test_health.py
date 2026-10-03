@@ -42,8 +42,10 @@ async def test_health_keeps_index_contract_when_database_is_unavailable(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("indexed", [4, 10])
 async def test_health_reports_ready_model_without_warming_runtime(
     monkeypatch: pytest.MonkeyPatch,
+    indexed: int,
 ) -> None:
     """La consulta administrativa no carga ni ejecuta el modelo dentro de su timeout corto."""
     def fail_if_runtime_is_loaded(_model: object) -> None:
@@ -56,7 +58,7 @@ async def test_health_reports_ready_model_without_warming_runtime(
     monkeypatch.setattr(
         main.store,
         "semantic_status",
-        lambda: {"index": {"expected": 10, "indexed": 10, "complete": True}},
+        lambda: {"index": {"expected": 10, "indexed": indexed, "complete": indexed == 10}},
     )
     monkeypatch.setattr(main, "current_model_manifest", lambda: descriptor)
     monkeypatch.setattr(main, "model_directory_ready", lambda *_args, **_kwargs: True)
