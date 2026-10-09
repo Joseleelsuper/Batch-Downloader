@@ -203,7 +203,9 @@ class SeoControllerTest {
         mvc.perform(get("/api/v1/seo/sitemap/bundles/0.xml")).andExpect(status().isNotFound());
         mvc.perform(get("/api/v1/seo/sitemap/private/1.xml")).andExpect(status().isNotFound());
         mvc.perform(get("/api/v1/seo/metadata").param("path", "/catalog/app/hidden")).andExpect(status().isNotFound());
-        assertThat(service.robots()).contains("Sitemap: https://batchdownloader.dev/sitemap.xml", "Disallow: /api/");
+        assertThat(service.robots()).contains("Sitemap: https://batchdownloader.dev/sitemap.xml",
+                "Allow: /api/v1/apps", "Allow: /api/v1/bundles", "Allow: /api/v1/locales/es",
+                "Allow: /api/v1/seo/metadata", "Disallow: /api/");
     }
 
     @Test

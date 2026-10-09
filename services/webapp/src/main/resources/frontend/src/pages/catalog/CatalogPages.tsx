@@ -491,7 +491,8 @@ export function CatalogPage() {
           </nav>
         ) : null}
         <AppTable
-          apps={apps}
+          apps={selected && selected.id === selectedId && !apps.some((app) => app.id === selected.id)
+            ? [selected, ...apps] : apps}
           loading={loadingApps}
           showLoadingLabel={false}
           showEmptyState={!error}

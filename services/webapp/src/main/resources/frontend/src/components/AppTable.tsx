@@ -73,7 +73,12 @@ export function AppTable({
                   <td>
                     <div className="app-cell">
                       <AppIcon app={app} />
-                      <span>{app.name}</span>
+                      <a href={`/catalog/app/${app.id}`} onClick={(event) => {
+                        event.stopPropagation();
+                        if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                        event.preventDefault();
+                        onToggleDetails(app);
+                      }}>{app.name}</a>
                     </div>
                   </td>
                   <td>{app.publisher ?? '-'}</td>

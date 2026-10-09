@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { apiFetch } from '../api/http';
 
@@ -66,13 +66,8 @@ const EMPTY_METADATA: SeoMetadata = {
 /** Conserva el HTML inicial y actualiza el head al navegar sin recargar. */
 export function PageMetadata() {
   const { pathname, search } = useLocation();
-  const lastPath = useRef<string | null>(null);
   useEffect(() => {
     const path = `${pathname}${search}`;
-    const initialServerHead = lastPath.current === null
-      && document.head.querySelector('meta[property="og:url"]') !== null;
-    if (!initialServerHead && lastPath.current !== path) applyMetadata(EMPTY_METADATA);
-    lastPath.current = path;
     // Los enlaces de acceso pueden contener tokens: nunca se envían al resolver SEO.
     if (PRIVATE_PATH.test(pathname)) { applyMetadata(EMPTY_METADATA); return; }
     const controller = new AbortController();

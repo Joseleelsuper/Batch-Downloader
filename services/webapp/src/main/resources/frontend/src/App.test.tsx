@@ -768,6 +768,22 @@ describe('catalog workspace', () => {
     })).toHaveAttribute('aria-expanded', 'false');
     expect(document.querySelector('.app-detail-row')).not.toHaveClass('app-detail-row-open');
   });
+
+  it('shows the requested app even when it is outside the current catalog page', async () => {
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
+      data: [catalogApp], page: 1, pageSize: 12, total: 100,
+    });
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockResolvedValue({
+      ...catalogApp, id: 'app-2', name: 'Aplicación solicitada',
+      longDescription: 'Ficha específica accesible desde su URL.', notes: '', downloadOptions: [],
+    });
+
+    render(<MemoryRouter initialEntries={['/catalog/app/app-2']}><App /></MemoryRouter>);
+
+    expect(await screen.findByText('Ficha específica accesible desde su URL.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ocultar detalles de Aplicación solicitada' }))
+      .toHaveAttribute('aria-expanded', 'true');
+  });
 });
 
 describe('home loading', () => {
@@ -797,7 +813,7 @@ describe('home loading', () => {
 
     expect(await screen.findByText('Launchers')).toBeInTheDocument();
     expect(screen.getByText('Launchers de videojuegos')).toBeInTheDocument();
-    expect(screen.getByText('Creado por tory')).toBeInTheDocument();
+    expect(screen.getByText('Creado por José Gallardo')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Windows: 1 aplicaciones disponibles' })).toBeInTheDocument();
     expect(await screen.findByText('No se pudo cargar la página principal.')).toBeInTheDocument();
   });

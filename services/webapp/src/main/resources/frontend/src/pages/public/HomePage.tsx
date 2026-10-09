@@ -184,7 +184,7 @@ function BundleCard({ bundle }: { bundle: BundleSummary }) {
         {bundle.creatorUsername ? (
           <small className="bundle-card-creator">
             <span className="material-symbols-outlined" aria-hidden="true">person</span>
-            {bundle.creatorUsername}
+            {t('bundle.createdBy', { username: bundle.creatorUsername === 'tory' ? 'José Gallardo' : bundle.creatorUsername })}
           </small>
         ) : null}
         <div className="mini-apps bundle-card-preview">
