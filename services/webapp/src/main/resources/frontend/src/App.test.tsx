@@ -46,7 +46,7 @@ const officialBundle: BundleSummary = {
   slug: 'launchers',
   name: 'Launchers',
   description: 'Launchers de videojuegos',
-  creatorUsername: 'tory',
+  creatorUsername: 'Joseleelsuper',
   type: 'official',
   visibility: 'public',
   starCount: 0,
