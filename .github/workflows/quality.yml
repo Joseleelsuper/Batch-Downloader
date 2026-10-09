@@ -127,6 +127,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Use cached Docker Hub images
+        run: |
+          sudo install -d /etc/docker
+          if [ ! -f /etc/docker/daemon.json ]; then echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null; fi
+          sudo jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+          sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+          sudo systemctl restart docker
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -187,6 +194,13 @@ jobs:
         working-directory: services/semantic-service
     steps:
       - uses: actions/checkout@v5
+      - name: Use cached Docker Hub images
+        run: |
+          sudo install -d /etc/docker
+          if [ ! -f /etc/docker/daemon.json ]; then echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null; fi
+          sudo jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+          sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+          sudo systemctl restart docker
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -280,6 +294,13 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v5
+      - name: Use cached Docker Hub images
+        run: |
+          sudo install -d /etc/docker
+          if [ ! -f /etc/docker/daemon.json ]; then echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null; fi
+          sudo jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+          sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+          sudo systemctl restart docker
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
