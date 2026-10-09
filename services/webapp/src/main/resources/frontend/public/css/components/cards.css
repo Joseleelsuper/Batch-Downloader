@@ -243,6 +243,18 @@
   -webkit-line-clamp: 2;
 }
 
+.bundle-card-creator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.bundle-card-creator .material-symbols-outlined {
+  font-size: 18px;
+  line-height: 1;
+}
+
 .bundle-card h3,
 .admin-card h3 {
   margin: 0;

@@ -38,12 +38,13 @@ import { chooseDownloadDestination, isDestinationCancelled } from '../../downloa
 import { useTranslation, type Translator } from '../../services/i18n';
 import type {
   AppDetails,
-  CatalogAlphabetEntry,
   CatalogApp,
   CatalogFacets,
   CatalogStats,
+  CatalogResponse,
   FacetItem,
   FilterKey,
+  SortKey,
 } from '../../types/catalog';
 
 const DEFAULT_COUNTS: Record<FilterKey, number> = {
@@ -54,6 +55,56 @@ const DEFAULT_COUNTS: Record<FilterKey, number> = {
 };
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 const CATALOG_REFRESH_INTERVAL_MS = 5_000;
+const PREFETCH_SORTS: SortKey[] = ['downloads', 'updated', 'name'];
+const PREFETCH_FILTERS: FilterKey[] = ['all', 'available', 'review', 'missing'];
+const PAGE_CACHE_TTL_MS = 15_000;
+const pageCache = new Map<string, { response: CatalogResponse; loadedAt: number }>();
+const pendingPages = new Map<string, Promise<CatalogResponse>>();
+
+export function clearCatalogPageCache() {
+  pageCache.clear();
+  pendingPages.clear();
+}
+
+function cachedPage(key: string): CatalogResponse | null {
+  const entry = pageCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.loadedAt <= PAGE_CACHE_TTL_MS) return entry.response;
+  pageCache.delete(key);
+  return null;
+}
+
+function cachePage(key: string, response: CatalogResponse) {
+  pageCache.set(key, { response, loadedAt: Date.now() });
+  if (pageCache.size > 40) pageCache.delete(pageCache.keys().next().value!);
+}
+
+function prefetchCatalogPage(filters: CatalogFilterState, signal?: AbortSignal) {
+  const key = catalogFiltersToSearchParams(filters).toString();
+  if (cachedPage(key) || pendingPages.has(key)) return;
+  const pending = fetchApps(appRequest(filters), signal);
+  pendingPages.set(key, pending);
+  void pending.then((response) => {
+    if (pendingPages.get(key) === pending) cachePage(key, response);
+  }).catch(() => undefined).finally(() => {
+    if (pendingPages.get(key) === pending) pendingPages.delete(key);
+  });
+}
+
+function appRequest(filters: CatalogFilterState) {
+  return {
+    query: filters.query,
+    filter: filters.filter,
+    sort: filters.sort,
+    page: filters.page,
+    pageSize: filters.pageSize,
+    tags: filters.tags,
+    publisher: filters.publisher,
+    operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
+    architecture: filters.architecture,
+    searchMode: filters.searchMode,
+  };
+}
 
 function searchNoticeFor(t: Translator, degradedReason?: string | null): string | null {
   if (!degradedReason) return null;
@@ -90,17 +141,21 @@ export function CatalogPage() {
   );
   const catalogStatusCanonical = canonicalSearchKey === searchKey;
   const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
+  const filterKey = catalogFiltersToSearchParams(filters).toString();
   const [query, setQuery] = useState(filters.query);
-  const [apps, setApps] = useState<CatalogApp[]>([]);
-  const [total, setTotal] = useState(0);
-  const [alphabet, setAlphabet] = useState<CatalogAlphabetEntry[]>([]);
-  const [loadingApps, setLoadingApps] = useState(true);
+  const [activePage, setActivePage] = useState<{ key: string; response: CatalogResponse } | null>(null);
+  const displayedPage = cachedPage(filterKey)
+    ?? (activePage?.key === filterKey ? activePage.response : null);
+  const apps = displayedPage?.data ?? [];
+  const total = displayedPage?.total ?? 0;
+  const alphabet = displayedPage?.alphabet ?? [];
   const [stats, setStats] = useState<CatalogStats | null>(null);
   const [selected, setSelected] = useState<AppDetails | null>(null);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchNotice, setSearchNotice] = useState<string | null>(null);
+  const loadingApps = !displayedPage && !error;
+  const searchNotice = searchNoticeFor(t, displayedPage?.degradedReason);
   const [refreshToken, setRefreshToken] = useState(0);
   const [filtersVisible, setFiltersVisible] = useState(() => localStorage.getItem('catalog.filters.open') !== 'false');
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
@@ -109,6 +164,20 @@ export function CatalogPage() {
   const downloadJob = useDownloadJob();
   const selectedDownloadIdsRef = useRef<Set<string>>(new Set());
   const lastLoadedPage = useRef<{ searchKey: string; apps: CatalogApp[] } | null>(null);
+  const prefetchController = useRef(new AbortController());
+  const previousQuery = useRef(filters.query);
+
+  const prefetchPage = useCallback((candidate: CatalogFilterState) => {
+    prefetchCatalogPage(candidate, prefetchController.current.signal);
+  }, []);
+
+  useEffect(() => {
+    if (previousQuery.current === filters.query) return;
+    previousQuery.current = filters.query;
+    prefetchController.current.abort();
+    prefetchController.current = new AbortController();
+    pendingPages.clear();
+  }, [filters.query]);
 
   useEffect(() => {
     if (!catalogStatusCanonical) {
@@ -167,6 +236,9 @@ export function CatalogPage() {
       if (refreshTimer !== undefined) return;
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined;
+        prefetchController.current.abort();
+        prefetchController.current = new AbortController();
+        clearCatalogPageCache();
         setRefreshToken((value) => value + 1);
       }, CATALOG_REFRESH_INTERVAL_MS);
     });
@@ -177,39 +249,22 @@ export function CatalogPage() {
   }, []);
 
   useEffect(() => {
-    if (!catalogStatusCanonical) {
-      setApps([]);
-      setTotal(0);
-      setAlphabet([]);
-      setLoadingApps(true);
+    if (!catalogStatusCanonical) return undefined;
+    setError(null);
+    const cached = cachedPage(filterKey);
+    if (cached) {
+      lastLoadedPage.current = { searchKey: filterKey, apps: cached.data };
       return undefined;
     }
     let cancelled = false;
     const controller = new AbortController();
     const lastPage = lastLoadedPage.current;
-    const previousPage = lastPage?.searchKey === canonicalSearchKey
+    const previousPage = lastPage?.searchKey === filterKey
       ? lastPage.apps
       : null;
-    const replacingQuery = previousPage === null;
-    if (replacingQuery) {
-      setApps([]);
-      setTotal(0);
-      setAlphabet([]);
-      setLoadingApps(true);
-    }
-    setError(null);
-    fetchApps({
-      query: filters.query,
-      filter: filters.filter,
-      sort: filters.sort,
-      page: filters.page,
-      pageSize: filters.pageSize,
-      tags: filters.tags,
-      publisher: filters.publisher,
-      operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
-      architecture: filters.architecture,
-      searchMode: filters.searchMode,
-    }, controller.signal)
+    const pending = pendingPages.get(filterKey);
+    (pending ? pending.catch(() => fetchApps(appRequest(filters), controller.signal))
+      : fetchApps(appRequest(filters), controller.signal))
       .then(async (response) => {
         if (cancelled) return;
         const refreshInspection = previousPage
@@ -220,11 +275,24 @@ export function CatalogPage() {
           )
           : null;
         if (refreshInspection) removeDownloadSelections(refreshInspection.invalidIds);
-        setApps(response.data);
-        setTotal(response.total);
-        setAlphabet(response.alphabet ?? []);
-        setSearchNotice(searchNoticeFor(t, response.degradedReason));
-        lastLoadedPage.current = { searchKey: canonicalSearchKey, apps: response.data };
+        cachePage(filterKey, response);
+        setActivePage({ key: filterKey, response });
+        lastLoadedPage.current = { searchKey: filterKey, apps: response.data };
+        if (response.total > 0) {
+          // ponytail: precarga opciones cercanas; ampliar según fallos de caché medidos.
+          const candidates: CatalogFilterState[] = [
+            ...(filters.query ? [{ ...filters, searchMode: filters.searchMode === 'semantic' ? 'lexical' as const : 'semantic' as const, page: 1 }] : []),
+            ...PREFETCH_SORTS.filter((sort) => sort !== filters.sort).map((sort) => ({ ...filters, sort, page: 1 })),
+            ...PREFETCH_FILTERS.filter((filter) => filter !== filters.filter).map((filter) => ({ ...filters, filter, page: 1 })),
+            ...(filters.page * filters.pageSize < response.total ? [{ ...filters, page: filters.page + 1 }] : []),
+          ];
+          candidates.forEach(prefetchPage);
+          void fetchCatalogFacets(appRequest(filters)).then((facets) => {
+            if (cancelled) return;
+            facets.tags.slice(0, 2).forEach((tag) => prefetchPage(nextFilters(filters, { tags: toggleValue(filters.tags, tag.value) })));
+            facets.publishers.slice(0, 2).forEach((publisher) => prefetchPage(nextFilters(filters, { publisher: publisher.value })));
+          }).catch(() => undefined);
+        }
         if (refreshInspection?.missingIds.length) {
           const validation = await validateCatalogSelection(
             refreshInspection.missingIds,
@@ -236,14 +304,11 @@ export function CatalogPage() {
       .catch((requestError: unknown) => {
         if (!cancelled && !isAbortError(requestError)) setError(t('catalog.error.load'));
       })
-      .finally(() => {
-        if (!cancelled && replacingQuery) setLoadingApps(false);
-      });
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [canonicalSearchKey, catalogStatusCanonical, filters, refreshToken, removeDownloadSelections, t]);
+  }, [catalogStatusCanonical, filterKey, filters, prefetchPage, refreshToken, removeDownloadSelections, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -426,8 +491,11 @@ export function CatalogPage() {
           </nav>
         ) : null}
         <AppTable
-          apps={apps}
+          apps={selected && selected.id === selectedId && !apps.some((app) => app.id === selected.id)
+            ? [selected, ...apps] : apps}
           loading={loadingApps}
+          showLoadingLabel={false}
+          showEmptyState={!error}
           selectedId={selectedId}
           selectedIds={selectedDownloadIds}
           selectedCount={selectedDownloadIds.size}
@@ -436,7 +504,7 @@ export function CatalogPage() {
           onToggleDetails={toggleAppDetails}
           onToggleSelection={toggleDownloadSelection}
         />
-        <Pagination
+        {displayedPage ? <Pagination
           page={filters.page}
           pageSize={filters.pageSize}
           total={total}
@@ -444,7 +512,7 @@ export function CatalogPage() {
           onPageSizeChange={(nextPageSize) => {
             updateFilters({ pageSize: nextPageSize });
           }}
-        />
+        /> : null}
       </section>
     </main>
   );
@@ -536,10 +604,14 @@ export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
 
   function toggleFacet(item: FacetItem) {
     if (kind === 'tags') {
-      updateFilters({ tags: toggleValue(filters.tags, item.value) });
+      const tags = toggleValue(filters.tags, item.value);
+      prefetchCatalogPage(nextFilters(filters, { tags }));
+      updateFilters({ tags });
       return;
     }
-    updateFilters({ publisher: filters.publisher === item.value ? undefined : item.value });
+    const publisher = filters.publisher === item.value ? undefined : item.value;
+    prefetchCatalogPage(nextFilters(filters, { publisher }));
+    updateFilters({ publisher });
   }
 
   return (

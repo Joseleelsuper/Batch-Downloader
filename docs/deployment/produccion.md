@@ -12,8 +12,8 @@ con contraseña y acceso root desactivados.
    comprueba los dos manifiestos de cada imagen.
 3. `deploy-production.yml` fija en Coolify el commit y
    `GHCR_IMAGE_TAG=sha-<commit>`, despliega y ejecuta los smoke tests.
-4. Si el despliegue o los smoke tests fallan, se restaura automáticamente el
-   último commit y tag sanos.
+4. Si el despliegue o los smoke tests fallan, se intenta restaurar automáticamente
+   el último commit y tag sanos; esto no revierte las migraciones de base de datos.
 
 Coolify no despliega por webhook. GitHub Actions es el único iniciador de un
 despliegue y los despliegues se serializan.
@@ -87,5 +87,11 @@ y validar las bases con `batch-downloader-verify-restore`. `minio_data` y
 - Rollback: volver a ejecutar el workflow con el SHA sano anterior.
 - Diagnóstico: usar logs y métricas del recurso en Coolify; no publicar paneles
   internos.
-- Cambio de esquema: detener la promoción automática, crear una copia
-  restaurable y ejecutar la migración como una operación separada.
+- Migraciones: Core y el scraper las aplican al arrancar hasta sus objetivos
+  configurados. El servicio semántico aplica todas las pendientes de su imagen,
+  con bloqueo y comprobación de checksums, antes de aceptar peticiones; el
+  indexador espera a que esté saludable. No requiere un contenedor migrador.
+- Cambio de esquema: disponer de una copia restaurable antes del despliegue.
+  Una imagen semántica anterior que no incluya las migraciones ya aplicadas
+  rechazará el arranque; los cambios incompatibles necesitan una recuperación
+  planificada, no solo volver al tag anterior.

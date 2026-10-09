@@ -7,6 +7,7 @@ import * as accountApi from './api/account';
 import * as adminAppsApi from './api/adminApps';
 import * as bundlesApi from './api/bundles';
 import * as catalogAppsApi from './api/catalogApps';
+import { clearCatalogPageCache } from './pages/catalog/CatalogPages';
 import * as downloadsApi from './api/downloads';
 import * as delivery from './downloads/delivery';
 import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, ScraperQueueState } from './types/catalog';
@@ -45,6 +46,7 @@ const officialBundle: BundleSummary = {
   slug: 'launchers',
   name: 'Launchers',
   description: 'Launchers de videojuegos',
+  creatorUsername: 'tory',
   type: 'official',
   visibility: 'public',
   starCount: 0,
@@ -69,6 +71,7 @@ beforeEach(() => {
 });
 describe('catalog workspace', () => {
   beforeEach(() => {
+    clearCatalogPageCache();
     const storage = memoryStorage();
     Object.defineProperty(window, 'localStorage', { configurable: true, value: storage });
     vi.stubGlobal('localStorage', storage);
@@ -380,6 +383,33 @@ describe('catalog workspace', () => {
     expect(screen.queryByText('Coincidencias mínimas')).not.toBeInTheDocument();
   });
 
+  it('uses a selected tag prefetch when returning from its directory', async () => {
+    vi.mocked(catalogAppsApi.fetchCatalogFacets).mockResolvedValue({
+      tags: [{ label: 'automation', value: 'automation', normalizedValue: 'automation', letter: 'A', count: 1 }],
+      publishers: [],
+    });
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
+      data: [catalogApp], page: 1, pageSize: 12, total: 1,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/catalog/tags?searchMode=lexical']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /automation/i }));
+    await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: ['automation'] }), undefined,
+    ));
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole('link', { name: 'Volver al catálogo' }));
+
+    expect(screen.getByText('Aplicación reciente')).toBeInTheDocument();
+    expect(screen.queryByText('Cargando...')).not.toBeInTheDocument();
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(1);
+  });
+
   it('replaces and then removes the singular editor selection', async () => {
     vi.mocked(catalogAppsApi.fetchCatalogFacets).mockResolvedValue({
       tags: [],
@@ -514,9 +544,12 @@ describe('catalog workspace', () => {
       id: 'app-2',
       name: 'Aplicación de la segunda página',
     };
-    vi.mocked(catalogAppsApi.fetchApps)
-      .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 13 })
-      .mockResolvedValueOnce({ data: [secondPageApp], page: 2, pageSize: 12, total: 13 });
+    vi.mocked(catalogAppsApi.fetchApps).mockImplementation(async ({ page }) => ({
+      data: page === 2 ? [secondPageApp] : [catalogApp],
+      page,
+      pageSize: 12,
+      total: 13,
+    }));
 
     render(
       <MemoryRouter initialEntries={['/catalog']}>
@@ -636,13 +669,14 @@ describe('catalog workspace', () => {
     );
   });
 
-  it('hides the previous page while a different filter is loading', async () => {
+  it('hides the previous page without a loading label while a different filter is pending', async () => {
     let resolveReview!: (response: CatalogResponse) => void;
-    vi.mocked(catalogAppsApi.fetchApps)
-      .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 1 })
-      .mockImplementationOnce(() => new Promise((resolve) => {
+    vi.mocked(catalogAppsApi.fetchApps).mockImplementation(({ filter }) => {
+      if (filter === 'review') return new Promise((resolve) => {
         resolveReview = resolve;
-      }));
+      });
+      return Promise.resolve({ data: [catalogApp], page: 1, pageSize: 12, total: 1 });
+    });
 
     render(
       <MemoryRouter initialEntries={['/catalog?status=available']}>
@@ -651,11 +685,11 @@ describe('catalog workspace', () => {
     );
 
     expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
+    await waitFor(() => expect(resolveReview).toBeTypeOf('function'));
     fireEvent.click(screen.getByRole('button', { name: /Revisión/ }));
 
-    await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(2));
     expect(screen.queryByText('Aplicación reciente')).not.toBeInTheDocument();
-    expect(screen.getByText('Cargando...')).toBeInTheDocument();
+    expect(screen.queryByText('Cargando...')).not.toBeInTheDocument();
 
     await act(async () => {
       resolveReview({ data: [], page: 1, pageSize: 12, total: 0 });
@@ -663,6 +697,34 @@ describe('catalog workspace', () => {
       await Promise.resolve();
     });
     expect(await screen.findByText('No hay aplicaciones que coincidan con la búsqueda.')).toBeInTheDocument();
+  });
+
+  it('shows a prefetched filter immediately without requesting it again', async () => {
+    const reviewApp = { ...catalogApp, id: 'review-1', name: 'Aplicación en revisión' };
+    vi.mocked(catalogAppsApi.fetchApps).mockImplementation(async ({ filter }) => ({
+      data: filter === 'review' ? [reviewApp] : [catalogApp],
+      page: 1,
+      pageSize: 12,
+      total: 1,
+    }));
+
+    render(
+      <MemoryRouter initialEntries={['/catalog?status=available']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
+    await waitFor(() => expect(vi.mocked(catalogAppsApi.fetchApps).mock.calls.some(
+      ([params]) => params.filter === 'review',
+    )).toBe(true));
+    await act(async () => Promise.resolve());
+    const requests = vi.mocked(catalogAppsApi.fetchApps).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /Revisión/ }));
+
+    expect(screen.getByText('Aplicación en revisión')).toBeInTheDocument();
+    expect(screen.queryByText('Cargando...')).not.toBeInTheDocument();
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(requests);
   });
 
   it('loads an application into an expandable row and closes it from the same chevron', async () => {
@@ -706,6 +768,22 @@ describe('catalog workspace', () => {
     })).toHaveAttribute('aria-expanded', 'false');
     expect(document.querySelector('.app-detail-row')).not.toHaveClass('app-detail-row-open');
   });
+
+  it('shows the requested app even when it is outside the current catalog page', async () => {
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
+      data: [catalogApp], page: 1, pageSize: 12, total: 100,
+    });
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockResolvedValue({
+      ...catalogApp, id: 'app-2', name: 'Aplicación solicitada',
+      longDescription: 'Ficha específica accesible desde su URL.', notes: '', downloadOptions: [],
+    });
+
+    render(<MemoryRouter initialEntries={['/catalog/app/app-2']}><App /></MemoryRouter>);
+
+    expect(await screen.findByText('Ficha específica accesible desde su URL.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ocultar detalles de Aplicación solicitada' }))
+      .toHaveAttribute('aria-expanded', 'true');
+  });
 });
 
 describe('home loading', () => {
@@ -735,6 +813,7 @@ describe('home loading', () => {
 
     expect(await screen.findByText('Launchers')).toBeInTheDocument();
     expect(screen.getByText('Launchers de videojuegos')).toBeInTheDocument();
+    expect(screen.getByText('Creado por José Gallardo')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Windows: 1 aplicaciones disponibles' })).toBeInTheDocument();
     expect(await screen.findByText('No se pudo cargar la página principal.')).toBeInTheDocument();
   });

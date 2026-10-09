@@ -20,6 +20,7 @@ function renderPage(path = '/catalog/app/steam') {
     <PageMetadata />
     <Link to="/privacy">Privacidad</Link>
     <Link to="/login?token=secret">Acceso</Link>
+    <Link to="/catalog/app/steam?searchMode=semantic">Modo de búsqueda</Link>
   </MemoryRouter>);
 }
 
@@ -72,5 +73,14 @@ describe('page metadata', () => {
     await act(async () => {});
     expect(document.title).toBe('Servidor');
     expect(document.querySelector('meta[name="robots"]')).toHaveAttribute('content', 'index, follow');
+  });
+
+  it('keeps the indexable server head during public query normalization when metadata is delayed', () => {
+    document.head.innerHTML = '<title>Steam</title><meta property="og:url" content="https://batchdownloader.dev/catalog/app/steam"><meta name="robots" content="index, follow"><link rel="canonical" href="https://batchdownloader.dev/catalog/app/steam">';
+    vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+    renderPage();
+    fireEvent.click(screen.getByText('Modo de búsqueda'));
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute('content', 'index, follow');
+    expect(document.querySelector('link[rel="canonical"]')).toHaveAttribute('href', metadata.canonicalUrl);
   });
 });

@@ -12,6 +12,8 @@ interface Props {
   selectedIds?: Set<string>;
   selectedCount?: number;
   loading?: boolean;
+  showLoadingLabel?: boolean;
+  showEmptyState?: boolean;
   details?: AppDetails | null;
   loadingDetails?: boolean;
   onToggleDetails: (app: CatalogApp) => void;
@@ -24,6 +26,8 @@ export function AppTable({
   selectedIds = new Set(),
   selectedCount = 0,
   loading = false,
+  showLoadingLabel = true,
+  showEmptyState = true,
   details,
   loadingDetails = false,
   onToggleDetails,
@@ -69,7 +73,12 @@ export function AppTable({
                   <td>
                     <div className="app-cell">
                       <AppIcon app={app} />
-                      <span>{app.name}</span>
+                      <a href={`/catalog/app/${app.id}`} onClick={(event) => {
+                        event.stopPropagation();
+                        if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                        event.preventDefault();
+                        onToggleDetails(app);
+                      }}>{app.name}</a>
                     </div>
                   </td>
                   <td>{app.publisher ?? '-'}</td>
@@ -117,8 +126,8 @@ export function AppTable({
           })}
         </tbody>
       </table>
-      {loading ? <p className="loading-label">{t('common.loading')}</p> : null}
-      {!loading && apps.length === 0 ? <p className="empty-state">{t('catalog.empty')}</p> : null}
+      {loading && showLoadingLabel ? <p className="loading-label">{t('common.loading')}</p> : null}
+      {!loading && showEmptyState && apps.length === 0 ? <p className="empty-state">{t('catalog.empty')}</p> : null}
     </div>
   );
 }

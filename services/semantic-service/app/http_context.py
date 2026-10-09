@@ -32,10 +32,11 @@ require_search_capacity = SearchCapacityGuard(
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Abre el pool y verifica que la migracion ya se haya aplicado."""
+    """Aplica y verifica las migraciones pendientes antes de aceptar peticiones."""
     await asyncio.to_thread(database.open)
-    await asyncio.to_thread(database.verify_schema)
     try:
+        await asyncio.to_thread(database.migrate)
+        await asyncio.to_thread(database.verify_schema)
         yield
     finally:
         await asyncio.to_thread(database.close)

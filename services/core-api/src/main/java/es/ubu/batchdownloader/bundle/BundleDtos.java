@@ -45,6 +45,7 @@ public class BundleDtos {
      * @param slug Identificador legible del bundle dentro de las rutas públicas.
      * @param name Nombre visible del conjunto de aplicaciones.
      * @param description Descripción opcional de la finalidad del bundle.
+     * @param creatorUsername Nombre público actual de la cuenta creadora, o null si no existe.
      * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
      *     community o user.
      * @param visibility Visibilidad public, private u official; las ediciones personales solo
@@ -71,6 +72,7 @@ public class BundleDtos {
             String slug,
             String name,
             String description,
+            String creatorUsername,
             String type,
             String visibility,
             int starCount,

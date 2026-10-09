@@ -61,11 +61,12 @@ public class BundleReadRepository {
      * @return resúmenes en el orden solicitado.
      */
     public List<BundleSummary> list(String type, String sort, int page, int pageSize) {
-        String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
+        String order = "stars".equals(sort) ? "bundles.star_count DESC, bundles.updated_at DESC" : "bundles.updated_at DESC";
         String sql = """
-                SELECT * FROM bundles
-                WHERE (? IS NULL OR type = ? OR (? = 'community' AND type = 'user'))
-                  AND visibility IN ('public', 'official')
+                SELECT bundles.*, owner.username AS creator_username FROM bundles
+                LEFT JOIN core_users owner ON owner.id = bundles.owner_id
+                WHERE (? IS NULL OR bundles.type = ? OR (? = 'community' AND bundles.type = 'user'))
+                  AND bundles.visibility IN ('public', 'official')
                 ORDER BY %s
                 LIMIT ? OFFSET ?
                 """.formatted(order);
@@ -114,10 +115,11 @@ public class BundleReadRepository {
      * @return resúmenes administrativos enriquecidos por lotes.
      */
     public List<BundleSummary> listForAdministration(String type, String sort, int page, int pageSize) {
-        String order = "stars".equals(sort) ? "star_count DESC, updated_at DESC" : "updated_at DESC";
+        String order = "stars".equals(sort) ? "bundles.star_count DESC, bundles.updated_at DESC" : "bundles.updated_at DESC";
         String sql = """
-                SELECT * FROM bundles
-                WHERE (? IS NULL OR type = ?)
+                SELECT bundles.*, owner.username AS creator_username FROM bundles
+                LEFT JOIN core_users owner ON owner.id = bundles.owner_id
+                WHERE (? IS NULL OR bundles.type = ?)
                 ORDER BY %s
                 LIMIT ? OFFSET ?
                 """.formatted(order);
@@ -290,6 +292,7 @@ public class BundleReadRepository {
                 rs.getString("slug"),
                 rs.getString("name"),
                 rs.getString("description"),
+                rs.getString("creator_username"),
                 rs.getString("type"),
                 rs.getString("visibility"),
                 rs.getInt("star_count"),
@@ -397,6 +400,7 @@ public class BundleReadRepository {
                     bundle.slug(),
                     bundle.name(),
                     bundle.description(),
+                    bundle.creatorUsername(),
                     bundle.type(),
                     bundle.visibility(),
                     bundle.starCount(),
@@ -599,6 +603,7 @@ public class BundleReadRepository {
      * @param slug Identificador legible del bundle dentro de las rutas públicas.
      * @param name Nombre visible del conjunto de aplicaciones.
      * @param description Descripción opcional de la finalidad del bundle.
+     * @param creatorUsername Nombre público de la cuenta propietaria si está asociada.
      * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
      *     community o user.
      * @param visibility Visibilidad public, private u official; las ediciones personales solo
@@ -614,6 +619,7 @@ public class BundleReadRepository {
             String slug,
             String name,
             String description,
+            String creatorUsername,
             String type,
             String visibility,
             int starCount,

@@ -1,6 +1,7 @@
 {
   "bundle.appCount": "{count} apps",
   "bundle.appsCount": "{count} aplicaciones",
+  "bundle.createdBy": "Creado por {username}",
   "bundle.downloadCount": "Descargar {count}",
   "bundle.fallbackDescription": "Bundle preparado para descarga en lote.",
   "bundle.loadError": "No se pudo cargar el bundle.",

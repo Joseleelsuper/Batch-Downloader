@@ -50,6 +50,8 @@ describe('AppTable', () => {
     expect(screen.queryByRole('columnheader', { name: 'Estado' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Mostrar detalles de Epic Games Launcher' }))
       .toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Epic Games Launcher' }))
+      .toHaveAttribute('href', `/catalog/app/${app.id}`);
 
     fireEvent.click(screen.getByText('Epic Games Launcher'));
 

@@ -50,6 +50,7 @@ class BundleRepositoryTest {
                             .thenReturn(es.ubu.batchdownloader.common.UuidBytes.fromUuid(bundleId));
                     when(row.getString("slug")).thenReturn("bundle");
                     when(row.getString("name")).thenReturn("Bundle");
+                    when(row.getString("creator_username")).thenReturn("tory");
                     when(row.getString("type")).thenReturn("official");
                     when(row.getString("visibility")).thenReturn("public");
                     when(row.getTimestamp("updated_at"))
@@ -77,7 +78,8 @@ class BundleRepositoryTest {
         when(catalog.listItems(any())).thenReturn(Map.of());
         BundleRepository repository = repository(jdbc, catalog);
 
-        assertThat(repository.list(null, "updated", 1, 12)).hasSize(1);
+        assertThat(repository.list(null, "updated", 1, 12))
+                .extracting(BundleDtos.BundleSummary::creatorUsername).containsExactly("tory");
         assertThat(repository.count(null)).isEqualTo(1);
 
         verify(jdbc, times(1)).query(anyString(), any(RowMapper.class), any(Object[].class));
