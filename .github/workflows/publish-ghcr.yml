@@ -153,11 +153,11 @@ jobs:
       - name: Require AMD64 and ARM64 infrastructure images
         env:
           IMAGES: |
-            mysql:8.4
-            pgvector/pgvector:pg16
-            rabbitmq:3.13-management
+            mirror.gcr.io/library/mysql:8.4
+            mirror.gcr.io/pgvector/pgvector:pg16
+            mirror.gcr.io/library/rabbitmq:3.13-management
             ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
-            axllent/mailpit:v1.30.0
+            mirror.gcr.io/axllent/mailpit:v1.30.0
         run: |
           while IFS= read -r image; do
             [ -n "${image}" ] || continue
