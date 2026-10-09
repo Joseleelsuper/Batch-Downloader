@@ -302,6 +302,7 @@ export interface BundleSummary {
   slug: string;
   name: string;
   description?: string | null;
+  creatorUsername?: string | null;
   type: 'official' | 'community' | 'user';
   visibility: string;
   starCount: number;

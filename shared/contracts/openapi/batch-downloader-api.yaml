@@ -3806,6 +3806,9 @@ components:
           type: string
         description:
           type: [string, 'null']
+        creatorUsername:
+          description: Nombre de usuario actual del creador, si la cuenta sigue asociada al bundle.
+          type: [string, 'null']
         type:
           type: string
           enum: [official, community, user]
