@@ -566,6 +566,7 @@ describe('catalog workspace', () => {
     fireEvent.click(nextPage);
 
     expect(await screen.findByText('Aplicación de la segunda página')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Página anterior' })).toHaveAttribute('href', '/catalog');
     expect(screen.getByText('1/100')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Quitar Aplicación reciente de la selección' }));
     expect(screen.getByText('0/100')).toBeInTheDocument();
