@@ -109,6 +109,7 @@ button:disabled {
   .platform-filter,
   .search-mode-toggle,
   .pagination button,
+  .pagination-controls a,
   .page-size select {
     transition: transform 180ms ease;
   }
@@ -129,6 +130,7 @@ button:disabled {
   .app-compact-card:focus-visible,
   .facet-link-row:focus-within,
   .pagination button:focus-visible:not(:disabled),
+  .pagination-controls a:focus-visible,
   .page-size select:focus-visible {
     position: relative;
     z-index: 1;
@@ -178,6 +180,7 @@ button:disabled {
   .app-compact-card:hover,
   .facet-link-row:hover,
   .pagination button:hover:not(:disabled),
+  .pagination-controls a:hover,
   .page-size select:hover {
     position: relative;
     z-index: 1;

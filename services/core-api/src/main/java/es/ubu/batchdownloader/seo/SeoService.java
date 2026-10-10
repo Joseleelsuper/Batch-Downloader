@@ -66,8 +66,14 @@ public class SeoService {
         String path = path(requestedPath);
         List<String> staticPage = PUBLIC_PAGES.get(path);
         boolean filtered = filteredCatalog(requestedPath, path);
+        int catalogPage = "/catalog".equals(path) && !filtered ? catalogPage(requestedPath) : 1;
+        if (catalogPage > 1 && (long) (catalogPage - 1) * 12 >= repository.catalogAvailableCount()) filtered = true;
         if (staticPage != null) {
-            return page(path, staticPage.getFirst(), staticPage.get(1), filtered ? NOINDEX : INDEX,
+            boolean paginated = "/catalog".equals(path) && catalogPage > 1 && !filtered;
+            return page(paginated ? path + "?page=" + catalogPage : path,
+                    staticPage.getFirst() + (paginated ? " — página " + catalogPage : ""),
+                    staticPage.get(1) + (paginated ? " Página " + catalogPage + "." : ""),
+                    filtered ? NOINDEX : INDEX,
                     "/".equals(path) ? "WebSite" : WEB_PAGE, null);
         }
         String privateTitle = PRIVATE_PAGES.get(path);
@@ -166,10 +172,24 @@ public class SeoService {
             String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
             String value = parts.length > 1 ? URLDecoder.decode(parts[1], StandardCharsets.UTF_8).strip() : "";
             if (value.isEmpty()) continue;
+            if ("/catalog".equals(path) && "page".equals(key) && value.matches("[1-9][0-9]{0,8}")) continue;
             if (isCatalogFilter(key, value)) return true;
             if ("os".equals(key)) systems.add(value);
         }
         return !systems.isEmpty() && !systems.equals(Set.of("windows", "linux", "macos"));
+    }
+
+    private static int catalogPage(String requested) {
+        String query = URI.create(requested).getRawQuery();
+        if (query == null) return 1;
+        for (String pair : query.split("&")) {
+            String[] parts = pair.split("=", 2);
+            if ("page".equals(URLDecoder.decode(parts[0], StandardCharsets.UTF_8))) {
+                String value = URLDecoder.decode(parts.length > 1 ? parts[1] : "", StandardCharsets.UTF_8).strip();
+                return value.isEmpty() ? 1 : Integer.parseInt(value);
+            }
+        }
+        return 1;
     }
 
     private static boolean isCatalogFilter(String key, String value) {

@@ -63,6 +63,14 @@ public class SeoRepository {
         return count == null ? 0 : count;
     }
 
+    public long catalogAvailableCount() {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM software_apps
+                WHERE app_status = 'active' AND catalog_status = 'available'
+                """, Long.class);
+        return count == null ? 0 : count;
+    }
+
     /** Una página acotada evita cargar el catálogo entero al servir un sitemap. */
     public List<SitemapEntry> sitemapEntries(String group, int page) {
         return jdbc.query("SELECT id, updated_at FROM " + sitemapSource(group)
