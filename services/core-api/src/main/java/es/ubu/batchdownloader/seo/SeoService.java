@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class SeoService {
     static final String BRAND = "Batch Downloader";
+    private static final String CATALOG_PATH = "/catalog";
     static final String APP_PREFIX = "/catalog/app/";
     static final String BUNDLE_PREFIX = "/bundles/";
     private static final String INDEX = "index, follow";
@@ -27,7 +28,7 @@ public class SeoService {
             "status", "available", "sort", "downloads", "page", "1", "pageSize", "12");
     private static final Map<String, List<String>> PUBLIC_PAGES = Map.of(
             "/", List.of("Descarga varias aplicaciones a la vez", "Busca aplicaciones para Windows, Linux y macOS, crea bundles y descarga sus instaladores juntos con Batch Downloader."),
-            "/catalog", List.of("Catálogo de aplicaciones", "Encuentra aplicaciones para Windows, Linux y macOS por nombre, editor, etiquetas o búsqueda semántica. Prepara tus descargas en un solo lugar."),
+            CATALOG_PATH, List.of("Catálogo de aplicaciones", "Encuentra aplicaciones para Windows, Linux y macOS por nombre, editor, etiquetas o búsqueda semántica. Prepara tus descargas en un solo lugar."),
             "/catalog/tags", List.of("Etiquetas del catálogo", "Explora las etiquetas de Batch Downloader y encuentra aplicaciones por su función, categoría y uso."),
             "/catalog/editors", List.of("Editores de aplicaciones", "Descubre los editores del catálogo de Batch Downloader y consulta sus aplicaciones y fuentes disponibles."),
             "/terms", List.of("Términos y condiciones", "Consulta las condiciones de uso de Batch Downloader, los bundles y las descargas de aplicaciones de terceros."),
@@ -65,17 +66,7 @@ public class SeoService {
     public Resolution resolve(String requestedPath) {
         String path = path(requestedPath);
         List<String> staticPage = PUBLIC_PAGES.get(path);
-        boolean filtered = filteredCatalog(requestedPath, path);
-        int catalogPage = "/catalog".equals(path) && !filtered ? catalogPage(requestedPath) : 1;
-        if (catalogPage > 1 && (long) (catalogPage - 1) * 12 >= repository.catalogAvailableCount()) filtered = true;
-        if (staticPage != null) {
-            boolean paginated = "/catalog".equals(path) && catalogPage > 1 && !filtered;
-            return page(paginated ? path + "?page=" + catalogPage : path,
-                    staticPage.getFirst() + (paginated ? " — página " + catalogPage : ""),
-                    staticPage.get(1) + (paginated ? " Página " + catalogPage + "." : ""),
-                    filtered ? NOINDEX : INDEX,
-                    "/".equals(path) ? "WebSite" : WEB_PAGE, null);
-        }
+        if (staticPage != null) return publicPage(requestedPath, path, staticPage);
         String privateTitle = PRIVATE_PAGES.get(path);
         if (privateTitle == null && (path.matches("/dashboard/bundles/[^/]+/edit")
                 || path.matches("/admin/semantic/[^/]+"))) privateTitle = "Área personal";
@@ -95,6 +86,18 @@ public class SeoService {
                     .orElseGet(this::notFound);
         }
         return notFound();
+    }
+
+    private Resolution publicPage(String requestedPath, String path, List<String> staticPage) {
+        boolean filtered = filteredCatalog(requestedPath, path);
+        int catalogPage = CATALOG_PATH.equals(path) && !filtered ? catalogPage(requestedPath) : 1;
+        if (catalogPage > 1 && (long) (catalogPage - 1) * 12 >= repository.catalogAvailableCount()) filtered = true;
+        boolean paginated = CATALOG_PATH.equals(path) && catalogPage > 1 && !filtered;
+        return page(paginated ? path + "?page=" + catalogPage : path,
+                staticPage.getFirst() + (paginated ? " — página " + catalogPage : ""),
+                staticPage.get(1) + (paginated ? " Página " + catalogPage + "." : ""),
+                filtered ? NOINDEX : INDEX,
+                "/".equals(path) ? "WebSite" : WEB_PAGE, null);
     }
 
     public Resolution privateShell(String path, String title) {
@@ -163,7 +166,7 @@ public class SeoService {
 
     /** El modo de búsqueda y los filtros por defecto añadidos por React no ocultan el catálogo. */
     private static boolean filteredCatalog(String requested, String path) {
-        if (requested == null || !List.of("/catalog", "/catalog/tags", "/catalog/editors").contains(path)) return false;
+        if (requested == null || !List.of(CATALOG_PATH, "/catalog/tags", "/catalog/editors").contains(path)) return false;
         String query = URI.create(requested).getRawQuery();
         if (query == null || query.isBlank()) return false;
         Set<String> systems = new java.util.HashSet<>();
@@ -171,12 +174,15 @@ public class SeoService {
             String[] parts = pair.split("=", 2);
             String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
             String value = parts.length > 1 ? URLDecoder.decode(parts[1], StandardCharsets.UTF_8).strip() : "";
-            if (value.isEmpty()) continue;
-            if ("/catalog".equals(path) && "page".equals(key) && value.matches("[1-9][0-9]{0,8}")) continue;
+            if (value.isEmpty() || isCatalogPageParameter(path, key, value)) continue;
             if (isCatalogFilter(key, value)) return true;
             if ("os".equals(key)) systems.add(value);
         }
         return !systems.isEmpty() && !systems.equals(Set.of("windows", "linux", "macos"));
+    }
+
+    private static boolean isCatalogPageParameter(String path, String key, String value) {
+        return CATALOG_PATH.equals(path) && "page".equals(key) && value.matches("[1-9]\\d{0,8}");
     }
 
     private static int catalogPage(String requested) {

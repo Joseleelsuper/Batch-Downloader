@@ -14,7 +14,7 @@ interface Props {
 
 const pageSizes = [12, 24, 48];
 
-export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange, pageHref }: Props) {
+export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange, pageHref }: Readonly<Props>) {
   const t = useTranslation();
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const [draftPage, setDraftPage] = useState(String(page));
