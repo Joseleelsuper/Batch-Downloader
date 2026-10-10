@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Pagination } from './Pagination';
 
@@ -42,6 +43,24 @@ describe('Pagination', () => {
 
     expect(onPageChange).toHaveBeenNthCalledWith(1, 1);
     expect(onPageChange).toHaveBeenNthCalledWith(2, 3);
+  });
+
+  it('renders crawlable links when page URLs are available', () => {
+    render(
+      <MemoryRouter>
+        <Pagination
+          page={2}
+          pageSize={12}
+          total={36}
+          pageHref={(target) => `/catalog?page=${target}`}
+          onPageChange={vi.fn()}
+          onPageSizeChange={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('link', { name: 'Página anterior' })).toHaveAttribute('href', '/catalog?page=1');
+    expect(screen.getByRole('link', { name: 'Página siguiente' })).toHaveAttribute('href', '/catalog?page=3');
   });
 
   it('normaliza valores no numéricos y no repite la página actual', () => {

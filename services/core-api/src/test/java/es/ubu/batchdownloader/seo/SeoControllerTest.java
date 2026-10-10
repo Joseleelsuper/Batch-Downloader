@@ -45,7 +45,8 @@ class SeoControllerTest {
                 "jdbc:h2:mem:seo-" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", ""));
         jdbc.execute("""
                 CREATE TABLE software_apps(id BINARY(16) PRIMARY KEY, slug VARCHAR(180), winstall_id VARCHAR(180),
-                    name VARCHAR(180), description TEXT, publisher VARCHAR(180), app_status VARCHAR(16), updated_at TIMESTAMP)
+                    name VARCHAR(180), description TEXT, publisher VARCHAR(180), app_status VARCHAR(16), updated_at TIMESTAMP,
+                    catalog_status VARCHAR(16))
                 """);
         jdbc.execute("""
                 CREATE TABLE bundles(id BINARY(16) PRIMARY KEY, slug VARCHAR(180), name VARCHAR(180), description TEXT,
@@ -136,14 +137,30 @@ class SeoControllerTest {
 
     @Test
     void catalogDefaultsRemainIndexableWhileExplicitFiltersAreNoindex() {
-        for (String query : List.of("status=available", "sort=downloads", "page=1", "pageSize=12",
+        for (String query : List.of("status=available", "sort=downloads", "page=1", "page=", "pageSize=12",
                 "os=windows&os=linux&os=macos", "query=&tag=%20&publisher&architecture=", "unknown=value")) {
             assertThat(service.resolve("/catalog?" + query).metadata().robots()).as(query).isEqualTo("index, follow");
         }
-        for (String query : List.of("status=review", "sort=relevance", "page=2", "pageSize=20",
+        for (String query : List.of("status=review", "sort=relevance", "pageSize=20",
                 "os=linux", "os=windows&os=linux", "query=editor", "tag=tools", "publisher=editor", "architecture=arm64")) {
             assertThat(service.resolve("/catalog?" + query).metadata().robots()).as(query).isEqualTo("noindex, follow");
         }
+    }
+
+    @Test
+    void catalogPagesHaveOwnCanonicalUntilTheLastAvailablePage() {
+        for (int index = 0; index < 12; index++) {
+            insertApp(UUID.randomUUID(), "extra-" + index, "Extra " + index, "Disponible", "active");
+        }
+        var second = service.resolve("/catalog?page=2&searchMode=semantic").metadata();
+        assertThat(second.robots()).isEqualTo("index, follow");
+        assertThat(second.canonicalUrl()).isEqualTo("https://batchdownloader.dev/catalog?page=2");
+        assertThat(second.title()).contains("página 2");
+        assertThat(second.structuredData()).containsEntry("url", second.canonicalUrl());
+        assertThat(service.sitemap("static", 1).orElseThrow()).contains("<loc>https://batchdownloader.dev/catalog?page=2</loc>")
+                .doesNotContain("/catalog?page=3");
+        assertThat(service.resolve("/catalog?page=3").metadata().robots()).isEqualTo("noindex, follow");
+        assertThat(service.resolve("/catalog?page=2&query=editor").metadata().robots()).isEqualTo("noindex, follow");
     }
 
     @Test
@@ -184,7 +201,7 @@ class SeoControllerTest {
         for (int index = 0; index < 1_000; index++) {
             rows.add(new Object[]{UuidBytes.fromUuid(UUID.randomUUID()), "app-" + index, "Package." + index, "App " + index});
         }
-        jdbc.batchUpdate("INSERT INTO software_apps VALUES(?, ?, ?, ?, 'Description', 'Publisher', 'active', CURRENT_TIMESTAMP)", rows);
+        jdbc.batchUpdate("INSERT INTO software_apps VALUES(?, ?, ?, ?, 'Description', 'Publisher', 'active', CURRENT_TIMESTAMP, 'available')", rows);
         UUID inactive = UUID.randomUUID();
         insertApp(inactive, "hidden", "Invisible", "Never public", "inactive");
         jdbc.update("UPDATE bundles SET visibility='private'");
@@ -267,7 +284,7 @@ class SeoControllerTest {
     }
 
     private void insertApp(UUID id, String slug, String name, String description, String state) {
-        jdbc.update("INSERT INTO software_apps VALUES(?, ?, 'Editor.Package', ?, ?, 'Editor publisher', ?, CURRENT_TIMESTAMP)",
+        jdbc.update("INSERT INTO software_apps VALUES(?, ?, 'Editor.Package', ?, ?, 'Editor publisher', ?, CURRENT_TIMESTAMP, 'available')",
                 UuidBytes.fromUuid(id), slug, name, description, state);
     }
 }

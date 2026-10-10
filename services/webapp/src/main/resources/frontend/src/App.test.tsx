@@ -561,12 +561,28 @@ describe('catalog workspace', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
     const pagination = screen.getByText(/Mostrando 1 a 12 de 13 resultados/).closest('footer');
     expect(pagination).not.toBeNull();
-    fireEvent.click(within(pagination!).getAllByRole('button')[1]);
+    const nextPage = within(pagination!).getByRole('link', { name: 'Página siguiente' });
+    expect(nextPage).toHaveAttribute('href', '/catalog?page=2&searchMode=semantic');
+    fireEvent.click(nextPage);
 
     expect(await screen.findByText('Aplicación de la segunda página')).toBeInTheDocument();
     expect(screen.getByText('1/100')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Quitar Aplicación reciente de la selección' }));
     expect(screen.getByText('0/100')).toBeInTheDocument();
+  });
+
+  it('keeps filtered catalog pagination out of crawlable links', async () => {
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
+      data: [catalogApp], page: 1, pageSize: 12, total: 13,
+    });
+    render(
+      <MemoryRouter initialEntries={['/catalog?query=editor']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Página siguiente' })).toBeEnabled();
+    expect(screen.queryByRole('link', { name: 'Página siguiente' })).not.toBeInTheDocument();
   });
 
   it('revalidates selected apps before sending a download job', async () => {

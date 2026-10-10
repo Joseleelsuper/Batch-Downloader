@@ -142,6 +142,9 @@ export function CatalogPage() {
   const catalogStatusCanonical = canonicalSearchKey === searchKey;
   const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
   const filterKey = catalogFiltersToSearchParams(filters).toString();
+  const paginationParams = catalogFiltersToSearchParams({ ...filters, page: 1 });
+  paginationParams.delete('searchMode');
+  const crawlablePagination = paginationParams.toString() === '';
   const [query, setQuery] = useState(filters.query);
   const [activePage, setActivePage] = useState<{ key: string; response: CatalogResponse } | null>(null);
   const displayedPage = cachedPage(filterKey)
@@ -508,6 +511,9 @@ export function CatalogPage() {
           page={filters.page}
           pageSize={filters.pageSize}
           total={total}
+          pageHref={crawlablePagination
+            ? (nextPage) => `/catalog?${catalogFiltersToSearchParams({ ...filters, page: nextPage })}`
+            : undefined}
           onPageChange={(nextPage) => updateFilters({ page: nextPage }, false)}
           onPageSizeChange={(nextPageSize) => {
             updateFilters({ pageSize: nextPageSize });

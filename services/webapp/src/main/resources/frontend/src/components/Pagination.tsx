@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from '../services/i18n';
 
 interface Props {
@@ -8,11 +9,12 @@ interface Props {
   total: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
+  pageHref?: (page: number) => string;
 }
 
 const pageSizes = [12, 24, 48];
 
-export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }: Props) {
+export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange, pageHref }: Readonly<Props>) {
   const t = useTranslation();
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const [draftPage, setDraftPage] = useState(String(page));
@@ -40,14 +42,14 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
         })}
       </span>
       <div className="pagination-controls">
-        <button
-          aria-label={t('catalog.pagination.previous')}
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-          type="button"
-        >
-          <ChevronLeft size={18} />
-        </button>
+        {pageHref && page > 1
+          ? <Link aria-label={t('catalog.pagination.previous')} to={pageHref(page - 1)}><ChevronLeft size={18} /></Link>
+          : <button
+            aria-label={t('catalog.pagination.previous')}
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+            type="button"
+          ><ChevronLeft size={18} /></button>}
         <label className="page-input-label">
           <span>{t('catalog.pagination.page')}</span>
           <input
@@ -62,14 +64,14 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
           />
           <span>/ {pages}</span>
         </label>
-        <button
-          aria-label={t('catalog.pagination.next')}
-          disabled={page >= pages}
-          onClick={() => onPageChange(page + 1)}
-          type="button"
-        >
-          <ChevronRight size={18} />
-        </button>
+        {pageHref && page < pages
+          ? <Link aria-label={t('catalog.pagination.next')} to={pageHref(page + 1)}><ChevronRight size={18} /></Link>
+          : <button
+            aria-label={t('catalog.pagination.next')}
+            disabled={page >= pages}
+            onClick={() => onPageChange(page + 1)}
+            type="button"
+          ><ChevronRight size={18} /></button>}
       </div>
       <label className="page-size">
         <span className="sr-only">{t('catalog.perPage')}</span>

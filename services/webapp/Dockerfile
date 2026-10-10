@@ -13,5 +13,6 @@ FROM nginx:1.27-alpine
 
 COPY services/webapp/nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY shared/contracts/openapi/batch-downloader-api.yaml /usr/share/nginx/html/openapi.yaml
 
 EXPOSE 80 8080
