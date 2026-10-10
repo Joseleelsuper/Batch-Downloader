@@ -157,6 +157,8 @@ class SeoControllerTest {
         assertThat(second.canonicalUrl()).isEqualTo("https://batchdownloader.dev/catalog?page=2");
         assertThat(second.title()).contains("página 2");
         assertThat(second.structuredData()).containsEntry("url", second.canonicalUrl());
+        assertThat(service.sitemap("static", 1).orElseThrow()).contains("<loc>https://batchdownloader.dev/catalog?page=2</loc>")
+                .doesNotContain("/catalog?page=3");
         assertThat(service.resolve("/catalog?page=3").metadata().robots()).isEqualTo("noindex, follow");
         assertThat(service.resolve("/catalog?page=2&query=editor").metadata().robots()).isEqualTo("noindex, follow");
     }

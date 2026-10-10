@@ -285,6 +285,11 @@ public class SeoService {
             if (page != 1) return Optional.empty();
             PUBLIC_PAGES.keySet().stream().sorted().forEach(path -> xml.append("<url><loc>")
                     .append(escape(baseUrl + path)).append("</loc></url>"));
+            long catalogPages = (repository.catalogAvailableCount() + 11) / 12;
+            for (long catalogPage = 2; catalogPage <= Math.min(catalogPages, 50_000 - PUBLIC_PAGES.size()); catalogPage++) {
+                xml.append("<url><loc>").append(escape(baseUrl + CATALOG_PATH))
+                        .append("?page=").append(catalogPage).append("</loc></url>");
+            }
         } else {
             long count = repository.sitemapCount(group);
             if ((long) (page - 1) * SeoRepository.SITEMAP_PAGE_SIZE >= count) return Optional.empty();
