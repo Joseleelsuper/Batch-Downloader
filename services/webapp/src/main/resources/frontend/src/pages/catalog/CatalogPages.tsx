@@ -512,7 +512,7 @@ export function CatalogPage() {
           pageSize={filters.pageSize}
           total={total}
           pageHref={crawlablePagination
-            ? (nextPage) => `/catalog?${catalogFiltersToSearchParams({ ...filters, page: nextPage })}`
+            ? (nextPage) => `/catalog?page=${nextPage}`
             : undefined}
           onPageChange={(nextPage) => updateFilters({ page: nextPage }, false)}
           onPageSizeChange={(nextPageSize) => {

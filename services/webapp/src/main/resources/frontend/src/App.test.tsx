@@ -562,7 +562,7 @@ describe('catalog workspace', () => {
     const pagination = screen.getByText(/Mostrando 1 a 12 de 13 resultados/).closest('footer');
     expect(pagination).not.toBeNull();
     const nextPage = within(pagination!).getByRole('link', { name: 'Página siguiente' });
-    expect(nextPage).toHaveAttribute('href', '/catalog?page=2&searchMode=semantic');
+    expect(nextPage).toHaveAttribute('href', '/catalog?page=2');
     fireEvent.click(nextPage);
 
     expect(await screen.findByText('Aplicación de la segunda página')).toBeInTheDocument();
