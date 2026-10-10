@@ -286,7 +286,7 @@ public class SeoService {
             PUBLIC_PAGES.keySet().stream().sorted().forEach(path -> xml.append("<url><loc>")
                     .append(escape(baseUrl + path)).append("</loc></url>"));
             long catalogPages = (repository.catalogAvailableCount() + 11) / 12;
-            for (long catalogPage = 2; catalogPage <= Math.min(catalogPages, 50_000 - PUBLIC_PAGES.size()); catalogPage++) {
+            for (long catalogPage = 2; catalogPage <= Math.min(catalogPages, 50_000L - PUBLIC_PAGES.size()); catalogPage++) {
                 xml.append("<url><loc>").append(escape(baseUrl + CATALOG_PATH))
                         .append("?page=").append(catalogPage).append("</loc></url>");
             }
