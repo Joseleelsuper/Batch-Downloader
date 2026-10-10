@@ -265,6 +265,16 @@ export function CatalogPage() {
     const previousPage = lastPage?.searchKey === filterKey
       ? lastPage.apps
       : null;
+    async function prefetchFacetPages() {
+      try {
+        const facets = await fetchCatalogFacets(appRequest(filters));
+        if (cancelled) return;
+        facets.tags.slice(0, 2).forEach((tag) => prefetchPage(nextFilters(filters, { tags: toggleValue(filters.tags, tag.value) })));
+        facets.publishers.slice(0, 2).forEach((publisher) => prefetchPage(nextFilters(filters, { publisher: publisher.value })));
+      } catch {
+        return; // La precarga es opcional; el catálogo principal ya está disponible.
+      }
+    }
     const pending = pendingPages.get(filterKey);
     (pending ? pending.catch(() => fetchApps(appRequest(filters), controller.signal))
       : fetchApps(appRequest(filters), controller.signal))
@@ -290,11 +300,7 @@ export function CatalogPage() {
             ...(filters.page * filters.pageSize < response.total ? [{ ...filters, page: filters.page + 1 }] : []),
           ];
           candidates.forEach(prefetchPage);
-          void fetchCatalogFacets(appRequest(filters)).then((facets) => {
-            if (cancelled) return;
-            facets.tags.slice(0, 2).forEach((tag) => prefetchPage(nextFilters(filters, { tags: toggleValue(filters.tags, tag.value) })));
-            facets.publishers.slice(0, 2).forEach((publisher) => prefetchPage(nextFilters(filters, { publisher: publisher.value })));
-          }).catch(() => undefined);
+          void prefetchFacetPages();
         }
         if (refreshInspection?.missingIds.length) {
           const validation = await validateCatalogSelection(
@@ -512,7 +518,7 @@ export function CatalogPage() {
           pageSize={filters.pageSize}
           total={total}
           pageHref={crawlablePagination
-            ? (nextPage) => `/catalog?${catalogFiltersToSearchParams({ ...filters, page: nextPage })}`
+            ? (nextPage) => `/catalog?page=${nextPage}`
             : undefined}
           onPageChange={(nextPage) => updateFilters({ page: nextPage }, false)}
           onPageSizeChange={(nextPageSize) => {
