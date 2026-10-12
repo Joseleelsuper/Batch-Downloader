@@ -8,7 +8,7 @@ ROOT = Path(__file__).parents[1]
 
 def test_companion_entrypoints_hold_contractive_migrations_behind_a_gate() -> None:
     entrypoint = (ROOT / "scripts" / "docker-entrypoint.sh").read_text(encoding="utf-8")
-    assert 'SCRAPER_ALEMBIC_TARGET:-20260914_0021' in entrypoint
+    assert 'SCRAPER_ALEMBIC_TARGET:-20261012_0024' in entrypoint
     properties = (
         ROOT.parents[1]
         / "services"

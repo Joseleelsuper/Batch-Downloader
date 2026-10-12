@@ -31,6 +31,7 @@ public final class AdminCatalogDtos {
      * @param description Descripción breve del propósito de la aplicación.
      * @param longDescription Descripción ampliada que se muestra en el detalle y participa en la
      *     búsqueda léxica.
+     * @param longDescriptionEn Versión inglesa de la descripción ampliada.
      * @param iconUrl URL del icono público de la aplicación cuando está disponible.
      * @param officialUrl Página oficial pública de la aplicación; no es un instalador resuelto.
      * @param latestVersion Versión vigente de la aplicación según el catálogo.
@@ -49,6 +50,7 @@ public final class AdminCatalogDtos {
             String publisher,
             String description,
             String longDescription,
+            String longDescriptionEn,
             String iconUrl,
             String officialUrl,
             String latestVersion,
@@ -63,6 +65,7 @@ public final class AdminCatalogDtos {
      * @param description Descripción breve del propósito de la aplicación.
      * @param longDescription Descripción ampliada que se muestra en el detalle y participa en la
      *     búsqueda léxica.
+     * @param longDescriptionEn Versión inglesa de la descripción ampliada.
      * @param iconUrl URL del icono público de la aplicación cuando está disponible.
      * @param officialUrl Página oficial pública de la aplicación; no es un instalador resuelto.
      * @param latestVersion Versión vigente de la aplicación según el catálogo.
@@ -77,6 +80,7 @@ public final class AdminCatalogDtos {
             String publisher,
             String description,
             String longDescription,
+            String longDescriptionEn,
             String iconUrl,
             String officialUrl,
             String latestVersion,

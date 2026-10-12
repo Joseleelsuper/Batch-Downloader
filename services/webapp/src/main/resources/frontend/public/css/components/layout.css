@@ -72,6 +72,26 @@
   border: 0;
 }
 
+.language-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #303846;
+}
+
+.language-selector select {
+  min-height: 38px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.language-selector select:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .menu-wrapper {
   position: relative;
 }

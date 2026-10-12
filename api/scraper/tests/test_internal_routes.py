@@ -604,7 +604,11 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
             "longDescription": {
                 "value": "Generated long description",
                 "source": "generated_ai",
-            }
+            },
+            "longDescriptionEn": {
+                "value": "Generated English long description",
+                "source": "generated_ai",
+            },
         },
         "installer": {
             "finalDomain": "example.test",
@@ -709,6 +713,7 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
         "latestVersion": "1.2.0",
         "description": "Existing description",
         "longDescription": "Generated long description",
+        "longDescriptionEn": "Generated English long description",
         "iconUrl": None,
         "operatingSystem": None,
     }
@@ -724,6 +729,9 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
 
     assert response.status_code == 200
     assert response.json()["catalogStatus"] == "available"
+    saved_app = await internal_api.session.get(SoftwareApp, app.id)
+    assert saved_app is not None
+    assert saved_app.long_description_en == "Generated English long description"
     assert response.json()["warnings"] == []
     assert windows_url not in response.text
     assert linux_url not in response.text
@@ -922,6 +930,10 @@ async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_i
                 "value": "DescripciÃ³n generada",
                 "source": "generated_ai",
             },
+            "longDescriptionEn": {
+                "value": "Generated English description",
+                "source": "generated_ai",
+            },
             "iconUrl": {"value": None, "source": "unavailable"},
         },
         "ai": {
@@ -943,6 +955,7 @@ async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_i
             "latestVersion": "2.4.1",
             "description": "Cliente de escritorio para Example.",
             "longDescription": "DescripciÃ³n generada",
+            "longDescriptionEn": "Generated English description",
             "iconUrl": None,
         },
     )
@@ -959,6 +972,7 @@ async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_i
     assert app.name == "Example Desktop"
     assert app.official_url == official_url
     assert app.long_description_source == "groq"
+    assert app.long_description_en == "Generated English description"
     assert app.winstall_id.startswith("manual.")
     source_ids = list(
         await internal_api.session.scalars(

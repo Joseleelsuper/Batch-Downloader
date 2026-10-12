@@ -177,6 +177,7 @@ public final class WebsiteDiscoveryDtos {
             @Size(max = 100) String latestVersion,
             @Size(max = 4000) String description,
             @Size(max = 12000) String longDescription,
+            @Size(max = 12000) String longDescriptionEn,
             @Size(max = 2048) String iconUrl) {}
 
     /**

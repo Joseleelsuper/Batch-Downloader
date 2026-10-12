@@ -100,9 +100,10 @@ public class AdminAppRepository {
                 """
                 INSERT INTO software_apps
                 (id, winstall_id, slug, name, normalized_name, description, long_description,
+                 long_description_en,
                  long_description_status, publisher, icon_url, official_url, latest_version,
                  app_status, metadata_json, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_OBJECT('source', 'admin'), 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, JSON_OBJECT('source', 'admin'), 0, ?, ?)
                 """,
                 UuidBytes.fromUuid(id),
                 winstallId,
@@ -111,7 +112,8 @@ public class AdminAppRepository {
                 normalizeText(request.name()),
                 request.description(),
                 request.longDescription(),
-                isBlank(request.longDescription()) ? "pending" : "completed",
+                request.longDescriptionEn(),
+                isBlank(request.longDescription()) || isBlank(request.longDescriptionEn()) ? "pending" : "completed",
                 request.publisher(),
                 request.iconUrl(),
                 request.officialUrl(),
@@ -178,6 +180,7 @@ public class AdminAppRepository {
                 """
                 UPDATE software_apps
                 SET name = ?, normalized_name = ?, publisher = ?, description = ?, long_description = ?,
+                    long_description_en = ?,
                     long_description_status = ?, icon_url = ?, official_url = ?, latest_version = ?,
                     app_status = ?, updated_at = ?, version = version + 1
                 WHERE id = ?
@@ -187,7 +190,10 @@ public class AdminAppRepository {
                 coalesce(request.publisher(), before.publisher()),
                 coalesce(request.description(), before.description()),
                 coalesce(request.longDescription(), before.longDescription()),
-                isBlank(coalesce(request.longDescription(), before.longDescription())) ? "pending" : "completed",
+                coalesce(request.longDescriptionEn(), before.longDescriptionEn()),
+                isBlank(coalesce(request.longDescription(), before.longDescription()))
+                        || isBlank(coalesce(request.longDescriptionEn(), before.longDescriptionEn()))
+                                ? "pending" : "completed",
                 coalesce(request.iconUrl(), before.iconUrl()),
                 coalesce(request.officialUrl(), before.officialUrl()),
                 coalesce(request.latestVersion(), before.latestVersion()),

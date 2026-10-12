@@ -103,7 +103,8 @@ class SoftwareApp(Base, TimestampMixin):
             pública.
         name, normalized_name, publisher: Nombre de presentación, forma normalizada para
             búsqueda y editor.
-        description, long_description: Texto breve de catálogo y descripción ampliada.
+        description, long_description, long_description_en: Texto breve y descripciones
+            ampliadas en español e inglés.
         long_description_language, long_description_status: Idioma de la descripción ampliada
             y estado de su enriquecimiento.
         long_description_source, long_description_model, long_description_generated_at:
@@ -144,6 +145,8 @@ class SoftwareApp(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
 
     long_description: Mapped[str | None] = mapped_column(Text)
+
+    long_description_en: Mapped[str | None] = mapped_column(Text)
 
     long_description_language: Mapped[str | None] = mapped_column(String(16))
 

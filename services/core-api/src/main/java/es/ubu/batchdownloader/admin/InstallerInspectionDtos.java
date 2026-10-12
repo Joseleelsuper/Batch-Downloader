@@ -126,6 +126,7 @@ public final class InstallerInspectionDtos {
             ManualFieldSuggestion latestVersion,
             ManualFieldSuggestion description,
             ManualFieldSuggestion longDescription,
+            ManualFieldSuggestion longDescriptionEn,
             ManualFieldSuggestion iconUrl) {}
 
     /**
@@ -294,6 +295,7 @@ public final class InstallerInspectionDtos {
             @Size(max = 100) String latestVersion,
             @Size(max = 4000) String description,
             @Size(max = 12000) String longDescription,
+            @Size(max = 12000) String longDescriptionEn,
             @Size(max = 2048) String iconUrl,
             @Pattern(regexp = "^(windows|macos|linux)$") String operatingSystem) {}
 

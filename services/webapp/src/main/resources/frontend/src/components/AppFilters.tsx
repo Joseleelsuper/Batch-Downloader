@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { CatalogApp, FilterKey, OperatingSystem } from '../types/catalog';
-import { useTranslation, type TranslationKey } from '../services/i18n';
+import { useLocale, useTranslation, type TranslationKey } from '../services/i18n';
 import { OperatingSystemIcon, operatingSystemLabel } from './OperatingSystemIcons';
 
 const MAX_SELECTED_APPS = 100;
@@ -65,6 +65,7 @@ export function AppFilters({
   onToggleOperatingSystem,
 }: Props) {
   const t = useTranslation();
+  const locale = useLocale();
   const facetSearch = catalogSearch ? `?${catalogSearch}` : '';
   const selectedCount = selectedApps.length;
   const visibleSelectedApps = selectedApps.slice(-VISIBLE_SELECTED_APPS).reverse();
@@ -88,7 +89,7 @@ export function AppFilters({
             >
               <Icon size={20} />
               <span>{t(filter.labelKey)}</span>
-              <strong>{(counts[filter.key] ?? 0).toLocaleString('es-ES')}</strong>
+              <strong>{(counts[filter.key] ?? 0).toLocaleString(locale)}</strong>
             </button>
           );
         })}
@@ -98,7 +99,7 @@ export function AppFilters({
           <Link className="facet-link-button" to={`/catalog/tags${facetSearch}`}>
             <Tags size={18} />
             <span>{t('facet.tags.title')}</span>
-            <strong>{selectedTagCount.toLocaleString('es-ES')}</strong>
+            <strong>{selectedTagCount.toLocaleString(locale)}</strong>
           </Link>
           {selectedTagCount > 0 ? (
             <button
@@ -116,7 +117,7 @@ export function AppFilters({
           <Link className="facet-link-button" to={`/catalog/editors${facetSearch}`}>
             <Building2 size={18} />
             <span>{t('facet.publishers.title')}</span>
-            <strong>{selectedPublisherCount.toLocaleString('es-ES')}</strong>
+            <strong>{selectedPublisherCount.toLocaleString(locale)}</strong>
           </Link>
           {selectedPublisherCount > 0 ? (
             <button

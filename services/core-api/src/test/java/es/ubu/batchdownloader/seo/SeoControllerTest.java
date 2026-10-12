@@ -222,6 +222,7 @@ class SeoControllerTest {
         mvc.perform(get("/api/v1/seo/metadata").param("path", "/catalog/app/hidden")).andExpect(status().isNotFound());
         assertThat(service.robots()).contains("Sitemap: https://batchdownloader.dev/sitemap.xml",
                 "Allow: /api/v1/apps", "Allow: /api/v1/bundles", "Allow: /api/v1/locales/es",
+                "Allow: /api/v1/locales/en",
                 "Allow: /api/v1/seo/metadata", "Disallow: /api/");
     }
 

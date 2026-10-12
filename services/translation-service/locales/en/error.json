@@ -1,0 +1,8 @@
+{
+  "error.backToHome": "Back to home",
+  "error.backToLogin": "Return to login",
+  "error.notFound.title": "Page not found",
+  "error.notFound.body": "The page does not exist or is no longer available. You can go back to the beginning and explore the catalog.",
+  "error.unexpected_error.body": "The request could not be completed. Please return to a safe page and try again.",
+  "error.unexpected_error.title": "An error has occurred"
+}

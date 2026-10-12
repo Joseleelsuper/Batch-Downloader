@@ -20,6 +20,7 @@ export const EMPTY_FORM = {
   latestVersion: '',
   description: '',
   longDescription: '',
+  longDescriptionEn: '',
   iconUrl: '',
 };
 export const EMPTY_WEBSITE_INSTALLER_URLS: Record<OperatingSystem, string> = {
@@ -369,6 +370,7 @@ export function formFromApp(app: AppDetails): EditorForm {
     latestVersion: app.latestVersion ?? '',
     description: app.description ?? '',
     longDescription: app.longDescription ?? '',
+    longDescriptionEn: app.longDescriptionEn ?? '',
     iconUrl: app.iconUrl ?? '',
   };
 }
@@ -384,6 +386,7 @@ export function formFromSuggestions(
     latestVersion: suggestions.latestVersion.value ?? current.latestVersion,
     description: suggestions.description.value ?? current.description,
     longDescription: suggestions.longDescription.value ?? current.longDescription,
+    longDescriptionEn: suggestions.longDescriptionEn?.value ?? current.longDescriptionEn,
     iconUrl: suggestions.iconUrl.value ?? current.iconUrl,
   };
 }
@@ -406,6 +409,7 @@ export function editorPayload(form: EditorForm) {
     latestVersion: nullable(form.latestVersion),
     description: nullable(form.description),
     longDescription: nullable(form.longDescription),
+    longDescriptionEn: nullable(form.longDescriptionEn),
     iconUrl: nullable(form.iconUrl),
   };
 }
@@ -548,5 +552,5 @@ export function formatBytes(t: Translator, value?: number | null): string {
     amount /= 1024;
     unit += 1;
   }
-  return `${amount.toLocaleString('es-ES', { maximumFractionDigits: 1 })} ${units[unit]}`;
+  return `${amount.toLocaleString(document.documentElement.lang || 'es', { maximumFractionDigits: 1 })} ${units[unit]}`;
 }

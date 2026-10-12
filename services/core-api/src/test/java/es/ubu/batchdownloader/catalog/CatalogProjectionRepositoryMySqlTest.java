@@ -39,7 +39,7 @@ class CatalogProjectionRepositoryMySqlTest {
                     CREATE TABLE software_apps (
                         id BINARY(16) PRIMARY KEY, winstall_id VARCHAR(180), slug VARCHAR(180),
                         name VARCHAR(180), publisher VARCHAR(180), description TEXT,
-                        long_description TEXT, icon_url TEXT, official_url TEXT,
+                        long_description TEXT, long_description_en TEXT, icon_url TEXT, official_url TEXT,
                         latest_version VARCHAR(32), catalog_status VARCHAR(16),
                         updated_at DATETIME, app_status VARCHAR(16), operating_systems_json JSON
                     )
@@ -68,7 +68,7 @@ class CatalogProjectionRepositoryMySqlTest {
             jdbc.execute("CREATE TABLE software_app_tags (software_app_id BINARY(16), tag VARCHAR(180))");
             jdbc.update("""
                     INSERT INTO software_apps VALUES (UUID_TO_BIN(?), 'Example.App', 'example',
-                        'Example', 'Publisher', 'Description', 'Long description', NULL,
+                        'Example', 'Publisher', 'Description', 'Long description', 'English description', NULL,
                         'https://example.test', '1.0', 'available', NOW(), 'active', JSON_ARRAY('windows'))
                     """, APP_ID);
             jdbc.update("""
@@ -92,6 +92,7 @@ class CatalogProjectionRepositoryMySqlTest {
             CatalogProjectionRepository repository = new CatalogProjectionRepository(new JdbcTemplate(pool));
 
             assertDetails(repository.details("example"));
+            assertThat(repository.details("example").longDescriptionEn()).isEqualTo("English description");
             assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
         }
     }

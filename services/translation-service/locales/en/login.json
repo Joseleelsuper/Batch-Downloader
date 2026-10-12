@@ -1,0 +1,17 @@
+{
+  "account.adminLogin.title": "Administration access",
+  "account.adminLogin.link": "Administration access",
+  "account.magic.title": "Log in",
+  "account.magic.submit": "Send access link",
+  "account.magic.sent": "Check your inbox",
+  "account.magic.failed": "The access link could not be sent.",
+  "account.userLogin.link": "User access",
+  "login.invalid": "Invalid credentials.",
+  "login.checkingSession": "Checking session...",
+  "login.password": "Password",
+  "login.submit": "Log in",
+  "login.username": "User",
+  "account.magic.privacyNotice": "We will use your email to send you the access link and manage your account.",
+  "account.magic.privacyLink": "Privacy Policy",
+  "account.magic.termsLink": "Terms and conditions"
+}

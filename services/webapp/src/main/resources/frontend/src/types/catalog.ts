@@ -18,6 +18,7 @@ export interface CatalogApp {
   publisher?: string | null;
   description?: string | null;
   longDescription?: string | null;
+  longDescriptionEn?: string | null;
   tags: string[];
   operatingSystems: OperatingSystem[];
   iconUrl?: string | null;
@@ -187,6 +188,7 @@ export interface ManualInstallerSuggestions {
   latestVersion: ManualFieldSuggestion;
   description: ManualFieldSuggestion;
   longDescription: ManualFieldSuggestion;
+  longDescriptionEn?: ManualFieldSuggestion;
   iconUrl: ManualFieldSuggestion;
 }
 
@@ -237,6 +239,7 @@ export interface ManualInstallerApplyRequest {
   latestVersion: string | null;
   description: string | null;
   longDescription: string | null;
+  longDescriptionEn: string | null;
   iconUrl: string | null;
   operatingSystem?: OperatingSystem | null;
 }
@@ -288,6 +291,7 @@ export interface WebsiteAppDiscoveryApplyRequest {
   latestVersion: string | null;
   description: string | null;
   longDescription: string | null;
+  longDescriptionEn: string | null;
   iconUrl: string | null;
 }
 

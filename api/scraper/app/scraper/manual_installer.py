@@ -604,14 +604,16 @@ class ManualInstallerInspector:
         )
 
         long_description = app.long_description
+        long_description_en = app.long_description_en
         long_description_source = "current" if long_description else "unavailable"
+        long_description_en_source = "current" if long_description_en else "unavailable"
         ai_state: dict[str, str | None] = {
             "status": "unavailable",
             "provider": None,
             "model": None,
         }
         await set_phase("generating_description")
-        if not long_description and self.llm.has_provider():
+        if (not long_description or not long_description_en) and self.llm.has_provider():
             try:
                 generated = await self.llm.generate(
                     {
@@ -635,8 +637,12 @@ class ManualInstallerInspector:
                         },
                     }
                 )
-                long_description = generated.description
-                long_description_source = "generated_ai"
+                if not long_description:
+                    long_description = generated.description
+                    long_description_source = "generated_ai"
+                if not long_description_en:
+                    long_description_en = generated.description_en
+                    long_description_en_source = "generated_ai"
                 ai_state = {
                     "status": "ready",
                     "provider": generated.provider,
@@ -645,7 +651,7 @@ class ManualInstallerInspector:
             except LLMGenerationError as exc:
                 warnings.append(f"ai:{exc.reason}")
                 ai_state["status"] = "failed"
-        elif not long_description:
+        elif not long_description or not long_description_en:
             warnings.append("ai:provider_not_configured")
 
         technical_installers = [
@@ -672,6 +678,10 @@ class ManualInstallerInspector:
                 "longDescription": field_suggestion(
                     long_description,
                     long_description_source,
+                ),
+                "longDescriptionEn": field_suggestion(
+                    long_description_en,
+                    long_description_en_source,
                 ),
                 "iconUrl": field_suggestion(icon_value, icon_source),
             },

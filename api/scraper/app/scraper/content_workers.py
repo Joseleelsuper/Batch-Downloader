@@ -75,6 +75,7 @@ async def enqueue_descriptor_for_app(
         not force
         and app.long_description_status == LongDescriptionStatus.COMPLETED.value
         and bool(app.long_description)
+        and bool(app.long_description_en)
         and app.long_description_input_hash == input_hash
     )
     if current:

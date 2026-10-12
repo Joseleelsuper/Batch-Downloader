@@ -1,0 +1,10 @@
+{
+  "home.appsRecent": "Recent apps",
+  "home.bundleCommunity": "Community Bundles",
+  "home.bundleOfficial": "Official Bundles",
+  "home.emptyBundles": "There are no bundles in this section yet.",
+  "home.hero.body": "Review official packages, explore available apps, and check scraper status from the admin panel.",
+  "home.hero.cta": "Open catalog",
+  "home.hero.title": "Bundles and catalog of verified installers",
+  "home.loadError": "The main page could not be loaded."
+}

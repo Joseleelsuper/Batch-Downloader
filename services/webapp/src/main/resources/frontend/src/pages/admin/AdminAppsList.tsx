@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { AppStatusBadge } from '../../components/AppStatusBadge';
 import { Pagination } from '../../components/Pagination';
-import { useTranslation } from '../../services/i18n';
+import { useLocale, useTranslation } from '../../services/i18n';
 import type {
   AdminAppFilter
 } from '../../types/catalog';
@@ -26,6 +26,7 @@ const FILTERS: AdminAppFilter[] = [
 
 /** Presenta filtros y resultados con navegación por teclado y paginación. */
 export function AdminAppsList({ editor, list }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor>; list: ReturnType<typeof useAdminAppsList>; }>) {
+  const locale = useLocale();
   const t = useTranslation();
   const { detailRequestRef, appListRef, searchInputRef, detailTriggerRef, dispatchEditor, openApp, moveListSelection, selectedListId } = editor;
   const { queryInput, query, filter, page, pageSize, total, apps, dispatchList, listRequestRef, filterCounts } = list;
@@ -51,7 +52,7 @@ export function AdminAppsList({ editor, list }: Readonly<{ editor: ReturnType<ty
             }}
           >
             <span>{filterLabel(t, value)}</span>
-            <strong>{filterCounts[value].toLocaleString('es-ES')}</strong>
+            <strong>{filterCounts[value].toLocaleString(locale)}</strong>
           </button>
         ))}
       </div>

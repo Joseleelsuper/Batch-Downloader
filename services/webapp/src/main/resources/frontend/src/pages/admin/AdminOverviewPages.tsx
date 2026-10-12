@@ -11,7 +11,7 @@ import { fetchCatalogStats } from '../../api/catalogApps';
 import { fetchAdminCurrentRun } from '../../api/scraperAdmin';
 import { BundleAppPicker } from '../../components/BundleAppPicker';
 import { AdminTable } from '../../components/admin/AdminTable';
-import { useTranslation } from '../../services/i18n';
+import { useLocale, useTranslation } from '../../services/i18n';
 import type {
   AuditItem,
   BundleDetails,
@@ -50,10 +50,11 @@ export function AdminDashboard() {
   );
 }
 function Metric({ label, value }: { label: string; value: number }) {
+  const locale = useLocale();
   return (
     <div className="metric-card">
       <span>{label}</span>
-      <strong>{value.toLocaleString('es-ES')}</strong>
+      <strong>{value.toLocaleString(locale)}</strong>
     </div>
   );
 }

@@ -14,7 +14,9 @@ from app.scraper.description_enricher import (
     AppDescriptionLLMClient,
     GeneratedDescription,
     LLMGenerationError,
+    build_embedding_text,
     description_input_hash,
+    embedding_content_hash,
     parse_description_payload,
 )
 from app.scraper.llm import (
@@ -106,6 +108,15 @@ def test_description_input_hash_changes_when_core_evidence_changes() -> None:
     assert description_input_hash(make_app(official_url="https://example.org/app")) != baseline
 
 
+def test_english_description_is_indexed_for_semantic_search() -> None:
+    app = make_app()
+    baseline = embedding_content_hash(app)
+    app.long_description_en = "English description of this application."
+
+    assert "English description of this application." in build_embedding_text(app)
+    assert embedding_content_hash(app) != baseline
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -> None:
@@ -126,8 +137,8 @@ async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -
                         {
                             "message": {
                                 "content": (
-                                    '{"long_description":"Descripcion larga valida para la app.",'
-                                    '"language":"es"}'
+                                    '{"long_description_es":"Descripcion larga valida.",'
+                                    '"long_description_en":"A valid long description for the app."}'
                                 )
                             }
                         }
@@ -146,7 +157,8 @@ async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -
 
     assert result.provider == "groq"
     assert result.model == "qwen/qwen3.8-27b"
-    assert result.description == "Descripcion larga valida para la app."
+    assert result.description == "Descripcion larga valida."
+    assert result.description_en == "A valid long description for the app."
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
         "qwen/qwen3.6-27b",
         "qwen/qwen3.8-27b",
@@ -179,8 +191,8 @@ async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable()
                     {
                         "message": {
                             "content": (
-                                '{"long_description":"Descripcion final de DeepSeek.",'
-                                '"language":"es"}'
+                                '{"long_description_es":"Descripcion final de DeepSeek.",'
+                                '"long_description_en":"Final description from DeepSeek."}'
                             )
                         }
                     }
@@ -228,8 +240,8 @@ async def test_unavailable_groq_model_cools_down_and_tries_next_model(
                         {
                             "message": {
                                 "content": (
-                                    '{"long_description":"Descripcion alternativa valida.",'
-                                    '"language":"es"}'
+                                    '{"long_description_es":"Descripcion alternativa valida.",'
+                                    '"long_description_en":"Valid alternative description."}'
                                 )
                             }
                         }
@@ -246,8 +258,8 @@ async def test_unavailable_groq_model_cools_down_and_tries_next_model(
                     {
                         "message": {
                             "content": (
-                                '{"long_description":"Descripcion alternativa valida.",'
-                                '"language":"es"}'
+                                '{"long_description_es":"Descripcion alternativa valida.",'
+                                '"long_description_en":"Valid alternative description."}'
                             )
                         }
                     }
@@ -272,14 +284,20 @@ async def test_unavailable_groq_model_cools_down_and_tries_next_model(
 
 def test_parse_description_payload_accepts_json_wrapped_in_provider_text() -> None:
     """Tolera razonamiento o texto de cortesía sin relajar la forma del resultado."""
-    description, language = parse_description_payload(
+    description, description_en = parse_description_payload(
         '<think>Comprobando evidencia.</think>\n'
-        '{"long_description":"Descripción válida del proveedor.","language":"es"}\n'
+        '{"long_description_es":"Descripción válida del proveedor.",'
+        '"long_description_en":"Valid provider description."}\n'
         "Fin."
     )
 
     assert description == "Descripción válida del proveedor."
-    assert language == "es"
+    assert description_en == "Valid provider description."
+
+
+def test_parse_description_payload_rejects_missing_english_version() -> None:
+    with pytest.raises(LLMGenerationError, match="missing_long_description_en"):
+        parse_description_payload('{"long_description_es":"Descripción solamente."}')
 
 
 @pytest.mark.asyncio
@@ -301,8 +319,8 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
                 {
                     "message": {
                         "content": (
-                            '{"long_description":"Descripcion generada correctamente.",'
-                            '"language":"es"}'
+                            '{"long_description_es":"Descripcion generada correctamente.",'
+                            '"long_description_en":"Description generated correctly."}'
                         )
                     }
                 }
@@ -469,6 +487,7 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
             """
             return GeneratedDescription(
                 description="Descripcion larga generada por IA para pruebas.",
+                description_en="Long AI generated description for tests.",
                 language="es",
                 provider="groq",
                 model="test-model",
@@ -537,6 +556,8 @@ async def test_enricher_treats_zero_max_apps_as_unlimited() -> None:
 
     assert enriched == 3
     assert len(catalog.saved) == 3
+    assert all(item["description_en"] == "Long AI generated description for tests."
+               for item in catalog.saved)
 
 
 @pytest.mark.asyncio
@@ -552,6 +573,7 @@ async def test_enrich_app_releases_database_before_calling_llm() -> None:
             events.append("llm")
             return GeneratedDescription(
                 description="Descripción generada sin retener la conexión SQL.",
+                description_en="Description generated after releasing the SQL connection.",
                 language="es",
                 provider="groq",
                 model="test-model",

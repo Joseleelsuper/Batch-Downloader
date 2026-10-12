@@ -2817,6 +2817,8 @@ components:
           type: [string, 'null']
         longDescription:
           type: [string, 'null']
+        longDescriptionEn:
+          type: [string, 'null']
         tags:
           type: array
           items:
@@ -2951,6 +2953,7 @@ components:
         - latestVersion
         - description
         - longDescription
+        - longDescriptionEn
         - iconUrl
       properties:
         name:
@@ -2964,6 +2967,8 @@ components:
         description:
           $ref: '#/components/schemas/ManualFieldSuggestion'
         longDescription:
+          $ref: '#/components/schemas/ManualFieldSuggestion'
+        longDescriptionEn:
           $ref: '#/components/schemas/ManualFieldSuggestion'
         iconUrl:
           $ref: '#/components/schemas/ManualFieldSuggestion'
@@ -3112,6 +3117,9 @@ components:
           type: [string, 'null']
           maxLength: 4000
         longDescription:
+          type: [string, 'null']
+          maxLength: 12000
+        longDescriptionEn:
           type: [string, 'null']
           maxLength: 12000
         iconUrl:
@@ -3298,6 +3306,9 @@ components:
           type: [string, 'null']
           maxLength: 4000
         longDescription:
+          type: [string, 'null']
+          maxLength: 12000
+        longDescriptionEn:
           type: [string, 'null']
           maxLength: 12000
         iconUrl:
@@ -4180,6 +4191,8 @@ components:
           type: string
         longDescription:
           type: string
+        longDescriptionEn:
+          type: string
         iconUrl:
           type: string
         officialUrl:
@@ -4204,6 +4217,8 @@ components:
         description:
           type: string
         longDescription:
+          type: string
+        longDescriptionEn:
           type: string
         iconUrl:
           type: string

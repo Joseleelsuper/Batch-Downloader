@@ -29,6 +29,7 @@ public class CatalogDtos {
      * @param description Descripción breve del propósito de la aplicación.
      * @param longDescription Descripción ampliada que se muestra en el detalle y participa en la
      *     búsqueda léxica.
+     * @param longDescriptionEn Versión inglesa de la descripción ampliada.
      * @param tags Etiquetas que debe cumplir conjuntamente cada aplicación, sin distinguir
      *     mayúsculas.
      * @param operatingSystems Plataformas con semántica OR; una lista vacía representa todas las
@@ -57,6 +58,7 @@ public class CatalogDtos {
             String publisher,
             String description,
             String longDescription,
+            String longDescriptionEn,
             List<String> tags,
             List<String> operatingSystems,
             String iconUrl,
@@ -274,6 +276,7 @@ public class CatalogDtos {
      * @param description Descripción breve del propósito de la aplicación.
      * @param longDescription Descripción ampliada que se muestra en el detalle y participa en la
      *     búsqueda léxica.
+     * @param longDescriptionEn Versión inglesa de la descripción ampliada.
      * @param tags Etiquetas que debe cumplir conjuntamente cada aplicación, sin distinguir
      *     mayúsculas.
      * @param operatingSystems Plataformas con semántica OR; una lista vacía representa todas las
@@ -317,6 +320,7 @@ public class CatalogDtos {
             String publisher,
             String description,
             String longDescription,
+            String longDescriptionEn,
             List<String> tags,
             List<String> operatingSystems,
             String iconUrl,

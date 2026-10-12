@@ -482,10 +482,11 @@ public class CatalogRepository {
                         ) THEN 900 ELSE 0 END
                       + CASE WHEN LOWER(COALESCE(a.description, '')) LIKE ? THEN 250 ELSE 0 END
                       + CASE WHEN LOWER(COALESCE(a.long_description, '')) LIKE ? THEN 150 ELSE 0 END
+                      + CASE WHEN LOWER(COALESCE(a.long_description_en, '')) LIKE ? THEN 150 ELSE 0 END
                     """);
             params.addAll(List.of(normalized, normalizedPrefix, normalizedContains,
                     compact, compactPrefix, lowerRaw, rawPrefix, rawContains,
-                    compactContains, normalized, normalizedContains, rawContains, rawContains));
+                    compactContains, normalized, normalizedContains, rawContains, rawContains, rawContains));
 
             for (String token : searchTokens(normalized)) {
                 sql.append("""

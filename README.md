@@ -200,7 +200,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- |
 | `GHCR_REGISTRY`, `GHCR_OWNER`, `GHCR_IMAGE_PREFIX`, `GHCR_IMAGE_TAG` | Nombre y etiqueta de las imágenes publicadas. |
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST_PORT` | Credenciales, base y puerto host de MySQL. |
-| `SCRAPER_ALEMBIC_TARGET`, `CORE_API_FLYWAY_TARGET` | Puertas de migración del esquema compartido: `20260914_0021`/`20`; Core añade reservas FIFO y entrega de descargas. |
+| `SCRAPER_ALEMBIC_TARGET`, `CORE_API_FLYWAY_TARGET` | Objetivos seguros del esquema compartido: `20261012_0024`/`20`; la revisión Alembic añade las descripciones inglesas sin ejecutar la rama contractiva. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST_PORT` | Credenciales, base y puerto host de PostgreSQL/pgvector. |
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
@@ -224,7 +224,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `SCRAPER_WORKER_HEARTBEAT_INTERVAL_SECONDS`, `SCRAPER_WORKER_HEARTBEAT_STALE_SECONDS`, `SCRAPER_WORKER_FAILURE_THRESHOLD` | Salud de scheduler y workers. |
 | `SCRAPER_LLM_GROQ_BASE_URL`, `SCRAPER_LLM_GROQ_MODEL`, `SCRAPER_LLM_GROQ_FALLBACK_MODELS`, `SCRAPER_LLM_DEEPSEEK_BASE_URL`, `SCRAPER_LLM_DEEPSEEK_MODEL`, `SCRAPER_LLM_MAX_CONCURRENCY`, `SCRAPER_LLM_MAX_APPS_PER_RUN`, `SCRAPER_LLM_REQUEST_TIMEOUT_SECONDS` | Proveedores, modelos y límites de generación. |
 | `SCRAPER_DATABASE_POOL_MAX`, `SCRAPER_DATABASE_MAX_OVERFLOW`, `SCRAPER_DATABASE_POOL_TIMEOUT_SECONDS`, `SCRAPER_DATABASE_POOL_RECYCLE_SECONDS` | Pool MySQL: `scraper-api` 4+2 y `scraper-scheduler` 8+4 en Compose. |
-| `SCRAPER_ALEMBIC_TARGET` | Objetivo de migración: `20260914_0021` durante compatibilidad; usar `head` sólo tras aprobar la fase contractiva. |
+| `SCRAPER_ALEMBIC_TARGET` | Objetivo de migración: `20261012_0024`; usar `head` sólo tras aprobar la fase contractiva. |
 
 </details>
 

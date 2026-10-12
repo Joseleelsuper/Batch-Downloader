@@ -552,6 +552,7 @@ class WebsiteAppDiscoverer:
         )
 
         long_description: str | None = None
+        long_description_en: str | None = None
         long_description_source = "unavailable"
         ai_state: dict[str, str | None] = {
             "status": "unavailable",
@@ -588,6 +589,7 @@ class WebsiteAppDiscoverer:
                     }
                 )
                 long_description = generated.description
+                long_description_en = generated.description_en
                 long_description_source = "generated_ai"
                 ai_state = {
                     "status": "ready",
@@ -609,6 +611,10 @@ class WebsiteAppDiscoverer:
                 "description": field_suggestion(description, description_source),
                 "longDescription": field_suggestion(
                     long_description,
+                    long_description_source,
+                ),
+                "longDescriptionEn": field_suggestion(
+                    long_description_en,
                     long_description_source,
                 ),
                 "iconUrl": field_suggestion(
@@ -1054,6 +1060,7 @@ async def apply_website_app_discovery(
     slug_base = slugify(name)[:160]
     slug = f"{slug_base}-{str(discovery.id).split('-', 1)[0]}"
     long_description = clean_optional(request.long_description)
+    long_description_en = clean_optional(request.long_description_en)
     suggestions = discovery.result_json.get("suggestions") or {}
     generated_long_description = (
         suggestions.get("longDescription", {}).get("value")
@@ -1080,8 +1087,9 @@ async def apply_website_app_discovery(
         latest_version=clean_optional(request.latest_version),
         description=clean_optional(request.description),
         long_description=long_description,
+        long_description_en=long_description_en,
         long_description_language="es" if long_description else None,
-        long_description_status=long_description_status,
+        long_description_status=long_description_status if long_description_en else "pending",
         long_description_source=long_description_source,
         long_description_model=long_description_model,
         long_description_generated_at=utc_now() if long_description else None,
@@ -1100,6 +1108,7 @@ async def apply_website_app_discovery(
                         "latestVersion": request.latest_version,
                         "description": request.description,
                         "longDescription": long_description,
+                        "longDescriptionEn": long_description_en,
                         "iconUrl": icon_url,
                     },
                 ),
