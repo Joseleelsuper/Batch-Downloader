@@ -15,9 +15,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -118,13 +120,22 @@ public class AdminScraperRepository {
      * @return registros por fecha descendente.
      */
     public List<ResolverLogItem> logs(int limit) {
-        return jdbc.query(
+        List<UUID> ids = jdbc.query(
                 """
-                SELECT id, phase, status, message, safe_metadata, created_at
+                SELECT id
                 FROM resolver_logs
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT ?
                 """,
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                Math.max(1, Math.min(limit, 500)));
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+        List<ResolverLogItem> details = jdbc.query(
+                "SELECT id, phase, status, message, safe_metadata, created_at "
+                        + "FROM resolver_logs WHERE id IN (" + placeholders + ")",
                 (rs, rowNum) -> new ResolverLogItem(
                         UuidBytes.toUuid(rs.getBytes("id")).toString(),
                         rs.getString("phase"),
@@ -132,7 +143,10 @@ public class AdminScraperRepository {
                         rs.getString("message"),
                         rs.getString("safe_metadata"),
                         rs.getTimestamp("created_at").toLocalDateTime()),
-                Math.max(1, Math.min(limit, 500)));
+                ids.stream().map(UuidBytes::fromUuid).toArray());
+        Map<String, ResolverLogItem> byId = new LinkedHashMap<>();
+        details.forEach(item -> byId.put(item.id(), item));
+        return ids.stream().map(id -> byId.get(id.toString())).filter(Objects::nonNull).toList();
     }
 
     /**
@@ -284,9 +298,10 @@ public class AdminScraperRepository {
      * @return cantidad eliminada, acotada por RETENTION_BATCH_SIZE.
      */
     public int pruneTerminalQueueItems() {
-        return jdbc.update(
+        Timestamp cutoff = Timestamp.from(clock.instant().minus(TERMINAL_RETENTION));
+        List<UUID> ids = jdbc.query(
                 """
-                DELETE FROM scraper_work_items
+                SELECT id FROM scraper_work_items
                 WHERE status IN ('completed', 'discarded')
                   AND updated_at < ?
                   AND lease_owner IS NULL
@@ -294,8 +309,21 @@ public class AdminScraperRepository {
                 ORDER BY updated_at ASC, id ASC
                 LIMIT ?
                 """,
-                Timestamp.from(clock.instant().minus(TERMINAL_RETENTION)),
+                (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
+                cutoff,
                 RETENTION_BATCH_SIZE);
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+        List<Object> parameters = new ArrayList<>(ids.size() + 1);
+        ids.stream().map(UuidBytes::fromUuid).forEach(parameters::add);
+        parameters.add(cutoff);
+        return jdbc.update(
+                "DELETE FROM scraper_work_items WHERE id IN (" + placeholders + ")"
+                        + " AND status IN ('completed', 'discarded')"
+                        + " AND updated_at < ? AND lease_owner IS NULL AND lease_expires_at IS NULL",
+                parameters.toArray());
     }
 
     /**

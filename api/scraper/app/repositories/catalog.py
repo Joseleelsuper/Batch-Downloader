@@ -80,15 +80,18 @@ class CatalogRepository:
         software_app.version += 1
         return True
 
-    async def apps_missing_long_descriptions(self) -> list[SoftwareApp]:
+    async def apps_missing_long_descriptions(
+        self, after_app_id: uuid.UUID | None = None, limit: int = 100
+    ) -> tuple[list[SoftwareApp], str | None]:
         """Selecciona aplicaciones activas cuyo texto ampliado falta o contiene solo espacios,
-        empezando por la modificación más antigua.
+        en lotes ordenados por UUID para evitar ordenar filas de texto amplias en MySQL.
 
         Returns:
-            aplicaciones que necesitan texto ampliado.
+            aplicaciones del lote y cursor para continuar, o None al terminar.
         """
-        result = await self.session.scalars(
+        stmt = (
             select(SoftwareApp)
+            .with_hint(SoftwareApp, "FORCE INDEX (PRIMARY)", dialect_name="mysql")
             .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
             .where(
                 or_(
@@ -98,9 +101,15 @@ class CatalogRepository:
                     func.trim(SoftwareApp.long_description_en) == "",
                 )
             )
-            .order_by(SoftwareApp.updated_at.asc())
+            .order_by(SoftwareApp.id)
+            .limit(max(1, limit) + 1)
         )
-        return list(result)
+        if after_app_id is not None:
+            stmt = stmt.where(SoftwareApp.id > after_app_id)
+        apps = list(await self.session.scalars(stmt))
+        page = apps[: max(1, limit)]
+        next_after = str(page[-1].id) if len(apps) > len(page) else None
+        return page, next_after
 
     async def apps_pending_os_filter(self, limit: int = 250) -> list[SoftwareApp]:
         """Selecciona identidades activas sin comprobación de plataformas en las últimas 24 horas

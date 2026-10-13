@@ -446,6 +446,7 @@ export interface ContentEnqueueResult {
   matched: number;
   enqueued: number;
   alreadyActive: number;
+  nextAfter: string | null;
 }
 
 export interface ScraperEvent {

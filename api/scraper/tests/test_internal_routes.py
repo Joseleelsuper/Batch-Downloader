@@ -32,6 +32,7 @@ from app.db.models import (
     WebsiteAppDiscoveryInstaller,
 )
 from app.db.session import get_session
+from app.repositories.pipeline import QUEUE_SO_FILTER_DESCRIPTOR
 from app.scraper.manual_installer import ValidatedManualInstaller
 from app.scraper.validator import ValidationConfidence, ValidationResult
 
@@ -164,6 +165,41 @@ async def internal_api() -> InternalApiFixture:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             yield InternalApiFixture(client=client, session=session)
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_missing_descriptions_commits_bounded_pages_and_skips_active_items(
+    internal_api: InternalApiFixture, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cada lote confirma sus tareas y el cursor evita volver a seleccionar filas anteriores."""
+    monkeypatch.setattr("app.api.internal_routes.DESCRIPTION_ENQUEUE_BATCH_SIZE", 2)
+    apps = sorted(
+        [await internal_api.add_unresolved_app() for _ in range(3)],
+        key=lambda app: app.id,
+    )
+    path = "/internal/v1/content/descriptions/enqueue-missing"
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+
+    first = await internal_api.client.post(path, headers=headers)
+    assert first.status_code == 202
+    assert first.json() == {
+        "matched": 2, "enqueued": 2, "alreadyActive": 0,
+        "nextAfter": str(apps[1].id),
+    }
+    second = await internal_api.client.post(
+        path, params={"after": first.json()["nextAfter"]}, headers=headers,
+    )
+    assert second.status_code == 202
+    assert second.json() == {
+        "matched": 1, "enqueued": 1, "alreadyActive": 0, "nextAfter": None,
+    }
+    repeated = await internal_api.client.post(path, headers=headers)
+    assert repeated.json()["alreadyActive"] == 2
+    assert repeated.json()["enqueued"] == 0
+    items = list(await internal_api.session.scalars(
+        select(ScraperWorkItem).where(ScraperWorkItem.queue == QUEUE_SO_FILTER_DESCRIPTOR)
+    ))
+    assert len(items) == 3
 
 
 @pytest.mark.asyncio

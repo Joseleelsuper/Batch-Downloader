@@ -234,13 +234,15 @@ public class AdminScraperController {
      *
      * @param principal Principal administrativo ya autorizado por Spring Security; su UUID
      *     identifica el actor auditado.
+     * @param after Último UUID del lote anterior, o null para comenzar.
      * @return 202 con el resumen del encolado.
      */
     @PostMapping("/api/v1/admin/scraper/descriptions/enqueue-missing")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ScraperInternalClient.ContentEnqueueResult enqueueMissingDescriptions(
-            @AuthenticationPrincipal AccountPrincipal principal) {
-        ScraperInternalClient.ContentEnqueueResult result = scraperClient.enqueueMissingDescriptions();
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @RequestParam(required = false) UUID after) {
+        ScraperInternalClient.ContentEnqueueResult result = scraperClient.enqueueMissingDescriptions(after);
         audit.record(
                 actor(principal),
                 "scraper.description.enqueue_missing",

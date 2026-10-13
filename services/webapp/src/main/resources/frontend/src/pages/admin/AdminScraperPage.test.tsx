@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as scraperAdminApi from '../../api/scraperAdmin';
@@ -97,5 +97,23 @@ describe('AdminScraperPage', () => {
 
     await waitFor(() => expect(container.querySelector('.scraper-status')).toHaveTextContent('running'));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('encola todas las páginas y muestra el total acumulado', async () => {
+    const enqueue = vi.mocked(scraperAdminApi.enqueueMissingScraperDescriptions);
+    enqueue.mockResolvedValueOnce({
+      matched: 2, enqueued: 1, alreadyActive: 1,
+      nextAfter: '00000000-0000-0000-0000-000000000002',
+    }).mockResolvedValueOnce({
+      matched: 1, enqueued: 1, alreadyActive: 0, nextAfter: null,
+    });
+
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: 'Encolar sin descripción' }));
+
+    await waitFor(() => expect(enqueue).toHaveBeenCalledTimes(2));
+    expect(enqueue).toHaveBeenNthCalledWith(1, undefined);
+    expect(enqueue).toHaveBeenNthCalledWith(2, '00000000-0000-0000-0000-000000000002');
+    expect(await screen.findByText('Trabajos encolados: 2; ya activos: 1.')).toBeInTheDocument();
   });
 });

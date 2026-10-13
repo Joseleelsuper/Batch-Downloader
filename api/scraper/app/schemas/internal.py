@@ -76,6 +76,7 @@ class ContentEnqueueResult(BaseModel):
         matched: Aplicaciones que cumplen la selección.
         enqueued: Tareas incorporadas a la cola.
         already_active: Aplicaciones que ya tenían trabajo activo.
+        next_after: Cursor de la siguiente página o None cuando terminó la selección.
     """
     model_config = ConfigDict(populate_by_name=True)
 
@@ -85,6 +86,7 @@ class ContentEnqueueResult(BaseModel):
     enqueued: int
 
     already_active: int = Field(alias="alreadyActive")
+    next_after: str | None = Field(alias="nextAfter")
 
 
 
