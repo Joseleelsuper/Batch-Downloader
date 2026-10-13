@@ -40,13 +40,17 @@ CORE_API_REQUIRE_HTTPS=true
 CORE_API_COOKIE_SECURE=true
 MINIO_ZIP_QUOTA=10GB
 CORE_API_FLYWAY_TARGET=20
-SCRAPER_ALEMBIC_TARGET=20261012_0024
 SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 ```
 
 `GHCR_IMAGE_TAG` siempre debe ser `sha-` seguido del commit completo. Los
 secretos de GitHub requeridos son `COOLIFY_URL`, `COOLIFY_TOKEN` y
 `COOLIFY_APP_UUID`.
+
+El objetivo Alembic del scraper está fijado en
+`api/scraper/scripts/docker-entrypoint.sh` (`20261012_0024`). Esa revisión
+añade las descripciones bilingües sin aplicar las migraciones contractivas
+`0022` y `0023`, que siguen sujetas a su puerta de compatibilidad.
 
 El enlace mágico conserva el TTL configurado en `CORE_API_MAGIC_LINK_TTL`
 (15 minutos por defecto).

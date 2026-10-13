@@ -140,10 +140,7 @@ class CoolifyReleaseTest(unittest.TestCase):
 
     def test_repository_schema_targets_are_read_from_example(self) -> None:
         self.assertEqual(
-            {
-                "CORE_API_FLYWAY_TARGET": "20",
-                "SCRAPER_ALEMBIC_TARGET": "20261012_0024",
-            },
+            {"CORE_API_FLYWAY_TARGET": "20"},
             coolify_release.repository_schema_targets(),
         )
 
@@ -152,8 +149,7 @@ class CoolifyReleaseTest(unittest.TestCase):
             configuration = Path(temporary_directory) / ".env.example"
             configuration.write_text(
                 "CORE_API_FLYWAY_TARGET=19\n"
-                "CORE_API_FLYWAY_TARGET=20\n"
-                "SCRAPER_ALEMBIC_TARGET=20261012_0024\n",
+                "CORE_API_FLYWAY_TARGET=20\n",
                 encoding="utf-8",
             )
 

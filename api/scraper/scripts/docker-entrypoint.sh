@@ -27,12 +27,11 @@ async def main():
 asyncio.run(main())
 PY
 
-# La rama aditiva bilingüe llega por defecto hasta 0024 y evita la rama contractiva 0022/0023.
-# Tras la puerta de compatibilidad se puede promover explícitamente a `head` mediante
-# SCRAPER_ALEMBIC_TARGET para retirar los objetos históricos.
+# La revisión 0024 es el objetivo aditivo seguro de esta imagen; head incluiría
+# la rama contractiva 0022/0023, pendiente de su puerta de compatibilidad.
 # La recolección final sin GIL de CPython 3.14t puede bloquear el arranque después de Alembic.
 # Las migraciones son secuenciales; el servidor mantiene el runtime sin GIL.
-python -X gil=1 -m alembic upgrade "${SCRAPER_ALEMBIC_TARGET:-20261012_0024}"
+python -X gil=1 -m alembic upgrade 20261012_0024
 
 case "${1:-api}" in
   api)
