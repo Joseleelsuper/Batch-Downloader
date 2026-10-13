@@ -48,8 +48,9 @@ export function pruneTerminalScraperQueueItems(): Promise<ScraperQueueMaintenanc
   return requestJson('/api/v1/admin/scraper/queues/prune-terminal', { method: 'POST' });
 }
 
-export function enqueueMissingScraperDescriptions(): Promise<ContentEnqueueResult> {
-  return requestJson('/api/v1/admin/scraper/descriptions/enqueue-missing', { method: 'POST' });
+export function enqueueMissingScraperDescriptions(after?: string): Promise<ContentEnqueueResult> {
+  const cursor = after ? `?after=${encodeURIComponent(after)}` : '';
+  return requestJson('/api/v1/admin/scraper/descriptions/enqueue-missing' + cursor, { method: 'POST' });
 }
 
 export function scraperWebSocketUrl(): string {

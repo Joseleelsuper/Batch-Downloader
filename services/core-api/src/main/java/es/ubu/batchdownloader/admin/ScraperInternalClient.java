@@ -214,11 +214,13 @@ public class ScraperInternalClient {
     /**
      * Solicita encolar las descripciones que todavía faltan en el catálogo.
      *
+     * @param after Último UUID del lote anterior, o null para comenzar.
      * @return recuentos de coincidencias, nuevas reservas y trabajos ya activos.
      */
-    public ContentEnqueueResult enqueueMissingDescriptions() {
+    public ContentEnqueueResult enqueueMissingDescriptions(UUID after) {
         return post(
-                "/internal/v1/content/descriptions/enqueue-missing",
+                "/internal/v1/content/descriptions/enqueue-missing"
+                        + (after == null ? "" : "?after=" + after),
                 "",
                 ContentEnqueueResult.class,
                 "description_enqueue_failed");
@@ -567,12 +569,13 @@ public class ScraperInternalClient {
      * @param matched Número de aplicaciones que cumplían los criterios de contenido pendiente.
      * @param enqueued Número de trabajos de descripción recién encolados.
      * @param alreadyActive Número de coincidencias que ya tenían un trabajo activo.
+     * @param nextAfter UUID de la siguiente página o null cuando terminó la selección.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @since 0.1.0
      * @version 0.1.0
      * @category Comunicación administrativa
      */
-    public record ContentEnqueueResult(int matched, int enqueued, int alreadyActive) {}
+    public record ContentEnqueueResult(int matched, int enqueued, int alreadyActive, String nextAfter) {}
 
     /**
      * Identifica el trabajo asíncrono admitido para generar una descripción.

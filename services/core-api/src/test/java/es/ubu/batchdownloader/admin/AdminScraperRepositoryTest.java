@@ -6,22 +6,55 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
+import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /** Comprueba que el mantenimiento administrativo respeta la política de retención. */
 class AdminScraperRepositoryTest {
+
+    /** Ordena sólo UUID y fechas antes de cargar los metadatos amplios de los logs seleccionados. */
+    @Test
+    void logsKeepChronologicalOrderAndLimitWithWideMetadata() {
+        String database = "jdbc:h2:mem:resolver-logs-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1";
+        JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(database, "sa", ""));
+        jdbc.execute("""
+                CREATE TABLE resolver_logs (
+                    id BINARY(16) PRIMARY KEY,
+                    phase VARCHAR(50), status VARCHAR(32), message VARCHAR(2000),
+                    safe_metadata CLOB, created_at TIMESTAMP
+                )
+                """);
+        UUID oldest = UUID.randomUUID();
+        UUID middle = UUID.randomUUID();
+        UUID newest = UUID.randomUUID();
+        for (int index = 0; index < 3; index++) {
+            UUID id = List.of(oldest, middle, newest).get(index);
+            jdbc.update(
+                    "INSERT INTO resolver_logs VALUES (?, 'resolver', 'ok', NULL, ?, ?)",
+                    UuidBytes.fromUuid(id),
+                    "x".repeat(20_000),
+                    Timestamp.valueOf("2026-10-13 10:00:0" + index));
+        }
+
+        List<ResolverLogItem> logs = new AdminScraperRepository(jdbc, Clock.systemUTC()).logs(2);
+
+        assertThat(logs).extracting(ResolverLogItem::id)
+                .containsExactly(newest.toString(), middle.toString());
+    }
 
     /** La consulta de ejecución actual aprovecha los índices y evita ordenar el historial completo. */
     @Test
@@ -64,26 +97,38 @@ class AdminScraperRepositoryTest {
                 .doesNotContain("WHERE status = 'running'");
     }
 
-    /** La poda manual comparte límite y ventana con el pruner automático. */
+    /** La poda manual limita el lote y conserva las tareas activas o arrendadas. */
     @Test
     void terminalPrunerIsBoundedAndNeverDeletesLeasedRows() {
-        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        String database = "jdbc:h2:mem:queue-prune-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1";
+        JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(database, "sa", ""));
+        jdbc.execute("""
+                CREATE TABLE scraper_work_items (
+                    id BINARY(16) PRIMARY KEY, status VARCHAR(32), updated_at TIMESTAMP,
+                    lease_owner VARCHAR(120), lease_expires_at TIMESTAMP
+                )
+                """);
         Clock clock = Clock.fixed(Instant.parse("2026-08-23T00:00:00Z"), ZoneOffset.UTC);
-        when(jdbc.update(anyString(), any(Timestamp.class), eq(500)))
-                .thenReturn(7);
+        Timestamp old = Timestamp.from(Instant.parse("2026-07-01T00:00:00Z"));
+        for (int index = 0; index < 501; index++) {
+            jdbc.update("INSERT INTO scraper_work_items VALUES (?, 'completed', ?, NULL, NULL)",
+                    UuidBytes.fromUuid(UUID.randomUUID()), old);
+        }
+        jdbc.update("INSERT INTO scraper_work_items VALUES (?, 'completed', ?, 'worker', ?)",
+                UuidBytes.fromUuid(UUID.randomUUID()), old, old);
+        jdbc.update("INSERT INTO scraper_work_items VALUES (?, 'queued', ?, NULL, NULL)",
+                UuidBytes.fromUuid(UUID.randomUUID()), old);
 
         int affected = new AdminScraperRepository(jdbc, clock).pruneTerminalQueueItems();
 
-        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Timestamp> cutoff = ArgumentCaptor.forClass(Timestamp.class);
-        verify(jdbc).update(sql.capture(), cutoff.capture(), eq(500));
-        assertThat(affected).isEqualTo(7);
-        assertThat(sql.getValue())
-                .contains("status IN ('completed', 'discarded')")
-                .contains("lease_owner IS NULL", "lease_expires_at IS NULL")
-                .contains("ORDER BY updated_at ASC, id ASC", "LIMIT ?")
-                .doesNotContain("status IN ('queued'", "status = 'in_progress'");
-        assertThat(cutoff.getValue())
-                .isEqualTo(Timestamp.from(Instant.parse("2026-07-24T00:00:00Z")));
+        assertThat(affected).isEqualTo(500);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM scraper_work_items", Integer.class))
+                .isEqualTo(3);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM scraper_work_items WHERE lease_owner = 'worker'", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM scraper_work_items WHERE status = 'queued'", Integer.class))
+                .isEqualTo(1);
     }
 }

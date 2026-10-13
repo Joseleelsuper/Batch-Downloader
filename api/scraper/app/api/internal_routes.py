@@ -85,6 +85,7 @@ from app.scraper.website_discovery import (
 )
 
 internal_router = APIRouter(prefix="/internal/v1")
+DESCRIPTION_ENQUEUE_BATCH_SIZE = 100
 
 
 
@@ -263,9 +264,10 @@ async def enqueue_missing_descriptions(
     _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    after: UUID | None = None,
 ) -> ContentEnqueueResult:
     """Selecciona aplicaciones sin descripción ampliada y encola generación prioritaria solo
-    cuando no tienen tarea activa; confirma el lote.
+    cuando no tienen tarea activa; confirma un lote acotado antes de responder.
 
     Args:
         _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
@@ -274,6 +276,7 @@ async def enqueue_missing_descriptions(
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
             servicio.
+        after: Último UUID procesado en la petición anterior, o None para empezar.
 
     Returns:
         cantidades encontradas, encoladas y ya activas, con HTTP 202.
@@ -283,7 +286,10 @@ async def enqueue_missing_descriptions(
     matched = 0
     enqueued = 0
     already_active = 0
-    for app in await catalog.apps_missing_long_descriptions():
+    apps, next_after = await catalog.apps_missing_long_descriptions(
+        after, DESCRIPTION_ENQUEUE_BATCH_SIZE
+    )
+    for app in apps:
         matched += 1
         if await pipeline.has_active_item(QUEUE_SO_FILTER_DESCRIPTOR, app.winstall_id):
             already_active += 1
@@ -303,6 +309,7 @@ async def enqueue_missing_descriptions(
         matched=matched,
         enqueued=enqueued,
         alreadyActive=already_active,
+        nextAfter=next_after,
     )
 
 

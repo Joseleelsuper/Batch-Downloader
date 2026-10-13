@@ -96,6 +96,31 @@ class ScraperInternalClientTest {
      * @throws Exception Si no puede completarse la operación bajo las condiciones requeridas.
      */
     @Test
+    void descriptionEnqueueForwardsCursorAndReadsNextPage() throws Exception {
+        AtomicReference<String> query = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/v1/content/descriptions/enqueue-missing", exchange -> {
+            query.set(exchange.getRequestURI().getQuery());
+            byte[] response = """
+                    {"matched":2,"enqueued":1,"alreadyActive":1,"nextAfter":null}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(202, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        var result = client().enqueueMissingDescriptions(
+                java.util.UUID.fromString("00000000-0000-0000-0000-000000000002"));
+
+        assertThat(query).hasValue("after=00000000-0000-0000-0000-000000000002");
+        assertThat(result.matched()).isEqualTo(2);
+        assertThat(result.enqueued()).isEqualTo(1);
+        assertThat(result.alreadyActive()).isEqualTo(1);
+        assertThat(result.nextAfter()).isNull();
+    }
+
+    @Test
     void descriptionGenerationUsesTheAuthenticatedInternalRoute() throws Exception {
         AtomicReference<String> token = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
