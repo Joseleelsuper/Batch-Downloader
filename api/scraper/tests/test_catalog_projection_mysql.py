@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -827,17 +828,11 @@ async def seed_duplicate_fingerprints(mysql_url: str) -> UUID:
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
             now = utc_now()
-            app = SoftwareApp(
-                winstall_id="Migration.Duplicate",
-                slug="migration-duplicate",
-                name="Migration Duplicate",
-                normalized_name="migration duplicate",
-                app_status="active",
-                created_at=now,
-                updated_at=now,
+            app_id = await seed_legacy_app(
+                session, "Migration.Duplicate", "migration-duplicate", "Migration Duplicate", now
             )
             source = DownloadSource(
-                software_app=app,
+                software_app_id=app_id,
                 operating_system="windows",
                 architecture="x86_64",
                 resolution_status=ResolutionStatus.DIRECT.value,
@@ -847,7 +842,7 @@ async def seed_duplicate_fingerprints(mysql_url: str) -> UUID:
                 stale_candidate(source, filename="duplicate.exe"),
                 stale_candidate(source, filename="duplicate.exe"),
             ]
-            session.add(app)
+            session.add(source)
             await session.flush()
             source_id = source.id
             await session.execute(
@@ -869,24 +864,18 @@ async def seed_single_unfingerprinted_source(mysql_url: str) -> UUID:
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
             now = utc_now()
-            app = SoftwareApp(
-                winstall_id="Migration.Valid",
-                slug="migration-valid",
-                name="Migration Valid",
-                normalized_name="migration valid",
-                app_status="active",
-                created_at=now,
-                updated_at=now,
+            app_id = await seed_legacy_app(
+                session, "Migration.Valid", "migration-valid", "Migration Valid", now
             )
             source = DownloadSource(
-                software_app=app,
+                software_app_id=app_id,
                 operating_system="windows",
                 architecture="x86_64",
                 resolution_status=ResolutionStatus.DIRECT.value,
                 validation_status=ValidationStatus.VALID.value,
             )
             source.resolved_sources = [stale_candidate(source, filename="valid.exe")]
-            session.add(app)
+            session.add(source)
             await session.flush()
             source_id = source.id
             await session.execute(
@@ -900,6 +889,31 @@ async def seed_single_unfingerprinted_source(mysql_url: str) -> UUID:
             return source_id
     finally:
         await engine.dispose()
+
+
+async def seed_legacy_app(
+    session: AsyncSession, winstall_id: str, slug: str, name: str, now: datetime
+) -> UUID:
+    """Inserta una aplicación con las columnas existentes antes de la migración bilingüe."""
+    app_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO software_apps "
+            "(id, winstall_id, slug, name, normalized_name, app_status, "
+            "operating_systems_json, version, created_at, updated_at) "
+            "VALUES (:id, :winstall_id, :slug, :name, :normalized_name, "
+            "'active', '[]', 0, :now, :now)"
+        ),
+        {
+            "id": app_id.bytes,
+            "winstall_id": winstall_id,
+            "slug": slug,
+            "name": name,
+            "normalized_name": name.lower(),
+            "now": now,
+        },
+    )
+    return app_id
 
 
 async def delete_source_and_app(mysql_url: str, source_id: UUID) -> None:
