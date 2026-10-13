@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useTranslation } from '../services/i18n';
+import { useLocale, useTranslation } from '../services/i18n';
 
 interface Props {
   page: number;
@@ -16,6 +16,7 @@ const pageSizes = [12, 24, 48];
 
 export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange, pageHref }: Readonly<Props>) {
   const t = useTranslation();
+  const locale = useLocale();
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const [draftPage, setDraftPage] = useState(String(page));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -38,7 +39,7 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
         {t('catalog.pagination.showing', {
           start,
           end,
-          total: total.toLocaleString('es-ES'),
+          total: total.toLocaleString(locale),
         })}
       </span>
       <div className="pagination-controls">

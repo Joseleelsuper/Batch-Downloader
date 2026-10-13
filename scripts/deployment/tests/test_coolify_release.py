@@ -142,7 +142,7 @@ class CoolifyReleaseTest(unittest.TestCase):
         self.assertEqual(
             {
                 "CORE_API_FLYWAY_TARGET": "20",
-                "SCRAPER_ALEMBIC_TARGET": "20260914_0021",
+                "SCRAPER_ALEMBIC_TARGET": "20261012_0024",
             },
             coolify_release.repository_schema_targets(),
         )
@@ -153,7 +153,7 @@ class CoolifyReleaseTest(unittest.TestCase):
             configuration.write_text(
                 "CORE_API_FLYWAY_TARGET=19\n"
                 "CORE_API_FLYWAY_TARGET=20\n"
-                "SCRAPER_ALEMBIC_TARGET=20260914_0021\n",
+                "SCRAPER_ALEMBIC_TARGET=20261012_0024\n",
                 encoding="utf-8",
             )
 

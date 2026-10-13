@@ -258,10 +258,11 @@ function Stat({ label, value, icon }: { label: string; value: number; icon: Reac
 
 function HistoryList({ items }: { items: AccountDashboard['recentDownloads'] }) {
   const t = useTranslation();
+  const locale = useLocale();
   if (!items.length) return <p className="empty-state">{t('account.downloads.empty')}</p>;
   return <ul className="account-list">{items.map((item) => <li key={`${item.jobId}-${item.appId}`}>
     {item.iconUrl ? <img src={item.iconUrl} alt="" /> : <Download size={20} />}
-    <span><strong>{item.appName}</strong><small>{new Date(item.downloadedAt).toLocaleString('es-ES')}</small></span>
+    <span><strong>{item.appName}</strong><small>{new Date(item.downloadedAt).toLocaleString(locale)}</small></span>
   </li>)}</ul>;
 }
 

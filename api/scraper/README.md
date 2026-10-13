@@ -8,7 +8,7 @@ desde webs oficiales y exponer endpoints MVP de busqueda/descarga.
 ```bash
 pip install -r requirements-dev.txt
 playwright install chromium
-alembic upgrade 20260914_0021  # fase expansiva; head tras la puerta de compatibilidad
+alembic upgrade 20261012_0024  # rama aditiva bilingüe; head tras la puerta contractiva
 uvicorn app.main:app
 python -m app.worker scrape-once
 python -m app.worker scheduler
@@ -39,6 +39,10 @@ Configuración: `SCRAPER_MANUAL_INSPECTION_TTL_HOURS`,
 `SCRAPER_MANUAL_PAGE_MAX_BYTES`.
 
 ## Generacion de descripciones
+
+Cada petición a la IA devuelve una descripción larga en español y otra en inglés.
+El trabajo solo se completa cuando ambas son válidas. Las aplicaciones antiguas sin
+versión inglesa se pueden reencolar desde la administración del catálogo.
 
 La clave `SCRAPER_LLM_GROQ_API_KEY` activa Groq. El modelo primario se configura
 con `SCRAPER_LLM_GROQ_MODEL`; cuando alcanza una cuota o sufre un fallo transitorio,

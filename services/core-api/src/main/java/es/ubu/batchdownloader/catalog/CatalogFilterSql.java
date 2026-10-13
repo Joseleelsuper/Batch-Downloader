@@ -60,6 +60,7 @@ final class CatalogFilterSql {
                     REPLACE(a.normalized_name, ' ', '') LIKE ? OR
                     LOWER(a.publisher) LIKE ? OR
                     LOWER(a.description) LIKE ? OR LOWER(a.long_description) LIKE ? OR
+                    LOWER(a.long_description_en) LIKE ? OR
                     LOWER(a.winstall_id) LIKE ? OR LOWER(REPLACE(a.winstall_id, '.', '')) LIKE ? OR
                     EXISTS (
                         SELECT 1 FROM software_app_tags sat
@@ -70,6 +71,7 @@ final class CatalogFilterSql {
         params.add(normalizedLike);
         params.add(rawLike);
         params.add(compactLike);
+        params.add(rawLike);
         params.add(rawLike);
         params.add(rawLike);
         params.add(rawLike);

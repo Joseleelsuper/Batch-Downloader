@@ -35,7 +35,7 @@ import { AppTable } from '../../components/AppTable';
 import { Pagination } from '../../components/Pagination';
 import { useDownloadJob } from '../../hooks/useDownloadJob';
 import { chooseDownloadDestination, isDestinationCancelled } from '../../downloads/delivery';
-import { useTranslation, type Translator } from '../../services/i18n';
+import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type {
   AppDetails,
   CatalogApp,
@@ -532,6 +532,7 @@ export function CatalogPage() {
 
 export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
   const t = useTranslation();
+  const locale = useLocale();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchKey = searchParams.toString();
   const preferredSearchMode = useMemo(
@@ -679,7 +680,7 @@ export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
                 onClick={() => toggleFacet(item)}
               >
                 <span>{item.label}</span>
-                <strong>{item.count.toLocaleString('es-ES')}</strong>
+                <strong>{item.count.toLocaleString(locale)}</strong>
               </button>
             ))}
             {!visibleItems.length ? (

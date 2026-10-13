@@ -2,7 +2,7 @@ import { BrainCircuit, CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiRequestError } from '../../api/http';
 import { fetchSemanticOverview } from '../../api/semanticAdmin';
-import { useTranslation, type Translator } from '../../services/i18n';
+import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type { SemanticOverview } from '../../types/semanticAdmin';
 
 export function SemanticAiPage() {
@@ -83,9 +83,10 @@ function SemanticOverviewContent({
   overview,
   t,
 }: Readonly<{ overview: SemanticOverview; t: Translator }>) {
+  const locale = useLocale();
   const index = overview.index;
   const coverage = index && index.expected > 0
-    ? `${integer(index.indexed)} / ${integer(index.expected)} (${percent(index.indexed / index.expected)})`
+    ? `${integer(index.indexed, locale)} / ${integer(index.expected, locale)} (${percent(index.indexed / index.expected, locale)})`
     : t('semantic.index.noData');
   const statusOk = overview.status === 'ok';
   const incompleteIndexDetail = index && index.indexed > 0
@@ -160,12 +161,12 @@ function modelDetail(t: Translator, overview: SemanticOverview): string {
   return [dimensions, artifact].filter(Boolean).join(' · ');
 }
 
-function integer(value: number): string {
-  return Math.round(value).toLocaleString('es-ES');
+function integer(value: number, locale: string): string {
+  return Math.round(value).toLocaleString(locale);
 }
 
-function percent(value: number): string {
-  return value.toLocaleString('es-ES', { style: 'percent', maximumFractionDigits: 1 });
+function percent(value: number, locale: string): string {
+  return value.toLocaleString(locale, { style: 'percent', maximumFractionDigits: 1 });
 }
 
 function errorMessage(t: Translator, cause: unknown): string {

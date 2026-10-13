@@ -1,0 +1,15 @@
+{
+  "admin.bundle.addAppsEmpty": "Add applications to the bundle.",
+  "admin.bundle.apps": "Bundle Applications",
+  "admin.bundle.create": "Create bundle",
+  "admin.bundle.editing": "Editing bundle",
+  "admin.bundle.editor": "Bundle editor",
+  "admin.bundle.moveDown": "Move down",
+  "admin.bundle.moveUp": "Move up",
+  "admin.bundle.new": "New",
+  "admin.bundle.newBundle": "New bundle",
+  "admin.bundle.official": "Official Bundles",
+  "admin.bundle.placeholder.tags": "utilities, work",
+  "admin.bundle.removeApp": "Remove",
+  "admin.bundle.searchApps": "Find apps to add"
+}

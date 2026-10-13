@@ -17,7 +17,7 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'rea
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
 import { AuthProvider, useAuth } from './auth/AuthContext';
-import { useTranslation } from './services/i18n';
+import { useLocaleSelector, useTranslation } from './services/i18n';
 import { lazyNamed } from './routing/lazyNamed';
 import { PageMetadata } from './components/PageMetadata';
 import {
@@ -161,6 +161,7 @@ function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () 
 
 function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
   const t = useTranslation();
+  const { locale, selectLocale } = useLocaleSelector();
   return (
     <header className="topbar">
       <Link className="brand" to="/">
@@ -172,10 +173,14 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
         <NavLink to="/catalog">{t('nav.catalog')}</NavLink>
       </nav>
       <div className="topbar-actions">
-        <button type="button" aria-label={t('language.selector')} title={t('language.selector')}>
-          <Globe2 size={20} />
-          {t('language.current')}
-        </button>
+        <label className="language-selector">
+          <Globe2 size={20} aria-hidden="true" />
+          <select aria-label={t('language.selector')} value={locale}
+            onChange={(event) => selectLocale(event.target.value)}>
+            <option value="es">ES</option>
+            <option value="en">EN</option>
+          </select>
+        </label>
         {auth?.role === 'ADMIN' ? (
           <>
             <NavLink className="admin-link" to="/admin">

@@ -97,6 +97,8 @@ class CatalogRepository:
                 or_(
                     SoftwareApp.long_description.is_(None),
                     func.trim(SoftwareApp.long_description) == "",
+                    SoftwareApp.long_description_en.is_(None),
+                    func.trim(SoftwareApp.long_description_en) == "",
                 )
             )
             .order_by(SoftwareApp.id)
@@ -177,6 +179,8 @@ class CatalogRepository:
         missing_long_description = or_(
             SoftwareApp.long_description.is_(None),
             SoftwareApp.long_description == "",
+            SoftwareApp.long_description_en.is_(None),
+            SoftwareApp.long_description_en == "",
         )
         needs_description = or_(
             missing_long_description,
@@ -271,6 +275,7 @@ class CatalogRepository:
         self,
         software_app_id: uuid.UUID,
         description: str,
+        description_en: str,
         language: str,
         source: str,
         model: str,
@@ -282,6 +287,7 @@ class CatalogRepository:
         Args:
             software_app_id: UUID de la aplicación propietaria.
             description: Texto ampliado generado para la aplicación.
+            description_en: Texto ampliado en inglés generado para la aplicación.
             language: Código del idioma del texto generado.
             source: Proveedor o procedencia de la descripción.
             model: Identificador del modelo utilizado, si se conoce.
@@ -291,6 +297,7 @@ class CatalogRepository:
         if not software_app:
             return
         software_app.long_description = description
+        software_app.long_description_en = description_en
         software_app.long_description_language = language
         software_app.long_description_status = LongDescriptionStatus.COMPLETED.value
         software_app.long_description_source = source
@@ -505,6 +512,7 @@ class CatalogRepository:
                     func.lower(SoftwareApp.publisher).like(raw_q),
                     func.lower(SoftwareApp.description).like(raw_q),
                     func.lower(SoftwareApp.long_description).like(raw_q),
+                    func.lower(SoftwareApp.long_description_en).like(raw_q),
                     func.lower(SoftwareApp.winstall_id).like(raw_q),
                     SoftwareApp.tags.any(SoftwareAppTag.normalized_tag.like(q)),
                 )

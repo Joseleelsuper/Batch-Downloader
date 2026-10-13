@@ -58,6 +58,8 @@ class AppListItem(BaseModel):
 
     long_description: str | None = Field(default=None, alias="longDescription")
 
+    long_description_en: str | None = Field(default=None, alias="longDescriptionEn")
+
     tags: list[str] = Field(default_factory=list)
 
     operating_systems: list[str] = Field(default_factory=list, alias="operatingSystems")
@@ -220,6 +222,8 @@ class AppDetails(BaseModel):
     description: str | None = None
 
     long_description: str | None = Field(default=None, alias="longDescription")
+
+    long_description_en: str | None = Field(default=None, alias="longDescriptionEn")
 
     tags: list[str] = Field(default_factory=list)
 

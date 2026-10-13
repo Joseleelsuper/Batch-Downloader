@@ -12,6 +12,7 @@ const PRIMARY_FIELDS = [
 const DESCRIPTION_FIELDS = [
   { key: 'description', id: 'description', label: 'admin.app.shortDescription', rows: undefined },
   { key: 'longDescription', id: 'long-description', label: 'admin.app.longDescription', rows: 7 },
+  { key: 'longDescriptionEn', id: 'long-description-en', label: 'admin.app.longDescriptionEn', rows: 7 },
 ] as const;
 
 /** Edita los metadatos y muestra su procedencia mientras coincidan con la sugerencia recibida. */
@@ -21,7 +22,8 @@ export function AdminAppFields({ editor }: Readonly<{ editor: ReturnType<typeof 
   const fieldProps = (key: keyof typeof form) => ({
     value: form[key],
     disabled: previewPending,
-    provenance: suggestionProvenance(provenance?.[key], form[key]),
+    provenance: suggestionProvenance(key === 'longDescriptionEn'
+      ? provenance?.longDescriptionEn : provenance?.[key], form[key]),
     onChange: (value: string) => setEditor('form', (current) => ({ ...current, [key]: value })),
   });
   return <>

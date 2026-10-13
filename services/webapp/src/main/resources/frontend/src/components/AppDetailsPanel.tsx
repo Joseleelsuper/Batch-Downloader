@@ -2,7 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
-import { useTranslation } from '../services/i18n';
+import { useLocale, useTranslation } from '../services/i18n';
 import type { AppDetails, DownloadOption } from '../types/catalog';
 import { DownloadButton } from './DownloadButton';
 
@@ -14,6 +14,7 @@ interface Props {
 /** Contenido esencial que se despliega bajo una aplicación del catálogo. */
 export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
   const t = useTranslation();
+  const locale = useLocale();
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const selectedOption = useMemo(() => {
     const options = app?.downloadOptions ?? [];
@@ -32,7 +33,8 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
       <h3 className="sr-only">{app.name}</h3>
       <DetailBlock className="app-detail-description" label={t('app.details.description')}>
         <p className="long-description">
-          {app.longDescription || app.description || t('app.details.descriptionPending')}
+          {(locale === 'en' ? app.longDescriptionEn : app.longDescription)
+            || app.longDescription || app.description || t('app.details.descriptionPending')}
         </p>
       </DetailBlock>
 
@@ -57,9 +59,9 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
           {selectedOption?.version ?? app.latestVersion ?? '-'}
         </DetailBlock>
         <DetailBlock label={t('app.details.updated')}>
-          {formatDate(app.checkedAt ?? app.updatedAt)}
+          {formatDate(app.checkedAt ?? app.updatedAt, locale)}
         </DetailBlock>
-        <DetailBlock label={t('app.details.size')}>{formatSize(app.sizeBytes)}</DetailBlock>
+        <DetailBlock label={t('app.details.size')}>{formatSize(app.sizeBytes, locale)}</DetailBlock>
       </div>
 
       <DetailBlock className="app-detail-installers" label={t('app.details.installersDetected')}>
@@ -159,17 +161,17 @@ function DetailsSkeleton() {
   );
 }
 
-function formatDate(value?: string | null): string {
+function formatDate(value: string | null | undefined, locale: string): string {
   if (!value) return '-';
-  return new Intl.DateTimeFormat('es-ES', {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(new Date(value));
 }
 
-function formatSize(value?: number | null): string {
+function formatSize(value: number | null | undefined, locale: string): string {
   if (!value) return '-';
-  return `${(value / 1024 / 1024).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MB`;
+  return `${(value / 1024 / 1024).toLocaleString(locale, { maximumFractionDigits: 1 })} MB`;
 }
 
 function preferredOption(options: DownloadOption[]): DownloadOption | undefined {

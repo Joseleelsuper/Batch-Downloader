@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetails } from '../types/catalog';
+import { I18nProvider } from '../services/i18n';
 import { AppDetailsPanel } from './AppDetailsPanel';
 
 const downloadJob = vi.hoisted(() => ({ start: vi.fn() }));
@@ -77,6 +78,24 @@ describe('AppDetailsPanel', () => {
   afterEach(() => {
     cleanup();
     downloadJob.start.mockReset();
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'es-ES' });
+  });
+
+  it('shows the English description for an English browser', () => {
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'en-US' });
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: { getItem: () => null, setItem: () => {} },
+    });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 304 }));
+    render(<I18nProvider fetcher={fetcher}><AppDetailsPanel app={{
+      ...app, longDescriptionEn: 'GeoGebra Graphing Calculator helps explore mathematical functions.',
+    }} /></I18nProvider>);
+
+    expect(screen.getByText(/helps explore mathematical functions/)).toBeInTheDocument();
+    expect(screen.queryByText(/permite crear graficas/)).not.toBeInTheDocument();
+    expect(screen.getByText('12.5 MB')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled();
   });
 
   it('shows only the useful catalog details and actions', () => {

@@ -35,7 +35,7 @@ public class CatalogProjectionRepository {
     private static final String EXTENSION_COLUMN = "extension";
     private static final String OPERATING_SYSTEM_COLUMN = "operating_system";
     private static final String APP_BASICS_COLUMNS = "id, winstall_id, slug, name, publisher, "
-            + "description, long_description, icon_url, official_url, latest_version, "
+            + "description, long_description, long_description_en, icon_url, official_url, latest_version, "
             + "catalog_status, updated_at";
 
     private final JdbcTemplate jdbc;
@@ -217,6 +217,7 @@ public class CatalogProjectionRepository {
                 app.publisher(),
                 app.description(),
                 app.longDescription(),
+                app.longDescriptionEn(),
                 tags,
                 operatingSystems,
                 app.iconUrl(),
@@ -246,6 +247,7 @@ public class CatalogProjectionRepository {
                 app.publisher(),
                 app.description(),
                 app.longDescription(),
+                app.longDescriptionEn(),
                 tagsFor(app.dbId()),
                 operatingSystemsFor(List.of(app.dbId())).getOrDefault(app.dbId(), List.of()),
                 app.iconUrl(),
@@ -286,6 +288,7 @@ public class CatalogProjectionRepository {
                 rs.getString("publisher"),
                 rs.getString("description"),
                 rs.getString("long_description"),
+                rs.getString("long_description_en"),
                 rs.getString("icon_url"),
                 rs.getString("official_url"),
                 rs.getString("latest_version"),
@@ -677,6 +680,7 @@ public class CatalogProjectionRepository {
             String publisher,
             String description,
             String longDescription,
+            String longDescriptionEn,
             String iconUrl,
             String officialUrl,
             String latestVersion,

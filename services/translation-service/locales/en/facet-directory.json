@@ -1,0 +1,15 @@
+{
+  "facet.availableAria": "{title} available",
+  "facet.backToCatalog": "Return to catalog",
+  "facet.emptyCompatible": "There are no filters compatible with the current selection.",
+  "facet.emptyLetter": "There are no filters in this letter.",
+  "facet.header": "Catalog filters",
+  "facet.lettersAria": "{title} letters",
+  "facet.loadError": "Filters could not be loaded.",
+  "facet.loading": "Loading filters...",
+  "facet.publishers.subtitle": "Select a publisher to filter the catalog.",
+  "facet.publishers.title": "Publisher",
+  "facet.resetFilters": "Reset tags and publisher",
+  "facet.tags.subtitle": "Select one or more tags to filter the catalog.",
+  "facet.tags.title": "Tags"
+}

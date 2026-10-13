@@ -1,14 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   I18nProvider,
   t,
   useLocale,
+  useLocaleSelector,
   useTranslation,
   type TranslationKey,
 } from './i18n';
 
-const STORAGE_KEY = 'batch-downloader.locale.es.v1';
+const STORAGE_KEY = 'batch-downloader.locale.v2';
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -28,15 +29,36 @@ function Message({ translationKey }: Readonly<{ translationKey: TranslationKey }
 }
 
 function LocaleProbe() {
-  return <output data-testid="locale">{useLocale()}</output>;
+  const { selectLocale } = useLocaleSelector();
+  return <><output data-testid="locale">{useLocale()}</output>
+    <button onClick={() => selectLocale('en')}>English</button></>;
 }
 
 describe('I18nProvider', () => {
+  afterEach(cleanup);
   beforeEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'es-ES' });
     const storage = memoryStorage();
     Object.defineProperty(window, 'localStorage', { configurable: true, value: storage });
     vi.stubGlobal('localStorage', storage);
+  });
+
+  it('detecta inglés del navegador y permite conservar un cambio manual', async () => {
+    Object.defineProperty(navigator, 'language', { configurable: true, value: 'en-US' });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 304 }));
+    render(<I18nProvider fetcher={fetcher}><><Message translationKey="nav.home" /><LocaleProbe /></></I18nProvider>);
+    expect(screen.getByTestId('locale')).toHaveTextContent('en');
+    expect(screen.getByText('Home')).toBeInTheDocument();
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/v1/locales/en', expect.anything()));
+  });
+
+  it('cambia de español a inglés y guarda la preferencia', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 304 }));
+    render(<I18nProvider fetcher={fetcher}><><Message translationKey="nav.home" /><LocaleProbe /></></I18nProvider>);
+    fireEvent.click(screen.getByText('English'));
+    expect(screen.getByText('Home')).toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}').locale).toBe('en');
   });
 
   it('usa el caché en el primer render y revalida con su ETag', async () => {

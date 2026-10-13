@@ -6,7 +6,7 @@ import java.util.Objects;
  * Conserva una representación JSON de un idioma con el ETag que permite revalidarla por HTTP.
  * Copia el array de entrada y el devuelto por content para impedir cambios externos del documento.
  *
- * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+ * @param locale Código exacto del idioma solicitado; el catálogo publica es y en.
  * @param content Bytes UTF-8 del catálogo JSON completo.
  * @param etag Validador HTTP del contenido, con comillas y basado en su SHA-256.
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
@@ -21,7 +21,7 @@ public record LocaleDocument(String locale, byte[] content, String etag) {
     /**
      * Exige código de idioma y ETag no vacíos y conserva una copia independiente de los bytes.
      *
-     * @param locale Código exacto del idioma solicitado; el catálogo actual publica es.
+     * @param locale Código exacto del idioma solicitado; el catálogo publica es y en.
      * @param content Bytes UTF-8 del catálogo JSON completo.
      * @param etag Validador HTTP del contenido, con comillas y basado en su SHA-256.
      * @throws IllegalArgumentException si idioma o ETag están vacíos.

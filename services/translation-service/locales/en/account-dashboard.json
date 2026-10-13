@@ -1,0 +1,11 @@
+{
+  "account.dashboard.bundles": "Bundles",
+  "account.dashboard.downloads": "Prepared applications",
+  "account.dashboard.failed": "The dashboard could not be loaded.",
+  "account.dashboard.private": "Private",
+  "account.dashboard.public": "Public",
+  "account.dashboard.recentBundles": "Recent Bundles",
+  "account.dashboard.recentDownloads": "Recent history",
+  "account.dashboard.subtitle": "A summary of your collections and prepared packages.",
+  "account.dashboard.title": "Hello, {username}"
+}

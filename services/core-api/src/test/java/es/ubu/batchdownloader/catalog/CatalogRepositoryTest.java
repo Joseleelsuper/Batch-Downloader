@@ -134,6 +134,10 @@ class CatalogRepositoryTest {
         ArgumentCaptor<Object[]> params = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), params.capture());
         assertThat(sql.getValue()).contains("AS search_score");
+        assertThat(sql.getValue()).contains("LOWER(a.long_description_en) LIKE ?",
+                "LOWER(COALESCE(a.long_description_en, '')) LIKE ?");
+        assertThat(sql.getValue().chars().filter(character -> character == '?').count())
+                .isEqualTo(params.getValue().length);
         assertThat(sql.getValue()).contains(
                 "ORDER BY a.catalog_review_priority ASC, a.updated_at DESC, "
                         + "search_score DESC, a.normalized_name ASC");

@@ -259,7 +259,7 @@ public class SeoService {
 
     public String robots() {
         return "User-agent: *\nAllow: /\nAllow: /api/v1/apps\nAllow: /api/v1/bundles\n"
-                + "Allow: /api/v1/locales/es\nAllow: /api/v1/seo/metadata\nDisallow: /api/\n"
+                + "Allow: /api/v1/locales/es\nAllow: /api/v1/locales/en\nAllow: /api/v1/seo/metadata\nDisallow: /api/\n"
                 + "Disallow: /admin\nDisallow: /dashboard\n"
                 + "Disallow: /profile\nDisallow: /login\nDisallow: /error\nSitemap: " + baseUrl + "/sitemap.xml\n";
     }

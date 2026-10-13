@@ -87,6 +87,12 @@ class JsonFileLocaleCatalogTest {
         assertThat(messages.has("admin.scraper.clearPending")).isFalse();
         assertThat(messages.has("semantic.artifact.downloading")).isFalse();
         assertThat(messages.has("semantic.operation.download")).isFalse();
+        JsonNode english = new ObjectMapper().readTree(
+                catalog.findByLocale("en").orElseThrow().content());
+        assertThat(english.size()).isEqualTo(messages.size());
+        assertThat(english.path("nav.home").asText()).isEqualTo("Home");
+        assertThat(english.path("admin.app.longDescriptionEn").asText())
+                .isEqualTo("Long description in English");
     }
 
     /**

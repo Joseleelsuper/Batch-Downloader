@@ -280,6 +280,10 @@ class ManualInstallerSuggestions(BaseModel):
 
     long_description: ManualFieldSuggestion = Field(alias="longDescription")
 
+    long_description_en: ManualFieldSuggestion | None = Field(
+        default=None, alias="longDescriptionEn"
+    )
+
     icon_url: ManualFieldSuggestion = Field(alias="iconUrl")
 
 
@@ -417,6 +421,10 @@ class ManualInstallerApplyRequest(BaseModel):
         alias="longDescription",
         default=None,
         max_length=12000,
+    )
+
+    long_description_en: str | None = Field(
+        alias="longDescriptionEn", default=None, max_length=12000
     )
 
     icon_url: str | None = Field(alias="iconUrl", default=None, max_length=2048)
@@ -598,6 +606,10 @@ class WebsiteAppDiscoveryApplyRequest(BaseModel):
         alias="longDescription",
         default=None,
         max_length=12000,
+    )
+
+    long_description_en: str | None = Field(
+        alias="longDescriptionEn", default=None, max_length=12000
     )
 
     icon_url: str | None = Field(alias="iconUrl", default=None, max_length=2048)

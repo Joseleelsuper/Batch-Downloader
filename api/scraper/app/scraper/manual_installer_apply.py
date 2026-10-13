@@ -274,13 +274,16 @@ def _apply_long_description(
     """Aplica la descripción larga y su procedencia sin sobrescribir contenido intacto."""
     result = inspection.result_json or {}
     reviewed = clean_optional(request.long_description)
+    reviewed_en = clean_optional(request.long_description_en)
     suggestion = ((result.get("suggestions") or {}).get("longDescription") or {})
     suggested = clean_optional(suggestion.get("value"))
     source = suggestion.get("source")
-    preserve_current = source == "current" and reviewed == clean_optional(app.long_description)
+    preserve_current = (source == "current" and reviewed == clean_optional(app.long_description)
+                        and reviewed_en == clean_optional(app.long_description_en))
     if preserve_current:
         return
     app.long_description = reviewed
+    app.long_description_en = reviewed_en
     app.long_description_language = "es" if reviewed else None
     app.long_description_error = None
     app.long_description_generated_at = utc_now() if reviewed else None
@@ -291,6 +294,8 @@ def _apply_long_description(
             result.get("ai") or {},
         )
     )
+    if not reviewed_en:
+        app.long_description_status = "pending"
     app.long_description_input_hash = None
 
 
@@ -313,6 +318,7 @@ def _apply_manual_metadata(
                 "latestVersion": app.latest_version,
                 "description": app.description,
                 "longDescription": app.long_description,
+                "longDescriptionEn": app.long_description_en,
                 "iconUrl": app.icon_url,
             },
         ),

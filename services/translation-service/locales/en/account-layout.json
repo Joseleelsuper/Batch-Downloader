@@ -1,0 +1,11 @@
+{
+  "account.delete": "Delete",
+  "account.downloads.empty": "Your history is empty.",
+  "account.loading": "Loading your account...",
+  "account.nav.bundles": "My bundles",
+  "account.nav.dashboard": "Dashboard",
+  "account.nav.profile": "Profile",
+  "account.private": "Private",
+  "account.public": "Public",
+  "account.save": "Save"
+}

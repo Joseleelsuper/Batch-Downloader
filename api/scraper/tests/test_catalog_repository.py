@@ -169,6 +169,31 @@ async def test_public_load_reads_database_catalog_downloadable_projection() -> N
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_search_apps_matches_english_long_description() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(
+            text(
+                "ALTER TABLE resolved_sources "
+                "ADD COLUMN catalog_downloadable BOOLEAN NOT NULL DEFAULT 0"
+            )
+        )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    app = make_app_with_source(ResolutionStatus.MISSING)
+    app.long_description_en = "Create detailed scientific charts"
+    async with session_factory() as session:
+        session.add(app)
+        await session.commit()
+        matches, total = await CatalogRepository(
+            session, UrlProtector("test-secret")
+        ).search_apps("scientific", None, 1, 10)
+        assert total == 1
+        assert [match.id for match in matches] == [app.id]
+    await engine.dispose()
+
+
 def test_platform_repair_keeps_macos_tar_gz_out_of_linux() -> None:
     """Comprueba el escenario `platform_repair_keeps_macos_tar_gz_out_of_linux`.
     """
@@ -460,8 +485,14 @@ async def test_description_enrichment_prioritizes_completed_apps_missing_long_de
             "Vendor.Completed",
             long_description_status="completed",
             long_description="Descripcion generada.",
+            long_description_en="Generated description.",
         )
-        session.add_all([completed, pending, missing])
+        missing_english = software_app(
+            "Vendor.MissingEnglish",
+            long_description_status="completed",
+            long_description="Descripcion generada.",
+        )
+        session.add_all([completed, pending, missing, missing_english])
         await session.commit()
 
         apps = await CatalogRepository(
@@ -473,6 +504,7 @@ async def test_description_enrichment_prioritizes_completed_apps_missing_long_de
     ordered_ids = [app.winstall_id for app in apps]
     assert "Vendor.CompletedMissing" in ordered_ids
     assert "Vendor.Pending" in ordered_ids
+    assert "Vendor.MissingEnglish" in ordered_ids
     assert "Vendor.Completed" not in ordered_ids
 
 
@@ -849,6 +881,7 @@ def software_app(
     *,
     long_description_status: str,
     long_description: str | None,
+    long_description_en: str | None = None,
 ) -> SoftwareApp:
     """Prepara el recurso `software_app` usado por las pruebas para aislar el escenario `software
     app` y conservar sus datos de entrada.
@@ -871,6 +904,7 @@ def software_app(
         app_status="active",
         long_description_status=long_description_status,
         long_description=long_description,
+        long_description_en=long_description_en,
         created_at=now,
         updated_at=now,
     )

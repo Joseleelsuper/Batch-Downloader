@@ -80,6 +80,10 @@ function inspection(
         value: 'Descripción larga generada y revisable.',
         source: 'generated_ai',
       },
+      longDescriptionEn: {
+        value: 'Long AI generated description for review.',
+        source: 'generated_ai',
+      },
       iconUrl: { value: 'https://example.com/icon.png', source: 'open_graph' },
     } : null,
     installer: primaryInstaller,
@@ -121,6 +125,10 @@ function websiteDiscovery(
       },
       longDescription: {
         value: 'Descripción larga generada automáticamente en español.',
+        source: 'generated_ai',
+      },
+      longDescriptionEn: {
+        value: 'Long description generated automatically in English.',
         source: 'generated_ai',
       },
       iconUrl: { value: 'https://website.example/icon.png', source: 'open_graph' },
@@ -319,7 +327,7 @@ describe('AdminAppsPage', () => {
     });
     expect(screen.getByDisplayValue('Website Vendor')).toBeInTheDocument();
     expect(screen.getByText('WebsiteDesktop-3.1.0.exe')).toBeInTheDocument();
-    expect(screen.getByText('Generado con IA')).toBeInTheDocument();
+    expect(screen.getAllByText('Generado con IA')).toHaveLength(2);
 
     fireEvent.change(screen.getByLabelText(/^Nombre/), {
       target: { value: 'Website Desktop revisada' },
@@ -456,7 +464,8 @@ describe('AdminAppsPage', () => {
     );
     expect(await screen.findByDisplayValue('Descripción larga generada y revisable.'))
       .toBeInTheDocument();
-    expect(screen.getByText('Generado con IA')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Long AI generated description for review.')).toBeInTheDocument();
+    expect(screen.getAllByText('Generado con IA')).toHaveLength(2);
     expect(screen.getByText('Example-1.2.0.exe')).toBeInTheDocument();
   });
 
@@ -467,7 +476,7 @@ describe('AdminAppsPage', () => {
     render(<AdminAppsPage />);
 
     fireEvent.click(await screen.findByRole('option', { name: /Example App/ }));
-    const longDescription = await screen.findByLabelText(/^Descripción larga/);
+    const longDescription = await screen.findByLabelText(/^Descripción larga(?! en inglés)/);
     fireEvent.change(longDescription, {
       target: { value: 'Descripción corregida por administración.' },
     });
@@ -482,6 +491,7 @@ describe('AdminAppsPage', () => {
         expect.objectContaining({
           expectedAppVersion: 7,
           longDescription: 'Descripción corregida por administración.',
+          longDescriptionEn: 'Long AI generated description for review.',
           operatingSystem: 'windows',
         }),
       );
