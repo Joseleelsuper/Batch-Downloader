@@ -2197,6 +2197,14 @@ paths:
       tags:
       - Administración
       description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      - name: after
+        in: query
+        description: Último UUID procesado en el lote anterior.
+        schema:
+          type: string
+          format: uuid
       responses:
         '202':
           description: Encolar aplicaciones sin descripción y devolver los contadores.
@@ -2212,8 +2220,6 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
-      parameters:
-      - $ref: '#/components/parameters/CsrfToken'
       x-required-roles:
       - ADMIN
   /admin/audit:
@@ -4351,10 +4357,14 @@ components:
         alreadyActive:
           type: integer
           format: int32
+        nextAfter:
+          type: [string, 'null']
+          format: uuid
       required:
       - matched
       - enqueued
       - alreadyActive
+      - nextAfter
     AdminAuditItem:
       type: object
       properties:

@@ -107,14 +107,20 @@ export function AdminScraperPage() {
     setMessage(null);
     setEnrichmentAction('descriptions');
     try {
-      const result = await enqueueMissingScraperDescriptions();
-      if (result.matched === 0) {
+      let matched = 0;
+      let enqueued = 0;
+      let active = 0;
+      let after: string | undefined;
+      do {
+        const result = await enqueueMissingScraperDescriptions(after);
+        matched += result.matched;
+        enqueued += result.enqueued;
+        active += result.alreadyActive;
+        after = result.nextAfter ?? undefined;
+        setMessage(t('admin.message.enrichmentQueued', { enqueued, active }));
+      } while (after);
+      if (matched === 0) {
         setMessage(t('admin.message.noMissingDescriptions'));
-      } else {
-        setMessage(t('admin.message.enrichmentQueued', {
-          enqueued: result.enqueued,
-          active: result.alreadyActive,
-        }));
       }
       await load();
     } catch {
