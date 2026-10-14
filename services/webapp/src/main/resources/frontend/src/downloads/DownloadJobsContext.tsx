@@ -57,6 +57,7 @@ export interface TrackedDownloadJob {
 interface StoredDownloadJob {
   id: string;
   label: string;
+  job?: DownloadJob;
   autoDownloadAttempted: boolean;
   minimized: boolean;
   locallySaved?: boolean;
@@ -86,10 +87,18 @@ function readStoredJobs(): TrackedDownloadJob[] {
       if (!candidate || typeof candidate !== 'object') return [];
       const stored = candidate as Partial<StoredDownloadJob>;
       if (typeof stored.id !== 'string' || typeof stored.label !== 'string') return [];
+      const terminalJob = stored.job && stored.job.id === stored.id
+        && TERMINAL_DOWNLOAD_STATUSES.has(stored.job.status)
+        && (stored.job.failureCode == null || typeof stored.job.failureCode === 'string')
+        && Array.isArray(stored.job.items)
+        && stored.job.items.every((item) => item && typeof item === 'object'
+          && (item.errorCode == null || typeof item.errorCode === 'string')
+          && (item.officialPageUrl == null || typeof item.officialPageUrl === 'string'))
+        ? stored.job : null;
       return [{
         id: stored.id,
         label: stored.label,
-        job: null,
+        job: terminalJob,
         autoDownloadAttempted: stored.autoDownloadAttempted === true,
         minimized: stored.minimized === true,
         locallySaved: stored.locallySaved === true,
@@ -108,6 +117,7 @@ function persistJobs(jobs: TrackedDownloadJob[]): void {
     const stored: StoredDownloadJob[] = jobs.map((entry) => ({
       id: entry.id,
       label: entry.label,
+      job: entry.job && TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status) ? entry.job : undefined,
       autoDownloadAttempted: entry.autoDownloadAttempted,
       minimized: entry.minimized,
       locallySaved: entry.locallySaved === true,
@@ -175,8 +185,13 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
   }, []);
 
   const reportConnectionError = useCallback((jobId: string, cause?: unknown) => {
-    if (cause instanceof ApiRequestError && (cause.status === 401 || cause.status === 404)) {
+    if (cause instanceof ApiRequestError && cause.status === 401) {
       removeJob(jobId);
+      return;
+    }
+    if (cause instanceof ApiRequestError && cause.status === 404) {
+      const entry = jobsRef.current.find((candidate) => candidate.id === jobId);
+      if (!entry?.job || !TERMINAL_DOWNLOAD_STATUSES.has(entry.job.status)) removeJob(jobId);
       return;
     }
     setJobs((current) => current.map((entry) => entry.id === jobId
@@ -263,8 +278,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
         await perform();
       }
     } catch (cause) {
-      if (cause instanceof ApiRequestError && cause.status === 404) removeJob(jobId);
-      else if (locallySaved) setJobs((current) => current.map((entry) => entry.id === jobId
+      if (locallySaved) setJobs((current) => current.map((entry) => entry.id === jobId
         ? { ...entry, actionError: t('download.job.receiptFailed') } : entry));
       else if (!isDestinationCancelled(cause)) reportAutoDownloadError(jobId, cause);
     } finally {
@@ -272,7 +286,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       setJobs((current) => current.map((entry) => entry.id === jobId
         ? { ...entry, saving: false } : entry));
     }
-  }, [claimAutoDownload, removeJob, reportAutoDownloadError, t]);
+  }, [claimAutoDownload, reportAutoDownloadError, t]);
 
   const download = useCallback((jobId: string) => deliver(jobId, false), [deliver]);
 
