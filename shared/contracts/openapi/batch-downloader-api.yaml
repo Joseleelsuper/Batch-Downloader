@@ -581,7 +581,7 @@ paths:
           type: string
       - name: sort
         in: query
-        description: Orden principal; relevance prioriza la puntuación con consulta y las descargas sin consulta. Los demás órdenes conservan su prioridad incluso al buscar.
+        description: Orden principal; relevance prioriza la similitud semántica dentro del umbral en modo semantic, la coincidencia textual en modo lexical y las descargas sin consulta. Los demás órdenes conservan su prioridad incluso al buscar.
         schema:
           type: string
           enum:

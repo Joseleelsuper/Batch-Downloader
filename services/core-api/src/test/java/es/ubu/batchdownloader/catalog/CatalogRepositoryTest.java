@@ -217,6 +217,30 @@ class CatalogRepositoryTest {
         assertThat(params.getValue()).contains("available", "windows", "x86_64");
     }
 
+    /** El orden de relevancia respeta el ranking semántico antes que fecha, descargas o revisión. */
+    @Test
+    void semanticRelevanceSortUsesSimilarityRankFirst() {
+        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        SemanticCandidateSet candidates = new SemanticCandidateSet(
+                CatalogSearchMode.SEMANTIC,
+                CatalogSearchMode.SEMANTIC,
+                "[{\"appId\":\"00000000-0000-0000-0000-000000000001\",\"rank\":1,\"similarity\":0.9}]",
+                "model-v1",
+                "index-v1",
+                null);
+
+        repository(jdbc).search(
+                new CatalogQuery("editor", "all", List.of(), null, List.of(), List.of()),
+                "relevance", 1, 12, candidates);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+        assertThat(sql.getValue()).contains(
+                "ORDER BY ranked.semantic_rank ASC, a.normalized_name ASC, a.id ASC")
+                .doesNotContain("ORDER BY a.catalog_review_priority", "a.download_count DESC");
+    }
+
     /**
      * Comprueba que las facetas literales aplican conjuntamente tags y editor.
      */

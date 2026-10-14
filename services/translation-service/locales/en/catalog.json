@@ -64,6 +64,8 @@
   "catalog.sort.downloads.description": "First the applications with the most downloads.",
   "catalog.sort.name": "Name",
   "catalog.sort.name.description": "Alphabetical order.",
+  "catalog.sort.relevance": "Relevance",
+  "catalog.sort.relevance.description": "In semantic mode, most similar apps above the threshold come first; in literal mode, the best text matches. Without a query, sorts by downloads.",
   "catalog.alphabet.aria": "Alphabetical application index",
   "catalog.alphabet.letter": "Go to letter {letter}, {count} applications",
   "catalog.alphabet.empty": "There are no applications that start with {letter}",

@@ -64,6 +64,8 @@
   "catalog.sort.downloads.description": "",
   "catalog.sort.name": "",
   "catalog.sort.name.description": "",
+  "catalog.sort.relevance": "",
+  "catalog.sort.relevance.description": "",
   "catalog.alphabet.aria": "",
   "catalog.alphabet.letter": "",
   "catalog.alphabet.empty": "",

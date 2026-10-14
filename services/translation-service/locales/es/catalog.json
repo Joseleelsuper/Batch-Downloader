@@ -64,6 +64,8 @@
   "catalog.sort.downloads.description": "Primero las aplicaciones con más descargas.",
   "catalog.sort.name": "Nombre",
   "catalog.sort.name.description": "Orden alfabético.",
+  "catalog.sort.relevance": "Relevancia",
+  "catalog.sort.relevance.description": "Con IA semántica, primero las aplicaciones más similares dentro del umbral; en modo literal, las mejores coincidencias de texto. Sin consulta, ordena por descargas.",
   "catalog.alphabet.aria": "Índice alfabético de aplicaciones",
   "catalog.alphabet.letter": "Ir a la letra {letter}, {count} aplicaciones",
   "catalog.alphabet.empty": "No hay aplicaciones que empiecen por {letter}",

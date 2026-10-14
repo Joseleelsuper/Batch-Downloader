@@ -10,12 +10,28 @@ from app.database import Database
 
 
 @pytest.mark.asyncio
-async def test_startup_migrates_before_serving(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("has_active_model", [True, False])
+async def test_startup_migrates_before_serving(
+    monkeypatch: pytest.MonkeyPatch, has_active_model: bool,
+) -> None:
     database = Mock(spec=Database)
+    runtime = Mock()
+    model = Mock()
     monkeypatch.setattr(http_context, "database", database)
+    monkeypatch.setattr(
+        http_context.store, "active_model",
+        lambda: (model, "index-v1") if has_active_model else None,
+    )
+    monkeypatch.setattr(
+        http_context, "runtime_for", lambda active: runtime if active is model else None,
+    )
 
     async with http_context.lifespan(FastAPI()):
         assert database.mock_calls == [call.open(), call.migrate(), call.verify_schema()]
+        if has_active_model:
+            runtime.warmup.assert_called_once_with()
+        else:
+            runtime.warmup.assert_not_called()
 
     assert database.mock_calls[-1] == call.close()
 

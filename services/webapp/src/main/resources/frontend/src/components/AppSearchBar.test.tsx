@@ -33,6 +33,26 @@ describe('AppSearchBar', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
+  it('offers relevance ordering for semantic search', () => {
+    const onSortChange = vi.fn();
+    render(
+      <AppSearchBar
+        value="editor de código"
+        sort="downloads"
+        searchMode="semantic"
+        onChange={vi.fn()}
+        onSortChange={onSortChange}
+        onSearchModeChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar orden' }));
+    expect(screen.getByText(/aplicaciones más similares dentro del umbral/)).toBeVisible();
+    fireEvent.click(screen.getByRole('option', { name: /Relevancia/ }));
+
+    expect(onSortChange).toHaveBeenCalledWith('relevance');
+  });
+
   it('supports arrow, home, end and escape navigation in the sort listbox', async () => {
     render(
       <AppSearchBar
@@ -51,13 +71,13 @@ describe('AppSearchBar', () => {
     await waitFor(() => expect(options[0]).toHaveFocus());
 
     fireEvent.keyDown(options[0], { key: 'End' });
-    await waitFor(() => expect(options[2]).toHaveFocus());
-    fireEvent.keyDown(options[2], { key: 'Home' });
+    await waitFor(() => expect(options[3]).toHaveFocus());
+    fireEvent.keyDown(options[3], { key: 'Home' });
     await waitFor(() => expect(options[0]).toHaveFocus());
     fireEvent.keyDown(options[0], { key: 'ArrowUp' });
-    await waitFor(() => expect(options[2]).toHaveFocus());
+    await waitFor(() => expect(options[3]).toHaveFocus());
 
-    fireEvent.keyDown(options[2], { key: 'Escape' });
+    fireEvent.keyDown(options[3], { key: 'Escape' });
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
   });

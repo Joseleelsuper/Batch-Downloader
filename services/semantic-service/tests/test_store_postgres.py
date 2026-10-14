@@ -94,6 +94,7 @@ async def test_api_startup_applies_pending_migration_only_once(
         for restart in range(2):
             startup_database = Database(database.settings)
             monkeypatch.setattr(http_context, "database", startup_database)
+            monkeypatch.setattr(http_context, "store", SemanticStore(startup_database))
             async with http_context.lifespan(FastAPI()):
                 startup_database.verify_schema()
                 if restart == 0:
