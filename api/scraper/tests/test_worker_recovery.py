@@ -25,10 +25,11 @@ from app.scraper.pipeline_runtime import PipelineRuntime
         (
             OperationalError(None, None, Exception(1213, "deadlock")),
             "mysql_lock_retry",
-            "OperationalError",
+            "OperationalError (MySQL 1213): MySQL transaction deadlocked",
         ),
-        (OperationalError(None, None, Exception(9999, "other")), None, "OperationalError"),
-        (ValueError("invalid"), None, "ValueError"),
+        (OperationalError(None, None, Exception(9999, "other")), None,
+         "OperationalError (MySQL 9999): database operation failed"),
+        (ValueError("invalid"), None, "ValueError: invalid"),
     ],
 )
 async def test_retry_classification_delay_and_terminal_counters(

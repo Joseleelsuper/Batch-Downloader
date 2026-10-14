@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.admin;
 
 import es.ubu.batchdownloader.admin.AdminAuditDtos.AdminAuditItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperFailedItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperEvent;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperCommandRequest;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueMaintenanceResult;
@@ -126,8 +127,16 @@ public class AdminScraperController {
      * @return proyección administrativa del estado persistido.
      */
     @GetMapping("/api/v1/admin/scraper/logs")
-    public List<ResolverLogItem> logs(@RequestParam(defaultValue = "120") int limit) {
-        return scraper.logs(limit);
+    public List<ResolverLogItem> logs(
+            @RequestParam(defaultValue = "120") int limit,
+            @RequestParam(defaultValue = "false") boolean issuesOnly) {
+        return scraper.logs(limit, issuesOnly);
+    }
+
+    /** @return trabajos todavía fallidos con el motivo y la etapa que los produjo. */
+    @GetMapping("/api/v1/admin/scraper/failed-items")
+    public List<ScraperFailedItem> failedItems(@RequestParam(defaultValue = "30") int limit) {
+        return scraper.failedItems(limit);
     }
 
     /**

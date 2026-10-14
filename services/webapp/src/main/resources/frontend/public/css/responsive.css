@@ -166,6 +166,11 @@
     grid-template-columns: 1fr;
   }
 
+  .scraper-activity-heading {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
   .admin-shell {
     display: block;
   }

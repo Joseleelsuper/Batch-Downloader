@@ -274,6 +274,54 @@ async def test_stale_scrape_is_cancelled_before_its_lock_is_released(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_scrape_failure_before_workers_persists_its_cause(monkeypatch) -> None:
+    """Un fallo de preparación también cierra el run y deja visible su motivo."""
+    summaries: list[str] = []
+
+    class SessionContext:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def rollback(self) -> None:
+            return None
+
+        async def commit(self) -> None:
+            return None
+
+    class RepositoryStub:
+        def __init__(self, _session, _settings) -> None:
+            pass
+
+        async def fail_running_request(self, _request_id, summary: str) -> None:
+            summaries.append(summary)
+
+    class FetcherStub:
+        def __init__(self, _settings, _session) -> None:
+            pass
+
+        async def scrape_once(self, **_kwargs) -> None:
+            raise RuntimeError("Preparation failed")
+
+    monkeypatch.setattr(worker, "AsyncSessionLocal", SessionContext)
+    monkeypatch.setattr(worker, "ScrapeRunRepository", RepositoryStub)
+    monkeypatch.setattr(worker, "CatalogFetcher", FetcherStub)
+
+    with pytest.raises(RuntimeError, match="Preparation failed"):
+        await worker.execute_scrape_with_watchdog(
+            object(),
+            SessionContext(),
+            request_id=uuid4(),
+            scope=worker.ScrapeScope.INCREMENTAL,
+            selected_app_ids=[],
+        )
+
+    assert summaries == ["RuntimeError: Preparation failed"]
+
+
+@pytest.mark.asyncio
 async def test_enrichment_consumer_retries_pool_timeout() -> None:
     """Comprueba que la contención transitoria no termine el scheduler completo."""
     supervisor = worker.ContentEnrichmentSupervisor.__new__(

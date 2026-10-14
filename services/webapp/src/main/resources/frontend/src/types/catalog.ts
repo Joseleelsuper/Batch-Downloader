@@ -423,6 +423,16 @@ export interface ResolverLogItem {
   createdAt: string;
 }
 
+export interface ScraperFailedItem {
+  id: string;
+  queue: string;
+  packageId: string;
+  appName?: string | null;
+  attempts: number;
+  lastError?: string | null;
+  updatedAt: string;
+}
+
 export interface ScraperQueueItem {
   id: string;
   packageId: string;

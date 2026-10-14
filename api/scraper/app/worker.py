@@ -56,6 +56,7 @@ from app.scraper.installer_policy import (
 )
 from app.scraper.manual_installer import ManualInstallerWorker
 from app.scraper.pipeline_runtime import is_transient_mysql_lock_error
+from app.scraper.pipeline_support import safe_run_failure_summary
 from app.scraper.validator import DownloadValidator
 from app.scraper.website_discovery import WebsiteAppDiscoveryWorker
 from app.scraper.winstall import WinstallClient
@@ -467,9 +468,14 @@ async def execute_scrape_with_watchdog(
         raise
     except StaleScrapeRecoveryError:
         raise
-    except Exception:
+    except Exception as exc:
         if not scrape_task.done():
             await cancel_scrape_task(scrape_task, str(request_id))
+        await session.rollback()
+        async with AsyncSessionLocal() as cleanup_session:
+            repository = ScrapeRunRepository(cleanup_session, settings)
+            await repository.fail_running_request(request_id, safe_run_failure_summary(exc))
+            await cleanup_session.commit()
         raise
 
 

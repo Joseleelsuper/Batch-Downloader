@@ -11,7 +11,7 @@ from app.core.config import Settings
 from app.core.logging import get_logger
 from app.db.models import ScraperWorkItem
 from app.scraper.pipeline_runtime import PipelineRuntime, is_transient_mysql_lock_error
-from app.scraper.pipeline_support import exception_detail, finish_item
+from app.scraper.pipeline_support import exception_detail, finish_item, safe_run_failure_summary
 
 logger = get_logger(__name__)
 
@@ -43,7 +43,16 @@ async def recover_worker_failure(
             attempts=item.attempts,
         )
         return
-    await finish_item(settings, item, "fail", terminal_reason)
+    failure_summary = (
+        terminal_reason if terminal_reason == "database_pool_timeout"
+        else safe_run_failure_summary(error)
+    )
+    await finish_item(
+        settings,
+        item,
+        "fail",
+        failure_summary,
+    )
     await runtime.increment("apps_failed")
     await runtime.increment("apps_transient_failed")
     error_name = (

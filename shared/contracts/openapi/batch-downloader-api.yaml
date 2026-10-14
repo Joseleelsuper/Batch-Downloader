@@ -2030,6 +2030,43 @@ paths:
           type: integer
           format: int32
           default: 120
+      - name: issuesOnly
+        in: query
+        required: false
+        description: Filtra fallos, rechazos y resultados que requieren revisión.
+        schema:
+          type: boolean
+          default: false
+      x-required-roles:
+      - ADMIN
+  /admin/scraper/failed-items:
+    get:
+      operationId: listScraperFailedItems
+      summary: Consultar trabajos del pipeline que siguen fallidos
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN.
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 30
+      responses:
+        '200':
+          description: Trabajos fallidos con etapa y último motivo persistido.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScraperFailedItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
       x-required-roles:
       - ADMIN
   /admin/scraper/queues:
@@ -4277,6 +4314,24 @@ components:
         safeMetadata:
           type: string
         createdAt:
+          type: string
+          format: date-time
+    ScraperFailedItem:
+      type: object
+      properties:
+        id:
+          type: string
+        queue:
+          type: string
+        packageId:
+          type: string
+        appName:
+          type: [string, 'null']
+        attempts:
+          type: integer
+        lastError:
+          type: [string, 'null']
+        updatedAt:
           type: string
           format: date-time
     ScraperQueueState:

@@ -11,6 +11,7 @@ vi.mock('../../api/scraperAdmin', () => ({
   createScraperRun: vi.fn(),
   enqueueMissingScraperDescriptions: vi.fn(),
   fetchAdminCurrentRun: vi.fn(),
+  fetchAdminFailedItems: vi.fn(),
   fetchAdminLogs: vi.fn(),
   fetchAdminQueues: vi.fn(),
   fetchAdminRuns: vi.fn(),
@@ -44,6 +45,7 @@ describe('AdminScraperPage', () => {
     vi.mocked(scraperAdminApi.fetchAdminCurrentRun).mockResolvedValue(latestRun);
     vi.mocked(scraperAdminApi.fetchAdminRuns).mockResolvedValue([latestRun]);
     vi.mocked(scraperAdminApi.fetchAdminLogs).mockResolvedValue([]);
+    vi.mocked(scraperAdminApi.fetchAdminFailedItems).mockResolvedValue([]);
     vi.mocked(scraperAdminApi.fetchAdminQueues).mockResolvedValue([]);
   });
 
@@ -56,8 +58,8 @@ describe('AdminScraperPage', () => {
     const { container } = render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
 
     const status = container.querySelector('.scraper-status');
-    await waitFor(() => expect(status).toHaveTextContent('completed'));
-    expect(within(status as HTMLElement).getByText('completed')).toBeInTheDocument();
+    await waitFor(() => expect(status).toHaveTextContent('Completada'));
+    expect(within(status as HTMLElement).getByText('Completada')).toBeInTheDocument();
     expect(status).toHaveTextContent('Inicio');
     expect(status).toHaveTextContent(formatDate(`${latestRun.startedAt}Z`));
     expect(status).toHaveTextContent('Fin');
@@ -95,8 +97,67 @@ describe('AdminScraperPage', () => {
 
     const { container } = render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
 
-    await waitFor(() => expect(container.querySelector('.scraper-status')).toHaveTextContent('running'));
+    await waitFor(() => expect(container.querySelector('.scraper-status')).toHaveTextContent('En curso'));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('explica el fallo y permite ver incidencias antiguas con sus diagnósticos', async () => {
+    const failedRun = {
+      ...latestRun,
+      status: 'failed',
+      currentPhase: 'failed',
+      errorSummary: 'OperationalError (MySQL 1038): MySQL ran out of sort memory',
+    } satisfies ScraperRunSummary;
+    vi.mocked(scraperAdminApi.fetchAdminCurrentRun).mockResolvedValue(failedRun);
+    vi.mocked(scraperAdminApi.fetchAdminRuns).mockResolvedValue([failedRun]);
+    vi.mocked(scraperAdminApi.fetchAdminFailedItems).mockResolvedValue([{
+      id: 'item-1', queue: 'filter_scraper', packageId: 'Vendor.App', appName: 'Vendor App',
+      attempts: 4, lastError: 'TimeoutError: validation timed out', updatedAt: latestRun.startedAt,
+    }]);
+    vi.mocked(scraperAdminApi.fetchAdminLogs).mockResolvedValue([{
+      id: 'log-1', phase: 'resolve', status: 'rejected',
+      message: 'No safe installer candidate was found.',
+      safeMetadata: JSON.stringify({
+        winstall_id: 'Vendor.App',
+        candidate_diagnostics: {
+          direct: { discovered: 3, eligible: 2, attempted: 2, valid: 0,
+            rejected: { invalid_content_type: 2 } },
+        },
+      }),
+      createdAt: latestRun.startedAt,
+    }]);
+
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+
+    expect(await screen.findAllByText(/La base de datos agotó la memoria/)).toHaveLength(2);
+    expect(screen.getByText('TimeoutError: validation timed out')).toBeInTheDocument();
+    expect(screen.getByText('Vendor App')).toBeInTheDocument();
+    await waitFor(() => expect(scraperAdminApi.fetchAdminLogs).toHaveBeenCalledWith(true));
+    fireEvent.click(screen.getByText('No se encontró ningún candidato de instalador seguro.'));
+    expect(screen.getByText(/invalid content type \(2\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Toda la actividad' }));
+    await waitFor(() => expect(scraperAdminApi.fetchAdminLogs).toHaveBeenCalledWith(false));
+  });
+
+  it('explica una ejecución parcial y el agotamiento del pool de base de datos', async () => {
+    const partialRun = {
+      ...latestRun,
+      status: 'partial',
+      appsTransientFailed: 2,
+      appsFailed: 2,
+    } satisfies ScraperRunSummary;
+    vi.mocked(scraperAdminApi.fetchAdminCurrentRun).mockResolvedValue(partialRun);
+    vi.mocked(scraperAdminApi.fetchAdminRuns).mockResolvedValue([partialRun]);
+    vi.mocked(scraperAdminApi.fetchAdminFailedItems).mockResolvedValue([{
+      id: 'item-2', queue: 'filter_scraper', packageId: 'Vendor.App',
+      attempts: 4, lastError: 'database_pool_timeout', updatedAt: latestRun.startedAt,
+    }]);
+
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+
+    expect(await screen.findAllByText(/2 aplicaciones tuvieron fallos temporales/)).toHaveLength(2);
+    expect(screen.getByText('El pool de conexiones de la base de datos agotó el tiempo de espera.'))
+      .toBeInTheDocument();
   });
 
   it('encola todas las páginas y muestra el total acumulado', async () => {

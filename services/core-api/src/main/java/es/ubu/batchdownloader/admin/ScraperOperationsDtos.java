@@ -148,6 +148,24 @@ public final class ScraperOperationsDtos {
             LocalDateTime createdAt) {}
 
     /**
+     * @param id Identificador del trabajo fallido.
+     * @param queue Etapa del pipeline que falló.
+     * @param packageId Paquete procesado.
+     * @param appName Nombre visible de la aplicación, si se conoce.
+     * @param attempts Intentos efectuados.
+     * @param lastError Motivo seguro persistido por el worker.
+     * @param updatedAt Momento del último fallo.
+     */
+    public record ScraperFailedItem(
+            String id,
+            String queue,
+            String packageId,
+            String appName,
+            int attempts,
+            String lastError,
+            LocalDateTime updatedAt) {}
+
+    /**
      * Resume identidad, aplicación, estado e intentos de un elemento persistente de cola.
      *
      * @param id UUID estable del registro, inspección, ejecución o propuesta representada.

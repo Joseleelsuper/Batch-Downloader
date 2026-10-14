@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as downloadsApi from '../api/downloads';
 import { ApiRequestError } from '../api/http';
 import * as delivery from './delivery';
+import { GlobalDownloadJobOverlay } from './GlobalDownloadJobOverlay';
 import type { DownloadJob } from '../types/catalog';
 import {
   DownloadJobsProvider,
@@ -457,6 +458,61 @@ describe('DownloadJobsProvider', () => {
     expect(screen.getByTestId('state')).toHaveTextContent('"connectionError":true');
     act(() => reportError?.(new ApiRequestError(404, 'not_found')));
     expect(screen.getByTestId('state')).not.toHaveTextContent(JOB_ID);
+  });
+
+  it.each(['READY', 'FAILED'] as const)(
+    'conserva el resultado %s tras la limpieza del servidor y una recarga hasta que se cierre',
+    async (status) => {
+      let pushJob!: (value: DownloadJob) => void;
+      let reportError!: (cause?: unknown) => void;
+      vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
+      vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockResolvedValue({ url: '/job.zip' });
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+      vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockImplementation((_id, onJob, onError) => {
+        pushJob = onJob;
+        reportError = onError ?? (() => undefined);
+        return vi.fn();
+      });
+
+      const view = render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
+      fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+      await waitFor(() => expect(pushJob).toBeDefined());
+      const terminalJob = job(status, 100);
+      if (status === 'FAILED') {
+        terminalJob.failureCode = 'all_items_failed';
+        terminalJob.items[0].status = 'FAILED';
+        terminalJob.items[0].errorCode = 'remote_http_404';
+      }
+      act(() => pushJob(terminalJob));
+      expect(screen.getByRole('button', { name: 'Cerrar' })).toBeInTheDocument();
+      act(() => reportError(new ApiRequestError(404, 'download_job_not_found')));
+      expect(screen.getByRole('button', { name: 'Cerrar' })).toBeInTheDocument();
+
+      view.unmount();
+      render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
+      act(() => reportError(new ApiRequestError(404, 'download_job_not_found')));
+      expect(screen.getByTestId('status')).toHaveTextContent(status);
+      if (status === 'FAILED') {
+        expect(screen.getByText('Problema del servicio de descarga')).toBeInTheDocument();
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
+      expect(screen.queryByRole('button', { name: 'Cerrar' })).not.toBeInTheDocument();
+      expect(window.sessionStorage.getItem('batch-downloader.download-jobs.v1')).toBe('[]');
+    },
+  );
+
+  it('conserva el resultado si el ZIP ya no está disponible al intentar entregarlo', async () => {
+    vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('READY', 100));
+    vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockRejectedValue(
+      new ApiRequestError(404, 'download_job_not_found'),
+    );
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(vi.fn());
+    render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await waitFor(() => expect(screen.getByTestId('action-error')).not.toBeEmptyDOMElement());
+    expect(screen.getByTestId('status')).toHaveTextContent('READY');
+    expect(screen.getByRole('button', { name: 'Cerrar' })).toBeInTheDocument();
   });
 
 });
