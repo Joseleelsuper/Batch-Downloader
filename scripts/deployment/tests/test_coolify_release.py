@@ -209,7 +209,17 @@ class CoolifyReleaseTest(unittest.TestCase):
         self.assertEqual(release, client.current_commit)
         self.assertEqual(f"sha-{release}", client.values["GHCR_IMAGE_TAG"])
         self.assertEqual(1, client.deployments)
-        self.assertEqual(2, smoke.call_count)
+        self.assertEqual(
+            [
+                mock.call((
+                    "https://batchdownloader.dev/healthz",
+                    "https://batchdownloader.dev/api/v1/locales/es",
+                    "https://downloads.batchdownloader.dev/healthz",
+                )),
+                mock.call(coolify_release.DEFAULT_URLS),
+            ],
+            smoke.call_args_list,
+        )
 
     def test_smoke_waits_for_new_containers_to_be_ready(self) -> None:
         with mock.patch.object(
@@ -230,7 +240,7 @@ class CoolifyReleaseTest(unittest.TestCase):
                 coolify_release,
                 "run_smoke",
                 side_effect=[None, RuntimeError("new version failed"), None],
-            ),
+            ) as smoke,
             self.assertRaises(coolify_release.ReleaseError),
         ):
             coolify_release.perform_release(
@@ -240,6 +250,7 @@ class CoolifyReleaseTest(unittest.TestCase):
         self.assertEqual(previous, client.current_commit)
         self.assertEqual(f"sha-{previous}", client.values["GHCR_IMAGE_TAG"])
         self.assertEqual(2, client.deployments)
+        self.assertEqual(smoke.call_args_list[0], smoke.call_args_list[2])
 
     def test_cancelled_by_user_is_terminal_failure(self) -> None:
         client = mock.Mock()
