@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 DEFAULT_URLS = (
     "https://batchdownloader.dev/healthz",
     "https://batchdownloader.dev/api/v1/locales/es",
+    "https://batchdownloader.dev/api/v1/locales/en",
     "https://downloads.batchdownloader.dev/healthz",
 )
 

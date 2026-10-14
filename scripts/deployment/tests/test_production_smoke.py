@@ -28,6 +28,7 @@ class ProductionSmokeTest(unittest.TestCase):
         urls = (
             "https://example.test/healthz",
             "https://example.test/api/v1/locales/es",
+            "https://example.test/api/v1/locales/en",
         )
         with (
             mock.patch.object(
@@ -40,7 +41,7 @@ class ProductionSmokeTest(unittest.TestCase):
             production_smoke.run_smoke(urls)
 
         certificate.assert_called_once_with("example.test", 443, 15)
-        self.assertEqual(2, check.call_count)
+        self.assertEqual(3, check.call_count)
 
     def test_rejects_certificate_near_expiry(self) -> None:
         with (
