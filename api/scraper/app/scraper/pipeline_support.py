@@ -5,6 +5,7 @@ pipeline.
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -305,6 +306,45 @@ def exception_detail(exc: Exception) -> str:
     if isinstance(exc, StatementError) and exc.orig is not None:
         return truncate_text(f"{exc.orig.__class__.__name__}: {exc.orig}", 1200) or ""
     return truncate_text(str(exc), 1200) or ""
+
+
+def safe_run_failure_summary(exc: BaseException) -> str:
+    """Conserva una causa legible sin publicar SQL, URL ni credenciales en el panel admin."""
+    error_type = exc.__class__.__name__
+    if isinstance(exc, StatementError):
+        arguments = getattr(exc.orig, "args", ())
+        code = arguments[0] if arguments and isinstance(arguments[0], int) else None
+        database_reasons = {
+            1038: "MySQL ran out of sort memory",
+            1040: "MySQL has too many connections",
+            1045: "MySQL authentication failed",
+            1054: "MySQL column is missing",
+            1062: "MySQL duplicate key",
+            1146: "MySQL table is missing",
+            1205: "MySQL lock wait timed out",
+            1213: "MySQL transaction deadlocked",
+            1406: "MySQL value exceeds column length",
+            2003: "Could not connect to MySQL",
+            2013: "MySQL connection was lost",
+        }
+        if code is not None:
+            reason = database_reasons.get(code, "database operation failed")
+            return f"{error_type} (MySQL {code}): {reason}"
+        return f"{error_type}: database operation failed"
+
+    detail = str(exc).strip()
+    if not detail:
+        return error_type
+    detail = re.sub(r"https?://[^\s\"'<>]+", "[URL omitted]", detail, flags=re.I)
+    detail = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[email omitted]", detail)
+    detail = re.sub(r"\b(Bearer|Basic)\s+[^\s,;]+", r"\1 [redacted]", detail, flags=re.I)
+    detail = re.sub(
+        r"\b(password|token|secret|api[_-]?key)\s*[=:]\s*[^\s,;]+",
+        r"\1=[redacted]",
+        detail,
+        flags=re.I,
+    )
+    return truncate_text(f"{error_type}: {' '.join(detail.split())}", 1000) or error_type
 
 
 def truncate_text(value: object, max_length: int) -> str | None:

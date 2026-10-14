@@ -1,6 +1,7 @@
 import type {
   ContentEnqueueResult,
   ResolverLogItem,
+  ScraperFailedItem,
   ScraperEvent,
   ScraperQueueMaintenanceResult,
   ScraperQueueState,
@@ -28,8 +29,12 @@ export function createScraperRun(
   });
 }
 
-export function fetchAdminLogs(): Promise<ResolverLogItem[]> {
-  return requestJson('/api/v1/admin/scraper/logs');
+export function fetchAdminLogs(issuesOnly = false): Promise<ResolverLogItem[]> {
+  return requestJson(`/api/v1/admin/scraper/logs?issuesOnly=${issuesOnly}`);
+}
+
+export function fetchAdminFailedItems(): Promise<ScraperFailedItem[]> {
+  return requestJson('/api/v1/admin/scraper/failed-items');
 }
 
 export function fetchAdminQueues(): Promise<ScraperQueueState[]> {

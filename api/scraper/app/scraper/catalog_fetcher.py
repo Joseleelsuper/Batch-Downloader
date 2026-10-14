@@ -30,6 +30,7 @@ from app.scraper.pipeline_runtime import (
 from app.scraper.pipeline_support import (
     first_task_failure,
     is_stale_control_command,
+    safe_run_failure_summary,
 )
 from app.scraper.platform_worker import PlatformScraperWorker
 from app.scraper.searcher_worker import SearcherWorker
@@ -165,7 +166,7 @@ class CatalogFetcher:
         await self.runs.finish(
             run_id,
             final_status,
-            error_summary=worker_error.__class__.__name__
+            error_summary=safe_run_failure_summary(worker_error)
             if worker_error
             else ("Stopped by admin command" if runtime.stopped_by_command else None),
             **runtime.counters.__dict__,
@@ -175,7 +176,7 @@ class CatalogFetcher:
                 request_id,
                 status=final_status.value,
                 message=(
-                    worker_error.__class__.__name__
+                    safe_run_failure_summary(worker_error)
                     if worker_error
                     else "Stopped by admin command"
                     if runtime.stopped_by_command

@@ -51,6 +51,7 @@ from app.scraper.pipeline_support import (
     first_task_failure,
     is_stale_control_command,
     provider_snapshot_absence_outcome,
+    safe_run_failure_summary,
 )
 from app.scraper.platform_worker import PlatformScraperWorker
 from app.scraper.searcher_worker import SearcherWorker
@@ -1105,6 +1106,36 @@ def test_task_group_error_is_unwrapped_to_its_actionable_cause() -> None:
     )
 
     assert first_task_failure(grouped) is root_cause
+
+
+def test_run_failure_summary_keeps_database_cause_without_sql_or_secrets() -> None:
+    error = OperationalError(
+        "SELECT secret FROM catalog WHERE token = :token",
+        {"token": "private-value"},
+        Exception(1038, "Out of sort memory"),
+    )
+
+    summary = safe_run_failure_summary(error)
+
+    assert "MySQL 1038" in summary
+    assert "sort memory" in summary
+    assert "private-value" not in summary
+    assert "SELECT" not in summary
+
+
+def test_run_failure_summary_redacts_urls_and_tokens_from_other_errors() -> None:
+    summary = safe_run_failure_summary(
+        RuntimeError(
+            "GET https://vendor.example/download?key=private token=hidden "
+            "Authorization: Bearer another-secret failed"
+        )
+    )
+
+    assert "[URL omitted]" in summary
+    assert "token=[redacted]" in summary
+    assert "private" not in summary
+    assert "hidden" not in summary
+    assert "another-secret" not in summary
 
 
 @pytest.mark.asyncio

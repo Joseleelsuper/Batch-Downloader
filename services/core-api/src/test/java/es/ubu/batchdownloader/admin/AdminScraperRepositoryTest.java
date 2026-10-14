@@ -10,6 +10,7 @@ import static org.mockito.Mockito.times;
 
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperFailedItem;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -54,6 +55,61 @@ class AdminScraperRepositoryTest {
 
         assertThat(logs).extracting(ResolverLogItem::id)
                 .containsExactly(newest.toString(), middle.toString());
+    }
+
+    /** Los eventos completados recientes no ocultan incidencias más antiguas. */
+    @Test
+    void logsCanSelectIssuesAcrossCompletedActivity() {
+        String database = "jdbc:h2:mem:resolver-issues-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1";
+        JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(database, "sa", ""));
+        jdbc.execute("""
+                CREATE TABLE resolver_logs (
+                    id BINARY(16) PRIMARY KEY,
+                    phase VARCHAR(50), status VARCHAR(32), message VARCHAR(2000),
+                    safe_metadata CLOB, created_at TIMESTAMP
+                )
+                """);
+        UUID issue = UUID.randomUUID();
+        UUID review = UUID.randomUUID();
+        jdbc.update("INSERT INTO resolver_logs VALUES (?, 'validate', 'rejected', 'invalid', '{}', ?)",
+                UuidBytes.fromUuid(issue), Timestamp.valueOf("2026-10-13 10:00:00"));
+        jdbc.update("INSERT INTO resolver_logs VALUES (?, 'provider', 'needs_review', 'missing', '{}', ?)",
+                UuidBytes.fromUuid(review), Timestamp.valueOf("2026-10-13 10:00:00.5"));
+        for (int index = 1; index <= 4; index++) {
+            jdbc.update("INSERT INTO resolver_logs VALUES (?, 'descriptor', 'completed', NULL, '{}', ?)",
+                    UuidBytes.fromUuid(UUID.randomUUID()),
+                    Timestamp.valueOf("2026-10-13 10:00:0" + index));
+        }
+
+        assertThat(new AdminScraperRepository(jdbc, Clock.systemUTC()).logs(2, true))
+                .extracting(ResolverLogItem::id).containsExactly(review.toString(), issue.toString());
+    }
+
+    /** El panel puede leer la causa persistida de trabajos terminales, fuera de la muestra activa. */
+    @Test
+    void failedItemsExposeStageAndLastError() {
+        String database = "jdbc:h2:mem:scraper-failed-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1";
+        JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(database, "sa", ""));
+        jdbc.execute("""
+                CREATE TABLE scraper_work_items (
+                    id BINARY(16) PRIMARY KEY, queue VARCHAR(32), package_id VARCHAR(180),
+                    app_name VARCHAR(180), status VARCHAR(32), attempts INTEGER,
+                    last_error VARCHAR(1000), updated_at TIMESTAMP
+                )
+                """);
+        UUID failed = UUID.randomUUID();
+        jdbc.update("INSERT INTO scraper_work_items VALUES (?, 'filter_scraper', 'Vendor.App', "
+                        + "'Vendor App', 'failed', 4, 'TimeoutError: validation timed out', ?)",
+                UuidBytes.fromUuid(failed), Timestamp.valueOf("2026-10-13 10:00:00"));
+        jdbc.update("INSERT INTO scraper_work_items VALUES (?, 'filter_scraper', 'Other.App', "
+                        + "'Other App', 'completed', 1, NULL, ?)",
+                UuidBytes.fromUuid(UUID.randomUUID()), Timestamp.valueOf("2026-10-13 10:00:01"));
+
+        List<ScraperFailedItem> items = new AdminScraperRepository(jdbc, Clock.systemUTC())
+                .failedItems(30);
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).queue()).isEqualTo("filter_scraper");
+        assertThat(items.get(0).lastError()).contains("validation timed out");
     }
 
     /** La consulta de ejecución actual aprovecha los índices y evita ordenar el historial completo. */

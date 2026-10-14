@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.admin;
 
 import es.ubu.batchdownloader.admin.AdminAuditDtos.AdminAuditItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ResolverLogItem;
+import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperFailedItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperEvent;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueItem;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperQueueState;
@@ -120,13 +121,26 @@ public class AdminScraperRepository {
      * @return registros por fecha descendente.
      */
     public List<ResolverLogItem> logs(int limit) {
+        return logs(limit, false);
+    }
+
+    /**
+     * Consulta actividad reciente o únicamente resultados que requieren atención sin dejar que
+     * los eventos completados oculten incidencias anteriores.
+     *
+     * @param limit Máximo de registros solicitado.
+     * @param issuesOnly Si es true, incluye fallos, rechazos y revisiones pendientes.
+     * @return registros por fecha descendente.
+     */
+    public List<ResolverLogItem> logs(int limit, boolean issuesOnly) {
+        String issueFilter = issuesOnly
+                ? "WHERE status IN ('failed', 'transient_failed', 'rejected', "
+                        + "'requires_manual_review', 'needs_review', 'missing', 'broken', "
+                        + "'expired_incompatible') "
+                : "";
         List<UUID> ids = jdbc.query(
-                """
-                SELECT id
-                FROM resolver_logs
-                ORDER BY created_at DESC, id DESC
-                LIMIT ?
-                """,
+                "SELECT id FROM resolver_logs " + issueFilter
+                        + "ORDER BY created_at DESC, id DESC LIMIT ?",
                 (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("id")),
                 Math.max(1, Math.min(limit, 500)));
         if (ids.isEmpty()) {
@@ -147,6 +161,27 @@ public class AdminScraperRepository {
         Map<String, ResolverLogItem> byId = new LinkedHashMap<>();
         details.forEach(item -> byId.put(item.id(), item));
         return ids.stream().map(id -> byId.get(id.toString())).filter(Objects::nonNull).toList();
+    }
+
+    /** Devuelve trabajos que siguen fallidos, con el último motivo registrado por su worker. */
+    public List<ScraperFailedItem> failedItems(int limit) {
+        return jdbc.query(
+                """
+                SELECT id, queue, package_id, app_name, attempts, last_error, updated_at
+                FROM scraper_work_items
+                WHERE status = 'failed'
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """,
+                (rs, rowNum) -> new ScraperFailedItem(
+                        UuidBytes.toUuid(rs.getBytes("id")).toString(),
+                        rs.getString("queue"),
+                        rs.getString("package_id"),
+                        rs.getString("app_name"),
+                        rs.getInt("attempts"),
+                        rs.getString("last_error"),
+                        rs.getTimestamp("updated_at").toLocalDateTime()),
+                Math.max(1, Math.min(limit, 100)));
     }
 
     /**

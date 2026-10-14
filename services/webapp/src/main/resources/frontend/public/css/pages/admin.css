@@ -139,6 +139,111 @@
   overflow-wrap: anywhere;
 }
 
+.scraper-failure {
+  background: #fff7f7;
+  border-color: #e9c4c7;
+  color: #7f1d2d;
+}
+
+.scraper-failure p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.scraper-activity {
+  min-width: 0;
+}
+
+.scraper-activity-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.scraper-log-filters {
+  display: flex;
+  gap: 6px;
+}
+
+.scraper-log-filters button {
+  padding: 7px 12px;
+  color: #344052;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.scraper-log-filters button[aria-pressed="true"] {
+  color: var(--teal-dark);
+  background: var(--teal-soft);
+  border-color: var(--teal);
+  font-weight: 680;
+}
+
+.scraper-log-filters button:focus-visible,
+.scraper-activity-item summary:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.scraper-activity-item {
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.scraper-activity-item:first-of-type {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.scraper-activity-item summary {
+  cursor: pointer;
+}
+
+.scraper-activity-heading {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) auto;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.scraper-activity-heading strong {
+  color: #1f2937;
+}
+
+.scraper-activity-heading time {
+  color: #4b5563;
+  white-space: nowrap;
+}
+
+.scraper-activity-message,
+.scraper-activity-item p {
+  display: block;
+  max-width: 90ch;
+  margin: 8px 0 0;
+  color: #344052;
+  overflow-wrap: anywhere;
+}
+
+.scraper-activity-detail {
+  padding: 4px 0 0 20px;
+}
+
+.scraper-diagnostics {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.scraper-diagnostics > div {
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
 .scraper-status-progress {
   grid-column: 1 / -1;
   padding-top: 12px;
