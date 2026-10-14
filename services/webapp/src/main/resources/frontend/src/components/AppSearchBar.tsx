@@ -31,7 +31,7 @@ export function AppSearchBar({
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
   const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const sortOptions: SortKey[] = ['downloads', 'updated', 'name'];
+  const sortOptions: SortKey[] = ['downloads', 'updated', 'name', 'relevance'];
 
   function focusSortOption(index: number) {
     const normalizedIndex = Math.max(0, Math.min(sortOptions.length - 1, index));

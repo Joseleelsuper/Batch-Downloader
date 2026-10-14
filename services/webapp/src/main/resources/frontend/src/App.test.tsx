@@ -199,6 +199,33 @@ describe('catalog workspace', () => {
     });
   });
 
+  it('runs speculative catalog requests one at a time after a semantic search', async () => {
+    const response: CatalogResponse = {
+      data: [], page: 1, pageSize: 12, total: 30, alphabet: [],
+    };
+    let releasePrefetch: ((value: CatalogResponse) => void) | undefined;
+    const heldPrefetch = new Promise<CatalogResponse>((resolve) => {
+      releasePrefetch = resolve;
+    });
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue(response)
+      .mockResolvedValueOnce(response)
+      .mockImplementationOnce(() => heldPrefetch);
+
+    render(
+      <MemoryRouter initialEntries={['/catalog?query=editor&searchMode=semantic']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(2));
+    await act(async () => { await Promise.resolve(); });
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(2);
+    expect(catalogAppsApi.fetchCatalogFacets).not.toHaveBeenCalled();
+
+    await act(async () => { releasePrefetch?.(response); });
+    await waitFor(() => expect(catalogAppsApi.fetchCatalogFacets).toHaveBeenCalledTimes(1));
+  });
+
   it('shows the alphabet only for name ordering and jumps to the first page of a letter', async () => {
     vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({
       data: [],

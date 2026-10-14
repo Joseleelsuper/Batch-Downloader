@@ -55,11 +55,19 @@ const DEFAULT_COUNTS: Record<FilterKey, number> = {
 };
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 const CATALOG_REFRESH_INTERVAL_MS = 5_000;
-const PREFETCH_SORTS: SortKey[] = ['downloads', 'updated', 'name'];
+const PREFETCH_SORTS: SortKey[] = ['downloads', 'updated', 'name', 'relevance'];
 const PREFETCH_FILTERS: FilterKey[] = ['all', 'available', 'review', 'missing'];
 const PAGE_CACHE_TTL_MS = 15_000;
 const pageCache = new Map<string, { response: CatalogResponse; loadedAt: number }>();
 const pendingPages = new Map<string, Promise<CatalogResponse>>();
+const queuedPages = new Set<string>();
+let prefetchTail: Promise<unknown> = Promise.resolve();
+
+function enqueuePrefetch<T>(task: () => Promise<T>): Promise<T> {
+  const queued = prefetchTail.then(task);
+  prefetchTail = queued.catch(() => undefined);
+  return queued;
+}
 
 export function clearCatalogPageCache() {
   pageCache.clear();
@@ -81,14 +89,22 @@ function cachePage(key: string, response: CatalogResponse) {
 
 function prefetchCatalogPage(filters: CatalogFilterState, signal?: AbortSignal) {
   const key = catalogFiltersToSearchParams(filters).toString();
-  if (cachedPage(key) || pendingPages.has(key)) return;
-  const pending = fetchApps(appRequest(filters), signal);
-  pendingPages.set(key, pending);
-  void pending.then((response) => {
-    if (pendingPages.get(key) === pending) cachePage(key, response);
-  }).catch(() => undefined).finally(() => {
-    if (pendingPages.get(key) === pending) pendingPages.delete(key);
-  });
+  if (cachedPage(key) || pendingPages.has(key) || queuedPages.has(key)) return;
+  queuedPages.add(key);
+  void enqueuePrefetch(async () => {
+    try {
+      if (signal?.aborted || cachedPage(key) || pendingPages.has(key)) return;
+      const pending = fetchApps(appRequest(filters), signal);
+      pendingPages.set(key, pending);
+      try {
+        cachePage(key, await pending);
+      } finally {
+        if (pendingPages.get(key) === pending) pendingPages.delete(key);
+      }
+    } finally {
+      queuedPages.delete(key);
+    }
+  }).catch(() => undefined);
 }
 
 function appRequest(filters: CatalogFilterState) {
@@ -267,8 +283,10 @@ export function CatalogPage() {
       : null;
     async function prefetchFacetPages() {
       try {
-        const facets = await fetchCatalogFacets(appRequest(filters));
-        if (cancelled) return;
+        const facets = await enqueuePrefetch(() => cancelled
+          ? Promise.resolve(null)
+          : fetchCatalogFacets(appRequest(filters)));
+        if (cancelled || !facets) return;
         facets.tags.slice(0, 2).forEach((tag) => prefetchPage(nextFilters(filters, { tags: toggleValue(filters.tags, tag.value) })));
         facets.publishers.slice(0, 2).forEach((publisher) => prefetchPage(nextFilters(filters, { publisher: publisher.value })));
       } catch {
@@ -295,7 +313,7 @@ export function CatalogPage() {
           // ponytail: precarga opciones cercanas; ampliar según fallos de caché medidos.
           const candidates: CatalogFilterState[] = [
             ...(filters.query ? [{ ...filters, searchMode: filters.searchMode === 'semantic' ? 'lexical' as const : 'semantic' as const, page: 1 }] : []),
-            ...PREFETCH_SORTS.filter((sort) => sort !== filters.sort).map((sort) => ({ ...filters, sort, page: 1 })),
+            ...PREFETCH_SORTS.filter((sort) => sort !== filters.sort && (sort !== 'relevance' || filters.query)).map((sort) => ({ ...filters, sort, page: 1 })),
             ...PREFETCH_FILTERS.filter((filter) => filter !== filters.filter).map((filter) => ({ ...filters, filter, page: 1 })),
             ...(filters.page * filters.pageSize < response.total ? [{ ...filters, page: filters.page + 1 }] : []),
           ];

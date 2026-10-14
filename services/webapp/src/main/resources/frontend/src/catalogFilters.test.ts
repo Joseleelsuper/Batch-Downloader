@@ -128,5 +128,10 @@ describe('catalogFilters', () => {
       ...parseCatalogFilters(''),
       sort: 'updated',
     }).get('sort')).toBe('updated');
+    expect(parseCatalogFilters('sort=relevance').sort).toBe('relevance');
+    expect(catalogFiltersToSearchParams({
+      ...parseCatalogFilters(''),
+      sort: 'relevance',
+    }).get('sort')).toBe('relevance');
   });
 });
