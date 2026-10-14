@@ -336,10 +336,11 @@ def perform_release(
     values = client.environment()
     validate_environment(values, schema_targets=schema_targets)
     previous = ReleaseState(str(application.get("git_commit_sha", "")), values["GHCR_IMAGE_TAG"])
+    baseline_urls = tuple(url for url in urls if urlsplit(url).path != "/api/v1/locales/en")
 
     if previous.rollback_capable:
         print(f"Comprobando la versión actualmente sana {previous.image_tag}.")
-        run_smoke(urls)
+        run_smoke(baseline_urls)
 
     try:
         deploy_state(client, target, timeout=timeout, interval=interval)
@@ -355,7 +356,7 @@ def perform_release(
         print(f"El despliegue falló; restaurando {previous.image_tag}.", file=sys.stderr)
         try:
             deploy_state(client, previous, timeout=timeout, interval=interval)
-            wait_for_smoke(urls, timeout=smoke_timeout, interval=interval)
+            wait_for_smoke(baseline_urls, timeout=smoke_timeout, interval=interval)
         except Exception as rollback_error:
             raise ReleaseError(
                 f"Fallaron el despliegue ({deployment_error}) y el rollback ({rollback_error})"
