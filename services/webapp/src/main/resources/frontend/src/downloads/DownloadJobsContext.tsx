@@ -87,7 +87,7 @@ function readStoredJobs(): TrackedDownloadJob[] {
       if (!candidate || typeof candidate !== 'object') return [];
       const stored = candidate as Partial<StoredDownloadJob>;
       if (typeof stored.id !== 'string' || typeof stored.label !== 'string') return [];
-      const terminalJob = stored.job && stored.job.id === stored.id
+      const terminalJob = stored.job?.id === stored.id
         && TERMINAL_DOWNLOAD_STATUSES.has(stored.job.status)
         && (stored.job.failureCode == null || typeof stored.job.failureCode === 'string')
         && Array.isArray(stored.job.items)
@@ -227,6 +227,15 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
     if (automatic && !claimAutoDownload(jobId)) return;
     deliveries.current.add(jobId);
     let locallySaved = false;
+    const updateTransferProgress = (bytes: number) => setJobs((current) => current.map((entry) => entry.id === jobId && entry.job
+      ? { ...entry, job: { ...entry.job, deliveryStatus: 'TRANSFERRING', deliveryBytes: bytes } }
+      : entry));
+    const markLocallySaved = () => {
+      locallySaved = true;
+      setJobs((current) => current.map((entry) => entry.id === jobId && entry.job
+        ? { ...entry, locallySaved: true, job: { ...entry.job, deliveryStatus: 'SAVED' } }
+        : entry));
+    };
     const existingHandle = destinations.current.get(jobId);
     const handlePromise = existingHandle || automatic
       ? Promise.resolve(existingHandle) : chooseDownloadDestination();
@@ -250,15 +259,8 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
           // Network chunks may arrive thousands of times per second.
           if (bytes !== job.artifactSizeBytes && Date.now() - lastRender < 250) return;
           lastRender = Date.now();
-          setJobs((current) => current.map((entry) => entry.id === jobId && entry.job
-            ? { ...entry, job: { ...entry.job, deliveryStatus: 'TRANSFERRING', deliveryBytes: bytes } }
-            : entry));
-        }, () => {
-          locallySaved = true;
-          setJobs((current) => current.map((entry) => entry.id === jobId && entry.job
-            ? { ...entry, locallySaved: true, job: { ...entry.job, deliveryStatus: 'SAVED' } }
-            : entry));
-        });
+          updateTransferProgress(bytes);
+        }, markLocallySaved);
       } else {
         const { url } = await retryDeliveryRequest(() => fetchDownloadJobFileLink(jobId));
         const link = document.createElement('a');
