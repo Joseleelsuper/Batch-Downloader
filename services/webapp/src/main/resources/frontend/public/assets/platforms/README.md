@@ -1,7 +1,7 @@
 # Platform icon sources
 
 - `windows.svg`: Microsoft four-square symbol distributed from Microsoft Learn.
-- `macos.svg`: Apple logo path distributed in the global navigation on apple.com.
+- `macos.svg`: Apple mark from Simple Icons.
 - `linux.svg`: Tux/Linux mark distributed by Simple Icons; Tux was created by
   Larry Ewing and the original artwork was made with GIMP.
 
