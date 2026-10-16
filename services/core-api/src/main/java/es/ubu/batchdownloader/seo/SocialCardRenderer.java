@@ -4,11 +4,11 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
-import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +18,10 @@ import org.springframework.stereotype.Component;
 /** Dibuja tarjetas PNG locales sin descargar iconos ni ejecutar contenido del catálogo. */
 @Component
 public class SocialCardRenderer {
+    private static final BufferedImage APP_ICON = icon("app.png");
+    private static final List<BufferedImage> PLATFORM_ICONS = List.of(
+            icon("windows.png"), icon("linux.png"), icon("macos.png"));
+
     public byte[] render(SeoService.Metadata metadata) {
         URI canonical = URI.create(metadata.canonicalUrl());
         String path = canonical.getPath();
@@ -32,15 +36,14 @@ public class SocialCardRenderer {
             canvas.fillRect(0, 0, 18, 630);
             canvas.setColor(new Color(0xDDF1F0));
             canvas.fillOval(860, -190, 500, 500);
-            drawIllustration(canvas, path);
+            canvas.drawImage(APP_ICON, 963, 24, 150, 150, null);
             canvas.setColor(new Color(0x007F87));
-            canvas.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 27));
-            canvas.drawString(SeoService.BRAND.toUpperCase(java.util.Locale.ROOT), 74, 94);
             canvas.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 17));
-            canvas.drawString(sectionLabel(path), 76, 145);
+            canvas.drawString(sectionLabel(path), 76, 100);
             canvas.setColor(new Color(0x122C36));
-            canvas.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 61));
-            String title = metadata.title().replace(" | " + SeoService.BRAND, "");
+            canvas.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 66));
+            String title = "/".equals(path) ? SeoService.BRAND
+                    : metadata.title().replace(" | " + SeoService.BRAND, "");
             List<String> titleLines = wrap(canvas.getFontMetrics(), title, 940, 3);
             int baseline = 220;
             for (String line : titleLines) {
@@ -55,11 +58,19 @@ public class SocialCardRenderer {
                 baseline += 38;
             }
             String footer = footerLabel(path);
-            canvas.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
-            canvas.setColor(new Color(0x007F87));
-            canvas.fillRoundRect(74, 551, canvas.getFontMetrics().stringWidth(footer) + 40, 43, 21, 21);
-            canvas.setColor(Color.WHITE);
-            canvas.drawString(footer, 94, 579);
+            if (footer == null) {
+                canvas.setColor(Color.WHITE);
+                canvas.fillRoundRect(74, 543, 196, 54, 25, 25);
+                for (int index = 0; index < PLATFORM_ICONS.size(); index++) {
+                    canvas.drawImage(PLATFORM_ICONS.get(index), 91 + index * 61, 553, 34, 34, null);
+                }
+            } else {
+                canvas.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+                canvas.setColor(new Color(0x007F87));
+                canvas.fillRoundRect(74, 551, canvas.getFontMetrics().stringWidth(footer) + 40, 43, 21, 21);
+                canvas.setColor(Color.WHITE);
+                canvas.drawString(footer, 94, 579);
+            }
             canvas.setColor(new Color(0x49626B));
             canvas.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 18));
             String host = canonical.getHost();
@@ -96,40 +107,19 @@ public class SocialCardRenderer {
             case "/catalog/editors" -> "EDITORES DE APLICACIONES";
             case "/terms" -> "TÉRMINOS Y CONDICIONES";
             case "/privacy" -> "POLÍTICA DE PRIVACIDAD";
-            default -> "WINDOWS   ·   LINUX   ·   MACOS";
+            default -> null;
         };
     }
 
-    private static void drawIllustration(Graphics2D canvas, String path) {
-        if (path.startsWith(SeoService.APP_PREFIX)) {
-            canvas.setColor(new Color(0x007F87));
-            canvas.fillRoundRect(954, 40, 160, 113, 14, 14);
-            canvas.setColor(Color.WHITE);
-            canvas.fillRoundRect(959, 65, 150, 83, 9, 9);
-            canvas.fillOval(967, 50, 6, 6);
-            canvas.fillOval(980, 50, 6, 6);
-            canvas.fillOval(993, 50, 6, 6);
-            canvas.setColor(new Color(0xDDF1F0));
-            canvas.fillRoundRect(973, 83, 32, 47, 5, 5);
-            canvas.setColor(new Color(0x007F87));
-            canvas.fillRoundRect(1017, 88, 70, 7, 4, 4);
-            canvas.fillRoundRect(1017, 105, 52, 7, 4, 4);
-        } else if (path.startsWith(SeoService.BUNDLE_PREFIX)) {
-            drawBox(canvas, 998, 49, 34);
-            drawBox(canvas, 962, 101, 34);
-            drawBox(canvas, 1_034, 101, 34);
-        } else {
-            drawBox(canvas, 978, 68, 50);
+    private static BufferedImage icon(String name) {
+        try (InputStream source = SocialCardRenderer.class.getResourceAsStream("/seo/cards/" + name)) {
+            if (source == null) throw new IllegalStateException("social_icon_missing: " + name);
+            BufferedImage image = ImageIO.read(source);
+            if (image == null) throw new IllegalStateException("social_icon_invalid: " + name);
+            return image;
+        } catch (IOException exception) {
+            throw new IllegalStateException("social_icon_unavailable: " + name, exception);
         }
-    }
-
-    private static void drawBox(Graphics2D canvas, int x, int y, int size) {
-        canvas.setColor(new Color(0xE8AC62));
-        canvas.fill(new Polygon(new int[]{x, x + size, x + size * 2, x + size}, new int[]{y, y - size / 2, y, y + size / 2}, 4));
-        canvas.setColor(new Color(0xD8954C));
-        canvas.fill(new Polygon(new int[]{x, x + size, x + size, x}, new int[]{y, y + size / 2, y + size * 3 / 2, y + size}, 4));
-        canvas.setColor(new Color(0xBD783B));
-        canvas.fill(new Polygon(new int[]{x + size, x + size * 2, x + size * 2, x + size}, new int[]{y + size / 2, y, y + size, y + size * 3 / 2}, 4));
     }
 
     private static List<String> wrap(FontMetrics metrics, String text, int width, int limit) {

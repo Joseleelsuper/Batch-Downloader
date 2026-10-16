@@ -228,6 +228,7 @@ class SeoControllerTest {
 
     @Test
     void socialImagesAreRealPngsWithPageSpecificContentAndFixedDimensions() throws Exception {
+        assertThat(service.resolve("/").metadata().imageUrl()).endsWith("&v=2");
         byte[] app = mvc.perform(get("/api/v1/seo/image").param("path", "/catalog/app/editor"))
                 .andExpect(status().isOk()).andExpect(content().contentType("image/png"))
                 .andExpect(header().string("Cache-Control", "no-store"))
@@ -245,9 +246,10 @@ class SeoControllerTest {
             assertThat(card.getHeight()).isEqualTo(630);
         }
         var bundleCard = ImageIO.read(new ByteArrayInputStream(bundle));
-        // La ilustración superior distingue una aplicación de un grupo, incluso sin leer el título.
+        // Todas las subpáginas usan el mismo icono de la aplicación.
         assertThat(decoded.getRGB(920, 20, 230, 140, null, 0, 230))
-                .isNotEqualTo(bundleCard.getRGB(920, 20, 230, 140, null, 0, 230));
+                .isEqualTo(bundleCard.getRGB(920, 20, 230, 140, null, 0, 230));
+        assertThat(decoded.getRGB(1_050, 100)).isNotEqualTo(decoded.getRGB(900, 100));
         var homeCard = ImageIO.read(new ByteArrayInputStream(home));
         var privacyCard = ImageIO.read(new ByteArrayInputStream(privacy));
         assertThat(homeCard.getRGB(70, 550, 600, 50, null, 0, 600))

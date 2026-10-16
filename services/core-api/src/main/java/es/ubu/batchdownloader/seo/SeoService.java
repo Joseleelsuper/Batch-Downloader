@@ -134,7 +134,7 @@ public class SeoService {
             structured.put("publisher", Map.of("@type", "Organization", "name", text(publisher, 180)));
         }
         return new Resolution(200, new Metadata(name + " | " + BRAND, summary, canonical,
-                baseUrl + "/social/card.png?path=" + URLEncoder.encode(path, StandardCharsets.UTF_8),
+                baseUrl + "/social/card.png?path=" + URLEncoder.encode(path, StandardCharsets.UTF_8) + "&v=2",
                 name + " — " + BRAND, robots, "website", Map.copyOf(structured)));
     }
 
