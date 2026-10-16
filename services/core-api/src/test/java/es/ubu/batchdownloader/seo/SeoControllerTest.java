@@ -228,7 +228,7 @@ class SeoControllerTest {
 
     @Test
     void socialImagesAreRealPngsWithPageSpecificContentAndFixedDimensions() throws Exception {
-        assertThat(service.resolve("/").metadata().imageUrl()).endsWith("&v=2");
+        assertThat(service.resolve("/").metadata().imageUrl()).endsWith("&v=3");
         byte[] app = mvc.perform(get("/api/v1/seo/image").param("path", "/catalog/app/editor"))
                 .andExpect(status().isOk()).andExpect(content().contentType("image/png"))
                 .andExpect(header().string("Cache-Control", "no-store"))
@@ -251,6 +251,8 @@ class SeoControllerTest {
                 .isEqualTo(bundleCard.getRGB(920, 20, 230, 140, null, 0, 230));
         assertThat(decoded.getRGB(1_050, 100)).isNotEqualTo(decoded.getRGB(900, 100));
         var homeCard = ImageIO.read(new ByteArrayInputStream(home));
+        var macosIcon = ImageIO.read(SocialCardRenderer.class.getResource("/seo/cards/macos.png"));
+        assertThat(macosIcon.getRGB(0, macosIcon.getHeight() / 2) >>> 24).isZero();
         var privacyCard = ImageIO.read(new ByteArrayInputStream(privacy));
         assertThat(homeCard.getRGB(70, 550, 600, 50, null, 0, 600))
                 .isNotEqualTo(privacyCard.getRGB(70, 550, 600, 50, null, 0, 600));
