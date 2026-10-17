@@ -185,7 +185,7 @@ class CoreMySqlMigrationTest {
 
             assertThat(tableExists(connection, "download_job_storage")).isTrue();
             assertThat(tableExists(connection, "download_job_receipts")).isTrue();
-            assertThat(flywayVersion(connection)).isEqualTo("20");
+            assertThat(flywayVersion(connection)).isEqualTo("22");
         }
     }
 

@@ -1,29 +1,42 @@
-import { ExternalLink } from 'lucide-react';
+import { ChevronDown, ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
+import { useCompactLayout } from '../hooks/useCompactLayout';
 import { useLocale, useTranslation } from '../services/i18n';
-import type { AppDetails, DownloadOption } from '../types/catalog';
+import type { AppDetails, DownloadOption, OperatingSystem } from '../types/catalog';
 import { DownloadButton } from './DownloadButton';
 
 interface Props {
   app?: AppDetails | null;
   loading?: boolean;
+  operatingSystem?: OperatingSystem;
+  selectedSourceRef?: string | null;
+  onSourceSelect?: (sourceRef: string) => void;
+  selectionDisabled?: boolean;
+  extraActions?: ReactNode;
 }
 
-/** Contenido esencial que se despliega bajo una aplicación del catálogo. */
-export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
+/** Contenido esencial que se despliega bajo una aplicación del catálogo o de un bundle. */
+export function AppDetailsPanel({
+  app, loading = false, operatingSystem, selectedSourceRef, onSourceSelect,
+  selectionDisabled = false, extraActions,
+}: Readonly<Props>) {
   const t = useTranslation();
   const locale = useLocale();
+  const compact = useCompactLayout();
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
+  const options = useMemo(() => (app?.downloadOptions ?? []).filter(
+    (option) => !operatingSystem || option.operatingSystem === operatingSystem,
+  ), [app?.downloadOptions, operatingSystem]);
   const selectedOption = useMemo(() => {
-    const options = app?.downloadOptions ?? [];
+    if (onSourceSelect) return options.find((option) => option.id === selectedSourceRef);
     return options.find((option) => option.id === selectedOptionId) ?? preferredOption(options);
-  }, [app?.downloadOptions, selectedOptionId]);
+  }, [onSourceSelect, options, selectedOptionId, selectedSourceRef]);
 
   useEffect(() => {
-    setSelectedOptionId(preferredOption(app?.downloadOptions ?? [])?.id ?? null);
-  }, [app?.id, app?.downloadOptions]);
+    if (!onSourceSelect) setSelectedOptionId(preferredOption(options)?.id ?? null);
+  }, [app?.id, onSourceSelect, options]);
 
   if (loading && !app) return <DetailsSkeleton />;
   if (!app) return null;
@@ -31,7 +44,7 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
   return (
     <section className={`app-detail-panel ${loading ? 'app-detail-panel-busy' : ''}`} aria-busy={loading}>
       <h3 className="sr-only">{app.name}</h3>
-      <DetailBlock className="app-detail-description" label={t('app.details.description')}>
+      <DetailBlock className="app-detail-description" label={t('app.details.description')} collapsible={compact}>
         <p className="long-description">
           {(locale === 'en' ? app.longDescriptionEn : app.longDescription)
             || app.longDescription || app.description || t('app.details.descriptionPending')}
@@ -39,7 +52,7 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
       </DetailBlock>
 
       {app.tags?.length ? (
-        <DetailBlock className="app-detail-tags" label={t('app.details.tags')}>
+        <DetailBlock className="app-detail-tags" label={t('app.details.tags')} collapsible={compact}>
           <div className="tag-list">
             {app.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
           </div>
@@ -65,17 +78,18 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
       </div>
 
       <DetailBlock className="app-detail-installers" label={t('app.details.installersDetected')}>
-        {app.downloadOptions?.length ? (
+        {options.length ? (
           <DownloadOptions
-            options={app.downloadOptions}
+            options={options}
             selectedOptionId={selectedOption?.id}
-            onSelect={setSelectedOptionId}
+            onSelect={onSourceSelect ?? setSelectedOptionId}
+            disabled={selectionDisabled}
           />
         ) : <span>-</span>}
       </DetailBlock>
 
       <div className="app-detail-actions">
-        {selectedOption ? (
+        {selectedOption && !onSourceSelect ? (
           <DownloadButton
             key={selectedOption.id}
             appId={app.id}
@@ -85,6 +99,7 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
             disabled={!isCatalogAppSelectable(app)}
           />
         ) : null}
+        {extraActions}
         {app.originUrl ? (
           <a className="origin-button" href={app.originUrl} target="_blank" rel="noreferrer">
             <ExternalLink size={18} />
@@ -105,10 +120,12 @@ function DownloadOptions({
   options,
   selectedOptionId,
   onSelect,
+  disabled,
 }: Readonly<{
   options: DownloadOption[];
   selectedOptionId?: string;
   onSelect: (id: string) => void;
+  disabled: boolean;
 }>) {
   const t = useTranslation();
   return (
@@ -119,6 +136,7 @@ function DownloadOptions({
           key={option.id}
           type="button"
           aria-pressed={option.id === selectedOptionId}
+          disabled={disabled}
           onClick={() => onSelect(option.id)}
         >
           <span>{option.filename ?? option.finalDomain ?? '-'}</span>
@@ -139,11 +157,21 @@ function DetailBlock({
   label,
   children,
   className = '',
+  collapsible = false,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  collapsible?: boolean;
 }) {
+  if (collapsible) {
+    return (
+      <details className={`detail-block ${className}`}>
+        <summary className="detail-label">{label}<ChevronDown size={18} aria-hidden="true" /></summary>
+        <div className="detail-value">{children}</div>
+      </details>
+    );
+  }
   return (
     <div className={`detail-block ${className}`}>
       <span className="detail-label">{label}</span>

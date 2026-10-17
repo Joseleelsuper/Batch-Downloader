@@ -46,6 +46,7 @@ public class DownloadStorageCoordinator {
     private final AtomicBoolean ticking = new AtomicBoolean();
     private final Set<UUID> operations = ConcurrentHashMap.newKeySet();
     private volatile boolean reconciled;
+    private volatile Boolean accountDeletionTableAvailable;
 
     public DownloadStorageCoordinator(JdbcTemplate jdbc, TransactionTemplate transactions,
             DownloadJobStore jobs, DownloadEventPublisher events, DownloadStorage storage, Clock clock, DownloadJobNotifier notifier) {
@@ -76,6 +77,36 @@ public class DownloadStorageCoordinator {
             // ponytail: una fila serializa reservas globales; particionar solo con almacenes independientes.
             jobs.lockAdmission();
             return action.get();
+        });
+    }
+
+    /** Rechaza admisiones autenticadas que llegaron con una sesión anterior a la solicitud de baja. */
+    public void ensureAccountCanCreate(UUID userId) {
+        if (userId == null) return;
+        Integer available = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM core_users user_account
+                WHERE user_account.id = ? AND user_account.enabled = TRUE
+                  AND NOT EXISTS (SELECT 1 FROM account_deletion_requests request WHERE request.user_id = user_account.id)
+                """, Integer.class, userId.toString());
+        if (available == null || available == 0) {
+            throw new ConflictException("account_deletion_pending", "La cuenta ya no admite nuevas descargas.");
+        }
+    }
+
+    /** Envía todos los trabajos de una cuenta al limpiador, incluso los ZIPs todavía descargables. */
+    public void requestAccountJobCleanup(UUID userId) {
+        locked(() -> {
+            jdbc.update("""
+                    UPDATE download_job_storage storage_row
+                    JOIN download_jobs job ON job.id = storage_row.job_id
+                    SET storage_row.phase = 'CLEANING',
+                        storage_row.delivery_status = CASE
+                            WHEN storage_row.delivery_status = 'SAVED' THEN 'SAVED'
+                            ELSE 'CLEANING'
+                        END
+                    WHERE job.owner_id = ?
+                    """, userId.toString());
+            return null;
         });
     }
 
@@ -264,6 +295,7 @@ public class DownloadStorageCoordinator {
                 for (UUID id : ids("SELECT job_id FROM download_job_storage WHERE phase IN ('CLEANING','CLEANED') AND active_transfers=0")) {
                     run(id, () -> cleanup(id));
                 }
+                finalizePendingAccountDeletions();
                 var heads = ids("SELECT job_id FROM download_job_storage WHERE phase IN ('ESTIMATING','QUEUED') ORDER BY queue_sequence LIMIT 1");
                 if (!heads.isEmpty()) {
                     Entry head = entry(heads.getFirst());
@@ -384,6 +416,43 @@ public class DownloadStorageCoordinator {
             return true;
         });
         if (removed) notifier.removed(id);
+    }
+
+    /** Borra las cuentas pendientes únicamente después de que desaparezcan todos sus trabajos y ZIPs. */
+    private void finalizePendingAccountDeletions() {
+        if (!accountDeletionTableAvailable()) return;
+        locked(() -> {
+            for (UUID userId : ids("""
+                    SELECT request.user_id
+                    FROM account_deletion_requests request
+                    JOIN core_users user_account ON user_account.id = request.user_id
+                    WHERE user_account.role = 'USER' AND user_account.enabled = FALSE
+                      AND NOT EXISTS (SELECT 1 FROM download_jobs job WHERE job.owner_id = request.user_id)
+                    """)) {
+                jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME = ?", userId.toString());
+                jdbc.update("DELETE FROM bundles WHERE owner_id = ?", userId.toString());
+                jdbc.update("DELETE FROM user_download_history WHERE user_id = ?", userId.toString());
+                jdbc.update("DELETE FROM download_job_receipts WHERE owner_id = ?", userId.toString());
+                jdbc.update("DELETE FROM core_users WHERE id = ? AND role = 'USER' AND enabled = FALSE",
+                        userId.toString());
+            }
+            return null;
+        });
+    }
+
+    private boolean accountDeletionTableAvailable() {
+        Boolean available = accountDeletionTableAvailable;
+        if (available != null) return available;
+        synchronized (this) {
+            if (accountDeletionTableAvailable == null) {
+                Integer tables = jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM information_schema.tables
+                        WHERE table_schema = DATABASE() AND table_name = 'account_deletion_requests'
+                        """, Integer.class);
+                accountDeletionTableAvailable = tables != null && tables > 0;
+            }
+            return accountDeletionTableAvailable;
+        }
     }
 
     /** Arranque cerrado hasta contabilizar también restos de intentos y versiones anteriores. */

@@ -168,17 +168,49 @@
   gap: 8px;
 }
 
-.bundle-app-row {
-  min-height: 64px;
-  padding: 10px 12px;
+.bundle-app-entry {
+  overflow: hidden;
   background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
 
+.bundle-app-row {
+  min-height: 64px;
+  padding: 10px 12px;
+}
+
 .bundle-app-row div {
   display: grid;
   flex: 1;
+  min-width: 0;
+}
+
+.bundle-app-details-toggle {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bundle-app-details-toggle:hover {
+  text-decoration: underline;
+}
+
+.bundle-app-details-toggle:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+
+.bundle-app-entry .app-detail-expander {
+  background: #f8fbfc;
 }
 
 .bundle-app-row .os-icons {

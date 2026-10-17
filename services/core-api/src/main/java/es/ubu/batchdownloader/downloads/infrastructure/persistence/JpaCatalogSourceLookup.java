@@ -180,9 +180,9 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
                            ROW_NUMBER() OVER (
                                PARTITION BY ds.software_app_id
                                ORDER BY FIELD(ds.operating_system, 'windows', 'linux', 'macos') ASC,
-                                        (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
                                         rs.is_latest DESC,
                                         COALESCE(rs.release_rank, 2147483647) ASC,
+                                        (JSON_UNQUOTE(JSON_EXTRACT(rs.metadata_json, '$.is_primary')) = 'true') DESC,
                                         rs.score DESC,
                                         rs.checked_at DESC,
                                         rs.id ASC

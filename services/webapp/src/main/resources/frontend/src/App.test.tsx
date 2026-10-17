@@ -10,7 +10,7 @@ import * as catalogAppsApi from './api/catalogApps';
 import { clearCatalogPageCache } from './pages/catalog/CatalogPages';
 import * as downloadsApi from './api/downloads';
 import * as delivery from './downloads/delivery';
-import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, ScraperQueueState } from './types/catalog';
+import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, OperatingSystem, ScraperQueueState } from './types/catalog';
 
 vi.mock('./components/PageMetadata', () => ({ PageMetadata: () => null }));
 
@@ -146,6 +146,31 @@ describe('catalog workspace', () => {
     expect(footer).not.toBeNull();
     expect(workspace?.nextElementSibling).toBe(footer);
     expect(within(footer as HTMLElement).getByRole('heading', { name: 'Páginas' })).toBeInTheDocument();
+  });
+
+  it('keeps mobile filters closed regardless of desktop preferences and preserves the download selection', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true, value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open'); },
+    });
+    localStorage.setItem('catalog.filters.open', 'true');
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({ data: [catalogApp], page: 1, pageSize: 12, total: 1 });
+    render(<MemoryRouter initialEntries={['/catalog']}><App /></MemoryRouter>);
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'Seleccionar Aplicación reciente' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(checkbox);
+    expect(screen.getByRole('button', { name: 'Descargar ZIP' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /Ver selección/ }));
+    const panel = screen.getByRole('dialog', { name: 'Filtros' });
+    expect(within(panel).getByRole('button', { name: 'Quitar Aplicación reciente de la selección' })).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Ver resultados' }));
+    expect(checkbox).toBeChecked();
+    expect(document.body.style.overflow).toBe('');
+    expect(localStorage.getItem('catalog.filters.open')).toBe('true');
   });
 
   it('renders catalog totals even when the app page request fails', async () => {
@@ -844,6 +869,7 @@ describe('home loading', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('keeps successful bundles visible when the recent-app request fails', async () => {
@@ -945,6 +971,94 @@ describe('home loading', () => {
 
     expect(await screen.findByRole('button', { name: 'Windows: 1 aplicaciones disponibles' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('button', { name: 'Linux' })).not.toBeInTheDocument();
+  });
+
+  it('elige un instalador en la misma página y lo incluye en la descarga global', async () => {
+    const appOnBothSystems = { ...catalogApp, operatingSystems: ['windows', 'linux'] as OperatingSystem[] };
+    vi.spyOn(bundlesApi, 'fetchBundle').mockResolvedValue({
+      ...officialBundle,
+      operatingSystems: ['windows', 'linux'],
+      platformAvailability: [
+        ...officialBundle.platformAvailability,
+        { operatingSystem: 'linux', downloadableAppCount: 1, previewApps: [appOnBothSystems] },
+      ],
+      apps: [appOnBothSystems],
+    } satisfies BundleDetails);
+    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockResolvedValue({
+      ...appOnBothSystems,
+      notes: '',
+      downloadOptions: [{
+        id: 'source-1', filename: 'Example-1.0.exe', operatingSystem: 'windows',
+        architecture: 'x64', version: '1.0', isLatest: true, sourceLabel: 'Official',
+        score: 100, isPrimary: true,
+      }, {
+        id: 'source-3', filename: 'Example-1.0.deb', operatingSystem: 'linux',
+        architecture: 'x64', version: '1.0', isLatest: true, sourceLabel: 'Official',
+        score: 95, isPrimary: false,
+      }, {
+        id: 'source-2', filename: 'Example-0.9.exe', operatingSystem: 'windows',
+        architecture: 'x64', version: '0.9', isLatest: false, sourceLabel: 'Official',
+        score: 90, isPrimary: false,
+      }, {
+        id: 'source-4', filename: 'Example-0.9.deb', operatingSystem: 'linux',
+        architecture: 'x64', version: '0.9', isLatest: false, sourceLabel: 'Official',
+        score: 85, isPrimary: false,
+      }],
+    });
+    vi.spyOn(delivery, 'chooseDownloadDestination').mockResolvedValue(undefined);
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
+    const createJob = vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue({
+      id: 'job-bundle', status: 'QUEUED', failureCode: null, progress: 0,
+      requestedCount: 1, acceptedCount: 1, omittedCount: 0, items: [],
+      createdAt: '2026-07-16T09:00:00Z', expiresAt: '2026-07-17T09:00:00Z',
+    });
+
+    const { container } = render(<MemoryRouter initialEntries={['/bundles/launchers']}><App /></MemoryRouter>);
+
+    expect(await screen.findByRole('button', { name: 'Windows: 1 aplicaciones disponibles' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Descargar bundle (1)' })).toBeEnabled();
+    const entry = container.querySelector('.bundle-app-entry');
+    const expander = entry?.querySelector('.app-detail-expander');
+    expect(entry?.querySelector('.bundle-app-row .status-badge')).not.toBeInTheDocument();
+    expect(entry?.querySelector('.bundle-app-row .download-button')).toBeInTheDocument();
+    expect(entry?.querySelector('.bundle-app-row .os-icons')).toBeInTheDocument();
+    expect(expander).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('button', { name: 'Mostrar detalles de Aplicación reciente' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicación reciente' }));
+
+    expect(await screen.findByText('Example-1.0.exe')).toBeInTheDocument();
+    expect(entry).toHaveClass('app-detail-row-open');
+    expect(expander).toHaveAttribute('aria-hidden', 'false');
+    expect(screen.queryByText(/Elige un instalador para este sistema/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Launchers', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ocultar detalles de Aplicación reciente' }))
+      .toHaveAttribute('aria-expanded', 'true');
+    const olderInstaller = screen.getByRole('button', { name: /Example-0\.9\.exe/ });
+    fireEvent.click(olderInstaller);
+    expect(olderInstaller).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Usar selección automática' }));
+    expect(screen.getByRole('button', { name: /Example-1\.0\.exe/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(olderInstaller).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(olderInstaller);
+    fireEvent.click(screen.getByRole('button', { name: 'Linux: 1 aplicaciones disponibles' }));
+    expect(screen.queryByRole('button', { name: /Example-0\.9\.exe/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Example-1\.0\.deb/ })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: /Example-0\.9\.deb/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Windows: 1 aplicaciones disponibles' }));
+    expect(screen.getByRole('button', { name: /Example-0\.9\.exe/ })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar bundle (1)' }));
+
+    await waitFor(() => expect(createJob).toHaveBeenCalledWith({
+      bundleId: 'bundle-1', operatingSystems: ['windows'],
+      sourceSelections: { 'app-1': 'source-2' },
+    }));
+    expect(screen.getByRole('button', { name: /Example-0\.9\.exe/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar detalles de Aplicación reciente' }));
+    expect(entry).not.toHaveClass('app-detail-row-open');
+    expect(expander).toHaveAttribute('aria-hidden', 'true');
+    expect(expander).toBeInTheDocument();
+    expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith('app-1', expect.any(AbortSignal));
   });
 });
 

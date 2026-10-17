@@ -1,7 +1,9 @@
 import { Check, ChevronDown, Search } from 'lucide-react';
 import {
+  type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
+  useId,
   useRef,
   useState,
 } from 'react';
@@ -15,6 +17,8 @@ interface Props {
   onChange: (value: string) => void;
   onSortChange: (sort: SortKey) => void;
   onSearchModeChange: (mode: SearchMode) => void;
+  inputProps?: Pick<InputHTMLAttributes<HTMLInputElement>, 'id' | 'type' | 'onKeyDown'>;
+  showSortDescriptions?: boolean;
 }
 
 export function AppSearchBar({
@@ -24,8 +28,11 @@ export function AppSearchBar({
   onChange,
   onSortChange,
   onSearchModeChange,
+  inputProps,
+  showSortDescriptions = true,
 }: Props) {
   const t = useTranslation();
+  const sortOptionsId = useId();
   const [sortOpen, setSortOpen] = useState(false);
   const [activeSortIndex, setActiveSortIndex] = useState(0);
   const sortMenuRef = useRef<HTMLDivElement>(null);
@@ -93,6 +100,7 @@ export function AppSearchBar({
       <label className="search-input">
         <Search size={22} />
         <input
+          {...inputProps}
           aria-label={t('catalog.searchPlaceholder')}
           value={value}
           onChange={(event) => onChange(event.target.value)}
@@ -132,14 +140,14 @@ export function AppSearchBar({
           aria-label={t('catalog.sort.toggle')}
           aria-haspopup="listbox"
           aria-expanded={sortOpen}
-          aria-controls="catalog-sort-options"
+          aria-controls={sortOptionsId}
         >
           <span>{t(`catalog.sort.${sort}`)}</span>
           <ChevronDown className="sort-menu-chevron" size={17} aria-hidden="true" />
         </button>
         {sortOpen ? (
           <div
-            id="catalog-sort-options"
+            id={sortOptionsId}
             className="sort-menu-popover"
             role="listbox"
             aria-label={t('catalog.sort.toggle')}
@@ -162,7 +170,7 @@ export function AppSearchBar({
               >
                 <span className="sort-option-copy">
                   <strong>{t(`catalog.sort.${option}`)}</strong>
-                  <small>{t(`catalog.sort.${option}.description`)}</small>
+                  {showSortDescriptions ? <small>{t(`catalog.sort.${option}.description`)}</small> : null}
                 </span>
                 {sort === option ? (
                   <span className="sort-option-check" aria-hidden="true">

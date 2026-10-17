@@ -1,5 +1,24 @@
 {
   "account.profile.failed": "No se pudo actualizar el perfil.",
   "account.profile.saved": "Perfil actualizado.",
-  "account.profile.title": "Mi perfil"
+  "account.profile.title": "Mi perfil",
+  "account.profile.dangerTitle": "Acciones destructivas",
+  "account.profile.dangerDescription": "Estas acciones eliminan de forma permanente los datos seleccionados.",
+  "account.profile.deletePublicBundles": "Eliminar todos mis bundles públicos",
+  "account.profile.deletePrivateBundles": "Eliminar todos mis bundles privados",
+  "account.profile.publicBundlesConfirm": "Se eliminarán todos los bundles públicos que has creado. ¿Quieres continuar?",
+  "account.profile.privateBundlesConfirm": "Se eliminarán todos los bundles privados que has creado. ¿Quieres continuar?",
+  "account.profile.publicBundlesDeleted": "Se eliminaron tus bundles públicos.",
+  "account.profile.privateBundlesDeleted": "Se eliminaron tus bundles privados.",
+  "account.profile.publicBundlesEmpty": "No tienes bundles públicos para eliminar.",
+  "account.profile.privateBundlesEmpty": "No tienes bundles privados para eliminar.",
+  "account.profile.deleteBundlesFailed": "No se pudieron eliminar los bundles.",
+  "account.profile.deleteAccount": "Eliminar mi cuenta",
+  "account.profile.confirmTitle": "Confirma la eliminación",
+  "account.profile.confirmDelete": "Eliminar",
+  "account.profile.deleteAccountConfirm": "Se eliminará tu cuenta y todos tus bundles, trabajos de descarga, archivos ZIP e historial. ¿Quieres continuar?",
+  "account.profile.accountDeletionRequestedTitle": "Solicitud recibida",
+  "account.profile.accountDeletionRequested": "La eliminación de tu cuenta está en curso. Se completará cuando se cancelen tus descargas y se limpien sus archivos ZIP.",
+  "account.profile.continueToLogin": "Ir al inicio de sesión",
+  "account.profile.deleteAccountFailed": "No se pudo solicitar la eliminación de la cuenta."
 }

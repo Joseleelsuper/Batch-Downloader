@@ -33,6 +33,7 @@
   "nav.login": "Entrar",
   "nav.logout": "Salir",
   "nav.main": "Navegación principal",
+  "nav.openMenu": "Abrir menú",
   "profile.authPending": "Autenticación admin disponible",
   "profile.catalogSize": "Aplicaciones en catálogo",
   "profile.localMode": "Modo local MVP",

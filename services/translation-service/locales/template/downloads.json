@@ -59,6 +59,8 @@
   "download.job.apiError.anonymous_browser_rate_limit": "",
   "download.job.apiError.anonymous_ip_rate_limit": "",
   "download.job.apiError.invalid_job_size": "",
+  "download.job.apiError.invalid_source_selection": "",
+  "download.job.apiError.selected_source_unavailable": "",
   "download.job.apiError.no_downloadable_apps": "",
   "download.job.apiError.download_signing_unavailable": "",
   "download.job.apiError.service_busy": "",

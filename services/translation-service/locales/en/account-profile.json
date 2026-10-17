@@ -1,5 +1,24 @@
 {
   "account.profile.failed": "Could not update profile.",
   "account.profile.saved": "Updated profile.",
-  "account.profile.title": "my profile"
+  "account.profile.title": "my profile",
+  "account.profile.dangerTitle": "Destructive actions",
+  "account.profile.dangerDescription": "These actions permanently delete the selected data.",
+  "account.profile.deletePublicBundles": "Delete all my public bundles",
+  "account.profile.deletePrivateBundles": "Delete all my private bundles",
+  "account.profile.publicBundlesConfirm": "All public bundles you created will be deleted. Continue?",
+  "account.profile.privateBundlesConfirm": "All private bundles you created will be deleted. Continue?",
+  "account.profile.publicBundlesDeleted": "Your public bundles were deleted.",
+  "account.profile.privateBundlesDeleted": "Your private bundles were deleted.",
+  "account.profile.publicBundlesEmpty": "You have no public bundles to delete.",
+  "account.profile.privateBundlesEmpty": "You have no private bundles to delete.",
+  "account.profile.deleteBundlesFailed": "Could not delete the bundles.",
+  "account.profile.deleteAccount": "Delete my account",
+  "account.profile.confirmTitle": "Confirm deletion",
+  "account.profile.confirmDelete": "Delete",
+  "account.profile.deleteAccountConfirm": "Your account, bundles, download jobs, ZIP files, and history will be deleted. Continue?",
+  "account.profile.accountDeletionRequestedTitle": "Request received",
+  "account.profile.accountDeletionRequested": "Your account deletion is in progress. It will finish after your downloads are cancelled and their ZIP files are cleaned up.",
+  "account.profile.continueToLogin": "Go to sign in",
+  "account.profile.deleteAccountFailed": "Could not request account deletion."
 }

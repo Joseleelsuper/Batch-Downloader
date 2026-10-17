@@ -2,6 +2,7 @@ import {
   BookOpenText,
   BrainCircuit,
   Boxes,
+  FileText,
   Globe2,
   Github,
   Home,
@@ -12,7 +13,7 @@ import {
   Shield,
   UserCircle,
 } from 'lucide-react';
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
@@ -20,6 +21,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { useLocaleSelector, useTranslation } from './services/i18n';
 import { lazyNamed } from './routing/lazyNamed';
 import { PageMetadata } from './components/PageMetadata';
+import { MobileAppHeader, MobileMenuButton, ResponsivePanel } from './components/ResponsivePanel';
 import {
   AdminAuditPage,
   AdminBundlesPage,
@@ -162,12 +164,16 @@ function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () 
 function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
   const t = useTranslation();
   const { locale, selectLocale } = useLocaleSelector();
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="topbar">
       <Link className="brand" to="/">
         <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
         <span className="brand-title">{t('app.title')}</span>
       </Link>
+      <MobileMenuButton controls="public-navigation" open={menuOpen} onClick={() => setMenuOpen(true)} />
+      <ResponsivePanel id="public-navigation" title={t('nav.main')} open={menuOpen}
+        onClose={() => setMenuOpen(false)} desktopClassName="topbar-navigation">
       <nav className="main-nav" aria-label={t('nav.main')}>
         <NavLink to="/">{t('nav.home')}</NavLink>
         <NavLink to="/catalog">{t('nav.catalog')}</NavLink>
@@ -207,6 +213,7 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
           </NavLink>
         )}
       </div>
+      </ResponsivePanel>
     </header>
   );
 }
@@ -218,14 +225,14 @@ function Footer() {
       <div className="site-footer-grid">
         <nav className="site-footer-column" aria-labelledby="footer-pages-title">
           <h2 id="footer-pages-title">{t('footer.pages')}</h2>
-          <Link to="/">{t('nav.home')}</Link>
-          <Link to="/catalog">{t('nav.catalog')}</Link>
-          <Link to="/login">{t('footer.login')}</Link>
+          <Link to="/"><Home aria-hidden="true" /><span>{t('nav.home')}</span></Link>
+          <Link to="/catalog"><Boxes aria-hidden="true" /><span>{t('nav.catalog')}</span></Link>
+          <Link to="/login"><UserCircle aria-hidden="true" /><span>{t('footer.login')}</span></Link>
         </nav>
         <nav className="site-footer-column" aria-labelledby="footer-legal-title">
           <h2 id="footer-legal-title">{t('footer.legal')}</h2>
-          <Link to="/terms">{t('footer.terms')}</Link>
-          <Link to="/privacy">{t('footer.privacy')}</Link>
+          <Link to="/terms"><FileText aria-hidden="true" /><span>{t('footer.terms')}</span></Link>
+          <Link to="/privacy"><Shield aria-hidden="true" /><span>{t('footer.privacy')}</span></Link>
         </nav>
         <section className="site-footer-column" aria-labelledby="footer-project-title">
           <h2 id="footer-project-title">{t('footer.project')}</h2>
@@ -353,8 +360,12 @@ function RequireAccount({
 
 function AdminLayout({ onLogout }: { onLogout: () => void }) {
   const t = useTranslation();
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="admin-shell">
+      <MobileAppHeader controls="admin-navigation" open={menuOpen} onClick={() => setMenuOpen(true)} />
+      <ResponsivePanel id="admin-navigation" title={t('nav.admin')} open={menuOpen}
+        onClose={() => setMenuOpen(false)} desktopClassName="sidebar-shell">
       <aside className="admin-sidebar">
         <Link className="brand admin-brand" to="/">
           <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
@@ -370,6 +381,7 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
         </nav>
         <button type="button" onClick={onLogout}><LogOut size={18} />{t('admin.layout.logout')}</button>
       </aside>
+      </ResponsivePanel>
       <main className="admin-content">
         <Outlet />
       </main>

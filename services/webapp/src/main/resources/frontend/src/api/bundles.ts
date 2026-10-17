@@ -33,3 +33,13 @@ export function updateAdminBundle(
     method: 'PATCH', body: JSON.stringify(payload),
   });
 }
+
+export function fetchAdminBundleCustomTags(): Promise<string[]> {
+  return requestJson<string[]>('/api/v1/admin/bundles/custom-tags');
+}
+
+export function createAdminBundleCustomTag(tag: string): Promise<{ tag: string }> {
+  return requestJson<{ tag: string }>('/api/v1/admin/bundles/custom-tags', {
+    method: 'POST', body: JSON.stringify({ tag }),
+  });
+}

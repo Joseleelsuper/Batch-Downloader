@@ -23,6 +23,10 @@ export interface OwnBundlePage {
   total: number;
 }
 
+export interface OwnBundlesDeletionResult {
+  deleted: number;
+}
+
 export interface DownloadHistoryItem {
   appId: string;
   appName: string;

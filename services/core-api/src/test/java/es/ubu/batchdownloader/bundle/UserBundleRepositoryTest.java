@@ -8,12 +8,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleDetails;
 import es.ubu.batchdownloader.bundle.BundleDtos.CreateOwnBundleRequest;
 import es.ubu.batchdownloader.bundle.BundleDtos.UpdateOwnBundleRequest;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
+import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.common.UuidBytes;
@@ -28,6 +30,38 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
 class UserBundleRepositoryTest {
+    @Test
+    void listsSharedCustomTagsAndReturnsTheCanonicalSpellingAfterCreation() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        UUID creatorId = UUID.randomUUID();
+        when(jdbc.query(eq("SELECT tag FROM bundle_custom_tags ORDER BY tag"), any(RowMapper.class)))
+                .thenReturn(List.of("Existing"));
+        when(jdbc.queryForObject(anyString(), eq(String.class), eq("new tag")))
+                .thenReturn("New Tag");
+        UserBundleRepository repository = new UserBundleRepository(
+                jdbc, mock(CatalogRepository.class), mock(BundleRepository.class));
+
+        assertThat(repository.customTags()).containsExactly("Existing");
+        assertThat(repository.createCustomTag(creatorId, "  - New Tag  ")).isEqualTo("New Tag");
+        verify(jdbc).update(org.mockito.ArgumentMatchers.contains("INSERT INTO bundle_custom_tags"),
+                eq("new tag"), eq("New Tag"), eq(creatorId.toString()), any(LocalDateTime.class));
+    }
+
+    @Test
+    void rejectsEmptyAndOversizedCustomTagsBeforeWriting() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        UserBundleRepository repository = new UserBundleRepository(
+                jdbc, mock(CatalogRepository.class), mock(BundleRepository.class));
+        UUID creatorId = UUID.randomUUID();
+
+        for (String value : new String[] {null, "   ", "x".repeat(81)}) {
+            assertThatThrownBy(() -> repository.createCustomTag(creatorId, value))
+                    .isInstanceOfSatisfying(BadRequestException.class,
+                            error -> assertThat(error.code()).isEqualTo("invalid_custom_tag"));
+        }
+        verifyNoInteractions(jdbc);
+    }
+
     @Test
     void createsPrivateUserBundlesWithTheUuidOwnerAndDeduplicatedPublicApps() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

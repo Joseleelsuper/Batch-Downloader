@@ -77,6 +77,7 @@ const app: AppDetails = {
 describe('AppDetailsPanel', () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     downloadJob.start.mockReset();
     Object.defineProperty(navigator, 'language', { configurable: true, value: 'es-ES' });
   });
@@ -130,6 +131,19 @@ describe('AppDetailsPanel', () => {
     render(<AppDetailsPanel app={{ ...app, longDescription: null }} />);
 
     expect(screen.getByText('Dynamic mathematics app.')).toBeInTheDocument();
+  });
+
+  it('lets mobile users expand the description while keeping installer choices available', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    render(<AppDetailsPanel app={app} />);
+
+    expect(screen.getByText(/permite crear graficas/)).not.toBeVisible();
+    expect(screen.getByRole('button', { name: /GeoGebraSuite\.exe/ })).toBeVisible();
+    fireEvent.click(screen.getByText('Descripción'));
+    expect(screen.getByText(/permite crear graficas/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /GeoGebraSuite\.exe/ }));
+    expect(screen.getByRole('button', { name: /GeoGebraSuite\.exe/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Descargar' })).toBeEnabled();
   });
 
   it('sends the selected installer source when creating the download', () => {

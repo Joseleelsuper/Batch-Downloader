@@ -59,6 +59,8 @@
   "download.job.apiError.anonymous_browser_rate_limit": "Too many downloads have been started in a row from this browser.",
   "download.job.apiError.anonymous_ip_rate_limit": "Too many downloads have been started from this network.",
   "download.job.apiError.invalid_job_size": "The selection must contain between 1 and 100 applications.",
+  "download.job.apiError.invalid_source_selection": "The installer selection does not belong to this bundle.",
+  "download.job.apiError.selected_source_unavailable": "A chosen installer is no longer available for that system. Choose another or use automatic selection.",
   "download.job.apiError.no_downloadable_apps": "No selected application has an installer available for that system.",
   "download.job.apiError.download_signing_unavailable": "Could not prepare download link. Try again with the Get ZIP button.",
   "download.job.apiError.service_busy": "The download queue is full. Please try again in 30 seconds.",

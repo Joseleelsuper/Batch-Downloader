@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.bundle.BundleRepository;
+import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.NotFoundException;
 import es.ubu.batchdownloader.downloads.application.DownloadJobService;
 import es.ubu.batchdownloader.downloads.application.DownloadJobAccessService;
@@ -17,6 +18,8 @@ import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator;
 import es.ubu.batchdownloader.downloads.infrastructure.storage.DownloadDeliveryService;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,17 +33,32 @@ class DownloadJobControllerTest {
     private final DownloadRequestOwner owners = mock(DownloadRequestOwner.class);
     private final DownloadDeliveryService delivery = mock(DownloadDeliveryService.class);
     private final DownloadStorageCoordinator storage = mock(DownloadStorageCoordinator.class);
+    private final DownloadJobService jobs = mock(DownloadJobService.class);
+    private final BundleRepository bundles = mock(BundleRepository.class);
     private final MockHttpServletRequest request = new MockHttpServletRequest();
     private final UUID jobId = UUID.randomUUID();
     private final RequestOwner owner = new RequestOwner(null, "browser-hash", "ip-hash");
     private final DownloadJobController controller = new DownloadJobController(
-            mock(DownloadJobService.class), access, owners, mock(BundleRepository.class),
+            jobs, access, owners, bundles,
             mock(SseDownloadJobNotifier.class), delivery, storage, false);
 
     @BeforeEach
     void owner() {
         request.setRemoteAddr("127.0.0.1");
         when(owners.resolve(null, "browser-token", "127.0.0.1")).thenReturn(owner);
+    }
+
+    @Test
+    void rejectsAnInstallerChoiceOutsideTheAccessibleBundle() {
+        UUID appId = UUID.randomUUID();
+        when(bundles.appIdsForDownload("bundle-1", null, false)).thenReturn(List.of(appId));
+        var payload = new DownloadJobController.CreateDownloadJobRequest(null, "bundle-1",
+                List.of("windows"), null, null, null,
+                Map.of(UUID.randomUUID(), UUID.randomUUID()));
+
+        assertThatThrownBy(() -> controller.create(payload, null, "browser-token", request))
+                .isInstanceOf(BadRequestException.class);
+        verifyNoInteractions(jobs);
     }
 
     @Test

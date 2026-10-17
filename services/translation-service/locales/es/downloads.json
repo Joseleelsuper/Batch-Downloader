@@ -59,6 +59,8 @@
   "download.job.apiError.anonymous_browser_rate_limit": "Se han iniciado demasiadas descargas seguidas desde este navegador.",
   "download.job.apiError.anonymous_ip_rate_limit": "Se han iniciado demasiadas descargas desde esta red.",
   "download.job.apiError.invalid_job_size": "La selección debe contener entre 1 y 100 aplicaciones.",
+  "download.job.apiError.invalid_source_selection": "La selección de instaladores no corresponde a este bundle.",
+  "download.job.apiError.selected_source_unavailable": "Un instalador elegido ya no está disponible para ese sistema. Elige otro o usa la selección automática.",
   "download.job.apiError.no_downloadable_apps": "Ninguna aplicación seleccionada tiene un instalador disponible para ese sistema.",
   "download.job.apiError.download_signing_unavailable": "No se pudo preparar el enlace de descarga. Reinténtalo con el botón Obtener ZIP.",
   "download.job.apiError.service_busy": "La cola de descargas está llena. Inténtalo de nuevo dentro de 30 segundos.",
