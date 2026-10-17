@@ -51,6 +51,24 @@ function ProfileAfterAuthentication() {
   return auth.status === 'authenticated' ? <ProfilePage /> : <p>checking</p>;
 }
 
+function renderProfile() {
+  vi.mocked(accountApi.me).mockResolvedValue(user);
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true, value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open'); },
+  });
+  return render(
+    <MemoryRouter initialEntries={['/dashboard/profile']}>
+      <AuthProvider><Routes>
+        <Route path="/dashboard/profile" element={<ProfileAfterAuthentication />} />
+        <Route path="/login" element={<LocationProbe />} />
+      </Routes></AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe('account flows', () => {
   beforeEach(() => {
     vi.spyOn(accountApi, 'me').mockResolvedValue(null);
@@ -342,6 +360,73 @@ describe('account flows', () => {
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(update).toHaveBeenCalledWith('renamed-person'));
     expect(await screen.findByText(t('account.profile.saved'))).toBeInTheDocument();
+  });
+
+  it('exige confirmación al borrar bundles y distingue los resultados vacíos', async () => {
+    const remove = vi.spyOn(accountApi, 'deleteOwnBundles')
+      .mockResolvedValueOnce({ deleted: 2 })
+      .mockResolvedValueOnce({ deleted: 0 });
+    renderProfile();
+
+    fireEvent.click(await screen.findByRole('button', { name: t('account.profile.deletePublicBundles') }));
+    expect(screen.getByText(t('account.profile.publicBundlesConfirm'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t('common.cancel') }));
+    expect(remove).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.deletePublicBundles') }));
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.confirmDelete') }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith('public'));
+    expect(await screen.findByText(t('account.profile.publicBundlesDeleted'))).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.deletePrivateBundles') }));
+    expect(screen.getByText(t('account.profile.privateBundlesConfirm'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.confirmDelete') }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith('private'));
+    expect(await screen.findByText(t('account.profile.privateBundlesEmpty'))).toBeInTheDocument();
+  });
+
+  it('solicita la baja de cuenta y vuelve al inicio de sesión tras confirmarla', async () => {
+    const request = vi.spyOn(accountApi, 'deleteOwnAccount').mockResolvedValue(undefined);
+    renderProfile();
+
+    fireEvent.click(await screen.findByRole('button', { name: t('account.profile.deleteAccount') }));
+    expect(screen.getByText(t('account.profile.deleteAccountConfirm'))).toBeInTheDocument();
+    expect(request).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.confirmDelete') }));
+    expect(await screen.findByText(t('account.profile.accountDeletionRequested'))).toBeInTheDocument();
+    expect(request).toHaveBeenCalledOnce();
+
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
+    expect(screen.getByText(t('account.profile.accountDeletionRequested'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.continueToLogin') }));
+    expect(await screen.findByTestId('location')).toHaveTextContent('/login');
+    expect(accountApi.logout).toHaveBeenCalledOnce();
+  });
+
+  it('permite reintentar las eliminaciones cuando la API falla', async () => {
+    const remove = vi.spyOn(accountApi, 'deleteOwnBundles')
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce({ deleted: 1 });
+    const request = vi.spyOn(accountApi, 'deleteOwnAccount')
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce(undefined);
+    renderProfile();
+
+    fireEvent.click(await screen.findByRole('button', { name: t('account.profile.deletePrivateBundles') }));
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.confirmDelete') }));
+    expect(await screen.findByText(t('account.profile.deleteBundlesFailed'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.deletePrivateBundles') }));
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.confirmDelete') }));
+    expect(await screen.findByText(t('account.profile.privateBundlesDeleted'))).toBeInTheDocument();
+    expect(remove).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.deleteAccount') }));
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.confirmDelete') }));
+    expect(await screen.findByText(t('account.profile.deleteAccountFailed'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.deleteAccount') }));
+    fireEvent.click(screen.getByRole('button', { name: t('account.profile.confirmDelete') }));
+    expect(await screen.findByText(t('account.profile.accountDeletionRequested'))).toBeInTheDocument();
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it('cierra sesión desde el layout de cuenta', async () => {
