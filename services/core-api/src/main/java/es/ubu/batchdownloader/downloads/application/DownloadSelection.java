@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.downloads.application;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -16,6 +17,7 @@ import java.util.UUID;
  *
  * @param linuxTarget Gestor Linux opcional; junto con arquitectura define un destino explícito.
  * @param targetArchitecture Arquitectura Linux opcional que acompaña al gestor explícito.
+ * @param sourceSelections Fuentes exactas elegidas para aplicaciones concretas del bundle.
  * @see es.ubu.batchdownloader.downloads.application.DownloadJobService
  * @see es.ubu.batchdownloader.downloads.application.LinuxTarget
  * @since 0.1.0
@@ -24,4 +26,13 @@ import java.util.UUID;
  */
 public record DownloadSelection(
         List<UUID> appIds, List<String> operatingSystems, UUID sourceRef,
-        String linuxTarget, String targetArchitecture) {}
+        String linuxTarget, String targetArchitecture, Map<UUID, UUID> sourceSelections) {
+    public DownloadSelection(List<UUID> appIds, List<String> operatingSystems, UUID sourceRef,
+            String linuxTarget, String targetArchitecture) {
+        this(appIds, operatingSystems, sourceRef, linuxTarget, targetArchitecture, Map.of());
+    }
+
+    public DownloadSelection {
+        sourceSelections = sourceSelections == null ? Map.of() : Map.copyOf(sourceSelections);
+    }
+}

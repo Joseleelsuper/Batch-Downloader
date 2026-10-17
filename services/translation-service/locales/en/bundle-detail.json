@@ -9,6 +9,7 @@
   "bundle.noAvailablePlatform": "None of the apps in the bundle have an installer available.",
   "bundle.platformAvailability": "{platform}: {count} available applications",
   "bundle.platforms": "Operating system",
+  "bundle.resetInstaller": "Use automatic selection",
   "bundle.downloadAll": "Download all",
   "bundle.tooLarge": "This bundle exceeds the limit of 100 applications."
 }

@@ -191,6 +191,15 @@ describe('account flows', () => {
   });
 
   it('crea un bundle privado usando el catálogo disponible', async () => {
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true, value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open'); },
+    });
+    vi.spyOn(catalogAppsApi, 'fetchCatalogFacets').mockResolvedValue({
+      tags: [{ value: 'tools', label: 'tools', normalizedValue: 'tools', letter: 'T', count: 1 }], publishers: [],
+    });
     vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({
       data: [app], page: 1, pageSize: 20, total: 1,
     });
@@ -213,8 +222,10 @@ describe('account flows', () => {
     ));
     const textInputs = container.querySelectorAll('.bundle-fields input');
     fireEvent.change(textInputs[0], { target: { value: 'My bundle' } });
-    fireEvent.change(textInputs[1], { target: { value: 'my-bundle' } });
-    fireEvent.change(textInputs[2], { target: { value: 'tools' } });
+    expect(textInputs[1]).toHaveValue('my-bundle');
+    fireEvent.click(screen.getByRole('button', { name: t('bundleTags.choose') }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'tools' }));
+    fireEvent.click(screen.getByRole('button', { name: t('bundleTags.apply') }));
     fireEvent.click(await screen.findByRole('button', { name: 'Añadir Sample App' }));
     fireEvent.submit(container.querySelector('form')!);
 
@@ -301,8 +312,8 @@ describe('account flows', () => {
 
     expect(await screen.findByDisplayValue('Tools')).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Quitar Sample App' }));
-    expect(screen.getByText(t('account.bundles.publicationNotice'))).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'public' } });
+    expect(screen.queryByText(t('account.bundles.publicationNotice'))).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: t('account.bundles.visibility') }), { target: { value: 'public' } });
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       'bundle-1',

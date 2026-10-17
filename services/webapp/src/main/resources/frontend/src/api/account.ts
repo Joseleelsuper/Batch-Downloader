@@ -6,6 +6,7 @@ import type {
   OwnBundleDetails,
   OwnBundleInput,
   OwnBundlePage,
+  OwnBundlesDeletionResult,
 } from '../types/account';
 
 export async function requestMagicLink(email: string, locale = 'es'): Promise<void> {
@@ -49,6 +50,10 @@ export function updateProfile(username: string): Promise<AuthUser> {
   });
 }
 
+export async function deleteOwnAccount(): Promise<void> {
+  await requestJson<void>('/api/v1/users/me', { method: 'DELETE' });
+}
+
 export function fetchDashboard(): Promise<AccountDashboard> {
   return requestJson<AccountDashboard>('/api/v1/users/me/dashboard');
 }
@@ -67,6 +72,16 @@ export function fetchOwnBundles(page = 1, pageSize = 20): Promise<OwnBundlePage>
 
 export function fetchOwnBundle(id: string): Promise<OwnBundleDetails> {
   return requestJson<OwnBundleDetails>(`/api/v1/users/me/bundles/${encodeURIComponent(id)}`);
+}
+
+export function fetchBundleCustomTags(): Promise<string[]> {
+  return requestJson<string[]>('/api/v1/users/me/bundles/custom-tags');
+}
+
+export function createBundleCustomTag(tag: string): Promise<{ tag: string }> {
+  return requestJson<{ tag: string }>('/api/v1/users/me/bundles/custom-tags', {
+    method: 'POST', body: JSON.stringify({ tag }),
+  });
 }
 
 export function createOwnBundle(input: OwnBundleInput): Promise<OwnBundleDetails> {
@@ -88,4 +103,13 @@ export async function deleteOwnBundle(id: string): Promise<void> {
   await requestJson<void>(`/api/v1/users/me/bundles/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+}
+
+export function deleteOwnBundles(
+  visibility: 'public' | 'private',
+): Promise<OwnBundlesDeletionResult> {
+  return requestJson<OwnBundlesDeletionResult>(
+    `/api/v1/users/me/bundles?visibility=${visibility}`,
+    { method: 'DELETE' },
+  );
 }

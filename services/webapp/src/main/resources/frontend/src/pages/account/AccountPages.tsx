@@ -28,7 +28,9 @@ import {
   adminLogin,
   confirmMagicLink,
   createOwnBundle,
+  deleteOwnAccount,
   deleteOwnBundle,
+  deleteOwnBundles,
   fetchDashboard,
   fetchOwnBundle,
   fetchOwnBundles,
@@ -39,12 +41,23 @@ import {
 import { ApiRequestError } from '../../api/http';
 import { useAuth } from '../../auth/AuthContext';
 import { BundleAppPicker } from '../../components/BundleAppPicker';
+import { BundleTagPicker } from '../../components/BundleTagPicker';
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSummary } from '../../types/account';
 import type { CatalogApp } from '../../types/catalog';
 
 const MAXIMUM_EMAIL_LENGTH = 254;
 const MAXIMUM_PASSWORD_UTF8_BYTES = 72;
+
+function bundleSlug(value: string): string {
+  return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 180).replace(/-+$/g, '');
+}
+
+type ProfileActionDialog =
+  | { type: 'delete-bundles'; visibility: 'public' | 'private' }
+  | { type: 'delete-account' }
+  | { type: 'account-deletion-requested' };
 
 function apiMessage(t: Translator, error: unknown, fallbackKey: string): string {
   if (error instanceof ApiRequestError) {
@@ -296,7 +309,8 @@ export function BundleEditorPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [slug, setSlug] = useState('');
-  const [tags, setTags] = useState('');
+  const [slugEdited, setSlugEdited] = useState(editing);
+  const [tags, setTags] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<'private' | 'public'>('private');
   const [selected, setSelected] = useState<CatalogApp[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -306,7 +320,7 @@ export function BundleEditorPage() {
     if (!id) return;
     fetchOwnBundle(id).then((value) => {
       setBundle(value); setName(value.name); setDescription(value.description ?? '');
-      setSlug(value.slug); setTags(value.tags.join(', ')); setVisibility(value.visibility);
+      setSlug(value.slug); setSlugEdited(true); setTags(value.tags); setVisibility(value.visibility);
       setSelected(value.apps);
     }).catch((cause) => setError(apiMessage(t, cause, 'account.bundles.failed')));
   }, [id, t]);
@@ -316,8 +330,7 @@ export function BundleEditorPage() {
     if (submitting) return;
     setSubmitting(true); setError(null);
     const input: OwnBundleInput = {
-      name, description, slug,
-      tags: tags.split(',').map((value) => value.trim()).filter(Boolean),
+      name, description, slug: bundleSlug(slug), tags,
       appIds: selected.map((app) => app.id),
     };
     try {
@@ -340,20 +353,26 @@ export function BundleEditorPage() {
     catch (cause) { setError(apiMessage(t, cause, 'account.bundles.deleteFailed')); setSubmitting(false); }
   }
 
-  return <section className="account-page"><header><div><h2>{editing ? t('account.bundles.edit') : t('account.bundles.create')}</h2><p>{t('account.bundles.privateDefault')}</p></div></header>
+  return <section className="account-page bundle-editor-page"><header><h2>{editing ? t('account.bundles.edit') : t('account.bundles.create')}</h2></header>
     <form className="bundle-account-editor" onSubmit={submit}>
       <div className="account-card bundle-fields bundle-editor-fields">
-        <label>{t('account.bundles.name')}<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={160} /></label>
-        <label>{t('account.bundles.slug')}<input value={slug} onChange={(event) => setSlug(event.target.value)} maxLength={180} /></label>
+        <label>{t('account.bundles.name')}<input value={name} onChange={(event) => {
+          setName(event.target.value);
+          if (!slugEdited) setSlug(bundleSlug(event.target.value));
+        }} required maxLength={160} /></label>
+        <label>{t('account.bundles.slug')}<input value={slug} onChange={(event) => {
+          setSlug(event.target.value); setSlugEdited(Boolean(event.target.value));
+        }} onBlur={() => setSlug(bundleSlug(slug || name))} maxLength={180} /></label>
         <label className="bundle-description-field">{t('account.bundles.description')}<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} /></label>
-        <label>{t('account.bundles.tags')}<input value={tags} onChange={(event) => setTags(event.target.value)} /></label>
+        <BundleTagPicker tags={tags} onChange={setTags} />
         {editing ? <label>{t('account.bundles.visibility')}<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'private' | 'public')}><option value="private">{t('account.private')}</option><option value="public">{t('account.public')}</option></select></label> : null}
-        {editing ? <p className="bundle-publication-notice">{t('account.bundles.publicationNotice')}</p> : null}
       </div>
       <BundleAppPicker apps={selected} onChange={setSelected} />
-      {error ? <p className="error-banner">{error}</p> : null}
-      <div className="editor-actions"><button className="primary-button" type="submit" disabled={submitting}><Save size={18} />{t('account.save')}</button>
-        {editing ? <button className="danger-button" type="button" onClick={remove} disabled={submitting}><Trash2 size={18} />{t('account.delete')}</button> : null}</div>
+      <footer className="bundle-editor-footer">
+        {error ? <p className="error-banner" role="alert">{error}</p> : null}
+        <div className="editor-actions"><button className="primary-button" type="submit" disabled={submitting}><Save size={18} />{t('account.save')}</button>
+          {editing ? <button className="danger-button" type="button" onClick={remove} disabled={submitting}><Trash2 size={18} />{t('account.delete')}</button> : null}</div>
+      </footer>
     </form>
   </section>;
 }
@@ -361,10 +380,22 @@ export function BundleEditorPage() {
 export function ProfilePage() {
   const t = useTranslation();
   const auth = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState(auth.account?.username ?? '');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dangerMessage, setDangerMessage] = useState<string | null>(null);
+  const [dangerError, setDangerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [actionDialog, setActionDialog] = useState<ProfileActionDialog | null>(null);
+  const actionDialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = actionDialogRef.current;
+    if (!dialog) return;
+    if (actionDialog && !dialog.open) dialog.showModal();
+    else if (!actionDialog && dialog.open) dialog.close();
+  }, [actionDialog]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
@@ -376,10 +407,103 @@ export function ProfilePage() {
     } catch (cause) { setError(apiMessage(t, cause, 'account.profile.failed')); }
     finally { setSubmitting(false); }
   }
+  function requestBundleDeletion(visibility: 'public' | 'private') {
+    if (submitting) return;
+    setDangerMessage(null);
+    setDangerError(null);
+    setActionDialog({ type: 'delete-bundles', visibility });
+  }
+
+  function requestAccountDeletion() {
+    if (submitting) return;
+    setDangerMessage(null);
+    setDangerError(null);
+    setActionDialog({ type: 'delete-account' });
+  }
+
+  async function confirmActionDialog() {
+    if (submitting || !actionDialog || actionDialog.type === 'account-deletion-requested') return;
+    setSubmitting(true); setDangerMessage(null); setDangerError(null);
+    try {
+      if (actionDialog.type === 'delete-bundles') {
+        const { visibility } = actionDialog;
+        const result = await deleteOwnBundles(visibility);
+        setDangerMessage(t(result.deleted === 0
+          ? `account.profile.${visibility}BundlesEmpty`
+          : `account.profile.${visibility}BundlesDeleted`));
+        setActionDialog(null);
+      } else {
+        await deleteOwnAccount();
+        setActionDialog({ type: 'account-deletion-requested' });
+      }
+    } catch (cause) {
+      const fallback = actionDialog.type === 'delete-account'
+        ? 'account.profile.deleteAccountFailed'
+        : 'account.profile.deleteBundlesFailed';
+      setDangerError(apiMessage(t, cause, fallback));
+      setActionDialog(null);
+    } finally { setSubmitting(false); }
+  }
+
+  async function finishAccountDeletion() {
+    if (submitting) return;
+    setSubmitting(true);
+    await auth.signOut();
+    await navigate('/login', { replace: true });
+  }
+
+  const dialogTitle = actionDialog?.type === 'account-deletion-requested'
+    ? t('account.profile.accountDeletionRequestedTitle')
+    : t('account.profile.confirmTitle');
+  const dialogDescription = actionDialog?.type === 'account-deletion-requested'
+    ? t('account.profile.accountDeletionRequested')
+    : actionDialog?.type === 'delete-account'
+      ? t('account.profile.deleteAccountConfirm')
+      : actionDialog?.type === 'delete-bundles'
+        ? t(`account.profile.${actionDialog.visibility}BundlesConfirm`)
+        : '';
+
   return <section className="account-page"><header><div><h2>{t('account.profile.title')}</h2><p>{auth.account?.email}</p></div></header>
     <form className="account-card profile-form" onSubmit={submit}><label>{t('login.username')}<input value={username} onChange={(event) => setUsername(event.target.value)} minLength={3} maxLength={40} autoComplete="username" required /></label>
       {error ? <p className="error-banner">{error}</p> : null}{message ? <p className="form-message">{message}</p> : null}
       <button className="primary-button" type="submit" disabled={submitting}><Save size={18} />{t('account.save')}</button></form>
+    <section className="account-card profile-danger-zone"><div><h3>{t('account.profile.dangerTitle')}</h3><p>{t('account.profile.dangerDescription')}</p></div>
+      {dangerError ? <p className="error-banner">{dangerError}</p> : null}{dangerMessage ? <p className="form-message">{dangerMessage}</p> : null}
+      <div className="profile-danger-actions">
+        <button className="danger-button" type="button" onClick={() => requestBundleDeletion('public')} disabled={submitting}><Trash2 size={18} />{t('account.profile.deletePublicBundles')}</button>
+        <button className="danger-button" type="button" onClick={() => requestBundleDeletion('private')} disabled={submitting}><Trash2 size={18} />{t('account.profile.deletePrivateBundles')}</button>
+        <button className="danger-button" type="button" onClick={requestAccountDeletion} disabled={submitting}><UserRound size={18} />{t('account.profile.deleteAccount')}</button>
+      </div>
+    </section>
+    <dialog
+      ref={actionDialogRef}
+      className="profile-action-dialog"
+      aria-labelledby="profile-action-dialog-title"
+      aria-describedby="profile-action-dialog-description"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!submitting && actionDialog?.type !== 'account-deletion-requested') setActionDialog(null);
+      }}
+    >
+      {actionDialog ? <div className="profile-action-dialog-content">
+        <h3 id="profile-action-dialog-title">{dialogTitle}</h3>
+        <p id="profile-action-dialog-description">{dialogDescription}</p>
+        {actionDialog.type === 'account-deletion-requested'
+          ? <div className="profile-action-dialog-actions">
+            <button className="primary-button" type="button" onClick={() => void finishAccountDeletion()} disabled={submitting}>
+              {t('account.profile.continueToLogin')}
+            </button>
+          </div>
+          : <div className="profile-action-dialog-actions">
+            <button className="secondary-button" type="button" onClick={() => setActionDialog(null)} disabled={submitting}>
+              {t('common.cancel')}
+            </button>
+            <button className="danger-button" type="button" onClick={() => void confirmActionDialog()} disabled={submitting}>
+              <Trash2 size={18} />{t('account.profile.confirmDelete')}
+            </button>
+          </div>}
+      </div> : null}
+    </dialog>
   </section>;
 }
 

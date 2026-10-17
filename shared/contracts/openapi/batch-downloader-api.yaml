@@ -306,6 +306,20 @@ paths:
       - USER
       parameters:
       - $ref: '#/components/parameters/CsrfToken'
+    delete:
+      operationId: deleteOwnAccount
+      summary: Solicitar la eliminación de la cuenta y sus datos
+      responses:
+        '202':
+          description: La cuenta se eliminará tras cancelar sus trabajos y limpiar sus archivos ZIP.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - USER
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
   /users/me/dashboard:
     get:
       operationId: getOwnDashboard
@@ -391,6 +405,87 @@ paths:
       - USER
       parameters:
       - $ref: '#/components/parameters/CsrfToken'
+    delete:
+      operationId: deleteOwnBundlesByVisibility
+      summary: Eliminar todos los bundles propios de una visibilidad
+      parameters:
+      - name: visibility
+        in: query
+        required: true
+        schema:
+          type: string
+          enum: [public, private]
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Número de bundles eliminados; cero si no había coincidencias.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnBundlesDeletionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - USER
+  /users/me/bundles/custom-tags:
+    get:
+      operationId: listBundleCustomTags
+      summary: Listar etiquetas de bundles creadas por usuarios
+      responses:
+        '200':
+          description: Etiquetas compartidas entre usuarios, separadas del catálogo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - USER
+    post:
+      operationId: createBundleCustomTag
+      summary: Añadir una etiqueta compartida para bundles
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tag]
+              properties:
+                tag:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        '201':
+          description: Etiqueta creada o ya existente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tag]
+                properties:
+                  tag:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - USER
   /users/me/bundles/{bundleId}:
     parameters:
     - name: bundleId
@@ -3494,6 +3589,13 @@ components:
           description: Fuente exacta para una aplicación; nunca se sustituye silenciosamente.
           type: string
           format: uuid
+        sourceSelections:
+          description: Fuentes exactas por UUID de aplicación del bundle. Las demás aplicaciones usan la selección automática del sistema operativo.
+          type: object
+          maxProperties: 100
+          additionalProperties:
+            type: string
+            format: uuid
         linuxTarget:
           $ref: '#/components/schemas/LinuxTarget'
         targetArchitecture:
@@ -4004,6 +4106,14 @@ components:
         total:
           type: integer
           format: int64
+    OwnBundlesDeletionResult:
+      type: object
+      additionalProperties: false
+      required: [deleted]
+      properties:
+        deleted:
+          type: integer
+          minimum: 0
     CreateOwnBundleRequest:
       type: object
       additionalProperties: false

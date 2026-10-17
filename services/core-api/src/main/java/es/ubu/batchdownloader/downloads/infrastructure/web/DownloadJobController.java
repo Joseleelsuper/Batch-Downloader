@@ -23,6 +23,7 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -161,8 +162,7 @@ public class DownloadJobController {
                 ? distinctAppIds(request.appIds())
                 : bundleAppIds(request.bundleId(), authentication);
         DownloadJobView created = jobs.create(owner,
-                new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()),
-                        request.sourceRef(), request.linuxTarget(), request.targetArchitecture()));
+                selectionFor(request, appIds));
         ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.ACCEPTED);
         if (anonymous && (browserToken == null || browserToken.isBlank())) {
             response.header(HttpHeaders.SET_COOKIE, ownerCookie(token).toString());
@@ -185,7 +185,7 @@ public class DownloadJobController {
         validateSource(request);
         List<UUID> appIds = request.bundleId() == null ? distinctAppIds(request.appIds())
                 : bundleAppIds(request.bundleId(), authentication);
-        return jobs.previewLinux(new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()), request.sourceRef(), request.linuxTarget(), request.targetArchitecture()));
+        return jobs.previewLinux(selectionFor(request, appIds));
     }
 
     /**
@@ -451,6 +451,21 @@ public class DownloadJobController {
                     "invalid_source_selection",
                     "La fuente seleccionada requiere una única aplicación.");
         }
+        if (request.sourceSelections() != null && !hasBundle) {
+            throw new BadRequestException(
+                    "invalid_source_selection", "Las fuentes por aplicación requieren un bundle.");
+        }
+    }
+
+    private DownloadSelection selectionFor(CreateDownloadJobRequest request, List<UUID> appIds) {
+        Map<UUID, UUID> selected = request.sourceSelections();
+        if (selected != null && (selected.values().stream().anyMatch(value -> value == null)
+                || !appIds.containsAll(selected.keySet()))) {
+            throw new BadRequestException(
+                    "invalid_source_selection", "Las fuentes elegidas deben pertenecer al bundle.");
+        }
+        return new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()),
+                request.sourceRef(), request.linuxTarget(), request.targetArchitecture(), selected);
     }
 
     /**
@@ -535,6 +550,8 @@ public class DownloadJobController {
      *     alternativa manual.
      * @param linuxTarget Gestor Linux opcional; junto con arquitectura define un destino explícito.
      * @param targetArchitecture Arquitectura Linux opcional que acompaña al gestor explícito.
+     * @param sourceSelections Fuentes exactas por UUID de aplicación del bundle; las demás usan la
+     *     selección automática.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @since 0.1.0
      * @version 0.1.0
@@ -546,5 +563,6 @@ public class DownloadJobController {
             List<String> operatingSystems,
             UUID sourceRef,
             String linuxTarget,
-            String targetArchitecture) {}
+            String targetArchitecture,
+            @Size(max = 100) Map<UUID, UUID> sourceSelections) {}
 }

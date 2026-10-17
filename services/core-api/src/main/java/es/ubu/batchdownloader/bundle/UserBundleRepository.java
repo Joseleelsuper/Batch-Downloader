@@ -104,6 +104,28 @@ public class UserBundleRepository {
         return count == null ? 0 : count;
     }
 
+    /** Devuelve las etiquetas compartidas que los usuarios han creado para sus bundles. */
+    public List<String> customTags() {
+        return jdbc.query("SELECT tag FROM bundle_custom_tags ORDER BY tag",
+                (rs, row) -> rs.getString(1));
+    }
+
+    /** Conserva una etiqueta global y devuelve la grafía existente si ya estaba registrada. */
+    public String createCustomTag(UUID creatorId, String value) {
+        String tag = value == null ? "" : value.strip().replaceFirst("^-\\s+", "").strip();
+        if (tag.isBlank() || tag.length() > 80) {
+            throw new BadRequestException("invalid_custom_tag", "La etiqueta debe tener entre 1 y 80 caracteres.");
+        }
+        String normalized = tag.toLowerCase(Locale.ROOT);
+        jdbc.update("""
+                INSERT INTO bundle_custom_tags (normalized_tag, tag, created_by, created_at)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE tag = tag
+                """, normalized, tag, creatorId.toString(), LocalDateTime.now());
+        return jdbc.queryForObject("SELECT tag FROM bundle_custom_tags WHERE normalized_tag = ?",
+                String.class, normalized);
+    }
+
     /**
      * Exige propiedad antes de enriquecer el detalle y conserva la versión usada por el editor.
      *
@@ -230,6 +252,22 @@ public class UserBundleRepository {
                 "DELETE FROM bundles WHERE id = ? AND owner_id = ? AND type = 'user'",
                 UuidBytes.fromUuid(current.id()), ownerId.toString());
         if (deleted == 0) throw notFound();
+    }
+
+    /**
+     * Elimina todos los bundles personales del propietario con la visibilidad indicada.
+     *
+     * @param ownerId UUID canónico de la cuenta propietaria.
+     * @param visibility Visibilidad personal que se eliminará: {@code public} o {@code private}.
+     * @return número de bundles eliminados.
+     * @throws es.ubu.batchdownloader.common.BadRequestException si la visibilidad no es personal.
+     */
+    @Transactional
+    public int deleteAll(UUID ownerId, String visibility) {
+        String safeVisibility = normalizedUserVisibility(visibility);
+        return jdbc.update(
+                "DELETE FROM bundles WHERE owner_id = ? AND type = 'user' AND visibility = ?",
+                ownerId.toString(), safeVisibility);
     }
 
     /**

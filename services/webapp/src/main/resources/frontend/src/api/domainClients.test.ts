@@ -183,7 +183,7 @@ describe('current identity', () => {
     await expect(me()).resolves.toEqual({ username: 'admin', role: 'ADMIN' });
   });
 
-  it('incluye el sistema operativo elegido al crear un trabajo para un bundle', async () => {
+  it('incluye el sistema operativo y los instaladores elegidos al crear un trabajo para un bundle', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ token: 'csrf-token' }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -200,14 +200,16 @@ describe('current identity', () => {
       }), { status: 202 }));
     vi.stubGlobal('fetch', fetcher);
 
-    await createDownloadJob({ bundleId: 'bundle-1', operatingSystems: ['linux'] });
+    await createDownloadJob({ bundleId: 'bundle-1', operatingSystems: ['linux'],
+      sourceSelections: { 'app-1': 'source-1' } });
 
     expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/auth/csrf', expect.objectContaining({
       credentials: 'include',
     }));
     expect(fetcher).toHaveBeenCalledWith('/api/v1/download-jobs', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ bundleId: 'bundle-1', operatingSystems: ['linux'] }),
+      body: JSON.stringify({ bundleId: 'bundle-1', operatingSystems: ['linux'],
+        sourceSelections: { 'app-1': 'source-1' } }),
     }));
   });
 

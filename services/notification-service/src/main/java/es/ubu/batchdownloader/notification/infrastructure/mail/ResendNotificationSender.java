@@ -38,6 +38,8 @@ import org.springframework.web.util.UriComponentsBuilder;
  */
 @Component
 public class ResendNotificationSender {
+    private static final String SENDER_DISPLAY_NAME = "Batch Downloader";
+
     private final ResendProperties properties;
     private final MailTemplateProperties mail;
     private final NotificationTokenEnvelope tokens;
@@ -125,7 +127,7 @@ public class ResendNotificationSender {
         String payload;
         try {
             payload = mapper.writeValueAsString(Map.of(
-                    "from", properties.from(),
+                    "from", brandedSender(properties.from()),
                     "to", new String[] {notification.recipient()},
                     "subject", rendered.subject(),
                     "text", rendered.text(),
@@ -157,6 +159,21 @@ public class ResendNotificationSender {
         } catch (IOException exception) {
             throw new RetryableNotificationException("resend_io_failure", exception);
         }
+    }
+
+    /**
+     * Añade el nombre visible del producto y conserva la dirección configurada para Resend.
+     *
+     * @param configuredFrom Dirección de correo o remitente con formato «Nombre <dirección>».
+     * @return Remitente con el nombre visible Batch Downloader.
+     */
+    private static String brandedSender(String configuredFrom) {
+        int openingBracket = configuredFrom.lastIndexOf('<');
+        int closingBracket = openingBracket < 0 ? -1 : configuredFrom.indexOf('>', openingBracket + 1);
+        String address = openingBracket >= 0 && closingBracket > openingBracket
+                ? configuredFrom.substring(openingBracket + 1, closingBracket).strip()
+                : configuredFrom.strip();
+        return SENDER_DISPLAY_NAME + " <" + address + ">";
     }
 
     /**

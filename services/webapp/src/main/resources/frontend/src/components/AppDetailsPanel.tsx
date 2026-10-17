@@ -3,27 +3,38 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
 import { useLocale, useTranslation } from '../services/i18n';
-import type { AppDetails, DownloadOption } from '../types/catalog';
+import type { AppDetails, DownloadOption, OperatingSystem } from '../types/catalog';
 import { DownloadButton } from './DownloadButton';
 
 interface Props {
   app?: AppDetails | null;
   loading?: boolean;
+  operatingSystem?: OperatingSystem;
+  selectedSourceRef?: string | null;
+  onSourceSelect?: (sourceRef: string) => void;
+  selectionDisabled?: boolean;
+  extraActions?: ReactNode;
 }
 
-/** Contenido esencial que se despliega bajo una aplicación del catálogo. */
-export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
+/** Contenido esencial que se despliega bajo una aplicación del catálogo o de un bundle. */
+export function AppDetailsPanel({
+  app, loading = false, operatingSystem, selectedSourceRef, onSourceSelect,
+  selectionDisabled = false, extraActions,
+}: Readonly<Props>) {
   const t = useTranslation();
   const locale = useLocale();
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
+  const options = useMemo(() => (app?.downloadOptions ?? []).filter(
+    (option) => !operatingSystem || option.operatingSystem === operatingSystem,
+  ), [app?.downloadOptions, operatingSystem]);
   const selectedOption = useMemo(() => {
-    const options = app?.downloadOptions ?? [];
+    if (onSourceSelect) return options.find((option) => option.id === selectedSourceRef);
     return options.find((option) => option.id === selectedOptionId) ?? preferredOption(options);
-  }, [app?.downloadOptions, selectedOptionId]);
+  }, [onSourceSelect, options, selectedOptionId, selectedSourceRef]);
 
   useEffect(() => {
-    setSelectedOptionId(preferredOption(app?.downloadOptions ?? [])?.id ?? null);
-  }, [app?.id, app?.downloadOptions]);
+    if (!onSourceSelect) setSelectedOptionId(preferredOption(options)?.id ?? null);
+  }, [app?.id, onSourceSelect, options]);
 
   if (loading && !app) return <DetailsSkeleton />;
   if (!app) return null;
@@ -65,17 +76,18 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
       </div>
 
       <DetailBlock className="app-detail-installers" label={t('app.details.installersDetected')}>
-        {app.downloadOptions?.length ? (
+        {options.length ? (
           <DownloadOptions
-            options={app.downloadOptions}
+            options={options}
             selectedOptionId={selectedOption?.id}
-            onSelect={setSelectedOptionId}
+            onSelect={onSourceSelect ?? setSelectedOptionId}
+            disabled={selectionDisabled}
           />
         ) : <span>-</span>}
       </DetailBlock>
 
       <div className="app-detail-actions">
-        {selectedOption ? (
+        {selectedOption && !onSourceSelect ? (
           <DownloadButton
             key={selectedOption.id}
             appId={app.id}
@@ -85,6 +97,7 @@ export function AppDetailsPanel({ app, loading = false }: Readonly<Props>) {
             disabled={!isCatalogAppSelectable(app)}
           />
         ) : null}
+        {extraActions}
         {app.originUrl ? (
           <a className="origin-button" href={app.originUrl} target="_blank" rel="noreferrer">
             <ExternalLink size={18} />
@@ -105,10 +118,12 @@ function DownloadOptions({
   options,
   selectedOptionId,
   onSelect,
+  disabled,
 }: Readonly<{
   options: DownloadOption[];
   selectedOptionId?: string;
   onSelect: (id: string) => void;
+  disabled: boolean;
 }>) {
   const t = useTranslation();
   return (
@@ -119,6 +134,7 @@ function DownloadOptions({
           key={option.id}
           type="button"
           aria-pressed={option.id === selectedOptionId}
+          disabled={disabled}
           onClick={() => onSelect(option.id)}
         >
           <span>{option.filename ?? option.finalDomain ?? '-'}</span>

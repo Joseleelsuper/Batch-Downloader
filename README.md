@@ -200,7 +200,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- |
 | `GHCR_REGISTRY`, `GHCR_OWNER`, `GHCR_IMAGE_PREFIX`, `GHCR_IMAGE_TAG` | Nombre y etiqueta de las imágenes publicadas. |
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST_PORT` | Credenciales, base y puerto host de MySQL. |
-| `CORE_API_FLYWAY_TARGET` | Objetivo seguro de Flyway: `20`. El objetivo Alembic del scraper está fijado en su script de arranque para evitar cambios manuales en el entorno. |
+| `CORE_API_FLYWAY_TARGET` | Objetivo seguro de Flyway: `21`. El objetivo Alembic del scraper está fijado en su script de arranque para evitar cambios manuales en el entorno. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST_PORT` | Credenciales, base y puerto host de PostgreSQL/pgvector. |
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
@@ -234,7 +234,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- |
 | `CORE_API_SERVER_PORT`, `CORE_API_SCRAPER_API_URL`, `CORE_API_SEMANTIC_SERVICE_URL`, `CORE_API_DOWNLOAD_WORKER_URL`, `CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT`, `CORE_API_SEMANTIC_REQUEST_TIMEOUT`, `CORE_API_SEMANTIC_ADMIN_REQUEST_TIMEOUT` | Puerto, servicios internos y timeouts HTTP. |
 | `CORE_API_BCRYPT_STRENGTH`, `CORE_API_DB_POOL_MIN`, `CORE_API_DB_POOL_MAX`, `CORE_API_DB_POOL_TIMEOUT`, `CORE_API_AUTH_HASH_CONCURRENCY`, `CORE_API_AUTH_HASH_QUEUE`, `CORE_API_AUTH_HASH_WAIT` | Coste de hash, pool MySQL (2–5) y admisión de autenticación. |
-| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `20`, que añade reservas FIFO, entrega y limpieza de descargas. |
+| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `21`, que añade el registro de bajas de cuenta a las reservas FIFO y la limpieza de descargas. |
 | `CORE_API_AUTH_LOGIN_MAX_PER_MINUTE`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_EMAIL_HOUR`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_IP_HOUR`, `CORE_API_SESSION_TIMEOUT`, `CORE_API_MAGIC_LINK_TTL`, `CORE_API_MAGIC_LINK_PENDING_CLEANUP_INTERVAL` | Rate limits de autenticación, caducidad de enlaces/sesiones y limpieza de solicitudes pendientes. |
 | `CORE_API_OUTBOX_DELAY`, `CORE_API_OUTBOX_CLAIM_LEASE`, `CORE_API_OUTBOX_CONFIRM_TIMEOUT`, `CORE_API_RETENTION_INTERVAL`, `CORE_API_REQUIRE_HTTPS`, `CORE_API_COOKIE_SECURE` | Outbox, retención y seguridad HTTP/cookies. |
 | `DOWNLOAD_MAX_APPS`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR`, `DOWNLOAD_SSE_HEARTBEAT` | Tamaño de selección, frecuencia de creación y SSE; la concurrencia depende de bytes, sin cuotas por cantidad de trabajos. |

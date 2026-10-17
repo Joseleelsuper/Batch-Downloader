@@ -1,5 +1,24 @@
 {
   "account.profile.failed": "",
   "account.profile.saved": "",
-  "account.profile.title": ""
+  "account.profile.title": "",
+  "account.profile.dangerTitle": "",
+  "account.profile.dangerDescription": "",
+  "account.profile.deletePublicBundles": "",
+  "account.profile.deletePrivateBundles": "",
+  "account.profile.publicBundlesConfirm": "",
+  "account.profile.privateBundlesConfirm": "",
+  "account.profile.publicBundlesDeleted": "",
+  "account.profile.privateBundlesDeleted": "",
+  "account.profile.publicBundlesEmpty": "",
+  "account.profile.privateBundlesEmpty": "",
+  "account.profile.deleteBundlesFailed": "",
+  "account.profile.deleteAccount": "",
+  "account.profile.confirmTitle": "",
+  "account.profile.confirmDelete": "",
+  "account.profile.deleteAccountConfirm": "",
+  "account.profile.accountDeletionRequestedTitle": "",
+  "account.profile.accountDeletionRequested": "",
+  "account.profile.continueToLogin": "",
+  "account.profile.deleteAccountFailed": ""
 }

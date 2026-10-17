@@ -11,6 +11,7 @@ import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -133,10 +134,7 @@ public class DownloadJobService {
         LinuxTarget target = LinuxTarget.optional(selection.linuxTarget(), selection.targetArchitecture(), selection.operatingSystems());
         validatePreviewSelection(selection, target);
         List<UUID> ids = sources.expandLinuxDependencies(new LinkedHashSet<>(selection.appIds()));
-        var selected = sources.findLinuxSources(ids, target, selection.sourceRef());
-        if (selection.sourceRef() != null && !selected.containsKey(selection.appIds().getFirst())) {
-            throw new ConflictException("linux_source_incompatible", "Esta fuente no es compatible con el destino.");
-        }
+        var selected = selectSources(ids, target, selection);
         var manual = sources.findManualSources(ids);
         List<LinuxPreviewItem> items = ids.stream()
                 .map(id -> previewItem(id, selected, manual, selection.appIds()))
@@ -175,11 +173,12 @@ public class DownloadJobService {
         List<UUID> originalAppIds = List.copyOf(appIds);
         // Obtener el guard antes de la primera lectura: REPEATABLE READ debe ver las cuotas ya confirmadas.
         jobs.lockAdmission();
+        storage.ensureAccountCanCreate(owner.userId());
         if (target != null) appIds.addAll(sources.expandLinuxDependencies(appIds));
         validateDependencyLimit(appIds);
         Instant now = clock.instant();
         enforceAdmission(owner, now);
-        Map<UUID, CatalogSourceLookup.VerifiedSource> selected = selectSources(appIds, target, selection);
+        Map<UUID, CatalogSourceLookup.VerifiedSource> selected = selectSources(List.copyOf(appIds), target, selection);
         Map<UUID, CatalogSourceLookup.ManualSource> manualSources = manualSources(appIds, target, selection);
         List<DownloadJobItem> items = buildItems(appIds, selected, manualSources, now);
         int omittedCount = appIds.size() - items.size();
@@ -198,6 +197,7 @@ public class DownloadJobService {
                 || (selection.sourceRef() != null && selection.appIds().size() != 1)) {
             throw new BadRequestException("invalid_linux_selection", "Indica un lote Linux válido.");
         }
+        validateSourceSelections(selection);
     }
 
     private static LinuxPreviewItem previewItem(
@@ -238,6 +238,16 @@ public class DownloadJobService {
                     "invalid_source_selection",
                     "La fuente seleccionada requiere una única aplicación.");
         }
+        validateSourceSelections(selection);
+    }
+
+    private void validateSourceSelections(DownloadSelection selection) {
+        if ((selection.sourceRef() != null && !selection.sourceSelections().isEmpty())
+                || selection.sourceSelections().size() > limits.maxApps()
+                || !selection.appIds().containsAll(selection.sourceSelections().keySet())) {
+            throw new BadRequestException(
+                    "invalid_source_selection", "Las fuentes elegidas deben pertenecer a la selección.");
+        }
     }
 
     private void validateDependencyLimit(LinkedHashSet<UUID> appIds) {
@@ -255,26 +265,40 @@ public class DownloadJobService {
     }
 
     private Map<UUID, CatalogSourceLookup.VerifiedSource> selectSources(
-            LinkedHashSet<UUID> appIds, LinuxTarget target, DownloadSelection selection) {
+            List<UUID> appIds, LinuxTarget target, DownloadSelection selection) {
+        Map<UUID, CatalogSourceLookup.VerifiedSource> selected;
         if (target != null) {
-            Map<UUID, CatalogSourceLookup.VerifiedSource> result =
-                    sources.findLinuxSources(appIds, target, selection.sourceRef());
-            if (selection.sourceRef() != null && !result.containsKey(appIds.getFirst())) {
+            selected = sources.findLinuxSources(appIds, target, selection.sourceRef());
+            if (selection.sourceRef() != null && !selected.containsKey(appIds.getFirst())) {
                 throw new ConflictException(
                         "linux_source_incompatible", "La fuente elegida no es compatible con el destino Linux.");
             }
-            return result;
+        } else if (selection.sourceRef() == null) {
+            selected = sources.findVerifiedSources(appIds, selection.operatingSystems());
+        } else {
+            UUID appId = appIds.getFirst();
+            CatalogSourceLookup.VerifiedSource exactSource = sources
+                    .findVerifiedSource(appId, selection.sourceRef(), selection.operatingSystems())
+                    .orElseThrow(() -> new ConflictException(
+                            "selected_source_unavailable",
+                            "La versión seleccionada ya no está disponible para descargar."));
+            return Map.of(appId, exactSource);
         }
-        if (selection.sourceRef() == null) {
-            return sources.findVerifiedSources(appIds, selection.operatingSystems());
-        }
-        UUID appId = appIds.getFirst();
-        CatalogSourceLookup.VerifiedSource exactSource = sources
-                .findVerifiedSource(appId, selection.sourceRef(), selection.operatingSystems())
-                .orElseThrow(() -> new ConflictException(
+        if (selection.sourceSelections().isEmpty()) return selected;
+        Map<UUID, CatalogSourceLookup.VerifiedSource> result = new LinkedHashMap<>(selected);
+        for (var choice : selection.sourceSelections().entrySet()) {
+            UUID appId = choice.getKey();
+            CatalogSourceLookup.VerifiedSource exactSource = target == null
+                    ? sources.findVerifiedSource(appId, choice.getValue(), selection.operatingSystems()).orElse(null)
+                    : sources.findLinuxSources(List.of(appId), target, choice.getValue()).get(appId);
+            if (exactSource == null) {
+                throw new ConflictException(
                         "selected_source_unavailable",
-                        "La versión seleccionada ya no está disponible para descargar."));
-        return Map.of(appId, exactSource);
+                        "La versión seleccionada ya no está disponible para este sistema operativo.");
+            }
+            result.put(appId, exactSource);
+        }
+        return Map.copyOf(result);
     }
 
     private Map<UUID, CatalogSourceLookup.ManualSource> manualSources(

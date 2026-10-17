@@ -1,12 +1,16 @@
 package es.ubu.batchdownloader.bundle;
 
 import es.ubu.batchdownloader.bundle.BundleDtos.CreateOwnBundleRequest;
+import es.ubu.batchdownloader.bundle.BundleDtos.CreateCustomTagRequest;
+import es.ubu.batchdownloader.bundle.BundleDtos.CustomTag;
 import es.ubu.batchdownloader.bundle.BundleDtos.OwnBundleDetails;
 import es.ubu.batchdownloader.bundle.BundleDtos.OwnBundlePage;
+import es.ubu.batchdownloader.bundle.BundleDtos.OwnBundlesDeletionResult;
 import es.ubu.batchdownloader.bundle.BundleDtos.UpdateOwnBundleRequest;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -46,6 +50,22 @@ public class UserBundleController {
     public UserBundleController(UserBundleRepository bundles, CurrentAccount currentAccount) {
         this.bundles = bundles;
         this.currentAccount = currentAccount;
+    }
+
+    /** Lista etiquetas creadas por usuarios, compartidas entre los editores de bundles. */
+    @GetMapping("/custom-tags")
+    List<String> customTags(Authentication authentication) {
+        currentAccount.require(authentication);
+        return bundles.customTags();
+    }
+
+    /** Guarda una etiqueta compartida sin incorporarla a las facetas del catálogo. */
+    @PostMapping("/custom-tags")
+    @ResponseStatus(HttpStatus.CREATED)
+    CustomTag createCustomTag(
+            @Valid @RequestBody CreateCustomTagRequest request, Authentication authentication) {
+        UserAccount account = currentAccount.require(authentication);
+        return new CustomTag(bundles.createCustomTag(account.id(), request.tag()));
     }
 
     /**
@@ -133,5 +153,19 @@ public class UserBundleController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void delete(@PathVariable String bundleId, Authentication authentication) {
         bundles.delete(currentAccount.require(authentication).id(), bundleId);
+    }
+
+    /**
+     * Elimina todos los bundles propios de una visibilidad e informa cuántos encontró.
+     *
+     * @param visibility Visibilidad personal que se eliminará: {@code public} o {@code private}.
+     * @param authentication Autenticación de Spring; el control de rutas exige el rol USER.
+     * @return número de bundles eliminados; cero si no había coincidencias.
+     */
+    @DeleteMapping
+    OwnBundlesDeletionResult deleteAll(
+            @RequestParam String visibility, Authentication authentication) {
+        int deleted = bundles.deleteAll(currentAccount.require(authentication).id(), visibility);
+        return new OwnBundlesDeletionResult(deleted);
     }
 }

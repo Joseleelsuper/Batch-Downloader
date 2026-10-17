@@ -3,6 +3,7 @@ import { Fragment } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
 import { useTranslation } from '../services/i18n';
 import type { AppDetails, CatalogApp } from '../types/catalog';
+import { AppDetailExpander } from './AppDetailExpander';
 import { AppDetailsPanel } from './AppDetailsPanel';
 import { OperatingSystemList } from './OperatingSystemIcons';
 
@@ -104,21 +105,12 @@ export function AppTable({
                   aria-hidden={!expanded}
                 >
                   <td colSpan={6}>
-                    <div className="app-detail-expander">
-                      <div
-                        className="app-detail-expander-inner"
-                        id={detailsId}
-                        aria-hidden={!expanded}
-                        ref={(element) => {
-                          if (element) element.inert = !expanded;
-                        }}
-                      >
-                        <AppDetailsPanel
-                          app={details?.id === app.id ? details : null}
-                          loading={expanded && loadingDetails}
-                        />
-                      </div>
-                    </div>
+                    <AppDetailExpander expanded={expanded} id={detailsId}>
+                      <AppDetailsPanel
+                        app={details?.id === app.id ? details : null}
+                        loading={expanded && loadingDetails}
+                      />
+                    </AppDetailExpander>
                   </td>
                 </tr>
               </Fragment>

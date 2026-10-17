@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, FileDown } from 'lucide-react';
 import { useDownloadJob } from '../hooks/useDownloadJob';
 import { useTranslation } from '../services/i18n';
@@ -17,6 +17,8 @@ interface Props {
   platformAvailability?: BundlePlatformAvailability[];
   selectedOperatingSystem?: OperatingSystem | null;
   onOperatingSystemChange?: (operatingSystem: OperatingSystem) => void;
+  onSelectionLockedChange?: (locked: boolean) => void;
+  sourceSelections?: Record<string, string>;
   compact?: boolean;
 }
 
@@ -30,6 +32,8 @@ export function BundleDownloadButton({
   platformAvailability = [],
   selectedOperatingSystem,
   onOperatingSystemChange,
+  onSelectionLockedChange,
+  sourceSelections,
   compact = false,
 }: Readonly<Props>) {
   const t = useTranslation();
@@ -57,6 +61,10 @@ export function BundleDownloadButton({
   const hasCompatiblePlatform = selectedPlatform !== null && downloadableCount > 0;
   const platformLocked = starting || active || ready;
 
+  useEffect(() => {
+    onSelectionLockedChange?.(platformLocked);
+  }, [onSelectionLockedChange, platformLocked]);
+
   function selectPlatform(operatingSystem: OperatingSystem) {
     setInternalOperatingSystem(operatingSystem);
     onOperatingSystemChange?.(operatingSystem);
@@ -65,7 +73,8 @@ export function BundleDownloadButton({
   function startBundle() {
     if (!selectedPlatform) return;
     void start(
-      { bundleId, operatingSystems: [selectedPlatform] },
+      { bundleId, operatingSystems: [selectedPlatform],
+        ...(sourceSelections && Object.keys(sourceSelections).length ? { sourceSelections } : {}) },
       t('download.job.bundleLabel', { name: bundleName || bundleId }),
     ).catch(() => undefined);
   }

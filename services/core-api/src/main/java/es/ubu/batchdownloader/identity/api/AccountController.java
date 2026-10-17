@@ -3,6 +3,7 @@ package es.ubu.batchdownloader.identity.api;
 import es.ubu.batchdownloader.bundle.UserBundleRepository;
 import es.ubu.batchdownloader.identity.api.AccountDtos.AccountDashboard;
 import es.ubu.batchdownloader.identity.api.AccountDtos.DownloadHistoryPage;
+import es.ubu.batchdownloader.identity.application.AccountDeletionService;
 import es.ubu.batchdownloader.identity.application.AccountProfileService;
 import es.ubu.batchdownloader.identity.application.IdentityService;
 import es.ubu.batchdownloader.identity.application.IdentityView;
@@ -15,15 +16,18 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -43,6 +47,7 @@ public class AccountController {
     private final CurrentAccount currentAccount;
     private final IdentityService identities;
     private final AccountProfileService profiles;
+    private final AccountDeletionService accountDeletions;
     private final AccountOverviewRepository overview;
     private final UserBundleRepository bundles;
     private final SecurityContextRepository securityContexts;
@@ -57,6 +62,8 @@ public class AccountController {
      *     unicidad.
      * @param profiles Caso de uso que modifica el nombre visible conservando su identidad y
      *     propiedad de recursos.
+     * @param accountDeletions Caso de uso que deshabilita la cuenta y coordina la limpieza de sus
+     *     trabajos antes del borrado definitivo.
      * @param overview Consultas del historial de descargas y los contadores personales.
      * @param bundles Consulta paginada de bundles pertenecientes a la cuenta.
      * @param securityContexts Persistencia del contexto de seguridad en la sesión HTTP.
@@ -65,12 +72,14 @@ public class AccountController {
             CurrentAccount currentAccount,
             IdentityService identities,
             AccountProfileService profiles,
+            AccountDeletionService accountDeletions,
             AccountOverviewRepository overview,
             UserBundleRepository bundles,
             SecurityContextRepository securityContexts) {
         this.currentAccount = currentAccount;
         this.identities = identities;
         this.profiles = profiles;
+        this.accountDeletions = accountDeletions;
         this.overview = overview;
         this.bundles = bundles;
         this.securityContexts = securityContexts;
@@ -152,6 +161,17 @@ public class AccountController {
                 overview.counts(account.id()),
                 overview.downloads(account.id(), 1, 10),
                 bundles.list(account.id(), 1, 6));
+    }
+
+    /**
+     * Inicia la baja de la cuenta autenticada; el borrado final espera a que se limpien sus ZIPs.
+     *
+     * @param authentication Autenticación actual de Spring, o null si el visitante no tiene sesión.
+     */
+    @DeleteMapping
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    void deleteAccount(Authentication authentication) {
+        accountDeletions.request(currentAccount.require(authentication).id());
     }
 
     /**

@@ -249,6 +249,16 @@ public class BundleDtos {
             List<OwnBundleSummary> data, int page, int pageSize, long total) {}
 
     /**
+     * Informa cuántos bundles propios eliminó una operación por visibilidad.
+     *
+     * @param deleted Número de bundles eliminados; cero si no había coincidencias.
+     * @since 0.1.0
+     * @version 0.1.0
+     * @category Bundles
+     */
+    public record OwnBundlesDeletionResult(int deleted) {}
+
+    /**
      * Acota nombre, descripción, slug, treinta etiquetas y cien aplicaciones; la creación personal
      * establece siempre visibilidad privada.
      *
@@ -297,4 +307,8 @@ public class BundleDtos {
             @Size(max = 30) List<@NotBlank @Size(max = 80) String> tags,
             @Size(max = 100) List<@NotBlank String> appIds,
             @NotNull Long expectedVersion) {}
+
+    public record CreateCustomTagRequest(@NotBlank @Size(max = 80) String tag) {}
+
+    public record CustomTag(String tag) {}
 }

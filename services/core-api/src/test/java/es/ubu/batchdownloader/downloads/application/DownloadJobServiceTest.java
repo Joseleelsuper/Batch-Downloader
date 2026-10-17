@@ -186,6 +186,52 @@ class DownloadJobServiceTest {
         verify(sources, never()).findVerifiedSources(any(), any());
     }
 
+    @Test
+    void createsBundleWithChosenAndAutomaticSources() {
+        UUID chosenApp = UUID.randomUUID();
+        UUID defaultApp = UUID.randomUUID();
+        UUID automaticSource = UUID.randomUUID();
+        UUID chosenSource = UUID.randomUUID();
+        UUID otherSource = UUID.randomUUID();
+        when(sources.findVerifiedSources(any(), eq(List.of("windows")))).thenReturn(Map.of(
+                chosenApp, new CatalogSourceLookup.VerifiedSource(
+                        chosenApp, automaticSource, "windows", "x64", "Elegida", null),
+                defaultApp, new CatalogSourceLookup.VerifiedSource(
+                        defaultApp, otherSource, "windows", "x64", "Automática", null)));
+        when(sources.findVerifiedSource(chosenApp, chosenSource, List.of("windows")))
+                .thenReturn(Optional.of(new CatalogSourceLookup.VerifiedSource(
+                        chosenApp, chosenSource, "windows", "x64", "Elegida", null)));
+
+        DownloadJobView view = service.create(new RequestOwner(null, "browser-hash", "ip-hash"),
+                new DownloadSelection(List.of(chosenApp, defaultApp), List.of("windows"), null,
+                        null, null, Map.of(chosenApp, chosenSource)));
+
+        assertThat(view.acceptedCount()).isEqualTo(2);
+        ArgumentCaptor<DownloadJob> job = ArgumentCaptor.forClass(DownloadJob.class);
+        verify(storage).enqueue(job.capture());
+        assertThat(job.getValue().items()).extracting(DownloadJobItem::sourceRef)
+                .containsExactly(chosenSource, otherSource);
+    }
+
+    @Test
+    void rejectsUnavailableOrForeignBundleSourceWithoutSubstitution() {
+        UUID appId = UUID.randomUUID();
+        UUID selectedSource = UUID.randomUUID();
+        RequestOwner owner = new RequestOwner(null, "browser-hash", "ip-hash");
+        DownloadSelection foreign = new DownloadSelection(List.of(appId), List.of("windows"),
+                null, null, null, Map.of(UUID.randomUUID(), selectedSource));
+        assertThatThrownBy(() -> service.create(owner, foreign))
+                .isInstanceOf(BadRequestException.class);
+
+        when(sources.findVerifiedSources(any(), eq(List.of("windows")))).thenReturn(Map.of());
+        DownloadSelection unavailable = new DownloadSelection(List.of(appId), List.of("windows"),
+                null, null, null, Map.of(appId, selectedSource));
+        assertThatThrownBy(() -> service.create(owner, unavailable))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("versión seleccionada");
+        verify(jobs, never()).save(any(DownloadJob.class));
+    }
+
     /** Comprueba que no pueda reutilizarse una fuente ajena o invalidada. */
     @Test
     void rejectsAnUnavailableExplicitSource() {
@@ -251,6 +297,26 @@ class DownloadJobServiceTest {
                 .containsExactly(false, true, true);
         verify(jobs, never()).save(any(DownloadJob.class));
         verify(jobs, never()).lockAdmission();
+    }
+
+    @Test
+    void previewsTheChosenLinuxInstallerForItsBundleApp() {
+        UUID appId = UUID.randomUUID();
+        UUID automaticSource = UUID.randomUUID();
+        UUID chosenSource = UUID.randomUUID();
+        when(sources.expandLinuxDependencies(any())).thenReturn(List.of(appId));
+        when(sources.findLinuxSources(eq(List.of(appId)), any(LinuxTarget.class), isNull()))
+                .thenReturn(Map.of(appId, new CatalogSourceLookup.VerifiedSource(
+                        appId, automaticSource, "linux", "x86_64", "Aplicación", null, "automatic")));
+        when(sources.findLinuxSources(eq(List.of(appId)), any(LinuxTarget.class), eq(chosenSource)))
+                .thenReturn(Map.of(appId, new CatalogSourceLookup.VerifiedSource(
+                        appId, chosenSource, "linux", "x86_64", "Aplicación", null, "automatic")));
+
+        var preview = service.previewLinux(new DownloadSelection(List.of(appId), List.of("linux"),
+                null, "apt", "x86_64", Map.of(appId, chosenSource)));
+
+        assertThat(preview.items()).extracting(DownloadJobService.LinuxPreviewItem::sourceRef)
+                .containsExactly(chosenSource);
     }
 
     @Test
