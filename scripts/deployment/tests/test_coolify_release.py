@@ -140,7 +140,7 @@ class CoolifyReleaseTest(unittest.TestCase):
 
     def test_repository_schema_targets_are_read_from_example(self) -> None:
         self.assertEqual(
-            {"CORE_API_FLYWAY_TARGET": "21"},
+            {"CORE_API_FLYWAY_TARGET": "22"},
             coolify_release.repository_schema_targets(),
         )
 

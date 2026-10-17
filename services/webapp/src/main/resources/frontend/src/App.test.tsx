@@ -1046,14 +1046,14 @@ describe('home loading', () => {
     expect(screen.getByRole('button', { name: /Example-1\.0\.deb/ })).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(screen.getByRole('button', { name: /Example-0\.9\.deb/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Windows: 1 aplicaciones disponibles' }));
-    expect(olderInstaller).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Example-0\.9\.exe/ })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Descargar bundle (1)' }));
 
     await waitFor(() => expect(createJob).toHaveBeenCalledWith({
       bundleId: 'bundle-1', operatingSystems: ['windows'],
       sourceSelections: { 'app-1': 'source-2' },
     }));
-    expect(olderInstaller).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Example-0\.9\.exe/ })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Ocultar detalles de Aplicación reciente' }));
     expect(entry).not.toHaveClass('app-detail-row-open');
     expect(expander).toHaveAttribute('aria-hidden', 'true');
