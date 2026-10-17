@@ -2,6 +2,7 @@
   "bundle.appCount": "{count} apps",
   "bundle.appsCount": "{count} applications",
   "bundle.createdBy": "Created by {username}",
+  "bundle.downloadBundleCount": "Download bundle ({count})",
   "bundle.downloadCount": "Download {count}",
   "bundle.fallbackDescription": "Bundle prepared for batch download.",
   "bundle.loadError": "The bundle could not be loaded.",

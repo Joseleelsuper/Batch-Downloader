@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { fetchAdminApps } from '../api/adminApps';
 import { fetchApps } from '../api/catalogApps';
@@ -39,9 +39,9 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Reado
     setDegradedReason(null);
     const timer = window.setTimeout(() => {
       const params = { query, sort, page, pageSize: PAGE_SIZE };
-      const request = administrator
+      const request = administrator && searchMode === 'lexical'
         ? fetchAdminApps({ ...params, filter: 'all' }, controller.signal)
-        : fetchApps({ ...params, filter: 'available', searchMode }, controller.signal);
+        : fetchApps({ ...params, filter: administrator ? 'all' : 'available', searchMode }, controller.signal);
       void request.then((response) => {
         if (controller.signal.aborted) return;
         setResults(response.data);
@@ -83,7 +83,6 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Reado
   function searchStatus() {
     if (loading) return t('bundlePicker.loading');
     if (failed) return t('bundlePicker.failed');
-    if (administrator && !query.trim()) return t('bundlePicker.popular');
     return t(total === 1 ? 'bundlePicker.oneResult' : 'bundlePicker.results', { count: total });
   }
 
@@ -110,21 +109,13 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Reado
     <section className="bundle-picker-panel" aria-labelledby={`${id}-search-title`}>
       <header className="bundle-picker-heading">
         <h3 id={`${id}-search-title`}>{t('bundlePicker.find')}</h3>
-        {administrator ? <p>{t('bundlePicker.searchHint')}</p> : null}
       </header>
-      {administrator ? <label className="bundle-picker-search" htmlFor={`${id}-query`}>
-        <span className="sr-only">{t('bundlePicker.search')}</span>
-        <Search size={18} aria-hidden="true" />
-        <input id={`${id}-query`} type="search" value={query}
-          placeholder={t('bundlePicker.search')}
-          onChange={(event) => setSearch({ query: event.target.value, page: 1 })}
-          onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
-      </label> : <AppSearchBar value={query} sort={sort} searchMode={searchMode}
+      <AppSearchBar value={query} sort={sort} searchMode={searchMode}
         onChange={(value) => setSearch({ query: value, page: 1 })}
         onSortChange={(value) => { setSort(value); setSearch({ query, page: 1 }); }}
         onSearchModeChange={(value) => { setSearchMode(value); setSearch({ query, page: 1 }); }}
         inputProps={{ id: `${id}-query`, type: 'search', onKeyDown: (event) => { if (event.key === 'Enter') event.preventDefault(); } }}
-        showSortDescriptions={false} />}
+        showSortDescriptions={false} />
       <p className="bundle-picker-status"><output>{searchStatus()}</output></p>
       {degradedReason ? <p className="bundle-picker-status" role="status">{t(degradedReason === 'semantic_query_too_short'
         ? 'catalog.search.degraded.shortQuery' : 'catalog.search.degraded')}</p> : null}
@@ -156,7 +147,7 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Reado
           <button id={`${id}-remove-${app.id}`} type="button" aria-label={t('bundlePicker.remove', { name: app.name })}
             title={t('bundlePicker.remove', { name: app.name })} onClick={() => remove(index)}><X size={16} aria-hidden="true" /></button>
         </div>
-      </li>)}</ol> : <p className="bundle-picker-empty">{t(administrator ? 'bundlePicker.selectionEmpty' : 'bundlePicker.selectionEmptyShort')}</p>}
+      </li>)}</ol> : <p className="bundle-picker-empty">{t('bundlePicker.selectionEmptyShort')}</p>}
     </section>
   </div>;
 }

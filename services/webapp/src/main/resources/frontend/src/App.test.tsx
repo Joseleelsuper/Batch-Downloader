@@ -148,6 +148,31 @@ describe('catalog workspace', () => {
     expect(within(footer as HTMLElement).getByRole('heading', { name: 'Páginas' })).toBeInTheDocument();
   });
 
+  it('keeps mobile filters closed regardless of desktop preferences and preserves the download selection', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true, value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true, value(this: HTMLDialogElement) { this.removeAttribute('open'); },
+    });
+    localStorage.setItem('catalog.filters.open', 'true');
+    vi.mocked(catalogAppsApi.fetchApps).mockResolvedValue({ data: [catalogApp], page: 1, pageSize: 12, total: 1 });
+    render(<MemoryRouter initialEntries={['/catalog']}><App /></MemoryRouter>);
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'Seleccionar Aplicación reciente' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(checkbox);
+    expect(screen.getByRole('button', { name: 'Descargar ZIP' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: /Ver selección/ }));
+    const panel = screen.getByRole('dialog', { name: 'Filtros' });
+    expect(within(panel).getByRole('button', { name: 'Quitar Aplicación reciente de la selección' })).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Ver resultados' }));
+    expect(checkbox).toBeChecked();
+    expect(document.body.style.overflow).toBe('');
+    expect(localStorage.getItem('catalog.filters.open')).toBe('true');
+  });
+
   it('renders catalog totals even when the app page request fails', async () => {
     vi.mocked(catalogAppsApi.fetchApps).mockRejectedValue(new Error('request_failed_500'));
     vi.mocked(catalogAppsApi.fetchCatalogStats).mockResolvedValue({
@@ -992,10 +1017,10 @@ describe('home loading', () => {
 
     expect(await screen.findByRole('button', { name: 'Windows: 1 aplicaciones disponibles' }))
       .toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Descargar 1' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Descargar bundle (1)' })).toBeEnabled();
     const entry = container.querySelector('.bundle-app-entry');
     const expander = entry?.querySelector('.app-detail-expander');
-    expect(entry?.querySelector('.bundle-app-row .status-badge')).toBeInTheDocument();
+    expect(entry?.querySelector('.bundle-app-row .status-badge')).not.toBeInTheDocument();
     expect(entry?.querySelector('.bundle-app-row .download-button')).toBeInTheDocument();
     expect(entry?.querySelector('.bundle-app-row .os-icons')).toBeInTheDocument();
     expect(expander).toHaveAttribute('aria-hidden', 'true');
@@ -1022,7 +1047,7 @@ describe('home loading', () => {
     fireEvent.click(screen.getByRole('button', { name: /Example-0\.9\.deb/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Windows: 1 aplicaciones disponibles' }));
     expect(olderInstaller).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'Descargar 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar bundle (1)' }));
 
     await waitFor(() => expect(createJob).toHaveBeenCalledWith({
       bundleId: 'bundle-1', operatingSystems: ['windows'],

@@ -42,17 +42,14 @@ import { ApiRequestError } from '../../api/http';
 import { useAuth } from '../../auth/AuthContext';
 import { BundleAppPicker } from '../../components/BundleAppPicker';
 import { BundleTagPicker } from '../../components/BundleTagPicker';
+import { MobileAppHeader, ResponsivePanel } from '../../components/ResponsivePanel';
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type { AccountDashboard, OwnBundleDetails, OwnBundleInput, OwnBundleSummary } from '../../types/account';
 import type { CatalogApp } from '../../types/catalog';
+import { bundleSlug } from '../../utils/bundleSlug';
 
 const MAXIMUM_EMAIL_LENGTH = 254;
 const MAXIMUM_PASSWORD_UTF8_BYTES = 72;
-
-function bundleSlug(value: string): string {
-  return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 180).replace(/-+$/g, '');
-}
 
 type ProfileActionDialog =
   | { type: 'delete-bundles'; visibility: 'public' | 'private' }
@@ -220,11 +217,15 @@ export function AccountLayout() {
   const t = useTranslation();
   const auth = useAuth();
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
   async function signOut() {
     await auth.signOut();
     void navigate('/login', { replace: true });
   }
   return <div className="account-shell">
+    <MobileAppHeader controls="account-navigation" open={menuOpen} onClick={() => setMenuOpen(true)} />
+    <ResponsivePanel id="account-navigation" title={t('account.nav.dashboard')} open={menuOpen}
+      onClose={() => setMenuOpen(false)} desktopClassName="sidebar-shell">
     <aside className="account-nav admin-sidebar">
       <Link className="brand admin-brand" to="/">
         <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
@@ -237,6 +238,7 @@ export function AccountLayout() {
       </nav>
       <button type="button" onClick={signOut}><LogOut size={18} />{t('nav.logout')}</button>
     </aside>
+    </ResponsivePanel>
     <main className="account-content"><Outlet /></main>
   </div>;
 }

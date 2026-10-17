@@ -2465,6 +2465,65 @@ paths:
       - $ref: '#/components/parameters/CsrfToken'
       x-required-roles:
       - ADMIN
+  /admin/bundles/custom-tags:
+    get:
+      operationId: adminListBundleCustomTags
+      summary: Listar etiquetas compartidas para bundles
+      tags:
+      - Administración
+      responses:
+        '200':
+          description: Etiquetas globales creadas por usuarios o administradores, separadas del catálogo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
+    post:
+      operationId: adminCreateBundleCustomTag
+      summary: Añadir una etiqueta compartida para bundles
+      tags:
+      - Administración
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tag]
+              properties:
+                tag:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+      responses:
+        '201':
+          description: Etiqueta creada o ya existente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tag]
+                properties:
+                  tag:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+      x-required-roles:
+      - ADMIN
   /admin/bundles/{bundleId}:
     patch:
       operationId: adminUpdateBundle

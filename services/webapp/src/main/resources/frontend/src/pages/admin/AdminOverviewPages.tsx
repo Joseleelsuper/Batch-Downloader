@@ -10,6 +10,7 @@ import {
 import { fetchCatalogStats } from '../../api/catalogApps';
 import { fetchAdminCurrentRun } from '../../api/scraperAdmin';
 import { BundleAppPicker } from '../../components/BundleAppPicker';
+import { BundleTagPicker } from '../../components/BundleTagPicker';
 import { AdminTable } from '../../components/admin/AdminTable';
 import { useLocale, useTranslation } from '../../services/i18n';
 import type {
@@ -20,6 +21,7 @@ import type {
   CatalogStats,
   ScraperRunSummary,
 } from '../../types/catalog';
+import { bundleSlug } from '../../utils/bundleSlug';
 import { formatDate } from '../../utils/date';
 
 export function AdminDashboard() {
@@ -63,7 +65,8 @@ export function AdminBundlesPage() {
   const t = useTranslation();
   const [official, setOfficial] = useState<BundleSummary[]>([]);
   const [selected, setSelected] = useState<BundleDetails | null>(null);
-  const [form, setForm] = useState({ name: '', description: '', tags: '' });
+  const [form, setForm] = useState({ name: '', slug: '', description: '', tags: [] as string[] });
+  const [slugEdited, setSlugEdited] = useState(false);
   const [bundleApps, setBundleApps] = useState<CatalogApp[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -82,7 +85,8 @@ export function AdminBundlesPage() {
 
   function resetBundleEditor() {
     setSelected(null);
-    setForm({ name: '', description: '', tags: '' });
+    setForm({ name: '', slug: '', description: '', tags: [] });
+    setSlugEdited(false);
     setBundleApps([]);
     setMessage(null);
   }
@@ -92,9 +96,11 @@ export function AdminBundlesPage() {
     setSelected(details);
     setForm({
       name: details.name,
+      slug: details.slug,
       description: details.description ?? '',
-      tags: details.tags.join(', '),
+      tags: details.tags,
     });
+    setSlugEdited(true);
     setBundleApps(details.apps);
     setMessage(null);
   }
@@ -105,10 +111,11 @@ export function AdminBundlesPage() {
     try {
       const payload = {
         name: form.name,
+        slug: bundleSlug(form.slug || form.name),
         description: form.description,
         type: 'official',
         visibility: 'official',
-        tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+        tags: form.tags,
         appIds: bundleApps.map((app) => app.id),
       };
       const saved = selected
@@ -118,9 +125,11 @@ export function AdminBundlesPage() {
       setBundleApps(saved.apps);
       setForm({
         name: saved.name,
+        slug: saved.slug,
         description: saved.description ?? '',
-        tags: saved.tags.join(', '),
+        tags: saved.tags,
       });
+      setSlugEdited(true);
       await loadBundles();
       setMessage(t('admin.message.bundleSaved'));
     } catch {
@@ -166,9 +175,12 @@ export function AdminBundlesPage() {
           {selected ? <small>{selected.id}</small> : null}
         </div>
         <div className="admin-card bundle-fields bundle-editor-fields">
-          <label>{t('admin.field.name')}<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label>{t('admin.field.tags')}<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder={t('admin.bundle.placeholder.tags')} /></label>
+          <label>{t('admin.field.name')}<input required maxLength={160} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, slug: slugEdited ? form.slug : bundleSlug(e.target.value) })} /></label>
+          <label>{t('account.bundles.slug')}<input maxLength={180} value={form.slug} onChange={(e) => {
+            setForm({ ...form, slug: e.target.value }); setSlugEdited(Boolean(e.target.value));
+          }} onBlur={() => setForm((current) => ({ ...current, slug: bundleSlug(current.slug || current.name) }))} /></label>
           <label className="bundle-description-field">{t('admin.field.description')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+          <BundleTagPicker tags={form.tags} onChange={(tags) => setForm((current) => ({ ...current, tags }))} administrator />
         </div>
         <BundleAppPicker apps={bundleApps} onChange={setBundleApps} administrator />
         {message ? <span className="form-message">{message}</span> : null}

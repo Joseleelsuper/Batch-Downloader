@@ -1,7 +1,8 @@
-import { ExternalLink } from 'lucide-react';
+import { ChevronDown, ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { isCatalogAppSelectable } from '../catalogSelection';
+import { useCompactLayout } from '../hooks/useCompactLayout';
 import { useLocale, useTranslation } from '../services/i18n';
 import type { AppDetails, DownloadOption, OperatingSystem } from '../types/catalog';
 import { DownloadButton } from './DownloadButton';
@@ -23,6 +24,7 @@ export function AppDetailsPanel({
 }: Readonly<Props>) {
   const t = useTranslation();
   const locale = useLocale();
+  const compact = useCompactLayout();
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const options = useMemo(() => (app?.downloadOptions ?? []).filter(
     (option) => !operatingSystem || option.operatingSystem === operatingSystem,
@@ -42,7 +44,7 @@ export function AppDetailsPanel({
   return (
     <section className={`app-detail-panel ${loading ? 'app-detail-panel-busy' : ''}`} aria-busy={loading}>
       <h3 className="sr-only">{app.name}</h3>
-      <DetailBlock className="app-detail-description" label={t('app.details.description')}>
+      <DetailBlock className="app-detail-description" label={t('app.details.description')} collapsible={compact}>
         <p className="long-description">
           {(locale === 'en' ? app.longDescriptionEn : app.longDescription)
             || app.longDescription || app.description || t('app.details.descriptionPending')}
@@ -50,7 +52,7 @@ export function AppDetailsPanel({
       </DetailBlock>
 
       {app.tags?.length ? (
-        <DetailBlock className="app-detail-tags" label={t('app.details.tags')}>
+        <DetailBlock className="app-detail-tags" label={t('app.details.tags')} collapsible={compact}>
           <div className="tag-list">
             {app.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
           </div>
@@ -155,11 +157,21 @@ function DetailBlock({
   label,
   children,
   className = '',
+  collapsible = false,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  collapsible?: boolean;
 }) {
+  if (collapsible) {
+    return (
+      <details className={`detail-block ${className}`}>
+        <summary className="detail-label">{label}<ChevronDown size={18} aria-hidden="true" /></summary>
+        <div className="detail-value">{children}</div>
+      </details>
+    );
+  }
   return (
     <div className={`detail-block ${className}`}>
       <span className="detail-label">{label}</span>

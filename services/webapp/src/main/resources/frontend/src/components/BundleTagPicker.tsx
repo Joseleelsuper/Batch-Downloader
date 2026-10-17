@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Tags, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createBundleCustomTag, fetchBundleCustomTags } from '../api/account';
+import { createAdminBundleCustomTag, fetchAdminBundleCustomTags } from '../api/bundles';
 import { fetchCatalogFacets } from '../api/catalogApps';
 import { useLocale, useTranslation } from '../services/i18n';
 import type { CatalogFacets } from '../types/catalog';
@@ -16,9 +17,10 @@ const searchKey = (value: string) => tagKey(value).normalize('NFD').replace(/[\u
 interface Props {
   tags: string[];
   onChange: (tags: string[]) => void;
+  administrator?: boolean;
 }
 
-export function BundleTagPicker({ tags, onChange }: Readonly<Props>) {
+export function BundleTagPicker({ tags, onChange, administrator = false }: Readonly<Props>) {
   const t = useTranslation();
   const [open, setOpen] = useState(false);
   const selectedTags = uniqueTags(tags);
@@ -32,11 +34,11 @@ export function BundleTagPicker({ tags, onChange }: Readonly<Props>) {
       <button type="button" aria-label={t('bundleTags.remove', { tag })}
         onClick={() => onChange(tags.filter((value) => tagKey(value) !== tagKey(tag)))}><X size={14} aria-hidden="true" /></button>
     </li>)}</ul> : null}
-    {open ? <BundleTagDialog tags={tags} onChange={onChange} onClose={() => setOpen(false)} /> : null}
+    {open ? <BundleTagDialog tags={tags} onChange={onChange} administrator={administrator} onClose={() => setOpen(false)} /> : null}
   </div>;
 }
 
-function BundleTagDialog({ tags, onChange, onClose }: Readonly<Props & { onClose: () => void }>) {
+function BundleTagDialog({ tags, onChange, administrator, onClose }: Readonly<Props & { onClose: () => void }>) {
   const t = useTranslation();
   const locale = useLocale();
   const id = useId();
@@ -73,11 +75,11 @@ function BundleTagDialog({ tags, onChange, onClose }: Readonly<Props & { onClose
   useEffect(() => {
     let active = true;
     setCustomFailed(false);
-    void fetchBundleCustomTags()
+    void (administrator ? fetchAdminBundleCustomTags() : fetchBundleCustomTags())
       .then((result) => { if (active) setCustomTags((previous) => uniqueTags([...result, ...(previous ?? [])])); })
       .catch(() => { if (active) setCustomFailed(true); });
     return () => { active = false; };
-  }, [customRetry]);
+  }, [customRetry, administrator]);
 
   const options = useMemo(() => {
     const unique = new Map<string, { value: string; label: string }>();
@@ -121,7 +123,7 @@ function BundleTagDialog({ tags, onChange, onClose }: Readonly<Props & { onClose
     if (!canAddCustom || customSaving || draft.length >= MAX_TAGS || customTag.length > MAX_TAG_LENGTH) return;
     setCustomSaving(true); setCustomError(false);
     try {
-      const created = await createBundleCustomTag(customTag);
+      const created = await (administrator ? createAdminBundleCustomTag(customTag) : createBundleCustomTag(customTag));
       setCustomTags((previous) => uniqueTags([...(previous ?? []), created.tag]));
       setDraft((previous) => previous.some((tag) => tagKey(tag) === tagKey(created.tag))
         ? previous : previous.length < MAX_TAGS ? [...previous, created.tag] : previous);

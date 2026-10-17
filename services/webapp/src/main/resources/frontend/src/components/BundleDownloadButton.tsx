@@ -132,7 +132,7 @@ export function BundleDownloadButton({
             ? `${job?.progress ?? 0}%`
             : ready
               ? t('download.job.getZip')
-              : t('bundle.downloadCount', { count: downloadableCount })}
+              : t(compact ? 'bundle.downloadCount' : 'bundle.downloadBundleCount', { count: downloadableCount })}
       </button>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, SlidersHorizontal } from 'lucide-react';
 import {
   Link,
   useNavigate,
@@ -33,6 +33,8 @@ import { AppFilters } from '../../components/AppFilters';
 import { AppSearchBar } from '../../components/AppSearchBar';
 import { AppTable } from '../../components/AppTable';
 import { Pagination } from '../../components/Pagination';
+import { ResponsivePanel } from '../../components/ResponsivePanel';
+import { useCompactLayout } from '../../hooks/useCompactLayout';
 import { useDownloadJob } from '../../hooks/useDownloadJob';
 import { chooseDownloadDestination, isDestinationCancelled } from '../../downloads/delivery';
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
@@ -133,6 +135,9 @@ function searchNoticeFor(t: Translator, degradedReason?: string | null): string 
 
 export function CatalogPage() {
   const t = useTranslation();
+  const locale = useLocale();
+  const compact = useCompactLayout();
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const { appId } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -439,7 +444,11 @@ export function CatalogPage() {
 
   return (
     <main className={`workspace ${filtersVisible ? '' : 'filters-hidden'}`}>
-      <div className="filter-rail-shell" hidden={!filtersVisible}>
+      <ResponsivePanel id="catalog-filter-panel" title={t('catalog.filters')} open={mobileFiltersOpen}
+        onClose={() => setMobileFiltersOpen(false)} desktopClassName="filter-rail-shell" desktopHidden={!filtersVisible}
+        footer={<button type="button" className="primary-button" onClick={() => setMobileFiltersOpen(false)}>
+          {t('catalog.filters.showResults')}
+        </button>}>
         <AppFilters
           active={filters.filter}
           counts={stats?.filters ?? DEFAULT_COUNTS}
@@ -462,11 +471,11 @@ export function CatalogPage() {
           onClearSelection={clearDownloadSelection}
           onRemoveSelected={(id) => removeDownloadSelections([id])}
         />
-      </div>
+      </ResponsivePanel>
       <button
         className="filter-bookmark"
         type="button"
-        aria-controls="catalog-filters"
+        aria-controls="catalog-filter-panel"
         aria-expanded={filtersVisible}
         aria-label={filtersVisible ? t('catalog.filters.close') : t('catalog.filters.open')}
         title={filtersVisible ? t('catalog.filters.close') : t('catalog.filters.open')}
@@ -479,7 +488,16 @@ export function CatalogPage() {
         {filtersVisible ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
       </button>
       <section className="catalog-panel">
-        <h1 className="sr-only">{selected?.name ?? t('nav.catalog')}</h1>
+        {compact ? <div className="mobile-catalog-toolbar">
+          <div>
+            <h1>{t('nav.catalog')}</h1>
+            <p>{t(`catalog.filter.${filters.filter}`)}{displayedPage ? ` · ${t('catalog.results', { count: total.toLocaleString(locale) })}` : ''}</p>
+          </div>
+          <button type="button" className="secondary-button mobile-filter-button" aria-controls="catalog-filter-panel"
+            aria-expanded={mobileFiltersOpen} onClick={() => setMobileFiltersOpen(true)}>
+            <SlidersHorizontal size={18} aria-hidden="true" />{t('catalog.filters')}
+          </button>
+        </div> : <h1 className="sr-only">{selected?.name ?? t('nav.catalog')}</h1>}
         <AppSearchBar
           value={query}
           sort={filters.sort}
@@ -543,6 +561,18 @@ export function CatalogPage() {
             updateFilters({ pageSize: nextPageSize });
           }}
         /> : null}
+        {compact && selectedDownloadIds.size > 0 ? <div className="mobile-selection-bar">
+          <button type="button" className="mobile-selection-summary" onClick={() => setMobileFiltersOpen(true)}
+            aria-controls="catalog-filter-panel" aria-expanded={mobileFiltersOpen}>
+            <strong>{selectedDownloadIds.size}<span>/100</span></strong>
+            <span>{t('catalog.selection.manage')}</span>
+          </button>
+          <button type="button" className="primary-button" disabled={downloadJob.starting || validatingSelection}
+            onClick={() => void downloadSelection()}>
+            <Download size={18} aria-hidden="true" />
+            {downloadJob.starting || validatingSelection ? t('catalog.selection.downloading') : t('catalog.selection.downloadZip')}
+          </button>
+        </div> : null}
       </section>
     </main>
   );

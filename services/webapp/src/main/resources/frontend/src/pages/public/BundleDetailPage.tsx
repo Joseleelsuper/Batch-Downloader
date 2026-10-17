@@ -7,7 +7,6 @@ import { isCatalogAppSelectable } from '../../catalogSelection';
 import { AppDetailExpander } from '../../components/AppDetailExpander';
 import { AppDetailsPanel } from '../../components/AppDetailsPanel';
 import { AppMiniIcon } from '../../components/AppMiniIcon';
-import { AppStatusBadge } from '../../components/AppStatusBadge';
 import { BundleDownloadButton } from '../../components/BundleDownloadButton';
 import { DownloadButton } from '../../components/DownloadButton';
 import { OperatingSystemList } from '../../components/OperatingSystemIcons';
@@ -128,7 +127,6 @@ export function BundleDetailPage() {
                 <small>{app.publisher || '-'}</small>
               </div>
               <OperatingSystemList operatingSystems={app.operatingSystems} />
-              <AppStatusBadge status={app.resolutionStatus} />
               <DownloadButton appId={app.id} appName={app.name}
                 sourceRef={selectedSources[app.id]} operatingSystem={selectedSystem ?? undefined}
                 disabled={!isCatalogAppSelectable(app) || Boolean(selectedSystem && !app.operatingSystems.includes(selectedSystem))} />
