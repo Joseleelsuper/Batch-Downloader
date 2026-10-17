@@ -1,0 +1,28 @@
+# Batch-Downloader
+
+> Batch Downloader permite explorar aplicaciones con fuentes de instalación verificadas, agruparlas y descargar los instaladores en un archivo ZIP.
+
+El catálogo público distingue los estados `available`, `review` y `missing`. Cada trabajo muestra el resultado de sus instaladores; una URL encontrada no se publica como instalador utilizable hasta que se valida.
+
+Aplicaciones parecidas:
+- Ninite
+- PatchMyPC
+- Cttstore
+- UBULabs
+
+## Sitio público
+
+- [Inicio](https://batchdownloader.dev/): Presentación y acceso a las funciones públicas.
+- [Catálogo de aplicaciones](https://batchdownloader.dev/catalog): Búsqueda y consulta del catálogo; cada aplicación tiene una página de detalle.
+- [Términos](https://batchdownloader.dev/terms): Condiciones de uso.
+- [Privacidad](https://batchdownloader.dev/privacy): Información sobre privacidad.
+- [Contrato de API OpenAPI](https://batchdownloader.dev/openapi.yaml): Contratos versionados de la API.
+
+## Código y documentación
+
+- [Repositorio](https://github.com/Joseleelsuper/Batch-Downloader): Código fuente del proyecto.
+- [README](https://github.com/Joseleelsuper/Batch-Downloader/blob/main/README.md): Arranque local, servicios, rutas y configuración.
+
+## Optional
+
+- [Contrato OpenAPI en el repositorio](https://github.com/Joseleelsuper/Batch-Downloader/blob/main/shared/contracts/openapi/batch-downloader-api.yaml): Fuente versionada del contrato de API.
