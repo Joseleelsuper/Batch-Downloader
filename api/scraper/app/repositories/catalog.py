@@ -25,7 +25,7 @@ from app.db.models import (
 from app.repositories.catalog_rules import (
     _public_resolved_sources_loader,
     has_icon_url,
-    is_replaceable_github_icon,
+    is_replaceable_icon,
 )
 from app.repositories.catalog_sources import CatalogSourceStore
 from app.repositories.catalog_winstall import WinstallCatalogStore
@@ -71,7 +71,7 @@ class CatalogRepository:
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if (
             not software_app
-            or not is_replaceable_github_icon(software_app.icon_url)
+            or not is_replaceable_icon(software_app.icon_url)
             or not has_icon_url(icon_url)
         ):
             return False

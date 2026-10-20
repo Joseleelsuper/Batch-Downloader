@@ -71,6 +71,7 @@ class CatalogSourceStore:
         )
         repaired = 0
         affected_sources: set[uuid.UUID] = set()
+        pending_fingerprints: set[tuple[uuid.UUID, str]] = set()
         for resolved in result.unique():
             source = resolved.source
             target_os = inferred_platform_for_resolved_source(resolved)
@@ -89,6 +90,22 @@ class CatalogSourceStore:
             )
             if target.id == source.id:
                 continue
+            target_fingerprint = (target.id, resolved.artifact_fingerprint)
+            if target_fingerprint in pending_fingerprints:
+                continue
+            with self.session.no_autoflush:
+                existing_target = await self.session.scalar(
+                    select(ResolvedSource.id)
+                    .where(ResolvedSource.download_source_id == target.id)
+                    .where(
+                        ResolvedSource.artifact_fingerprint
+                        == resolved.artifact_fingerprint
+                    )
+                    .limit(1)
+                )
+            if existing_target is not None:
+                continue
+            pending_fingerprints.add(target_fingerprint)
             affected_sources.add(source.id)
             affected_sources.add(target.id)
             resolved.download_source_id = target.id
