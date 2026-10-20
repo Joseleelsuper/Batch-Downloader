@@ -143,12 +143,12 @@ class IconResolver:
             ("meta[property='og:image']", "content", "official_og_image"),
             ("meta[name='twitter:image']", "content", "official_twitter_image"),
         ):
-            for candidate in self._icon_candidates_from_nodes(
-                parser, selector, attr, base_url, source
-            ):
-                result = await self._validate_image(client, candidate)
-                if result:
-                    return result
+            result = await self._first_valid_icon_candidate(
+                client,
+                self._icon_candidates_from_nodes(parser, selector, attr, base_url, source),
+            )
+            if result:
+                return result
 
         manifest = self._first_icon_from_nodes(
             parser,
@@ -164,17 +164,31 @@ class IconResolver:
                 return manifest_icon
 
         if include_link_icons:
-            for candidate in self._icon_candidates_from_nodes(
-                parser,
-                "link[rel]",
-                "href",
-                base_url,
-                "official_link_icon",
-            ):
-                result = await self._validate_image(client, candidate)
-                if result:
-                    return result
+            result = await self._first_valid_icon_candidate(
+                client,
+                self._icon_candidates_from_nodes(
+                    parser,
+                    "link[rel]",
+                    "href",
+                    base_url,
+                    "official_link_icon",
+                ),
+            )
+            if result:
+                return result
 
+        return None
+
+    async def _first_valid_icon_candidate(
+        self,
+        client: httpx.AsyncClient,
+        candidates: list[IconResult],
+    ) -> IconResult | None:
+        """Valida candidatos en orden y devuelve el primero que contiene una imagen."""
+        for candidate in candidates:
+            result = await self._validate_image(client, candidate)
+            if result:
+                return result
         return None
 
     def _first_icon_from_nodes(
