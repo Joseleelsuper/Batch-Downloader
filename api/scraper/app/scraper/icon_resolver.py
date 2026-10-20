@@ -71,8 +71,8 @@ class IconResolver:
 
 
     async def resolve(self, app: WinstallApp) -> IconResult | None:
-        """Prueba GitHub antes de la página oficial, valida redirecciones y contenido y cierra el
-        cliente que creó.
+        """Busca iconos en el proyecto GitHub o la página oficial y valida cada candidato antes de
+        aceptar el siguiente fallback.
 
         Args:
             app: Aplicación Winstall cuya identidad se usa para buscar icono.
@@ -81,7 +81,7 @@ class IconResolver:
             IconResult aceptado o None.
         """
         homepage = app.homepage
-        if not homepage:
+        if not homepage or not await public_https_url(homepage):
             return None
 
         owns_client = self.client is None
@@ -91,12 +91,24 @@ class IconResolver:
             headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
         )
         try:
-            candidate: IconResult | None = None
-            if parse_github_repo(homepage):
-                candidate = await self._from_github(client, homepage)
-            if candidate is None:
-                candidate = await self._from_official_page(client, homepage)
-            return await self._validate_image(client, candidate) if candidate else None
+            repo = None if is_github_profile_page(homepage) else parse_github_repo(homepage)
+            if repo:
+                github_icon = await self._from_github(client, homepage, repo.owner, repo.name)
+                if github_icon:
+                    return github_icon
+
+            owner = github_avatar_owner(homepage)
+            official_icon = await self._from_official_page(
+                client,
+                homepage,
+                include_link_icons=not is_github_profile_page(homepage),
+            )
+            if official_icon:
+                return official_icon
+
+            if owner:
+                return await self._validate_image(client, self._github_avatar(owner))
+            return None
         finally:
             if owns_client:
                 await client.aclose()
@@ -105,21 +117,21 @@ class IconResolver:
         self,
         client: httpx.AsyncClient,
         homepage: str,
+        *,
+        include_link_icons: bool = True,
     ) -> IconResult | None:
-        """Lee link rel icon, Open Graph, Twitter y manifest en orden de prioridad.
+        """Lee Open Graph, Twitter, manifest e iconos, probando fallbacks validados.
 
         Args:
             client: Cliente HTTP reutilizable.
             homepage: Página oficial o repositorio de la aplicación.
+            include_link_icons: Indica si se pueden usar favicons genéricos de la página.
 
         Returns:
             candidato de icono o None.
         """
-        try:
-            response = await client.get(homepage)
-        except httpx.HTTPError:
-            return None
-        if not response.is_success:
+        response = await self._get_public_response(client, homepage)
+        if response is None:
             return None
         content_type = response.headers.get("content-type", "")
         if content_type and "html" not in content_type:
@@ -128,11 +140,13 @@ class IconResolver:
         parser = HTMLParser(response.text)
         base_url = str(response.url)
         for selector, attr, source in (
-            ("link[rel]", "href", "official_link_icon"),
             ("meta[property='og:image']", "content", "official_og_image"),
             ("meta[name='twitter:image']", "content", "official_twitter_image"),
         ):
-            result = self._first_icon_from_nodes(parser, selector, attr, base_url, source)
+            result = await self._first_valid_icon_candidate(
+                client,
+                self._icon_candidates_from_nodes(parser, selector, attr, base_url, source),
+            )
             if result:
                 return result
 
@@ -149,6 +163,32 @@ class IconResolver:
             if manifest_icon:
                 return manifest_icon
 
+        if include_link_icons:
+            result = await self._first_valid_icon_candidate(
+                client,
+                self._icon_candidates_from_nodes(
+                    parser,
+                    "link[rel]",
+                    "href",
+                    base_url,
+                    "official_link_icon",
+                ),
+            )
+            if result:
+                return result
+
+        return None
+
+    async def _first_valid_icon_candidate(
+        self,
+        client: httpx.AsyncClient,
+        candidates: list[IconResult],
+    ) -> IconResult | None:
+        """Valida candidatos en orden y devuelve el primero que contiene una imagen."""
+        for candidate in candidates:
+            result = await self._validate_image(client, candidate)
+            if result:
+                return result
         return None
 
     def _first_icon_from_nodes(
@@ -174,6 +214,39 @@ class IconResolver:
         Returns:
             IconResult o None.
         """
+        candidates = self._icon_candidates_from_nodes(
+            parser,
+            selector,
+            attr,
+            base_url,
+            source,
+            allow_rel_any=allow_rel_any,
+        )
+        return candidates[0] if candidates else None
+
+    def _icon_candidates_from_nodes(
+        self,
+        parser: HTMLParser,
+        selector: str,
+        attr: str,
+        base_url: str,
+        source: str,
+        allow_rel_any: bool = False,
+    ) -> list[IconResult]:
+        """Recoge todas las referencias de imagen compatibles, conservando su orden en el HTML.
+
+        Args:
+            parser: Árbol HTML ya analizado.
+            selector: Selector CSS de nodos candidatos.
+            attr: Atributo que contiene la URL.
+            base_url: URL base para resolver referencias relativas.
+            source: Procedencia que se conserva en IconResult.
+            allow_rel_any: Indica si se acepta cualquier valor rel del nodo.
+
+        Returns:
+            candidatos HTTPS sin badges.
+        """
+        candidates: list[IconResult] = []
         for node in parser.css(selector):
             if not allow_rel_any:
                 rel = node.attributes.get("rel") or ""
@@ -184,8 +257,8 @@ class IconResolver:
                 continue
             icon_url = urljoin(base_url, value)
             if usable_icon_url(icon_url):
-                return IconResult(icon_url, source)
-        return None
+                candidates.append(IconResult(icon_url, source))
+        return candidates
 
     async def _from_manifest(
         self,
@@ -201,11 +274,8 @@ class IconResolver:
         Returns:
             IconResult o None.
         """
-        try:
-            response = await client.get(manifest_url)
-        except httpx.HTTPError:
-            return None
-        if not response.is_success:
+        response = await self._get_public_response(client, manifest_url)
+        if response is None:
             return None
         try:
             payload = response.json()
@@ -214,8 +284,7 @@ class IconResolver:
         icons = payload.get("icons")
         if not isinstance(icons, list):
             return None
-        best_url: str | None = None
-        best_size = -1
+        candidates: list[tuple[int, int, str]] = []
         for icon in icons:
             if not isinstance(icon, dict):
                 continue
@@ -224,43 +293,52 @@ class IconResolver:
                 continue
             size = largest_icon_size(icon.get("sizes"))
             icon_url = urljoin(str(response.url), src)
-            if usable_icon_url(icon_url) and size >= best_size:
-                best_url = icon_url
-                best_size = size
-        return IconResult(best_url, "official_manifest_icon") if best_url else None
+            if usable_icon_url(icon_url):
+                candidates.append((size, len(candidates), icon_url))
+        for _size, _order, icon_url in sorted(
+            candidates,
+            key=lambda candidate: candidate[0],
+            reverse=True,
+        ):
+            result = await self._validate_image(
+                client,
+                IconResult(icon_url, "official_manifest_icon"),
+            )
+            if result:
+                return result
+        return None
 
     async def _from_github(
         self,
         client: httpx.AsyncClient,
         homepage: str,
+        owner: str,
+        repo_name: str,
     ) -> IconResult | None:
-        """Busca icono en README, imagen social de la página y avatar del propietario, en ese
-        orden.
+        """Busca imágenes del README y la página, y prueba el avatar del propietario si fallan.
 
         Args:
             client: Cliente HTTP reutilizable.
             homepage: Página oficial o repositorio de la aplicación.
+            owner: Usuario u organización propietaria del repositorio.
+            repo_name: Nombre del repositorio.
 
         Returns:
             IconResult o None.
         """
-        repo = parse_github_repo(homepage)
-        if not repo:
-            return None
-
-        readme = await self._github_readme_icon(client, repo.owner, repo.name)
+        readme = await self._github_readme_icon(client, owner, repo_name)
         if readme:
-            return readme
+            validated = await self._validate_image(client, readme)
+            if validated:
+                return validated
 
         page_image = await self._github_page_image(client, homepage)
         if page_image:
-            return page_image
+            validated = await self._validate_image(client, page_image)
+            if validated:
+                return validated
 
-        avatar = self._github_avatar(repo.owner)
-        if avatar:
-            return avatar
-
-        return None
+        return await self._validate_image(client, self._github_avatar(owner))
 
     async def _github_page_image(
         self,
@@ -277,18 +355,15 @@ class IconResolver:
         Returns:
             IconResult social o None.
         """
-        try:
-            response = await client.get(homepage)
-        except httpx.HTTPError:
-            return None
-        if not response.is_success:
+        response = await self._get_public_response(client, homepage)
+        if response is None:
             return None
         parser = HTMLParser(response.text)
         for selector, attr in (
             ("meta[property='og:image']", "content"),
             ("meta[name='twitter:image']", "content"),
         ):
-            result = self._first_icon_from_nodes(
+            candidates = self._icon_candidates_from_nodes(
                 parser,
                 selector,
                 attr,
@@ -296,8 +371,9 @@ class IconResolver:
                 "github_page_image",
                 allow_rel_any=True,
             )
-            if result and is_github_social_image(result.url):
-                return result
+            for result in candidates:
+                if is_github_social_image(result.url):
+                    return result
         return None
 
     def _github_avatar(self, owner: str) -> IconResult:
@@ -313,6 +389,38 @@ class IconResolver:
             f"https://github.com/{quote(owner, safe='')}.png?size=128",
             "github_owner_avatar",
         )
+
+    async def _get_public_response(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+    ) -> httpx.Response | None:
+        """Obtiene una página HTTPS siguiendo redirecciones solo a hosts públicos.
+
+        Args:
+            client: Cliente HTTP reutilizable.
+            url: Página, manifest o endpoint público que se consulta.
+
+        Returns:
+            respuesta final satisfactoria o None ante fallo, destino privado o exceso de saltos.
+        """
+        candidate = url
+        for _ in range(self.settings.max_redirects + 1):
+            if not await public_https_url(candidate):
+                return None
+            try:
+                response = await client.get(candidate, follow_redirects=False)
+            except httpx.HTTPError:
+                return None
+            if response.is_redirect:
+                location = response.headers.get("location")
+                await response.aclose()
+                if not location:
+                    return None
+                candidate = urljoin(candidate, location)
+                continue
+            return response if response.is_success else None
+        return None
 
     async def _github_readme_icon(
         self,
@@ -510,6 +618,67 @@ def is_github_social_image(url: str) -> bool:
     hostname = (urlparse(url).hostname or "").lower()
     return hostname == "repository-images.githubusercontent.com" or hostname.endswith(
         ".repository-images.githubusercontent.com"
+    )
+
+
+def github_avatar_owner(url: str) -> str | None:
+    """Obtiene el usuario u organización GitHub de una ficha, perfil o GitHub Pages.
+
+    Args:
+        url: Página HTTPS del repositorio, perfil o sitio GitHub Pages.
+
+    Returns:
+        nombre del propietario GitHub o None para rutas globales u otros dominios.
+    """
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    parts = [part for part in parsed.path.split("/") if part]
+    if hostname in {"github.com", "www.github.com"}:
+        if parts and parts[0].lower() in {"orgs", "organizations", "users"} and len(parts) > 1:
+            return parts[1]
+        reserved = {
+            "about",
+            "apps",
+            "collections",
+            "explore",
+            "features",
+            "issues",
+            "login",
+            "marketplace",
+            "new",
+            "notifications",
+            "organizations",
+            "pricing",
+            "pulls",
+            "search",
+            "settings",
+            "sponsors",
+            "topics",
+        }
+        if parts and parts[0].lower() not in reserved:
+            return parts[0]
+    if hostname.endswith(".github.io"):
+        owner = hostname.removesuffix(".github.io")
+        if owner and "." not in owner:
+            return owner
+    return None
+
+
+def is_github_profile_page(url: str) -> bool:
+    """Reconoce perfiles GitHub para no preferir su favicon genérico al avatar.
+
+    Args:
+        url: Página GitHub que se clasifica.
+
+    Returns:
+        True para perfiles de usuarios u organizaciones.
+    """
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() not in {"github.com", "www.github.com"}:
+        return False
+    parts = [part for part in parsed.path.split("/") if part]
+    return len(parts) == 1 or (
+        len(parts) == 2 and parts[0].lower() in {"orgs", "organizations", "users"}
     )
 
 

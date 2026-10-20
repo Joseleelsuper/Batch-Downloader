@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from app.core.config import Settings
-from app.scraper.icon_resolver import IconResolver
+from app.scraper.icon_resolver import IconResolver, github_avatar_owner
 
 
 @pytest.mark.asyncio
@@ -36,6 +36,7 @@ async def test_icon_resolver_extracts_official_favicon(monkeypatch) -> None:
     respx.get("https://example.com/favicon.ico").mock(
         return_value=httpx.Response(200, headers={"content-type": "image/x-icon"}, content=b"icon")
     )
+    respx.get("https://example.com/og.png").mock(return_value=httpx.Response(404))
 
     result = await IconResolver(Settings()).resolve(
         SimpleNamespace(homepage="https://example.com/download")
@@ -133,6 +134,84 @@ async def test_icon_resolver_falls_back_to_github_owner_avatar(monkeypatch) -> N
     assert result is not None
     assert result.url == "https://github.com/vendor.png?size=128"
     assert result.source == "github_owner_avatar"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_icon_resolver_uses_official_image_for_non_github_page(monkeypatch) -> None:
+    """Comprueba metadatos de imagen en páginas oficiales que no pertenecen a GitHub."""
+    monkeypatch.setattr("app.scraper.icon_resolver.public_https_url", public_url)
+    respx.get("https://vendor.example/app").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            html=(
+                '<meta property="og:image" content="/missing.png">'
+                '<meta name="twitter:image" content="/app-logo.png">'
+            ),
+        )
+    )
+    respx.get("https://vendor.example/missing.png").mock(return_value=httpx.Response(404))
+    respx.get("https://vendor.example/app-logo.png").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "image/png"},
+            content=b"png",
+        )
+    )
+
+    result = await IconResolver(Settings()).resolve(
+        SimpleNamespace(homepage="https://vendor.example/app")
+    )
+
+    assert result is not None
+    assert result.url == "https://vendor.example/app-logo.png"
+    assert result.source == "official_twitter_image"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_icon_resolver_uses_github_avatar_after_broken_readme_image(monkeypatch) -> None:
+    """Un README con una imagen rota no debe impedir el fallback al avatar del propietario."""
+    monkeypatch.setattr("app.scraper.icon_resolver.public_https_url", public_url)
+    respx.get("https://api.github.com/repos/vendor/app/readme").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/plain"},
+            text="![logo](docs/missing.png)",
+        )
+    )
+    respx.get("https://raw.githubusercontent.com/vendor/app/HEAD/docs/missing.png").mock(
+        return_value=httpx.Response(404)
+    )
+    respx.get("https://github.com/vendor/app").mock(return_value=httpx.Response(404))
+    respx.get("https://github.com/vendor.png?size=128").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "image/png"},
+            content=b"png",
+        )
+    )
+
+    result = await IconResolver(Settings()).resolve(
+        SimpleNamespace(homepage="https://github.com/vendor/app")
+    )
+
+    assert result is not None
+    assert result.url == "https://github.com/vendor.png?size=128"
+    assert result.source == "github_owner_avatar"
+
+
+@pytest.mark.parametrize(
+    ("url", "owner"),
+    [
+        ("https://github.com/octocat/tool", "octocat"),
+        ("https://github.com/orgs/octo-org", "octo-org"),
+        ("https://microsoft.github.io/tool", "microsoft"),
+    ],
+)
+def test_github_avatar_owner_supports_repos_profiles_and_github_pages(url, owner) -> None:
+    assert github_avatar_owner(url) == owner
 
 
 async def public_url(_: str) -> bool:
