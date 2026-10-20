@@ -963,7 +963,7 @@ async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_i
                 "source": "json_ld",
             },
             "longDescription": {
-                "value": "DescripciÃ³n generada",
+                "value": "Descripción generada",
                 "source": "generated_ai",
             },
             "longDescriptionEn": {
@@ -990,7 +990,7 @@ async def test_website_discovery_apply_creates_a_missing_app_when_no_installer_i
             "officialUrl": official_url,
             "latestVersion": "2.4.1",
             "description": "Cliente de escritorio para Example.",
-            "longDescription": "DescripciÃ³n generada",
+            "longDescription": "Descripción generada",
             "longDescriptionEn": "Generated English description",
             "iconUrl": None,
         },
