@@ -546,6 +546,7 @@ export function CatalogPage() {
           selectedCount={selectedDownloadIds.size}
           details={selected}
           loadingDetails={loadingDetails}
+          literalQuery={filters.searchMode === 'lexical' ? filters.query : undefined}
           onToggleDetails={toggleAppDetails}
           onToggleSelection={toggleDownloadSelection}
         />

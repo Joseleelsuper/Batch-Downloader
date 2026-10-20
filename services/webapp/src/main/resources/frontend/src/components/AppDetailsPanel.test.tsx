@@ -133,6 +133,23 @@ describe('AppDetailsPanel', () => {
     expect(screen.getByText('Dynamic mathematics app.')).toBeInTheDocument();
   });
 
+  it('highlights literal matches in the visible description and tags', () => {
+    const { container, rerender } = render(<AppDetailsPanel
+      app={{ ...app, longDescription: 'Almacenamiento en la nube y almacenamiento local.', tags: ['nube'] }}
+      literalQuery="ALMACENAMIENTO"
+    />);
+
+    expect([...container.querySelectorAll('.long-description mark')].map((mark) => mark.textContent))
+      .toEqual(['Almacenamiento', 'almacenamiento']);
+    expect(container.querySelector('.long-description')?.textContent)
+      .toBe('Almacenamiento en la nube y almacenamiento local.');
+    rerender(<AppDetailsPanel
+      app={{ ...app, longDescription: 'Almacenamiento en la nube y almacenamiento local.', tags: ['nube'] }}
+      literalQuery="nube"
+    />);
+    expect(container.querySelector('.tag-chip mark')?.textContent).toBe('nube');
+  });
+
   it('lets mobile users expand the description while keeping installer choices available', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     render(<AppDetailsPanel app={app} />);

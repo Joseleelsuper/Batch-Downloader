@@ -150,4 +150,19 @@ describe('AppTable', () => {
     expect(screen.getByText('Cargando...')).toBeInTheDocument();
     expect(screen.queryByText('No hay aplicaciones que coincidan con la búsqueda.')).not.toBeInTheDocument();
   });
+
+  it('marks visible literal matches and clears marks when the query is absent', () => {
+    const { container, rerender } = render(<AppTable
+      apps={[app]}
+      details={details}
+      selectedId={app.id}
+      literalQuery="epic"
+      onToggleDetails={vi.fn()}
+    />);
+
+    expect([...container.querySelectorAll('mark')].map((mark) => mark.textContent))
+      .toEqual(['Epic', 'Epic']);
+    rerender(<AppTable apps={[app]} details={details} selectedId={app.id} onToggleDetails={vi.fn()} />);
+    expect(container.querySelector('mark')).toBeNull();
+  });
 });
