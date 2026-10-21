@@ -6,6 +6,7 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { useLocale, useTranslation } from '../services/i18n';
 import type { AppDetails, DownloadOption, OperatingSystem } from '../types/catalog';
 import { DownloadButton } from './DownloadButton';
+import { LiteralHighlight } from './LiteralHighlight';
 
 interface Props {
   app?: AppDetails | null;
@@ -15,12 +16,13 @@ interface Props {
   onSourceSelect?: (sourceRef: string) => void;
   selectionDisabled?: boolean;
   extraActions?: ReactNode;
+  literalQuery?: string;
 }
 
 /** Contenido esencial que se despliega bajo una aplicación del catálogo o de un bundle. */
 export function AppDetailsPanel({
   app, loading = false, operatingSystem, selectedSourceRef, onSourceSelect,
-  selectionDisabled = false, extraActions,
+  selectionDisabled = false, extraActions, literalQuery,
 }: Readonly<Props>) {
   const t = useTranslation();
   const locale = useLocale();
@@ -46,15 +48,20 @@ export function AppDetailsPanel({
       <h3 className="sr-only">{app.name}</h3>
       <DetailBlock className="app-detail-description" label={t('app.details.description')} collapsible={compact}>
         <p className="long-description">
-          {(locale === 'en' ? app.longDescriptionEn : app.longDescription)
-            || app.longDescription || app.description || t('app.details.descriptionPending')}
+          <LiteralHighlight
+            text={(locale === 'en' ? app.longDescriptionEn : app.longDescription)
+              || app.longDescription || app.description || t('app.details.descriptionPending')}
+            query={literalQuery}
+          />
         </p>
       </DetailBlock>
 
       {app.tags?.length ? (
         <DetailBlock className="app-detail-tags" label={t('app.details.tags')} collapsible={compact}>
           <div className="tag-list">
-            {app.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
+            {app.tags.map((tag) => <span className="tag-chip" key={tag}>
+              <LiteralHighlight text={tag} query={literalQuery} />
+            </span>)}
           </div>
         </DetailBlock>
       ) : null}

@@ -1,5 +1,9 @@
 # Batch Downloader: instrucciones para agentes
 
+## Ramas y pull requests
+- Crea las ramas de trabajo desde `development` y dirige todos sus PR a `development`, nunca directamente a `main`.
+- La promoción a `main` se realiza únicamente mediante un PR de `development` a `main`, cuando el usuario lo solicite.
+
 ## Arquitectura y flujo
 - Monorepo políglota: reactor Maven (`shared/java-contracts`, `core-api`, `download-worker`, `notification-service`, `translation-service`), FastAPI/scheduler en `api/scraper`, servicio Python de embeddings en `services/semantic-service` y React/Vite en `services/webapp/src/main/resources/frontend`.
 - `webapp` sirve Nginx en `:3000`; el navegador usa la fachada `/api/v1` de Core. Scraper y Semantic exponen `/internal/v1/**` con `X-Internal-Service-Token`; no los llames directamente desde React.

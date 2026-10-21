@@ -6,6 +6,7 @@ import { useTranslation } from '../services/i18n';
 import type { AppDetails, CatalogApp } from '../types/catalog';
 import { AppDetailExpander } from './AppDetailExpander';
 import { AppDetailsPanel } from './AppDetailsPanel';
+import { LiteralHighlight } from './LiteralHighlight';
 import { OperatingSystemList } from './OperatingSystemIcons';
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   showEmptyState?: boolean;
   details?: AppDetails | null;
   loadingDetails?: boolean;
+  literalQuery?: string;
   onToggleDetails: (app: CatalogApp) => void;
   onToggleSelection?: (app: CatalogApp) => void;
 }
@@ -32,6 +34,7 @@ export function AppTable({
   showEmptyState = true,
   details,
   loadingDetails = false,
+  literalQuery,
   onToggleDetails,
   onToggleSelection,
 }: Props) {
@@ -77,7 +80,7 @@ export function AppTable({
               if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
               event.preventDefault();
               onToggleDetails(app);
-            }}>{app.name}</a>;
+            }}><LiteralHighlight text={app.name} query={literalQuery} /></a>;
             return (
               <Fragment key={app.id}>
                 <tr
@@ -90,7 +93,7 @@ export function AppTable({
                       <AppIcon app={app} />
                       {compact ? <div className="app-summary-content">
                         {appLink}
-                        <span className="app-summary-publisher">{app.publisher ?? '-'}</span>
+                        <span className="app-summary-publisher"><LiteralHighlight text={app.publisher ?? '-'} query={literalQuery} /></span>
                         <div className="app-summary-metadata">
                           <OperatingSystemList operatingSystems={app.operatingSystems} />
                           <span className="app-summary-version" aria-label={`${t('catalog.column.version')} ${app.latestVersion ?? '-'}`}>
@@ -101,7 +104,7 @@ export function AppTable({
                     </div>
                   </td>
                   {compact ? selectionCell : <>
-                    <td className="app-publisher-cell">{app.publisher ?? '-'}</td>
+                    <td className="app-publisher-cell"><LiteralHighlight text={app.publisher ?? '-'} query={literalQuery} /></td>
                     <td className="app-platforms-cell"><OperatingSystemList operatingSystems={app.operatingSystems} /></td>
                     <td className="app-version-cell" data-label={t('catalog.column.version')}>{app.latestVersion ?? '-'}</td>
                   </>}
@@ -129,6 +132,7 @@ export function AppTable({
                       <AppDetailsPanel
                         app={details?.id === app.id ? details : null}
                         loading={expanded && loadingDetails}
+                        literalQuery={literalQuery}
                       />
                     </AppDetailExpander>
                   </td>
