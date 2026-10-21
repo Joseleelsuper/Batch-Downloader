@@ -59,8 +59,12 @@ function BundleTagDialog({ tags, onChange, administrator, onClose }: Readonly<Pr
 
   useEffect(() => {
     const dialog = dialogRef.current;
+    const trigger = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
+    };
   }, []);
 
   useEffect(() => {

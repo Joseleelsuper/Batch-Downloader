@@ -36,6 +36,7 @@ import { Pagination } from '../../components/Pagination';
 import { ResponsivePanel } from '../../components/ResponsivePanel';
 import { useCompactLayout } from '../../hooks/useCompactLayout';
 import { useDownloadJob } from '../../hooks/useDownloadJob';
+import { useSwipePagination } from '../../hooks/useSwipePagination';
 import { chooseDownloadDestination, isDestinationCancelled } from '../../downloads/delivery';
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type {
@@ -217,6 +218,13 @@ export function CatalogPage() {
     const params = catalogFiltersToSearchParams(nextFilters(filters, patch, resetPage));
     setSearchParams(params, { replace });
   }, [filters, setSearchParams]);
+
+  const swipePagination = useSwipePagination({
+    enabled: compact && !!displayedPage && !mobileFiltersOpen,
+    page: filters.page,
+    pageCount: Math.max(1, Math.ceil(total / filters.pageSize)),
+    onPageChange: (page) => updateFilters({ page }, false),
+  });
 
   const commitDownloadSelection = useCallback((next: Set<string>, addedApp?: CatalogApp) => {
     selectedDownloadIdsRef.current = next;
@@ -535,20 +543,22 @@ export function CatalogPage() {
             })}
           </nav>
         ) : null}
-        <AppTable
-          apps={selected && selected.id === selectedId && !apps.some((app) => app.id === selected.id)
-            ? [selected, ...apps] : apps}
-          loading={loadingApps}
-          showLoadingLabel={false}
-          showEmptyState={!error}
-          selectedId={selectedId}
-          selectedIds={selectedDownloadIds}
-          selectedCount={selectedDownloadIds.size}
-          details={selected}
-          loadingDetails={loadingDetails}
-          onToggleDetails={toggleAppDetails}
-          onToggleSelection={toggleDownloadSelection}
-        />
+        <div className="catalog-apps-swipe" {...swipePagination}>
+          <AppTable
+            apps={selected && selected.id === selectedId && !apps.some((app) => app.id === selected.id)
+              ? [selected, ...apps] : apps}
+            loading={loadingApps}
+            showLoadingLabel={false}
+            showEmptyState={!error}
+            selectedId={selectedId}
+            selectedIds={selectedDownloadIds}
+            selectedCount={selectedDownloadIds.size}
+            details={selected}
+            loadingDetails={loadingDetails}
+            onToggleDetails={toggleAppDetails}
+            onToggleSelection={toggleDownloadSelection}
+          />
+        </div>
         {displayedPage ? <Pagination
           page={filters.page}
           pageSize={filters.pageSize}

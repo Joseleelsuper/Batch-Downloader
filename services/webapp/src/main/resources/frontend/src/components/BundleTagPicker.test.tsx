@@ -26,6 +26,21 @@ afterEach(() => {
 });
 
 describe('BundleTagPicker', () => {
+  it('devuelve el foco al botón al cerrar el diálogo de etiquetas', () => {
+    vi.spyOn(catalogAppsApi, 'fetchCatalogFacets').mockResolvedValue({ tags: [], publishers: [] });
+    vi.spyOn(accountApi, 'fetchBundleCustomTags').mockResolvedValue([]);
+    render(<BundleTagPicker tags={[]} onChange={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: t('bundleTags.choose') });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: t('bundleTags.title') });
+    screen.getByRole('searchbox', { name: t('bundleTags.search') }).focus();
+    expect(trigger).not.toHaveFocus();
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    expect(dialog).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it('recupera las facetas y permite elegir entre páginas y buscar editores sin acentos', async () => {
     const tags = Array.from({ length: 61 }, (_, index) => facet(`Category${String(index + 1).padStart(2, '0')}`));
     const fetchFacets = vi.spyOn(catalogAppsApi, 'fetchCatalogFacets')

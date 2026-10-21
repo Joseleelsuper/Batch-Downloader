@@ -93,6 +93,7 @@ describe('account flows', () => {
 
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Inicia sesión' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: t('account.email') })).toHaveAttribute('autocomplete', 'email');
     expect(screen.queryByText('Te enviaremos un enlace de acceso de un solo uso. No necesitas contraseña.')).toBeNull();
     fireEvent.change(container.querySelector('input[type="email"]')!, {
       target: { value: 'person@example.com' },
@@ -101,6 +102,7 @@ describe('account flows', () => {
 
     await waitFor(() => expect(request).toHaveBeenCalledWith('person@example.com', 'es'));
     expect(await screen.findByText(t('account.magic.sent'))).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(t('account.magic.sent'));
     expect(screen.getByRole('link', { name: t('account.adminLogin.link') })).toHaveClass('auth-switch-link');
     expect(screen.getByRole('link', { name: t('account.magic.privacyLink') })).toHaveAttribute('href', '/privacy');
     expect(screen.getByRole('link', { name: t('account.magic.termsLink') })).toHaveAttribute('href', '/terms');
@@ -117,9 +119,15 @@ describe('account flows', () => {
 
     fireEvent.submit(container.querySelector('form')!);
     expect(screen.getByText(t('account.email.invalid'))).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(t('account.email.invalid'));
+    expect(email).toHaveAttribute('aria-describedby', 'login-email-error');
+    expect(email).toHaveAttribute('aria-invalid', 'true');
     expect(request).not.toHaveBeenCalled();
 
     fireEvent.change(email, { target: { value: `${'a'.repeat(245)}@example.com` } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(email).not.toHaveAttribute('aria-invalid');
+    expect(email).not.toHaveAttribute('aria-describedby');
     fireEvent.submit(container.querySelector('form')!);
     expect(screen.getByText(t('account.email.tooLong'))).toBeInTheDocument();
     expect(request).not.toHaveBeenCalled();
@@ -127,6 +135,7 @@ describe('account flows', () => {
     fireEvent.change(email, { target: { value: 'person@example.com' } });
     fireEvent.submit(container.querySelector('form')!);
     expect(await screen.findByText(t('account.error.rate_limited'))).toBeInTheDocument();
+    expect(email).not.toHaveAttribute('aria-invalid');
   });
 
   it('consume el token del fragmento, lo elimina de la URL y conserva el destino', async () => {
@@ -238,6 +247,8 @@ describe('account flows', () => {
     await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalledWith(
       expect.objectContaining({ filter: 'available', sort: 'relevance', pageSize: 20, searchMode: 'lexical' }), expect.any(AbortSignal),
     ));
+    expect(screen.getByRole('textbox', { name: t('account.bundles.name') })).toBeRequired();
+    expect(screen.getByRole('textbox', { name: t('account.bundles.slug') })).toBeInTheDocument();
     const textInputs = container.querySelectorAll('.bundle-fields input');
     fireEvent.change(textInputs[0], { target: { value: 'My bundle' } });
     expect(textInputs[1]).toHaveValue('my-bundle');

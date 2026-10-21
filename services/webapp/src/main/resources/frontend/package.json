@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:accessibility-keyboard": "node scripts/e2e/keyboard-accessibility.mjs",
     "test:download-flow": "node scripts/e2e/download-flow-smoke.mjs"
   },
   "dependencies": {
