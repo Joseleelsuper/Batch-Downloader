@@ -172,6 +172,118 @@ async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_llm_client_includes_deepseek_web_search_results_in_prompt() -> None:
+    settings = Settings(
+        llm_groq_api_key="groq-key",
+        llm_deepseek_api_key="deepseek-key",
+        llm_request_timeout_seconds=5,
+    )
+    search_route = respx.post("https://api.deepseek.com/v1/tools/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": "Vendor App features",
+                        "url": "https://vendor.example/features",
+                        "snippet": "A vendor feature summary.",
+                        "summary": "The official page describes automation and reporting tools.",
+                        "content": "Official details about automation and reporting.",
+                        "site_name": "Vendor",
+                        "authority": 4,
+                    }
+                ]
+            },
+        )
+    )
+    groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"long_description_es":"Descripción larga válida.",'
+                                '"long_description_en":"A valid long description."}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await AppDescriptionLLMClient(
+        settings,
+        rate_limiter=NoopRateLimiter(),
+    ).generate(
+        {
+            "name": "Vendor App",
+            "publisher": "Vendor",
+            "official_domain": "vendor.example",
+            "latest_version": "9.3",
+        }
+    )
+
+    assert result.provider == "groq"
+    assert search_route.called
+    assert search_route.calls[0].request.headers["Authorization"] == "Bearer deepseek-key"
+    assert json.loads(search_route.calls[0].request.content) == {
+        "query": "Vendor App Vendor software features",
+        "count": 5,
+        "need_content": True,
+    }
+    prompt = json.loads(groq_route.calls[0].request.content)["messages"][1]["content"]
+    assert "No incluyas la versión más reciente de la aplicación ni números de versión." in prompt
+    assert "The official page describes automation and reporting tools." in prompt
+    assert "Official details about automation and reporting." in prompt
+    assert '"authority": 4' in prompt
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_llm_client_falls_back_to_catalog_evidence_when_web_search_fails() -> None:
+    settings = Settings(
+        llm_groq_api_key="groq-key",
+        llm_deepseek_api_key="deepseek-key",
+        llm_request_timeout_seconds=5,
+    )
+    search_route = respx.post("https://api.deepseek.com/v1/tools/search").mock(
+        return_value=httpx.Response(503)
+    )
+    groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"long_description_es":"Descripción basada en catálogo.",'
+                                '"long_description_en":"Catalog-based description."}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+    )
+
+    result = await AppDescriptionLLMClient(
+        settings,
+        rate_limiter=NoopRateLimiter(),
+    ).generate({"name": "Vendor App", "publisher": "Vendor"})
+
+    assert result.provider == "groq"
+    assert search_route.called
+    prompt = json.loads(groq_route.calls[0].request.content)["messages"][1]["content"]
+    assert '"web_search_results"' not in prompt
+    assert "Vendor App" in prompt
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable() -> None:
     """Comprueba el escenario `llm_client_uses_deepseek_only_after_groq_models_are_unavailable`.
     """

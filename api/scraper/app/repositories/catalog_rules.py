@@ -158,29 +158,14 @@ def has_verified_binary_history(
     )
 
 
-def is_github_homepage(value: str | None) -> bool:
-    """Reconoce URL HTTPS cuyo netloc corresponde exactamente a github.com o www.github.com.
+def is_replaceable_icon(value: str | None) -> bool:
+    """Permite completar un icono ausente o reemplazar la imagen OpenGraph genérica de GitHub.
 
     Args:
         value: Texto o metadato opcional que se normaliza.
 
     Returns:
-        True para esas páginas GitHub; no exige una ruta concreta de repositorio.
-    """
-    if not value:
-        return False
-    parsed = urlparse(value)
-    return parsed.scheme == "https" and parsed.netloc.lower() in {"github.com", "www.github.com"}
-
-
-def is_replaceable_github_icon(value: str | None) -> bool:
-    """Permite reemplazar un icono ausente o servido por OpenGraph GitHub y sus subdominios.
-
-    Args:
-        value: Texto o metadato opcional que se normaliza.
-
-    Returns:
-        True si la sincronización puede sustituir ese icono.
+        True si el scraper puede sustituir ese icono.
     """
     if not has_icon_url(value):
         return True

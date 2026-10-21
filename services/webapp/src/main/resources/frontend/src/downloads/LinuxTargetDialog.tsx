@@ -4,8 +4,9 @@ import type { CreateDownloadJobRequest, LinuxArchitecture, LinuxPreview, LinuxSe
 import { useTranslation } from '../services/i18n';
 import './linux-installer.css';
 
-export function LinuxTargetDialog({ request, onSelect, onCancel }: Readonly<{
+export function LinuxTargetDialog({ request, returnFocusTo, onSelect, onCancel }: Readonly<{
   request: CreateDownloadJobRequest;
+  returnFocusTo?: HTMLElement | null;
   onSelect: (selection: LinuxSelection) => void;
   onCancel: () => void;
 }>) {
@@ -19,9 +20,15 @@ export function LinuxTargetDialog({ request, onSelect, onCancel }: Readonly<{
 
   useEffect(() => {
     const element = dialog.current;
+    const trigger = returnFocusTo ?? document.activeElement;
     element?.showModal();
-    return () => element?.close();
-  }, []);
+    return () => {
+      element?.close();
+      window.setTimeout(() => {
+        if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
+      }, 0);
+    };
+  }, [returnFocusTo]);
 
   useEffect(() => {
     let active = true;

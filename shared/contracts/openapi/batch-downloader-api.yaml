@@ -14,12 +14,12 @@ paths:
   /seo/metadata:
     get:
       operationId: getPageMetadata
-      summary: Consultar metadatos pÃºblicos para navegaciÃ³n y vistas previas
+      summary: Consultar metadatos públicos para navegación y vistas previas
       security: []
       parameters:
       - name: path
         in: query
-        description: Ruta local de la pÃ¡gina, opcionalmente con parÃ¡metros; nunca
+        description: Ruta local de la página, opcionalmente con parámetros; nunca
           una URL externa.
         schema:
           type: string
@@ -27,13 +27,13 @@ paths:
           default: /
       responses:
         '200':
-          description: Contenido pÃºblico o shell genÃ©rico; sin cachÃ© compartida.
+          description: Contenido público o shell genérico; sin caché compartida.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SeoMetadata'
         '404':
-          description: Ruta inexistente o no pÃºblica; sin revelar datos privados.
+          description: Ruta inexistente o no pública; sin revelar datos privados.
           content:
             application/json:
               schema:
@@ -47,15 +47,15 @@ paths:
   /seo/html:
     get:
       operationId: getPageHtml
-      summary: Renderizar HTML inicial de la pÃ¡gina con recursos SSI de Nginx
+      summary: Renderizar HTML inicial de la página con recursos SSI de Nginx
       description: El proxy sobrescribe X-Original-URI; path tiene precedencia. Los
-        bundles privados solo entregan un shell genÃ©rico a su propietario o administrador
+        bundles privados solo entregan un shell genérico a su propietario o administrador
         autenticado.
       security: []
       parameters:
       - name: path
         in: query
-        description: Ruta local de la pÃ¡gina, opcionalmente con parÃ¡metros; nunca
+        description: Ruta local de la página, opcionalmente con parámetros; nunca
           una URL externa.
         schema:
           type: string
@@ -66,13 +66,13 @@ paths:
           type: string
       responses:
         '200':
-          description: Contenido pÃºblico o shell genÃ©rico; sin cachÃ© compartida.
+          description: Contenido público o shell genérico; sin caché compartida.
           content:
             text/html:
               schema:
                 type: string
         '404':
-          description: Ruta inexistente o no pÃºblica; sin revelar datos privados.
+          description: Ruta inexistente o no pública; sin revelar datos privados.
           content:
             text/html:
               schema:
@@ -86,14 +86,14 @@ paths:
   /seo/image:
     get:
       operationId: getSocialCard
-      summary: Generar PNG de 1200 por 630 con metadatos pÃºblicos
+      summary: Generar PNG de 1200 por 630 con metadatos públicos
       description: Expuesto por Nginx como /social/card.png. Revalida visibilidad en
         cada solicitud; no acepta una URL de imagen externa.
       security: []
       parameters:
       - name: path
         in: query
-        description: Ruta local de la pÃ¡gina, opcionalmente con parÃ¡metros; nunca
+        description: Ruta local de la página, opcionalmente con parámetros; nunca
           una URL externa.
         schema:
           type: string
@@ -108,13 +108,13 @@ paths:
                 type: string
                 format: binary
         '404':
-          description: Ruta inexistente o privada; cuerpo vacÃ­o.
+          description: Ruta inexistente o privada; cuerpo vacío.
         '503':
-          description: Tarjeta temporalmente no disponible; cuerpo vacÃ­o.
+          description: Tarjeta temporalmente no disponible; cuerpo vacío.
   /seo/robots.txt:
     get:
       operationId: getRobots
-      summary: Consultar reglas de rastreo y ubicaciÃ³n del sitemap
+      summary: Consultar reglas de rastreo y ubicación del sitemap
       security: []
       responses:
         '200':
@@ -128,7 +128,7 @@ paths:
   /seo/sitemap.xml:
     get:
       operationId: getSitemapIndex
-      summary: Consultar el Ã­ndice de sitemaps pÃºblicos
+      summary: Consultar el índice de sitemaps públicos
       security: []
       responses:
         '200':
@@ -138,11 +138,11 @@ paths:
               schema:
                 type: string
         '503':
-          description: CatÃ¡logo temporalmente no disponible.
+          description: Catálogo temporalmente no disponible.
   /seo/sitemap/{group}/{page}.xml:
     get:
       operationId: getSitemapPage
-      summary: Consultar hasta mil URLs pÃºblicas por pÃ¡gina
+      summary: Consultar hasta mil URLs públicas por página
       security: []
       parameters:
       - name: group
@@ -169,9 +169,9 @@ paths:
               schema:
                 type: string
         '404':
-          description: Grupo o pÃ¡gina inexistente.
+          description: Grupo o página inexistente.
         '503':
-          description: CatÃ¡logo temporalmente no disponible.
+          description: Catálogo temporalmente no disponible.
   /auth/magic-link/request:
     post:
       operationId: requestMagicLink

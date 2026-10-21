@@ -95,6 +95,7 @@ export function UserLoginPage() {
   const [token] = useState(() => new URLSearchParams(location.hash.slice(1)).get('token'));
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [emailInvalid, setEmailInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const processedToken = useRef<string | null>(null);
   const destination = destinationFrom(location.state, '/dashboard');
@@ -121,6 +122,7 @@ export function UserLoginPage() {
     event.preventDefault();
     if (submitting) return;
     const validationError = emailIssue(t, email);
+    setEmailInvalid(Boolean(validationError));
     if (validationError) {
       setError(validationError);
       return;
@@ -143,9 +145,12 @@ export function UserLoginPage() {
       <h2>{t('account.magic.title')}</h2>
       <form className="auth-form" onSubmit={submit} noValidate>
         <label>{t('account.email')}
-          <input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+          <input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email}
+            onChange={(event) => { setEmail(event.target.value); setError(null); setEmailInvalid(false); }}
+            autoComplete="email" required aria-invalid={emailInvalid || undefined}
+            aria-describedby={error && !token ? 'login-email-error' : undefined} />
         </label>
-        {error ? <p className="error-banner">{error}</p> : null}
+        {error ? <p id="login-email-error" className="error-banner" role="alert">{error}</p> : null}
         {message ? <p className="form-message"><output>{message}</output></p> : null}
         <div className="auth-actions">
           <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('account.magic.submit')}</button>

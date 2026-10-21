@@ -350,7 +350,7 @@ class PlatformScraperWorker:
             software_app_winstall_id = software_app.winstall_id
             await session.commit()
 
-        await self._enrich_github_icon(
+        await self._enrich_missing_icon(
             software_app_id,
             software_app_official_url,
             software_app_icon_url,
@@ -578,7 +578,7 @@ class PlatformScraperWorker:
         await catalog.sources.expire_resolved_sources(incompatible)
         return len(incompatible)
 
-    async def _enrich_github_icon(
+    async def _enrich_missing_icon(
         self,
         software_app_id: uuid.UUID,
         official_url: str | None,
@@ -586,8 +586,7 @@ class PlatformScraperWorker:
         winstall_id: str,
         app: WinstallApp,
     ) -> None:
-        """Completa el icono ausente usando GitHub y actualiza la aplicación solo cuando la
-        procedencia es segura.
+        """Completa iconos ausentes desde la página oficial y sus proveedores de avatar.
 
         Args:
             software_app_id: UUID de la aplicación que recibe instaladores.
@@ -596,15 +595,15 @@ class PlatformScraperWorker:
             winstall_id: Identificador de Winstall de la aplicación.
             app: Aplicación Winstall normalizada.
         """
-        from app.repositories.catalog_rules import is_github_homepage, is_replaceable_github_icon
+        from app.repositories.catalog_rules import is_replaceable_icon
 
-        if not (is_github_homepage(official_url) and is_replaceable_github_icon(icon_url)):
+        if not is_replaceable_icon(icon_url):
             return
         try:
             result = await self.icon_resolver.resolve(
                 replace(
                     app,
-                    homepage=official_url,
+                    homepage=official_url or app.homepage,
                     icon_url=icon_url,
                 )
             )
@@ -623,7 +622,7 @@ class PlatformScraperWorker:
                 await logs.add(
                     phase="icon",
                     status="discarded",
-                    message="no_safe_github_image",
+                    message="no_safe_icon_image",
                     safe_metadata={"winstall_id": winstall_id},
                 )
             else:

@@ -633,6 +633,97 @@ async def test_repair_resolved_source_platforms_moves_cross_platform_installers(
 
 
 @pytest.mark.asyncio
+async def test_repair_resolved_source_platforms_skips_existing_target_fingerprint() -> None:
+    """No duplica una huella de artefacto que ya existe en la fuente de plataforma destino."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    now = utc_now()
+    async with session_factory() as session:
+        app = SoftwareApp(
+            id=uuid4(),
+            winstall_id="Vendor.CrossPlatformDuplicate",
+            slug="vendor-cross-platform-duplicate",
+            name="Cross Platform Duplicate",
+            normalized_name="cross platform duplicate",
+            app_status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        windows_source = DownloadSource(
+            id=uuid4(),
+            software_app_id=app.id,
+            operating_system="windows",
+            architecture="x86_64",
+            resolution_status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+        )
+        linux_source = DownloadSource(
+            id=uuid4(),
+            software_app_id=app.id,
+            operating_system="linux",
+            architecture="x86_64",
+            resolution_status=ResolutionStatus.DIRECT.value,
+            validation_status=ValidationStatus.VALID.value,
+        )
+        shared_fingerprint = "same-artifact-fingerprint"
+        windows_source.resolved_sources = [
+            ResolvedSource(
+                id=uuid4(),
+                download_source_id=windows_source.id,
+                resolved_url_encrypted="encrypted-deb-windows-source",
+                final_domain="example.com",
+                filename="app.deb",
+                extension=".deb",
+                score=100,
+                status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+                checked_at=now,
+                expires_at=utc_after(hours=1),
+                artifact_fingerprint=shared_fingerprint,
+            )
+        ]
+        linux_source.resolved_sources = [
+            ResolvedSource(
+                id=uuid4(),
+                download_source_id=linux_source.id,
+                resolved_url_encrypted="encrypted-deb-linux-source",
+                final_domain="example.com",
+                filename="app.deb",
+                extension=".deb",
+                score=100,
+                status=ResolutionStatus.DIRECT.value,
+                validation_status=ValidationStatus.VALID.value,
+                checked_at=now,
+                expires_at=utc_after(hours=1),
+                artifact_fingerprint=shared_fingerprint,
+            )
+        ]
+        app.sources = [windows_source, linux_source]
+        session.add(app)
+        await session.commit()
+
+        repaired = await CatalogRepository(
+            session,
+            UrlProtector("test-secret"),
+        ).sources.repair_resolved_source_platforms()
+        await session.commit()
+
+        rows = await session.execute(
+            select(DownloadSource.operating_system, ResolvedSource.download_source_id)
+            .join(ResolvedSource, ResolvedSource.download_source_id == DownloadSource.id)
+            .where(DownloadSource.software_app_id == app.id)
+        )
+        persisted = list(rows)
+
+    await engine.dispose()
+    assert repaired == 0
+    assert {source_os for source_os, _source_id in persisted} == {"windows", "linux"}
+    assert len(persisted) == 2
+
+
+@pytest.mark.asyncio
 async def test_refresh_source_status_uses_latest_direct_candidate() -> None:
     """Comprueba el escenario `refresh_source_status_uses_latest_direct_candidate`.
     """

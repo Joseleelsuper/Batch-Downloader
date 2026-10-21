@@ -661,7 +661,12 @@ describe('catalog workspace', () => {
     );
 
     expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
+    const selection = screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' });
+    selection.focus();
+    fireEvent.click(selection);
+    expect(selection).toHaveFocus();
+    expect(selection).toBeChecked();
+    expect(screen.getByText('1/100').closest('[aria-live]')).toHaveAttribute('aria-live', 'polite');
     fireEvent.click(screen.getByRole('button', { name: 'Descargar ZIP' }));
 
     await waitFor(() => expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
@@ -719,6 +724,8 @@ describe('catalog workspace', () => {
       operatingSystems: undefined,
     }));
     expect(screen.getByText('1/100')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Trabajos de descarga' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('progressbar', { name: 'Preparación del ZIP' })).toBeInTheDocument();
     expect(picker).toHaveBeenCalledOnce();
   });
 
@@ -821,6 +828,10 @@ describe('catalog workspace', () => {
     const open = await screen.findByRole('button', {
       name: 'Mostrar detalles de Aplicación reciente',
     });
+    const search = screen.getByRole('textbox', { name: 'Buscar aplicaciones' });
+    expect(search).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Disponibles/ })).toHaveAttribute('aria-pressed', 'false');
+    open.focus();
     fireEvent.click(open);
 
     await waitFor(() => expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith('app-1'));
@@ -828,13 +839,16 @@ describe('catalog workspace', () => {
     const close = screen.getByRole('button', {
       name: 'Ocultar detalles de Aplicación reciente',
     });
+    expect(close).toHaveFocus();
     expect(close).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(close.getAttribute('aria-controls')!)).toHaveAttribute('aria-hidden', 'false');
 
     fireEvent.click(close);
 
     expect(screen.getByRole('button', {
       name: 'Mostrar detalles de Aplicación reciente',
     })).toHaveAttribute('aria-expanded', 'false');
+    expect(close).toHaveFocus();
     expect(document.querySelector('.app-detail-row')).not.toHaveClass('app-detail-row-open');
   });
 
@@ -1017,6 +1031,7 @@ describe('home loading', () => {
 
     expect(await screen.findByRole('button', { name: 'Windows: 1 aplicaciones disponibles' }))
       .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('group', { name: 'Sistema operativo' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Descargar bundle (1)' })).toBeEnabled();
     const entry = container.querySelector('.bundle-app-entry');
     const expander = entry?.querySelector('.app-detail-expander');
@@ -1053,6 +1068,7 @@ describe('home loading', () => {
       bundleId: 'bundle-1', operatingSystems: ['windows'],
       sourceSelections: { 'app-1': 'source-2' },
     }));
+    expect(screen.getByRole('region', { name: 'Trabajos de descarga' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Example-0\.9\.exe/ })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Ocultar detalles de Aplicación reciente' }));
     expect(entry).not.toHaveClass('app-detail-row-open');
