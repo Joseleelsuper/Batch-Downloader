@@ -152,6 +152,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
   const destinations = useRef(new Map<string, DownloadFileHandle>());
   const deliveries = useRef(new Set<string>());
   const [linuxRequest, setLinuxRequest] = useState<DownloadJobRequest | null>(null);
+  const linuxTrigger = useRef<HTMLElement | null>(null);
   const linuxPending = useRef<{
     resolve: (selection: LinuxSelection) => void;
     reject: (error: Error) => void;
@@ -294,6 +295,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
 
   const start = useCallback(async (request: DownloadJobRequest, label?: string,
     chosenDestination?: Promise<DownloadFileHandle | undefined>) => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setStartError(null);
     try {
       // Must run directly in the original click, before any API request or Linux dialog.
@@ -304,6 +306,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
         if (linuxPending.current) throw new Error('linux_selection_pending');
         const selection = await new Promise<LinuxSelection>((resolve, reject) => {
           linuxPending.current = { resolve, reject };
+          linuxTrigger.current = trigger;
           setLinuxRequest(request);
         });
         selectedRequest = { ...request, ...selection };
@@ -383,7 +386,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
   return (
     <DownloadJobsContext.Provider value={value}>
       {children}
-      {linuxRequest ? <LinuxTargetDialog request={linuxRequest}
+      {linuxRequest ? <LinuxTargetDialog request={linuxRequest} returnFocusTo={linuxTrigger.current}
         onSelect={(selection) => {
           linuxPending.current?.resolve(selection);
           linuxPending.current = null;

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as downloadsApi from '../api/downloads';
 import type { LinuxPreview, LinuxTarget } from '../api/downloads';
@@ -53,6 +54,11 @@ describe('LinuxTargetDialog', () => {
       onCancel={vi.fn()}
     />);
 
+    const dialog = screen.getByRole('dialog', { name: 'Prepara tu instalación de Linux' });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByLabelText('Distribución')).toBeInTheDocument();
+    expect(screen.getByLabelText('Arquitectura del equipo de destino')).toBeInTheDocument();
+    expect(dialog.querySelector('[aria-live="polite"]')).toHaveAttribute('aria-busy', 'true');
     await waitFor(() => expect(resolvers.has('apt')).toBe(true));
     fireEvent.change(screen.getByLabelText('Distribución'), { target: { value: 'dnf' } });
     await waitFor(() => expect(resolvers.has('dnf')).toBe(true));
@@ -60,6 +66,7 @@ describe('LinuxTargetDialog', () => {
 
     expect(await screen.findByText('2 instalables · 1 manuales · 0 no disponibles'))
       .toBeInTheDocument();
+    expect(dialog.querySelector('[aria-live="polite"]')).toHaveAttribute('aria-busy', 'false');
     expect(screen.getByText('Dependencia dnf')).toBeInTheDocument();
 
     await act(async () => { resolvers.get('apt')?.(preview('apt', 7)); });
@@ -82,5 +89,27 @@ describe('LinuxTargetDialog', () => {
     expect(screen.getByRole('button', { name: 'Preparar ZIP' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('returns focus to the launcher when Escape closes the dialog', async () => {
+    vi.spyOn(downloadsApi, 'previewLinuxDownload').mockResolvedValue(preview('apt', 1));
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>Open Linux</button>
+        {open ? <LinuxTargetDialog request={{ appIds: ['app-id'], operatingSystems: ['linux'] }}
+          onSelect={vi.fn()} onCancel={() => setOpen(false)} /> : null}
+      </>;
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Open Linux' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'Prepara tu instalación de Linux' });
+    screen.getByLabelText('Distribución').focus();
+    expect(trigger).not.toHaveFocus();
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    expect(dialog).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

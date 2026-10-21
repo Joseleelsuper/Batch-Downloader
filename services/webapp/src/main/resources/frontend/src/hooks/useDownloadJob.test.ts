@@ -87,6 +87,20 @@ describe('useDownloadJob', () => {
     expect(result.current.starting).toBe(false);
   });
 
+  it('no presenta la cancelación del diálogo Linux como un fallo', async () => {
+    const downloads = context();
+    downloads.start.mockRejectedValue(new Error('linux_selection_cancelled'));
+    mocks.useDownloadJobs.mockReturnValue(downloads);
+    const { result } = renderHook(() => useDownloadJob());
+
+    await act(async () => {
+      await expect(result.current.start({ bundleId: 'bundle-1', operatingSystems: ['linux'] }))
+        .rejects.toThrow('linux_selection_cancelled');
+    });
+    expect(result.current.error).toBe(false);
+    expect(result.current.starting).toBe(false);
+  });
+
   it('cancela solo trabajos activos y propaga un fallo de acción', async () => {
     const downloads = context();
     downloads.start.mockResolvedValue(job('DOWNLOADING'));

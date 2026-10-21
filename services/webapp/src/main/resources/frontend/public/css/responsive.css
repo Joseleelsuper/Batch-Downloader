@@ -138,6 +138,7 @@
   .selection-app-button,
   .selection-app-more { min-height: 44px; aspect-ratio: 1; }
 
+  .catalog-apps-swipe { touch-action: pan-y pinch-zoom; }
   .table-card { min-height: 0; border-radius: 12px; box-shadow: none; }
   .table-card > .empty-state,
   .table-card > .loading-label { padding: 24px 16px; }

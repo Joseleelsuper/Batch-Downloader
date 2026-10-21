@@ -6,6 +6,7 @@ import {
 } from '../downloads/DownloadJobsContext';
 import type { DownloadJob } from '../types/catalog';
 import type { DownloadFileHandle } from '../downloads/delivery';
+import { isDestinationCancelled } from '../downloads/delivery';
 
 export type { DownloadJobRequest };
 
@@ -29,7 +30,8 @@ export function useDownloadJob() {
       setJobId(created.id);
       return created;
     } catch (cause) {
-      setLocalError(true);
+      if (!isDestinationCancelled(cause)
+          && !(cause instanceof Error && cause.message === 'linux_selection_cancelled')) setLocalError(true);
       throw cause;
     } finally {
       startInFlight.current = null;
