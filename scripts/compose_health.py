@@ -377,7 +377,7 @@ def validate_ghcr_environment(configuration: Mapping[str, Any], name: str = "ghc
                 elif str(source.get("path", "")).endswith(".example"):
                     errors.append(f"local:{service}: no debe cargar plantillas como configuración")
         for key, value in (item.get("environment") or {}).items():
-            if not isinstance(value, str) or not re.fullmatch(r"\$\{[A-Z0-9_]+\?\}", value):
+            if not isinstance(value, str) or not re.fullmatch(r"\$\{[A-Z0-9_]+:?\?\}", value):
                 errors.append(f"{name}:{service}:{key}: debe exigir una variable del .env raíz")
     return errors
 

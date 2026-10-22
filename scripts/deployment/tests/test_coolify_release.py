@@ -46,6 +46,19 @@ class FakeCoolifyClient:
 
 
 class CoolifyReleaseTest(unittest.TestCase):
+    def test_empty_compose_settings_stop_before_deployment(self) -> None:
+        for key in ("SCRAPER_ALLOWED_DOWNLOAD_SCHEMES", "SEMANTIC_DATABASE_PORT",
+                    "TRANSLATION_SERVICE_SERVER_PORT"):
+            with self.subTest(key=key):
+                client = FakeCoolifyClient("a" * 40, f"sha-{'a' * 40}")
+                client.values[key] = ""
+                with mock.patch.object(coolify_release, "run_smoke") as smoke:
+                    with self.assertRaisesRegex(coolify_release.ReleaseError, key):
+                        coolify_release.perform_release(client, "b" * 40)
+                self.assertEqual([], client.actions)
+                self.assertEqual(0, client.deployments)
+                smoke.assert_not_called()
+
     def test_environment_ignores_preview_values(self) -> None:
         client = coolify_release.CoolifyClient(
             "https://deploy.example.test", "token", "application-uuid"
@@ -142,18 +155,21 @@ class CoolifyReleaseTest(unittest.TestCase):
         values["CORE_API_FLYWAY_TARGET"] = "16"
         coolify_release.validate_environment(values)
 
-    def test_oracle_profile_does_not_require_retired_or_compose_only_limits(self) -> None:
+    def test_oracle_profile_does_not_require_retired_limits(self) -> None:
         values = production_values(f"sha-{'a' * 40}")
         for key in (
             "DOWNLOAD_WORKER_MAX_TOTAL_SIZE",
             "DOWNLOAD_WORKER_CONCURRENCY",
             "DOWNLOAD_WORKER_JOB_CONCURRENCY",
             "DOWNLOAD_WORKER_LARGE_JOB_THRESHOLD",
-            "DOWNLOAD_WORKER_PACKAGING_CONCURRENCY",
-            "DOWNLOAD_WORKER_ZIP_LEVEL",
         ):
             values.pop(key, None)
 
+        coolify_release.validate_environment(values)
+
+    def test_compose_settings_accept_zero_as_a_nonempty_value(self) -> None:
+        values = production_values(f"sha-{'a' * 40}")
+        values["DOWNLOAD_WORKER_ZIP_LEVEL"] = "0"
         coolify_release.validate_environment(values)
 
     def test_oracle_profile_rejects_storage_budget_or_disk_margin_drift(self) -> None:

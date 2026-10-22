@@ -10,6 +10,7 @@ import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
@@ -57,6 +58,10 @@ REQUIRED_VALUES = frozenset(
         "SEMANTIC_MODELS_VOLUME_NAME",
     }
 )
+REQUIRED_VALUES |= frozenset(re.findall(
+    r"(?<!\$)\$\{([A-Z][A-Z0-9_]*):\?[^}]*\}",
+    (Path(__file__).resolve().parents[2] / "docker-compose.ghcr.yml").read_text(encoding="utf-8"),
+))
 
 FIXED_PRODUCTION_VALUES = {
     "GHCR_REGISTRY": "ghcr.io",

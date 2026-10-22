@@ -241,6 +241,9 @@ class ComposeHealthTest(unittest.TestCase):
         self.assertEqual([], compose_health.validate_ghcr_environment({"services": {
             "core-api": {"environment": {"SETTING": "${SETTING?}"}},
         }}))
+        self.assertEqual([], compose_health.validate_ghcr_environment({"services": {
+            "core-api": {"environment": {"SETTING": "${SETTING:?}"}},
+        }}))
         self.assertTrue(compose_health.validate_ghcr_environment({"services": {
             "core-api": {"env_file": ["service.env"]},
         }}))

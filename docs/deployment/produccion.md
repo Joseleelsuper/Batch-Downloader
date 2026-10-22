@@ -30,7 +30,7 @@ dominio público. Sus puertos del host se ligan a `127.0.0.1`.
 
 ## Variables obligatorias
 
-El Compose GHCR no incorpora valores de entorno por defecto ni carga `.env` por servicio. Antes de desplegar esta configuración sobre una instalación existente, añade en Coolify los ajustes nuevos de `.env.example`, conservando los secretos y personalizaciones existentes. Si falta una variable, Compose se detiene antes de crear los contenedores.
+El Compose GHCR no incorpora valores de entorno por defecto ni carga `.env` por servicio. Antes de desplegar esta configuración sobre una instalación existente, añade en Coolify los ajustes nuevos de `.env.example`, conservando los secretos y personalizaciones existentes. Los ajustes obligatorios usan `${VARIABLE:?}`: Compose rechaza tanto su ausencia como un valor vacío. Las entradas que admiten vacío conservan `${VARIABLE?}`. El workflow comprueba los ajustes obligatorios del Compose antes de modificar el commit o el tag de producción; las variables vacías creadas automáticamente por Coolify no sustituyen sus valores de configuración.
 
 La aplicación de Coolify debe usar las variables de `.env.example`, secretos
 nuevos y estos valores de producción:
