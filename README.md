@@ -24,6 +24,8 @@ Antes del primer arranque, copia `.env.example` como `.env` y cambia sus credenc
 
 El Compose GHCR obtiene todas sus variables del `.env` raíz y no carga las plantillas por servicio. Las variables deben existir, aunque las claves de proveedores opcionales pueden estar vacías. Cada contenedor recibe únicamente sus ajustes declarados. Los nombres con prefijo de servicio permiten configurar por separado la API y sus workers.
 
+Los ajustes con valor obligatorio usan `${VARIABLE:?}` para rechazar también cadenas vacías; `${VARIABLE?}` queda para entradas que admiten vacío. El despliegue de producción comprueba los ajustes obligatorios del Compose antes de cambiar el commit o el tag en Coolify.
+
 Desarrollo conserva los `.env` por servicio, que son obligatorios y se crean desde sus `.env.example` antes del primer arranque. La API del scraper y su scheduler comparten `api/scraper/.env`; las variables `SCRAPER_SCHEDULER_DATABASE_POOL_MAX` y `SCRAPER_SCHEDULER_DATABASE_MAX_OVERFLOW` permiten ajustar el pool del scheduler por separado. La API semántica y su indexador comparten `services/semantic-service/.env`; `SEMANTIC_INDEXER_DATABASE_ROLE` conserva el rol y el pool propios del indexador. Los ajustes compartidos se exigen con `${VARIABLE?}` desde el `.env` raíz. La validación comprueba la topología de ambos despliegues y las fuentes de sus variables, sin exigir igualdad de valores entre desarrollo y producción. Los archivos de entorno colocan primero las variables vacías y después las que tienen valor, con orden alfabético en ambos bloques.
 
 ### Stack completo
