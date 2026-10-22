@@ -15,7 +15,7 @@ import java.util.List;
 import javax.imageio.ImageIO;
 import org.springframework.stereotype.Component;
 
-/** Dibuja tarjetas PNG locales sin descargar iconos ni ejecutar contenido del catálogo. */
+/** Sirve tarjetas fijas precompiladas y dibuja las que dependen del catálogo. */
 @Component
 public class SocialCardRenderer {
     private static final BufferedImage APP_ICON = icon("app.png");
@@ -23,6 +23,17 @@ public class SocialCardRenderer {
             icon("windows.png"), icon("linux.png"), icon("macos.png"));
 
     public byte[] render(SeoService.Metadata metadata) {
+        URI canonical = URI.create(metadata.canonicalUrl());
+        if (SeoService.PUBLIC_PAGES.containsKey(canonical.getPath())
+                && canonical.getRawQuery() == null
+                && metadata.canonicalUrl().equals(SeoStaticAssets.BASE_URL + canonical.getPath())) {
+            return SeoStaticAssets.resource("/seo/static-cards/"
+                    + SeoStaticAssets.cardName(canonical.getPath()) + ".png");
+        }
+        return renderDynamic(metadata);
+    }
+
+    byte[] renderDynamic(SeoService.Metadata metadata) {
         URI canonical = URI.create(metadata.canonicalUrl());
         String path = canonical.getPath();
         BufferedImage image = new BufferedImage(1_200, 630, BufferedImage.TYPE_INT_RGB);

@@ -19,7 +19,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /workspace/services/translation-service/target/*.jar /app/app.jar
-COPY services/translation-service/locales /app/locales
+COPY --from=build /workspace/services/translation-service/target/compiled-locales /app/locales
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

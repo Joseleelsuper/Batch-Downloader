@@ -26,13 +26,7 @@ public class SeoService {
     private static final String WEB_PAGE = "WebPage";
     private static final Map<String, String> CATALOG_DEFAULT_FILTERS = Map.of(
             "status", "available", "sort", "downloads", "page", "1", "pageSize", "12");
-    private static final Map<String, List<String>> PUBLIC_PAGES = Map.of(
-            "/", List.of("Descarga varias aplicaciones a la vez", "Busca aplicaciones para Windows, Linux y macOS, crea bundles y descarga sus instaladores juntos con Batch Downloader."),
-            CATALOG_PATH, List.of("Catálogo de aplicaciones", "Encuentra aplicaciones para Windows, Linux y macOS por nombre, editor, etiquetas o búsqueda semántica. Prepara tus descargas en un solo lugar."),
-            "/catalog/tags", List.of("Etiquetas del catálogo", "Explora las etiquetas de Batch Downloader y encuentra aplicaciones por su función, categoría y uso."),
-            "/catalog/editors", List.of("Editores de aplicaciones", "Descubre los editores del catálogo de Batch Downloader y consulta sus aplicaciones y fuentes disponibles."),
-            "/terms", List.of("Términos y condiciones", "Consulta las condiciones de uso de Batch Downloader, los bundles y las descargas de aplicaciones de terceros."),
-            "/privacy", List.of("Política de privacidad", "Conoce cómo Batch Downloader trata los datos de cuentas, descargas, cookies y almacenamiento del navegador, y cómo ejercer tus derechos."));
+    static final Map<String, List<String>> PUBLIC_PAGES = SeoStaticAssets.pages();
     private static final Map<String, String> PRIVATE_PAGES = Map.ofEntries(
             Map.entry("/login", "Accede a tu cuenta"), Map.entry("/admin/login", "Acceso de administración"),
             Map.entry("/dashboard", "Mi panel"), Map.entry("/profile", "Mi perfil"),
@@ -229,39 +223,12 @@ public class SeoService {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("seo_serialization_failed", exception);
         }
-        return """
-                <!doctype html>
-                <html lang="es"><head>
-                <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>%s</title>
-                <meta name="description" content="%s"><meta name="robots" content="%s">
-                <link rel="canonical" href="%s">
-                <meta property="og:type" content="%s"><meta property="og:site_name" content="Batch Downloader">
-                <meta property="og:locale" content="es_ES"><meta property="og:title" content="%s">
-                <meta property="og:description" content="%s"><meta property="og:url" content="%s">
-                <meta property="og:image" content="%s"><meta property="og:image:alt" content="%s">
-                <meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
-                <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="%s">
-                <meta name="twitter:description" content="%s"><meta name="twitter:image" content="%s"><meta name="twitter:image:alt" content="%s">
-                <script type="application/ld+json" id="page-structured-data">%s</script>
-                <!--# include virtual="/__frontend_head" -->
-                </head><body><div id="root"><main class="content-page">
-                <h1>%s</h1><p>%s</p><nav aria-label="Páginas públicas">
-                <a href="/">Inicio</a> · <a href="/catalog">Catálogo</a> · <a href="/catalog/tags">Etiquetas</a> · <a href="/catalog/editors">Editores</a> · <a href="/terms">Condiciones</a> · <a href="/privacy">Privacidad</a>
-                </nav></main></div></body></html>
-                """.formatted(escape(metadata.title()), escape(metadata.description()), escape(metadata.robots()),
+        return SeoStaticAssets.HTML.formatted(escape(metadata.title()), escape(metadata.description()), escape(metadata.robots()),
                 escape(metadata.canonicalUrl()), escape(metadata.type()), escape(metadata.title()),
                 escape(metadata.description()), escape(metadata.canonicalUrl()), escape(metadata.imageUrl()),
                 escape(metadata.imageAlt()), escape(metadata.title()), escape(metadata.description()),
                 escape(metadata.imageUrl()), escape(metadata.imageAlt()), json,
                 escape(metadata.title()), escape(metadata.description()));
-    }
-
-    public String robots() {
-        return "User-agent: *\nAllow: /\nAllow: /api/v1/apps\nAllow: /api/v1/bundles\n"
-                + "Allow: /api/v1/locales/es\nAllow: /api/v1/locales/en\nAllow: /api/v1/seo/metadata\nDisallow: /api/\n"
-                + "Disallow: /admin\nDisallow: /dashboard\n"
-                + "Disallow: /profile\nDisallow: /login\nDisallow: /error\nSitemap: " + baseUrl + "/sitemap.xml\n";
     }
 
     public String sitemapIndex() {

@@ -291,10 +291,12 @@ La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea pa
 
 | Servicio | Variables | Uso |
 | --- | --- | --- |
-| Translation | `TRANSLATION_SERVICE_SERVER_PORT`, `TRANSLATION_SERVICE_LOCALES_PATH`, `TRANSLATION_SERVICE_CACHE_MAX_AGE` | Puerto, directorio de traducciones y caché HTTP. |
+| Translation | `TRANSLATION_SERVICE_SERVER_PORT`, `TRANSLATION_SERVICE_LOCALES_PATH`, `TRANSLATION_SERVICE_CACHE_MAX_AGE` | Puerto, directorio de JSON precompilados por idioma y caché HTTP. |
 | Frontend | `VITE_API_BASE_URL` | Base opcional de la API; vacía usa el mismo origen. |
 
 </details>
+
+Los textos SEO fijos y la plantilla HTML están en `services/core-api/src/main/resources/seo/pages.json` y `page.html`. Maven genera las tarjetas fijas en `target/classes/seo/static-cards` y valida y fusiona las traducciones en `services/translation-service/target/compiled-locales`; Docker incluye esos resultados. Para ejecutar Translation fuera de Docker, `TRANSLATION_SERVICE_LOCALES_PATH` debe apuntar al directorio precompilado. Los sitemaps y los datos SEO del catálogo siguen siendo dinámicos.
 
 ## Estados de los jobs
 

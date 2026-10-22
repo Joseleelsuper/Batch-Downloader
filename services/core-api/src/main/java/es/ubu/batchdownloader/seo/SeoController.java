@@ -78,11 +78,6 @@ public class SeoController {
         }
     }
 
-    @GetMapping("/robots.txt")
-    public ResponseEntity<String> robots() {
-        return response(200, new MediaType("text", "plain", StandardCharsets.UTF_8)).body(seo.robots());
-    }
-
     @GetMapping("/sitemap.xml")
     public ResponseEntity<String> sitemapIndex() {
         try {

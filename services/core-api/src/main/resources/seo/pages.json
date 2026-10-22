@@ -1,0 +1,26 @@
+{
+  "/": [
+    "Descarga varias aplicaciones a la vez",
+    "Busca aplicaciones para Windows, Linux y macOS, crea bundles y descarga sus instaladores juntos con Batch Downloader."
+  ],
+  "/catalog": [
+    "Catálogo de aplicaciones",
+    "Encuentra aplicaciones para Windows, Linux y macOS por nombre, editor, etiquetas o búsqueda semántica. Prepara tus descargas en un solo lugar."
+  ],
+  "/catalog/tags": [
+    "Etiquetas del catálogo",
+    "Explora las etiquetas de Batch Downloader y encuentra aplicaciones por su función, categoría y uso."
+  ],
+  "/catalog/editors": [
+    "Editores de aplicaciones",
+    "Descubre los editores del catálogo de Batch Downloader y consulta sus aplicaciones y fuentes disponibles."
+  ],
+  "/terms": [
+    "Términos y condiciones",
+    "Consulta las condiciones de uso de Batch Downloader, los bundles y las descargas de aplicaciones de terceros."
+  ],
+  "/privacy": [
+    "Política de privacidad",
+    "Conoce cómo Batch Downloader trata los datos de cuentas, descargas, cookies y almacenamiento del navegador, y cómo ejercer tus derechos."
+  ]
+}

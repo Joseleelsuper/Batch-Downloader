@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /**
  * Comprueba carga, caché, paridad y rechazo de duplicados del catálogo dividido en páginas.
@@ -32,6 +33,21 @@ class JsonFileLocaleCatalogTest {
     @TempDir
     private Path localeDirectory;
 
+    @TempDir
+    private Path compiledDirectory;
+
+    @Test
+    void springLoadsCompiledCatalogsWithoutSourcePages() throws IOException {
+        Files.writeString(compiledDirectory.resolve("es.json"), "{\"greeting\":\"Hola\"}");
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(TranslationProperties.class,
+                    () -> new TranslationProperties(compiledDirectory, Duration.ofHours(1)));
+            context.register(JsonFileLocaleCatalog.class);
+            context.refresh();
+            assertThat(context.getBean(JsonFileLocaleCatalog.class).findByLocale("es")).isPresent();
+        }
+    }
+
     /**
      * Comprueba que una estructura válida publica los idiomas y conserva sus documentos en caché.
      */
@@ -43,6 +59,7 @@ class JsonFileLocaleCatalogTest {
         write("es", "home.json", "{\"farewell\":\"Adiós\"}");
         write("en", "shared.json", "{\"greeting\":\"Hello\"}");
         write("en", "home.json", "{\"farewell\":\"Bye\"}");
+        Files.writeString(compiledDirectory.resolve("fr.json"), "{\"greeting\":\"Obsolète\"}");
 
         JsonFileLocaleCatalog catalog = catalog();
 
@@ -54,13 +71,19 @@ class JsonFileLocaleCatalogTest {
                         "{\"greeting\":\"Hola\",\"farewell\":\"Adiós\"}"));
         assertThat(first.etag()).matches("\"[0-9a-f]{64}\"");
         assertThat(catalog.findByLocale("en")).isPresent();
+        assertThat(catalog.findByLocale("fr")).isEmpty();
+        write("es", "shared.json", "{\"greeting\":\"Cambió la fuente\"}");
+        JsonFileLocaleCatalog reloaded = new JsonFileLocaleCatalog(
+                new TranslationProperties(compiledDirectory, Duration.ofHours(1)));
+        assertThat(reloaded.findByLocale("es").orElseThrow().content()).isEqualTo(first.content());
     }
 
     /** Comprueba que el catálogo real conserva todas las claves tras dividirse por páginas. */
     @Test
     void loadsTheRepositoryPageCatalogWithoutLosingMessages() throws IOException {
+        JsonFileLocaleCatalog.compile(Path.of("locales"), compiledDirectory);
         JsonFileLocaleCatalog catalog = new JsonFileLocaleCatalog(
-                new TranslationProperties(Path.of("locales"), Duration.ofHours(1)));
+                new TranslationProperties(compiledDirectory, Duration.ofHours(1)));
 
         LocaleDocument spanish = catalog.findByLocale("es").orElseThrow();
         JsonNode messages = new ObjectMapper().readTree(spanish.content());
@@ -183,8 +206,9 @@ class JsonFileLocaleCatalogTest {
      * @return catálogo validado, o propaga el fallo esperado por la prueba.
      */
     private JsonFileLocaleCatalog catalog() {
+        JsonFileLocaleCatalog.main(new String[]{localeDirectory.toString(), compiledDirectory.toString()});
         return new JsonFileLocaleCatalog(
-                new TranslationProperties(localeDirectory, Duration.ofHours(1)));
+                new TranslationProperties(compiledDirectory, Duration.ofHours(1)));
     }
 
     /**

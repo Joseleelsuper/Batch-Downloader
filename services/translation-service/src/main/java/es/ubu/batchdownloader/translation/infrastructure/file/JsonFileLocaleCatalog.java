@@ -23,11 +23,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 /**
- * Lee y valida al arrancar las páginas de plantilla y de todos los idiomas publicados y conserva
- * un JSON fusionado por idioma en memoria.
+ * Compila las páginas de traducción durante el build y carga los JSON resultantes al arrancar.
  *
  * Exige paridad de archivos y claves, textos no vacíos y ausencia de claves duplicadas dentro de
  * una página o entre páginas. Calcula un ETag por idioma sobre los bytes que sirve el controlador.
@@ -53,16 +53,25 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
     private final Map<String, LocaleDocument> cache;
 
     /**
-     * Carga páginas ordenadas, valida la plantilla y fusiona una sola vez el catálogo español que
-     * se servirá.
+     * Carga los JSON precompilados por idioma y conserva sus documentos y ETags en memoria.
      *
      * @param properties Ruta del catálogo y duración de caché configuradas para el servicio.
      * @throws
      *     es.ubu.batchdownloader.translation.infrastructure.file.LocaleCatalogConfigurationException si
-     *     las páginas no existen, no son JSON estricto o incumplen la paridad y unicidad de claves.
+     *     los archivos precompilados no existen o no contienen objetos JSON estrictos.
      */
+    @Autowired
     public JsonFileLocaleCatalog(TranslationProperties properties) {
-        Path localesPath = properties.localesPath();
+        Map<String, LocaleDocument> documents = new LinkedHashMap<>();
+        readPages(properties.localesPath(), strictObjectMapper()).forEach((file, messages) -> {
+            String locale = file.substring(0, file.length() - ".json".length());
+            byte[] content = readBytes(properties.localesPath().resolve(file));
+            documents.put(locale, new LocaleDocument(locale, content, calculateEtag(content)));
+        });
+        cache = Map.copyOf(documents);
+    }
+
+    private JsonFileLocaleCatalog(Path localesPath) {
         ObjectMapper strictMapper = strictObjectMapper();
         Map<String, ObjectNode> templatePages = readPages(
                 localesPath.resolve(TEMPLATE_DIRECTORY), strictMapper);
@@ -75,6 +84,32 @@ public class JsonFileLocaleCatalog implements LocaleCatalog {
             documents.put(locale, new LocaleDocument(locale, content, calculateEtag(content)));
         });
         cache = Map.copyOf(documents);
+    }
+
+    /** Valida las fuentes y escribe un archivo JSON completo por idioma, sin iniciar Spring. */
+    public static void compile(Path source, Path output) {
+        JsonFileLocaleCatalog catalog = new JsonFileLocaleCatalog(source);
+        try {
+            Files.createDirectories(output);
+            try (Stream<Path> files = Files.list(output)) {
+                for (Path file : files.filter(Files::isRegularFile).toList()) {
+                    String name = file.getFileName().toString();
+                    if (name.endsWith(".json") && !catalog.cache.containsKey(name.substring(0, name.length() - 5))) {
+                        Files.delete(file);
+                    }
+                }
+            }
+            for (Map.Entry<String, LocaleDocument> entry : catalog.cache.entrySet()) {
+                Files.write(output.resolve(entry.getKey() + ".json"), entry.getValue().content());
+            }
+        } catch (IOException exception) {
+            throw new LocaleCatalogConfigurationException("No se pudieron escribir los catálogos compilados", exception);
+        }
+    }
+
+    /** Punto de entrada del generador ejecutado por Maven durante la compilación. */
+    public static void main(String[] args) {
+        compile(Path.of(args[0]), Path.of(args[1]));
     }
 
     /**
