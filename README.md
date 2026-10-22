@@ -22,6 +22,10 @@ Descarga y empaqueta varios instaladores en un solo trabajo. La interfaz queda d
 
 Antes del primer arranque, copia `.env.example` como `.env` y cambia sus credenciales.
 
+El Compose GHCR obtiene todas sus variables del `.env` raíz y no carga las plantillas por servicio. Las variables deben existir, aunque las claves de proveedores opcionales pueden estar vacías. Cada contenedor recibe únicamente sus ajustes declarados. Los nombres con prefijo de servicio permiten configurar por separado la API y sus workers.
+
+Desarrollo conserva los `.env` por servicio. La validación compara la topología de ambos despliegues y comprueba por separado que GHCR exija sus variables sin valores incrustados; no exige igualdad de valores de entorno entre desarrollo y producción.
+
 ### Stack completo
 
 El scraper, Core y el servicio semántico aplican sus migraciones al arrancar. El servicio semántico aplica las versiones pendientes de PostgreSQL antes de aceptar peticiones; verifica los checksums sin repetir versiones y serializa los arranques simultáneos mediante un bloqueo de base de datos. Si una migración falla, el arranque se detiene y el indexador espera.

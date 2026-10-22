@@ -30,6 +30,8 @@ dominio público. Sus puertos del host se ligan a `127.0.0.1`.
 
 ## Variables obligatorias
 
+El Compose GHCR no incorpora valores de entorno por defecto ni carga `.env` por servicio. Antes de desplegar esta configuración sobre una instalación existente, añade en Coolify los ajustes nuevos de `.env.example`, conservando los secretos y personalizaciones existentes. Si falta una variable, Compose se detiene antes de crear los contenedores.
+
 La aplicación de Coolify debe usar las variables de `.env.example`, secretos
 nuevos y estos valores de producción:
 

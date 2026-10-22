@@ -219,6 +219,32 @@ class ComposeHealthTest(unittest.TestCase):
 
         self.assertEqual([], errors)
 
+    def test_parity_allows_independent_environment_but_rejects_port_changes(self) -> None:
+        local = {"services": {
+            "core-api": {"environment": {"SETTING": "local"}, "ports": [8080]},
+            **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
+        }}
+        ghcr = {"services": {
+            "core-api": {"environment": {"SETTING": "production"}, "ports": [8080]},
+        }}
+        self.assertEqual([], compose_health.validate_parity(local, ghcr))
+        ghcr["services"]["core-api"]["ports"] = [9090]
+        self.assertIn("paridad:core-api: configuración funcional distinta",
+                      compose_health.validate_parity(local, ghcr))
+
+    def test_ghcr_environment_requires_root_variables_without_defaults(self) -> None:
+        for value in ("literal", "${SETTING}", "${SETTING:-default}", None):
+            with self.subTest(value=value):
+                self.assertTrue(compose_health.validate_ghcr_environment({"services": {
+                    "core-api": {"environment": {"SETTING": value}},
+                }}))
+        self.assertEqual([], compose_health.validate_ghcr_environment({"services": {
+            "core-api": {"environment": {"SETTING": "${SETTING?}"}},
+        }}))
+        self.assertTrue(compose_health.validate_ghcr_environment({"services": {
+            "core-api": {"env_file": ["service.env"]},
+        }}))
+
     def test_private_h2_passwords_are_not_rotated_by_compose(self) -> None:
         """Impide reintroducir secretos externos para los H2 persistentes privados."""
         services = {

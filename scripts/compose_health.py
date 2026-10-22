@@ -193,13 +193,16 @@ def run_command(command: Sequence[str], *, check: bool = True) -> subprocess.Com
     return result
 
 
-def render_compose(compose_file: Path, env_file: Path) -> dict[str, Any]:
+def render_compose(compose_file: Path, env_file: Path, *, interpolate: bool = True) -> dict[str, Any]:
     """Renderiza también los perfiles para validar todos los jobs declarados."""
+    arguments = ("--profile", "*", "config", "--format", "json")
+    if not interpolate:
+        arguments += ("--no-interpolate",)
     result = run_command(
         compose_command(
             compose_file,
             env_file,
-            ("--profile", "*", "config", "--format", "json"),
+            arguments,
         )
     )
     try:
@@ -305,8 +308,8 @@ def validate_configuration(name: str, configuration: Mapping[str, Any]) -> list[
 
 
 def comparable_service(configuration: Mapping[str, Any]) -> dict[str, Any]:
-    """Normaliza solo las diferencias de distribución admitidas entre despliegues."""
-    ignored = {"build", "image", "pull_policy", "profiles"}
+    """Normaliza distribución y entornos configurados de forma independiente."""
+    ignored = {"build", "image", "pull_policy", "profiles", "environment"}
     result = {key: value for key, value in configuration.items() if key not in ignored}
     embedded_targets = {
         "/etc/rabbitmq/enabled_plugins",
@@ -346,7 +349,7 @@ def comparable_service(configuration: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def validate_parity(local: Mapping[str, Any], ghcr: Mapping[str, Any]) -> list[str]:
-    """Comprueba que solo difieran build/image y los benchmarks locales permitidos."""
+    """Compara la topología; cada despliegue conserva su configuración de entorno."""
     errors: list[str] = []
     local_services: Mapping[str, Mapping[str, Any]] = local.get("services") or {}
     ghcr_services: Mapping[str, Mapping[str, Any]] = ghcr.get("services") or {}
@@ -358,6 +361,18 @@ def validate_parity(local: Mapping[str, Any], ghcr: Mapping[str, Any]) -> list[s
     for service in sorted(set(local_services) & set(ghcr_services)):
         if comparable_service(local_services[service]) != comparable_service(ghcr_services[service]):
             errors.append(f"paridad:{service}: configuración funcional distinta")
+    return errors
+
+
+def validate_ghcr_environment(configuration: Mapping[str, Any]) -> list[str]:
+    """Exige referencias obligatorias al .env raíz en el entorno GHCR sin interpolar."""
+    errors: list[str] = []
+    for service, item in (configuration.get("services") or {}).items():
+        if item.get("env_file"):
+            errors.append(f"ghcr:{service}: env_file por servicio no está permitido")
+        for key, value in (item.get("environment") or {}).items():
+            if not isinstance(value, str) or not re.fullmatch(r"\$\{[A-Z0-9_]+\?\}", value):
+                errors.append(f"ghcr:{service}:{key}: debe exigir una variable del .env raíz")
     return errors
 
 
@@ -373,6 +388,9 @@ def validate_all(env_file: Path) -> list[str]:
         for error in validate_configuration(name, configuration)
     ]
     errors.extend(validate_parity(rendered["local"], rendered["ghcr"]))
+    errors.extend(validate_ghcr_environment(
+        render_compose(COMPOSE_FILES["ghcr"], env_file, interpolate=False)
+    ))
     return errors
 
 
