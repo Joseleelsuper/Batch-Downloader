@@ -197,7 +197,7 @@ def render_compose(compose_file: Path, env_file: Path, *, interpolate: bool = Tr
     """Renderiza también los perfiles para validar todos los jobs declarados."""
     arguments = ("--profile", "*", "config", "--format", "json")
     if not interpolate:
-        arguments += ("--no-interpolate",)
+        arguments += ("--no-interpolate", "--no-env-resolution")
     result = run_command(
         compose_command(
             compose_file,
@@ -364,15 +364,21 @@ def validate_parity(local: Mapping[str, Any], ghcr: Mapping[str, Any]) -> list[s
     return errors
 
 
-def validate_ghcr_environment(configuration: Mapping[str, Any]) -> list[str]:
-    """Exige referencias obligatorias al .env raíz en el entorno GHCR sin interpolar."""
+def validate_ghcr_environment(configuration: Mapping[str, Any], name: str = "ghcr") -> list[str]:
+    """Exige referencias explícitas; desarrollo permite .env obligatorios por servicio."""
     errors: list[str] = []
     for service, item in (configuration.get("services") or {}).items():
-        if item.get("env_file"):
+        if name == "ghcr" and item.get("env_file"):
             errors.append(f"ghcr:{service}: env_file por servicio no está permitido")
+        if name == "local":
+            for source in item.get("env_file") or []:
+                if not isinstance(source, Mapping) or source.get("required") is not True:
+                    errors.append(f"local:{service}: el .env del servicio debe ser obligatorio")
+                elif str(source.get("path", "")).endswith(".example"):
+                    errors.append(f"local:{service}: no debe cargar plantillas como configuración")
         for key, value in (item.get("environment") or {}).items():
             if not isinstance(value, str) or not re.fullmatch(r"\$\{[A-Z0-9_]+\?\}", value):
-                errors.append(f"ghcr:{service}:{key}: debe exigir una variable del .env raíz")
+                errors.append(f"{name}:{service}:{key}: debe exigir una variable del .env raíz")
     return errors
 
 
@@ -388,9 +394,10 @@ def validate_all(env_file: Path) -> list[str]:
         for error in validate_configuration(name, configuration)
     ]
     errors.extend(validate_parity(rendered["local"], rendered["ghcr"]))
-    errors.extend(validate_ghcr_environment(
-        render_compose(COMPOSE_FILES["ghcr"], env_file, interpolate=False)
-    ))
+    for name, compose_file in COMPOSE_FILES.items():
+        errors.extend(validate_ghcr_environment(
+            render_compose(compose_file, env_file, interpolate=False), name
+        ))
     return errors
 
 

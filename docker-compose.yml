@@ -2,12 +2,20 @@ name: batch-downloader
 
 include:
   - path: api/scraper/docker-compose.yml
+    env_file: api/scraper/.env
   - path: services/core-api/docker-compose.yml
   - path: services/webapp/docker-compose.yml
   - path: services/semantic-service/docker-compose.yml
+    env_file: services/semantic-service/.env
   - path: services/notification-service/docker-compose.yml
   - path: services/download-worker/docker-compose.yml
   - path: services/translation-service/docker-compose.yml
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 60s
 
 services:
   mysql:
@@ -16,20 +24,17 @@ services:
     command: ["--skip-log-bin", "--log-bin-trust-function-creators=1", "--max-connections=32", "--long-query-time=0.5", "--binlog-expire-logs-seconds=86400"]
     cpu_shares: 1024
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD?}
+      MYSQL_DATABASE: ${MYSQL_DATABASE?}
+      MYSQL_USER: ${MYSQL_USER?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD?}
     ports:
-      - "127.0.0.1:${MYSQL_HOST_PORT}:3306"
+      - "127.0.0.1:${MYSQL_HOST_PORT?}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD-SHELL", "MYSQL_PWD=$${MYSQL_PASSWORD} mysql --protocol=TCP -h 127.0.0.1 -u$${MYSQL_USER} -D $${MYSQL_DATABASE} --silent --skip-column-names -e 'SELECT 1' | grep -qx 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 60s
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -37,18 +42,16 @@ services:
     command: ["postgres", "-c", "max_connections=20"]
     cpu_shares: 512
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB?}
+      POSTGRES_USER: ${POSTGRES_USER?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?}
     ports:
-      - "127.0.0.1:${POSTGRES_HOST_PORT}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT?}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD-SHELL", "PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc 'SELECT 1' | grep -qx 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
       start_period: 30s
 
   rabbitmq:
@@ -56,20 +59,17 @@ services:
     restart: unless-stopped
     cpu_shares: 1024
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER?}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS?}
     ports:
-      - "127.0.0.1:${RABBITMQ_HOST_PORT}:5672"
-      - "127.0.0.1:${RABBITMQ_MANAGEMENT_HOST_PORT}:15672"
+      - "127.0.0.1:${RABBITMQ_HOST_PORT?}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_HOST_PORT?}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 60s
 
   minio:
     # Mismo digest de quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z; ver README del worker.
@@ -78,21 +78,19 @@ services:
     cpu_shares: 1024
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_PROMETHEUS_AUTH_TYPE: public
-      MINIO_API_STALE_UPLOADS_EXPIRY: ${MINIO_STALE_UPLOADS_EXPIRY}
-      MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: ${MINIO_STALE_UPLOADS_CLEANUP_INTERVAL}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD?}
+      MINIO_PROMETHEUS_AUTH_TYPE: ${MINIO_PROMETHEUS_AUTH_TYPE?}
+      MINIO_API_STALE_UPLOADS_EXPIRY: ${MINIO_STALE_UPLOADS_EXPIRY?}
+      MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: ${MINIO_STALE_UPLOADS_CLEANUP_INTERVAL?}
     ports:
-      - "127.0.0.1:${MINIO_API_HOST_PORT}:9000"
-      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT}:9001"
+      - "127.0.0.1:${MINIO_API_HOST_PORT?}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT?}:9001"
     volumes:
       - minio_data:/data
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/cluster >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
       start_period: 30s
 
   minio-init:
@@ -104,14 +102,14 @@ services:
         condition: service_healthy
     entrypoint: ["/bin/sh", "/config/init.sh"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET}
-      MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA}
-      MINIO_CORE_ACCESS_KEY: ${MINIO_CORE_ACCESS_KEY}
-      MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY}
-      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY}
-      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD?}
+      MINIO_ZIP_BUCKET: ${MINIO_ZIP_BUCKET?}
+      MINIO_ZIP_QUOTA: ${MINIO_ZIP_QUOTA?}
+      MINIO_CORE_ACCESS_KEY: ${MINIO_CORE_ACCESS_KEY?}
+      MINIO_CORE_SECRET_KEY: ${MINIO_CORE_SECRET_KEY?}
+      MINIO_WORKER_ACCESS_KEY: ${MINIO_WORKER_ACCESS_KEY?}
+      MINIO_WORKER_SECRET_KEY: ${MINIO_WORKER_SECRET_KEY?}
     volumes:
       - ./docker/minio/init.sh:/config/init.sh:ro
       - ./docker/minio/lifecycle-zips.json:/config/lifecycle-zips.json:ro

@@ -245,6 +245,19 @@ class ComposeHealthTest(unittest.TestCase):
             "core-api": {"env_file": ["service.env"]},
         }}))
 
+    def test_local_environment_requires_service_files_and_explicit_shared_variables(self) -> None:
+        configuration = {"services": {"core-api": {
+            "env_file": [{"path": "services/core-api/.env", "required": True}],
+            "environment": {"MYSQL_PASSWORD": "${MYSQL_PASSWORD?}"},
+        }}}
+        self.assertEqual([], compose_health.validate_ghcr_environment(configuration, "local"))
+        configuration["services"]["core-api"]["env_file"][0]["required"] = False
+        self.assertTrue(compose_health.validate_ghcr_environment(configuration, "local"))
+        configuration["services"]["core-api"]["env_file"][0] = {
+            "path": "services/core-api/.env.example", "required": True,
+        }
+        self.assertTrue(compose_health.validate_ghcr_environment(configuration, "local"))
+
     def test_private_h2_passwords_are_not_rotated_by_compose(self) -> None:
         """Impide reintroducir secretos externos para los H2 persistentes privados."""
         services = {
