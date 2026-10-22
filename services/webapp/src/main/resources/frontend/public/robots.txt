@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Allow: /api/v1/apps
+Allow: /api/v1/bundles
+Allow: /api/v1/locales/es
+Allow: /api/v1/locales/en
+Allow: /api/v1/seo/metadata
+Disallow: /api/
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /login
+Disallow: /error
+Sitemap: https://batchdownloader.dev/sitemap.xml

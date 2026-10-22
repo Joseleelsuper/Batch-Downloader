@@ -220,10 +220,6 @@ class SeoControllerTest {
         mvc.perform(get("/api/v1/seo/sitemap/bundles/0.xml")).andExpect(status().isNotFound());
         mvc.perform(get("/api/v1/seo/sitemap/private/1.xml")).andExpect(status().isNotFound());
         mvc.perform(get("/api/v1/seo/metadata").param("path", "/catalog/app/hidden")).andExpect(status().isNotFound());
-        assertThat(service.robots()).contains("Sitemap: https://batchdownloader.dev/sitemap.xml",
-                "Allow: /api/v1/apps", "Allow: /api/v1/bundles", "Allow: /api/v1/locales/es",
-                "Allow: /api/v1/locales/en",
-                "Allow: /api/v1/seo/metadata", "Disallow: /api/");
     }
 
     @Test
@@ -257,6 +253,24 @@ class SeoControllerTest {
         assertThat(homeCard.getRGB(70, 550, 600, 50, null, 0, 600))
                 .isNotEqualTo(privacyCard.getRGB(70, 550, 600, 50, null, 0, 600));
         assertThat(app).isNotEqualTo(home);
+    }
+
+    @Test
+    void fixedCardsArePackagedWhileCatalogPaginationAndOtherHostsRemainDynamic() throws Exception {
+        SocialCardRenderer renderer = new SocialCardRenderer();
+        for (String path : SeoService.PUBLIC_PAGES.keySet()) {
+            byte[] png = renderer.render(service.resolve(path).metadata());
+            assertThat(png).isEqualTo(SeoStaticAssets.resource(
+                    "/seo/static-cards/" + SeoStaticAssets.cardName(path) + ".png"));
+            assertThat(ImageIO.read(new ByteArrayInputStream(png)).getWidth()).isEqualTo(1_200);
+        }
+        byte[] catalog = renderer.render(service.resolve("/catalog").metadata());
+        for (int index = 0; index < 12; index++) {
+            insertApp(UUID.randomUUID(), "page-" + index, "App " + index, "Descripción", "active");
+        }
+        assertThat(renderer.render(service.resolve("/catalog?page=2").metadata())).isNotEqualTo(catalog);
+        SeoService local = new SeoService(new SeoRepository(jdbc), new ObjectMapper(), "http://localhost:3000");
+        assertThat(renderer.render(local.resolve("/catalog").metadata())).isNotEqualTo(catalog);
     }
 
     @Test

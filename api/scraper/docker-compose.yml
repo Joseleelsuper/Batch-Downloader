@@ -1,29 +1,31 @@
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 60s
+
 services:
   scraper-api:
     build:
       context: .
     env_file:
-      - path: ./.env.example
       - path: ./.env
-        required: false
+        required: true
     environment:
-      SCRAPER_DATABASE_HOST: mysql
-      SCRAPER_DATABASE_PORT: 3306
-      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
-      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
-      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
-      SCRAPER_DATABASE_POOL_MAX: 4
-      SCRAPER_DATABASE_MAX_OVERFLOW: 2
-      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
-      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
-      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
-      SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN}
+      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE?}
+      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER?}
+      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD?}
+      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET?}
+      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY?}
+      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY?}
+      SCRAPER_INTERNAL_SERVICE_TOKEN: ${SCRAPER_INTERNAL_SERVICE_TOKEN?}
     cpu_shares: 512
     restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck-defaults
       test:
         [
           "CMD",
@@ -31,9 +33,6 @@ services:
           "-c",
           "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3).read()",
         ]
-      interval: 10s
-      timeout: 5s
-      retries: 12
       start_period: 120s
 
   scraper-scheduler:
@@ -42,29 +41,26 @@ services:
     command: ["scheduler"]
     env_file:
       - path: ./.env
-        required: false
+        required: true
     environment:
-      SCRAPER_DATABASE_HOST: mysql
-      SCRAPER_DATABASE_PORT: 3306
-      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE}
-      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER}
-      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD}
-      SCRAPER_DATABASE_POOL_MAX: 8
-      SCRAPER_DATABASE_MAX_OVERFLOW: 4
-      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET}
-      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY}
-      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY}
+      SCRAPER_DATABASE_POOL_MAX: ${SCRAPER_SCHEDULER_DATABASE_POOL_MAX?}
+      SCRAPER_DATABASE_MAX_OVERFLOW: ${SCRAPER_SCHEDULER_DATABASE_MAX_OVERFLOW?}
+      SCRAPER_DATABASE_NAME: ${MYSQL_DATABASE?}
+      SCRAPER_DATABASE_USERNAME: ${MYSQL_USER?}
+      SCRAPER_DATABASE_PASSWORD: ${MYSQL_PASSWORD?}
+      SCRAPER_URL_PROTECTION_SECRET: ${SCRAPER_URL_PROTECTION_SECRET?}
+      SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY?}
+      SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY?}
     cpu_shares: 256
     restart: unless-stopped
     depends_on:
       scraper-api:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck-defaults
       test: ["CMD", "python", "-m", "app.healthcheck", "--worker", "scheduler"]
       interval: 30s
-      timeout: 5s
       retries: 3
-      start_period: 60s
 
   scraper-python314t-benchmark:
     profiles: ["benchmark"]

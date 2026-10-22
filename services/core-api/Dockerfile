@@ -9,6 +9,9 @@ COPY services/notification-service/pom.xml services/notification-service/pom.xml
 COPY services/translation-service/pom.xml services/translation-service/pom.xml
 COPY shared/java-contracts/src shared/java-contracts/src
 COPY services/core-api/src services/core-api/src
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fontconfig fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
 RUN mvn -B -pl services/core-api -am -DskipTests package
 
 FROM eclipse-temurin:26.0.1_8-jre

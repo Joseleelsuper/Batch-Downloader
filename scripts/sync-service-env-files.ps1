@@ -72,6 +72,47 @@ function Convert-ToMilliseconds {
     throw "$Name debe expresarse como milisegundos, ms, s o m."
 }
 
+function Sort-EnvironmentContent {
+    param([Parameter(Mandatory = $true)][string]$Content)
+
+    $header = [System.Collections.Generic.List[string]]::new()
+    $pending = [System.Collections.Generic.List[string]]::new()
+    $records = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in ($Content -split "`r?`n")) {
+        if ($line -match "^([A-Z][A-Z0-9_]*)=(.*)$") {
+            $name, $value = $Matches[1], $Matches[2]
+            if ($records.Count -eq 0) {
+                $header.AddRange($pending)
+                $pending.Clear()
+            }
+            $records.Add([pscustomobject]@{
+                Name = $name
+                Value = $value
+                Empty = @("", '""', "''") -contains $value.Trim()
+                Comments = @($pending)
+            })
+            $pending.Clear()
+        } elseif ($line.Trim().Length -gt 0 -and $line -notmatch "^# Variables (vacías|con valor)") {
+            $pending.Add($line)
+        }
+    }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.AddRange($header)
+    $lines.Add("")
+    foreach ($empty in @($true, $false)) {
+        $group = @($records | Where-Object { $_.Empty -eq $empty } | Sort-Object Name)
+        if ($group.Count -eq 0) { continue }
+        $label = if ($empty) { "vacías" } else { "con valor" }
+        $lines.Add("# Variables $label (orden alfabético).")
+        foreach ($record in $group) {
+            foreach ($comment in $record.Comments) { $lines.Add($comment) }
+            $lines.Add("$($record.Name)=$($record.Value)")
+        }
+        $lines.Add("")
+    }
+    return [string]::Join("`n", $lines).TrimEnd() + "`n"
+}
+
 function Render-EnvironmentFile {
     param(
         [Parameter(Mandatory = $true)][string]$Title,
@@ -90,7 +131,7 @@ function Render-EnvironmentFile {
         $lines.Add("$name=$($Values[$name])")
     }
     $lines.Add("")
-    return [string]::Join("`n", $lines)
+    return Sort-EnvironmentContent -Content ([string]::Join("`n", $lines))
 }
 
 function Render-EnvironmentFromTemplate {
@@ -111,7 +152,7 @@ function Render-EnvironmentFromTemplate {
         }
         $lines.Add($line)
     }
-    return [string]::Join("`n", $lines) + "`n"
+    return Sort-EnvironmentContent -Content ([string]::Join("`n", $lines))
 }
 
 function Save-OrCheckFile {
@@ -136,12 +177,11 @@ function Save-OrCheckFile {
 }
 
 $targets = @(
-    [pscustomobject]@{ Name = "Scraper API"; ExamplePath = "api/scraper/.env.example"; OutputPath = "api/scraper/.env" },
+    [pscustomobject]@{ Name = "Scraper API y Scheduler"; ExamplePath = "api/scraper/.env.example"; OutputPath = "api/scraper/.env" },
     [pscustomobject]@{ Name = "Core API"; ExamplePath = "services/core-api/.env.example"; OutputPath = "services/core-api/.env" },
     [pscustomobject]@{ Name = "Download Worker"; ExamplePath = "services/download-worker/.env.example"; OutputPath = "services/download-worker/.env" },
     [pscustomobject]@{ Name = "Notification Service"; ExamplePath = "services/notification-service/.env.example"; OutputPath = "services/notification-service/.env" },
-    [pscustomobject]@{ Name = "Semantic API"; ExamplePath = "services/semantic-service/.env.example"; OutputPath = "services/semantic-service/.env" },
-    [pscustomobject]@{ Name = "Semantic Indexer"; ExamplePath = "services/semantic-service/.env.indexer.example"; OutputPath = "services/semantic-service/.env.indexer" },
+    [pscustomobject]@{ Name = "Semantic API e Indexer"; ExamplePath = "services/semantic-service/.env.example"; OutputPath = "services/semantic-service/.env" },
     [pscustomobject]@{ Name = "Translation Service"; ExamplePath = "services/translation-service/.env.example"; OutputPath = "services/translation-service/.env" },
     [pscustomobject]@{ Name = "Webapp Frontend"; ExamplePath = "services/webapp/src/main/resources/frontend/.env.example"; OutputPath = "services/webapp/src/main/resources/frontend/.env" }
 )

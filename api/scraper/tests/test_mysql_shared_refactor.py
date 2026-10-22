@@ -6,9 +6,9 @@ from app.db.models import ResolvedSource, ScraperCommand, ScrapeRun, SoftwareApp
 ROOT = Path(__file__).parents[1]
 
 
-def test_companion_entrypoints_hold_contractive_migrations_behind_a_gate() -> None:
+def test_companion_entrypoints_apply_latest_migrations_without_manual_targets() -> None:
     entrypoint = (ROOT / "scripts" / "docker-entrypoint.sh").read_text(encoding="utf-8")
-    assert "alembic upgrade 20261012_0024" in entrypoint
+    assert "alembic upgrade head" in entrypoint
     for path in (
         ROOT / ".env.example",
         ROOT / "docker-compose.yml",
@@ -16,6 +16,7 @@ def test_companion_entrypoints_hold_contractive_migrations_behind_a_gate() -> No
         ROOT.parents[1] / "docker-compose.ghcr.yml",
     ):
         assert "SCRAPER_ALEMBIC_TARGET" not in path.read_text(encoding="utf-8")
+        assert "CORE_API_FLYWAY_TARGET" not in path.read_text(encoding="utf-8")
     properties = (
         ROOT.parents[1]
         / "services"
@@ -25,7 +26,7 @@ def test_companion_entrypoints_hold_contractive_migrations_behind_a_gate() -> No
         / "resources"
         / "application.properties"
     ).read_text(encoding="utf-8")
-    assert "spring.flyway.target=${CORE_API_FLYWAY_TARGET:22}" in properties
+    assert "spring.flyway.target=" not in properties
 
 
 def test_models_publish_new_relationship_and_access_paths() -> None:

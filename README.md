@@ -22,6 +22,10 @@ Descarga y empaqueta varios instaladores en un solo trabajo. La interfaz queda d
 
 Antes del primer arranque, copia `.env.example` como `.env` y cambia sus credenciales.
 
+El Compose GHCR obtiene todas sus variables del `.env` raíz y no carga las plantillas por servicio. Las variables deben existir, aunque las claves de proveedores opcionales pueden estar vacías. Cada contenedor recibe únicamente sus ajustes declarados. Los nombres con prefijo de servicio permiten configurar por separado la API y sus workers.
+
+Desarrollo conserva los `.env` por servicio, que son obligatorios y se crean desde sus `.env.example` antes del primer arranque. La API del scraper y su scheduler comparten `api/scraper/.env`; las variables `SCRAPER_SCHEDULER_DATABASE_POOL_MAX` y `SCRAPER_SCHEDULER_DATABASE_MAX_OVERFLOW` permiten ajustar el pool del scheduler por separado. La API semántica y su indexador comparten `services/semantic-service/.env`; `SEMANTIC_INDEXER_DATABASE_ROLE` conserva el rol y el pool propios del indexador. Los ajustes compartidos se exigen con `${VARIABLE?}` desde el `.env` raíz. La validación comprueba la topología de ambos despliegues y las fuentes de sus variables, sin exigir igualdad de valores entre desarrollo y producción. Los archivos de entorno colocan primero las variables vacías y después las que tienen valor, con orden alfabético en ambos bloques.
+
 ### Stack completo
 
 El scraper, Core y el servicio semántico aplican sus migraciones al arrancar. El servicio semántico aplica las versiones pendientes de PostgreSQL antes de aceptar peticiones; verifica los checksums sin repetir versiones y serializa los arranques simultáneos mediante un bloqueo de base de datos. Si una migración falla, el arranque se detiene y el indexador espera.
@@ -200,7 +204,6 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- |
 | `GHCR_REGISTRY`, `GHCR_OWNER`, `GHCR_IMAGE_PREFIX`, `GHCR_IMAGE_TAG` | Nombre y etiqueta de las imágenes publicadas. |
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST_PORT` | Credenciales, base y puerto host de MySQL. |
-| `CORE_API_FLYWAY_TARGET` | Objetivo seguro de Flyway: `21`. El objetivo Alembic del scraper está fijado en su script de arranque para evitar cambios manuales en el entorno. |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST_PORT` | Credenciales, base y puerto host de PostgreSQL/pgvector. |
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
@@ -234,7 +237,6 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- |
 | `CORE_API_SERVER_PORT`, `CORE_API_SCRAPER_API_URL`, `CORE_API_SEMANTIC_SERVICE_URL`, `CORE_API_DOWNLOAD_WORKER_URL`, `CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT`, `CORE_API_SEMANTIC_REQUEST_TIMEOUT`, `CORE_API_SEMANTIC_ADMIN_REQUEST_TIMEOUT` | Puerto, servicios internos y timeouts HTTP. |
 | `CORE_API_BCRYPT_STRENGTH`, `CORE_API_DB_POOL_MIN`, `CORE_API_DB_POOL_MAX`, `CORE_API_DB_POOL_TIMEOUT`, `CORE_API_AUTH_HASH_CONCURRENCY`, `CORE_API_AUTH_HASH_QUEUE`, `CORE_API_AUTH_HASH_WAIT` | Coste de hash, pool MySQL (2–5) y admisión de autenticación. |
-| `CORE_API_FLYWAY_TARGET` | Objetivo de migración: `21`, que añade el registro de bajas de cuenta a las reservas FIFO y la limpieza de descargas. |
 | `CORE_API_AUTH_LOGIN_MAX_PER_MINUTE`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_EMAIL_HOUR`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_IP_HOUR`, `CORE_API_SESSION_TIMEOUT`, `CORE_API_MAGIC_LINK_TTL`, `CORE_API_MAGIC_LINK_PENDING_CLEANUP_INTERVAL` | Rate limits de autenticación, caducidad de enlaces/sesiones y limpieza de solicitudes pendientes. |
 | `CORE_API_OUTBOX_DELAY`, `CORE_API_OUTBOX_CLAIM_LEASE`, `CORE_API_OUTBOX_CONFIRM_TIMEOUT`, `CORE_API_RETENTION_INTERVAL`, `CORE_API_REQUIRE_HTTPS`, `CORE_API_COOKIE_SECURE` | Outbox, retención y seguridad HTTP/cookies. |
 | `DOWNLOAD_MAX_APPS`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR`, `DOWNLOAD_SSE_HEARTBEAT` | Tamaño de selección, frecuencia de creación y SSE; la concurrencia depende de bytes, sin cuotas por cantidad de trabajos. |
@@ -291,10 +293,14 @@ La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea pa
 
 | Servicio | Variables | Uso |
 | --- | --- | --- |
-| Translation | `TRANSLATION_SERVICE_SERVER_PORT`, `TRANSLATION_SERVICE_LOCALES_PATH`, `TRANSLATION_SERVICE_CACHE_MAX_AGE` | Puerto, directorio de traducciones y caché HTTP. |
+| Translation | `TRANSLATION_SERVICE_SERVER_PORT`, `TRANSLATION_SERVICE_LOCALES_PATH`, `TRANSLATION_SERVICE_CACHE_MAX_AGE` | Puerto, directorio de JSON precompilados por idioma y caché HTTP. |
 | Frontend | `VITE_API_BASE_URL` | Base opcional de la API; vacía usa el mismo origen. |
 
 </details>
+
+Los textos SEO fijos y la plantilla HTML están en `services/core-api/src/main/resources/seo/pages.json` y `page.html`. Maven genera las tarjetas fijas en `target/classes/seo/static-cards` y valida y fusiona las traducciones en `services/translation-service/target/compiled-locales`; Docker incluye esos resultados. Para ejecutar Translation fuera de Docker, `TRANSLATION_SERVICE_LOCALES_PATH` debe apuntar al directorio precompilado. Los sitemaps y los datos SEO del catálogo siguen siendo dinámicos.
+
+Alembic y Flyway aplican automáticamente las migraciones pendientes incluidas en cada versión al arrancar. Solo hay que añadir la migración versionada; no se mantiene un número objetivo en el entorno. Las comprobaciones de compatibilidad siguen activas.
 
 ## Estados de los jobs
 

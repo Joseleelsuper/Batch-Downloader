@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import make_url, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -769,19 +770,23 @@ def test_mysql_shared_migrations_preserve_incompatible_history_and_apply_valid_c
         backfilled_fingerprint = asyncio.run(
             assert_expand_backfilled_and_published_totals(mysql_url, valid_source_id)
         )
+        command.upgrade(config, "20261012_0024")
+        asyncio.run(seed_pending_migration_history(mysql_url, valid_source_id))
 
         asyncio.run(set_evaluation_index_visible(mysql_url, True))
         with pytest.raises(RuntimeError, match="0022_aborted_index_not_measured"):
-            command.upgrade(config, "20260914_0022")
+            command.upgrade(config, "head")
         asyncio.run(assert_failed_contract_preserved_history(
             mysql_url, valid_source_id, backfilled_fingerprint
         ))
 
         asyncio.run(set_evaluation_index_visible(mysql_url, False))
-        command.upgrade(config, "20260914_0022")
-        asyncio.run(assert_contract_removed_compatibility_objects(mysql_url, valid_source_id))
         command.upgrade(config, "head")
+        asyncio.run(assert_contract_removed_compatibility_objects(
+            mysql_url, valid_source_id, ScriptDirectory.from_config(config).get_current_head()
+        ))
         asyncio.run(assert_snapshot_tables_removed(mysql_url))
+        command.upgrade(config, "head")
     finally:
         get_settings.cache_clear()
 
@@ -1071,7 +1076,7 @@ async def assert_failed_contract_preserved_history(
         async with engine.connect() as connection:
             assert await connection.scalar(
                 text("SELECT version_num FROM alembic_version")
-            ) == "20260914_0021"
+            ) == "20261012_0024"
             assert await connection.scalar(
                 text(
                     "SELECT COUNT(*) FROM information_schema.columns "
@@ -1100,6 +1105,8 @@ async def assert_failed_contract_preserved_history(
                 {"source_id": source_id.bytes},
             )
             assert fingerprint == expected_fingerprint
+            for table in ("scraper_worker_snapshots", "scraper_metric_snapshots"):
+                assert await connection.scalar(text(f"SELECT COUNT(*) FROM {table}")) == 1
             assert await connection.scalar(
                 text(
                     "SELECT IS_VISIBLE FROM information_schema.statistics "
@@ -1114,6 +1121,7 @@ async def assert_failed_contract_preserved_history(
 async def assert_contract_removed_compatibility_objects(
     mysql_url: str,
     source_id: UUID,
+    expected_revision: str | None,
 ) -> None:
     """Comprueba que 0022 retira objetos evaluados y conserva artefactos ya migrados."""
     engine = create_async_engine(mysql_url, pool_pre_ping=True)
@@ -1121,7 +1129,15 @@ async def assert_contract_removed_compatibility_objects(
         async with engine.connect() as connection:
             assert await connection.scalar(
                 text("SELECT version_num FROM alembic_version")
-            ) == "20260914_0022"
+            ) == expected_revision
+            assert await connection.scalar(
+                text(
+                    "SELECT app.long_description_en FROM software_apps app "
+                    "JOIN download_sources source ON source.software_app_id = app.id "
+                    "WHERE source.id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            ) == "Preserved English description"
             assert await connection.scalar(
                 text(
                     "SELECT COUNT(*) FROM information_schema.columns "
@@ -1150,6 +1166,34 @@ async def assert_contract_removed_compatibility_objects(
                     "'ix_software_app_tags_app', 'ix_software_apps_app_status')"
                 )
             ) == 0
+    finally:
+        await engine.dispose()
+
+
+async def seed_pending_migration_history(mysql_url: str, source_id: UUID) -> None:
+    """Prepara datos de catálogo y caché transitoria antes de avanzar de 0024 a head."""
+    engine = create_async_engine(mysql_url, pool_pre_ping=True)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE software_apps app JOIN download_sources source "
+                    "ON source.software_app_id = app.id "
+                    "SET app.long_description_en = 'Preserved English description' "
+                    "WHERE source.id = :source_id"
+                ),
+                {"source_id": source_id.bytes},
+            )
+            await connection.execute(text(
+                "INSERT INTO scraper_worker_snapshots "
+                "(id, worker_id, stage, captured_at, expires_at) "
+                "VALUES (UUID_TO_BIN(UUID()), 'migration-test', 'descriptor', NOW(), NOW())"
+            ))
+            await connection.execute(text(
+                "INSERT INTO scraper_metric_snapshots "
+                "(id, queued_scraper_so_filter, queued_so_filter_descriptor, captured_at) "
+                "VALUES (UUID_TO_BIN(UUID()), 0, 0, NOW())"
+            ))
     finally:
         await engine.dispose()
 

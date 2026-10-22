@@ -111,20 +111,6 @@ paths:
           description: Ruta inexistente o privada; cuerpo vacío.
         '503':
           description: Tarjeta temporalmente no disponible; cuerpo vacío.
-  /seo/robots.txt:
-    get:
-      operationId: getRobots
-      summary: Consultar reglas de rastreo y ubicación del sitemap
-      security: []
-      responses:
-        '200':
-          description: Expuesto por Nginx en /robots.txt.
-          content:
-            text/plain:
-              schema:
-                type: string
-        '503':
-          description: Servicio temporalmente no disponible.
   /seo/sitemap.xml:
     get:
       operationId: getSitemapIndex
