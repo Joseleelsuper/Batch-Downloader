@@ -8,7 +8,7 @@ desde webs oficiales y exponer endpoints MVP de busqueda/descarga.
 ```bash
 pip install -r requirements-dev.txt
 playwright install chromium
-alembic upgrade 20261012_0024  # rama aditiva bilingüe; head tras la puerta contractiva
+alembic upgrade head
 uvicorn app.main:app
 python -m app.worker scrape-once
 python -m app.worker scheduler

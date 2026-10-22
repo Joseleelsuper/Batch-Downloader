@@ -27,11 +27,10 @@ async def main():
 asyncio.run(main())
 PY
 
-# La revisión 0024 es el objetivo aditivo seguro de esta imagen; head incluiría
-# la rama contractiva 0022/0023, pendiente de su puerta de compatibilidad.
+# Aplica las revisiones pendientes de esta imagen, con sus precondiciones de compatibilidad.
 # La recolección final sin GIL de CPython 3.14t puede bloquear el arranque después de Alembic.
 # Las migraciones son secuenciales; el servidor mantiene el runtime sin GIL.
-python -X gil=1 -m alembic upgrade 20261012_0024
+python -X gil=1 -m alembic upgrade head
 
 case "${1:-api}" in
   api)

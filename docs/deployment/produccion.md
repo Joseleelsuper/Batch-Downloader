@@ -39,7 +39,6 @@ MINIO_PUBLIC_ENDPOINT=https://downloads.batchdownloader.dev
 CORE_API_REQUIRE_HTTPS=true
 CORE_API_COOKIE_SECURE=true
 MINIO_ZIP_QUOTA=10GB
-CORE_API_FLYWAY_TARGET=22
 SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 ```
 
@@ -47,10 +46,12 @@ SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 secretos de GitHub requeridos son `COOLIFY_URL`, `COOLIFY_TOKEN` y
 `COOLIFY_APP_UUID`.
 
-El objetivo Alembic del scraper está fijado en
-`api/scraper/scripts/docker-entrypoint.sh` (`20261012_0024`). Esa revisión
-añade las descripciones bilingües sin aplicar las migraciones contractivas
-`0022` y `0023`, que siguen sujetas a su puerta de compatibilidad.
+Al arrancar, Alembic aplica `head` y Flyway aplica todas las migraciones pendientes
+incluidas en la imagen, sin números objetivo en el entorno. Las migraciones conservan
+sus comprobaciones de compatibilidad y bloquean el arranque si no se cumplen.
+El paso desde Alembic `20261012_0024` incluye `0022` y `0023`: retira objetos
+obsoletos y las tablas históricas de snapshots. Antes del primer despliegue,
+conserva una copia restaurable de MySQL; el rollback de imágenes no recupera esos datos.
 
 El enlace mágico conserva el TTL configurado en `CORE_API_MAGIC_LINK_TTL`
 (15 minutos por defecto).

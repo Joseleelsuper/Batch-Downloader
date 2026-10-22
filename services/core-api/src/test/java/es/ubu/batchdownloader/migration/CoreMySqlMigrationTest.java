@@ -185,7 +185,12 @@ class CoreMySqlMigrationTest {
 
             assertThat(tableExists(connection, "download_job_storage")).isTrue();
             assertThat(tableExists(connection, "download_job_receipts")).isTrue();
-            assertThat(flywayVersion(connection)).isEqualTo("22");
+            Flyway latest = Flyway.configure()
+                    .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                    .locations("classpath:db/migration")
+                    .load();
+            assertThat(latest.info().pending()).isEmpty();
+            assertThat(latest.migrate().migrationsExecuted).isZero();
         }
     }
 
