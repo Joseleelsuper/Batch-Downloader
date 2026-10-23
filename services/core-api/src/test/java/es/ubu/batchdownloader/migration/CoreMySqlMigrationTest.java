@@ -23,7 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 class CoreMySqlMigrationTest {
     @Container
-    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
+    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.13")
             .withDatabaseName("batch_downloader")
             .withUsername("batch")
             .withPassword("batch-test")

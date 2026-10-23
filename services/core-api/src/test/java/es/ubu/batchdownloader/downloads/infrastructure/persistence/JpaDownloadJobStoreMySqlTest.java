@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(JpaDownloadJobStore.class)
 class JpaDownloadJobStoreMySqlTest {
-    @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
+    @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.13");
     @Autowired private JpaDownloadJobStore store;
 
     @DynamicPropertySource

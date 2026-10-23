@@ -29,7 +29,7 @@
 
 ## Verificación focalizada
 ```powershell
-docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-26 mvn -B verify
+docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-25 mvn -B verify
 .\.venv\Scripts\python.exe -m pytest -q api/scraper
 .\.venv\Scripts\python.exe -m pytest -q services/semantic-service
 npm --prefix services/webapp/src/main/resources/frontend ci

@@ -1,3 +1,4 @@
 services/download-worker/src/main/resources/linux-installer/** text eol=lf
 scripts/linux-installer/** text eol=lf
+scripts/java/** text eol=lf
 api/scraper/scripts/docker-entrypoint.sh text eol=lf

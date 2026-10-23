@@ -6,7 +6,7 @@
 </div>
 ⠀⠀⠀
 
-Descarga y empaqueta varios instaladores en un solo trabajo. La interfaz queda disponible en `http://localhost:3000`.
+Descarga y empaqueta varios instaladores en un solo trabajo.
 
 ## Índice
 
@@ -22,11 +22,7 @@ Descarga y empaqueta varios instaladores en un solo trabajo. La interfaz queda d
 
 Antes del primer arranque, copia `.env.example` como `.env` y cambia sus credenciales.
 
-El Compose GHCR obtiene todas sus variables del `.env` raíz y no carga las plantillas por servicio. Las variables deben existir, aunque las claves de proveedores opcionales pueden estar vacías. Cada contenedor recibe únicamente sus ajustes declarados. Los nombres con prefijo de servicio permiten configurar por separado la API y sus workers.
-
-Los ajustes con valor obligatorio usan `${VARIABLE:?}` para rechazar también cadenas vacías; `${VARIABLE?}` queda para entradas que admiten vacío. El despliegue de producción comprueba los ajustes obligatorios del Compose antes de cambiar el commit o el tag en Coolify.
-
-Desarrollo conserva los `.env` por servicio, que son obligatorios y se crean desde sus `.env.example` antes del primer arranque. La API del scraper y su scheduler comparten `api/scraper/.env`; las variables `SCRAPER_SCHEDULER_DATABASE_POOL_MAX` y `SCRAPER_SCHEDULER_DATABASE_MAX_OVERFLOW` permiten ajustar el pool del scheduler por separado. La API semántica y su indexador comparten `services/semantic-service/.env`; `SEMANTIC_INDEXER_DATABASE_ROLE` conserva el rol y el pool propios del indexador. Los ajustes compartidos se exigen con `${VARIABLE?}` desde el `.env` raíz. La validación comprueba la topología de ambos despliegues y las fuentes de sus variables, sin exigir igualdad de valores entre desarrollo y producción. Los archivos de entorno colocan primero las variables vacías y después las que tienen valor, con orden alfabético en ambos bloques.
+El Compose GHCR obtiene todas sus variables del `.env` raíz y no carga las plantillas por servicio.
 
 ### Stack completo
 
@@ -35,8 +31,6 @@ El scraper, Core y el servicio semántico aplican sus migraciones al arrancar. E
 ```powershell
 docker compose up --build --force-recreate
 ```
-
-Esto también se aplica a las imágenes GHCR desplegadas en Coolify. El comando `python -m app.migrator` sigue disponible para mantenimiento. Las migraciones no se revierten al volver a una imagen anterior: si su esquema es incompatible, se necesita una recuperación de base de datos planificada.
 
 ### Un servicio, BBDD o API
 
@@ -58,10 +52,13 @@ Sustituye `core-api` por cualquier nombre devuelto por `docker compose config --
 
 Los comandos asumen que las dependencias Python y Node ya están instaladas. Maven se ejecuta en Docker para no exigir una instalación local.
 
+> [!Important]
+> Se ha cambiado a la versión Java 25 LTS (Temurin 25.0.5+8) para aplicar el [CPU de octubre de 2026](https://www.oracle.com/security-alerts/cpuoct2026.html) y la [mitigación de CVE-2026-91403](https://ops.java/emudhra), ambas vulnerabilidades de Oracle de los días 20/10/2026 y 21/10/2026 respectivamente.
+
 ### Todos los tests
 
 ```powershell
-docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-26 mvn -B test
+docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-25 sh -c 'sh scripts/java/install-temurin.sh && sh scripts/java/distrust-emudhra.sh mvn "$@"' -- -B test
 .\.venv\Scripts\python.exe -m pytest -q api/scraper
 .\.venv\Scripts\python.exe -m pytest -q services/semantic-service
 npm --prefix services/webapp/src/main/resources/frontend test -- --run
@@ -72,7 +69,7 @@ python -m unittest discover -s scripts/tests -v
 
 | Servicio | Comando |
 | --- | --- |
-| Java | `docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-26 mvn -B -pl services/core-api -am test` |
+| Java | `docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-25 sh -c 'sh scripts/java/install-temurin.sh && sh scripts/java/distrust-emudhra.sh mvn "$@"' -- -B -pl services/core-api -am test` |
 | Scraper | `.\.venv\Scripts\python.exe -m pytest -q api/scraper` |
 | Semántico | `.\.venv\Scripts\python.exe -m pytest -q services/semantic-service` |
 | Frontend | `npm --prefix services/webapp/src/main/resources/frontend test -- --run` |
@@ -83,7 +80,7 @@ En el comando Java, cambia `services/core-api` por `services/download-worker`, `
 
 ```powershell
 # Java: clase#método
-docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-26 mvn -B -pl services/core-api -am "-Dtest=DownloadJobServiceTest#createsPartialAnonymousJobWithOmittedItem" "-Dsurefire.failIfNoSpecifiedTests=false" test
+docker run --rm -v "${PWD}:/workspace" -w /workspace maven:3.9.16-eclipse-temurin-25 sh -c 'sh scripts/java/install-temurin.sh && sh scripts/java/distrust-emudhra.sh mvn "$@"' -- -B -pl services/core-api -am "-Dtest=DownloadJobServiceTest#createsPartialAnonymousJobWithOmittedItem" "-Dsurefire.failIfNoSpecifiedTests=false" test
 
 # Python: archivo::test
 .\.venv\Scripts\python.exe -m pytest -q "api/scraper/tests/test_internal_routes.py::test_internal_resolution_requires_constant_time_service_token"
@@ -101,8 +98,6 @@ Permisos:
 - **Operativo** no tiene autenticación de aplicación y debe restringirse por red. Todas las operaciones `POST`, `PUT`, `PATCH` y `DELETE` realizadas desde el navegador requieren además el token obtenido en `GET /api/v1/auth/csrf`; los endpoints internos no usan CSRF.
 
 El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
-
-Las páginas públicas reciben HTML con metadatos y contenido legible antes de ejecutar React. Core resuelve la página y Nginx incorpora mediante SSI el fragmento de recursos del mismo build de Vite. `APP_PUBLIC_BASE_URL` fija el origen de las URL canónicas, el sitemap y las tarjetas PNG de 1200×630, generadas localmente con composición de página, aplicación o bundle. Los bundles privados no publican metadatos ni imágenes; las respuestas dinámicas usan `no-store`.
 
 <details>
 <summary><strong>API pública y de usuario</strong></summary>

@@ -18,8 +18,22 @@ x-healthcheck-defaults: &healthcheck-defaults
   start_period: 60s
 
 services:
+  java-data-init:
+    build:
+      context: .
+      dockerfile: services/download-worker/Dockerfile
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    read_only: true
+    entrypoint: ["chown", "-R", "10001:10001", "/worker-inbox", "/worker-temp", "/notification-inbox"]
+    volumes:
+      - download_worker_data:/worker-inbox
+      - download_worker_temp:/worker-temp
+      - notification_service_data:/notification-inbox
+
   mysql:
-    image: mysql:8.4
+    image: mysql:8.4.13
     restart: unless-stopped
     command: ["--skip-log-bin", "--log-bin-trust-function-creators=1", "--max-connections=32", "--long-query-time=0.5", "--binlog-expire-logs-seconds=86400"]
     cpu_shares: 1024

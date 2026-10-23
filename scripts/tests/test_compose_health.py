@@ -52,6 +52,22 @@ class ComposeHealthTest(unittest.TestCase):
             compose_health.service_readiness("core-api", {"core-api": daemon("core-api", "")}),
         )
 
+    def test_java_volume_preparation_blocks_downloads_until_successful(self) -> None:
+        statuses = {service: daemon(service) for service in compose_health.CAPABILITIES["downloads"]}
+        for service in compose_health.JOBS & statuses.keys():
+            statuses[service] = completed_job(service)
+        statuses["java-data-init"] = completed_job("java-data-init", 1)
+
+        state, problems = compose_health.capability_readiness("downloads", statuses, required=True)
+        self.assertEqual("failed", state)
+        self.assertEqual("java-data-init", compose_health.root_problem(problems))
+
+        statuses["java-data-init"] = completed_job("java-data-init")
+        self.assertEqual(
+            ("ready", []),
+            compose_health.capability_readiness("downloads", statuses, required=True),
+        )
+
     def test_job_requires_successful_completion(self) -> None:
         self.assertEqual(
             "ready",

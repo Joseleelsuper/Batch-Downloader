@@ -42,6 +42,7 @@ DAEMONS = frozenset(
 )
 JOBS = frozenset(
     {
+        "java-data-init",
         "minio-init",
         "scraper-python314t-benchmark",
         "scraper-python314-control",
@@ -56,6 +57,7 @@ LOCAL_ONLY_SERVICES = frozenset(
     }
 )
 EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
+    "java-data-init": {},
     "mysql": {},
     "postgres": {},
     "rabbitmq": {},
@@ -84,10 +86,12 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
         "scraper-python314-control": "service_completed_successfully",
     },
     "notification-service": {
+        "java-data-init": "service_completed_successfully",
         "rabbitmq": "service_healthy",
         "translation-service": "service_healthy",
     },
     "download-worker": {
+        "java-data-init": "service_completed_successfully",
         "rabbitmq": "service_healthy",
         "minio-init": "service_completed_successfully",
         "core-api": "service_healthy",
@@ -98,6 +102,7 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
 CAPABILITIES: dict[str, tuple[str, ...]] = {
     "base": ("mysql", "scraper-api", "core-api", "webapp"),
     "downloads": (
+        "java-data-init",
         "rabbitmq",
         "minio",
         "minio-init",
@@ -111,7 +116,7 @@ CAPABILITIES: dict[str, tuple[str, ...]] = {
         "semantic-service",
         "semantic-indexer",
     ),
-    "notifications": ("rabbitmq", "notification-service"),
+    "notifications": ("java-data-init", "rabbitmq", "notification-service"),
     "translations": ("translation-service",),
     "background": (
         "scraper-api",
@@ -126,6 +131,7 @@ SERVICE_PRIORITY = {
     "rabbitmq": 0,
     "minio": 0,
     "minio-init": 1,
+    "java-data-init": 1,
     "scraper-api": 1,
     "semantic-service": 1,
     "translation-service": 1,

@@ -30,7 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Timeout(30)
 class DownloadStorageCoordinatorMySqlTest {
     private static final long GIB = 1024L * 1024 * 1024;
-    @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
+    @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.13");
     private static HikariDataSource pool;
     private static JdbcTemplate jdbc;
     private DownloadJobStore jobs;
