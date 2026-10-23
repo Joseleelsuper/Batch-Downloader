@@ -342,6 +342,15 @@ jobs:
       - name: Install Chromium
         run: node node_modules/playwright/cli.js install --with-deps chromium
         working-directory: services/webapp/src/main/resources/frontend
+      - name: Prepare example environments for the isolated Compose project
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          for directory in (Path("api/scraper"), Path("services")):
+              for example in directory.rglob(".env*.example"):
+                  shutil.copyfile(example, example.with_suffix(""))
+          PY
       - name: Run isolated end-to-end download scenario
         run: npm run test:download-flow
         working-directory: services/webapp/src/main/resources/frontend
