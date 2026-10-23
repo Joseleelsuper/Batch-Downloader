@@ -23,9 +23,13 @@ RUN apt-get update \
     && mkdir -p /app/data
 RUN sh /tmp/java-security/install-temurin.sh \
     && sh /tmp/java-security/distrust-emudhra.sh \
-    && rm -rf /tmp/java-security
+    && rm -rf /tmp/java-security \
+    && groupadd --gid 10001 batch \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin batch \
+    && chown 10001:10001 /app/data
 COPY --from=build /workspace/services/notification-service/target/*.jar /app/app.jar
 
 EXPOSE 8080
 VOLUME ["/app/data"]
+USER 10001:10001
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

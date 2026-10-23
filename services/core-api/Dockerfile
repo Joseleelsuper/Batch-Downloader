@@ -25,8 +25,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN sh /tmp/java-security/install-temurin.sh \
     && sh /tmp/java-security/distrust-emudhra.sh \
-    && rm -rf /tmp/java-security
+    && rm -rf /tmp/java-security \
+    && groupadd --gid 10001 batch \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin batch
 COPY --from=build /workspace/services/core-api/target/*.jar /app/app.jar
 
 EXPOSE 8080
+USER 10001:10001
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
