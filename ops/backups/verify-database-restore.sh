@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly BACKUP_ROOT="${BATCH_BACKUP_ROOT:-/var/backups/batch-downloader}"
-readonly MYSQL_IMAGE="${MYSQL_RESTORE_IMAGE:-mysql:8.4}"
+readonly MYSQL_IMAGE="${MYSQL_RESTORE_IMAGE:-mysql:8.4.13}"
 readonly POSTGRES_IMAGE="${POSTGRES_RESTORE_IMAGE:-pgvector/pgvector:pg16}"
 readonly MYSQL_CONTAINER="batch-downloader-restore-mysql-$$"
 readonly POSTGRES_CONTAINER="batch-downloader-restore-postgres-$$"

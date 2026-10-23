@@ -153,7 +153,7 @@ jobs:
       - name: Require AMD64 and ARM64 infrastructure images
         env:
           IMAGES: |
-            mirror.gcr.io/library/mysql:8.4
+            mirror.gcr.io/library/mysql:8.4.13
             mirror.gcr.io/pgvector/pgvector:pg16
             mirror.gcr.io/library/rabbitmq:3.13-management
             ghcr.io/l33tlamer/minio-backup@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e

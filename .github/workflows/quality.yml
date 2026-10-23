@@ -59,7 +59,7 @@ jobs:
 
           for file in "${changed_files[@]}"; do
             case "${file}" in
-              pom.xml|shared/java-contracts/*|services/core-api/src/*|services/core-api/pom.xml|services/download-worker/src/*|services/download-worker/pom.xml|services/notification-service/src/*|services/notification-service/pom.xml|services/translation-service/src/*|services/translation-service/pom.xml)
+              scripts/java/*|services/core-api/Dockerfile|services/download-worker/Dockerfile|services/notification-service/Dockerfile|services/translation-service/Dockerfile|pom.xml|shared/java-contracts/*|services/core-api/src/*|services/core-api/pom.xml|services/download-worker/src/*|services/download-worker/pom.xml|services/notification-service/src/*|services/notification-service/pom.xml|services/translation-service/src/*|services/translation-service/pom.xml)
                 java=true
                 ;;
             esac
@@ -136,12 +136,12 @@ jobs:
           sudo systemctl restart docker
       - name: Cache MySQL test image
         run: |
-          docker pull mirror.gcr.io/library/mysql:8.4
-          docker tag mirror.gcr.io/library/mysql:8.4 mysql:8.4
+          docker pull mirror.gcr.io/library/mysql:8.4.13
+          docker tag mirror.gcr.io/library/mysql:8.4.13 mysql:8.4.13
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: "25.0.5"
           cache: maven
       - name: Require Docker-backed migration tests
         run: docker info
@@ -253,7 +253,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: "25.0.5"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -322,8 +322,8 @@ jobs:
           sudo systemctl restart docker
       - name: Cache Compose images
         run: |
-          docker pull mirror.gcr.io/library/mysql:8.4
-          docker tag mirror.gcr.io/library/mysql:8.4 mysql:8.4
+          docker pull mirror.gcr.io/library/mysql:8.4.13
+          docker tag mirror.gcr.io/library/mysql:8.4.13 mysql:8.4.13
           docker pull mirror.gcr.io/pgvector/pgvector:pg16
           docker tag mirror.gcr.io/pgvector/pgvector:pg16 pgvector/pgvector:pg16
           docker pull mirror.gcr.io/library/rabbitmq:3.13-management
@@ -377,7 +377,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: "25.0.5"
           cache: maven
       - uses: actions/setup-python@v6
         with:

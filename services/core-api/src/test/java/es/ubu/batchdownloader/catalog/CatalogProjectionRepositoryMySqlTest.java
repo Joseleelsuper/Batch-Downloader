@@ -28,7 +28,7 @@ class CatalogProjectionRepositoryMySqlTest {
     private static final String APP_ID = "00000000-0000-0000-0000-000000000001";
 
     @Container
-    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4");
+    private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.13");
 
     /** Crea las tablas de lectura y una aplicación con fuente, etiquetas y plataforma. */
     @BeforeAll

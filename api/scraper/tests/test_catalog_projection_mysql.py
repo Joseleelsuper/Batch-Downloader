@@ -41,7 +41,7 @@ def mysql_url() -> Iterator[str]:
     y conservar sus datos de entrada.
     """
     try:
-        container = MySqlContainer("mysql:8.4").with_command(
+        container = MySqlContainer("mysql:8.4.13").with_command(
             "--log-bin-trust-function-creators=1"
         )
         container.start()
