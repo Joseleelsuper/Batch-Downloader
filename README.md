@@ -56,7 +56,7 @@ el historial de cuenta y la caducidad de copias, con los pasos para aplicar y ve
 Los comandos asumen que las dependencias Python y Node ya están instaladas. Maven se ejecuta en Docker para no exigir una instalación local.
 
 > [!Important]
-> Se ha cambiado a la versión Java 25 LTS (Temurin 25.0.5+8) para aplicar el [CPU de octubre de 2026](https://www.oracle.com/security-alerts/cpuoct2026.html) y la [mitigación de CVE-2026-91403](https://ops.java/emudhra), ambas vulnerabilidades de Oracle de los días 20/10/2026 y 21/10/2026 respectivamente.
+> Se utiliza Java 25 LTS (Temurin 25.0.5+8) para aplicar el [CPU de octubre de 2026](https://www.oracle.com/security-alerts/cpuoct2026.html) y la [mitigación de eMudhra](https://ops.java/emudhra), ampliada el 24/10/2026 para [CVE-2026-114820](https://www.oracle.com/security-alerts/alert-cve-2026-114820.html): se retiran las raíces emSign G1, G2, G3 y AAA Certificate Services.
 
 ### Todos los tests
 

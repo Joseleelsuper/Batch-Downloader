@@ -22,7 +22,9 @@ despliegue y los despliegues se serializan.
 
 Los servicios Java se construyen y ejecutan con Temurin 25.0.5+8, con binarios
 oficiales verificados por SHA-256. Además se aplica la [mitigación de eMudhra](https://ops.java/emudhra)
-en ambos entornos: Java 25.0.5 por sí solo sigue afectado por [CVE-2026-91403](https://www.oracle.com/security-alerts/alert-cve-2026-91403.html).
+en compilación, ejecución y CI: se retiran las raíces emSign G1, G2, G3 y AAA Certificate Services,
+según la actualización del 24/10/2026 para [CVE-2026-114820](https://www.oracle.com/security-alerts/alert-cve-2026-114820.html).
+Java 25.0.5 por sí solo no sustituye esta mitigación.
 MySQL queda fijado en 8.4.13 por el [CPU de octubre](https://www.oracle.com/security-alerts/cpuoct2026.html).
 Las cuatro aplicaciones Java se ejecutan con UID/GID `10001:10001`. Antes de
 iniciar worker y notificaciones, el job `java-data-init` prepara la propiedad

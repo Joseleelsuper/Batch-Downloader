@@ -143,6 +143,8 @@ jobs:
           distribution: temurin
           java-version: "25.0.5"
           cache: maven
+      - name: Apply eMudhra certificate mitigation
+        run: sh scripts/java/distrust-emudhra.sh
       - name: Require Docker-backed migration tests
         run: docker info
       - name: Verify Java services
@@ -254,6 +256,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "25.0.5"
+      - name: Apply eMudhra certificate mitigation
+        run: sh scripts/java/distrust-emudhra.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -388,6 +392,8 @@ jobs:
           distribution: temurin
           java-version: "25.0.5"
           cache: maven
+      - name: Apply eMudhra certificate mitigation
+        run: sh scripts/java/distrust-emudhra.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
