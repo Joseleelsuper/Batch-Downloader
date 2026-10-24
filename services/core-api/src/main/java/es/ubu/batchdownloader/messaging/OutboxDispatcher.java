@@ -61,6 +61,7 @@ class OutboxDispatcher {
     /** Delimita las transacciones breves de reclamación y confirmación. */
     private final TransactionTemplate transactions;
     private final OutboxPayloadSanitizer payloadSanitizer;
+    private final Duration magicLinkTtl;
 
     /**
      * Compone persistencia, confirmación AMQP, duración de reservas y retirada de tokens tras el
@@ -78,8 +79,7 @@ class OutboxDispatcher {
      *     confirmación.
      * @param payloadSanitizer Retira tokens de entrega después de que RabbitMQ confirme la
      *     publicación.
-     * @param notificationCutover Barrera que impide publicar antes de migrar los tokens pendientes
-     *     a enc:v1.
+     * @param magicLinkTtl Vigencia original que impide enviar correos de acceso caducados.
      */
     OutboxDispatcher(
             OutboxEventRepository repository,
@@ -89,7 +89,8 @@ class OutboxDispatcher {
             @Value("${app.messaging.outbox-claim-lease}") Duration claimLease,
             @Value("${app.messaging.outbox-confirm-timeout}") Duration confirmTimeout,
             TransactionTemplate transactions,
-            OutboxPayloadSanitizer payloadSanitizer) {
+            OutboxPayloadSanitizer payloadSanitizer,
+            @Value("${app.auth.magic-link-ttl}") Duration magicLinkTtl) {
         this.repository = repository;
         this.rabbitTemplate = rabbitTemplate;
         this.clock = clock;
@@ -98,6 +99,7 @@ class OutboxDispatcher {
         this.confirmTimeout = confirmTimeout;
         this.transactions = transactions;
         this.payloadSanitizer = payloadSanitizer;
+        this.magicLinkTtl = magicLinkTtl;
     }
 
     /**
@@ -108,15 +110,25 @@ class OutboxDispatcher {
     public void publishPending() {
         for (ClaimedEvent event : claimPending()) {
             try {
-                Message message = MessageBuilder
+                boolean accessMail = "notification.email.requested".equals(event.eventType());
+                long remaining = Duration.between(clock.instant(), event.occurredAt().plus(magicLinkTtl)).toMillis();
+                if (accessMail && remaining <= 0) {
+                    transactions.execute(status -> {
+                        repository.findByIdAndClaimToken(event.id(), event.token()).ifPresent(repository::delete);
+                        return null;
+                    });
+                    continue;
+                }
+                var builder = MessageBuilder
                         .withBody(event.payload().getBytes(StandardCharsets.UTF_8))
                         .setContentType("application/json")
                         .setContentEncoding(StandardCharsets.UTF_8.name())
                         .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
                         .setMessageId(event.id().toString())
                         .setType(event.eventType())
-                        .setCorrelationId(event.id().toString())
-                        .build();
+                        .setCorrelationId(event.id().toString());
+                if (accessMail) builder.setExpiration(Long.toString(remaining));
+                Message message = builder.build();
                 publishAndConfirm(event, message);
                 confirmPublished(event);
             } catch (RuntimeException exception) {
@@ -216,6 +228,7 @@ class OutboxDispatcher {
      * @param routingKey Clave AMQP que selecciona los consumidores interesados.
      * @param payload Sobre JSON persistido o carga del evento antes de envolverla, según el punto
      *     del flujo.
+     * @param occurredAt Fecha original para calcular la vigencia restante.
      * @since 0.1.0
      * @version 0.1.0
      * @category Mensajería y retención
@@ -225,7 +238,8 @@ class OutboxDispatcher {
             UUID token,
             String eventType,
             String routingKey,
-            String payload) {
+            String payload,
+            Instant occurredAt) {
         /**
          * Copia los datos necesarios para el envío sin conservar una entidad JPA gestionada.
          *
@@ -235,7 +249,7 @@ class OutboxDispatcher {
          */
         private static ClaimedEvent from(OutboxEventEntity event, UUID token) {
             return new ClaimedEvent(
-                    event.id(), token, event.eventType(), event.routingKey(), event.payload());
+                    event.id(), token, event.eventType(), event.routingKey(), event.payload(), event.occurredAt());
         }
     }
 }

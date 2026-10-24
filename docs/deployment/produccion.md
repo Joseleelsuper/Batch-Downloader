@@ -103,6 +103,13 @@ permiten descargas remotas del modelo.
 y validar las bases con `batch-downloader-verify-restore`. `minio_data` y
 `download_worker_temp` se excluyen porque contienen artefactos regenerables.
 
+La [política de conservación](../privacy-retention.md) conserva el historial mientras
+exista la cuenta y fija un objetivo máximo de 24 horas para copias con datos personales.
+Actualizar el instalador de copias y configurar las nuevas variables de retención de
+`.env.example`: los limpiadores se ejecutan cada minuto y el VPS purga copias cada cinco.
+La purga remota comprueba la edad absoluta de los snapshots y retira bloques sin referencias.
+Revisar por separado el versionado del bucket OCI y los logs del proxy de Coolify.
+
 ## Operación
 
 - Despliegue manual de emergencia: ejecutar `Deploy production` con un SHA que

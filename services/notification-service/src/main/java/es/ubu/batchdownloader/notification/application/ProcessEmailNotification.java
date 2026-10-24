@@ -104,13 +104,12 @@ public class ProcessEmailNotification implements NotificationHandler {
     }
 
     /**
-     * Obtiene una descripción persistible del fallo sin perder los errores que no tienen mensaje.
+     * Conserva solo el tipo de fallo: los mensajes del proveedor pueden contener datos personales.
      *
      * @param exception Fallo que se describe o cuya cadena de causas se examina.
-     * @return mensaje original no vacío, o nombre simple de la excepción.
+     * @return nombre simple de la excepción, sin contenido del correo ni del proveedor.
      */
     private String errorDescription(RuntimeException exception) {
-        String message = exception.getMessage();
-        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+        return exception.getClass().getSimpleName();
     }
 }

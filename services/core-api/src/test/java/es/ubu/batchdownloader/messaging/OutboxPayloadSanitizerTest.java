@@ -21,7 +21,7 @@ class OutboxPayloadSanitizerTest {
 
         assertThat(sanitized.at("/payload/parameters/token").isMissingNode()).isTrue();
         assertThat(sanitized.at("/payload/parameters/deliveryTokenPurged").asBoolean()).isTrue();
-        assertThat(sanitized.toString()).doesNotContain("enc:v1:sensitive");
+        assertThat(sanitized.toString()).doesNotContain("enc:v1:sensitive", "person@example.com", "username");
     }
 
 }

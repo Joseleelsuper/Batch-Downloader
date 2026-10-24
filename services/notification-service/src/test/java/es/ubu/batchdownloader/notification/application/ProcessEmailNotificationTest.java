@@ -116,7 +116,7 @@ class ProcessEmailNotificationTest {
                 .isInstanceOf(NotificationProcessingException.class)
                 .hasCause(mailFailure);
 
-        verify(inbox).markFailed(EVENT_ID, "Proveedor no disponible");
+        verify(inbox).markFailed(EVENT_ID, "IllegalStateException");
         verify(inbox, never()).markProcessed(EVENT_ID);
     }
 
@@ -152,7 +152,7 @@ class ProcessEmailNotificationTest {
                 .isInstanceOfSatisfying(RetryableNotificationException.class,
                         exception -> org.assertj.core.api.Assertions.assertThat(exception.retryAfter())
                                 .isEqualTo(java.time.Duration.ofSeconds(12)));
-        verify(inbox).markFailed(EVENT_ID, "resend_temporarily_unavailable");
+        verify(inbox).markFailed(EVENT_ID, "RetryableNotificationException");
     }
 
     /**
@@ -168,6 +168,16 @@ class ProcessEmailNotificationTest {
         org.mockito.Mockito.doThrow(failure).when(sender).send(notification);
 
         assertThatThrownBy(() -> processor.handle(notification)).isSameAs(failure);
-        verify(inbox).markFailed(EVENT_ID, "resend_request_rejected");
+        verify(inbox).markFailed(EVENT_ID, "PermanentNotificationException");
+    }
+
+    @Test
+    void doesNotPersistRecipientOrTokenFromProviderFailure() {
+        when(inbox.claim(EVENT_ID, EmailNotification.EVENT_TYPE))
+                .thenReturn(NotificationInbox.ClaimResult.ACQUIRED);
+        var failure = new IllegalStateException("persona@example.com token=enc:v1:private");
+        org.mockito.Mockito.doThrow(failure).when(sender).send(notification);
+        assertThatThrownBy(() -> processor.handle(notification)).hasCause(failure);
+        verify(inbox).markFailed(EVENT_ID, "IllegalStateException");
     }
 }

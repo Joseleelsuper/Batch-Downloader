@@ -6,8 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 /**
- * Retira el token cifrado de correos de acceso una vez confirmado el envío al
- * broker, conservando el resto del sobre para retención y diagnóstico.
+ * Retira destinatario y parámetros de correos de acceso tras el acuse del broker.
  *
  * @see es.ubu.batchdownloader.messaging.OutboxDispatcher
  * @since 0.1.0
@@ -28,7 +27,7 @@ class OutboxPayloadSanitizer {
     }
 
     /**
-     * Para la plantilla de enlace mágico elimina parameters.token y marca deliveryTokenPurged;
+     * Para la plantilla de enlace mágico elimina destinatario y parámetros y marca deliveryTokenPurged;
      * otros eventos o plantillas conservan su contenido.
      *
      * @param eventType Tipo de evento que identifica su contrato de carga.
@@ -46,10 +45,9 @@ class OutboxPayloadSanitizer {
             if (!"MAGIC_LINK".equals(template)) {
                 return payload;
             }
-            JsonNode parameters = body.path("parameters");
-            if (parameters instanceof ObjectNode object) {
-                object.remove("token");
-                object.put("deliveryTokenPurged", true);
+            if (body instanceof ObjectNode object) {
+                object.remove("recipient");
+                object.putObject("parameters").put("deliveryTokenPurged", true);
             }
             return mapper.writeValueAsString(root);
         } catch (Exception exception) {

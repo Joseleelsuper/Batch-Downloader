@@ -6,6 +6,7 @@ readonly CONFIG_FILE="${BATCH_BACKUP_CONFIG:-/etc/batch-downloader/backup.env}"
 readonly BACKUP_ROOT="${BATCH_BACKUP_ROOT:-/var/backups/batch-downloader}"
 readonly PROJECT="${BATCH_COMPOSE_PROJECT:-batch-downloader}"
 readonly SEMANTIC_VOLUME="${SEMANTIC_MODELS_VOLUME_NAME:-batch-downloader_semantic_models}"
+readonly RETENTION_HELPER="${BATCH_BACKUP_RETENTION_HELPER:-/usr/local/libexec/batch-downloader-backup-retention.py}"
 
 if (( EUID != 0 )); then
   echo "El backup debe ejecutarse como root." >&2
@@ -24,6 +25,29 @@ source "${CONFIG_FILE}"
 : "${RESTIC_PASSWORD:?Falta RESTIC_PASSWORD}"
 export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY RESTIC_PASSWORD
 export AWS_DEFAULT_REGION="${OCI_S3_REGION}" AWS_REGION="${OCI_S3_REGION}"
+readonly RETENTION_SECONDS="${BATCH_BACKUP_RETENTION_SECONDS:-86400}"
+
+purge_remote() {
+  local repository="$1" expired
+  export RESTIC_REPOSITORY
+  RESTIC_REPOSITORY="$(repository_for "${repository}")"
+  # La selección usa la hora actual, incluso si no ha podido crearse otra copia.
+  expired="$(restic snapshots --json | python3 "${RETENTION_HELPER}" snapshots \
+    --retention-seconds "${RETENTION_SECONDS}")" || return
+  if [[ -n "${expired}" ]]; then
+    local -a snapshot_ids
+    mapfile -t snapshot_ids <<<"${expired}"
+    restic forget -- "${snapshot_ids[@]}" || return
+  fi
+  # Retira también bloques sin referencias que pudiera haber dejado un prune fallido.
+  restic prune --max-unused 0 || return
+  expired="$(restic snapshots --json | python3 "${RETENTION_HELPER}" snapshots \
+    --retention-seconds "${RETENTION_SECONDS}")" || return
+  if [[ -n "${expired}" ]]; then
+    echo "Quedan snapshots fuera del corte de retención en ${repository}." >&2
+    return 1
+  fi
+}
 
 container_for() {
   local service="$1"
@@ -46,14 +70,34 @@ repository_for() {
 remote_backup() {
   local repository="$1"
   local path="$2"
-  local keep="$3"
+  local keep="${3:-3}"
   export RESTIC_REPOSITORY
   RESTIC_REPOSITORY="$(repository_for "${repository}")"
   if ! restic snapshots --no-lock >/dev/null 2>&1; then
     restic init
   fi
   restic backup "${path}" --tag "${repository}"
-  restic forget --keep-daily "${keep}" --prune
+  if [[ "${repository}" == "semantic-model" ]]; then
+    # El modelo no contiene cuentas; agrupar por etiqueta evita una política por ruta fechada.
+    restic forget --group-by tags --tag semantic-model --keep-last "${keep}" --prune
+  else
+    purge_remote "${repository}"
+  fi
+}
+
+purge_backups() {
+  local repository failed=0
+  install -d -m 0700 "${BACKUP_ROOT}"
+  python3 "${RETENTION_HELPER}" local --root "${BACKUP_ROOT}" \
+    --retention-seconds "${RETENTION_SECONDS}" || failed=1
+  for repository in mysql postgres rabbitmq notification download-worker; do
+    # Un error se propaga a cron; no se oculta ni se impide revisar los demás repositorios.
+    if ! (set -e; purge_remote "${repository}"); then
+      echo "No se pudo purgar el repositorio ${repository}." >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
 }
 
 retain_local() {
@@ -85,7 +129,7 @@ database_backup() {
       > "${output}"
   fi
   test -s "${output}"
-  remote_backup "${database}" "${output}" 30
+  remote_backup "${database}" "${output}"
   retain_local "${directory}" 2
 }
 
@@ -117,7 +161,7 @@ cold_volume_backup() {
     return "${archive_status}"
   fi
   test -s "${output}"
-  remote_backup "${repository}" "${output}" 14
+  remote_backup "${repository}" "${output}"
   retain_local "${directory}" 1
 }
 
@@ -138,6 +182,9 @@ model_backup() {
 }
 
 case "${1:-}" in
+  purge)
+    purge_backups
+    ;;
   mysql | postgres)
     database_backup "$1"
     ;;
@@ -156,7 +203,7 @@ case "${1:-}" in
     model_backup
     ;;
   *)
-    echo "Uso: $0 {mysql|postgres|rabbitmq|notification|download-worker|model}" >&2
+    echo "Uso: $0 {mysql|postgres|rabbitmq|notification|download-worker|model|purge}" >&2
     exit 2
     ;;
 esac

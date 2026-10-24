@@ -8,6 +8,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -27,6 +28,27 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** Verifica publicación idempotente sin mantener abierta la transacción de lectura. */
 class OutboxDispatcherTest {
+    @Test
+    void discardsExpiredAccessMailWithoutContactingBroker() {
+        Instant now = Instant.parse("2026-10-24T12:00:00Z");
+        OutboxEventEntity event = OutboxEventEntity.pending(UUID.randomUUID(), "user", UUID.randomUUID(),
+                "notification.email.requested", "notification.email.requested", "{}", now.minusSeconds(900));
+        OutboxEventRepository repository = mock(OutboxEventRepository.class);
+        RabbitTemplate rabbit = mock(RabbitTemplate.class);
+        when(repository.findClaimable(any(), any())).thenReturn(List.of(event));
+        when(repository.findByIdAndClaimToken(eq(event.id()), any())).thenReturn(Optional.of(event));
+        TransactionTemplate transactions = mock(TransactionTemplate.class);
+        when(transactions.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
+        new OutboxDispatcher(repository, rabbit, Clock.fixed(now, ZoneOffset.UTC), "commands",
+                Duration.ofMinutes(5), Duration.ofSeconds(2), transactions,
+                new OutboxPayloadSanitizer(new ObjectMapper()), Duration.ofMinutes(15)).publishPending();
+        verifyNoInteractions(rabbit);
+        verify(repository).delete(event);
+    }
+
     @Test
     void publishesOutsideTransactionWithStableMessageId() {
         Instant now = Instant.parse("2026-08-05T00:00:00Z");
@@ -82,7 +104,7 @@ class OutboxDispatcherTest {
                 lease,
                 Duration.ofSeconds(2),
                 transactions,
-                new OutboxPayloadSanitizer(new ObjectMapper()));
+                new OutboxPayloadSanitizer(new ObjectMapper()), Duration.ofMinutes(15));
 
         dispatcher.publishPending();
 
