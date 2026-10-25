@@ -90,6 +90,10 @@
             <artifactId>minio</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
@@ -152,7 +156,7 @@
                     <!-- MinIO usa OkHttp y Boot configura Hikari en producción; las pruebas
                          nuevas son los únicos consumidores directos de esas clases. -->
                     <ignoredNonTestScopedDependencies>
-                        <ignoredNonTestScopedDependency>com.squareup.okhttp3:okhttp</ignoredNonTestScopedDependency>
+                        <ignoredNonTestScopedDependency>com.squareup.okhttp3:okhttp-jvm</ignoredNonTestScopedDependency>
                         <ignoredNonTestScopedDependency>com.zaxxer:HikariCP</ignoredNonTestScopedDependency>
                     </ignoredNonTestScopedDependencies>
                 </configuration>

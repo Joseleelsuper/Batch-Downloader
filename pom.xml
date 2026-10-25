@@ -34,8 +34,13 @@
         <jacoco.version>0.8.14</jacoco.version>
         <jacoco.minimum.instruction>0.00</jacoco.minimum.instruction>
         <jacoco.minimum.branch>0.00</jacoco.minimum.branch>
-        <minio.version>8.5.17</minio.version>
+        <commons-lang3.version>3.18.0</commons-lang3.version>
+        <jackson-bom.version>2.21.8</jackson-bom.version>
+        <log4j2.version>2.25.5</log4j2.version>
+        <minio.version>8.6.0</minio.version>
+        <netty.version>4.1.137.Final</netty.version>
         <springdoc.version>2.9.0</springdoc.version>
+        <tomcat.version>10.1.61</tomcat.version>
         <maven-dependency-plugin.version>3.9.0</maven-dependency-plugin.version>
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <spotbugs-maven-plugin.version>4.10.4.0</spotbugs-maven-plugin.version>
@@ -54,6 +59,21 @@
                 <groupId>com.tngtech.archunit</groupId>
                 <artifactId>archunit-junit5</artifactId>
                 <version>${archunit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.rabbitmq</groupId>
+                <artifactId>amqp-client</artifactId>
+                <version>5.37.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>1.85.2</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>okhttp-jvm</artifactId>
+                <version>5.1.0</version>
             </dependency>
             <dependency>
                 <groupId>io.minio</groupId>
@@ -207,6 +227,8 @@
                                 <ignoredUsedUndeclaredDependency>*:*</ignoredUsedUndeclaredDependency>
                             </ignoredUsedUndeclaredDependencies>
                             <ignoredUnusedDeclaredDependencies>
+                                <!-- MinIO expone tipos OkHttp en su API; Maven necesita el artefacto JVM. -->
+                                <ignoredUnusedDeclaredDependency>com.squareup.okhttp3:okhttp-jvm</ignoredUnusedDeclaredDependency>
                                 <ignoredUnusedDeclaredDependency>org.springframework.boot:spring-boot-starter-*</ignoredUnusedDeclaredDependency>
                                 <ignoredUnusedDeclaredDependency>org.springframework.boot:spring-boot-configuration-processor</ignoredUnusedDeclaredDependency>
                                 <ignoredUnusedDeclaredDependency>io.micrometer:micrometer-registry-*</ignoredUnusedDeclaredDependency>
