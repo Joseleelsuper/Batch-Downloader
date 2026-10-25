@@ -156,7 +156,7 @@ describe('account flows', () => {
     );
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith('secret-token'));
-    expect(await screen.findByTestId('location')).toHaveTextContent('/dashboard');
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/dashboard'));
     expect(screen.getByTestId('location')).not.toHaveTextContent('token=');
   });
 

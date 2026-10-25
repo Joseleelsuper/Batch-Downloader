@@ -218,6 +218,14 @@ class ComposeHealthTest(unittest.TestCase):
                 "minio-init": {
                     "volumes": ["./docker/minio/init.sh:/config/init.sh:ro"],
                 },
+                "rabbitmq": {
+                    "volumes": [{
+                        "type": "bind",
+                        "source": "./docker/rabbitmq/privacy-healthcheck.sh",
+                        "target": "/etc/rabbitmq/privacy-healthcheck.sh",
+                        "read_only": True,
+                    }],
+                },
                 **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
             }
         }
@@ -227,7 +235,13 @@ class ComposeHealthTest(unittest.TestCase):
                     "configs": [
                         {"source": "minio_init", "target": "/config/init.sh"}
                     ],
-                }
+                },
+                "rabbitmq": {
+                    "configs": [{
+                        "source": "rabbitmq_privacy_healthcheck",
+                        "target": "/etc/rabbitmq/privacy-healthcheck.sh",
+                    }],
+                },
             }
         }
 

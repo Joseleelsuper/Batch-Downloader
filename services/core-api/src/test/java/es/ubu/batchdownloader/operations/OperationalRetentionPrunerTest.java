@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
@@ -30,31 +31,36 @@ class OperationalRetentionPrunerTest {
                 jdbc,
                 clock,
                 new SimpleMeterRegistry(),
-                mock(PlatformTransactionManager.class));
+                mock(PlatformTransactionManager.class), Duration.ofMinutes(1), Duration.ofHours(24),
+                Duration.ofHours(24), Duration.ofMinutes(15));
 
         OperationalRetentionPruner.RetentionResult result = pruner.prune();
 
         ArgumentCaptor<String> statements = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Timestamp> cutoffs = ArgumentCaptor.forClass(Timestamp.class);
-        verify(jdbc, org.mockito.Mockito.times(3))
+        verify(jdbc, org.mockito.Mockito.times(6))
                 .update(statements.capture(), cutoffs.capture(), eq(500));
-        assertThat(result.total()).isEqualTo(6);
+        assertThat(result.total()).isEqualTo(9);
         assertThat(statements.getAllValues()).allSatisfy(sql -> assertThat(sql)
                 .contains("ORDER BY", "LIMIT ?")
-                .doesNotContain("admin_audit_logs"));
+                .doesNotContain("DELETE FROM user_download_history", "DELETE FROM core_users", "DELETE FROM bundles"));
         assertThat(statements.getAllValues().get(0))
                 .contains("published_at IS NOT NULL")
                 .doesNotContain("published_at IS NULL");
-        assertThat(statements.getAllValues().get(1))
+        assertThat(statements.getAllValues().get(1)).contains("published_at IS NULL", "claim_token IS NULL");
+        assertThat(statements.getAllValues().get(2))
                 .contains("processed_at IS NOT NULL")
                 .doesNotContain("processed_at IS NULL");
-        assertThat(statements.getAllValues().get(2))
+        assertThat(statements.getAllValues().get(3))
                 .contains("status IN ('READY', 'PARTIAL', 'MANUAL_ONLY', 'FAILED', 'CANCELLED', 'EXPIRED')")
                 .contains("NOT EXISTS (SELECT 1 FROM download_job_storage")
                 .doesNotContain("QUEUED", "RESOLVING", "DOWNLOADING", "PACKAGING");
         assertThat(cutoffs.getAllValues()).containsExactly(
-                Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),
-                Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")),
-                Timestamp.from(Instant.parse("2026-07-24T00:00:00Z")));
+                Timestamp.from(Instant.parse("2026-08-23T00:00:00Z")),
+                Timestamp.from(Instant.parse("2026-08-22T23:45:00Z")),
+                Timestamp.from(Instant.parse("2026-08-22T00:01:00Z")),
+                Timestamp.from(Instant.parse("2026-08-23T00:00:00Z")),
+                Timestamp.from(Instant.parse("2026-08-23T00:00:00Z")),
+                Timestamp.from(Instant.parse("2026-08-22T00:01:00Z")));
     }
 }

@@ -218,4 +218,7 @@ class OutboxEventEntity {
      * @return sobre serializado del evento.
      */
     String payload() { return payload; }
+
+    /** Devuelve la fecha original, que limita la vigencia de los correos pendientes. */
+    Instant occurredAt() { return occurredAt; }
 }

@@ -180,10 +180,11 @@ async def test_stale_recovery_fails_its_request_and_keeps_pending_requests_fifo(
         session.add(stale_run)
         await session.commit()
 
-        recovered = await repository.recover_running("heartbeat expired")
+        claimed = await repository.next_pending_run_request()
         await session.commit()
 
-        assert recovered == 1
+        assert claimed is not None
+        assert claimed.id == first_pending.id
         assert stale_run.status == ScrapeRunStatus.FAILED.value
         assert stale_run.active_lock is None
         assert stale_run.heartbeat_at == stale_heartbeat
@@ -191,15 +192,35 @@ async def test_stale_recovery_fails_its_request_and_keeps_pending_requests_fifo(
         assert first_pending.status == "pending"
         assert second_pending.status == "pending"
 
-        claimed = await repository.next_pending_run_request()
-        assert claimed is not None
-        assert claimed.id == first_pending.id
         await repository.consume_command(claimed, status="completed")
         await session.commit()
 
         claimed_next = await repository.next_pending_run_request()
         assert claimed_next is not None
         assert claimed_next.id == second_pending.id
+
+
+@pytest.mark.asyncio
+async def test_pending_request_poll_preserves_a_recent_active_run(session_factory) -> None:
+    """El sondeo del dispatcher no recupera ni sustituye una ejecución con latido reciente."""
+    async with session_factory() as session:
+        repository = ScrapeRunRepository(session, Settings())
+        pending = await repository.enqueue_run_request(
+            scope=ScrapeScope.INCREMENTAL, app_ids=None, created_by="test-pending"
+        )
+        active = ScrapeRun(
+            active_lock=1, status=ScrapeRunStatus.RUNNING.value,
+            worker_id="active-worker", heartbeat_at=utc_now(),
+        )
+        session.add(active)
+        await session.commit()
+
+        assert await repository.next_pending_run_request() is None
+        await session.commit()
+
+        assert active.active_lock == 1
+        assert active.status == ScrapeRunStatus.RUNNING.value
+        assert pending.status == "pending"
 
 
 @pytest.mark.asyncio

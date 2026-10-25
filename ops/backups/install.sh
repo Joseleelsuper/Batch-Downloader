@@ -8,9 +8,11 @@ fi
 
 readonly SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 apt-get update
-apt-get install -y --no-install-recommends cron restic
+apt-get install -y --no-install-recommends cron restic python3
 install -d -m 0700 /etc/batch-downloader /var/backups/batch-downloader
 install -m 0750 "${SOURCE_DIR}/backup.sh" /usr/local/sbin/batch-downloader-backup
+install -d -m 0755 /usr/local/libexec
+install -m 0750 "${SOURCE_DIR}/retention.py" /usr/local/libexec/batch-downloader-backup-retention.py
 install -m 0750 "${SOURCE_DIR}/verify-database-restore.sh" \
   /usr/local/sbin/batch-downloader-verify-restore
 if [[ ! -e /etc/batch-downloader/backup.env ]]; then
@@ -23,11 +25,12 @@ cat > "${cron_tmp}" <<'CRON'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-10 2 * * * root flock -w 21600 /run/batch-downloader-backup.lock batch-downloader-backup mysql
-30 2 * * * root flock -w 21600 /run/batch-downloader-backup.lock batch-downloader-backup postgres
-0 3 * * * root flock -w 21600 /run/batch-downloader-backup.lock batch-downloader-backup rabbitmq
-20 3 * * * root flock -w 21600 /run/batch-downloader-backup.lock batch-downloader-backup notification
-40 3 * * * root flock -w 21600 /run/batch-downloader-backup.lock batch-downloader-backup download-worker
+10 2,14 * * * root flock -w 300 /run/batch-downloader-backup.lock batch-downloader-backup mysql
+30 2,14 * * * root flock -w 300 /run/batch-downloader-backup.lock batch-downloader-backup postgres
+0 3,15 * * * root flock -w 300 /run/batch-downloader-backup.lock batch-downloader-backup rabbitmq
+20 3,15 * * * root flock -w 300 /run/batch-downloader-backup.lock batch-downloader-backup notification
+40 3,15 * * * root flock -w 300 /run/batch-downloader-backup.lock batch-downloader-backup download-worker
+*/5 * * * * root flock -n /run/batch-downloader-backup.lock batch-downloader-backup purge >/dev/null || { echo 'No se completó la purga de copias: bloqueo o fallo.' >&2; exit 1; }
 CRON
 install -m 0644 "${cron_tmp}" /etc/cron.d/batch-downloader-backups
 systemctl enable --now cron.service

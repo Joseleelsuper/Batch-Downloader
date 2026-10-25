@@ -9,6 +9,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -25,13 +26,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class DownloadInboxRetentionPruner {
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadInboxRetentionPruner.class);
-    private static final Duration RETENTION = Duration.ofDays(7);
     private static final int BATCH_SIZE = 500;
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final Counter deleted;
     private final Counter failures;
+    private final Duration retention;
 
     /**
      * Conecta la consulta de entradas antiguas, el reloj y los contadores de mantenimiento.
@@ -39,11 +40,20 @@ public class DownloadInboxRetentionPruner {
      * @param jdbc Acceso SQL al inbox local del worker.
      * @param clock Reloj para reservas, confirmaciones y cortes de retención.
      * @param meterRegistry Contadores de entradas eliminadas y fallos de retención.
+     * @param interval Cadencia descontada del plazo máximo de conservación.
+     * @param retention Ventana máxima de deduplicación, hasta veinticuatro horas.
      */
     public DownloadInboxRetentionPruner(
             JdbcTemplate jdbc,
             Clock clock,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            @Value("${download-worker.retention.interval:PT1M}") Duration interval,
+            @Value("${download-worker.retention.messages:PT24H}") Duration retention) {
+        if (interval.isNegative() || interval.isZero() || retention.compareTo(interval) <= 0
+                || retention.compareTo(Duration.ofDays(1)) > 0) {
+            throw new IllegalArgumentException("invalid_download_inbox_retention");
+        }
+        this.retention = retention.minus(interval);
         this.jdbc = jdbc;
         this.clock = clock;
         deleted = meterRegistry.counter("download.worker.inbox.retention.deleted");
@@ -54,7 +64,7 @@ public class DownloadInboxRetentionPruner {
      * Ejecuta una pasada y registra eliminaciones; cuenta los fallos de acceso a datos sin impedir
      * una ejecución programada posterior.
      */
-    @Scheduled(fixedDelayString = "${download-worker.retention.interval:PT6H}")
+    @Scheduled(fixedDelayString = "${download-worker.retention.interval:PT1M}")
     public void runScheduled() {
         try {
             int affected = prune();
@@ -89,7 +99,7 @@ public class DownloadInboxRetentionPruner {
                 LIMIT ?
                 """,
                 String.class,
-                Timestamp.from(clock.instant().minus(RETENTION)),
+                Timestamp.from(clock.instant().minus(retention)),
                 BATCH_SIZE);
         int deletedRows = 0;
         for (String eventId : eventIds) {

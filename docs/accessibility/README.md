@@ -1,5 +1,7 @@
 # Evaluación de accesibilidad de los flujos principales
 
+La [declaración de accesibilidad](../../ACCESSIBILITY.md) resume el alcance, las limitaciones y los canales para comunicar barreras. Este documento conserva la matriz y el procedimiento técnico de evaluación.
+
 Referencia: [WCAG 2.2, nivel AA](https://www.w3.org/TR/WCAG22/). Esta matriz cubre recorridos prioritarios del producto; no acredita conformidad de toda la web. No hay métricas de uso en el repositorio para ordenar los flujos por frecuencia real.
 
 ## Matriz de recorridos

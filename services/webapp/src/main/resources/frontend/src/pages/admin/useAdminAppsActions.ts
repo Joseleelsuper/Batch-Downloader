@@ -149,6 +149,8 @@ export function useAdminAppsActions(editor: ReturnType<typeof useAdminAppEditor>
     if (!selected || saving || applying || deletingSelected || inspectionLocksOrdinaryWrite) return;
     if (!window.confirm(t('admin.app.confirm.deleteOne', { name: selected.name }))) return;
     await runAction('deletingSelected', 'admin.message.deleteAppError', async () => {
+      setMessage(null);
+      setError(null);
       await deleteAdminApp(selected.id);
       dispatchEditor({ type: 'clearSelection' });
       setMessage(t('admin.message.appDeleted'));

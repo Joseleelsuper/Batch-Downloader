@@ -377,7 +377,7 @@ async def run_request_dispatcher(instance_id: uuid.UUID) -> None:
                 repository = ScrapeRunRepository(session, settings)
                 request = await repository.next_pending_run_request()
                 if request is None:
-                    await session.rollback()
+                    await session.commit()
                 else:
                     request_id = request.id
                     try:

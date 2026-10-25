@@ -219,23 +219,56 @@ public class AdminAppRepository {
     }
 
     /**
-     * Borra una aplicación y sus relaciones cuando el scraper está inactivo y recalcula los
-     * contadores de sus bundles.
+     * Borra una aplicación, sus trabajos pendientes y sus relaciones, y recalcula los contadores
+     * de sus bundles sin bloquear por el trabajo de otras aplicaciones.
      *
      * @param publicId UUID público textual de la aplicación que se consulta o modifica.
-     * @throws es.ubu.batchdownloader.common.ConflictException si hay una ejecución, trabajo en cola
-     *     o trabajo en curso del scraper.
+     * @throws es.ubu.batchdownloader.common.ConflictException si la aplicación tiene un trabajo
+     *     en curso con una reserva vigente.
      */
     @Transactional
     public void delete(String publicId) {
-        assertScraperIdleForDeletion();
         UUID appId = softwareAppId(publicId);
+        removeAppQueueItems(appId);
         List<UUID> affectedBundles = jdbc.query(
                 "SELECT bundle_id FROM bundle_items WHERE software_app_id = ?",
                 (rs, rowNum) -> UuidBytes.toUuid(rs.getBytes("bundle_id")),
                 UuidBytes.fromUuid(appId));
         deleteApps("WHERE id = ?", List.<Object>of(UuidBytes.fromUuid(appId)));
         refreshBundleCounts(affectedBundles);
+    }
+
+    /** Bloquea y retira solo los trabajos de la ficha, incluidas sus inspecciones manuales. */
+    private void removeAppQueueItems(UUID appId) {
+        String packageId = jdbc.queryForObject(
+                "SELECT winstall_id FROM software_apps WHERE id = ? FOR UPDATE",
+                String.class,
+                UuidBytes.fromUuid(appId));
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<byte[]> workIds = jdbc.query(
+                """
+                SELECT id, status, lease_expires_at
+                FROM scraper_work_items
+                WHERE package_id = ? OR package_id IN (
+                    SELECT BIN_TO_UUID(id) FROM manual_installer_inspections
+                    WHERE software_app_id = ?
+                )
+                FOR UPDATE
+                """,
+                (rs, rowNum) -> {
+                    java.sql.Timestamp leaseExpiresAt = rs.getTimestamp("lease_expires_at");
+                    if ("in_progress".equals(rs.getString("status"))
+                            && leaseExpiresAt != null
+                            && leaseExpiresAt.toLocalDateTime().isAfter(now)) {
+                        throw new ConflictException(
+                                "app_processing",
+                                "La aplicación se está procesando. Espera a que termine y reintenta el borrado.");
+                    }
+                    return rs.getBytes("id");
+                },
+                packageId,
+                UuidBytes.fromUuid(appId));
+        deleteByIds("scraper_work_items", workIds);
     }
 
     /**

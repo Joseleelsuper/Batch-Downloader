@@ -260,8 +260,8 @@ public class AdminAppController {
     }
 
     /**
-     * Solicita el borrado protegido por inactividad del scraper y audita la eliminación; devuelve
-     * 204 al completarse.
+     * Retira la aplicación y sus trabajos de cola cuando no tiene una reserva vigente y audita
+     * la eliminación; devuelve 204 al completarse.
      *
      * @param appId UUID textual o identificador público de la aplicación; las rutas internas
      *     requieren UUID.

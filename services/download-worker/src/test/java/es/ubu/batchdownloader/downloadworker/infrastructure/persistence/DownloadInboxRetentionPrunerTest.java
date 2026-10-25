@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -31,11 +32,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class DownloadInboxRetentionPrunerTest {
 
     /**
-     * Fija el reloj y comprueba corte de siete días, selección de hasta 500 reservas completadas y
+     * Fija el reloj y comprueba el corte con margen, selección de hasta 500 reservas completadas y
      * dos eliminaciones que vuelven a exigir estado COMPLETED.
      */
     @Test
-    void prunesOnlyCompletedRowsOlderThanSevenDays() {
+    void prunesOnlyCompletedRowsOutsideRetention() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(
                         anyString(), eq(String.class), any(Timestamp.class), eq(500)))
@@ -44,7 +45,7 @@ class DownloadInboxRetentionPrunerTest {
         Clock clock = Clock.fixed(Instant.parse("2026-08-23T00:00:00Z"), ZoneOffset.UTC);
 
         int affected = new DownloadInboxRetentionPruner(
-                        jdbc, clock, new SimpleMeterRegistry())
+                        jdbc, clock, new SimpleMeterRegistry(), Duration.ofMinutes(1), Duration.ofHours(24))
                 .prune();
 
         ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
@@ -54,7 +55,7 @@ class DownloadInboxRetentionPrunerTest {
                 .contains("status = 'COMPLETED'", "completed_at IS NOT NULL", "job_id IS NULL", "LIMIT ?")
                 .doesNotContain("PROCESSING");
         assertThat(cutoff.getValue())
-                .isEqualTo(Timestamp.from(Instant.parse("2026-08-16T00:00:00Z")));
+                .isEqualTo(Timestamp.from(Instant.parse("2026-08-22T00:01:00Z")));
         verify(jdbc, org.mockito.Mockito.times(2)).update(
                 eq("DELETE FROM download_inbox WHERE event_id = ? AND status = 'COMPLETED' AND job_id IS NULL"),
                 anyString());

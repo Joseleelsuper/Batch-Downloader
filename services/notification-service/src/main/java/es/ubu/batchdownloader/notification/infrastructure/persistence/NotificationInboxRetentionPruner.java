@@ -8,13 +8,14 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Retira por lotes confirmaciones de correo con más de siete días para acotar el inbox.
- * Conserva intentos fallidos y reservas en curso; una pasada elimina como máximo 500 eventos.
+ * Retira por lotes confirmaciones de correo fuera de la ventana máxima de un día.
+ * Retira también fallos antiguos y conserva reservas en curso; una pasada elimina hasta 500 eventos.
  *
  * @see es.ubu.batchdownloader.notification.infrastructure.persistence.JdbcNotificationInbox
  * @since 0.1.0
@@ -24,13 +25,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class NotificationInboxRetentionPruner {
     private static final Logger LOGGER = LoggerFactory.getLogger(NotificationInboxRetentionPruner.class);
-    private static final Duration RETENTION = Duration.ofDays(7);
     private static final int BATCH_SIZE = 500;
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final Counter deleted;
     private final Counter failures;
+    private final Duration retention;
 
     /**
      * Asocia la política de retención con su almacenamiento, reloj y contadores operativos.
@@ -39,11 +40,20 @@ public class NotificationInboxRetentionPruner {
      * @param clock Reloj usado para comparar reservas y registrar instantes en milisegundos UTC.
      * @param meterRegistry Registro de métricas sin identificadores de evento ni contenido del
      *     correo.
+     * @param interval Cadencia que se descuenta del plazo máximo.
+     * @param retention Plazo máximo de deduplicación, hasta veinticuatro horas.
      */
     public NotificationInboxRetentionPruner(
             JdbcTemplate jdbc,
             Clock clock,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            @Value("${notification.retention.interval:PT1M}") Duration interval,
+            @Value("${notification.retention.messages:PT24H}") Duration retention) {
+        if (interval.isNegative() || interval.isZero() || retention.compareTo(interval) <= 0
+                || retention.compareTo(Duration.ofDays(1)) > 0) {
+            throw new IllegalArgumentException("invalid_notification_retention");
+        }
+        this.retention = retention.minus(interval);
         this.jdbc = jdbc;
         this.clock = clock;
         deleted = meterRegistry.counter("notification.inbox.retention.deleted");
@@ -51,7 +61,7 @@ public class NotificationInboxRetentionPruner {
     }
 
     /** Ejecuta una pasada no crítica; un fallo transitorio no reinicia el consumidor. */
-    @Scheduled(fixedDelayString = "${notification.retention.interval:PT6H}")
+    @Scheduled(fixedDelayString = "${notification.retention.interval:PT1M}")
     public void runScheduled() {
         try {
             int affected = prune();
@@ -68,22 +78,21 @@ public class NotificationInboxRetentionPruner {
     }
 
     /**
-     * Selecciona hasta 500 confirmaciones antiguas y las elimina si siguen en PROCESSED.
+     * Selecciona hasta 500 confirmaciones o fallos antiguos y vuelve a comprobar estado y fecha.
      *
      * @return número de filas realmente eliminadas.
      * @throws org.springframework.dao.DataAccessException si falla la consulta o alguna
      *     eliminación; las anteriores pueden haberse confirmado.
      */
     public int prune() {
-        long cutoff = clock.instant().minus(RETENTION).toEpochMilli();
+        long cutoff = clock.instant().minus(retention).toEpochMilli();
         List<String> eventIds = jdbc.queryForList(
                 """
                 SELECT event_id
                 FROM notification_inbox
-                WHERE status = 'PROCESSED'
-                  AND processed_at_epoch_ms IS NOT NULL
-                  AND processed_at_epoch_ms < ?
-                ORDER BY processed_at_epoch_ms ASC, event_id ASC
+                WHERE status IN ('PROCESSED', 'FAILED')
+                  AND COALESCE(processed_at_epoch_ms, received_at_epoch_ms) < ?
+                ORDER BY COALESCE(processed_at_epoch_ms, received_at_epoch_ms) ASC, event_id ASC
                 LIMIT ?
                 """,
                 String.class,
@@ -92,8 +101,9 @@ public class NotificationInboxRetentionPruner {
         int deletedRows = 0;
         for (String eventId : eventIds) {
             deletedRows += jdbc.update(
-                    "DELETE FROM notification_inbox WHERE event_id = ? AND status = 'PROCESSED'",
-                    eventId);
+                    "DELETE FROM notification_inbox WHERE event_id = ? AND status IN ('PROCESSED', 'FAILED') "
+                            + "AND COALESCE(processed_at_epoch_ms, received_at_epoch_ms) < ?",
+                    eventId, cutoff);
         }
         return deletedRows;
     }

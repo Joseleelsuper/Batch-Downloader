@@ -326,12 +326,12 @@ class ScrapeRunRepository:
         )
 
     async def next_pending_run_request(self) -> ScraperCommand | None:
-        """Solo si no existe ejecución activa, bloquea la solicitud run_once pendiente más
-        antigua y omite las bloqueadas por otro consumidor.
+        """Recupera ejecuciones huérfanas antes de bloquear la siguiente solicitud pendiente.
 
         Returns:
             solicitud reservada en la transacción o None.
         """
+        await self.recover_running("The coordinator lease expired while waiting for pending work.")
         active = await self.session.scalar(
             select(ScrapeRun.id)
             .where(ScrapeRun.active_lock == 1)

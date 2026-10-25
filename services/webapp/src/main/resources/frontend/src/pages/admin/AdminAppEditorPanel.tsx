@@ -252,10 +252,11 @@ function EditorActions({
   inspectionLocksOrdinaryWrite: boolean;
 }>) {
   const { selected, inspection } = editor;
-  const { saving, applying, generatingDescription, deletingSelected } = activity;
+  const { saving, applying, generatingDescription, deletingSelected, error } = activity;
   const saveLabel = saveButtonLabel(t, saving, editor.creating);
   return (
     <div className="admin-app-editor-actions">
+      {error && editor.detailOpen ? <div className="admin-apps-error admin-app-action-error" role="alert">{error}</div> : null}
       {inspectionLocksOrdinaryWrite ? (
         <output className="admin-app-write-lock" aria-live="polite">
           {t('admin.apps.preview.writeLock')}
