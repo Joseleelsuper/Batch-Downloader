@@ -26,6 +26,9 @@ export function AdminAppsPage() {
   const { detailOpen, detailTriggerRef, startNewApp } = editor;
   const { message, error, exportingCsv, deletingAll } = activity;
   const { absenceSummary } = list;
+  const editorHasActions = editor.detailState === 'ready'
+    && editor.detailOpen
+    && (!editor.creating || editor.websiteDiscovery?.status === 'ready');
   const { exportCsv, openDangerDialog, removeAllApps, dangerConfirm, setDangerConfirm, dangerDialogRef } = actions;
   return (
     <section className={`admin-apps-page ${detailOpen ? 'admin-apps-detail-open' : ''}`}>
@@ -63,7 +66,7 @@ export function AdminAppsPage() {
       </header>
 
       {message ? <div className="admin-apps-notice" role="status">{message}</div> : null}
-      {error ? <div className="admin-apps-error" role="alert">{error}</div> : null}
+      {error && !editorHasActions ? <div className="admin-apps-error" role="alert">{error}</div> : null}
       {absenceSummary ? (
         <div className="admin-apps-notice" role="status">
           {t('admin.apps.absenceSummary', {

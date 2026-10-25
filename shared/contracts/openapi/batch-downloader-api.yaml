@@ -1927,7 +1927,10 @@ paths:
       summary: Eliminar una aplicación del catálogo
       tags:
       - Administración
-      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      description: >-
+        Requiere sesión ADMIN y CSRF. Elimina la aplicación y sus trabajos de cola
+        sin bloquear por otras aplicaciones. Devuelve 409 con código app_processing
+        si alguno de sus trabajos conserva una reserva de procesamiento vigente.
       responses:
         '204':
           description: Eliminar una aplicación del catálogo.

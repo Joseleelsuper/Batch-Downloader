@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as adminAppsApi from '../../api/adminApps';
 import * as catalogAppsApi from '../../api/catalogApps';
@@ -228,6 +228,26 @@ describe('AdminAppsPage', () => {
     cleanup();
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it('shows a processing conflict beside the delete button and clears it after retrying', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(adminAppsApi.deleteAdminApp)
+      .mockRejectedValueOnce(new ApiRequestError(409, 'app_processing'))
+      .mockResolvedValueOnce(undefined);
+    render(<AdminAppsPage />);
+    fireEvent.click(await screen.findByRole('option', { name: /Example App/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Eliminar aplicación' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Esta aplicación se está procesando');
+    expect(within(alert.parentElement!).getByRole('button', { name: 'Eliminar aplicación' }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText(/^Nombre/)).toHaveValue('Example App');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar aplicación' }));
+    await waitFor(() => expect(adminAppsApi.deleteAdminApp).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
   it('starts in Por resolver, exposes counts and debounces the search', async () => {
