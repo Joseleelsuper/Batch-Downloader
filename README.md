@@ -15,6 +15,7 @@ Descarga y empaqueta varios instaladores en un solo trabajo.
 - [Endpoints](#endpoints)
 - [Variables de entorno](#variables-de-entorno)
 - [Estados de los jobs](#estados-de-los-jobs)
+- [Seguridad y accesibilidad](#seguridad-y-accesibilidad)
 - [Licencia](#licencia)
 - [Personas](#personas)
 
@@ -341,6 +342,11 @@ transferencia sin avance; esperar conectado en FIFO mantiene el trabajo.
 | `COMPLETED` | Archivo listo para empaquetar. |
 | `FAILED` | No pudo completarse. |
 | `CANCELLED` | Se canceló con el trabajo. |
+
+## Seguridad y accesibilidad
+
+- [Política de seguridad](SECURITY.md): alcance, contacto privado y datos necesarios para comunicar una posible vulnerabilidad.
+- [Accesibilidad](ACCESSIBILITY.md): objetivo WCAG 2.2 AA, estado de la evaluación, limitaciones y cómo comunicar barreras.
 
 ## Licencia
 
