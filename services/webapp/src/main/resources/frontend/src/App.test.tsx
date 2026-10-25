@@ -1094,7 +1094,7 @@ describe('public support pages', () => {
     expect(screen.getByText(/José Gallardo es el responsable/)).toBeInTheDocument();
     expect(screen.getByText(/BATCH_SESSION/)).toHaveTextContent('BATCH_DOWNLOAD_OWNER');
     expect(screen.getByText(/Resend solo se utiliza/)).toHaveTextContent('no enviamos publicidad');
-    expect(screen.getByText(/no implica el borrado inmediato/)).toBeInTheDocument();
+    expect(screen.getByText(/no elimina inmediatamente las copias/)).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Contacto: JoseGallardoC@protonmail.com' })[0])
       .toHaveAttribute('href', 'mailto:JoseGallardoC@protonmail.com');
     expect(screen.getByRole('link', { name: 'Derechos y reclamaciones ante la AEPD' }))

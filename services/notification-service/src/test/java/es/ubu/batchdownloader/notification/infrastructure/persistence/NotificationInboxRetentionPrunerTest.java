@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -18,8 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
-import org.springframework.core.io.ClassPathResource;
 
 /**
  * Comprueba el límite temporal de la limpieza sin perder fallos ni reservas vigentes.
@@ -65,10 +65,13 @@ class NotificationInboxRetentionPrunerTest {
     }
 
     @Test
-    void removesOldFailuresOnRealH2WithoutTouchingActiveOrRecentEntries() {
+    void removesOldFailuresOnRealH2WithoutTouchingActiveOrRecentEntries() throws IOException {
         var source = new DriverManagerDataSource("jdbc:h2:mem:notification_retention;DB_CLOSE_DELAY=-1", "sa", "");
-        new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(source);
         JdbcTemplate jdbc = new JdbcTemplate(source);
+        try (var schema = getClass().getResourceAsStream("/schema.sql")) {
+            assertThat(schema).isNotNull();
+            jdbc.execute(new String(schema.readAllBytes(), StandardCharsets.UTF_8));
+        }
         Instant now = Instant.parse("2026-10-24T12:00:00Z");
         for (String status : List.of("PROCESSED", "FAILED", "PROCESSING")) {
             for (String age : List.of("old", "recent")) {

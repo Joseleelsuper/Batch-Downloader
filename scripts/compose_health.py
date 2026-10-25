@@ -319,6 +319,7 @@ def comparable_service(configuration: Mapping[str, Any]) -> dict[str, Any]:
     result = {key: value for key, value in configuration.items() if key not in ignored}
     embedded_targets = {
         "/etc/rabbitmq/enabled_plugins",
+        "/etc/rabbitmq/privacy-healthcheck.sh",
         "/config/init.sh",
         "/config/lifecycle-zips.json",
         "/config/core-policy.json",
