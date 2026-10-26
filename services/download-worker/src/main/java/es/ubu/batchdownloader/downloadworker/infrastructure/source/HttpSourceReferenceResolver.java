@@ -15,6 +15,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -29,6 +30,16 @@ import java.util.UUID;
  * @category Adaptadores y persistencia del worker
  */
 public class HttpSourceReferenceResolver implements SourceReferenceResolver {
+    private static final Set<String> REVALIDATION_REASONS = Set.of(
+            "timeout", "network_error", "no_response", "source_not_verified", "source_not_https",
+            "source_url_unreadable", "source_revalidation_changed", "html_response", "file_too_large",
+            "installer_content_type_mismatch", "installer_signature_mismatch", "missing_installer_extension",
+            "not_an_installer", "unsupported_installer_format", "invalid_url", "unsupported_scheme",
+            "missing_domain", "url_credentials_forbidden", "non_binary_installer_reference", "github_source_archive",
+            "github_zip_not_release_asset", "dns_not_public", "redirect_invalid_url",
+            "redirect_unsupported_scheme", "redirect_missing_domain", "redirect_url_credentials_forbidden",
+            "redirect_github_source_archive", "redirect_github_zip_not_release_asset",
+            "redirect_dns_not_public", "redirect_without_location", "too_many_redirects");
     /**
      * Estado {@code client} mantenido por {@code HttpSourceReferenceResolver}.
      */
@@ -89,7 +100,7 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
             throw new DownloadRejectedException("source_not_found");
         }
         if (response.statusCode() == 409) {
-            throw new DownloadRejectedException("source_not_verified");
+            throw new DownloadRejectedException(rejectionCode(response.body(), "source_not_verified"));
         }
         if (response.statusCode() >= 500) {
             // La resolución se limita a un instalador. Trata un 5xx remoto como fallo
@@ -97,7 +108,7 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
             // de infraestructura reintentaba antes todo el evento y dejaba activo el
             // trabajo de Core cuando Rabbit agotaba sus reintentos.
             throw new DownloadRejectedException(
-                    "source_resolver_unavailable",
+                    rejectionCode(response.body(), "source_resolver_unavailable"),
                     new IllegalStateException("HTTP " + response.statusCode()));
         }
         if (response.statusCode() != 200) {
@@ -119,6 +130,37 @@ public class HttpSourceReferenceResolver implements SourceReferenceResolver {
                 new InstallationMetadata(resolved.appName(), resolved.version(), resolved.extension(),
                         resolved.operatingSystem(), resolved.architecture(), resolved.installationProfile(),
                         resolved.signatureBase64()));
+    }
+
+    /**
+     * Conserva solo causas reconocidas del scraper; los cuerpos antiguos, ilegibles o con texto
+     * privado mantienen el diagnóstico genérico del estado HTTP.
+     *
+     * @param body Cuerpo de error interno, que nunca se incluye en el diagnóstico público.
+     * @param fallback Código compatible con respuestas sin una causa segura.
+     * @return código del mismo rechazo, con la causa concreta cuando se conoce.
+     */
+    private String rejectionCode(String body, String fallback) {
+        if (body == null || body.length() > 8192) {
+            return fallback;
+        }
+        try {
+            var error = objectMapper.readTree(body);
+            if (error == null) {
+                return fallback;
+            }
+            var reason = error.path("detail").path("reasonCode");
+            if (!reason.isTextual()) {
+                return fallback;
+            }
+            String code = reason.textValue();
+            if (!REVALIDATION_REASONS.contains(code) && !code.matches("http_[1-9][0-9]{2}")) {
+                return fallback;
+            }
+            return code.startsWith("source_") ? code : "source_revalidation_" + code;
+        } catch (IOException exception) {
+            return fallback;
+        }
     }
 
     /**

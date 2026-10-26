@@ -30,7 +30,11 @@ from app.db.models import (
     SoftwareApp,
     SoftwareAppDependency,
 )
-from app.domain.source_resolution import SourceTrustStatus, source_trust_status
+from app.domain.source_resolution import (
+    SourceTrustStatus,
+    safe_revalidation_reason,
+    source_trust_status,
+)
 from app.repositories.catalog import CatalogRepository
 from app.schemas.internal import (
     InternalSourceResolution,
@@ -71,6 +75,10 @@ class SourceRevalidationTransientError(RuntimeError):
         resolve_source: Propaga el aplazamiento al adaptador HTTP.
         _is_transient_revalidation_failure: Clasifica respuestas y evidencias recuperables.
     """
+
+    def __init__(self, code: str, reason_code: str | None = None) -> None:
+        super().__init__(code)
+        self.reason_code = safe_revalidation_reason(reason_code)
 
 
 async def resolve_source_size(
@@ -180,8 +188,8 @@ async def resolve_source(
     )
     if trust_status == SourceTrustStatus.UNRESOLVED and _can_revalidate_expired(resolved, metadata):
         url = await _revalidate_expired_source(resolved, catalog, settings, session)
+        metadata = resolved.metadata_json or {}
         if url is not None:
-            metadata = resolved.metadata_json or {}
             trust_status = SourceTrustStatus.VERIFIED
     if trust_status == SourceTrustStatus.VERIFIED and (
         url is None or urlparse(url).scheme != "https"
@@ -236,6 +244,14 @@ async def resolve_source(
         extension=resolved.extension,
         installationProfile=profile,
         signatureBase64=None,
+        failure_reason=(
+            safe_revalidation_reason(metadata.get("last_revalidation_error"))
+            if (
+                trust_status == SourceTrustStatus.UNRESOLVED
+                and _parent_source_is_available(resolved)
+            )
+            else None
+        ),
     )
     await session.commit()
     if profile is not None and trust_status == SourceTrustStatus.VERIFIED:
@@ -370,7 +386,9 @@ async def _validate_revalidation_candidate(
         elif validation_error is not None:
             await session.commit()
             raise SourceRevalidationTransientError(
-                "source_revalidation_transient"
+                "source_revalidation_transient",
+                "timeout" if isinstance(validation_error, httpx.TimeoutException)
+                else "network_error",
             ) from validation_error
 
     if result is None:
@@ -458,7 +476,9 @@ async def _revalidate_expired_source(
     locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
     if locked is None or _revalidation_revision(locked) != revision:
         await session.commit()
-        raise SourceRevalidationTransientError("source_revalidation_changed")
+        raise SourceRevalidationTransientError(
+            "source_revalidation_changed", "source_revalidation_changed"
+        )
     resolved = locked
     metadata = dict(resolved.metadata_json or {})
 
@@ -476,7 +496,7 @@ async def _revalidate_expired_source(
         )
         if _is_transient_revalidation_failure(result, reason):
             await session.commit()
-            raise SourceRevalidationTransientError("source_revalidation_transient")
+            raise SourceRevalidationTransientError("source_revalidation_transient", reason)
         await _expire_terminal_candidate(resolved, metadata, reason, session, now=now)
         return None
 

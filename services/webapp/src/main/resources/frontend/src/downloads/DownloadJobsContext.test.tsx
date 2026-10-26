@@ -48,7 +48,7 @@ function Harness() {
       </button>
       <output data-testid="jobs">{downloads.jobs.length}</output>
       <output data-testid="status">{downloads.jobs[0]?.job?.status ?? 'restoring'}</output>
-      <output data-testid="action-error">{downloads.jobs[0]?.actionError ?? ''}</output>
+      <output data-testid="action-error">{JSON.stringify(downloads.jobs[0]?.actionError ?? null)}</output>
     </div>
   );
 }
@@ -236,7 +236,7 @@ describe('DownloadJobsProvider', () => {
       .mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(undefined);
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
-    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('No se pudo preparar'));
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('download_link_failed'));
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar entrega' }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
     expect(picker).toHaveBeenCalledOnce();
@@ -257,7 +257,7 @@ describe('DownloadJobsProvider', () => {
     });
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
-    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('El ZIP está guardado.'));
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('download_receipt_failed'));
     act(() => pushJob({ ...job('READY', 100), deliveryStatus: 'TRANSFERRING' }));
     expect(screen.getByTestId('state')).toHaveTextContent('"deliveryStatus":"SAVED"');
     expect(window.sessionStorage.getItem('batch-downloader.download-jobs.v1')).toContain('"locallySaved":true');
@@ -323,7 +323,7 @@ describe('DownloadJobsProvider', () => {
     act(() => pushJob?.(job('READY', 100)));
 
     await waitFor(() => expect(screen.getByTestId('action-error')).toHaveTextContent(
-      'No se pudo preparar el enlace de descarga',
+      'download_signing_unavailable',
     ));
     expect(screen.getByTestId('status')).toHaveTextContent('READY');
     expect(click).not.toHaveBeenCalled();
@@ -439,7 +439,8 @@ describe('DownloadJobsProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('QUEUED'));
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
-    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('entre 1 y 100'));
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('invalid_job_size'));
+    expect(screen.getByTestId('state')).toHaveTextContent('"httpStatus":409');
     expect(screen.getByTestId('state')).toHaveTextContent('"cancelling":false');
   });
 
@@ -481,7 +482,7 @@ describe('DownloadJobsProvider', () => {
       if (status === 'FAILED') {
         terminalJob.failureCode = 'all_items_failed';
         terminalJob.items[0].status = 'FAILED';
-        terminalJob.items[0].errorCode = 'remote_http_404';
+        terminalJob.items[0].errorCode = 'source_revalidation_http_618';
       }
       act(() => pushJob(terminalJob));
       expect(screen.getByRole('button', { name: 'Cerrar' })).toBeInTheDocument();
@@ -493,7 +494,10 @@ describe('DownloadJobsProvider', () => {
       act(() => reportError(new ApiRequestError(404, 'download_job_not_found')));
       expect(screen.getByTestId('status')).toHaveTextContent(status);
       if (status === 'FAILED') {
-        expect(screen.getByText('Problema del servicio de descarga')).toBeInTheDocument();
+        expect(screen.getByText('Ver incidencias (1)')).toBeInTheDocument();
+        expect(screen.getByText('source_revalidation_http_618')).not.toBeVisible();
+        fireEvent.click(screen.getByText('Ver incidencias (1)'));
+        expect(screen.getByText(/El servidor respondió HTTP 618/)).toBeVisible();
       }
       fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
       expect(screen.queryByRole('button', { name: 'Cerrar' })).not.toBeInTheDocument();
@@ -513,6 +517,29 @@ describe('DownloadJobsProvider', () => {
     await waitFor(() => expect(screen.getByTestId('action-error')).not.toBeEmptyDOMElement());
     expect(screen.getByTestId('status')).toHaveTextContent('READY');
     expect(screen.getByRole('button', { name: 'Cerrar' })).toBeInTheDocument();
+  });
+
+  it('restaura el código y HTTP de una entrega fallida sin guardar textos privados', async () => {
+    vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('READY', 100));
+    vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockRejectedValue(
+      new ApiRequestError(503, 'download_signing_unavailable', null,
+        { privateUrl: 'https://private.test?sig=secret' }),
+    );
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(vi.fn());
+    const view = render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await waitFor(() => expect(screen.getByTestId('action-error')).toHaveTextContent('"httpStatus":503'));
+    const stored = window.sessionStorage.getItem('batch-downloader.download-jobs.v1');
+    expect(stored).toContain('download_signing_unavailable');
+    expect(stored).not.toContain('private.test');
+    expect(stored).not.toContain('secret');
+    view.unmount();
+
+    render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
+    expect(screen.getByText('Ver incidencias (1)').closest('details')).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('Ver incidencias (1)'));
+    expect(screen.getByText('download_signing_unavailable')).toBeVisible();
+    expect(screen.getByText('503')).toBeVisible();
   });
 
 });

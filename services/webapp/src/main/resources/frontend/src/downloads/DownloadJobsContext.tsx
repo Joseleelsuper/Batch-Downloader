@@ -21,6 +21,7 @@ import { ApiRequestError } from '../api/http';
 import { useTranslation, type Translator } from '../services/i18n';
 import type { DownloadJob } from '../types/catalog';
 import { chooseDownloadDestination, isDestinationCancelled, retryDeliveryRequest, saveDownload, type DownloadFileHandle } from './delivery';
+import { actionFailure, isDownloadActionError, type DownloadActionError } from './failures';
 
 const STORAGE_KEY = 'batch-downloader.download-jobs.v1';
 
@@ -49,7 +50,7 @@ export interface TrackedDownloadJob {
   minimized: boolean;
   cancelling: boolean;
   connectionError: boolean;
-  actionError: string | null;
+  actionError: DownloadActionError | null;
   saving?: boolean;
   locallySaved?: boolean;
 }
@@ -61,6 +62,7 @@ interface StoredDownloadJob {
   autoDownloadAttempted: boolean;
   minimized: boolean;
   locallySaved?: boolean;
+  actionError?: DownloadActionError | null;
 }
 
 interface DownloadJobsContextValue {
@@ -104,7 +106,7 @@ function readStoredJobs(): TrackedDownloadJob[] {
         locallySaved: stored.locallySaved === true,
         cancelling: false,
         connectionError: false,
-        actionError: null,
+        actionError: isDownloadActionError(stored.actionError) ? stored.actionError : null,
       }];
     });
   } catch {
@@ -121,6 +123,7 @@ function persistJobs(jobs: TrackedDownloadJob[]): void {
       autoDownloadAttempted: entry.autoDownloadAttempted,
       minimized: entry.minimized,
       locallySaved: entry.locallySaved === true,
+      actionError: entry.actionError,
     }));
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
   } catch {
@@ -133,15 +136,6 @@ function requestErrorMessage(t: Translator, cause: unknown): string {
   const knownKey = `download.job.apiError.${cause.code}`;
   const translated = t(knownKey);
   return translated === knownKey ? t('download.job.createFailed') : translated;
-}
-
-function downloadLinkErrorMessage(t: Translator, cause: unknown): string {
-  if (cause instanceof ApiRequestError) {
-    const knownKey = `download.job.apiError.${cause.code}`;
-    const translated = t(knownKey);
-    if (translated !== knownKey) return translated;
-  }
-  return t('download.job.linkFailed');
 }
 
 export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNode }>) {
@@ -202,9 +196,9 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
 
   const reportAutoDownloadError = useCallback((jobId: string, cause?: unknown) => {
     setJobs((current) => current.map((entry) => entry.id === jobId
-      ? { ...entry, actionError: downloadLinkErrorMessage(t, cause) }
+      ? { ...entry, actionError: actionFailure(cause) }
       : entry));
-  }, [t]);
+  }, []);
 
   const claimAutoDownload = useCallback((jobId: string): boolean => {
     if (attemptedDownloads.current.has(jobId)) return false;
@@ -282,14 +276,14 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       }
     } catch (cause) {
       if (locallySaved) setJobs((current) => current.map((entry) => entry.id === jobId
-        ? { ...entry, actionError: t('download.job.receiptFailed') } : entry));
+        ? { ...entry, actionError: actionFailure(cause, 'receipt') } : entry));
       else if (!isDestinationCancelled(cause)) reportAutoDownloadError(jobId, cause);
     } finally {
       deliveries.current.delete(jobId);
       setJobs((current) => current.map((entry) => entry.id === jobId
         ? { ...entry, saving: false } : entry));
     }
-  }, [claimAutoDownload, reportAutoDownloadError, t]);
+  }, [claimAutoDownload, reportAutoDownloadError]);
 
   const download = useCallback((jobId: string) => deliver(jobId, false), [deliver]);
 
@@ -346,7 +340,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       updateJob(jobId, await cancelDownloadJob(jobId));
     } catch (cause) {
       setJobs((current) => current.map((candidate) => candidate.id === jobId
-        ? { ...candidate, actionError: requestErrorMessage(t, cause) }
+        ? { ...candidate, actionError: actionFailure(cause, 'cancel') }
         : candidate));
       throw cause;
     } finally {
@@ -354,7 +348,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
         ? { ...candidate, cancelling: false }
         : candidate));
     }
-  }, [jobs, t, updateJob]);
+  }, [jobs, updateJob]);
 
   const dismiss = useCallback((jobId: string) => {
     setJobs((current) => {

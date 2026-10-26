@@ -246,10 +246,16 @@ async def get_source_resolution(
     except SourceNotFoundError as exception:
         raise HTTPException(status_code=404, detail={"code": str(exception)}) from exception
     except SourceRevalidationTransientError as exception:
-        raise HTTPException(status_code=503, detail={"code": str(exception)}) from exception
+        detail = {"code": str(exception)}
+        if exception.reason_code:
+            detail["reasonCode"] = exception.reason_code
+        raise HTTPException(status_code=503, detail=detail) from exception
     if response.trust_status != SourceTrustStatus.VERIFIED:
+        content = response.model_dump(by_alias=True, mode="json")
+        if response.failure_reason:
+            content["detail"] = {"reasonCode": response.failure_reason}
         return JSONResponse(
-            status_code=409, content=response.model_dump(by_alias=True, mode="json")
+            status_code=409, content=content
         )
     return response
 

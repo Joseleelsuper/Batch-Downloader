@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DownloadJob } from '../types/catalog';
+import type { DownloadActionError } from '../downloads/failures';
 import { useDownloadJob } from './useDownloadJob';
 
 const mocks = vi.hoisted(() => ({ useDownloadJobs: vi.fn() }));
@@ -26,7 +27,7 @@ function context() {
       job: DownloadJob | null;
       cancelling: boolean;
       connectionError: boolean;
-      actionError: string | null;
+      actionError: DownloadActionError | null;
     }>,
     start: vi.fn(),
     cancel: vi.fn(),
@@ -139,7 +140,7 @@ describe('useDownloadJob', () => {
     });
     downloads.jobs = [{
       id: 'job-1', job: job('QUEUED'), cancelling: false,
-      connectionError: true, actionError: 'failed',
+      connectionError: true, actionError: { code: 'download_link_failed', operation: 'delivery' },
     }];
     rerender();
 

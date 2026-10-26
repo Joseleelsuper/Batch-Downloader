@@ -120,6 +120,8 @@ components:
     downloadJobProgressed:
       name: download.job.progressed.v1
       title: Progreso de un trabajo
+      description: Conserva causas concretas en errorCode, como source_revalidation_http_618,
+        sin cambiar el sobre ni la versión del evento y sin transmitir URLs privadas.
       payload:
         $ref: '../schemas/file-downloaded.json'
     downloadJobReady:

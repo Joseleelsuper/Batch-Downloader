@@ -47,6 +47,8 @@ import java.util.zip.ZipInputStream;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -367,12 +369,13 @@ class DownloadJobProcessorTest {
      * Rechaza el instalador pero conserva una página oficial válida y comprueba un resultado
      * MANUAL_ONLY con cero éxitos y un elemento fallido.
      */
-    @Test
-    void createsManualOnlyZipWhenEveryFailedAppHasASafeOfficialPage() {
+    @ParameterizedTest
+    @ValueSource(strings = {"remote_http_404", "source_revalidation_http_618"})
+    void createsManualOnlyZipWhenEveryFailedAppHasASafeOfficialPage(String errorCode) {
         MemoryArtifactStore store = new MemoryArtifactStore();
         RecordingPublisher publisher = new RecordingPublisher();
         RemoteDownloader rejected = (item, filename, target, budget, maxFileBytes) -> {
-            throw new DownloadRejectedException("remote_http_404");
+            throw new DownloadRejectedException(errorCode);
         };
         DownloadJobProcessor processor = processor(rejected, store, publisher, 10);
         DownloadJobRequestedEvent event = event(List.of(item("bad")));
@@ -382,6 +385,10 @@ class DownloadJobProcessorTest {
         String manifest = new String(store.objects.get(
                 "jobs/" + event.payload().jobId() + "/manifest.json"));
         assertThat(manifest).contains("\"status\" : \"MANUAL_ONLY\"");
+        assertThat(manifest).contains(errorCode);
+        assertThat(publisher.events).filteredOn(DownloadJobProgressedEvent.class::isInstance)
+                .anySatisfy(eventValue -> assertThat(((DownloadJobProgressedEvent) eventValue)
+                        .payload().errorCode()).isEqualTo(errorCode));
         DownloadJobReadyEvent ready = (DownloadJobReadyEvent) publisher.events.getLast();
         assertThat(ready.payload().status()).isEqualTo("MANUAL_ONLY");
         assertThat(ready.payload().successfulItems()).isZero();

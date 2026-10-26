@@ -1237,6 +1237,8 @@ async def test_internal_resolution_rejects_non_verified_sources(
     _app, resolved, _download_url = await internal_api.add_source(
         confidence="attested",
     )
+    resolved.metadata_json = {**resolved.metadata_json, "last_revalidation_error": "http_404"}
+    await internal_api.session.commit()
 
     response = await internal_api.client.get(
         f"/internal/v1/sources/{resolved.id}/resolution",
@@ -1246,6 +1248,7 @@ async def test_internal_resolution_rejects_non_verified_sources(
     assert response.status_code == 409
     assert response.json()["trustStatus"] == "ATTESTED"
     assert response.json()["url"] is None
+    assert "detail" not in response.json()
 
 
 @pytest.mark.asyncio
@@ -1426,7 +1429,9 @@ async def test_internal_resolution_only_recovers_the_applied_manual_github_input
         headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
     )
     assert response.status_code == 503
-    assert response.json() == {"detail": {"code": "source_revalidation_transient"}}
+    assert response.json() == {
+        "detail": {"code": "source_revalidation_transient", "reasonCode": "http_618"}
+    }
     assert resolved.validation_status == ValidationStatus.VALID.value
     assert protector.reveal(resolved.resolved_url_encrypted) == stale_url
 
@@ -1553,6 +1558,7 @@ async def test_internal_resolution_keeps_failed_revalidation_secret(
     assert download_url not in response.text
     assert resolved.validation_status == ValidationStatus.EXPIRED.value
     assert resolved.metadata_json["last_revalidation_error"] == "http_404"
+    assert response.json()["detail"]["reasonCode"] == "http_404"
 
 
 @pytest.mark.asyncio
@@ -1596,10 +1602,67 @@ async def test_internal_resolution_does_not_invalidate_on_transient_revalidation
     )
 
     assert response.status_code == 503
-    assert response.json() == {"detail": {"code": "source_revalidation_transient"}}
+    assert response.json() == {
+        "detail": {"code": "source_revalidation_transient", "reasonCode": "http_503"}
+    }
     assert resolved.validation_status == ValidationStatus.VALID.value
     assert resolved.checked_at == previous_checked_at
     assert resolved.metadata_json == previous_metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason, status", [
+    ("http_618", 503), ("http_404", 409), ("html_response", 409),
+    ("source_not_verified", 503), ("http_618?sig=private", 409),
+])
+async def test_resolution_only_exposes_safe_failure_reasons(
+    internal_api: InternalApiFixture, monkeypatch, reason, status,
+) -> None:
+    """La respuesta conserva el HTTP de origen sin publicar URLs ni texto arbitrario."""
+    _, resolved, download_url = await internal_api.add_source(
+        confidence="validated", expires_in_hours=-1,
+    )
+
+    async def validate(_validator, candidate):
+        return ValidationResult(ok=False, url=candidate.url, reason=reason)
+
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == status
+    if reason == "http_618?sig=private":
+        assert "detail" not in response.json()
+        assert "private" not in response.text
+    else:
+        assert response.json()["detail"]["reasonCode"] == reason
+    assert download_url not in response.text
+    assert INTERNAL_TOKEN not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type, reason", [
+    (httpx.ReadTimeout, "timeout"), (httpx.ConnectError, "network_error"),
+])
+async def test_resolution_reports_transport_failure_without_exception_text(
+    internal_api: InternalApiFixture, monkeypatch, error_type, reason,
+) -> None:
+    _, resolved, _ = await internal_api.add_source(confidence="validated", expires_in_hours=-1)
+
+    async def validate(_validator, _candidate):
+        raise error_type("private URL and credentials")
+
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "source_revalidation_transient", "reasonCode": reason}
+    }
+    assert "private" not in response.text
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,33 @@
 """Clasifica la confianza que puede comunicar la resolución interna de una fuente al worker."""
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
+
+REVALIDATION_REASONS = frozenset({
+    "timeout", "network_error", "no_response", "source_not_verified", "source_not_https",
+    "source_url_unreadable", "source_revalidation_changed", "html_response", "file_too_large",
+    "installer_content_type_mismatch", "installer_signature_mismatch",
+    "missing_installer_extension",
+    "not_an_installer", "unsupported_installer_format", "invalid_url", "unsupported_scheme",
+    "missing_domain",
+    "url_credentials_forbidden", "non_binary_installer_reference", "github_source_archive",
+    "github_zip_not_release_asset", "dns_not_public", "redirect_invalid_url",
+    "redirect_unsupported_scheme", "redirect_missing_domain", "redirect_url_credentials_forbidden",
+    "redirect_github_source_archive", "redirect_github_zip_not_release_asset",
+    "redirect_dns_not_public", "redirect_without_location", "too_many_redirects",
+})
+
+
+def safe_revalidation_reason(value: object) -> str | None:
+    """Publica solo motivos conocidos o un estado HTTP de tres cifras, nunca texto del proveedor."""
+    if isinstance(value, str) and (
+        value in REVALIDATION_REASONS or re.fullmatch(r"http_[1-9][0-9]{2}", value)
+    ):
+        return value
+    return None
 
 
 class SourceTrustStatus(StrEnum):

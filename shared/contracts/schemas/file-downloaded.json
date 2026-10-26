@@ -23,7 +23,7 @@
         "bytesDownloaded": { "type": "integer", "minimum": 0 },
         "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
         "sha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
-        "errorCode": { "type": ["string", "null"] }
+        "errorCode": { "type": ["string", "null"], "description": "Código seguro del fallo individual; conserva causas concretas como source_revalidation_http_618 sin incluir URLs ni texto del proveedor." }
       }
     }
   }

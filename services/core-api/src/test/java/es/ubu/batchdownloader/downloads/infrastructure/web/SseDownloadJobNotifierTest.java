@@ -6,11 +6,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import es.ubu.batchdownloader.downloads.application.DownloadJobView;
 import es.ubu.batchdownloader.downloads.application.DownloadStorageCoordinator;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
+import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
+import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
 import java.io.IOException;
 import java.time.Duration;
@@ -19,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -27,6 +31,31 @@ class SseDownloadJobNotifierTest {
     private final DownloadJobStore jobs = mock(DownloadJobStore.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<DownloadStorageCoordinator> storage = mock(ObjectProvider.class);
+
+    /** El SSE entrega el código concreto que debe poder explicar el navegador. */
+    @Test
+    void sendsTheSpecificProviderFailureInTheJobEvent() throws IOException {
+        Instant now = Instant.parse("2026-10-26T12:00:00Z");
+        var item = DownloadJobItem.queued(UUID.randomUUID(), UUID.randomUUID(), now);
+        var job = DownloadJob.queue(UUID.randomUUID(), null, null,
+                List.of(item), 1, 0, now, now.plusSeconds(3600));
+        job.updateItem(item.id(), DownloadItemStatus.FAILED, 0, null,
+                "source_revalidation_http_618", now.plusSeconds(1));
+        SseEmitter emitter = mock(SseEmitter.class);
+        var notifier = new SseDownloadJobNotifier(Duration.ofHours(1), () -> emitter, jobs, storage);
+        try {
+            notifier.subscribe(DownloadJobView.from(job));
+            var event = ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
+            verify(emitter).send(event.capture());
+            assertThat(event.getValue().build()).anySatisfy(data -> {
+                assertThat(data.getData()).isInstanceOf(DownloadJobView.class);
+                var delivered = (DownloadJobView) data.getData();
+                assertThat(delivered.items().getFirst().errorCode()).isEqualTo("source_revalidation_http_618");
+            });
+        } finally {
+            notifier.close();
+        }
+    }
 
     @Test
     void coalescesProgressAndKeepsReadyConnectedUntilCleanup() throws IOException {
