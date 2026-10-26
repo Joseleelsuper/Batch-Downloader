@@ -13,6 +13,7 @@ from copy import deepcopy
 from datetime import datetime
 from typing import cast
 from urllib.parse import urlparse
+from uuid import UUID
 
 import httpx
 from sqlalchemy import or_, select, update
@@ -23,7 +24,12 @@ from app.core.config import Settings
 from app.core.time import utc_after, utc_now
 from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ValidationStatus
-from app.db.models import ResolvedSource, SoftwareApp, SoftwareAppDependency
+from app.db.models import (
+    ManualInstallerInspection,
+    ResolvedSource,
+    SoftwareApp,
+    SoftwareAppDependency,
+)
 from app.domain.source_resolution import SourceTrustStatus, source_trust_status
 from app.repositories.catalog import CatalogRepository
 from app.schemas.internal import (
@@ -31,12 +37,17 @@ from app.schemas.internal import (
     InternalSourceSize,
 )
 from app.schemas.linux_install import default_profile
-from app.scraper.candidates import InstallerCandidate, infer_operating_system
+from app.scraper.candidates import (
+    InstallerCandidate,
+    infer_operating_system,
+    is_github_release_asset,
+)
 from app.scraper.installer_policy import (
     infer_validated_operating_system,
     known_official_candidates_for_package,
 )
 from app.scraper.linux_install import bundled_signature
+from app.scraper.manual_installer import reveal_manual_installer_inputs
 from app.scraper.safe_http import SafeHttpError, probe_public_resource_size
 from app.scraper.validator import DownloadValidator, ValidationConfidence, ValidationResult
 
@@ -163,7 +174,10 @@ async def resolve_source(
         if _parent_source_is_available(resolved)
         else SourceTrustStatus.UNRESOLVED
     )
-    url = catalog.reveal_url(resolved) if trust_status == SourceTrustStatus.VERIFIED else None
+    url = (
+        await _source_url(resolved, catalog, session)
+        if trust_status == SourceTrustStatus.VERIFIED else None
+    )
     if trust_status == SourceTrustStatus.UNRESOLVED and _can_revalidate_expired(resolved, metadata):
         url = await _revalidate_expired_source(resolved, catalog, settings, session)
         if url is not None:
@@ -272,6 +286,50 @@ def _parent_source_is_available(resolved: ResolvedSource) -> bool:
     )
 
 
+async def _source_url(
+    resolved: ResolvedSource,
+    catalog: CatalogRepository,
+    session: AsyncSession,
+) -> str | None:
+    """Recupera el enlace GitHub exacto de una inspección aplicada si se guardó su CDN temporal."""
+    url = catalog.reveal_url(resolved)
+    metadata = resolved.metadata_json or {}
+    if (
+        urlparse(url or "").hostname != "release-assets.githubusercontent.com"
+        or metadata.get("candidate_source") != "admin_manual"
+    ):
+        return url
+    try:
+        inspection_id = UUID(str(metadata.get("inspection_id")))
+    except ValueError:
+        return url
+    inspection = await session.scalar(
+        select(ManualInstallerInspection).where(
+            ManualInstallerInspection.id == inspection_id,
+            ManualInstallerInspection.software_app_id == resolved.source.software_app_id,
+            ManualInstallerInspection.status == "applied",
+        )
+    )
+    if inspection is None:
+        return url
+    source_refs = (inspection.result_json or {}).get(
+        "appliedSourceRefs", [str(inspection.source_ref)]
+    )
+    if str(resolved.id) not in source_refs:
+        return url
+    inputs = reveal_manual_installer_inputs(inspection, catalog.url_protector) or []
+    index = source_refs.index(str(resolved.id))
+    if index >= len(inputs):
+        return url
+    operating_system, installer_url = inputs[index]
+    if (
+        operating_system in {None, resolved.source.operating_system}
+        and is_github_release_asset(installer_url)
+    ):
+        return installer_url
+    return url
+
+
 async def _validate_revalidation_candidate(
     resolved: ResolvedSource,
     candidate: InstallerCandidate,
@@ -366,14 +424,14 @@ async def _revalidate_expired_source(
         now=utc_now(),
     )
     if trust_status == SourceTrustStatus.VERIFIED:
-        url = catalog.reveal_url(resolved)
+        url = await _source_url(resolved, catalog, session)
         await session.commit()
         return url
     if not _can_revalidate_expired(resolved, metadata):
         await session.commit()
         return None
 
-    protected_url = catalog.reveal_url(resolved)
+    protected_url = await _source_url(resolved, catalog, session)
     if protected_url is None:
         await _expire_terminal_candidate(
             resolved,
@@ -450,8 +508,8 @@ async def _accept_revalidation(
 ) -> str:
     """Actualiza en la misma resolución la URL protegida y metadatos comprobados, renueva su
     vigencia 24 horas y confirma la sesión.
-    Una recuperación oficial conocida se marca directa y reciente; la fuente padre recupera
-    validación válida.
+    Conserva los enlaces de release GitHub frente a su CDN temporal. Una recuperación
+    oficial conocida se marca directa y reciente; la fuente padre recupera validación válida.
 
     Args:
         resolved: Resolución persistida cuyo instalador y fuente se comprueban.
@@ -467,8 +525,9 @@ async def _accept_revalidation(
     """
     metadata = dict(resolved.metadata_json or {})
     final_url = result.final_url or candidate.url
+    catalog_url = candidate.url if is_github_release_asset(candidate.url) else final_url
     resolved.checked_at = now
-    resolved.resolved_url_encrypted = catalog.url_protector.protect(final_url)
+    resolved.resolved_url_encrypted = catalog.url_protector.protect(catalog_url)
     resolved.final_domain = result.final_domain or resolved.final_domain
     resolved.filename = result.filename or resolved.filename
     resolved.extension = result.extension or resolved.extension

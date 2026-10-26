@@ -18,7 +18,7 @@ from app.repositories.catalog import CatalogRepository
 from app.repositories.catalog_rules import ResolvedSourceCreate
 from app.schemas.internal import ManualInstallerApplyRequest
 from app.scraper.artifacts import ArtifactArchitecture
-from app.scraper.candidates import registered_domain
+from app.scraper.candidates import is_github_release_asset, registered_domain
 from app.scraper.inspection_lifecycle import append_warning
 from app.scraper.manual_installer import (
     ManualInstallerError,
@@ -396,7 +396,10 @@ async def _persist_resolved_source(
     resolved = await catalog.sources.save_resolved_source(
         ResolvedSourceCreate(
             source_id=source.id,
-            url=validated.final_url,
+            url=(
+                validated.result.url
+                if is_github_release_asset(validated.result.url) else validated.final_url
+            ),
             final_domain=validated.result.final_domain
             or registered_domain(validated.final_url)
             or urlparse(validated.final_url).hostname
