@@ -30,6 +30,24 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 class DownloadWorkerEventListenerTest {
+    /** La causa de proveedor atraviesa el inbox sin convertirse en un fallo genérico. */
+    @Test
+    void preservesSpecificSourceFailuresWhenApplyingProgress() {
+        JdbcTemplate jdbc = Mockito.mock(JdbcTemplate.class);
+        when(jdbc.update(startsWith("INSERT IGNORE"), any(Object[].class))).thenReturn(1);
+        DownloadJobEventHandler jobs = Mockito.mock(DownloadJobEventHandler.class);
+        UUID jobId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        String event = progressed(jobId, itemId).replace("\"status\":\"DOWNLOADING\"",
+                "\"status\":\"FAILED\",\"errorCode\":\"source_revalidation_http_618\"");
+
+        listener(jdbc, jobs).receive(message(event));
+
+        verify(jobs).applyProgress(jobId, itemId,
+                es.ubu.batchdownloader.downloads.domain.DownloadItemStatus.FAILED,
+                42L, null, "source_revalidation_http_618");
+    }
+
     /**
      * Comprueba el escenario {@code rejectsMalformedMessagesWithoutClaimingAnInboxRecord}.
      */

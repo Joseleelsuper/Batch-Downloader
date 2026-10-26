@@ -583,9 +583,11 @@ async def test_manual_inspection_encrypts_optional_platform_urls_and_requires_on
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("github_redirect", [False, True])
 async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidates(
     internal_api: InternalApiFixture,
     monkeypatch,
+    github_redirect: bool,
 ) -> None:
     """Comprueba el escenario `manual_apply_revalidates_and_persists_multiple_encrypted_candidates`.
 
@@ -595,6 +597,9 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
     """
     app = await internal_api.add_unresolved_app()
     windows_url = "https://downloads.example.test/ManualSetup-1.2.0.exe"
+    if github_redirect:
+        windows_url = "https://github.com/vendor/app/releases/download/v1.2.0/ManualSetup-1.2.0.exe"
+    windows_domain = "githubusercontent.com" if github_redirect else "example.test"
     linux_url = "https://downloads.example.test/manual-setup-1.2.0.AppImage"
     source_page_url = "https://example.test/download"
 
@@ -647,7 +652,7 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
             },
         },
         "installer": {
-            "finalDomain": "example.test",
+            "finalDomain": windows_domain,
             "filename": "ManualSetup-1.2.0.exe",
             "extension": ".exe",
             "contentType": "application/x-msdownload",
@@ -659,7 +664,7 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
         },
         "installers": [
             {
-                "finalDomain": "example.test",
+                "finalDomain": windows_domain,
                 "filename": "ManualSetup-1.2.0.exe",
                 "extension": ".exe",
                 "contentType": "application/x-msdownload",
@@ -719,19 +724,23 @@ async def test_manual_apply_revalidates_and_persists_multiple_encrypted_candidat
             else "application/x-msdownload"
         )
         size_bytes = 8192 if is_linux else 4096
+        final_url = (
+            "https://release-assets.githubusercontent.com/asset?sig=temporary"
+            if github_redirect and not is_linux else installer_url
+        )
         return ValidatedManualInstaller(
             result=ValidationResult(
                 ok=True,
                 url=installer_url,
-                final_url=installer_url,
-                final_domain="example.test",
+                final_url=final_url,
+                final_domain="example.test" if is_linux else windows_domain,
                 filename=filename,
                 extension=extension,
                 content_type=content_type,
                 size_bytes=size_bytes,
                 confidence=ValidationConfidence.VALIDATED,
             ),
-            final_url=installer_url,
+            final_url=final_url,
             version="1.2.0",
             operating_system=expected_operating_system,
             architecture="x86_64",
@@ -1228,6 +1237,8 @@ async def test_internal_resolution_rejects_non_verified_sources(
     _app, resolved, _download_url = await internal_api.add_source(
         confidence="attested",
     )
+    resolved.metadata_json = {**resolved.metadata_json, "last_revalidation_error": "http_404"}
+    await internal_api.session.commit()
 
     response = await internal_api.client.get(
         f"/internal/v1/sources/{resolved.id}/resolution",
@@ -1237,6 +1248,7 @@ async def test_internal_resolution_rejects_non_verified_sources(
     assert response.status_code == 409
     assert response.json()["trustStatus"] == "ATTESTED"
     assert response.json()["url"] is None
+    assert "detail" not in response.json()
 
 
 @pytest.mark.asyncio
@@ -1294,6 +1306,134 @@ async def test_internal_resolution_revalidates_expired_candidate_before_revealin
     assert response.json()["trustStatus"] == "VERIFIED"
     assert resolved.expires_at > utc_now()
     assert resolved.validation_status == ValidationStatus.VALID.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expires_in_hours", [-1, 1])
+@pytest.mark.parametrize("input_kind", ["general", "windows", "secondary"])
+async def test_internal_resolution_recovers_manual_github_links_without_reusing_signed_urls(
+    internal_api: InternalApiFixture, monkeypatch, expires_in_hours, input_kind,
+) -> None:
+    """Recupera el mismo asset manual y conserva su enlace estable tras renovar la evidencia."""
+    app, resolved, _ = await internal_api.add_source(
+        confidence="validated", expires_in_hours=expires_in_hours,
+    )
+    stable_url = "https://github.com/vendor/app/releases/download/v1.2.0/AppSetup.exe"
+    stale_url = "https://release-assets.githubusercontent.com/asset?sig=expired"
+    fresh_url = "https://release-assets.githubusercontent.com/asset?sig=fresh"
+    protector = UrlProtector(URL_SECRET)
+    primary_ref = uuid4() if input_kind == "secondary" else resolved.id
+    inspection = ManualInstallerInspection(
+        id=uuid4(), software_app_id=app.id, status="applied", phase="applied",
+        captured_app_version=app.version, input_hash="a" * 64,
+        source_page_url_encrypted=protector.protect("https://github.com/vendor/app"),
+        source_ref=primary_ref,
+        result_json={"appliedSourceRefs": (
+            [str(primary_ref), str(resolved.id)] if input_kind == "secondary"
+            else [str(resolved.id)]
+        )},
+        expires_at=utc_after(hours=-1),
+    )
+    if input_kind == "general":
+        inspection.installer_url_encrypted = protector.protect(stable_url)
+    else:
+        inspection.windows_installer_url_encrypted = protector.protect(stable_url)
+    if input_kind == "secondary":
+        inspection.installer_url_encrypted = protector.protect(
+            "https://github.com/vendor/app/releases/download/v1.2.0/OtherSetup.exe"
+        )
+    internal_api.session.add(inspection)
+    resolved.metadata_json = {
+        **resolved.metadata_json, "candidate_source": "admin_manual",
+        "inspection_id": str(inspection.id),
+    }
+    resolved.resolved_url_encrypted = protector.protect(stale_url)
+    await internal_api.session.commit()
+    validation_calls = []
+
+    async def validate(_validator, candidate):
+        assert not internal_api.session.in_transaction()
+        validation_calls.append(candidate.url)
+        if candidate.url == stale_url:
+            return ValidationResult(ok=False, url=candidate.url, reason="http_618")
+        assert candidate.url == stable_url
+        return ValidationResult(
+            ok=True, url=candidate.url, final_url=fresh_url,
+            filename="AppSetup.exe", extension=".exe", size_bytes=4096,
+            confidence=ValidationConfidence.VALIDATED,
+        )
+
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    path = f"/internal/v1/sources/{resolved.id}/resolution"
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    response = await internal_api.client.get(path, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["sourceRef"] == str(resolved.id)
+    assert response.json()["appId"] == str(app.id)
+    assert response.json()["trustStatus"] == "VERIFIED"
+    assert response.json()["url"] == (fresh_url if expires_in_hours < 0 else stable_url)
+    assert validation_calls == ([stable_url] if expires_in_hours < 0 else [])
+    if expires_in_hours < 0:
+        assert protector.reveal(resolved.resolved_url_encrypted) == stable_url
+
+    resolved.expires_at = utc_after(hours=-1)
+    await internal_api.session.commit()
+    repeated = await internal_api.client.get(path, headers=headers)
+    assert repeated.status_code == 200
+    assert validation_calls[-1] == stable_url
+    assert protector.reveal(resolved.resolved_url_encrypted) == stable_url
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mismatch", ["app", "source", "platform", "unapplied", "missing", "unreadable", "invalid_id"],
+)
+async def test_internal_resolution_only_recovers_the_applied_manual_github_input(
+    internal_api: InternalApiFixture, monkeypatch, mismatch,
+) -> None:
+    """Una inspección ajena, incompleta o ilegible no sustituye el instalador seleccionado."""
+    app, resolved, _ = await internal_api.add_source(confidence="validated", expires_in_hours=-1)
+    stable_url = "https://github.com/vendor/app/releases/download/v1.2.0/AppSetup.exe"
+    stale_url = "https://release-assets.githubusercontent.com/asset?sig=expired"
+    protector = UrlProtector(URL_SECRET)
+    protected_input = "unreadable" if mismatch == "unreadable" else protector.protect(stable_url)
+    inspection = ManualInstallerInspection(
+        id=uuid4(), software_app_id=uuid4() if mismatch == "app" else app.id,
+        status="ready" if mismatch == "unapplied" else "applied", phase="applied",
+        captured_app_version=app.version, input_hash="a" * 64,
+        source_page_url_encrypted=protector.protect("https://github.com/vendor/app"),
+        source_ref=uuid4() if mismatch == "source" else resolved.id,
+        expires_at=utc_after(hours=-1),
+    )
+    if mismatch == "platform":
+        inspection.linux_installer_url_encrypted = protected_input
+    else:
+        inspection.windows_installer_url_encrypted = protected_input
+    if mismatch != "missing":
+        internal_api.session.add(inspection)
+    resolved.metadata_json = {
+        **resolved.metadata_json, "candidate_source": "admin_manual",
+        "inspection_id": "invalid" if mismatch == "invalid_id" else str(inspection.id),
+    }
+    resolved.resolved_url_encrypted = protector.protect(stale_url)
+    await internal_api.session.commit()
+
+    async def validate(_validator, candidate):
+        assert candidate.url == stale_url
+        assert not internal_api.session.in_transaction()
+        return ValidationResult(ok=False, url=candidate.url, reason="http_618")
+
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "source_revalidation_transient", "reasonCode": "http_618"}
+    }
+    assert resolved.validation_status == ValidationStatus.VALID.value
+    assert protector.reveal(resolved.resolved_url_encrypted) == stale_url
 
 
 @pytest.mark.asyncio
@@ -1418,6 +1558,7 @@ async def test_internal_resolution_keeps_failed_revalidation_secret(
     assert download_url not in response.text
     assert resolved.validation_status == ValidationStatus.EXPIRED.value
     assert resolved.metadata_json["last_revalidation_error"] == "http_404"
+    assert response.json()["detail"]["reasonCode"] == "http_404"
 
 
 @pytest.mark.asyncio
@@ -1461,10 +1602,67 @@ async def test_internal_resolution_does_not_invalidate_on_transient_revalidation
     )
 
     assert response.status_code == 503
-    assert response.json() == {"detail": {"code": "source_revalidation_transient"}}
+    assert response.json() == {
+        "detail": {"code": "source_revalidation_transient", "reasonCode": "http_503"}
+    }
     assert resolved.validation_status == ValidationStatus.VALID.value
     assert resolved.checked_at == previous_checked_at
     assert resolved.metadata_json == previous_metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason, status", [
+    ("http_618", 503), ("http_404", 409), ("html_response", 409),
+    ("source_not_verified", 503), ("http_618?sig=private", 409),
+])
+async def test_resolution_only_exposes_safe_failure_reasons(
+    internal_api: InternalApiFixture, monkeypatch, reason, status,
+) -> None:
+    """La respuesta conserva el HTTP de origen sin publicar URLs ni texto arbitrario."""
+    _, resolved, download_url = await internal_api.add_source(
+        confidence="validated", expires_in_hours=-1,
+    )
+
+    async def validate(_validator, candidate):
+        return ValidationResult(ok=False, url=candidate.url, reason=reason)
+
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == status
+    if reason == "http_618?sig=private":
+        assert "detail" not in response.json()
+        assert "private" not in response.text
+    else:
+        assert response.json()["detail"]["reasonCode"] == reason
+    assert download_url not in response.text
+    assert INTERNAL_TOKEN not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type, reason", [
+    (httpx.ReadTimeout, "timeout"), (httpx.ConnectError, "network_error"),
+])
+async def test_resolution_reports_transport_failure_without_exception_text(
+    internal_api: InternalApiFixture, monkeypatch, error_type, reason,
+) -> None:
+    _, resolved, _ = await internal_api.add_source(confidence="validated", expires_in_hours=-1)
+
+    async def validate(_validator, _candidate):
+        raise error_type("private URL and credentials")
+
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "source_revalidation_transient", "reasonCode": reason}
+    }
+    assert "private" not in response.text
 
 
 @pytest.mark.asyncio

@@ -56,6 +56,8 @@ class InternalSourceResolution(BaseModel):
     extension: str | None = None
     installation_profile: dict | None = Field(default=None, alias="installationProfile")
     signature_base64: str | None = Field(default=None, alias="signatureBase64")
+    # Solo la ruta de rechazo publica este motivo seguro dentro de detail.reasonCode.
+    failure_reason: str | None = Field(default=None, exclude=True)
 
 
 class InternalSourceSize(BaseModel):

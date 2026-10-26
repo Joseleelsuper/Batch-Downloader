@@ -470,6 +470,36 @@
   font-size: 11px;
 }
 
+.download-job-issues > summary {
+  min-height: 44px;
+  padding-block: 12px;
+  color: var(--teal-dark);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.download-job-issues > summary:focus-visible {
+  outline: 2px solid var(--teal-dark);
+  outline-offset: 2px;
+}
+
+.download-job-issue-details {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.download-job-issue-details dt {
+  margin-bottom: 2px;
+  font-weight: 650;
+}
+
+.download-job-issue-details dd {
+  margin: 0;
+}
+
 .download-job-auto-notice {
   line-height: 1.45;
 }

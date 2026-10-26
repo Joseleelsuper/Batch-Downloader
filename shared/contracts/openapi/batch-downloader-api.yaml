@@ -1225,6 +1225,53 @@ paths:
                       enum: [completed, partial, failed]
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /internal/v1/sources/{sourceRef}/resolution:
+    x-service: scraper
+    servers:
+    - url: http://scraper-api:8000
+    get:
+      operationId: getInternalSourceResolution
+      summary: Resolver y revalidar el instalador exacto del trabajo
+      description: Solo el worker recibe la URL privada de una fuente verificada.
+        Los rechazos conservan los campos existentes y pueden añadir detail.reasonCode
+        con una causa segura. Un HTTP del proveedor se expresa como http_618, por ejemplo;
+        no se incluyen URLs, cuerpos de respuesta ni mensajes de excepción en el diagnóstico.
+      security:
+      - internalServiceToken: []
+      parameters:
+      - name: sourceRef
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Fuente exacta verificada y expectativas del instalador.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalSourceResolution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Fuente no verificada, con URL null y causa segura cuando se conoce.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalSourceResolution'
+        '503':
+          description: Revalidación transitoria; conserva la fuente para futuros intentos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [detail]
+                properties:
+                  detail:
+                    $ref: '#/components/schemas/InternalSourceFailureDetail'
   /internal/v1/sources/{sourceRef}/size:
     x-service: scraper
     servers:
@@ -3837,6 +3884,8 @@ components:
           type: [string, 'null']
         errorCode:
           type: [string, 'null']
+          description: Código seguro del fallo individual, incluido source_revalidation_http_618
+            cuando se conoce el HTTP del proveedor. Sin URLs ni texto libre del proveedor.
     DownloadJob:
       type: object
       required: [id, status, progress, requestedCount, acceptedCount, omittedCount, failureCode, items, createdAt, expiresAt]
@@ -3919,6 +3968,44 @@ components:
         expiresAt:
           type: string
           format: date-time
+    InternalSourceFailureDetail:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          description: Código compatible del rechazo de resolución.
+        reasonCode:
+          type: string
+          maxLength: 80
+          description: Motivo permitido del validador, timeout, network_error o http seguido
+            de un guion bajo y tres cifras. El worker valida la lista permitida y conserva
+            códigos como source_revalidation_http_618 en errorCode; no infiere caducidad
+            de un enlace únicamente a partir del estado HTTP.
+          examples: [http_618, http_404, timeout, installer_signature_mismatch]
+    InternalSourceResolution:
+      type: object
+      additionalProperties: false
+      required: [sourceRef, appId, url, expectedFilename, expectedSizeBytes, expectedSha256,
+        expectedMime, operatingSystem, architecture, trustStatus]
+      properties:
+        sourceRef: {type: string, format: uuid}
+        appId: {type: string, format: uuid}
+        url: {type: [string, 'null'], format: uri}
+        expectedFilename: {type: [string, 'null']}
+        expectedSizeBytes: {type: [integer, 'null'], minimum: 0}
+        expectedSha256: {type: [string, 'null']}
+        expectedMime: {type: [string, 'null']}
+        operatingSystem: {type: string}
+        architecture: {type: string}
+        trustStatus: {type: string, enum: [VERIFIED, ATTESTED, UNRESOLVED]}
+        appName: {type: [string, 'null']}
+        version: {type: [string, 'null']}
+        extension: {type: [string, 'null']}
+        installationProfile: {type: [object, 'null'], additionalProperties: true}
+        signatureBase64: {type: [string, 'null']}
+        detail:
+          $ref: '#/components/schemas/InternalSourceFailureDetail'
     InternalSourceSize:
       type: object
       required: [sourceRef, expectedSizeBytes]
