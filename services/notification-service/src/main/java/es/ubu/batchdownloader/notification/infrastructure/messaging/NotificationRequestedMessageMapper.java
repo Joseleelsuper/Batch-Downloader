@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * Valida el sobre recibido de RabbitMQ y lo convierte en una solicitud de correo de dominio.
  *
  * Comprueba ruta, tipo, versión, destinatario único, escalares y requisitos de la plantilla. Los
- * tokens de identidad deben llegar como sobres enc:v1; esta conversión no los descifra.
+ * tokens de identidad deben llegar como sobres enc:v2; esta conversión no los descifra.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.notification.domain.EmailNotification
@@ -116,16 +116,16 @@ public class NotificationRequestedMessageMapper {
      * @param parameters Valores escalares de la plantilla; los tokens de identidad llegan cifrados.
      * @throws
      *     es.ubu.batchdownloader.notification.infrastructure.messaging.InvalidNotificationEventException si
-     *     faltan datos, tienen un formato inválido o el token no usa enc:v1.
+     *     faltan datos, tienen un formato inválido o el token no usa enc:v2.
      */
     private void validateParameters(EmailNotification.Template template, Map<String, Object> parameters) {
         parameters.forEach(this::validateScalarParameter);
         switch (template) {
             case MAGIC_LINK -> {
                 String token = requireParameter(parameters, "token");
-                if (!NotificationTokenEnvelope.isVersion1(token)) {
+                if (!NotificationTokenEnvelope.isVersion2(token)) {
                     throw new InvalidNotificationEventException(
-                            "payload.parameters.token debe usar el sobre enc:v1");
+                            "payload.parameters.token debe usar el sobre enc:v2");
                 }
                 Object expiry = parameters.get("expiresInMinutes");
                 if (expiry != null) {

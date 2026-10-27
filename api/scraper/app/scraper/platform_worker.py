@@ -50,6 +50,8 @@ from app.scraper.candidates import (
 )
 from app.scraper.content_workers import enqueue_so_filter_for_app
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.http.fetchers import fetch_bounded_response
+from app.scraper.http.public_transport import PublicAsyncHTTPTransport
 from app.scraper.icon_resolver import IconResolver
 from app.scraper.installer_policy import (
     ValidInstaller,
@@ -707,10 +709,16 @@ class PlatformScraperWorker:
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
+                follow_redirects=False,
+                transport=PublicAsyncHTTPTransport(),
+                trust_env=False,
                 headers={"User-Agent": "BatchDownloaderScraper/0.1"},
             ) as client:
-                response = await client.get(official_url)
+                response = await fetch_bounded_response(
+                    client, official_url, timeout=self.settings.request_timeout_seconds,
+                    max_bytes=self.settings.manual_page_max_bytes,
+                    max_redirects=self.settings.max_redirects,
+                )
                 response.raise_for_status()
                 if "html" in response.headers.get("content-type", "").lower():
                     html = response.text
@@ -764,7 +772,11 @@ class PlatformScraperWorker:
                 list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
             """
             try:
-                response = await client.get(landing.url)
+                response = await fetch_bounded_response(
+                    client, landing.url, timeout=self.settings.request_timeout_seconds,
+                    max_bytes=self.settings.manual_page_max_bytes,
+                    max_redirects=self.settings.max_redirects,
+                )
             except Exception:
                 return []
             if not response.is_success:
@@ -787,7 +799,9 @@ class PlatformScraperWorker:
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
+                follow_redirects=False,
+                transport=PublicAsyncHTTPTransport(),
+                trust_env=False,
                 headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
             ) as client:
                 tasks = [
@@ -902,7 +916,9 @@ class PlatformScraperWorker:
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
+                follow_redirects=False,
+                transport=PublicAsyncHTTPTransport(),
+                trust_env=False,
                 headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
             ) as client:
                 batches = await asyncio.gather(
@@ -947,11 +963,15 @@ class PlatformScraperWorker:
         if homepage and registered_domain(homepage) == registered_domain(landing.url):
             headers["Referer"] = homepage
         try:
-            async with client.stream("GET", landing.url, headers=headers) as response:
-                page = await read_limited_html(response)
-                if page is None:
-                    return []
-                html, base_url = page
+            response = await fetch_bounded_response(
+                client, landing.url, timeout=self.settings.request_timeout_seconds,
+                max_bytes=self.settings.manual_page_max_bytes,
+                max_redirects=self.settings.max_redirects, headers=headers,
+            )
+            page = await read_limited_html(response)
+            if page is None:
+                return []
+            html, base_url = page
         except Exception:
             return []
 

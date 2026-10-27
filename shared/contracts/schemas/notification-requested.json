@@ -25,9 +25,11 @@
         "template": { "enum": ["MAGIC_LINK"] },
         "parameters": {
           "type": "object",
-          "description": "Parámetros de plantilla. En MAGIC_LINK, token debe ser un sobre AES-GCM enc:v1:; el texto claro se rechaza.",
+          "description": "Parámetros de plantilla. token usa AES-GCM enc:v2: autenticado con recipient y template; se rechazan texto claro y sobres enc:v1: sin contexto.",
+          "required": ["token"],
           "additionalProperties": { "type": ["string", "number", "boolean"] },
           "properties": {
+            "token": { "type": "string", "pattern": "^enc:v2:" },
             "expiresInMinutes": { "type": "integer", "minimum": 1 }
           }
         }

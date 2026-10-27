@@ -19,6 +19,17 @@ import org.junit.jupiter.api.Test;
  * @category Pruebas de procesamiento y capacidad
  */
 class FilenamePolicyTest {
+    @Test
+    void boundsUtf8BytesAndDuplicateSuffixesWithoutBreakingCharacters() {
+        Set<String> names = policy.newNameSet();
+        int reserved = names.size();
+        for (int index = 0; index < 3; index++) {
+            String filename = policy.manualShortcutFilename("应用🚀".repeat(60), names);
+            assertThat(filename.getBytes(java.nio.charset.StandardCharsets.UTF_8)).hasSizeLessThanOrEqualTo(180);
+            assertThat(filename).endsWith(".url").doesNotContain("\uFFFD");
+        }
+        assertThat(names).hasSize(reserved + 3);
+    }
     /**
      * Dato compartido {@code policy} para los escenarios de prueba.
      */

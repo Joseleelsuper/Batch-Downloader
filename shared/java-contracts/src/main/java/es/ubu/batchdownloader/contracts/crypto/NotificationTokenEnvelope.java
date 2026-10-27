@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.contracts.crypto;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -13,7 +14,7 @@ import javax.crypto.spec.SecretKeySpec;
  * Intercambia tokens de identidad cifrados y autenticados entre el productor Core y el consumidor
  * de correo.
  *
- * El formato enc:v1 combina un nonce de 12 bytes con AES-256-GCM y datos asociados fijos.
+ * El formato enc:v2 combina un nonce de 12 bytes con AES-256-GCM y autentica destinatario y finalidad.
  * El productor genera un nonce nuevo por cifrado; el consumidor rechaza sobres alterados,
  * versiones no admitidas y claves incompatibles antes de utilizar el token.
  *
@@ -24,11 +25,11 @@ import javax.crypto.spec.SecretKeySpec;
  * @category Contratos compartidos
  */
 public final class NotificationTokenEnvelope {
-    public static final String VERSION_PREFIX = "enc:v1:";
+    public static final String VERSION_PREFIX = "enc:v2:";
     private static final int NONCE_BYTES = 12;
     private static final int TAG_BITS = 128;
     private static final byte[] AAD =
-            "batch-downloader.notification-token.v1".getBytes(StandardCharsets.US_ASCII);
+            "batch-downloader.notification-token.v2".getBytes(StandardCharsets.US_ASCII);
 
     private final SecretKeySpec key;
     private final SecureRandom random;
@@ -73,7 +74,7 @@ public final class NotificationTokenEnvelope {
     }
 
     /**
-     * Cifra el token en UTF-8 con autenticación y lo serializa en un sobre enc:v1 sin relleno
+     * Cifra el token en UTF-8 con autenticación y lo serializa en un sobre enc:v2 sin relleno
      * Base64.
      * La entrada pública genera el nonce; la variante interna permite verificar vectores del
      * contrato.
@@ -81,34 +82,38 @@ public final class NotificationTokenEnvelope {
      * @param plaintext Token de un solo uso no vacío que debe ocultarse durante su transporte y
      *     almacenamiento.
      *
+     * @param recipient Destinatario autenticado junto al token; se eliminan solo espacios exteriores.
+     * @param purpose Finalidad exacta de la plantilla autenticada junto al destinatario.
      * @return sobre versionado apto para JSON y transporte de eventos.
      * @throws IllegalArgumentException si el token está vacío o el nonce explícito no contiene 12
      *     bytes.
      *
      * @throws IllegalStateException si el proveedor criptográfico no puede completar el cifrado.
-     * @see NotificationTokenEnvelope#decrypt(String)
+     * @see NotificationTokenEnvelope#decrypt(String, String, String)
      */
-    public String encrypt(String plaintext) {
+    public String encrypt(String plaintext, String recipient, String purpose) {
         byte[] nonce = new byte[NONCE_BYTES];
         random.nextBytes(nonce);
-        return encrypt(plaintext, nonce);
+        return encrypt(plaintext, recipient, purpose, nonce);
     }
 
     /**
      * Verifica versión, longitud y autenticidad del sobre antes de revelar su token UTF-8.
      *
-     * @param envelopeValue Sobre enc:v1 en Base64 URL que contiene nonce, texto cifrado y etiqueta
+     * @param envelopeValue Sobre enc:v2 en Base64 URL que contiene nonce, texto cifrado y etiqueta
      *     de autenticación.
      *
-     * @return token descifrado únicamente tras validar la etiqueta GCM.
-     * @throws IllegalArgumentException si el texto no comienza por enc:v1.
+     * @param recipient Destinatario esperado, que debe coincidir con el usado al cifrar.
+     * @param purpose Finalidad esperada, que debe coincidir con la usada al cifrar.
+     * @return token descifrado únicamente tras validar la etiqueta GCM y su contexto.
+     * @throws IllegalArgumentException si el texto no comienza por enc:v2.
      * @throws IllegalStateException si Base64, longitud, clave o etiqueta de autenticación impiden
      *     descifrarlo.
      *
-     * @see NotificationTokenEnvelope#encrypt(String)
+     * @see NotificationTokenEnvelope#encrypt(String, String, String)
      */
-    public String decrypt(String envelopeValue) {
-        if (!isVersion1(envelopeValue)) {
+    public String decrypt(String envelopeValue, String recipient, String purpose) {
+        if (!isVersion2(envelopeValue)) {
             throw new IllegalArgumentException("notification_token_envelope_version_required");
         }
         try {
@@ -121,7 +126,7 @@ public final class NotificationTokenEnvelope {
             byte[] ciphertext = Arrays.copyOfRange(envelope, NONCE_BYTES, envelope.length);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, nonce));
-            cipher.updateAAD(AAD);
+            cipher.updateAAD(context(recipient, purpose));
             return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
         } catch (GeneralSecurityException | IllegalArgumentException exception) {
             throw new IllegalStateException("notification_token_decryption_failed", exception);
@@ -129,17 +134,17 @@ public final class NotificationTokenEnvelope {
     }
 
     /**
-     * Comprueba únicamente la marca enc:v1, sin validar ni descifrar el resto del contenido.
+     * Comprueba únicamente la marca enc:v2, sin validar ni descifrar el resto del contenido.
      *
      * @param value Cadena cuya marca de versión se comprueba; admite null.
      * @return true si el prefijo es reconocido; no implica que el sobre sea auténtico.
      */
-    public static boolean isVersion1(String value) {
+    public static boolean isVersion2(String value) {
         return value != null && value.startsWith(VERSION_PREFIX);
     }
 
     /**
-     * Cifra el token en UTF-8 con autenticación y lo serializa en un sobre enc:v1 sin relleno
+     * Cifra el token en UTF-8 con autenticación y lo serializa en un sobre enc:v2 sin relleno
      * Base64.
      * La entrada pública genera el nonce; la variante interna permite verificar vectores del
      * contrato.
@@ -147,6 +152,8 @@ public final class NotificationTokenEnvelope {
      * @param plaintext Token de un solo uso no vacío que debe ocultarse durante su transporte y
      *     almacenamiento.
      *
+     * @param recipient Destinatario autenticado junto al token.
+     * @param purpose Finalidad exacta de la plantilla.
      * @param nonce Nonce de 12 bytes que no debe reutilizarse con la misma clave; el overload
      *     público lo genera.
      *
@@ -155,9 +162,9 @@ public final class NotificationTokenEnvelope {
      *     bytes.
      *
      * @throws IllegalStateException si el proveedor criptográfico no puede completar el cifrado.
-     * @see NotificationTokenEnvelope#decrypt(String)
+     * @see NotificationTokenEnvelope#decrypt(String, String, String)
      */
-    String encrypt(String plaintext, byte[] nonce) {
+    String encrypt(String plaintext, String recipient, String purpose, byte[] nonce) {
         if (plaintext == null || plaintext.isBlank()) {
             throw new IllegalArgumentException("notification_token_required");
         }
@@ -167,7 +174,7 @@ public final class NotificationTokenEnvelope {
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, nonce));
-            cipher.updateAAD(AAD);
+            cipher.updateAAD(context(recipient, purpose));
             byte[] ciphertext = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
             byte[] envelope = new byte[nonce.length + ciphertext.length];
             System.arraycopy(nonce, 0, envelope, 0, nonce.length);
@@ -177,5 +184,15 @@ public final class NotificationTokenEnvelope {
         } catch (GeneralSecurityException exception) {
             throw new IllegalStateException("notification_token_encryption_failed", exception);
         }
+    }
+
+    private static byte[] context(String recipient, String purpose) {
+        if (recipient == null || recipient.isBlank() || purpose == null || purpose.isBlank()) {
+            throw new IllegalArgumentException("notification_token_context_required");
+        }
+        byte[] address = recipient.strip().getBytes(StandardCharsets.UTF_8);
+        byte[] template = purpose.getBytes(StandardCharsets.UTF_8);
+        return ByteBuffer.allocate(AAD.length + 8 + address.length + template.length)
+                .put(AAD).putInt(address.length).put(address).putInt(template.length).put(template).array();
     }
 }

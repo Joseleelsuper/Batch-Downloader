@@ -25,6 +25,8 @@ from app.scraper.candidates import (
     registered_domain,
 )
 from app.scraper.github import GitHubReleaseResolver
+from app.scraper.http.fetchers import fetch_bounded_response
+from app.scraper.http.public_transport import PublicAsyncHTTPTransport
 from app.scraper.installer_policy import (
     dedupe_candidates,
     fallback_candidates,
@@ -198,10 +200,16 @@ class FilterWorker:
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
+                follow_redirects=False,
+                transport=PublicAsyncHTTPTransport(),
+                trust_env=False,
                 headers={"User-Agent": "BatchDownloaderScraper/0.1"},
             ) as client:
-                response = await client.get(url)
+                response = await fetch_bounded_response(
+                    client, url, timeout=self.settings.request_timeout_seconds,
+                    max_bytes=self.settings.manual_page_max_bytes,
+                    max_redirects=self.settings.max_redirects,
+                )
         except Exception:
             return False
         if response.status_code >= 400:

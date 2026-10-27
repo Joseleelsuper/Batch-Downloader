@@ -1,9 +1,11 @@
 import {
   createContext,
   type ReactNode,
+  type SetStateAction,
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -138,9 +140,37 @@ function requestErrorMessage(t: Translator, cause: unknown): string {
   return translated === knownKey ? t('download.job.createFailed') : translated;
 }
 
-export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNode }>) {
+function readScopedJobs(accountScope: string | null): TrackedDownloadJob[] {
+  if (accountScope === null) return [];
+  try {
+    const key = 'batch-downloader.account-scope.v1';
+    const previous = window.sessionStorage.getItem(key);
+    if ((previous && previous !== accountScope) || (!previous && accountScope !== 'anonymous')) {
+      window.sessionStorage.removeItem(STORAGE_KEY);
+    }
+    window.sessionStorage.setItem(key, accountScope);
+  } catch { return []; }
+  return readStoredJobs();
+}
+
+export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: Readonly<{
+  children: ReactNode;
+  accountScope?: string | null;
+}>) {
   const t = useTranslation();
-  const [jobs, setJobs] = useState<TrackedDownloadJob[]>(readStoredJobs);
+  const [jobState, setJobState] = useState(() => ({
+    scope: accountScope, jobs: readScopedJobs(accountScope),
+  }));
+  const jobs = useMemo(
+    () => jobState.scope === accountScope ? jobState.jobs : [], [accountScope, jobState],
+  );
+  const setJobs = useCallback((update: SetStateAction<TrackedDownloadJob[]>) => {
+    setJobState((current) => current.scope === accountScope ? {
+      scope: accountScope,
+      jobs: typeof update === 'function' ? update(current.jobs) : update,
+    } : current);
+  }, [accountScope]);
+  const lifetime = useRef(new AbortController());
   const [startError, setStartError] = useState<string | null>(null);
   const jobsRef = useRef(jobs);
   const destinations = useRef(new Map<string, DownloadFileHandle>());
@@ -151,33 +181,47 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
     resolve: (selection: LinuxSelection) => void;
     reject: (error: Error) => void;
   } | null>(null);
-  useEffect(() => () => {
-    linuxPending.current?.reject(new Error('linux_selection_cancelled'));
-    linuxPending.current = null;
-  }, []);
+  const attemptedDownloads = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    const controller = new AbortController();
+    const destinationHandles = destinations.current;
+    lifetime.current = controller;
+    const restored = readScopedJobs(accountScope);
+    setJobState({ scope: accountScope, jobs: restored });
+    setStartError(null);
+    setLinuxRequest(null);
+    attemptedDownloads.current = new Set(
+      restored.filter((entry) => entry.autoDownloadAttempted).map((entry) => entry.id),
+    );
+    deliveries.current.clear();
+    return () => {
+      controller.abort();
+      linuxPending.current?.reject(new Error('linux_selection_cancelled'));
+      linuxPending.current = null;
+      destinationHandles.clear();
+    };
+  }, [accountScope]);
   jobsRef.current = jobs;
-  const attemptedDownloads = useRef(new Set(
-    jobs.filter((entry) => entry.autoDownloadAttempted).map((entry) => entry.id),
-  ));
 
   useEffect(() => {
-    persistJobs(jobs);
-  }, [jobs]);
+    if (accountScope !== null && jobState.scope === accountScope) persistJobs(jobState.jobs);
+  }, [accountScope, jobState]);
 
   const updateJob = useCallback((jobId: string, job: DownloadJob) => {
+    if (lifetime.current.signal.aborted) return;
     setJobs((current) => current.map((entry) => entry.id === jobId
       ? { ...entry, job: { ...job, linux: job.linux ?? entry.job?.linux,
           deliveryStatus: entry.locallySaved && job.deliveryStatus !== 'CLEANING' ? 'SAVED' : job.deliveryStatus,
         }, connectionError: false }
       : entry));
-  }, []);
+  }, [setJobs]);
 
   const removeJob = useCallback((jobId: string) => {
     attemptedDownloads.current.delete(jobId);
     destinations.current.delete(jobId);
     try { window.localStorage.removeItem(`${STORAGE_KEY}.${jobId}.attempted`); } catch { /* unavailable */ }
     setJobs((current) => current.filter((entry) => entry.id !== jobId));
-  }, []);
+  }, [setJobs]);
 
   const reportConnectionError = useCallback((jobId: string, cause?: unknown) => {
     if (cause instanceof ApiRequestError && cause.status === 401) {
@@ -192,13 +236,13 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
     setJobs((current) => current.map((entry) => entry.id === jobId
       ? { ...entry, connectionError: true }
       : entry));
-  }, [removeJob]);
+  }, [removeJob, setJobs]);
 
   const reportAutoDownloadError = useCallback((jobId: string, cause?: unknown) => {
     setJobs((current) => current.map((entry) => entry.id === jobId
       ? { ...entry, actionError: actionFailure(cause) }
       : entry));
-  }, []);
+  }, [setJobs]);
 
   const claimAutoDownload = useCallback((jobId: string): boolean => {
     if (attemptedDownloads.current.has(jobId)) return false;
@@ -210,9 +254,11 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
     persistJobs(next);
     setJobs(next);
     return true;
-  }, []);
+  }, [setJobs]);
 
   const deliver = useCallback(async (jobId: string, automatic: boolean) => {
+    const signal = lifetime.current.signal;
+    if (signal.aborted) return;
     const currentEntry = jobsRef.current.find((entry) => entry.id === jobId);
     const job = currentEntry?.job;
     if (!job || !DOWNLOADABLE_DOWNLOAD_STATUSES.has(job.status)
@@ -237,6 +283,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
     void handlePromise.catch(() => undefined);
     const perform = async () => {
       const handle = await handlePromise;
+      signal.throwIfAborted();
       const marker = `${STORAGE_KEY}.${jobId}.attempted`;
       if (automatic) {
         try {
@@ -255,9 +302,10 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
           if (bytes !== job.artifactSizeBytes && Date.now() - lastRender < 250) return;
           lastRender = Date.now();
           updateTransferProgress(bytes);
-        }, markLocallySaved);
+        }, markLocallySaved, signal);
       } else {
-        const { url } = await retryDeliveryRequest(() => fetchDownloadJobFileLink(jobId));
+        const { url } = await retryDeliveryRequest(() => fetchDownloadJobFileLink(jobId), signal);
+        signal.throwIfAborted();
         const link = document.createElement('a');
         link.href = url;
         link.hidden = true;
@@ -283,17 +331,21 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       setJobs((current) => current.map((entry) => entry.id === jobId
         ? { ...entry, saving: false } : entry));
     }
-  }, [claimAutoDownload, reportAutoDownloadError]);
+  }, [claimAutoDownload, reportAutoDownloadError, setJobs]);
 
   const download = useCallback((jobId: string) => deliver(jobId, false), [deliver]);
 
   const start = useCallback(async (request: DownloadJobRequest, label?: string,
     chosenDestination?: Promise<DownloadFileHandle | undefined>) => {
+    const signal = lifetime.current.signal;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setStartError(null);
     try {
+      signal.throwIfAborted();
+      if (accountScope === null) throw new DOMException('Session pending', 'AbortError');
       // Must run directly in the original click, before any API request or Linux dialog.
       const destination = await (chosenDestination ?? chooseDownloadDestination());
+      signal.throwIfAborted();
       let selectedRequest = request;
       if (request.operatingSystems?.length === 1 && request.operatingSystems[0] === 'linux'
           && (!request.linuxTarget || !request.targetArchitecture)) {
@@ -305,7 +357,9 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
         });
         selectedRequest = { ...request, ...selection };
       }
+      signal.throwIfAborted();
       const created = await createDownloadJob(selectedRequest);
+      signal.throwIfAborted();
       if (destination) destinations.current.set(created.id, destination);
       setJobs((current) => {
         const withoutStaleCopy = current.filter((entry) => entry.id !== created.id);
@@ -328,7 +382,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       }
       throw cause;
     }
-  }, [t]);
+  }, [accountScope, setJobs, t]);
 
   const cancel = useCallback(async (jobId: string) => {
     const entry = jobs.find((candidate) => candidate.id === jobId);
@@ -348,7 +402,7 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
         ? { ...candidate, cancelling: false }
         : candidate));
     }
-  }, [jobs, updateJob]);
+  }, [jobs, setJobs, updateJob]);
 
   const dismiss = useCallback((jobId: string) => {
     setJobs((current) => {
@@ -358,13 +412,13 @@ export function DownloadJobsProvider({ children }: Readonly<{ children: ReactNod
       destinations.current.delete(jobId);
       return current.filter((candidate) => candidate.id !== jobId);
     });
-  }, []);
+  }, [setJobs]);
 
   const toggleMinimized = useCallback((jobId: string) => {
     setJobs((current) => current.map((entry) => entry.id === jobId
       ? { ...entry, minimized: !entry.minimized }
       : entry));
-  }, []);
+  }, [setJobs]);
 
   const value = useMemo<DownloadJobsContextValue>(() => ({
     jobs,

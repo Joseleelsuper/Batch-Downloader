@@ -10,6 +10,8 @@ import httpx
 from app.core.config import Settings
 from app.scraper.candidates import InstallerCandidate, extract_candidates, registered_domain
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.http.fetchers import BoundedResponseReader, fetch_bounded_response
+from app.scraper.http.public_transport import PublicAsyncHTTPTransport
 from app.scraper.installer_policy import (
     dedupe_candidates,
     github_collection_timeout_seconds,
@@ -38,10 +40,13 @@ async def collect_winstall_parent_index_candidates(
         async with httpx.AsyncClient(
             timeout=settings.request_timeout_seconds,
             follow_redirects=False,
+            transport=PublicAsyncHTTPTransport(),
+            trust_env=False,
             headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
         ) as client:
             batches = await asyncio.gather(
-                *(_fetch_parent(client, parent_url) for parent_url in parent_pages),
+                *(_fetch_parent(client, parent_url, settings.request_timeout_seconds)
+                  for parent_url in parent_pages),
                 return_exceptions=True,
             )
     except Exception:
@@ -100,17 +105,20 @@ async def collect_winstall_github_candidates(
 async def _fetch_parent(
     client: httpx.AsyncClient,
     parent_url: str,
+    timeout: float = 20,
 ) -> list[InstallerCandidate]:
     """Recupera un índice padre aplicando límites de red y tamaño."""
     parsed = urlparse(parent_url)
     if not await domain_has_public_dns(parsed.hostname):
         return []
     try:
-        async with client.stream("GET", parent_url) as response:
-            page = await read_limited_html(response)
-            if page is None:
-                return []
-            html, base_url = page
+        response = await fetch_bounded_response(
+            client, parent_url, timeout=timeout, max_bytes=1_000_000, follow_redirects=False,
+        )
+        page = await read_limited_html(response)
+        if page is None:
+            return []
+        html, base_url = page
     except Exception:
         return []
 
@@ -141,10 +149,5 @@ async def read_limited_html(response: httpx.Response) -> tuple[str, str] | None:
     """
     if not response.is_success or "html" not in response.headers.get("content-type", "").lower():
         return None
-    content = bytearray()
-    async for chunk in response.aiter_bytes():
-        remaining = 1_000_000 - len(content)
-        if remaining <= 0:
-            break
-        content.extend(chunk[:remaining])
-    return bytes(content).decode("utf-8", errors="ignore"), str(response.url)
+    content = await BoundedResponseReader().read(response, 1_000_000)
+    return content.decode("utf-8", errors="ignore"), str(response.url)

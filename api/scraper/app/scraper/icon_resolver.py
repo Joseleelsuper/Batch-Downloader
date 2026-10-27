@@ -18,6 +18,9 @@ from selectolax.parser import HTMLParser
 
 from app.core.config import Settings
 from app.scraper.github import parse_github_repo
+from app.scraper.http.fetchers import fetch_bounded_response
+from app.scraper.http.models import SafeHttpError
+from app.scraper.http.public_transport import PublicAsyncHTTPTransport
 from app.scraper.winstall import WinstallApp
 
 BADGE_MARKERS = (
@@ -88,6 +91,8 @@ class IconResolver:
         client = self.client or httpx.AsyncClient(
             timeout=self.settings.request_timeout_seconds,
             follow_redirects=False,
+            transport=PublicAsyncHTTPTransport(),
+            trust_env=False,
             headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
         )
         try:
@@ -409,8 +414,11 @@ class IconResolver:
             if not await public_https_url(candidate):
                 return None
             try:
-                response = await client.get(candidate, follow_redirects=False)
-            except httpx.HTTPError:
+                response = await fetch_bounded_response(
+                    client, candidate, timeout=self.settings.request_timeout_seconds,
+                    max_bytes=self.settings.manual_page_max_bytes, follow_redirects=False,
+                )
+            except (httpx.HTTPError, SafeHttpError):
                 return None
             if response.is_redirect:
                 location = response.headers.get("location")
@@ -439,11 +447,15 @@ class IconResolver:
             IconResult o None.
         """
         try:
-            response = await client.get(
+            response = await fetch_bounded_response(
+                client,
                 f"https://api.github.com/repos/{owner}/{repo}/readme",
                 headers={"Accept": "application/vnd.github.raw"},
+                timeout=self.settings.request_timeout_seconds,
+                max_bytes=self.settings.manual_page_max_bytes,
+                max_redirects=self.settings.max_redirects,
             )
-        except httpx.HTTPError:
+        except (httpx.HTTPError, SafeHttpError):
             return None
         if not response.is_success:
             return None

@@ -54,7 +54,7 @@ public class ResendNotificationSender {
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
      * @param mail Base pública utilizada para construir el enlace mágico de acceso.
-     * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
+     * @param tokens Descifrado del sobre enc:v2 vinculado a destinatario y finalidad.
      * @param translations Cliente interno de catálogos de correo.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      */
@@ -78,7 +78,7 @@ public class ResendNotificationSender {
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
      * @param mail Base pública utilizada para construir el enlace mágico de acceso.
-     * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
+     * @param tokens Descifrado del sobre enc:v2 vinculado a destinatario y finalidad.
      * @param translations Cliente interno de catálogos de correo.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      * @param client Cliente HTTP inyectable para controlar respuestas y fallos de transporte.
@@ -191,7 +191,8 @@ public class ResendNotificationSender {
      *     descifrarse.
      */
     private Rendered render(EmailNotification notification) {
-        String token = tokens.decrypt(notification.requiredParameter("token"));
+        String token = tokens.decrypt(notification.requiredParameter("token"),
+                notification.recipient(), notification.template().name());
         Map<String, String> catalog = translations.catalog(notification.locale());
         switch (notification.template()) {
             case MAGIC_LINK -> { }

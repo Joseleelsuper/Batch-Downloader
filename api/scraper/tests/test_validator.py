@@ -21,6 +21,27 @@ from app.scraper.validator import (
 )
 
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_plaintext_hop_cannot_become_verified_after_redirecting_to_https(monkeypatch):
+    async def public_dns(_hostname):
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    respx.head("http://publisher.example/app.exe").mock(return_value=httpx.Response(
+        302, headers={"location": "https://cdn.example/app.exe"},
+    ))
+    respx.head("https://cdn.example/app.exe").mock(return_value=httpx.Response(
+        200, headers={"content-type": "application/octet-stream", "content-length": "1024"},
+    ))
+    result = await DownloadValidator(Settings()).validate(InstallerCandidate(
+        url="http://publisher.example/app.exe", source="winstall_api",
+        asset_kind="winstall_download",
+    ))
+    assert result.ok
+    assert result.transport_security == "http_winstall_verified"
+
+
 def test_validator_uses_a_browser_compatible_user_agent() -> None:
     """Los CDN reciben una cabecera interoperable sin alterar el veredicto HTTP."""
     assert BROWSER_COMPATIBLE_USER_AGENT.startswith("Mozilla/5.0 (Windows NT 10.0")

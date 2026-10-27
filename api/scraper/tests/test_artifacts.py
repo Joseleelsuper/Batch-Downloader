@@ -47,3 +47,12 @@ def test_registry_exposes_unknown_architecture_instead_of_forcing_a_cpu_family()
 
     assert registry.infer_architecture("product-universal.pkg") == ArtifactArchitecture.UNKNOWN
     assert registry.infer_architecture("product-arm64.pkg") == ArtifactArchitecture.AARCH64
+
+
+def test_extension_detection_bounds_nested_queries_and_preserves_normal_redirects() -> None:
+    registry = DEFAULT_ARTIFACT_FORMAT_REGISTRY
+    assert registry.detect_extension(
+        "https://example.test/?to=https%3A%2F%2Fcdn.test%2Fapp.exe"
+    ) == ".exe"
+    assert registry.detect_extension("https://example.test/?a=" * 1500) is None
+    assert registry.detect_extension("https://example.test/?" + "a=x&" * 10000) is None

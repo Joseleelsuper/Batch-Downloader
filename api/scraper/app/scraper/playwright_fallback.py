@@ -4,10 +4,12 @@ visibles.
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from app.core.config import Settings
 from app.scraper.candidates import URL_PATTERN, InstallerCandidate, extract_candidates
+from app.scraper.http.browser_proxy import public_browser_proxy
 
 DOWNLOAD_CONTROL_PATTERN = re.compile(
     r"download|descargar|instalador|installer|setup|install|herunterladen|"
@@ -55,8 +57,16 @@ class PlaywrightCandidateCollector:
 
         collected: dict[str, InstallerCandidate] = {}
         try:
-            async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True)
+            async with (
+                asyncio.timeout(max(5, 2 * self.settings.playwright_timeout_ms / 1000)),
+                public_browser_proxy(self.settings.request_timeout_seconds) as proxy,
+                async_playwright() as playwright,
+            ):
+                browser = await playwright.chromium.launch(
+                    headless=True, proxy={"server": proxy},
+                    args=["--proxy-bypass-list=<-loopback>", "--disable-quic",
+                          "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
+                )
                 # Los embudos de descarga suelen mostrar el instalador solo a clientes de
                 # escritorio compatibles. Esto emula un navegador Windows neutro para
                 # revelar la ruta sin filtrar recursos de otras plataformas.
@@ -64,6 +74,7 @@ class PlaywrightCandidateCollector:
                     accept_downloads=False,
                     locale="en-US",
                     user_agent=WINDOWS_DESKTOP_USER_AGENT,
+                    service_workers="block",
                 )
                 page = await context.new_page()
 

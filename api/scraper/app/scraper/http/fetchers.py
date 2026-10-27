@@ -3,6 +3,7 @@ acotada de recursos públicos.
 """
 from __future__ import annotations
 
+import asyncio
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from urllib.parse import urljoin
 
@@ -10,6 +11,7 @@ import httpx
 
 from app.scraper.http.models import FetchRequest, SafeHttpError, SafeHttpResponse
 from app.scraper.http.ports import SingleHopExchange, UrlValidator
+from app.scraper.http.public_transport import PublicAsyncHTTPTransport
 
 
 class HttpxSingleHopExchange:
@@ -33,7 +35,7 @@ class HttpxSingleHopExchange:
             contexto HTTPX; el cliente debe tener seguimiento automático de redirecciones
                 desactivado.
         """
-        return self._client.stream("GET", url)
+        return self._client.stream("GET", url, follow_redirects=False)
 
 
 class TransportErrorMappingExchange:
@@ -128,8 +130,14 @@ class BoundedResponseReader:
                 bytes observados superan el máximo.
         """
         declared_size = response.headers.get("content-length")
+        if response.headers.get("content-encoding", "identity").lower() != "identity":
+            raise SafeHttpError("encoded_response_not_supported")
         if declared_size and declared_size.isdigit() and int(declared_size) > max_bytes:
             raise SafeHttpError("content_too_large")
+        if response.is_stream_consumed:
+            if len(response.content) > max_bytes:
+                raise SafeHttpError("content_too_large")
+            return response.content
         content = bytearray()
         async for chunk in response.aiter_raw():
             remaining = max_bytes + 1 - len(content)
@@ -176,6 +184,13 @@ class RedirectFollowingFetcher:
             app.scraper.http.models.SafeHttpError: Si falta Location, la redirección es
                 inválida, se agotan saltos, falla HTTP o se supera el límite de bytes.
         """
+        try:
+            async with asyncio.timeout(request.timeout):
+                return await self._fetch(request)
+        except TimeoutError as exc:
+            raise SafeHttpError("timeout", transient=True) from exc
+
+    async def _fetch(self, request: FetchRequest) -> SafeHttpResponse:
         current_url = request.url
         for _redirect in range(request.max_redirects + 1):
             async with self._exchange.stream(current_url) as response:
@@ -244,8 +259,11 @@ class HttpxPublicResourceFetcher:
         async with httpx.AsyncClient(
             timeout=request.timeout,
             follow_redirects=False,
+            transport=PublicAsyncHTTPTransport(),
+            trust_env=False,
             headers={
                 "Accept": request.accept,
+                "Accept-Encoding": "identity",
                 "User-Agent": "BatchDownloaderScraper/0.1",
             },
         ) as client:
@@ -253,3 +271,56 @@ class HttpxPublicResourceFetcher:
             exchange = TransportErrorMappingExchange(exchange)
             exchange = PublicHttpsExchange(exchange, self._validator)
             return await RedirectFollowingFetcher(exchange).fetch(request)
+
+
+async def fetch_bounded_response(
+    client: httpx.AsyncClient, url: str, *, timeout: float, max_bytes: int,
+    max_redirects: int = 5, headers=None, params=None, method: str = "GET", content=None,
+    follow_redirects: bool = True,
+) -> httpx.Response:
+    """Lee metadatos completos bajo un único deadline, sin buffers ni redirects implícitos.
+
+    El cliente de producción debe utilizar PublicAsyncHTTPTransport; los clientes inyectados
+    conservan su transporte para pruebas. Cada salto vuelve a pasar por ese transporte.
+    """
+    current = str(httpx.URL(url).copy_merge_params(params)) if params else url
+    request_headers = {**(headers or {}), "Accept-Encoding": "identity"}
+    try:
+        async with asyncio.timeout(timeout):
+            for _ in range(max_redirects + 1):
+                parsed = httpx.URL(current)
+                if parsed.scheme not in {"http", "https"} or parsed.userinfo:
+                    raise SafeHttpError("invalid_public_url")
+                async with client.stream(
+                    method, current, headers=request_headers, content=content,
+                    follow_redirects=False,
+                ) as response:
+                    if response.is_redirect:
+                        if not follow_redirects:
+                            return httpx.Response(
+                                response.status_code, headers=response.headers,
+                                content=b"", request=response.request,
+                            )
+                        location = response.headers.get("location")
+                        if not location:
+                            raise SafeHttpError("redirect_without_location")
+                        redirected = urljoin(str(response.url), location)
+                        if httpx.URL(redirected).netloc != httpx.URL(current).netloc:
+                            request_headers = {
+                                key: value for key, value in request_headers.items()
+                                if key.lower() not in {"authorization", "cookie", "host"}
+                            }
+                        if response.status_code == 303 or (
+                            response.status_code in {301, 302} and method == "POST"
+                        ):
+                            method, content = "GET", None
+                        current = redirected
+                        continue
+                    body = await BoundedResponseReader().read(response, max_bytes)
+                    return httpx.Response(
+                        response.status_code, headers=response.headers, content=body,
+                        request=response.request,
+                    )
+            raise SafeHttpError("too_many_redirects")
+    except TimeoutError as exc:
+        raise SafeHttpError("timeout", transient=True) from exc

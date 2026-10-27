@@ -155,7 +155,7 @@ class ArtifactFormatRegistry:
 
     def detect_extension(self, value: str) -> str | None:
         """Busca sufijos conocidos en segmentos de ruta decodificados y después en valores de
-        consulta de forma recursiva; prioriza sufijos más largos.
+        consulta con límites de profundidad y trabajo; prioriza sufijos más largos.
 
         Args:
             value: URL, ruta o valor de consulta que puede contener una extensión.
@@ -163,23 +163,31 @@ class ArtifactFormatRegistry:
         Returns:
             primera extensión reconocida o None.
         """
-        try:
-            parsed = urlparse(value)
-        except ValueError:
-            return None
-        path = unquote(parsed.path).lower()
-        for segment in reversed([path, *path.split("/")]):
-            for extension in sorted(self.extensions, key=len, reverse=True):
-                if segment.endswith(extension):
-                    return extension
-            suffix = PurePosixPath(segment).suffix
-            if suffix in self._by_extension:
-                return suffix
-        for values in parse_qs(parsed.query).values():
-            for nested_value in values:
-                nested = self.detect_extension(nested_value)
-                if nested:
-                    return nested
+        pending = [(value, 0)]
+        remaining = 16384
+        visited = 0
+        extensions = sorted(self.extensions, key=len, reverse=True)
+        while pending:
+            current, depth = pending.pop()
+            remaining -= len(current)
+            visited += 1
+            if remaining < 0 or depth > 8 or visited > 128:
+                return None
+            try:
+                parsed = urlparse(current)
+                nested = parse_qs(parsed.query, max_num_fields=128)
+            except ValueError:
+                return None
+            path = unquote(parsed.path).lower()
+            for segment in reversed([path, *path.split("/")]):
+                for extension in extensions:
+                    if segment.endswith(extension):
+                        return extension
+                suffix = PurePosixPath(segment).suffix
+                if suffix in self._by_extension:
+                    return suffix
+            children = [item for values in nested.values() for item in values]
+            pending.extend((item, depth + 1) for item in reversed(children))
         return None
 
     def matches_signature(self, extension: str, content: bytes) -> bool:

@@ -4,6 +4,10 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import es.ubu.batchdownloader.common.RateLimitException;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,7 +68,13 @@ class AuthRateLimiter {
     }
 
     private static String key(String ip, String identity) {
-        return normalizeIp(ip) + '\u0000' + normalizeIdentity(identity);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(normalizeIdentity(identity).getBytes(StandardCharsets.UTF_8));
+            return normalizeIp(ip) + '\u0000' + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     private static String normalizeIp(String ip) {

@@ -27,6 +27,22 @@ afterEach(() => {
 });
 
 describe('managed ZIP delivery', () => {
+  it('cancels an outstanding body and aborts the destination when its account scope is disposed', async () => {
+    const { handle, writer } = target();
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    vi.spyOn(http, 'apiFetch').mockResolvedValue(new Response(body));
+    const controller = new AbortController();
+    const operation = saveDownload(job, handle, vi.fn(), vi.fn(), controller.signal)
+      .catch((cause: unknown) => cause);
+    await vi.waitFor(() => expect(body.locked).toBe(true));
+    controller.abort();
+    expect(await operation).toMatchObject({ name: 'AbortError' });
+    expect(cancel).toHaveBeenCalled();
+    expect(writer.abort).toHaveBeenCalled();
+    expect(writer.close).not.toHaveBeenCalled();
+    expect(downloads.completeDownloadJob).not.toHaveBeenCalled();
+  });
   it('recovers reconciliation and transient not-ready errors without reopening the destination', async () => {
     vi.useFakeTimers();
     const { handle, writer } = target();

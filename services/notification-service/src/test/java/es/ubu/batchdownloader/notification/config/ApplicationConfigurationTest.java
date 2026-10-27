@@ -31,9 +31,9 @@ class ApplicationConfigurationTest {
 
         assertThat(configuration.systemClock().getZone()).isEqualTo(ZoneOffset.UTC);
         NotificationTokenEnvelope envelope = configuration.notificationTokenEnvelope(key);
-        String protectedToken = envelope.encrypt("single-use-token");
+        String protectedToken = envelope.encrypt("single-use-token", "person@example.com", "MAGIC_LINK");
 
-        assertThat(protectedToken).startsWith("enc:v1:");
-        assertThat(envelope.decrypt(protectedToken)).isEqualTo("single-use-token");
+        assertThat(protectedToken).startsWith("enc:v2:");
+        assertThat(envelope.decrypt(protectedToken, "person@example.com", "MAGIC_LINK")).isEqualTo("single-use-token");
     }
 }

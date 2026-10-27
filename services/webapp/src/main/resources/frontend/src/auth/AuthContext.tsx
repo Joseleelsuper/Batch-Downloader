@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { adminLogout, logout, me } from '../api/account';
 import type { AuthUser } from '../types/catalog';
+import { useTranslation } from '../services/i18n';
 
 export type AuthStatus = 'checking' | 'anonymous' | 'authenticated';
 
@@ -17,7 +18,7 @@ interface AuthContextValue {
   account: AuthUser | null;
   setAuthenticated: (account: AuthUser) => void;
   refresh: () => Promise<AuthUser | null>;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -25,8 +26,10 @@ const AUTH_SCOPE_KEY = 'batch-downloader.account-scope.v1';
 const DOWNLOAD_JOBS_KEY = 'batch-downloader.download-jobs.v1';
 
 export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const t = useTranslation();
   const [status, setStatus] = useState<AuthStatus>('checking');
   const [account, setAccount] = useState<AuthUser | null>(null);
+  const [logoutFailed, setLogoutFailed] = useState(false);
 
   const applyAccount = useCallback((next: AuthUser | null) => {
     setAccount(next);
@@ -64,9 +67,16 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, [account?.id, status]);
 
   const signOut = useCallback(async () => {
+    setLogoutFailed(false);
     const operation = account?.role === 'ADMIN' ? adminLogout : logout;
-    await operation().catch(() => undefined);
+    try {
+      await operation();
+    } catch {
+      setLogoutFailed(true);
+      return false;
+    }
     applyAccount(null);
+    return true;
   }, [account?.role, applyAccount]);
 
   const value = useMemo<AuthContextValue>(() => ({
@@ -77,7 +87,10 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
     signOut,
   }), [account, applyAccount, refresh, signOut, status]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>
+    {logoutFailed ? <p className="error-banner" role="alert">{t('account.logout.failed')}</p> : null}
+    {children}
+  </AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

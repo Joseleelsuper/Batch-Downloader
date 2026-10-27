@@ -41,6 +41,7 @@ from app.scraper.candidates import (
     is_github_source_archive,
     registered_domain,
 )
+from app.scraper.http.public_transport import PublicAsyncHTTPTransport
 
 BINARY_CONTENT_TYPES = (
     DEFAULT_ARTIFACT_FORMAT_REGISTRY.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
@@ -138,6 +139,7 @@ class _HttpNavigation:
     response: httpx.Response
     current_url: str
     previous_url: str | None
+    insecure_transport: bool = False
 
 
 @dataclass
@@ -224,6 +226,8 @@ class DownloadValidator:
         client = self.client or httpx.AsyncClient(
             timeout=self.settings.request_timeout_seconds,
             follow_redirects=False,
+            transport=PublicAsyncHTTPTransport(),
+            trust_env=False,
             headers={"User-Agent": "BatchDownloaderScraper/0.1"},
         )
         try:
@@ -267,6 +271,13 @@ class DownloadValidator:
         Returns:
             resultado de rechazo, atestiguación o comprobación del artefacto.
         """
+        try:
+            async with asyncio.timeout(self.settings.request_timeout_seconds):
+                return await self._validate_http_with_deadline(client, candidate, require_signature)
+        except TimeoutError as exc:
+            raise httpx.ReadTimeout("validation_timeout") from exc
+
+    async def _validate_http_with_deadline(self, client, candidate, require_signature):
         navigation = await self._request_final_response(client, candidate)
         if isinstance(navigation, ValidationResult):
             return navigation
@@ -305,7 +316,9 @@ class DownloadValidator:
         """
         current_url = candidate.url
         previous_url: str | None = None
+        insecure_transport = False
         for _ in range(self.settings.max_redirects + 1):
+            insecure_transport = insecure_transport or urlparse(current_url).scheme == "http"
             request_referer = previous_url or same_site_referer(current_url, candidate.referer)
             response = await request_metadata(
                 client,
@@ -314,7 +327,7 @@ class DownloadValidator:
                 probe_html=candidate_has_download_intent(candidate),
             )
             if not response.is_redirect:
-                return _HttpNavigation(response, current_url, previous_url)
+                return _HttpNavigation(response, current_url, previous_url, insecure_transport)
 
             location = response.headers.get("location")
             if not location:
@@ -467,7 +480,8 @@ class DownloadValidator:
             extension=evidence.extension,
             content_type=content_type or None,
             size_bytes=size_bytes,
-            transport_security=transport_security_for(str(response.url), candidate),
+            transport_security=("http_winstall_verified" if navigation.insecure_transport
+                                else transport_security_for(str(response.url), candidate)),
             confidence=ValidationConfidence.VALIDATED,
         )
 

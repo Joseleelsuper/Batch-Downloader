@@ -155,6 +155,9 @@ describe('account flows', () => {
       </MemoryRouter>,
     );
 
+    await waitFor(() => expect(screen.getByTestId('location')).not.toHaveTextContent('token='));
+    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: t('account.magic.confirm') }));
     await waitFor(() => expect(confirm).toHaveBeenCalledWith('secret-token'));
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/dashboard'));
     expect(screen.getByTestId('location')).not.toHaveTextContent('token=');
@@ -458,5 +461,21 @@ describe('account flows', () => {
     fireEvent.click(screen.getByRole('button', { name: t('nav.logout') }));
     expect(await screen.findByTestId('location')).toHaveTextContent('/login');
     expect(accountApi.logout).toHaveBeenCalledOnce();
+  });
+
+  it('conserva la cuenta y permite reintentar cuando falla el cierre de sesión', async () => {
+    vi.mocked(accountApi.me).mockResolvedValue(user);
+    vi.mocked(accountApi.logout).mockRejectedValueOnce(new TypeError('offline'));
+    render(<MemoryRouter initialEntries={['/dashboard']}><AuthProvider><Routes>
+      <Route path="/dashboard" element={<AccountLayout />}><Route index element={<p>Contenido privado</p>} /></Route>
+      <Route path="/login" element={<LocationProbe />} />
+    </Routes></AuthProvider></MemoryRouter>);
+    const button = await screen.findByRole('button', { name: t('nav.logout') });
+    fireEvent.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent(t('account.logout.failed'));
+    expect(screen.getByText('Contenido privado')).toBeInTheDocument();
+    expect(screen.queryByTestId('location')).toBeNull();
+    fireEvent.click(button);
+    expect(await screen.findByTestId('location')).toHaveTextContent('/login');
   });
 });

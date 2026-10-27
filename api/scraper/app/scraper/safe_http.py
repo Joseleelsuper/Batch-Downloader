@@ -14,6 +14,7 @@ from app.scraper.http import (
     SafeHttpError,
     SafeHttpResponse,
 )
+from app.scraper.http.public_transport import PublicAsyncHTTPTransport
 from app.scraper.validator import domain_has_public_dns
 
 SENSITIVE_QUERY_KEYS = {
@@ -96,6 +97,8 @@ async def probe_public_resource_size(
     async with httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=False,
+        transport=PublicAsyncHTTPTransport(),
+        trust_env=False,
         headers={"Accept-Encoding": "identity", "User-Agent": "BatchDownloaderScraper/0.1"},
     ) as client:
         for _redirect in range(max_redirects + 1):

@@ -83,7 +83,7 @@ function AppRoutes() {
   const onLogout = () => { void signOut(); };
 
   return (
-    <DownloadJobsProvider>
+    <DownloadJobsProvider accountScope={checkingAuth ? null : auth?.id ?? 'anonymous'}>
       <PageMetadata />
       <Suspense fallback={<RouteLoading />}>
         <Routes>

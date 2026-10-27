@@ -47,6 +47,12 @@ public final class JobStorageReservation {
         written = next;
     }
 
+    /** Conserva la reserva máxima, pero descuenta parciales cuyo borrado se ha confirmado. */
+    public synchronized void release(long bytes) {
+        if (bytes < 0 || bytes > written) throw new IllegalArgumentException("Invalid released bytes");
+        written -= bytes;
+    }
+
     public synchronized void require(long bytes) {
         if (failure != null) throw failure;
         if (bytes > limit) {

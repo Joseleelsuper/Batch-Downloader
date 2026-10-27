@@ -235,6 +235,16 @@ public class AdminAppExportRepository {
      */
     private String csvCell(String value) {
         String safe = isBlank(value) ? "None" : value;
+        int first = 0;
+        while (first < safe.length() && (Character.isWhitespace(safe.charAt(first))
+                || Character.isSpaceChar(safe.charAt(first))
+                || Character.isISOControl(safe.charAt(first)) || safe.charAt(first) == '\uFEFF')) {
+            first++;
+        }
+        if ((first < safe.length() && "=+-@".indexOf(safe.charAt(first)) >= 0)
+                || "\t\r\n".indexOf(safe.charAt(0)) >= 0) {
+            safe = "'" + safe;
+        }
         if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")) {
             return "\"" + safe.replace("\"", "\"\"") + "\"";
         }

@@ -159,6 +159,27 @@ class AdminAppRepositoryTest {
         assertThat(export.content()).doesNotContain("cdn.example.com", "resolved_url_encrypted");
     }
 
+    @Test
+    void exportCsvTreatsPublisherFormulasAsText() throws Exception {
+        for (String value : List.of("=1+1", "+cmd", "-1+1", "@SUM(1)", " \t=1+1", "\uFEFF=1+1")) {
+            JdbcTemplate jdbc = mock(JdbcTemplate.class);
+            when(jdbc.query(anyString(), any(RowMapper.class))).thenAnswer(invocation -> {
+                RowMapper<?> mapper = invocation.getArgument(1);
+                return List.of(mapper.mapRow(row("1", value, null, null, null, null, null, value), 0));
+            });
+            doAnswer(invocation -> {
+                RowCallbackHandler handler = invocation.getArgument(1);
+                handler.processRow(tag("1", value));
+                return null;
+            }).when(jdbc).query(anyString(), any(RowCallbackHandler.class));
+
+            String csv = repository(jdbc, mock(CatalogRepository.class)).exportCsv().content();
+
+            assertThat(csv).contains("'" + value);
+            assertThat(csv.split("\r\n")[1]).startsWith("'" + value + ",");
+        }
+    }
+
     /**
      * Comprueba el escenario {@code patchSourceScopesTheMutationToItsOwningApplication}.
      */

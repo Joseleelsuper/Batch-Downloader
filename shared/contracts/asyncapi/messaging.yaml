@@ -150,7 +150,8 @@ components:
         para conservar compatibilidad con eventos antiguos. Si se incluye
         parameters.expiresInMinutes, representa el TTL real del enlace;
         parameters.token se publica como un sobre AES-GCM
-        versionado con prefijo enc:v1:. El consumidor rechaza texto claro y
-        versiones desconocidas. Solo se admiten solicitudes MAGIC_LINK.
+        versionado con prefijo enc:v2: y autentica recipient y template.
+        El consumidor rechaza texto claro, sobres enc:v1: sin contexto y versiones
+        desconocidas. Solo se admiten solicitudes MAGIC_LINK.
       payload:
         $ref: '../schemas/notification-requested.json'
