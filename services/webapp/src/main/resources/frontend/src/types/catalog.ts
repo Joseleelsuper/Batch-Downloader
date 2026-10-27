@@ -310,6 +310,9 @@ export interface BundleSummary {
   type: 'official' | 'community' | 'user';
   visibility: string;
   starCount: number;
+  starred?: boolean;
+  hasAdminStar?: boolean;
+  downloadCount?: number;
   appCount: number;
   tags: string[];
   /** Platforms with a selectable installer for at least one active app. */
@@ -334,7 +337,26 @@ export interface BundleResponse {
   page: number;
   pageSize: number;
   total: number;
+  counts?: Record<'all' | 'public' | 'official', number>;
+  alphabet?: CatalogAlphabetEntry[];
+  requestedMode?: SearchMode;
+  appliedMode?: SearchMode;
+  degradedReason?: string | null;
+  modelVersion?: string | null;
+  indexVersion?: string | null;
 }
+
+export interface BundleStarState {
+  starCount: number;
+  starred: boolean;
+  hasAdminStar: boolean;
+  downloadCount: number;
+}
+export interface BundleFacets {
+  tags: Omit<FacetItem, 'normalizedValue'>[];
+  creators: Omit<FacetItem, 'normalizedValue'>[];
+}
+export type BundleSortKey = 'downloads' | 'updated' | 'stars' | 'name' | 'relevance';
 
 export interface AuthUser {
   id: string;

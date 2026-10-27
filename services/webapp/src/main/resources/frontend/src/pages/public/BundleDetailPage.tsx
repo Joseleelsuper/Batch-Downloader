@@ -1,3 +1,5 @@
+import { BundleActivity } from '../../components/BundleActivity';
+import { useAuth } from '../../auth/AuthContext';
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -14,6 +16,7 @@ import { useTranslation } from '../../services/i18n';
 import type { AppDetails, BundleDetails, OperatingSystem } from '../../types/catalog';
 
 export function BundleDetailPage() {
+  const { account } = useAuth();
   const t = useTranslation();
   const { slug } = useParams();
   const [bundle, setBundle] = useState<BundleDetails | null>(null);
@@ -35,7 +38,7 @@ export function BundleDetailPage() {
       .then((result) => { if (active) setBundle(result); })
       .catch(() => { if (active) setError(t('bundle.loadError')); });
     return () => { active = false; };
-  }, [slug, t]);
+  }, [slug, t, account?.id]);
 
   useEffect(() => {
     setExpandedAppId(null);
@@ -93,6 +96,7 @@ export function BundleDetailPage() {
         </div>
         <div className="bundle-detail-actions">
           <span>{t('bundle.appsCount', { count: bundle.appCount })}</span>
+          <BundleActivity key={`${bundle.id}:${account?.id ?? "anonymous"}`} bundle={bundle} />
           <BundleDownloadButton
             key={bundle.id}
             bundleId={bundle.id}

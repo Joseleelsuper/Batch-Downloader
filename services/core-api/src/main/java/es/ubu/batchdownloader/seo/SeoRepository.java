@@ -71,6 +71,11 @@ public class SeoRepository {
         return count == null ? 0 : count;
     }
 
+    public long publicBundleCount() {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM bundles WHERE visibility IN ('public','official')", Long.class);
+        return count == null ? 0 : count;
+    }
+
     /** Una página acotada evita cargar el catálogo entero al servir un sitemap. */
     public List<SitemapEntry> sitemapEntries(String group, int page) {
         return jdbc.query("SELECT id, updated_at FROM " + sitemapSource(group)

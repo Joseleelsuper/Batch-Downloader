@@ -10,18 +10,21 @@ import {
 import { useTranslation } from '../services/i18n';
 import type { SearchMode, SortKey } from '../types/catalog';
 
-interface Props {
+interface Props<S extends string = SortKey> {
   value: string;
-  sort: SortKey;
+  sort: S;
   searchMode: SearchMode;
   onChange: (value: string) => void;
-  onSortChange: (sort: SortKey) => void;
+  onSortChange: (sort: S) => void;
   onSearchModeChange: (mode: SearchMode) => void;
   inputProps?: Pick<InputHTMLAttributes<HTMLInputElement>, 'id' | 'type' | 'onKeyDown'>;
   showSortDescriptions?: boolean;
+  sortOptions?: readonly S[];
+  labelPrefix?: string;
+  placeholder?: string;
 }
 
-export function AppSearchBar({
+export function AppSearchBar<S extends string = SortKey>({
   value,
   sort,
   searchMode,
@@ -30,7 +33,10 @@ export function AppSearchBar({
   onSearchModeChange,
   inputProps,
   showSortDescriptions = true,
-}: Props) {
+  sortOptions: configuredOptions,
+  labelPrefix = 'catalog.sort',
+  placeholder,
+}: Props<S>) {
   const t = useTranslation();
   const sortOptionsId = useId();
   const [sortOpen, setSortOpen] = useState(false);
@@ -38,7 +44,7 @@ export function AppSearchBar({
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const sortTriggerRef = useRef<HTMLButtonElement>(null);
   const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const sortOptions: SortKey[] = ['downloads', 'updated', 'name', 'relevance'];
+  const sortOptions = configuredOptions ?? ['downloads', 'updated', 'name', 'relevance'] as S[];
 
   function focusSortOption(index: number) {
     const normalizedIndex = Math.max(0, Math.min(sortOptions.length - 1, index));
@@ -101,10 +107,10 @@ export function AppSearchBar({
         <Search size={22} />
         <input
           {...inputProps}
-          aria-label={t('catalog.searchPlaceholder')}
+          aria-label={placeholder ?? t('catalog.searchPlaceholder')}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder={t('catalog.searchPlaceholder')}
+          placeholder={placeholder ?? t('catalog.searchPlaceholder')}
         />
       </label>
       <div className="search-mode-toggle" role="group" aria-label={t('catalog.search.mode')}>
@@ -142,7 +148,7 @@ export function AppSearchBar({
           aria-expanded={sortOpen}
           aria-controls={sortOptionsId}
         >
-          <span>{t(`catalog.sort.${sort}`)}</span>
+          <span>{t(`${labelPrefix}.${sort}`)}</span>
           <ChevronDown className="sort-menu-chevron" size={17} aria-hidden="true" />
         </button>
         {sortOpen ? (
@@ -169,8 +175,8 @@ export function AppSearchBar({
                 onKeyDown={(event) => moveSortOption(event, index)}
               >
                 <span className="sort-option-copy">
-                  <strong>{t(`catalog.sort.${option}`)}</strong>
-                  {showSortDescriptions ? <small>{t(`catalog.sort.${option}.description`)}</small> : null}
+                  <strong>{t(`${labelPrefix}.${option}`)}</strong>
+                  {showSortDescriptions ? <small>{t(`${labelPrefix}.${option}.description`)}</small> : null}
                 </span>
                 {sort === option ? (
                   <span className="sort-option-check" aria-hidden="true">

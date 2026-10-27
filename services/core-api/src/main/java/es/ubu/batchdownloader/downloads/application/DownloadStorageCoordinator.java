@@ -213,6 +213,16 @@ public class DownloadStorageCoordinator {
         });
     }
 
+    /** Conserva el UUID de origen sin enviar datos adicionales al worker. Participa en la admisión. */
+    public void attributeBundle(UUID jobId, String publicId) {
+        byte[] id = null;
+        try { id = es.ubu.batchdownloader.common.UuidBytes.fromUuid(UUID.fromString(publicId)); }
+        catch (IllegalArgumentException ignored) { /* Los slugs también son identificadores válidos. */ }
+        jdbc.update("UPDATE download_job_receipts r JOIN bundles b ON b.id=? OR b.slug=? "
+                        + "SET r.bundle_id=b.id WHERE r.job_id=?",
+                id, publicId, jobId.toString());
+    }
+
     public void complete(UUID jobId, long bytes) {
         locked(() -> {
             Entry row = entry(jobId);
@@ -221,7 +231,11 @@ public class DownloadStorageCoordinator {
             if (size == null || bytes != size || bytes <= 0 || row.delivered() < size)
                 throw new ConflictException("download_incomplete", "El ZIP no se ha recibido por completo.");
             jdbc.update("UPDATE download_job_storage SET phase='CLEANING', delivery_status='SAVED',last_activity_at=? WHERE job_id=?", now(), jobId.toString());
-            jdbc.update("UPDATE download_job_receipts SET saved_bytes=? WHERE job_id=?", bytes, jobId.toString());
+            // La transición NULL -> bytes y el incremento forman una única transacción idempotente.
+            jdbc.update("UPDATE bundles b JOIN download_job_receipts r ON r.bundle_id=b.id "
+                            + "SET b.download_count=b.download_count+1 WHERE r.job_id=? AND r.saved_bytes IS NULL",
+                    jobId.toString());
+            jdbc.update("UPDATE download_job_receipts SET saved_bytes=? WHERE job_id=? AND saved_bytes IS NULL", bytes, jobId.toString());
             return null;
         });
     }

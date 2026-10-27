@@ -77,6 +77,8 @@ public class SecurityConfig {
                         .requestMatchers(internalDownloadMetadata).permitAll()
                         .requestMatchers("/api/v1/download-jobs/**").permitAll()
                         .requestMatchers("/api/v1/users/**").hasRole("USER")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/bundles/*/star").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/bundles/*/star").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me", "/api/v1/auth/csrf").permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET,

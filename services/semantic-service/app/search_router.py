@@ -20,6 +20,45 @@ router = APIRouter()
 
 
 @router.post(
+    "/internal/v1/semantic/bundles/search",
+    dependencies=[Depends(require_internal_service_token), Depends(require_search_capacity)],
+    responses={401: {}, 503: {}},
+)
+async def bundle_semantic_search(request: SemanticSearchRequest) -> dict:
+    """Devuelve solamente candidatos de bundles; Core aplica visibilidad y filtros actuales."""
+    from app.bundle_store import BundleSemanticStore
+
+    bundles = BundleSemanticStore(store.database)
+    active = await asyncio.to_thread(bundles.active_model)
+    if active is None:
+        raise HTTPException(status_code=503, detail={"code": "semantic_index_not_ready"})
+    model, _ = active
+    try:
+        vector = await asyncio.wait_for(
+            asyncio.to_thread(runtime_for(model).encode_query, request.query.strip()),
+            timeout=settings.search_timeout_seconds,
+        )
+        limit = min(request.limit, settings.candidate_limit)
+        rows, version = await asyncio.to_thread(
+            bundles.exact_search,
+            model=model,
+            query_vector=vector,
+            minimum_similarity=request.minimum_similarity
+            if request.minimum_similarity is not None
+            else model.minimum_similarity,
+            limit=limit + 1,
+        )
+    except (TimeoutError, RuntimeError) as error:
+        raise HTTPException(status_code=503, detail={"code": "semantic_index_not_ready"}) from error
+    return {
+        "candidates": rows[:limit],
+        "modelVersion": model.model_version,
+        "indexVersion": version,
+        "truncated": len(rows) > limit,
+    }
+
+
+@router.post(
     "/internal/v1/semantic/search",
     response_model=SemanticSearchResponse,
     response_model_by_alias=True,

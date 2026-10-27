@@ -22,5 +22,17 @@
   "/privacy": [
     "Política de privacidad",
     "Conoce cómo Batch Downloader trata los datos de cuentas, descargas, cookies y almacenamiento del navegador, y cómo ejercer tus derechos."
+  ],
+  "/catalog/bundles": [
+    "Catálogo de bundles",
+    "Explora bundles públicos y oficiales, filtra por etiquetas, plataformas y creador, y descarga sus instaladores juntos."
+  ],
+  "/catalog/bundles/tags": [
+    "Etiquetas de bundles",
+    "Explora bundles públicos y oficiales por sus etiquetas."
+  ],
+  "/catalog/bundles/creators": [
+    "Creadores de bundles",
+    "Explora los bundles públicos y oficiales de sus creadores."
   ]
 }

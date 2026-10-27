@@ -129,6 +129,15 @@ public class SemanticSearchClient {
      *     facetas.
      */
     public SemanticCandidateSet resolve(CatalogSearchMode requestedMode, String query) {
+        return resolve(requestedMode, query, false);
+    }
+
+    /** Aplica las mismas políticas de transporte y respaldo a la colección independiente de bundles. */
+    public SemanticCandidateSet resolveBundles(CatalogSearchMode requestedMode, String query) {
+        return resolve(requestedMode, query, true);
+    }
+
+    private SemanticCandidateSet resolve(CatalogSearchMode requestedMode, String query, boolean bundles) {
         if (requestedMode == CatalogSearchMode.LEXICAL) {
             return SemanticCandidateSet.lexical();
         }
@@ -136,7 +145,7 @@ public class SemanticSearchClient {
             return SemanticCandidateSet.lexical(CatalogSearchMode.SEMANTIC, null);
         }
         try {
-            InternalHttpResponse response = executor.execute(request(query));
+            InternalHttpResponse response = executor.execute(request(query, bundles));
             if (response.statusCode() == 401) {
                 return fallback("semantic_unauthorized");
             }
@@ -180,14 +189,14 @@ public class SemanticSearchClient {
      * @throws com.fasterxml.jackson.core.JsonProcessingException si no puede serializarse la
      *     solicitud.
      */
-    private InternalHttpRequest request(String query) throws JsonProcessingException {
+    private InternalHttpRequest request(String query, boolean bundles) throws JsonProcessingException {
         String body = objectMapper.writeValueAsString(
                 new SemanticRequest(query.trim(), FUNCTIONAL_CANDIDATE_LIMIT));
         return new InternalHttpRequest(
                         "semantic",
                         "search",
                         "POST",
-                        URI.create(serviceUrl + "/internal/v1/semantic/search"),
+                        URI.create(serviceUrl + "/internal/v1/semantic/" + (bundles ? "bundles/search" : "search")),
                         body)
                 .withHeader("Content-Type", "application/json");
     }
@@ -347,5 +356,6 @@ public class SemanticSearchClient {
      * @version 0.1.0
      * @category Catálogo
      */
-    private record SemanticCandidate(String appId, int rank, double similarity) {}
+    private record SemanticCandidate(@com.fasterxml.jackson.annotation.JsonAlias("bundleId") String appId,
+            int rank, double similarity) {}
 }

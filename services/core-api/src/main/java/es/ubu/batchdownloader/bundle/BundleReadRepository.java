@@ -48,6 +48,20 @@ public class BundleReadRepository {
         this.catalog = catalog;
     }
 
+    /** Enriquece únicamente la página ya filtrada y ordenada por el catálogo de bundles. */
+    List<BundleSummary> summaries(List<UUID> ids) {
+        if (ids.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        List<BundleSummary> summaries = enrichSummaries(jdbc.query(
+                "SELECT bundles.*, owner.username AS creator_username FROM bundles "
+                        + "LEFT JOIN core_users owner ON owner.id = bundles.owner_id WHERE bundles.id IN ("
+                        + placeholders + ")",
+                (rs, n) -> bundleBase(rs), ids.stream().map(UuidBytes::fromUuid).toArray()));
+        Map<String, BundleSummary> byId = new LinkedHashMap<>();
+        summaries.forEach(bundle -> byId.put(bundle.id(), bundle));
+        return ids.stream().map(id -> byId.get(id.toString())).filter(java.util.Objects::nonNull).toList();
+    }
+
     /**
      * Selecciona bundles públicos u oficiales; community incluye también los de tipo user y el
      * enriquecimiento se realiza por página.

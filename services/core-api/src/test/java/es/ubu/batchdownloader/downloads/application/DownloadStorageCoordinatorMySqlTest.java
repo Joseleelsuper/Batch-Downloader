@@ -57,6 +57,8 @@ class DownloadStorageCoordinatorMySqlTest {
         jdbc.execute("CREATE TABLE download_sources (id BINARY(16) PRIMARY KEY,software_app_id BINARY(16),catalog_available BOOLEAN)");
         jdbc.execute("CREATE TABLE software_apps (id BINARY(16) PRIMARY KEY,app_status VARCHAR(24))");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V20__download_storage_fifo.sql")).execute(pool);
+        jdbc.execute("CREATE TABLE bundles(id BINARY(16) PRIMARY KEY,slug VARCHAR(180),download_count BIGINT NOT NULL DEFAULT 0)");
+        jdbc.execute("ALTER TABLE download_job_receipts ADD COLUMN bundle_id BINARY(16) NULL");
     }
 
     @AfterAll static void closePool() { pool.close(); }
@@ -191,6 +193,21 @@ class DownloadStorageCoordinatorMySqlTest {
         assertThat(coordinator.confirmed(new RequestOwner(null,"other",null),id,1024)).isFalse();
         assertThat(coordinator.confirmed(new RequestOwner(null,"browser",null),id,1023)).isFalse();
         assertThat(countJobs()).isZero();
+    }
+
+    @Test void countsOnlyTheFirstCompleteBundleReceiptAndKeepsTheTotalAfterCleanup() {
+        UUID bundle = UUID.randomUUID();
+        jdbc.update("INSERT INTO bundles(id,slug) VALUES(UUID_TO_BIN(?),?)", bundle.toString(), bundle.toString()+"-slug");
+        UUID id = ready(1024);
+        coordinator.attributeBundle(id, bundle.toString()+"-slug");
+        start(id); coordinator.transferProgress(id,1024); finish(id);
+        assertThatThrownBy(() -> coordinator.complete(id,1023)).hasMessageContaining("completo");
+        assertThat(jdbc.queryForObject("SELECT download_count FROM bundles WHERE id=UUID_TO_BIN(?)", Long.class, bundle.toString())).isZero();
+        coordinator.complete(id,1024);
+        coordinator.complete(id,1024);
+        call("cleanup",id);
+        assertThat(jdbc.queryForObject("SELECT download_count FROM bundles WHERE id=UUID_TO_BIN(?)", Long.class, bundle.toString())).isEqualTo(1);
+        assertThat(coordinator.confirmed(new RequestOwner(null,"browser",null),id,1024)).isTrue();
     }
 
     @Test void repeatedSocketFinishCannotDiscountAnotherLiveConnection() {

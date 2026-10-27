@@ -71,6 +71,13 @@ public class AccountDeletionService {
         jdbc.update("INSERT INTO account_deletion_requests (user_id, requested_at) VALUES (?, ?)",
                 userId.toString(), requestedAt);
         jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME = ?", userId.toString());
+        // Bloqueo determinista de bundles propios o votados antes de retirar votos y contenido.
+        jdbc.query("SELECT id FROM bundles WHERE owner_id = ? OR id IN "
+                        + "(SELECT bundle_id FROM bundle_stars WHERE user_key = ?) ORDER BY id FOR UPDATE",
+                (rs, n) -> rs.getBytes(1), userId.toString(), userId.toString());
+        jdbc.update("UPDATE bundles b JOIN bundle_stars s ON s.bundle_id=b.id "
+                        + "SET b.star_count=GREATEST(b.star_count-1,0) WHERE s.user_key=?", userId.toString());
+        jdbc.update("DELETE FROM bundle_stars WHERE user_key = ?", userId.toString());
         jdbc.update("DELETE FROM bundles WHERE owner_id = ?", userId.toString());
         jdbc.update("DELETE FROM user_download_history WHERE user_id = ?", userId.toString());
         jdbc.update("DELETE FROM download_job_receipts WHERE owner_id = ?", userId.toString());

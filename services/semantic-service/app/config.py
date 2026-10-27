@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     internal_service_token: SecretStr = SecretStr("")
     scraper_api_url: str = "http://scraper-api:8000"
+    core_api_url: str = "http://core-api:8080"
 
     model_dir: str = "/models/current"
     model_runtime_cache_dir: str = "/models/runtime-cache"

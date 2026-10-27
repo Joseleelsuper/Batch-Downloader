@@ -5,6 +5,10 @@ import es.ubu.batchdownloader.bundle.BundleDtos.BundleDetails;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSearchResponse;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSummary;
 import es.ubu.batchdownloader.bundle.BundleDtos.UpsertBundleRequest;
+import es.ubu.batchdownloader.bundle.BundleDtos.BundleCatalogResponse;
+import es.ubu.batchdownloader.bundle.BundleDtos.BundleFacets;
+import es.ubu.batchdownloader.bundle.BundleDtos.BundleStarState;
+import es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount;
 import es.ubu.batchdownloader.common.UnauthorizedException;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import jakarta.validation.Valid;
@@ -17,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -44,6 +49,9 @@ public class BundleController {
      * Estado {@code audit} mantenido por {@code BundleController}.
      */
     private final AdminAuditService audit;
+    private final BundleCatalogRepository catalog;
+    private final BundleActivityRepository activity;
+    private final CurrentAccount accounts;
 
     /**
      * Conecta las operaciones sobre bundles y el registro de acciones administrativas.
@@ -51,9 +59,13 @@ public class BundleController {
      * @param bundles Fachada de consulta y escritura de bundles con sus políticas de visibilidad.
      * @param audit Registro de acciones administrativas con UUID de actor y recurso.
      */
-    public BundleController(BundleRepository bundles, AdminAuditService audit) {
+    public BundleController(BundleRepository bundles, AdminAuditService audit,
+            BundleCatalogRepository catalog, BundleActivityRepository activity, CurrentAccount accounts) {
         this.bundles = bundles;
         this.audit = audit;
+        this.catalog = catalog;
+        this.activity = activity;
+        this.accounts = accounts;
     }
 
     /**
@@ -64,20 +76,47 @@ public class BundleController {
      *     community o user.
      * @param page Página numerada desde uno; los controladores acotan valores inferiores.
      * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
-     * @param sort stars prioriza estrellas y fecha; cualquier otro valor ordena por actualización
-     *     descendente.
+     * @param sort Orden por actualización, estrellas, descargas, nombre o relevancia semántica;
+     *     los valores desconocidos usan actualización descendente.
      * @return listado público con total antes de paginar.
      */
     @GetMapping("/api/v1/bundles")
-    public BundleSearchResponse listBundles(
+    public BundleCatalogResponse listBundles(
             @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "12") int pageSize,
-            @RequestParam(defaultValue = "updated") String sort) {
+            @RequestParam(defaultValue = "updated") String sort,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false, name = "tag") List<String> tags,
+            @RequestParam(required = false) String creator,
+            @RequestParam(required = false, name = "os") List<String> operatingSystems,
+            @RequestParam(defaultValue = "lexical") String searchMode,
+            Authentication authentication, jakarta.servlet.http.HttpServletResponse response) {
         int safePage = Math.max(page, 1);
         int safePageSize = Math.max(1, Math.min(pageSize, 60));
-        List<BundleSummary> data = bundles.list(type, sort, safePage, safePageSize);
-        return new BundleSearchResponse(data, safePage, safePageSize, bundles.count(type));
+        response.setHeader("Cache-Control", "no-store");
+        return catalog.search(new BundleCatalogRepository.Filters(type, query, tags, creator, operatingSystems, searchMode),
+                sort, safePage, safePageSize, accounts.optionalUserId(authentication));
+    }
+
+    @GetMapping("/api/v1/bundles/catalog/facets")
+    public BundleFacets facets(@RequestParam(required = false) String type,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false, name = "tag") List<String> tags,
+            @RequestParam(required = false) String creator,
+            @RequestParam(required = false, name = "os") List<String> operatingSystems,
+            @RequestParam(defaultValue = "lexical") String searchMode) {
+        return catalog.facets(new BundleCatalogRepository.Filters(type, query, tags, creator, operatingSystems, searchMode));
+    }
+
+    @PutMapping("/api/v1/bundles/{bundleId}/star")
+    public BundleStarState star(@PathVariable String bundleId, Authentication authentication) {
+        return activity.setStar(bundleId, accounts.require(authentication).id(), true);
+    }
+
+    @DeleteMapping("/api/v1/bundles/{bundleId}/star")
+    public BundleStarState unstar(@PathVariable String bundleId, Authentication authentication) {
+        return activity.setStar(bundleId, accounts.require(authentication).id(), false);
     }
 
     /**
@@ -92,12 +131,13 @@ public class BundleController {
      *     permite consultarlo.
      */
     @GetMapping("/api/v1/bundles/{bundleId}")
-    public BundleDetails getBundle(@PathVariable String bundleId, Authentication authentication) {
-        UUID viewerId = authentication != null
-                        && authentication.getPrincipal() instanceof AccountPrincipal account
-                ? account.userId()
-                : null;
-        return bundles.details(bundleId, viewerId, isAdmin(authentication));
+    public BundleDetails getBundle(@PathVariable String bundleId, Authentication authentication,
+            jakarta.servlet.http.HttpServletResponse response) {
+        UUID viewerId = accounts.optionalUserId(authentication);
+        response.setHeader("Cache-Control", "no-store");
+        BundleDetails details = bundles.details(bundleId, viewerId, isAdmin(authentication));
+        return details.withActivity(activity.states(List.of(details.id()), viewerId)
+                .getOrDefault(details.id(), BundleStarState.HIDDEN));
     }
 
     /**

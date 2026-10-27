@@ -1,3 +1,4 @@
+import { BundleCatalogPage, BundleFacetDirectoryPage, CatalogEntry } from './pages/catalog/BundleCatalogPage';
 import {
   BookOpenText,
   BrainCircuit,
@@ -27,7 +28,7 @@ import {
   AdminBundlesPage,
   AdminDashboard,
 } from './pages/admin/AdminOverviewPages';
-import { CatalogPage, FacetDirectoryPage } from './pages/catalog/CatalogPages';
+import { FacetDirectoryPage } from './pages/catalog/CatalogPages';
 import { BundleDetailPage } from './pages/public/BundleDetailPage';
 import { HomePage } from './pages/public/HomePage';
 import type { AuthUser } from './types/catalog';
@@ -89,8 +90,11 @@ function AppRoutes() {
         <Routes>
         <Route element={<PublicLayout auth={auth} onLogout={onLogout} />}>
           <Route index element={<HomePage />} />
-          <Route path="catalog" element={<CatalogPage />} />
-          <Route path="catalog/app/:appId" element={<CatalogPage />} />
+          <Route path="catalog" element={<CatalogEntry />} />
+          <Route path="catalog/bundles" element={<BundleCatalogPage />} />
+          <Route path="catalog/bundles/tags" element={<BundleFacetDirectoryPage kind="tags" />} />
+          <Route path="catalog/bundles/creators" element={<BundleFacetDirectoryPage kind="creators" />} />
+          <Route path="catalog/app/:appId" element={<CatalogEntry />} />
           <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
           <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
           <Route path="bundles/:slug" element={<BundleDetailPage />} />
@@ -150,7 +154,8 @@ function RouteLoading() {
 
 function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
   const location = useLocation();
-  const lockedCatalogSurface = location.pathname === '/catalog' || location.pathname.startsWith('/catalog/app/');
+  const lockedCatalogSurface = location.pathname === '/catalog' || location.pathname === '/catalog/bundles'
+    || location.pathname.startsWith('/catalog/app/');
 
   return (
     <div className={`site-shell ${lockedCatalogSurface ? 'site-shell-app' : ''}`}>
@@ -162,6 +167,7 @@ function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () 
 }
 
 function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
+  const currentPath = useLocation().pathname;
   const t = useTranslation();
   const { locale, selectLocale } = useLocaleSelector();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -176,7 +182,8 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
         onClose={() => setMenuOpen(false)} desktopClassName="topbar-navigation">
       <nav className="main-nav" aria-label={t('nav.main')}>
         <NavLink to="/">{t('nav.home')}</NavLink>
-        <NavLink to="/catalog">{t('nav.catalog')}</NavLink>
+        <NavLink to="/catalog" end={currentPath.startsWith('/catalog/bundles')}>{t('nav.catalog')}</NavLink>
+        <NavLink to="/catalog/bundles">{t('bundle.catalog.title')}</NavLink>
       </nav>
       <div className="topbar-actions">
         <label className="language-selector">
