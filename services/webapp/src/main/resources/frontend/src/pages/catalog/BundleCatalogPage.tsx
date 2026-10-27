@@ -148,7 +148,7 @@ export function BundleCatalogPage() {
       <AppSearchBar value={draft} sort={filters.sort} searchMode={filters.searchMode} onChange={setDraft}
         onSortChange={(sort) => update({ sort })} onSearchModeChange={(searchMode) => update({ searchMode,
           sort: searchMode === 'lexical' && filters.sort === 'relevance' ? 'downloads' : filters.sort })}
-        sortOptions={sortOptions} labelPrefix="bundle.sort" placeholder={t('bundle.catalog.search')} showSortDescriptions={false} />
+        sortOptions={sortOptions} labelPrefix="bundle.sort" placeholder={t('bundle.catalog.search')} />
       {response?.degradedReason ? <p className="semantic-notice" role="status">{t('bundle.catalog.semanticFallback')}</p> : null}
       {error ? <p className="error-banner" role="alert">{t('bundle.loadError')}</p> : null}
       {filters.sort === 'name' && response ? <nav className="catalog-alphabet" aria-label={t('catalog.alphabet.aria')}>

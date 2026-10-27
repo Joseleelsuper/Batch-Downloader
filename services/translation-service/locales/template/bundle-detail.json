@@ -31,8 +31,13 @@
   "bundle.catalog.orderSection": "",
   "bundle.catalog.semanticFallback": "",
   "bundle.sort.downloads": "",
+  "bundle.sort.downloads.description": "",
   "bundle.sort.updated": "",
+  "bundle.sort.updated.description": "",
   "bundle.sort.stars": "",
+  "bundle.sort.stars.description": "",
   "bundle.sort.name": "",
-  "bundle.sort.relevance": ""
+  "bundle.sort.name.description": "",
+  "bundle.sort.relevance": "",
+  "bundle.sort.relevance.description": ""
 }

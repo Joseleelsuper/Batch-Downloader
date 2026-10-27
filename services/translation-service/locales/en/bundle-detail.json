@@ -31,8 +31,13 @@
   "bundle.catalog.orderSection": "Sort {title}",
   "bundle.catalog.semanticFallback": "Semantic search is unavailable. Showing literal search results.",
   "bundle.sort.downloads": "Most downloaded",
+  "bundle.sort.downloads.description": "Bundles with the most downloads first.",
   "bundle.sort.updated": "Recent",
+  "bundle.sort.updated.description": "Most recently updated bundles first.",
   "bundle.sort.stars": "Most stars",
+  "bundle.sort.stars.description": "Bundles with the most stars first.",
   "bundle.sort.name": "Name",
-  "bundle.sort.relevance": "Relevance"
+  "bundle.sort.name.description": "Alphabetical order by name.",
+  "bundle.sort.relevance": "Relevance",
+  "bundle.sort.relevance.description": "Bundles most relevant to your search first."
 }

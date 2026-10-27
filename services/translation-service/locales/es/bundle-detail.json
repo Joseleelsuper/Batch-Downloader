@@ -31,8 +31,13 @@
   "bundle.catalog.orderSection": "Orden de {title}",
   "bundle.catalog.semanticFallback": "La búsqueda semántica no está disponible. Se muestran los resultados de búsqueda literal.",
   "bundle.sort.downloads": "Más descargados",
+  "bundle.sort.downloads.description": "Primero los bundles con más descargas.",
   "bundle.sort.updated": "Recientes",
+  "bundle.sort.updated.description": "Primero los bundles actualizados más recientemente.",
   "bundle.sort.stars": "Más estrellas",
+  "bundle.sort.stars.description": "Primero los bundles con más estrellas.",
   "bundle.sort.name": "Nombre",
-  "bundle.sort.relevance": "Relevancia"
+  "bundle.sort.name.description": "Orden alfabético por nombre.",
+  "bundle.sort.relevance": "Relevancia",
+  "bundle.sort.relevance.description": "Primero los bundles más relacionados con tu búsqueda."
 }
