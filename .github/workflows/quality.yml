@@ -79,7 +79,7 @@ jobs:
                 ;;
             esac
             case "${file}" in
-              shared/contracts/*|scripts/quality/*|services/core-api/src/main/java/*|services/translation-service/src/main/java/*|services/webapp/src/main/resources/frontend/src/api/*)
+              .github/workflows/quality.yml|shared/contracts/*|scripts/quality/*|services/core-api/src/main/java/*|services/translation-service/src/main/java/*|services/webapp/src/main/resources/frontend/src/api/*)
                 contracts=true
                 ;;
             esac
@@ -269,7 +269,11 @@ jobs:
       - name: Validate anonymous read-only OpenAPI for AI
         run: npx --yes @redocly/cli@1.34.22 lint shared/contracts/openapi/batch-downloader-ai-api.json
       - name: Validate AsyncAPI
-        run: npx --yes @asyncapi/cli@3.6.0 validate shared/contracts/asyncapi/messaging.yaml
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}/shared/contracts:/contracts:ro"
+          asyncapi/cli:3.6.0
+          validate /contracts/asyncapi/messaging.yaml
 
   compose:
     needs: changes
