@@ -266,6 +266,10 @@ jobs:
         run: python -m unittest discover -s scripts/quality/tests -v
       - name: Validate OpenAPI
         run: npx --yes @redocly/cli@1.34.2 lint shared/contracts/openapi/batch-downloader-api.yaml
+      - name: Validate anonymous read-only OpenAPI for AI
+        run: |
+          python scripts/quality/generate_ai_openapi.py --output "$RUNNER_TEMP/openapi.json"
+          npx --yes @redocly/cli@1.34.2 lint "$RUNNER_TEMP/openapi.json"
       - name: Validate AsyncAPI
         run: npx --yes @asyncapi/cli@3.4.2 validate shared/contracts/asyncapi/messaging.yaml
 

@@ -17,6 +17,7 @@ Aplicaciones parecidas:
 - [Términos](https://batchdownloader.dev/terms): Condiciones de uso.
 - [Privacidad](https://batchdownloader.dev/privacy): Información sobre privacidad.
 - [Contrato de API OpenAPI](https://batchdownloader.dev/openapi.yaml): Contratos versionados de la API.
+- [Herramientas de IA de solo lectura](https://batchdownloader.dev/openapi.json): Consultas públicas de aplicaciones y packs sin sesión, cookies ni CSRF.
 
 ## Código y documentación
 

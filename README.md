@@ -103,6 +103,8 @@ Permisos:
 
 El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
 
+Para herramientas de IA, `/openapi.json` ofrece exclusivamente siete consultas `GET` sin sesión: búsqueda, filtros, estadísticas y detalle de aplicaciones; listado, filtros y detalle de bundles públicos u oficiales. No incluye autenticación, cookies, CSRF, descargas ni operaciones de usuario, administración o servicios internos. La imagen web lo genera desde el contrato principal con `scripts/quality/generate_ai_openapi.py`; `/openapi.yaml` conserva el contrato completo. Para generarlo localmente, ejecuta `python scripts/quality/generate_ai_openapi.py --output openapi.json` con PyYAML instalado. La URL de API predeterminada es `https://batchdownloader.dev/api/v1`; `--base-url` permite adaptar el origen a otra instalación.
+
 El catálogo de bundles está en `/catalog/bundles`: permite filtrar públicos u oficiales por etiquetas, plataformas y creador, buscar por sus propios metadatos y descargar cada bundle por separado. Los enlaces antiguos `/catalog?bundleType=official|community` siguen funcionando.
 
 Cada cuenta activa puede dar y retirar una estrella. Las estrellas administrativas muestran una mención general y las de bundles privados se conservan ocultas. El contador de descargas empieza en cero y suma una vez por trabajo tras confirmar la recepción completa del ZIP; conserva el total después de limpiar el trabajo. La proyección semántica de bundles se actualiza desde Core cada 300 segundos y utiliza el modelo local existente.
