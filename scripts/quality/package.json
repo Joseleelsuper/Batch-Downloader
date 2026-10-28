@@ -1,0 +1,11 @@
+{
+  "name": "batch-downloader-contract-quality",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate:asyncapi": "node validate-asyncapi.mjs"
+  },
+  "devDependencies": {
+    "@asyncapi/parser": "3.6.6"
+  }
+}

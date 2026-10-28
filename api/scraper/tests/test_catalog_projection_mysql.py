@@ -61,6 +61,33 @@ def mysql_url() -> Iterator[str]:
 
 
 @pytest.mark.mysql
+@pytest.mark.parametrize("sql_mode", ["", "NO_BACKSLASH_ESCAPES"])
+@pytest.mark.parametrize("payload", [
+    b"",
+    UUID("00000000-0000-0000-0000-000000000003").bytes,
+    b"\x00\xbf' OR 1=1; -- \\ \xff\x1a",
+])
+def test_mysql_binary_parameters_round_trip(
+    mysql_url: str, sql_mode: str, payload: bytes,
+) -> None:
+    """Conserva UUID y bytes arbitrarios como datos al actualizar PyMySQL."""
+    async def scenario() -> None:
+        engine = create_async_engine(mysql_url)
+        try:
+            async with engine.connect() as connection:
+                await connection.execute(
+                    text("SET SESSION sql_mode = :mode"), {"mode": sql_mode},
+                )
+                assert await connection.scalar(
+                    text("SELECT :payload"), {"payload": payload},
+                ) == payload
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.mysql
 def test_mysql_projection_backfill_triggers_rollback_and_repair(
     mysql_url: str,
     monkeypatch: pytest.MonkeyPatch,
