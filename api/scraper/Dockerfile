@@ -1,7 +1,7 @@
 FROM debian:bookworm-slim AS python-builder
 
-ARG PYTHON_VERSION=3.14.6
-ARG PYTHON_SHA256=143b1dddefaec3bd2e21e3b839b34a2b7fb9842272883c576420d605e9f30c63
+ARG PYTHON_VERSION=3.14.10
+ARG PYTHON_SHA256=de414a57119abef52784d8993e341d53aed635fc2b05c2607d9f98a2c5b72032
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -22,7 +22,7 @@ RUN curl -fsSLO "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PY
     && make -j"$(nproc)" \
     && make install \
     && LD_LIBRARY_PATH=/opt/python/lib \
-        /opt/python/bin/python3.14t -m pip install --upgrade pip==26.1.2
+        /opt/python/bin/python3.14t -m pip install --upgrade pip==26.2.2
 
 FROM debian:bookworm-slim
 
@@ -48,7 +48,7 @@ WORKDIR /app
 
 COPY requirements.txt ./
 RUN DISABLE_SQLALCHEMY_CEXT=1 \
-        python -m pip install --no-binary SQLAlchemy SQLAlchemy==2.0.51 \
+        python -m pip install --no-binary SQLAlchemy SQLAlchemy==2.1.6 \
     && python -m pip install -r requirements.txt \
     && python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*

@@ -1,4 +1,4 @@
-FROM python:3.14.6-slim-bookworm
+FROM python:3.14.10-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -14,11 +14,11 @@ ARG PYTORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
 
 COPY pyproject.toml ./
 COPY app ./app
-RUN python -m pip install --upgrade pip==26.1.2 \
+RUN python -m pip install --upgrade pip==26.2.2 \
     && python -m pip install \
         --index-url "${PYTORCH_CPU_INDEX_URL}" \
         --only-binary=:all: \
-        torch==2.13.0 \
+        torch==2.15.0 \
     && python -m pip install .
 
 COPY migrations ./migrations
