@@ -269,11 +269,9 @@ jobs:
       - name: Validate anonymous read-only OpenAPI for AI
         run: npx --yes @redocly/cli@1.34.22 lint shared/contracts/openapi/batch-downloader-ai-api.json
       - name: Validate AsyncAPI
-        run: >-
-          docker run --rm
-          -v "${{ github.workspace }}/shared/contracts:/contracts:ro"
-          asyncapi/cli:3.6.0
-          validate /contracts/asyncapi/messaging.yaml
+        run: |
+          npm ci --prefix scripts/quality --ignore-scripts
+          npm --prefix scripts/quality run validate:asyncapi
 
   compose:
     needs: changes
