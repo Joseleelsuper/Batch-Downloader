@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -119,7 +118,7 @@ public final class DownloadPipeline implements AutoCloseable {
      * @return éxito o rechazo del próximo elemento terminado.
      */
     Attempt next() {
-        Attempt attempt = awaitCompleted();
+        Attempt attempt = CompletedTasks.await(completions);
         completed++;
         if (submitted < items.size()) {
             submitNext();
@@ -211,46 +210,6 @@ public final class DownloadPipeline implements AutoCloseable {
         closed = true;
         writerThreads.forEach(Thread::interrupt);
         writers.arriveAndAwaitAdvance();
-    }
-
-    /**
-     * Espera una finalización de la cola de tareas sin imponer el orden de entrada.
-     *
-     * @return resultado de la siguiente transferencia terminada.
-     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
-     *     interrumpe la espera; conserva la interrupción del hilo.
-     */
-    private Attempt awaitCompleted() {
-        try {
-            return await(completions.take());
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new InfrastructureException("download_job_interrupted", exception);
-        }
-    }
-
-    /**
-     * Recupera el resultado y propaga directamente fallos RuntimeException de la tarea; envuelve
-     * otros fallos y conserva interrupciones.
-     *
-     * @param future Tarea cuyo resultado o fallo se recupera después de terminar.
-     * @return resultado completado de la transferencia.
-     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
-     *     interrumpe la espera o la tarea falla con una causa comprobada.
-     */
-    private Attempt await(Future<Attempt> future) {
-        try {
-            return future.get();
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new InfrastructureException("download_job_interrupted", exception);
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            if (cause instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            throw new InfrastructureException("download_task_failed", cause);
-        }
     }
 
     /**

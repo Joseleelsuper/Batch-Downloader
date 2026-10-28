@@ -1,8 +1,7 @@
 import { Boxes, ChevronLeft, ChevronRight, Grid2X2, ShieldCheck, SlidersHorizontal, Tags, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { fetchBundleFacets, fetchBundles } from '../../api/bundles';
-import { useAuth } from '../../auth/AuthContext';
+import { fetchBundleFacets } from '../../api/bundles';
 import { bundleFiltersToSearch, bundleRequest, parseBundleFilters, type BundleCatalogFilters } from '../../bundleCatalogFilters';
 import { toggleOperatingSystem, toggleValue } from '../../catalogFilters';
 import { AppSearchBar } from '../../components/AppSearchBar';
@@ -11,13 +10,13 @@ import { OperatingSystemIcon, operatingSystemLabel } from '../../components/Oper
 import { Pagination } from '../../components/Pagination';
 import { ResponsivePanel } from '../../components/ResponsivePanel';
 import { useCompactLayout } from '../../hooks/useCompactLayout';
+import { useBundleResults } from '../../hooks/useBundleResults';
 import { useSwipePagination } from '../../hooks/useSwipePagination';
 import { useLocale, useTranslation } from '../../services/i18n';
-import type { BundleFacets, BundleResponse, BundleSortKey } from '../../types/catalog';
+import type { BundleFacets, BundleSortKey } from '../../types/catalog';
 import { CatalogPage } from './CatalogPages';
 
 const ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
-const cache = new Map<string, { response: BundleResponse; time: number }>();
 const BASE = '/catalog/bundles';
 
 /** Mantiene los enlaces publicados antes de que existiera el catálogo de bundles. */
@@ -32,58 +31,36 @@ function useBundleFilters() {
   const [params, setParams] = useSearchParams();
   const key = params.toString();
   const filters = useMemo(() => parseBundleFilters(new URLSearchParams(key)), [key]);
-  function update(patch: Partial<BundleCatalogFilters>, resetPage = true) {
+  const update = useCallback((patch: Partial<BundleCatalogFilters>, resetPage = true) => {
     setParams(bundleFiltersToSearch({ ...filters, ...patch, page: resetPage ? 1 : patch.page ?? filters.page }));
-  }
+  }, [filters, setParams]);
   return { filters, key, update };
 }
 
 export function BundleCatalogPage() {
-  const { filters, key, update } = useBundleFilters();
-  const { account, status } = useAuth();
-  const scope = status === 'checking' ? 'checking' : account?.id ?? 'anonymous';
+  const { filters, update } = useBundleFilters();
   const t = useTranslation();
   const locale = useLocale();
   const compact = useCompactLayout();
-  const [page, setPage] = useState<{ scope: string; response: BundleResponse } | null>(null);
-  const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [refresh, setRefresh] = useState(0);
+  const { response, isCurrent, error, loading, refresh: changedStar, scope } = useBundleResults(
+    bundleRequest(filters), true,
+  );
   const [draft, setDraft] = useState(filters.query);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(true);
-  const response = page?.scope === scope ? page.response : null;
 
   useEffect(() => { setDraft(filters.query); }, [filters.query]);
   useEffect(() => {
     if (draft.trim() === filters.query) return;
     const timer = window.setTimeout(() => update({ query: draft }), 250);
     return () => window.clearTimeout(timer);
-    // La búsqueda conserva el resto de los filtros vigentes cuando cambia la URL.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, key]);
+  }, [draft, filters.query, update]);
 
   useEffect(() => {
-    if (scope === 'checking') return;
-    const controller = new AbortController();
-    const cacheKey = `${scope}:${key}`;
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.time < 15_000) setPage({ scope, response: cached.response });
-    setLoading(true);
-    setError(false);
-    void fetchBundles(bundleRequest(filters), controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      cache.set(cacheKey, { response: result, time: Date.now() });
-      if (cache.size > 32) cache.delete(cache.keys().next().value!);
-      setPage({ scope, response: result });
-      const last = Math.max(1, Math.ceil(result.total / filters.pageSize));
-      if (filters.page > last) update({ page: last }, false);
-    }).catch(() => { if (!controller.signal.aborted) setError(true); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-    // filters y update proceden de la misma clave URL; el ámbito impide reutilizar votos de otra cuenta.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, scope, refresh]);
+    if (!response || !isCurrent) return;
+    const last = Math.max(1, Math.ceil(response.total / filters.pageSize));
+    if (filters.page > last) update({ page: last }, false);
+  }, [response, isCurrent, filters.page, filters.pageSize, update]);
 
   const swipe = useSwipePagination({ enabled: compact && !mobileOpen, page: filters.page,
     pageCount: Math.max(1, Math.ceil((response?.total ?? 0) / filters.pageSize)),
@@ -91,11 +68,6 @@ export function BundleCatalogPage() {
   const sortOptions: BundleSortKey[] = ['downloads', 'updated', 'stars', 'name',
     ...(filters.query && filters.searchMode === 'semantic' ? ['relevance' as const] : [])];
   const facetSearch = bundleFiltersToSearch(filters).toString();
-
-  function changedStar() {
-    cache.clear();
-    setRefresh((value) => value + 1);
-  }
 
   return <main className={`workspace ${filtersVisible ? '' : 'filters-hidden'}`}>
     <ResponsivePanel id="bundle-filter-panel" title={t('catalog.filters')} open={mobileOpen}

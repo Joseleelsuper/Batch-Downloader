@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchBundles } from '../../api/bundles';
 import { fetchApps } from '../../api/catalogApps';
 import { AppMiniIcon } from '../../components/AppMiniIcon';
 import { BundleCard } from '../../components/BundleCard';
-import { useAuth } from '../../auth/AuthContext';
+import { useBundleResults } from '../../hooks/useBundleResults';
 import { useTranslation } from '../../services/i18n';
-import type { BundleSummary, CatalogApp } from '../../types/catalog';
+import type { CatalogApp } from '../../types/catalog';
 
 export function HomePage() {
   const t = useTranslation();
@@ -79,30 +78,10 @@ export function HomePage() {
 
 function BundleSection({ title, type }: { title: string; type: 'official' | 'community' }) {
   const t = useTranslation();
-  const { account, status } = useAuth();
-  const scope = status === 'checking' ? 'checking' : account?.id ?? 'anonymous';
-  const [loadedScope, setLoadedScope] = useState<string | null>(null);
-  const [bundles, setBundles] = useState<BundleSummary[]>([]);
-  const [total, setTotal] = useState(0);
   const [sort, setSort] = useState('updated');
-  const [refresh, setRefresh] = useState(0);
-  const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const visibleBundles = loadedScope === scope ? bundles : [];
-  useEffect(() => {
-    if (scope === 'checking') return;
-    const controller = new AbortController();
-    setLoading(true);
-    setError(false);
-    void fetchBundles({ type, pageSize: 3, sort }, controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      setBundles(result.data);
-      setLoadedScope(scope);
-      setTotal(result.total);
-    }).catch(() => { if (!controller.signal.aborted) setError(true); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [type, sort, refresh, scope]);
+  const { response, error, loading, refresh, scope } = useBundleResults({ type, pageSize: 3, sort });
+  const visibleBundles = response?.data ?? [];
+  const total = response?.total ?? 0;
   return <section className="home-section">
     <div className="section-heading">
       <h2>{title}</h2>
@@ -120,8 +99,8 @@ function BundleSection({ title, type }: { title: string; type: 'official' | 'com
     {error ? <p className="error-banner" role="alert">{t('home.loadError')}</p> : null}
     <div className="bundle-grid">
       {visibleBundles.map((bundle) => <BundleCard bundle={bundle} key={`${bundle.id}:${scope}`}
-        onStarChange={sort === 'stars' ? () => setRefresh((value) => value + 1) : undefined} />)}
-      {!visibleBundles.length && !error && (loading || loadedScope !== scope) ? <p className="loading-label">{t('common.loading')}</p>
+        onStarChange={sort === 'stars' ? refresh : undefined} />)}
+      {!visibleBundles.length && !error && (loading || !response) ? <p className="loading-label">{t('common.loading')}</p>
         : !visibleBundles.length && !error ? <p className="empty-state">{t('home.emptyBundles')}</p> : null}
     </div>
   </section>;

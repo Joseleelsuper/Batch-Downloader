@@ -15,10 +15,18 @@ import {
 import { InstallerUrlFields } from './InstallerUrlFields';
 import { useAdminAppsActivity } from './useAdminAppsActivity';
 
-import { useAdminAppEditor } from './useAdminAppEditor';
+
 import { useManualInstallerInspection } from './useManualInstallerInspection';
+import type { EditorView, EditorUpdates } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'inspection' | 'manualInstallerUrls' | 'sourcePageUrl' | 'operatingSystem'
+> & EditorUpdates<
+  'sourcePageUrl' | 'manualInstallerUrls' | 'operatingSystem'
+>;
+
 /** Recoge URLs por plataforma y presenta evidencias antes de publicar instaladores. */
-export function ManualInstallerPanel({ editor, activity, inspectionActions }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor>; activity: ReturnType<typeof useAdminAppsActivity>; inspectionActions: ReturnType<typeof useManualInstallerInspection>; }>) {
+export function ManualInstallerPanel({ editor, activity, inspectionActions }: Readonly<{ editor: EditorProps; activity: ReturnType<typeof useAdminAppsActivity>; inspectionActions: ReturnType<typeof useManualInstallerInspection>; }>) {
   const t = useTranslation();
   const { inspection, manualInstallerUrls, sourcePageUrl, operatingSystem, setEditor } = editor;
   const { inspecting, applying } = activity;
@@ -108,7 +116,7 @@ export function ManualInstallerPanel({ editor, activity, inspectionActions }: Re
   );
 }
 
-function stepTwoClass(inspection: ReturnType<typeof useAdminAppEditor>['inspection']): string {
+function stepTwoClass(inspection: EditorProps['inspection']): string {
   if (inspection?.status === 'ready') return 'is-complete';
   if (inspection) return 'is-current';
   return '';

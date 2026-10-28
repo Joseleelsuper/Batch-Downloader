@@ -1,5 +1,6 @@
 """La búsqueda conserva candidatos parciales y la versión de su instantánea de lectura."""
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
@@ -67,3 +68,55 @@ async def test_search_without_valid_vectors_remains_unavailable(
     with pytest.raises(HTTPException) as error:
         await search_router.semantic_search(request)
     assert error.value.status_code == 503
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bundle", [False, True])
+async def test_each_collection_preserves_limit_threshold_and_candidate_identity(
+    monkeypatch, bundle,
+):
+    from app.bundle_store import BundleSemanticStore
+
+    identity = "bundleId" if bundle else "appId"
+    model = SimpleNamespace(model_version="m", minimum_similarity=0.5)
+    search = Mock(return_value=(
+        [{identity: "first", "rank": 1, "similarity": 0.9},
+         {identity: "extra", "rank": 2, "similarity": 0.8}], "snapshot",
+    ))
+    collection = BundleSemanticStore if bundle else search_router.store
+    monkeypatch.setattr(collection, "active_model", lambda *_args: (model, "before"))
+    monkeypatch.setattr(collection, "exact_search", search)
+    encoder = Mock(return_value=[1.0])
+    monkeypatch.setattr(
+        search_router, "runtime_for", lambda _: SimpleNamespace(encode_query=encoder),
+    )
+    route = search_router.bundle_semantic_search if bundle else search_router.semantic_search
+    result = await route(SemanticSearchRequest(query=" editor ", limit=1, minimumSimilarity=0.7))
+    response = result if bundle else result.model_dump(by_alias=True)
+    assert response["candidates"] == [{identity: "first", "rank": 1, "similarity": 0.9}]
+    assert response["truncated"] is True
+    assert response["indexVersion"] == "snapshot"
+    encoder.assert_called_once_with("editor")
+    search.assert_called_once_with(
+        model=model, query_vector=[1.0], minimum_similarity=0.7, limit=2,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bundle,code", [
+    (False, "semantic_search_timeout"), (True, "semantic_index_not_ready"),
+])
+async def test_collection_timeout_keeps_its_existing_error_code(monkeypatch, bundle, code):
+    from app.bundle_store import BundleSemanticStore
+
+    model = SimpleNamespace(model_version="m", minimum_similarity=0.5)
+    collection = BundleSemanticStore if bundle else search_router.store
+    monkeypatch.setattr(collection, "active_model", lambda *_args: (model, "index"))
+    monkeypatch.setattr(search_router, "runtime_for", lambda _: SimpleNamespace(
+        encode_query=Mock(side_effect=TimeoutError),
+    ))
+    route = search_router.bundle_semantic_search if bundle else search_router.semantic_search
+    with pytest.raises(HTTPException) as error:
+        await route(SemanticSearchRequest(query="editor"))
+    assert error.value.status_code == 503
+    assert error.value.detail == {"code": code}

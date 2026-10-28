@@ -4,9 +4,18 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
+from collections.abc import Mapping
 
 import httpcore
 import httpx
+
+
+def public_http_client(*, timeout: float, headers: Mapping[str, str]) -> httpx.AsyncClient:
+    """Crea un cliente propio; el llamador controla su cierre y las cabeceras de cada operación."""
+    return httpx.AsyncClient(
+        timeout=timeout, headers=headers, follow_redirects=False,
+        transport=PublicAsyncHTTPTransport(), trust_env=False,
+    )
 
 
 async def public_addresses(host: str, port: int) -> list[str]:

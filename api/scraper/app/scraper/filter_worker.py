@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import httpx
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
@@ -26,7 +23,7 @@ from app.scraper.candidates import (
 )
 from app.scraper.github import GitHubReleaseResolver
 from app.scraper.http.fetchers import fetch_bounded_response
-from app.scraper.http.public_transport import PublicAsyncHTTPTransport
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.installer_policy import (
     dedupe_candidates,
     fallback_candidates,
@@ -37,12 +34,10 @@ from app.scraper.pipeline_runtime import (
     async_session_local,
 )
 from app.scraper.pipeline_support import (
-    claim_item,
-    exception_detail,
     finish_item,
     parse_payload_app,
     payload_package_id,
-    queue_has_active_work,
+    queue_items,
     set_current,
 )
 from app.scraper.validator import (
@@ -89,43 +84,10 @@ class FilterWorker:
         Args:
             runtime: Estado compartido del pipeline.
         """
-        while not runtime.stop_event.is_set():
-            if not await runtime.before_next_item():
-                break
-            try:
-                item = await claim_item(
-                    self.settings,
-                    QUEUE_SEARCHER_FILTER,
-                    self.worker_id,
-                    run_id=runtime.run_id,
-                )
-            except (SQLAlchemyTimeoutError, OperationalError) as exc:
-                logger.warning(
-                    "filter_claim_retry",
-                    worker_id=self.worker_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
-                await asyncio.sleep(0.5)
-                continue
-            except Exception as exc:
-                logger.warning(
-                    "filter_claim_retry",
-                    worker_id=self.worker_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
-                await asyncio.sleep(1)
-                continue
-            if item is None:
-                if runtime.searcher_done.is_set() and not await queue_has_active_work(
-                    self.settings,
-                    QUEUE_SEARCHER_FILTER,
-                    runtime.run_id,
-                ):
-                    break
-                await asyncio.sleep(1)
-                continue
+        async for item in queue_items(
+            self.settings, runtime, QUEUE_SEARCHER_FILTER, self.worker_id,
+            stage="filter", upstream_done=(runtime.searcher_done,),
+        ):
             try:
                 payload = item.payload_json or {}
                 package_id = payload_package_id(payload, item)
@@ -198,11 +160,8 @@ class FilterWorker:
         if not await domain_has_public_dns(host):
             return False
         try:
-            async with httpx.AsyncClient(
+            async with public_http_client(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=False,
-                transport=PublicAsyncHTTPTransport(),
-                trust_env=False,
                 headers={"User-Agent": "BatchDownloaderScraper/0.1"},
             ) as client:
                 response = await fetch_bounded_response(

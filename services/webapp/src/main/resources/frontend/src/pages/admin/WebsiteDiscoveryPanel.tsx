@@ -12,10 +12,18 @@ import {
 import { InstallerUrlFields } from './InstallerUrlFields';
 import { useAdminAppsActivity } from './useAdminAppsActivity';
 
-import { useAdminAppEditor } from './useAdminAppEditor';
+
 import { useWebsiteDiscovery } from './useWebsiteDiscovery';
+import type { EditorView, EditorUpdates } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'websiteDiscovery' | 'websiteUrl' | 'websiteInstallerUrls'
+> & EditorUpdates<
+  'websiteUrl' | 'websiteInstallerUrls'
+>;
+
 /** Permite descubrir una aplicación desde su sitio oficial y revisar sus instaladores. */
-export function WebsiteDiscoveryPanel({ editor, activity, discoveryActions }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor>; activity: ReturnType<typeof useAdminAppsActivity>; discoveryActions: ReturnType<typeof useWebsiteDiscovery>; }>) {
+export function WebsiteDiscoveryPanel({ editor, activity, discoveryActions }: Readonly<{ editor: EditorProps; activity: ReturnType<typeof useAdminAppsActivity>; discoveryActions: ReturnType<typeof useWebsiteDiscovery>; }>) {
   const t = useTranslation();
   const { websiteDiscovery, websiteUrl, websiteInstallerUrls, setEditor } = editor;
   const { discoveringWebsite } = activity;

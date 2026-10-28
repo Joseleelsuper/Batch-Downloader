@@ -20,7 +20,7 @@ from app.core.config import Settings
 from app.scraper.github import parse_github_repo
 from app.scraper.http.fetchers import fetch_bounded_response
 from app.scraper.http.models import SafeHttpError
-from app.scraper.http.public_transport import PublicAsyncHTTPTransport
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.winstall import WinstallApp
 
 BADGE_MARKERS = (
@@ -88,11 +88,8 @@ class IconResolver:
             return None
 
         owns_client = self.client is None
-        client = self.client or httpx.AsyncClient(
+        client = self.client or public_http_client(
             timeout=self.settings.request_timeout_seconds,
-            follow_redirects=False,
-            transport=PublicAsyncHTTPTransport(),
-            trust_env=False,
             headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
         )
         try:

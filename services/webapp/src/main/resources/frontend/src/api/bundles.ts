@@ -13,7 +13,7 @@ export interface BundleSearchParams {
   operatingSystems?: OperatingSystem[];
 }
 
-function bundleSearch(params: BundleSearchParams): URLSearchParams {
+export function bundleSearch(params: BundleSearchParams): URLSearchParams {
   const search = new URLSearchParams();
   if (params.type) search.set('type', params.type);
   search.set('page', String(params.page ?? 1));

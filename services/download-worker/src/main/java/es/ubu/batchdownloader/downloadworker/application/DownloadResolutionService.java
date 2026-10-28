@@ -14,7 +14,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -109,7 +108,7 @@ public final class DownloadResolutionService {
         List<ResolvedDownloadItem> resolved = new ArrayList<>();
         List<FailedDownload> failed = new ArrayList<>();
         while (completed < items.size()) {
-            ResolutionAttempt attempt = awaitCompleted(completions);
+            ResolutionAttempt attempt = CompletedTasks.await(completions);
             completed++;
             if (attempt.resolved() != null) {
                 resolved.add(attempt.resolved());
@@ -174,50 +173,6 @@ public final class DownloadResolutionService {
             return ResolutionAttempt.failure(new FailedDownload(
                     item.itemId(), item.appId(), item.sourceRef(),
                     "installer-" + item.itemId() + ".bin", exception.code()));
-        }
-    }
-
-    /**
-     * Espera la próxima tarea terminada de la cola de resolución y conserva la interrupción del
-     * hilo.
-     *
-     * @param completions Cola que entrega tareas en su orden real de finalización.
-     * @param <T> Tipo de resultado de las tareas registradas en la cola.
-     * @return resultado de la tarea terminada.
-     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
-     *     interrumpe la espera.
-     */
-    private <T> T awaitCompleted(CompletionService<T> completions) {
-        try {
-            return await(completions.take());
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new InfrastructureException("download_job_interrupted", exception);
-        }
-    }
-
-    /**
-     * Desenvuelve la finalización de una tarea, propagando su fallo de ejecución cuando ya es
-     * RuntimeException.
-     *
-     * @param future Tarea cuyo resultado o fallo se recupera después de terminar.
-     * @param <T> Tipo de resultado producido por el futuro.
-     * @return resultado completado.
-     * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
-     *     interrumpe la espera o la causa requiere envolverse.
-     */
-    private <T> T await(Future<T> future) {
-        try {
-            return future.get();
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new InfrastructureException("download_job_interrupted", exception);
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause();
-            if (cause instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            throw new InfrastructureException("download_task_failed", cause);
         }
     }
 

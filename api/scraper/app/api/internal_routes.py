@@ -10,6 +10,8 @@ See Also:
 from __future__ import annotations
 
 import secrets as secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC
 from typing import Annotated, cast
 from uuid import UUID
@@ -415,15 +417,13 @@ async def create_manual_installer_inspection(
         UrlProtector(settings.url_protection_secret),
         settings,
     )
-    try:
+    with inspection_http_errors(ManualInstallerError, SafeHttpError):
         inspection, _created = await repository.create_or_reuse(
             app_id,
             request.installer_url,
             request.source_page_url,
             request.installer_urls.model_dump(),
         )
-    except (ManualInstallerError, SafeHttpError) as exc:
-        raise_manual_installer_http_error(exc)
     await session.commit()
     return ManualInstallerInspectionView.model_validate(inspection_view(inspection))
 
@@ -549,7 +549,7 @@ async def apply_manual_installer_inspection(
         fastapi.HTTPException: Fallo clasificado de validación o conflicto; 503 para una
             comprobación transitoria.
     """
-    try:
+    with inspection_http_errors(ManualInstallerError, ManualInstallerTransientError, SafeHttpError):
         app, source_refs, warnings = await apply_manual_installer(
             session,
             settings,
@@ -557,8 +557,6 @@ async def apply_manual_installer_inspection(
             inspection_id,
             request,
         )
-    except (ManualInstallerError, ManualInstallerTransientError, SafeHttpError) as exc:
-        raise_manual_installer_http_error(exc)
     await session.commit()
     return ManualInstallerApplyResult(
         appId=str(app.id),
@@ -606,13 +604,11 @@ async def create_website_app_discovery(
         UrlProtector(settings.url_protection_secret),
         settings,
     )
-    try:
+    with inspection_http_errors(WebsiteDiscoveryError, SafeHttpError):
         discovery, _created = await repository.create_or_reuse(
             request.official_url,
             request.installer_urls.model_dump(),
         )
-    except (WebsiteDiscoveryError, SafeHttpError) as exc:
-        raise_website_discovery_http_error(exc)
     await session.commit()
     return WebsiteAppDiscoveryView.model_validate(website_discovery_view(discovery))
 
@@ -696,19 +692,15 @@ async def apply_website_app_discovery_route(
         fastapi.HTTPException: Error de validación, conflicto o ausencia clasificados; 503
             para fallos transitorios.
     """
-    try:
+    with inspection_http_errors(
+        WebsiteDiscoveryError, WebsiteDiscoveryTransientError, SafeHttpError,
+    ):
         app, installer_count, warnings = await apply_website_app_discovery(
             session,
             settings,
             discovery_id,
             request,
         )
-    except (
-        WebsiteDiscoveryError,
-        WebsiteDiscoveryTransientError,
-        SafeHttpError,
-    ) as exc:
-        raise_website_discovery_http_error(exc)
     await session.commit()
     return WebsiteAppDiscoveryApplyResult(
         appId=str(app.id),
@@ -719,54 +711,23 @@ async def apply_website_app_discovery_route(
     )
 
 
-def raise_manual_installer_http_error(
-    error: ManualInstallerError | ManualInstallerTransientError | SafeHttpError,
-) -> None:
-    """Conserva estado y código de errores manuales, asigna 503 a transitorios y distingue
-    422/503 en errores de HTTP seguro.
-
-    Args:
-        error: Fallo clasificado del caso de uso o de la política HTTP segura.
-
-    Raises:
-        fastapi.HTTPException: Siempre, con el código estable y causa original del fallo de
-            inspección.
-    """
-    if isinstance(error, ManualInstallerError):
-        status_code = error.status_code
-        code = error.code
-    elif isinstance(error, ManualInstallerTransientError):
-        status_code = 503
-        code = error.code
-    else:
-        status_code = 503 if error.transient else 422
-        code = error.code
-    raise HTTPException(status_code=status_code, detail={"code": code}) from error
+type InspectionError = (ManualInstallerError | ManualInstallerTransientError |
+                        WebsiteDiscoveryError | WebsiteDiscoveryTransientError | SafeHttpError)
 
 
-def raise_website_discovery_http_error(
-    error: WebsiteDiscoveryError | WebsiteDiscoveryTransientError | SafeHttpError,
-) -> None:
-    """Conserva estado y código de errores del descubrimiento y traduce los fallos transitorios a
-    503 y restricciones HTTP definitivas a 422.
-
-    Args:
-        error: Fallo clasificado del caso de uso o de la política HTTP segura.
-
-    Raises:
-        fastapi.HTTPException: Siempre, manteniendo el código estable y la causa del
-            descubrimiento.
-    """
-    if isinstance(error, WebsiteDiscoveryError):
-        status_code = error.status_code
-        code = error.code
-    elif isinstance(error, WebsiteDiscoveryTransientError):
-        status_code = 503
-        code = error.code
-    else:
-        status_code = 503 if error.transient else 422
-        code = error.code
-    raise HTTPException(status_code=status_code, detail={"code": code}) from error
+@contextmanager
+def inspection_http_errors(*errors: type[InspectionError]) -> Iterator[None]:
+    """Traduce solo los fallos admitidos por la ruta, preservando su código, estado y causa."""
+    try:
+        yield
+    except errors as error:
+        if isinstance(error, (ManualInstallerError, WebsiteDiscoveryError)):
+            status_code = error.status_code
+        elif isinstance(error, SafeHttpError):
+            status_code = 503 if error.transient else 422
+        else:
+            status_code = 503
+        raise HTTPException(status_code=status_code, detail={"code": error.code}) from error
 
 
 async def _run_descriptor_once_background() -> None:

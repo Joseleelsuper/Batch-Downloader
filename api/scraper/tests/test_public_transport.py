@@ -8,7 +8,7 @@ import pytest
 
 from app.scraper.http.fetchers import fetch_bounded_response
 from app.scraper.http.models import SafeHttpError
-from app.scraper.http.public_transport import PublicNetworkBackend
+from app.scraper.http.public_transport import PublicNetworkBackend, public_http_client
 
 
 @pytest.mark.asyncio
@@ -85,3 +85,33 @@ async def test_metadata_preserves_relative_redirects_and_legitimate_html():
         )
         assert result.text == "<html>Download</html>"
         assert str(result.url) == "https://publisher.example/download"
+
+
+@pytest.mark.asyncio
+async def test_factory_keeps_private_dns_rejection_on_real_httpx_requests(monkeypatch):
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", AsyncMock(
+        return_value=[(None, None, None, None, ("127.0.0.1", 80))],
+    ))
+    async with public_http_client(timeout=1, headers={"User-Agent": "test"}) as client:
+        with pytest.raises(httpx.ConnectError, match="dns_not_public"):
+            await client.get("http://publisher.example/")
+
+
+@pytest.mark.asyncio
+async def test_factory_leaves_redirects_to_the_bounded_reader_and_keeps_headers(monkeypatch):
+    from app.scraper.http import public_transport
+
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/private"})
+
+    monkeypatch.setattr(public_transport, "PublicAsyncHTTPTransport", lambda: httpx.MockTransport(
+        respond,
+    ))
+    async with public_http_client(timeout=1, headers={"User-Agent": "custom-agent"}) as client:
+        response = await client.get("https://publisher.example/")
+    assert response.status_code == 302
+    assert len(requests) == 1
+    assert requests[0].headers["user-agent"] == "custom-agent"

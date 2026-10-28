@@ -11,7 +11,7 @@ import httpx
 
 from app.scraper.http.models import FetchRequest, SafeHttpError, SafeHttpResponse
 from app.scraper.http.ports import SingleHopExchange, UrlValidator
-from app.scraper.http.public_transport import PublicAsyncHTTPTransport
+from app.scraper.http.public_transport import public_http_client
 
 
 class HttpxSingleHopExchange:
@@ -256,11 +256,8 @@ class HttpxPublicResourceFetcher:
             app.scraper.http.models.SafeHttpError: Si falla el transporte o cualquiera de las
                 políticas compuestas.
         """
-        async with httpx.AsyncClient(
+        async with public_http_client(
             timeout=request.timeout,
-            follow_redirects=False,
-            transport=PublicAsyncHTTPTransport(),
-            trust_env=False,
             headers={
                 "Accept": request.accept,
                 "Accept-Encoding": "identity",

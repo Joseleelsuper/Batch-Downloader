@@ -49,7 +49,7 @@ public class BundleController {
      * Estado {@code audit} mantenido por {@code BundleController}.
      */
     private final AdminAuditService audit;
-    private final BundleCatalogRepository catalog;
+    private final BundleCatalogService catalog;
     private final BundleActivityRepository activity;
     private final CurrentAccount accounts;
 
@@ -60,7 +60,7 @@ public class BundleController {
      * @param audit Registro de acciones administrativas con UUID de actor y recurso.
      */
     public BundleController(BundleRepository bundles, AdminAuditService audit,
-            BundleCatalogRepository catalog, BundleActivityRepository activity, CurrentAccount accounts) {
+            BundleCatalogService catalog, BundleActivityRepository activity, CurrentAccount accounts) {
         this.bundles = bundles;
         this.audit = audit;
         this.catalog = catalog;

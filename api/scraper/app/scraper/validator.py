@@ -41,7 +41,7 @@ from app.scraper.candidates import (
     is_github_source_archive,
     registered_domain,
 )
-from app.scraper.http.public_transport import PublicAsyncHTTPTransport
+from app.scraper.http.public_transport import public_http_client
 
 BINARY_CONTENT_TYPES = (
     DEFAULT_ARTIFACT_FORMAT_REGISTRY.binary_media_types | GENERIC_BINARY_MEDIA_TYPES
@@ -223,11 +223,8 @@ class DownloadValidator:
             return rejection
 
         owns_client = self.client is None
-        client = self.client or httpx.AsyncClient(
+        client = self.client or public_http_client(
             timeout=self.settings.request_timeout_seconds,
-            follow_redirects=False,
-            transport=PublicAsyncHTTPTransport(),
-            trust_env=False,
             headers={"User-Agent": "BatchDownloaderScraper/0.1"},
         )
         try:

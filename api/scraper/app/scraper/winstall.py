@@ -24,7 +24,7 @@ from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
 from app.scraper.candidates import detect_extension
 from app.scraper.http.fetchers import fetch_bounded_response
-from app.scraper.http.public_transport import PublicAsyncHTTPTransport
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.text import normalize_text
 
 
@@ -207,11 +207,8 @@ class WinstallClient:
             esta instancia con una sesión activa.
         """
         if self._client is None:
-            self._client = httpx.AsyncClient(
+            self._client = public_http_client(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=False,
-                transport=PublicAsyncHTTPTransport(),
-                trust_env=False,
                 headers={"User-Agent": "BatchDownloaderScraper/0.1"},
             )
         return self

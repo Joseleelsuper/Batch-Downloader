@@ -14,8 +14,14 @@ import {
   filterLabel
 } from './AdminAppsSupport';
 
-import { useAdminAppEditor } from './useAdminAppEditor';
+
 import { useAdminAppsList } from './useAdminAppsList';
+import type { EditorView, EditorEvents } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'detailRequestRef' | 'appListRef' | 'searchInputRef' | 'detailTriggerRef' | 'openApp' | 'moveListSelection' | 'selectedListId'
+> & EditorEvents<'clearSelection'>;
+
 const FILTERS: AdminAppFilter[] = [
   'unresolved',
   'review',
@@ -25,7 +31,7 @@ const FILTERS: AdminAppFilter[] = [
 ];
 
 /** Presenta filtros y resultados con navegación por teclado y paginación. */
-export function AdminAppsList({ editor, list }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor>; list: ReturnType<typeof useAdminAppsList>; }>) {
+export function AdminAppsList({ editor, list }: Readonly<{ editor: EditorProps; list: ReturnType<typeof useAdminAppsList>; }>) {
   const locale = useLocale();
   const t = useTranslation();
   const { detailRequestRef, appListRef, searchInputRef, detailTriggerRef, dispatchEditor, openApp, moveListSelection, selectedListId } = editor;

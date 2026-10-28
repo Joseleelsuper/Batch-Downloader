@@ -38,35 +38,6 @@ public class BundleRepository {
     }
 
     /**
-     * Selecciona bundles públicos u oficiales; community incluye también los de tipo user y el
-     * enriquecimiento se realiza por página.
-     *
-     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
-     *     community o user.
-     * @param sort stars prioriza estrellas y fecha; cualquier otro valor ordena por actualización
-     *     descendente.
-     * @param page Página numerada desde uno; los controladores acotan valores inferiores.
-     * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
-     * @return resúmenes en el orden solicitado.
-     * @see es.ubu.batchdownloader.bundle.BundleReadRepository
-     */
-    public List<BundleSummary> list(String type, String sort, int page, int pageSize) {
-        return reads.list(type, sort, page, pageSize);
-    }
-
-    /**
-     * Cuenta los mismos tipos y visibilidades que el listado público, sin paginación.
-     *
-     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
-     *     community o user.
-     * @return total público filtrado.
-     * @see es.ubu.batchdownloader.bundle.BundleReadRepository
-     */
-    public long count(String type) {
-        return reads.count(type);
-    }
-
-    /**
      * Selecciona una página de cualquier visibilidad y aplica el tipo literalmente, sin expandir
      * community a user.
      *

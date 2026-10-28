@@ -11,7 +11,7 @@ from app.core.config import Settings
 from app.scraper.candidates import InstallerCandidate, extract_candidates, registered_domain
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
 from app.scraper.http.fetchers import BoundedResponseReader, fetch_bounded_response
-from app.scraper.http.public_transport import PublicAsyncHTTPTransport
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.installer_policy import (
     dedupe_candidates,
     github_collection_timeout_seconds,
@@ -37,11 +37,8 @@ async def collect_winstall_parent_index_candidates(
 
 
     try:
-        async with httpx.AsyncClient(
+        async with public_http_client(
             timeout=settings.request_timeout_seconds,
-            follow_redirects=False,
-            transport=PublicAsyncHTTPTransport(),
-            trust_env=False,
             headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
         ) as client:
             batches = await asyncio.gather(

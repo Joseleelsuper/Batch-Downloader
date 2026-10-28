@@ -16,9 +16,17 @@ import {
 } from './AdminAppsSupport';
 import { useAdminAppsActivity } from './useAdminAppsActivity';
 
-import { INSPECTION_POLL_MS, useAdminAppEditor } from './useAdminAppEditor';
+import { INSPECTION_POLL_MS } from './useAdminAppEditor';
+import type { EditorView, EditorUpdates } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'selected' | 'inspection' | 'manualInstallerUrls' | 'sourcePageUrl' | 'hydratedInspectionRef' | 'detailRequestRef'
+> & EditorUpdates<
+  'inspection' | 'form' | 'operatingSystem'
+>;
+
 /** Inspecciona URLs manuales y aplica las sugerencias una sola vez por inspección. */
-export function useManualInstallerInspection(editor: ReturnType<typeof useAdminAppEditor>, activity: ReturnType<typeof useAdminAppsActivity>) {
+export function useManualInstallerInspection(editor: EditorProps, activity: ReturnType<typeof useAdminAppsActivity>) {
   const t = useTranslation();
   const { selected, inspection, manualInstallerUrls, sourcePageUrl, hydratedInspectionRef, detailRequestRef, setEditor } = editor;
   const { inspecting, applying, setMessage, setError, setOperation } = activity;

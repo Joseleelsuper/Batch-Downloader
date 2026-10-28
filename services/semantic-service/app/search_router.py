@@ -4,9 +4,11 @@ truncamiento.
 from __future__ import annotations
 
 import asyncio
+from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.embeddings import RegisteredModel
 from app.http_context import (
     require_internal_service_token,
     require_search_capacity,
@@ -14,9 +16,50 @@ from app.http_context import (
     settings,
     store,
 )
-from app.schemas import SemanticCandidate, SemanticSearchRequest, SemanticSearchResponse
+from app.schemas import SemanticSearchRequest, SemanticSearchResponse
 
 router = APIRouter()
+
+
+class SearchCollection(Protocol):
+    """Ofrece únicamente el modelo disponible y la búsqueda de una colección independiente."""
+
+    def active_model(self) -> tuple[RegisteredModel, str] | None: ...
+
+    def exact_search(
+        self, *, model: RegisteredModel, query_vector: list[float],
+        minimum_similarity: float, limit: int,
+    ) -> tuple[list[dict[str, Any]], str]: ...
+
+
+async def _search_collection(
+    request: SemanticSearchRequest, collection: SearchCollection, *, timeout_code: str,
+) -> dict[str, Any]:
+    """Comparte codificación y límites; cada ruta conserva sus candidatos y código de timeout."""
+    active = await asyncio.to_thread(collection.active_model)
+    if active is None:
+        raise HTTPException(status_code=503, detail={"code": "semantic_index_not_ready"})
+    model, _ = active
+    try:
+        vector = await asyncio.wait_for(
+            asyncio.to_thread(runtime_for(model).encode_query, request.query.strip()),
+            timeout=settings.search_timeout_seconds,
+        )
+        limit = min(request.limit, settings.candidate_limit)
+        rows, version = await asyncio.to_thread(
+            collection.exact_search, model=model, query_vector=vector,
+            minimum_similarity=request.minimum_similarity
+            if request.minimum_similarity is not None else model.minimum_similarity,
+            limit=limit + 1,
+        )
+    except TimeoutError as error:
+        raise HTTPException(status_code=503, detail={"code": timeout_code}) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail={"code": "semantic_index_not_ready"}) from error
+    return {
+        "candidates": rows[:limit], "modelVersion": model.model_version,
+        "indexVersion": version, "truncated": len(rows) > limit,
+    }
 
 
 @router.post(
@@ -28,34 +71,9 @@ async def bundle_semantic_search(request: SemanticSearchRequest) -> dict:
     """Devuelve solamente candidatos de bundles; Core aplica visibilidad y filtros actuales."""
     from app.bundle_store import BundleSemanticStore
 
-    bundles = BundleSemanticStore(store.database)
-    active = await asyncio.to_thread(bundles.active_model)
-    if active is None:
-        raise HTTPException(status_code=503, detail={"code": "semantic_index_not_ready"})
-    model, _ = active
-    try:
-        vector = await asyncio.wait_for(
-            asyncio.to_thread(runtime_for(model).encode_query, request.query.strip()),
-            timeout=settings.search_timeout_seconds,
-        )
-        limit = min(request.limit, settings.candidate_limit)
-        rows, version = await asyncio.to_thread(
-            bundles.exact_search,
-            model=model,
-            query_vector=vector,
-            minimum_similarity=request.minimum_similarity
-            if request.minimum_similarity is not None
-            else model.minimum_similarity,
-            limit=limit + 1,
-        )
-    except (TimeoutError, RuntimeError) as error:
-        raise HTTPException(status_code=503, detail={"code": "semantic_index_not_ready"}) from error
-    return {
-        "candidates": rows[:limit],
-        "modelVersion": model.model_version,
-        "indexVersion": version,
-        "truncated": len(rows) > limit,
-    }
+    return await _search_collection(
+        request, BundleSemanticStore(store.database), timeout_code="semantic_index_not_ready",
+    )
 
 
 @router.post(
@@ -92,49 +110,7 @@ async def semantic_search(request: SemanticSearchRequest) -> SemanticSearchRespo
             índice.
         app.store.SemanticStore.exact_search: Consulta vectores con los filtros del modelo.
     """
-    active = await asyncio.to_thread(store.active_model)
-    if active is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "semantic_index_not_ready"},
-        )
-    model, _index_version = active
-    try:
-        runtime = runtime_for(model)
-        vector = await asyncio.wait_for(
-            asyncio.to_thread(runtime.encode_query, request.query.strip()),
-            timeout=settings.search_timeout_seconds,
-        )
-        functional_limit = min(request.limit, settings.candidate_limit)
-        rows, index_version = await asyncio.to_thread(
-            store.exact_search,
-            model=model,
-            query_vector=vector,
-            minimum_similarity=(
-                request.minimum_similarity
-                if request.minimum_similarity is not None
-                else model.minimum_similarity
-            ),
-            limit=functional_limit + 1,
-        )
-    except TimeoutError as exception:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "semantic_search_timeout"},
-        ) from exception
-    except RuntimeError as exception:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "semantic_index_not_ready"},
-        ) from exception
-    truncated = len(rows) > functional_limit
-    return SemanticSearchResponse(
-        candidates=[
-            SemanticCandidate.model_validate(row)
-            for row in rows[:functional_limit]
-        ],
-        modelVersion=model.model_version,
-        indexVersion=index_version,
-        truncated=truncated,
-    )
+    return SemanticSearchResponse.model_validate(await _search_collection(
+        request, store, timeout_code="semantic_search_timeout",
+    ))
 

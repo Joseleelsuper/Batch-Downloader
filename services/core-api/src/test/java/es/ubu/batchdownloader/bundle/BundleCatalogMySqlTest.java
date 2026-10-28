@@ -106,7 +106,7 @@ class BundleCatalogMySqlTest {
         jdbc.update("INSERT INTO bundle_tags VALUES(?, 'Trabajo', 'trabajo')", UuidBytes.fromUuid(official));
         SemanticSearchClient semantic = mock(SemanticSearchClient.class);
         when(semantic.resolveBundles(any(), any())).thenReturn(SemanticCandidateSet.lexical());
-        var repository = new BundleCatalogRepository(jdbc, new BundleReadRepository(jdbc,mock(CatalogRepository.class)),activity,semantic);
+        var repository = new BundleCatalogService(new BundleCatalogRepository(jdbc, new BundleReadRepository(jdbc,mock(CatalogRepository.class)), activity), semantic);
         var filters = new BundleCatalogRepository.Filters(null,null,List.of(),null,List.of(),"lexical");
         var first = tx.execute(s -> repository.search(filters,"name",1,1,owner));
         assertThat(first.total()).isEqualTo(2);
@@ -138,7 +138,7 @@ class BundleCatalogMySqlTest {
         addInstaller(beta,"windows","review");
         SemanticSearchClient semantic=mock(SemanticSearchClient.class);
         when(semantic.resolveBundles(any(),any())).thenReturn(SemanticCandidateSet.lexical());
-        var repository=new BundleCatalogRepository(jdbc,new BundleReadRepository(jdbc,mock(CatalogRepository.class)),activity,semantic);
+        var repository=new BundleCatalogService(new BundleCatalogRepository(jdbc,new BundleReadRepository(jdbc,mock(CatalogRepository.class)), activity), semantic);
         var combined=new BundleCatalogRepository.Filters("public","trabajo",List.of("dev","trabajo"),firstOwner.toString(),List.of("windows","linux"),"lexical");
         assertThat(repository.search(combined,"updated",1,12,null).data()).extracting(BundleDtos.BundleSummary::id).containsExactly(alpha.toString());
         assertThat(repository.facets(combined).creators()).extracting(BundleDtos.BundleFacet::value).containsExactly(firstOwner.toString());

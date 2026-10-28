@@ -37,7 +37,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 @WebMvcTest({AdminAppController.class, LinuxInstallAdminController.class})
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, AdminAppService.class})
 @TestPropertySource(properties = {
     "server.port=0",
     "server.servlet.session.cookie.secure=false",

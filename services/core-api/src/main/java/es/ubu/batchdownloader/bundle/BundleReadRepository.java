@@ -63,60 +63,6 @@ public class BundleReadRepository {
     }
 
     /**
-     * Selecciona bundles públicos u oficiales; community incluye también los de tipo user y el
-     * enriquecimiento se realiza por página.
-     *
-     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
-     *     community o user.
-     * @param sort stars prioriza estrellas y fecha; cualquier otro valor ordena por actualización
-     *     descendente.
-     * @param page Página numerada desde uno; los controladores acotan valores inferiores.
-     * @param pageSize Elementos por página; los controladores limitan el rango a 1–60.
-     * @return resúmenes en el orden solicitado.
-     */
-    public List<BundleSummary> list(String type, String sort, int page, int pageSize) {
-        String order = "stars".equals(sort) ? "bundles.star_count DESC, bundles.updated_at DESC" : "bundles.updated_at DESC";
-        String sql = """
-                SELECT bundles.*, owner.username AS creator_username FROM bundles
-                LEFT JOIN core_users owner ON owner.id = bundles.owner_id
-                WHERE (? IS NULL OR bundles.type = ? OR (? = 'community' AND bundles.type = 'user'))
-                  AND bundles.visibility IN ('public', 'official')
-                ORDER BY %s
-                LIMIT ? OFFSET ?
-                """.formatted(order);
-        List<BundleBase> bundles = jdbc.query(
-                sql,
-                (rs, rowNum) -> bundleBase(rs),
-                BundleValues.blankToNull(type),
-                BundleValues.blankToNull(type),
-                BundleValues.blankToNull(type),
-                pageSize,
-                (page - 1) * pageSize);
-        return enrichSummaries(bundles);
-    }
-
-    /**
-     * Cuenta los mismos tipos y visibilidades que el listado público, sin paginación.
-     *
-     * @param type Tipo de bundle; null o blanco no filtra. La consulta pública trata community como
-     *     community o user.
-     * @return total público filtrado.
-     */
-    public long count(String type) {
-        Long count = jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM bundles
-                WHERE (? IS NULL OR type = ? OR (? = 'community' AND type = 'user'))
-                  AND visibility IN ('public', 'official')
-                """,
-                Long.class,
-                BundleValues.blankToNull(type),
-                BundleValues.blankToNull(type),
-                BundleValues.blankToNull(type));
-        return count == null ? 0 : count;
-    }
-
-    /**
      * Selecciona una página de cualquier visibilidad y aplica el tipo literalmente, sin expandir
      * community a user.
      *

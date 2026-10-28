@@ -16,9 +16,17 @@ import {
 } from './AdminAppsSupport';
 import { useAdminAppsActivity } from './useAdminAppsActivity';
 
-import { INSPECTION_POLL_MS, useAdminAppEditor, WEBSITE_DISCOVERY_STORAGE_KEY } from './useAdminAppEditor';
+import { INSPECTION_POLL_MS, WEBSITE_DISCOVERY_STORAGE_KEY } from './useAdminAppEditor';
+import type { EditorView, EditorUpdates, EditorEvents } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'creating' | 'websiteDiscovery' | 'websiteUrl' | 'websiteInstallerUrls' | 'detailRequestRef' | 'hydratedWebsiteDiscoveryRef' | 'websiteRecoveryRequestRef'
+> & EditorUpdates<
+  'creating' | 'detailOpen' | 'detailState' | 'websiteDiscovery' | 'form' | 'websiteUrl'
+> & EditorEvents<'create'>;
+
 /** Recupera y consulta el descubrimiento web; ignora respuestas de solicitudes sustituidas. */
-export function useWebsiteDiscovery(editor: ReturnType<typeof useAdminAppEditor>, activity: ReturnType<typeof useAdminAppsActivity>) {
+export function useWebsiteDiscovery(editor: EditorProps, activity: ReturnType<typeof useAdminAppsActivity>) {
   const t = useTranslation();
   const { creating, websiteDiscovery, websiteUrl, websiteInstallerUrls, detailRequestRef, hydratedWebsiteDiscoveryRef, websiteRecoveryRequestRef, setEditor, dispatchEditor } = editor;
   const { saving, discoveringWebsite, setMessage, setError, setOperation } = activity;

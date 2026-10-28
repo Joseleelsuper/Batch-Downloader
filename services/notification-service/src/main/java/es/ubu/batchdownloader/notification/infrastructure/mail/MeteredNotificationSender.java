@@ -5,15 +5,16 @@ import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 /**
  * Mide duración y resultado del envío por plantilla sin etiquetar destinatarios ni identificadores.
- * Los errores del enrutador se propagan intactos y el envío funciona también sin registro de
+ * Los errores del proveedor se propagan intactos y el envío funciona también sin registro de
  * métricas.
  *
- * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
+ * @see es.ubu.batchdownloader.notification.infrastructure.mail.ResendNotificationSender
  * @see es.ubu.batchdownloader.notification.application.port.NotificationSender
  * @since 0.1.0
  * @version 0.1.0
@@ -22,27 +23,27 @@ import org.springframework.stereotype.Component;
 @Component
 @Primary
 public final class MeteredNotificationSender implements NotificationSender {
-    private final RoutingNotificationSender delegate;
+    private final NotificationSender delegate;
     private final Optional<MeterRegistry> registry;
 
     /**
-     * Envuelve el enrutador de proveedores con instrumentación opcional.
+     * Envuelve el proveedor configurado con instrumentación opcional.
      *
-     * @param delegate Enrutador que realiza el envío y propaga sus fallos sin cambiar su
+     * @param delegate Proveedor que realiza el envío y propaga sus fallos sin cambiar su
      *     clasificación.
      *
      * @param registry Registro opcional de métricas; su ausencia permite enviar sin
      *     instrumentación.
      */
     public MeteredNotificationSender(
-            RoutingNotificationSender delegate,
+            @Qualifier("resendNotificationSender") NotificationSender delegate,
             Optional<MeterRegistry> registry) {
         this.delegate = delegate;
         this.registry = registry;
     }
 
     /**
-     * Envía a través del enrutador y mide éxito o fallo en un bloque final que no sustituye la
+     * Envía a través del proveedor y mide éxito o fallo en un bloque final que no sustituye la
      * excepción original.
      *
      * @param notification Evento validado, con destinatario, plantilla y parámetros necesarios para

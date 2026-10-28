@@ -6,9 +6,7 @@ import es.ubu.batchdownloader.bundle.BundleDtos.BundleFacet;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleFacets;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleStarState;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSummary;
-import es.ubu.batchdownloader.catalog.CatalogSearchMode;
 import es.ubu.batchdownloader.catalog.SemanticCandidateSet;
-import es.ubu.batchdownloader.catalog.SemanticSearchClient;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -26,22 +24,20 @@ public class BundleCatalogRepository {
     private final JdbcTemplate jdbc;
     private final BundleReadRepository reads;
     private final BundleActivityRepository activity;
-    private final SemanticSearchClient semantic;
 
     public BundleCatalogRepository(JdbcTemplate jdbc, BundleReadRepository reads,
-            BundleActivityRepository activity, SemanticSearchClient semantic) {
+            BundleActivityRepository activity) {
         this.jdbc = jdbc;
         this.reads = reads;
         this.activity = activity;
-        this.semantic = semantic;
     }
 
     public record Filters(String type, String query, List<String> tags, String creator,
             List<String> operatingSystems, String searchMode) {}
 
     @Transactional(readOnly = true)
-    public BundleCatalogResponse search(Filters filters, String sort, int page, int pageSize, UUID viewer) {
-        SemanticCandidateSet candidates = semantic.resolveBundles(CatalogSearchMode.parse(filters.searchMode()), filters.query());
+    public BundleCatalogResponse search(Filters filters, String sort, int page, int pageSize,
+            UUID viewer, SemanticCandidateSet candidates) {
         Sql base = filtered(filters, candidates, false, false, false);
         Map<String, Long> counts = new LinkedHashMap<>();
         counts.put("all", 0L);
@@ -89,8 +85,7 @@ public class BundleCatalogRepository {
     }
 
     @Transactional(readOnly = true)
-    public BundleFacets facets(Filters filters) {
-        SemanticCandidateSet candidates = semantic.resolveBundles(CatalogSearchMode.parse(filters.searchMode()), filters.query());
+    public BundleFacets facets(Filters filters, SemanticCandidateSet candidates) {
         Sql tags = filtered(filters, candidates, true, true, false);
         List<BundleFacet> tagItems = jdbc.query("SELECT t.normalized_tag AS value, MIN(t.tag) AS label, COUNT(DISTINCT b.id) AS amount "
                         + tags.text() + " GROUP BY t.normalized_tag ORDER BY label",

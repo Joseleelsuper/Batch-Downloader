@@ -39,7 +39,7 @@ class BundleStarSecurityTest {
     @Autowired MockMvc mvc;
     @MockitoBean BundleRepository bundles;
     @MockitoBean AdminAuditService audit;
-    @MockitoBean BundleCatalogRepository catalog;
+    @MockitoBean BundleCatalogService catalog;
     @MockitoBean BundleActivityRepository activity;
     @MockitoBean CurrentAccount accounts;
     @MockitoBean UserAccountStore users;

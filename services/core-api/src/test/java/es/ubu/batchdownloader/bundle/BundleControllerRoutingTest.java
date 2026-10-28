@@ -20,14 +20,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 /** Verifica que el controlador de bundles solo publique el contrato versionado. */
 class BundleControllerRoutingTest {
     private BundleRepository bundles;
-    private BundleCatalogRepository catalog;
+    private BundleCatalogService catalog;
     private MockMvc mvc;
 
     /** Crea un controlador aislado para comprobar exclusivamente su tabla de rutas. */
     @BeforeEach
     void setUp() {
         bundles = mock(BundleRepository.class);
-        catalog = mock(BundleCatalogRepository.class);
+        catalog = mock(BundleCatalogService.class);
         mvc = MockMvcBuilders.standaloneSetup(
                         new BundleController(bundles, mock(AdminAuditService.class), catalog,
                                 mock(BundleActivityRepository.class), mock(es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount.class)))
