@@ -15,6 +15,8 @@ import static org.mockito.Mockito.when;
 
 import es.ubu.batchdownloader.bundle.BundleDtos.UpsertBundleRequest;
 import es.ubu.batchdownloader.catalog.CatalogRepository;
+import es.ubu.batchdownloader.catalog.SemanticCandidateSet;
+import es.ubu.batchdownloader.catalog.SemanticSearchClient;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,11 +35,11 @@ import org.springframework.jdbc.core.RowMapper;
  */
 class BundleRepositoryTest {
     /**
-     * Comprueba el presupuesto constante: cuatro consultas propias y cuatro del catálogo por
-     * página, nunca consultas dentro del RowMapper.
+     * Comprueba el recorrido vigente: siete consultas por página y un enriquecimiento de catálogo
+     * por lote, nunca consultas dentro del RowMapper.
      */
     @Test
-    void bundlePageStaysWithinEightQueries() throws Exception {
+    void catalogPageKeepsItsQueriesBatched() throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         CatalogRepository catalog = mock(CatalogRepository.class);
         UUID bundleId = UUID.randomUUID();
@@ -47,6 +49,8 @@ class BundleRepositoryTest {
                     RowMapper<?> mapper = invocation.getArgument(1);
                     java.sql.ResultSet row = mock(java.sql.ResultSet.class);
                     when(row.getBytes("id"))
+                            .thenReturn(es.ubu.batchdownloader.common.UuidBytes.fromUuid(bundleId));
+                    when(row.getBytes(1))
                             .thenReturn(es.ubu.batchdownloader.common.UuidBytes.fromUuid(bundleId));
                     when(row.getString("slug")).thenReturn("bundle");
                     when(row.getString("name")).thenReturn("Bundle");
@@ -76,14 +80,19 @@ class BundleRepositoryTest {
         when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
                 .thenReturn(1L);
         when(catalog.listItems(any())).thenReturn(Map.of());
-        BundleRepository repository = repository(jdbc, catalog);
+        SemanticSearchClient semantic = mock(SemanticSearchClient.class);
+        when(semantic.resolveBundles(any(), any())).thenReturn(SemanticCandidateSet.lexical());
+        var service = new BundleCatalogService(new BundleCatalogRepository(
+                jdbc, new BundleReadRepository(jdbc, catalog), new BundleActivityRepository(jdbc)), semantic);
+        var response = service.search(new BundleCatalogRepository.Filters(
+                null, null, List.of(), null, List.of(), "lexical"), "updated", 1, 12, null);
 
-        assertThat(repository.list(null, "updated", 1, 12))
+        assertThat(response.data())
                 .extracting(BundleDtos.BundleSummary::creatorUsername).containsExactly("tory");
-        assertThat(repository.count(null)).isEqualTo(1);
+        assertThat(response.total()).isEqualTo(1);
 
-        verify(jdbc, times(1)).query(anyString(), any(RowMapper.class), any(Object[].class));
-        verify(jdbc, times(2)).query(
+        verify(jdbc, times(2)).query(anyString(), any(RowMapper.class), any(Object[].class));
+        verify(jdbc, times(4)).query(
                 anyString(), any(RowCallbackHandler.class), any(Object[].class));
         verify(jdbc, times(1)).queryForObject(
                 anyString(), eq(Long.class), any(Object[].class));

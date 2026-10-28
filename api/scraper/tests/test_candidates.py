@@ -17,6 +17,18 @@ from app.scraper.candidates import (
 )
 
 
+def test_long_button_without_installer_does_not_restart_matching_at_every_character() -> None:
+    import time
+
+    started = time.monotonic()
+    candidates = extract_candidates(
+        "<button>" + "a" * 100000 + "</button><button>/app.exe</button>",
+        "https://example.com/",
+    )
+    assert [item.url for item in candidates] == ["https://example.com/app.exe"]
+    assert time.monotonic() - started < 1
+
+
 def test_extract_candidates_from_links_and_scripts() -> None:
     """Comprueba el escenario `extract_candidates_from_links_and_scripts`.
     """

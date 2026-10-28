@@ -154,7 +154,7 @@ class ResendNotificationSenderTest {
      */
     @Test
     void rejectsTamperedEncryptedTokensAsPermanentEvents() {
-        assertThatThrownBy(() -> sender.send(notification("Ada", "enc:v1:not-valid")))
+        assertThatThrownBy(() -> sender.send(notification("Ada", "enc:v2:not-valid")))
                 .isInstanceOf(PermanentNotificationException.class)
                 .hasMessage("resend_notification_invalid");
         assertThat(captured.get()).isNull();
@@ -226,7 +226,7 @@ class ResendNotificationSenderTest {
     private EmailNotification notification(String username, String token) {
         String envelope = token.startsWith(NotificationTokenEnvelope.VERSION_PREFIX)
                 ? token
-                : new NotificationTokenEnvelope(KEY).encrypt(token);
+                : new NotificationTokenEnvelope(KEY).encrypt(token, "person@example.com", "MAGIC_LINK");
         return new EmailNotification(
                 UUID.randomUUID(), Instant.parse("2026-08-08T10:00:00Z"),
                 UUID.randomUUID().toString(), null, "person@example.com", "es",

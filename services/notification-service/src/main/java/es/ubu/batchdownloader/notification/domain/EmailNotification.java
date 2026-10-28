@@ -126,7 +126,7 @@ public record EmailNotification(
      * Selecciona el contenido y los parámetros requeridos del correo de identidad.
      *
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
+     * @see es.ubu.batchdownloader.notification.application.port.NotificationSender
      * @since 0.1.0
      * @version 0.1.0
      * @category Notificaciones

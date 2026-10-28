@@ -89,6 +89,19 @@ class SeoControllerTest {
     }
 
     @Test
+    void bundleCatalogAndLegacyLinksHaveWorkingInitialHtmlAndCanonicalMetadata() throws Exception {
+        mvc.perform(get("/api/v1/seo/html").header("X-Original-URI", "/catalog/bundles"))
+                .andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("Catálogo de bundles")));
+        mvc.perform(get("/api/v1/seo/metadata").param("path", "/catalog?bundleType=official"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.canonicalUrl").value("https://batchdownloader.dev/catalog/bundles"))
+                .andExpect(jsonPath("$.robots").value("noindex, follow"));
+        mvc.perform(get("/api/v1/seo/metadata").param("path", "/catalog/bundles?sort=downloads&searchMode=semantic"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.robots").value("index, follow"));
+        mvc.perform(get("/api/v1/seo/metadata").param("path", "/catalog/bundles/tags"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void catalogTextCannotBreakHtmlJsonOrInjectSsi() throws Exception {
         String payload = "</script><script>alert(1)</script><!--# include virtual=\"/private\" --> & \"quoted\"";
         jdbc.update("UPDATE software_apps SET name=?, description=? WHERE id=?", payload, payload, UuidBytes.fromUuid(APP_ID));

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope;
 import es.ubu.batchdownloader.notification.application.PermanentNotificationException;
 import es.ubu.batchdownloader.notification.application.RetryableNotificationException;
+import es.ubu.batchdownloader.notification.application.port.NotificationSender;
 import es.ubu.batchdownloader.notification.config.MailTemplateProperties;
 import es.ubu.batchdownloader.notification.config.ResendProperties;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
@@ -29,7 +30,7 @@ import org.springframework.web.util.UriComponentsBuilder;
  * Descifra el token únicamente al componer el enlace y usa eventId como clave de idempotencia.
  * Los estados 429 y 5xx admiten reintento; otros rechazos y errores de contenido son permanentes.
  *
- * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
+ * @see es.ubu.batchdownloader.notification.application.port.NotificationSender
  * @see es.ubu.batchdownloader.notification.application.RetryableNotificationException
  * @see es.ubu.batchdownloader.notification.application.PermanentNotificationException
  * @since 0.1.0
@@ -37,7 +38,7 @@ import org.springframework.web.util.UriComponentsBuilder;
  * @category Notificaciones
  */
 @Component
-public class ResendNotificationSender {
+public class ResendNotificationSender implements NotificationSender {
     private static final String SENDER_DISPLAY_NAME = "Batch Downloader";
 
     private final ResendProperties properties;
@@ -54,7 +55,7 @@ public class ResendNotificationSender {
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
      * @param mail Base pública utilizada para construir el enlace mágico de acceso.
-     * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
+     * @param tokens Descifrado del sobre enc:v2 vinculado a destinatario y finalidad.
      * @param translations Cliente interno de catálogos de correo.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      */
@@ -78,7 +79,7 @@ public class ResendNotificationSender {
      *
      * @param properties Endpoint, credenciales y tiempos máximos de Resend.
      * @param mail Base pública utilizada para construir el enlace mágico de acceso.
-     * @param tokens Descifrado autenticado del sobre enc:v1 que recibe de Core.
+     * @param tokens Descifrado del sobre enc:v2 vinculado a destinatario y finalidad.
      * @param translations Cliente interno de catálogos de correo.
      * @param mapper Serializador JSON del cuerpo enviado al API de correo.
      * @param client Cliente HTTP inyectable para controlar respuestas y fallos de transporte.
@@ -112,6 +113,7 @@ public class ResendNotificationSender {
      * @throws es.ubu.batchdownloader.notification.application.RetryableNotificationException si
      *     recibe 429 o 5xx, falla la E/S o se interrumpe el envío.
      */
+    @Override
     public void send(EmailNotification notification) {
         if (!properties.enabled()) {
             throw new PermanentNotificationException("resend_not_configured");
@@ -191,7 +193,8 @@ public class ResendNotificationSender {
      *     descifrarse.
      */
     private Rendered render(EmailNotification notification) {
-        String token = tokens.decrypt(notification.requiredParameter("token"));
+        String token = tokens.decrypt(notification.requiredParameter("token"),
+                notification.recipient(), notification.template().name());
         Map<String, String> catalog = translations.catalog(notification.locale());
         switch (notification.template()) {
             case MAGIC_LINK -> { }

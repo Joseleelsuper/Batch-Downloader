@@ -97,7 +97,6 @@ export function UserLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [emailInvalid, setEmailInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const processedToken = useRef<string | null>(null);
   const destination = destinationFrom(location.state, '/dashboard');
 
   useEffect(() => {
@@ -105,18 +104,19 @@ export function UserLoginPage() {
     void navigate('/login', { replace: true, state: location.state });
   }, [location.hash, location.state, navigate]);
 
-  useEffect(() => {
-    if (!token || processedToken.current === token) return;
-    processedToken.current = token;
+  async function confirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token || submitting) return;
     setSubmitting(true);
-    void confirmMagicLink(token)
-      .then((account) => {
-        auth.setAuthenticated(account);
-        return navigate(destination, { replace: true });
-      })
-      .catch((cause) => setError(apiMessage(t, cause, 'account.magic.failed')))
-      .finally(() => setSubmitting(false));
-  }, [auth, destination, navigate, t, token]);
+    setError(null);
+    try {
+      const account = await confirmMagicLink(token);
+      auth.setAuthenticated(account);
+      await navigate(destination, { replace: true });
+    } catch (cause) {
+      setError(apiMessage(t, cause, 'account.magic.failed'));
+    } finally { setSubmitting(false); }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -143,7 +143,13 @@ export function UserLoginPage() {
   return (
     <AuthCard>
       <h2>{t('account.magic.title')}</h2>
-      <form className="auth-form" onSubmit={submit} noValidate>
+      {token ? <form className="auth-form" onSubmit={confirm}>
+        <p>{t('account.magic.confirmNotice')}</p>
+        {error ? <p className="error-banner" role="alert">{error}</p> : null}
+        <button className="primary-button" type="submit" disabled={submitting}>
+          {submitting ? t('account.sending') : t('account.magic.confirm')}
+        </button>
+      </form> : <form className="auth-form" onSubmit={submit} noValidate>
         <label>{t('account.email')}
           <input type="email" maxLength={MAXIMUM_EMAIL_LENGTH} value={email}
             onChange={(event) => { setEmail(event.target.value); setError(null); setEmailInvalid(false); }}
@@ -158,7 +164,7 @@ export function UserLoginPage() {
             <span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>
           </Link>
         </div>
-      </form>
+      </form>}
       <p className="auth-legal-notice">{t('account.magic.privacyNotice')} <Link to="/privacy">{t('account.magic.privacyLink')}</Link> · <Link to="/terms">{t('account.magic.termsLink')}</Link></p>
     </AuthCard>
   );
@@ -224,8 +230,7 @@ export function AccountLayout() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   async function signOut() {
-    await auth.signOut();
-    void navigate('/login', { replace: true });
+    if (await auth.signOut()) void navigate('/login', { replace: true });
   }
   return <div className="account-shell">
     <MobileAppHeader controls="account-navigation" open={menuOpen} onClick={() => setMenuOpen(true)} />
@@ -455,8 +460,8 @@ export function ProfilePage() {
   async function finishAccountDeletion() {
     if (submitting) return;
     setSubmitting(true);
-    await auth.signOut();
-    await navigate('/login', { replace: true });
+    if (await auth.signOut()) await navigate('/login', { replace: true });
+    else setSubmitting(false);
   }
 
   const dialogTitle = actionDialog?.type === 'account-deletion-requested'

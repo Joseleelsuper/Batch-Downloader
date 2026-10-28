@@ -33,6 +33,47 @@ import org.junit.jupiter.api.io.TempDir;
 class DownloadConcurrencyPoliciesTest {
     @TempDir Path temporary;
 
+    @Test
+    void retryWrapperEnforcesTheSharedGuardBeforeWriting() {
+        Path target = temporary.resolve("guarded.exe");
+        DownloadBudget total = new DownloadBudget(1024, bytes -> {
+            throw new es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException(
+                    "storage_budget_wait", null);
+        });
+        RemoteDownloader delegate = (item, filename, path, budget, maximum) -> {
+            budget.consume(64);
+            try { java.nio.file.Files.write(path, new byte[64]); }
+            catch (java.io.IOException exception) { throw new IllegalStateException(exception); }
+            return artifact(item, filename, path, 64);
+        };
+        var downloader = new RetryingRemoteDownloader(delegate, new SimpleMeterRegistry());
+
+        assertThatThrownBy(() -> downloader.download(item("downloads.example"), "guarded.exe", target, total, 512))
+                .isInstanceOf(es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException.class);
+        assertThat(target).doesNotExist();
+    }
+
+    @Test
+    void deletesFailedAttemptBeforeReusingItsBudget() {
+        AtomicInteger calls = new AtomicInteger();
+        DownloadBudget total = new DownloadBudget(64);
+        Path target = temporary.resolve("retry.exe");
+        RemoteDownloader delegate = (item, filename, path, budget, maximum) -> {
+            budget.consume(64);
+            try { java.nio.file.Files.write(path, new byte[64]); }
+            catch (java.io.IOException exception) { throw new IllegalStateException(exception); }
+            if (calls.getAndIncrement() == 0) {
+                throw new DownloadRejectedException("remote_timeout", Duration.ZERO);
+            }
+            return artifact(item, filename, path, 64);
+        };
+        new RetryingRemoteDownloader(delegate, new SimpleMeterRegistry())
+                .download(item("downloads.example"), "retry.exe", target, total, 64);
+
+        assertThat(calls).hasValue(2);
+        assertThat(total.consumedBytes()).isEqualTo(64);
+    }
+
     /**
      * Simula dos respuestas 429 y un éxito y exige tres intentos y el cargo de los 64 bytes del
      * resultado al presupuesto total.

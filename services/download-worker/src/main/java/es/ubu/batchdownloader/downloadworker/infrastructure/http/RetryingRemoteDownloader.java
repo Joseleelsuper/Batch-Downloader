@@ -13,8 +13,8 @@ import java.time.Duration;
 import java.util.Set;
 
 /**
- * Reintenta hasta dos veces rechazos temporales con espera acotada y limpieza previa del parcial,
- * cargando al presupuesto total solo una transferencia completada.
+ * Reintenta hasta dos veces rechazos temporales con espera acotada, reservando antes de escribir
+ * y devolviendo el consumo de parciales únicamente después de borrarlos.
  *
  * @see es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader
  * @see es.ubu.batchdownloader.downloadworker.application.DownloadRejectedException
@@ -42,8 +42,8 @@ public final class RetryingRemoteDownloader implements RemoteDownloader {
     }
 
     /**
-     * Utiliza presupuesto propio por intento y suma al total solo el artefacto completado; ante un
-     * rechazo reintentable limpia el parcial, registra el motivo y espera antes de repetir.
+     * Aplica el presupuesto compartido antes de cada escritura y devuelve el consumo de un
+     * intento fallido únicamente después de borrar su parcial.
      *
      * @param item Elemento admitido o resuelto cuya fuente exacta se procesa.
      * @param filename Nombre seguro y deduplicado asignado al instalador descargado.
@@ -63,15 +63,17 @@ public final class RetryingRemoteDownloader implements RemoteDownloader {
             DownloadBudget totalBudget,
             long maxFileBytes) {
         for (int attempt = 0; ; attempt++) {
+            DownloadBudget attemptBudget = new DownloadBudget(
+                    maxFileBytes, totalBudget::consume, totalBudget::release);
             try {
-                DownloadBudget attemptBudget = new DownloadBudget(maxFileBytes);
                 DownloadedArtifact artifact = delegate.download(
                         item, filename, target, attemptBudget, maxFileBytes);
-                totalBudget.consume(artifact.sizeBytes());
                 return artifact;
-            } catch (DownloadRejectedException exception) {
-                if (attempt >= MAX_RETRIES || !retryable(exception.code())) throw exception;
-                deletePartial(target, exception);
+            } catch (RuntimeException failure) {
+                deletePartial(target, failure);
+                attemptBudget.release(attemptBudget.consumedBytes());
+                if (!(failure instanceof DownloadRejectedException exception)
+                        || attempt >= MAX_RETRIES || !retryable(exception.code())) throw failure;
                 registry.counter("download_worker_remote_retries", "reason", exception.code()).increment();
                 pause(delay(exception, attempt));
             }

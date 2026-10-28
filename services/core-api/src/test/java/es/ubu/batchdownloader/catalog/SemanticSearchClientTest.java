@@ -178,6 +178,25 @@ class SemanticSearchClientTest {
                 timeout);
     }
 
+    @Test
+    void bundleSearchUsesIndependentRouteAndNormalizesCandidateIdentity() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/v1/semantic/bundles/search", exchange -> {
+            byte[] body = """
+                    {"candidates":[{"bundleId":"00000000-0000-0000-0000-000000000001","rank":1,"similarity":0.9}],
+                     "modelVersion":"model","indexVersion":"bundles","truncated":false}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        var result = client(Duration.ofSeconds(2)).resolveBundles(CatalogSearchMode.SEMANTIC,"trabajo");
+        assertThat(result.semantic()).isTrue();
+        assertThat(result.indexVersion()).isEqualTo("bundles");
+        assertThat(result.candidatesJson()).contains("\"appId\":\"00000000-0000-0000-0000-000000000001\"");
+    }
+
     /**
      * Ejecuta start server y comunica su resultado manteniendo las reglas del componente.
      *

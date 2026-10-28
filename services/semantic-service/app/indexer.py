@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from app.bundle_indexer import synchronize_bundles
 from app.config import Settings, get_settings
 from app.database import Database
 from app.embeddings import EmbeddingRuntime
@@ -210,6 +211,17 @@ def main() -> None:
     heartbeat.start()
     try:
         while True:
+            try:
+                bundle_report = synchronize_bundles(indexer)
+                if bundle_report is not None:
+                    logger.info("bundle_semantic_index_completed %s", bundle_report)
+            except Exception as exception:
+                heartbeat.failure(exception)
+                logger.exception(
+                    "bundle_semantic_index_failed error=%s", exception.__class__.__name__,
+                )
+                if not arguments.loop:
+                    raise
             try:
                 report = indexer.run_scheduled() if arguments.loop else indexer.run_once()
                 if report is not None:

@@ -96,11 +96,12 @@ public class FilenamePolicy {
         if (WINDOWS_RESERVED_NAMES.contains(initialParts.base().toUpperCase(Locale.ROOT))) {
             sanitized = "_" + sanitized;
         }
-        if (sanitized.length() > MAX_FILENAME_LENGTH) {
+        if (sanitized.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_FILENAME_LENGTH) {
             ExtensionParts parts = extensionParts(sanitized);
-            int baseLength = Math.max(1, MAX_FILENAME_LENGTH - parts.extension().length());
-            sanitized = parts.base().substring(0, Math.min(parts.base().length(), baseLength))
-                    + parts.extension();
+            int extensionBytes = parts.extension().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            sanitized = extensionBytes >= MAX_FILENAME_LENGTH
+                    ? utf8Prefix(sanitized, MAX_FILENAME_LENGTH)
+                    : utf8Prefix(parts.base(), MAX_FILENAME_LENGTH - extensionBytes) + parts.extension();
         }
         return sanitized;
     }
@@ -137,9 +138,26 @@ public class FilenamePolicy {
         ExtensionParts parts = extensionParts(filename);
         int suffix = 2;
         while (!usedNames.add(candidate.toLowerCase(Locale.ROOT))) {
-            candidate = parts.base() + "-" + suffix++ + parts.extension();
+            String disambiguator = "-" + suffix++;
+            int remaining = MAX_FILENAME_LENGTH
+                    - (disambiguator + parts.extension()).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            candidate = utf8Prefix(parts.base(), Math.max(0, remaining)) + disambiguator + parts.extension();
         }
         return candidate;
+    }
+
+    /** Acota el nombre físico por bytes sin cortar pares sustitutos ni caracteres UTF-8. */
+    private String utf8Prefix(String value, int maximumBytes) {
+        int end = 0;
+        int bytes = 0;
+        while (end < value.length()) {
+            int point = value.codePointAt(end);
+            int length = point <= 0x7F ? 1 : point <= 0x7FF ? 2 : point <= 0xFFFF ? 3 : 4;
+            if (bytes + length > maximumBytes) break;
+            bytes += length;
+            end += Character.charCount(point);
+        }
+        return value.substring(0, end);
     }
 
     /**

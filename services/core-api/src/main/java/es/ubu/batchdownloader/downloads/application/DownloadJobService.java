@@ -187,8 +187,10 @@ public class DownloadJobService {
                     "no_downloadable_apps",
                     "Ninguna de las aplicaciones seleccionadas tiene un instalador o una página oficial segura.");
         }
-        return persistJob(owner, items, new PersistJobContext(
+        DownloadJobView created = persistJob(owner, items, new PersistJobContext(
                 List.copyOf(appIds), originalAppIds, omittedCount, now, target));
+        if (selection.bundleId() != null) storage.attributeBundle(created.id(), selection.bundleId());
+        return created;
     }
 
     private void validatePreviewSelection(DownloadSelection selection, LinuxTarget target) {

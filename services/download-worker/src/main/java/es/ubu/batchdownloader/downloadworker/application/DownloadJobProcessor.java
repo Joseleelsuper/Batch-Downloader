@@ -235,7 +235,8 @@ public class DownloadJobProcessor {
                 throw new CancellationException("download_job_cancelled");
             }
             Path activeDirectory = files.createDirectory(jobId);
-            DownloadBudget budget = new DownloadBudget(state.budgetBytes(), reservation::consume);
+            DownloadBudget budget = new DownloadBudget(
+                    state.budgetBytes(), reservation::consume, reservation::release);
             ArchivePreparation preparation;
             try (DownloadPipeline pipeline = pipelines.create(
                     event, prepared.resolved(), activeDirectory, properties.perJobConcurrency(), budget)) {

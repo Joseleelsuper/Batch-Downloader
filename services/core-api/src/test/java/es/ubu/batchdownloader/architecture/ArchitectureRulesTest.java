@@ -40,4 +40,17 @@ class ArchitectureRulesTest {
             .that().haveSimpleName("DownloadStorageCoordinator")
             .should().dependOnClassesThat(simpleName("DownloadJobService")
                     .or(simpleName("CatalogSourceLookup")));
+
+    /** La consulta SQL de bundles recibe candidatos ya resueltos fuera de su transacción. */
+    @ArchTest
+    static final ArchRule BUNDLE_CATALOG_PERSISTENCE_DOES_NOT_CALL_SEMANTIC_HTTP = noClasses()
+            .that().haveSimpleName("BundleCatalogRepository")
+            .should().dependOnClassesThat(simpleName("SemanticSearchClient"));
+
+    /** Las rutas administrativas delegan coordinación y auditoría en los casos de uso. */
+    @ArchTest
+    static final ArchRule ADMIN_APP_CONTROLLER_USES_APPLICATION_SERVICE = noClasses()
+            .that().haveSimpleName("AdminAppController")
+            .should().dependOnClassesThat(simpleName("CatalogRepository")
+                    .or(simpleName("AdminAppRepository")).or(simpleName("AdminAuditService")));
 }

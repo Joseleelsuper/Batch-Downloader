@@ -70,6 +70,26 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 describe('catalog workspace', () => {
+  it('conserva el enlace de acceso mientras termina de comprobar una sesión existente', async () => {
+    const user = {
+      id: '00000000-0000-0000-0000-000000000123', username: 'person',
+      email: 'person@example.com', emailVerified: true, role: 'USER' as const,
+      createdAt: '2026-08-08T00:00:00Z',
+    };
+    let resolveSession!: (account: typeof user) => void;
+    vi.mocked(accountApi.me).mockReturnValue(new Promise((resolve) => { resolveSession = resolve; }));
+    const confirm = vi.spyOn(accountApi, 'confirmMagicLink').mockResolvedValue(user);
+    function HashProbe() { return <output data-testid="login-hash">{useLocation().hash}</output>; }
+    render(<MemoryRouter initialEntries={[{
+      pathname: '/login', hash: '#token=pending-token', state: { from: { pathname: '/catalog' } },
+    }]}><App /><HashProbe /></MemoryRouter>);
+    await waitFor(() => expect(screen.getByTestId('login-hash')).toBeEmptyDOMElement());
+    await act(async () => { resolveSession(user); });
+    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sesión con este enlace' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('pending-token'));
+  });
+
   beforeEach(() => {
     clearCatalogPageCache();
     const storage = memoryStorage();

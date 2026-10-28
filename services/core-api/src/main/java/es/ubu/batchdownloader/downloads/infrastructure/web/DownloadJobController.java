@@ -465,7 +465,7 @@ public class DownloadJobController {
                     "invalid_source_selection", "Las fuentes elegidas deben pertenecer al bundle.");
         }
         return new DownloadSelection(appIds, normalizedOperatingSystems(request.operatingSystems()),
-                request.sourceRef(), request.linuxTarget(), request.targetArchitecture(), selected);
+                request.sourceRef(), request.linuxTarget(), request.targetArchitecture(), selected, request.bundleId());
     }
 
     /**

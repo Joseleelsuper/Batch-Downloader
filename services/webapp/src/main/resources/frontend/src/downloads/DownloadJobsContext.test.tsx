@@ -106,6 +106,35 @@ function LinuxHarness() {
 }
 
 describe('DownloadJobsProvider', () => {
+  it('retira trabajos persistidos y en memoria al cambiar el ámbito de cuenta', async () => {
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const { rerender } = render(<DownloadJobsProvider accountScope="owner-a"><Harness /></DownloadJobsProvider>);
+    vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('READY', 100));
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
+    vi.spyOn(delivery, 'chooseDownloadDestination').mockResolvedValue(undefined);
+    vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockResolvedValue({ url: 'https://example.test/file.zip' });
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await waitFor(() => expect(screen.getByTestId('jobs')).toHaveTextContent('1'));
+    rerender(<DownloadJobsProvider accountScope="anonymous"><Harness /></DownloadJobsProvider>);
+    expect(screen.getByTestId('jobs')).toHaveTextContent('0');
+    expect(window.sessionStorage.getItem('batch-downloader.download-jobs.v1')).not.toContain(JOB_ID);
+  });
+
+  it('una respuesta pendiente de la cuenta anterior no activa una entrega', async () => {
+    let resolveDestination!: (handle: undefined) => void;
+    vi.spyOn(delivery, 'chooseDownloadDestination').mockReturnValue(new Promise((resolve) => { resolveDestination = resolve; }));
+    const create = vi.spyOn(downloadsApi, 'createDownloadJob');
+    function Start() {
+      const downloads = useDownloadJobs();
+      return <button onClick={() => void downloads.start({ appIds: ['app'] }).catch(() => undefined)}>Start</button>;
+    }
+    const { rerender } = render(<DownloadJobsProvider accountScope="owner-a"><Start /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    rerender(<DownloadJobsProvider accountScope="anonymous"><Start /></DownloadJobsProvider>);
+    await act(async () => { resolveDestination(undefined); });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     window.sessionStorage.clear();
     const storage = new Map<string, string>();
@@ -222,7 +251,8 @@ describe('DownloadJobsProvider', () => {
     await act(async () => { selected(handle); });
     act(() => pushJob({ ...job('READY', 100), artifactSizeBytes: 4 }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(
-      expect.objectContaining({ id: JOB_ID, artifactSizeBytes: 4 }), handle, expect.any(Function), expect.any(Function),
+      expect.objectContaining({ id: JOB_ID, artifactSizeBytes: 4 }), handle,
+      expect.any(Function), expect.any(Function), expect.any(AbortSignal),
     ));
     expect(link).not.toHaveBeenCalled();
   });

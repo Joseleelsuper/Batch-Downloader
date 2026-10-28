@@ -144,7 +144,7 @@ jobs:
           java-version: "25.0.5"
           cache: maven
       - name: Apply eMudhra certificate mitigation
-        run: sh scripts/java/distrust-emudhra.sh
+        run: sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
       - name: Require Docker-backed migration tests
         run: docker info
       - name: Verify Java services
@@ -257,7 +257,7 @@ jobs:
           distribution: temurin
           java-version: "25.0.5"
       - name: Apply eMudhra certificate mitigation
-        run: sh scripts/java/distrust-emudhra.sh
+        run: sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -266,6 +266,8 @@ jobs:
         run: python -m unittest discover -s scripts/quality/tests -v
       - name: Validate OpenAPI
         run: npx --yes @redocly/cli@1.34.2 lint shared/contracts/openapi/batch-downloader-api.yaml
+      - name: Validate anonymous read-only OpenAPI for AI
+        run: npx --yes @redocly/cli@1.34.2 lint shared/contracts/openapi/batch-downloader-ai-api.json
       - name: Validate AsyncAPI
         run: npx --yes @asyncapi/cli@3.4.2 validate shared/contracts/asyncapi/messaging.yaml
 
@@ -393,7 +395,7 @@ jobs:
           java-version: "25.0.5"
           cache: maven
       - name: Apply eMudhra certificate mitigation
-        run: sh scripts/java/distrust-emudhra.sh
+        run: sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"

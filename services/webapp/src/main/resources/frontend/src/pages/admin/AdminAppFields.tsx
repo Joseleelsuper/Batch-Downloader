@@ -1,6 +1,14 @@
 import { useTranslation } from '../../services/i18n';
 import { clickableHttpUrl, EditorField, EditorTextarea, suggestionProvenance } from './AdminAppsSupport';
-import type { useAdminAppEditor } from './useAdminAppEditor';
+import type { EditorView, EditorUpdates } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'form' | 'provenance' | 'previewPending'
+> & EditorUpdates<
+  'form'
+>;
+
+
 
 const PRIMARY_FIELDS = [
   { key: 'name', id: 'name', label: 'admin.field.name' },
@@ -16,7 +24,7 @@ const DESCRIPTION_FIELDS = [
 ] as const;
 
 /** Edita los metadatos y muestra su procedencia mientras coincidan con la sugerencia recibida. */
-export function AdminAppFields({ editor }: Readonly<{ editor: ReturnType<typeof useAdminAppEditor> }>) {
+export function AdminAppFields({ editor }: Readonly<{ editor: EditorProps }>) {
   const t = useTranslation();
   const { form, provenance, previewPending, setEditor } = editor;
   const fieldProps = (key: keyof typeof form) => ({

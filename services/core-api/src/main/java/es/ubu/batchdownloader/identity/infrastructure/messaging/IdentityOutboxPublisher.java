@@ -37,6 +37,6 @@ class IdentityOutboxPublisher implements IdentityEventPublisher {
                         "template", "MAGIC_LINK",
                         "parameters", Map.of(
                                 "expiresInMinutes", expiresInMinutes,
-                                "token", tokenEnvelope.encrypt(rawToken))));
+                                "token", tokenEnvelope.encrypt(rawToken, recipient, "MAGIC_LINK"))));
     }
 }

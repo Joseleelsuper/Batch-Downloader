@@ -19,6 +19,7 @@ import app.scraper.worker_recovery as worker_recovery
 from app.core.config import Settings
 from app.core.time import utc_now
 from app.db.enums import ResolutionStatus, ScrapeScope
+from app.scraper import pipeline_support
 from app.scraper.candidates import InstallerCandidate, infer_operating_system
 from app.scraper.catalog_fetcher import CatalogFetcher
 from app.scraper.filter_worker import FilterWorker
@@ -1573,8 +1574,8 @@ async def test_platform_worker_retries_transient_claim_failure(monkeypatch) -> N
     async def no_active_work(*_args, **_kwargs) -> bool:
         return False
 
-    monkeypatch.setattr(platform_worker, "claim_item", fake_claim)
-    monkeypatch.setattr(platform_worker, "queue_has_active_work", no_active_work)
+    monkeypatch.setattr(pipeline_support, "claim_item", fake_claim)
+    monkeypatch.setattr(pipeline_support, "queue_has_active_work", no_active_work)
     monkeypatch.setattr(platform_worker.asyncio, "sleep", fake_sleep)
     settings = Settings()
     runtime = PipelineRuntime(settings=settings, run_id=uuid4(), run_started_at=utc_now())
@@ -1618,10 +1619,10 @@ async def test_filter_worker_requeues_database_pool_timeout(monkeypatch) -> None
         async def __aexit__(self, *_args):
             return None
 
-    monkeypatch.setattr(filter_worker_module, "claim_item", fake_claim)
+    monkeypatch.setattr(pipeline_support, "claim_item", fake_claim)
     monkeypatch.setattr(filter_worker_module, "finish_item", fake_finish)
     monkeypatch.setattr(worker_recovery, "finish_item", fake_finish)
-    monkeypatch.setattr(filter_worker_module, "queue_has_active_work", no_active_work)
+    monkeypatch.setattr(pipeline_support, "queue_has_active_work", no_active_work)
     monkeypatch.setattr(filter_worker_module, "set_current", no_op)
     monkeypatch.setattr(
         filter_worker_module,
@@ -1670,9 +1671,9 @@ async def test_platform_worker_requeues_app_timeout(monkeypatch) -> None:
     async def time_out(*_args, **_kwargs):
         raise TimeoutError
 
-    monkeypatch.setattr(platform_worker, "claim_item", fake_claim)
+    monkeypatch.setattr(pipeline_support, "claim_item", fake_claim)
     monkeypatch.setattr(platform_worker, "finish_item", fake_finish)
-    monkeypatch.setattr(platform_worker, "queue_has_active_work", no_active_work)
+    monkeypatch.setattr(pipeline_support, "queue_has_active_work", no_active_work)
     monkeypatch.setattr(worker, "_scrape_item", time_out)
     runtime = PipelineRuntime(
         settings=worker.settings,

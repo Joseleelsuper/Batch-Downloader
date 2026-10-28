@@ -24,10 +24,18 @@ import {
 } from './AdminAppsSupport';
 import { useAdminAppsActivity, type ActivityKey } from './useAdminAppsActivity';
 
-import { useAdminAppEditor, WEBSITE_DISCOVERY_STORAGE_KEY } from './useAdminAppEditor';
+import { WEBSITE_DISCOVERY_STORAGE_KEY } from './useAdminAppEditor';
 import { useAdminAppsList } from './useAdminAppsList';
+import type { EditorView, EditorUpdates, EditorEvents } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'selected' | 'creating' | 'form' | 'inspection' | 'websiteDiscovery' | 'operatingSystem' | 'searchInputRef' | 'openApp' | 'inspectionLocksOrdinaryWrite'
+> & EditorUpdates<
+  'selected' | 'creating' | 'websiteDiscovery' | 'form' | 'detailState'
+> & EditorEvents<'clearSelection'>;
+
 /** Publica, guarda y elimina aplicaciones preservando bloqueos de inspección y selección vecina. */
-export function useAdminAppsActions(editor: ReturnType<typeof useAdminAppEditor>, activity: ReturnType<typeof useAdminAppsActivity>, list: ReturnType<typeof useAdminAppsList>) {
+export function useAdminAppsActions(editor: EditorProps, activity: ReturnType<typeof useAdminAppsActivity>, list: ReturnType<typeof useAdminAppsList>) {
   const t = useTranslation();
   const { selected, creating, form, inspection, websiteDiscovery, operatingSystem, searchInputRef, setEditor, dispatchEditor, openApp, inspectionLocksOrdinaryWrite } = editor;
   const { saving, applying, generatingDescription, deletingSelected, exportingCsv, deletingAll, retryingSelected, setMessage, setError, setOperation } = activity;

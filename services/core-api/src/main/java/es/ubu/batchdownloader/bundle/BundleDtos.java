@@ -81,7 +81,24 @@ public class BundleDtos {
             List<PlatformAvailability> platformAvailability,
             List<String> tags,
             List<AppListItem> previewApps,
-            LocalDateTime updatedAt) {}
+            LocalDateTime updatedAt,
+            boolean starred,
+            boolean hasAdminStar,
+            long downloadCount) {
+        public BundleSummary(String id, String slug, String name, String description,
+                String creatorUsername, String type, String visibility, int starCount, int appCount,
+                List<String> operatingSystems, List<PlatformAvailability> platformAvailability,
+                List<String> tags, List<AppListItem> previewApps, LocalDateTime updatedAt) {
+            this(id, slug, name, description, creatorUsername, type, visibility, starCount, appCount,
+                    operatingSystems, platformAvailability, tags, previewApps, updatedAt, false, false, 0);
+        }
+
+        public BundleSummary withActivity(BundleStarState activity) {
+            return new BundleSummary(id, slug, name, description, creatorUsername, type, visibility,
+                    activity.starCount(), appCount, operatingSystems, platformAvailability, tags,
+                    previewApps, updatedAt, activity.starred(), activity.hasAdminStar(), activity.downloadCount());
+        }
+    }
 
     /**
      * Entrega la selección ordenada completa de aplicaciones activas y su disponibilidad por
@@ -124,7 +141,37 @@ public class BundleDtos {
             List<PlatformAvailability> platformAvailability,
             List<String> tags,
             List<AppListItem> apps,
-            LocalDateTime updatedAt) {}
+            LocalDateTime updatedAt,
+            boolean starred,
+            boolean hasAdminStar,
+            long downloadCount) {
+        public BundleDetails(String id, String slug, String name, String description, String type,
+                String visibility, int starCount, int appCount, List<String> operatingSystems,
+                List<PlatformAvailability> platformAvailability, List<String> tags,
+                List<AppListItem> apps, LocalDateTime updatedAt) {
+            this(id, slug, name, description, type, visibility, starCount, appCount, operatingSystems,
+                    platformAvailability, tags, apps, updatedAt, false, false, 0);
+        }
+
+        public BundleDetails withActivity(BundleStarState activity) {
+            return new BundleDetails(id, slug, name, description, type, visibility, activity.starCount(),
+                    appCount, operatingSystems, platformAvailability, tags, apps, updatedAt,
+                    activity.starred(), activity.hasAdminStar(), activity.downloadCount());
+        }
+    }
+
+    /** Estado público de los contadores y voto de la cuenta que consulta. */
+    public record BundleStarState(int starCount, boolean starred, boolean hasAdminStar, long downloadCount) {
+        public static final BundleStarState HIDDEN = new BundleStarState(0, false, false, 0);
+    }
+
+    public record BundleFacet(String value, String label, String letter, long count) {}
+    public record BundleFacets(List<BundleFacet> tags, List<BundleFacet> creators) {}
+    public record BundleAlphabet(String letter, int page, long count) {}
+    public record BundleCatalogResponse(List<BundleSummary> data, int page, int pageSize, long total,
+            java.util.Map<String, Long> counts, List<BundleAlphabet> alphabet,
+            String requestedMode, String appliedMode, String modelVersion, String indexVersion,
+            String degradedReason) {}
 
     /**
      * Acompaña el listado de bundles con su página, tamaño efectivo y total filtrado.

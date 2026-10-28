@@ -16,6 +16,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 ALIASES = {'IdentityView':'User', 'BundleDetails':'Bundle', 'BundleSearchResponse':'BundlePage',
+           'BundleCatalogResponse':'BundleCatalogPage',
            'AppSearchResponse':'AppPage', 'AppListItem':'App', 'DownloadJobView':'DownloadJob'}
 
 
@@ -65,11 +66,11 @@ class HttpContractTest(unittest.TestCase):
                     if not match: continue
                     suffix = re.search(r'"([^"]*)"', annotation)
                     route = bases.get(symbol['owner'], '') + (suffix[1] if suffix else '')
-                    if route.startswith(('/api/v1/', '/internal/v1/download-jobs/')):
+                    if route.startswith(('/api/v1/', '/internal/v1/download-jobs/', '/internal/v1/semantic/bundles/')):
                         cls.routes[(match[1].lower(), normalized(route))] = symbol
         cls.operations = {}
         for path, item in cls.spec['paths'].items():
-            if item.get('x-service') == 'scraper': continue
+            if item.get('x-service') in {'scraper', 'semantic'}: continue
             for method in ('get','post','put','patch','delete'):
                 if method not in item: continue
                 operation = item[method]
@@ -81,6 +82,32 @@ class HttpContractTest(unittest.TestCase):
     def test_effective_routes_match_controllers(self):
         """Cada verbo y ruta efectivos existen en ambos lados, incluido el prefijo del servidor."""
         self.assertEqual(set(self.routes), set(self.operations))
+
+    def test_bundle_semantic_search_matches_python_route_and_request(self):
+        """La búsqueda de bundles apunta a Semantic y conserva autenticación y entrada documentadas."""
+        routes = ast.parse((ROOT / 'services/semantic-service/app/search_router.py').read_text(encoding='utf-8'))
+        handler = next(node for node in routes.body if isinstance(node, ast.AsyncFunctionDef)
+                       and node.name == 'bundle_semantic_search')
+        decorator = next(node for node in handler.decorator_list if isinstance(node, ast.Call)
+                         and isinstance(node.func, ast.Attribute) and node.func.attr == 'post')
+        item = self.spec['paths'][decorator.args[0].value]
+        self.assertEqual('semantic', item['x-service'])
+        self.assertEqual([{'url': 'http://semantic-service:8000'}], item['servers'])
+        operation = item['post']
+        self.assertEqual([{'internalServiceToken': []}], operation['security'])
+        self.assertTrue({'require_internal_service_token', 'require_search_capacity'}.issubset(
+            {node.id for node in ast.walk(decorator) if isinstance(node, ast.Name)}))
+        declared_responses = ast.literal_eval(next(keyword.value for keyword in decorator.keywords
+                                                  if keyword.arg == 'responses'))
+        self.assertTrue({str(status) for status in declared_responses}.issubset(operation['responses']))
+        request_schema = operation['requestBody']['content']['application/json']['schema']['$ref'].rsplit('/', 1)[1]
+        models = ast.parse((ROOT / 'services/semantic-service/app/schemas.py').read_text(encoding='utf-8'))
+        model_name = ast.unparse(handler.args.args[0].annotation)
+        model = next(node for node in models.body if isinstance(node, ast.ClassDef) and node.name == model_name)
+        aliases = {next((keyword.value.value for keyword in node.value.keywords if keyword.arg == 'alias'),
+                        node.target.id) for node in model.body if isinstance(node, ast.AnnAssign)
+                   and isinstance(node.value, ast.Call)}
+        self.assertEqual(aliases, set(self.spec['components']['schemas'][request_schema]['properties']))
 
     def test_scraper_size_probe_matches_python_route_and_model(self):
         """Contrasta el probe documentado con FastAPI sin importar ni iniciar el scraper."""

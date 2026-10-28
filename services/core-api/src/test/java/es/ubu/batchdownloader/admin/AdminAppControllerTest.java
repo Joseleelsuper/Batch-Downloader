@@ -22,11 +22,11 @@ class AdminAppControllerTest {
         CatalogRepository catalog = mock(CatalogRepository.class);
         when(catalog.search(eq(new CatalogQuery("editor", "unresolved", List.of("windows"), "x64", List.of(), List.of())), eq("updated"), eq(1), eq(20), any(SemanticCandidateSet.class)))
                 .thenReturn(List.of());
-        AdminAppController controller = new AdminAppController(
+        AdminAppController controller = new AdminAppController(new AdminAppService(
                 catalog,
                 mock(AdminAppRepository.class),
                 mock(AdminAuditService.class),
-                mock(ScraperInternalClient.class));
+                mock(ScraperInternalClient.class)));
 
         controller.listApps(
                 "editor",

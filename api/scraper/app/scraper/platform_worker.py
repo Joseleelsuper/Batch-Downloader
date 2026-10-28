@@ -15,9 +15,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy.exc import (
-    OperationalError,
-)
 
 from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
@@ -50,6 +47,8 @@ from app.scraper.candidates import (
 )
 from app.scraper.content_workers import enqueue_so_filter_for_app
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.http.fetchers import fetch_bounded_response
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.icon_resolver import IconResolver
 from app.scraper.installer_policy import (
     ValidInstaller,
@@ -78,12 +77,10 @@ from app.scraper.pipeline_runtime import (
     async_session_local,
 )
 from app.scraper.pipeline_support import (
-    claim_item,
-    exception_detail,
     finish_item,
     parse_payload_app,
     payload_package_id,
-    queue_has_active_work,
+    queue_items,
     set_current,
 )
 from app.scraper.playwright_fallback import PlaywrightCandidateCollector
@@ -243,47 +240,10 @@ class PlatformScraperWorker:
             runtime: Estado compartido de la ejecución y sus workers.
         """
         logger.info("platform_scraper_worker_started", worker_id=self.worker_id)
-        while not runtime.stop_event.is_set():
-            if not await runtime.before_next_item():
-                break
-            try:
-                item = await claim_item(
-                    self.settings,
-                    QUEUE_FILTER_SCRAPER,
-                    self.worker_id,
-                    run_id=runtime.run_id,
-                )
-            except OperationalError as exc:
-                logger.warning(
-                    "scraper_claim_retry",
-                    worker_id=self.worker_id,
-                    error="OperationalError",
-                    detail=exception_detail(exc),
-                )
-                await asyncio.sleep(0.25)
-                continue
-            except Exception as exc:
-                logger.warning(
-                    "scraper_claim_retry",
-                    worker_id=self.worker_id,
-                    error=exc.__class__.__name__,
-                    detail=exception_detail(exc),
-                )
-                await asyncio.sleep(1)
-                continue
-            if item is None:
-                if (
-                    runtime.searcher_done.is_set()
-                    and runtime.filter_done.is_set()
-                    and not await queue_has_active_work(
-                        self.settings,
-                        QUEUE_FILTER_SCRAPER,
-                        runtime.run_id,
-                    )
-                ):
-                    break
-                await asyncio.sleep(1)
-                continue
+        async for item in queue_items(
+            self.settings, runtime, QUEUE_FILTER_SCRAPER, self.worker_id,
+            stage="scraper", upstream_done=(runtime.searcher_done, runtime.filter_done),
+        ):
             try:
                 async with asyncio.timeout(self.settings.scrape_app_timeout_seconds):
                     outcome = await self._scrape_item(runtime, item)
@@ -705,12 +665,15 @@ class PlatformScraperWorker:
         """
         html = ""
         try:
-            async with httpx.AsyncClient(
+            async with public_http_client(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
                 headers={"User-Agent": "BatchDownloaderScraper/0.1"},
             ) as client:
-                response = await client.get(official_url)
+                response = await fetch_bounded_response(
+                    client, official_url, timeout=self.settings.request_timeout_seconds,
+                    max_bytes=self.settings.manual_page_max_bytes,
+                    max_redirects=self.settings.max_redirects,
+                )
                 response.raise_for_status()
                 if "html" in response.headers.get("content-type", "").lower():
                     html = response.text
@@ -764,7 +727,11 @@ class PlatformScraperWorker:
                 list[InstallerCandidate]: Colección de elementos obtenidos por la operación.
             """
             try:
-                response = await client.get(landing.url)
+                response = await fetch_bounded_response(
+                    client, landing.url, timeout=self.settings.request_timeout_seconds,
+                    max_bytes=self.settings.manual_page_max_bytes,
+                    max_redirects=self.settings.max_redirects,
+                )
             except Exception:
                 return []
             if not response.is_success:
@@ -785,9 +752,8 @@ class PlatformScraperWorker:
 
         nested: list[InstallerCandidate] = []
         try:
-            async with httpx.AsyncClient(
+            async with public_http_client(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
                 headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
             ) as client:
                 tasks = [
@@ -900,9 +866,8 @@ class PlatformScraperWorker:
             return []
 
         try:
-            async with httpx.AsyncClient(
+            async with public_http_client(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
                 headers={"User-Agent": "Mozilla/5.0 BatchDownloaderScraper/0.1"},
             ) as client:
                 batches = await asyncio.gather(
@@ -947,11 +912,15 @@ class PlatformScraperWorker:
         if homepage and registered_domain(homepage) == registered_domain(landing.url):
             headers["Referer"] = homepage
         try:
-            async with client.stream("GET", landing.url, headers=headers) as response:
-                page = await read_limited_html(response)
-                if page is None:
-                    return []
-                html, base_url = page
+            response = await fetch_bounded_response(
+                client, landing.url, timeout=self.settings.request_timeout_seconds,
+                max_bytes=self.settings.manual_page_max_bytes,
+                max_redirects=self.settings.max_redirects, headers=headers,
+            )
+            page = await read_limited_html(response)
+            if page is None:
+                return []
+            html, base_url = page
         except Exception:
             return []
 

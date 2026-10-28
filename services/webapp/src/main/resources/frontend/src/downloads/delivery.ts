@@ -23,11 +23,13 @@ export function chooseDownloadDestination(): Promise<DownloadFileHandle | undefi
 }
 
 /** Short bounded recovery for reconciliation, gateway failures and lost responses. */
-export async function retryDeliveryRequest<T>(request: () => Promise<T>): Promise<T> {
+export async function retryDeliveryRequest<T>(request: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
     try {
       return await request();
     } catch (cause) {
+      signal?.throwIfAborted();
       const transient = cause instanceof TypeError
         || (cause instanceof DOMException && ['AbortError', 'TimeoutError'].includes(cause.name))
         || (cause instanceof ApiRequestError && (
@@ -48,32 +50,42 @@ export async function retryDeliveryRequest<T>(request: () => Promise<T>): Promis
 export async function saveDownload(
   job: DownloadJob, handle: DownloadFileHandle, onBytes: (bytes: number) => void,
   onSaved: () => void = () => undefined,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const expected = job.artifactSizeBytes;
   if (!Number.isSafeInteger(expected) || !expected || expected < 0) {
     throw new Error('download_size_unavailable');
   }
   const writable = await handle.createWritable();
+  let activeReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const abort = () => {
+    void activeReader?.cancel(signal?.reason).catch(() => undefined);
+    void writable.abort(signal?.reason).catch(() => undefined);
+  };
+  signal?.addEventListener('abort', abort, { once: true });
   let received = 0;
   const activity = () => reportDownloadActivity(job.id, 'saving', received);
   let activityPending = false;
   const heartbeat = window.setInterval(() => {
-    if (activityPending) return;
+    if (activityPending || signal?.aborted) return;
     activityPending = true;
     void activity().catch(() => undefined).finally(() => { activityPending = false; });
   }, 15_000);
   try {
-    await retryDeliveryRequest(activity);
+    signal?.throwIfAborted();
+    await retryDeliveryRequest(activity, signal);
     // A transient network interruption can resume the same open file with Range.
     for (let attempt = 0; received < expected; attempt++) {
       const response = await retryDeliveryRequest(async () => {
         const result = await apiFetch(`/api/v1/download-jobs/${encodeURIComponent(job.id)}/file`, {
           headers: received ? { Range: `bytes=${received}-` } : undefined,
           timeoutMs: 10_000,
+          signal,
         });
         if (!result.ok) throw await responseError(result);
         return result;
-      });
+      }, signal);
       if ((received && response.status !== 206)
           || (response.status === 206
             && response.headers.get('Content-Range') !== `bytes ${received}-${expected - 1}/${expected}`)) {
@@ -82,11 +94,13 @@ export async function saveDownload(
       }
       if (!response.body) throw new Error('download_body_missing');
       const reader = response.body.getReader();
+      activeReader = reader;
       try {
         while (true) {
           let chunk: ReadableStreamReadResult<Uint8Array>;
           try {
             chunk = await reader.read();
+            signal?.throwIfAborted();
           } catch (cause) {
             if (attempt >= 2) throw cause;
             break;
@@ -94,15 +108,18 @@ export async function saveDownload(
           if (chunk.done) break;
           if (received + chunk.value.byteLength > expected) throw new Error('download_size_mismatch');
           await writable.write(chunk.value);
+          signal?.throwIfAborted();
           received += chunk.value.byteLength;
           onBytes(received);
         }
       } finally {
         await reader.cancel().catch(() => undefined);
         reader.releaseLock();
+        activeReader = undefined;
       }
       if (received !== expected && attempt >= 2) throw new Error('download_size_mismatch');
     }
+    signal?.throwIfAborted();
     await writable.close();
     onSaved();
   } catch (cause) {
@@ -110,10 +127,11 @@ export async function saveDownload(
     throw cause;
   } finally {
     window.clearInterval(heartbeat);
+    signal?.removeEventListener('abort', abort);
   }
   // A receipt is sent only after the browser has committed the file to disk.
   try {
-    await retryDeliveryRequest(() => completeDownloadJob(job.id, received));
+    await retryDeliveryRequest(() => completeDownloadJob(job.id, received), signal);
   } catch (cause) {
     // The file is already committed; purging the job is also a successful cleanup.
     if (!(cause instanceof ApiRequestError && cause.status === 404)) throw cause;

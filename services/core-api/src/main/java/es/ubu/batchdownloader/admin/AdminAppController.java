@@ -6,13 +6,11 @@ import es.ubu.batchdownloader.admin.AdminCatalogDtos.ReplaceTagsRequest;
 import es.ubu.batchdownloader.admin.AdminCatalogDtos.UpsertAppRequest;
 import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerApplyRequest;
 import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerApplyResponse;
-import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerApplyResult;
 import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspection;
 import es.ubu.batchdownloader.admin.InstallerInspectionDtos.ManualInstallerInspectionRequest;
 import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscovery;
 import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryApplyRequest;
 import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryApplyResponse;
-import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryApplyResult;
 import es.ubu.batchdownloader.admin.WebsiteDiscoveryDtos.WebsiteAppDiscoveryRequest;
 import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerification;
 import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerificationRequest;
@@ -20,14 +18,9 @@ import es.ubu.batchdownloader.admin.InstallerAbsenceDtos.InstallerAbsenceVerific
 import es.ubu.batchdownloader.admin.AdminAppRepository.AppCsvExport;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppSearchResponse;
-import es.ubu.batchdownloader.catalog.CatalogRepository;
-import es.ubu.batchdownloader.catalog.CatalogQuery;
-import es.ubu.batchdownloader.catalog.SemanticCandidateSet;
-import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.Map;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -52,53 +45,18 @@ import org.springframework.web.bind.annotation.RestController;
  * registrando sus acciones con metadatos seguros.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
- * @see es.ubu.batchdownloader.admin.AdminAppRepository
- * @see es.ubu.batchdownloader.admin.ScraperInternalClient
- * @see es.ubu.batchdownloader.admin.AdminAuditService
+ * @see es.ubu.batchdownloader.admin.AdminAppService
  * @since 0.1.0
  * @version 0.1.0
  * @category Administración
  */
 @RestController
 public class AdminAppController {
-    /**
-     * Estado {@code catalog} mantenido por {@code AdminAppController}.
-     */
-    private final CatalogRepository catalog;
-    /**
-     * Estado {@code adminApps} mantenido por {@code AdminAppController}.
-     */
-    private final AdminAppRepository adminApps;
-    /**
-     * Estado {@code audit} mantenido por {@code AdminAppController}.
-     */
-    private final AdminAuditService audit;
-    /**
-     * Dependencia {@code scraperClient} utilizada por {@code AdminAppController}.
-     */
-    private final ScraperInternalClient scraperClient;
+    private final AdminAppService operations;
 
-    /**
-     * Conecta consulta y edición del catálogo con el cliente del scraper y la auditoría
-     * administrativa.
-     *
-     * @param catalog Consultas del catálogo que enriquecen las aplicaciones y mantienen sus filtros
-     *     comunes.
-     * @param adminApps Escrituras administrativas, evidencias de ausencia y exportación del
-     *     catálogo.
-     * @param audit Registro de acciones con actor UUID y metadatos seguros sin URLs resueltas.
-     * @param scraperClient Cliente interno autenticado para inspección, descubrimiento y generación
-     *     de contenido.
-     */
-    public AdminAppController(
-            CatalogRepository catalog,
-            AdminAppRepository adminApps,
-            AdminAuditService audit,
-            ScraperInternalClient scraperClient) {
-        this.catalog = catalog;
-        this.adminApps = adminApps;
-        this.audit = audit;
-        this.scraperClient = scraperClient;
+    /** Asocia los casos de uso administrativos con sus rutas HTTP. */
+    public AdminAppController(AdminAppService operations) {
+        this.operations = operations;
     }
 
     /**
@@ -124,19 +82,7 @@ public class AdminAppController {
             @RequestParam(defaultValue = "updated") String sort,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
-        int safePage = Math.max(1, page);
-        int safePageSize = Math.max(1, Math.min(pageSize, 100));
-        List<String> operatingSystems = operatingSystem == null || operatingSystem.isBlank()
-                ? List.of()
-                : List.of(operatingSystem);
-        SemanticCandidateSet lexicalCandidates = SemanticCandidateSet.lexical();
-        CatalogQuery filters = new CatalogQuery(
-                query, status, operatingSystems, architecture, List.of(), List.of());
-        return new AppSearchResponse(
-                catalog.search(filters, sort, safePage, safePageSize, lexicalCandidates),
-                safePage,
-                safePageSize,
-                catalog.count(filters, lexicalCandidates));
+        return operations.listApps(query, status, operatingSystem, architecture, sort, page, pageSize);
     }
 
     /**
@@ -146,7 +92,7 @@ public class AdminAppController {
      */
     @GetMapping("/api/v1/admin/apps/absence-verifications/summary")
     public InstallerAbsenceVerificationSummary absenceVerificationSummary() {
-        return adminApps.absenceVerificationSummary();
+        return operations.absenceVerificationSummary();
     }
 
     /**
@@ -159,7 +105,7 @@ public class AdminAppController {
     @GetMapping("/api/v1/admin/apps/{appId}/absence-verification")
     public InstallerAbsenceVerification activeAbsenceVerification(
             @PathVariable String appId) {
-        return adminApps.activeAbsenceVerification(appId);
+        return operations.activeAbsenceVerification(appId);
     }
 
     /**
@@ -180,16 +126,7 @@ public class AdminAppController {
             @PathVariable String appId,
             @Valid @RequestBody InstallerAbsenceVerificationRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        String actor = actor(principal);
-        InstallerAbsenceVerification verification =
-                adminApps.confirmInstallerAbsence(appId, request, actor);
-        audit.record(
-                actor,
-                "app.installer_absence.confirm",
-                "app",
-                appId,
-                Map.of("reasonCode", request.reasonCode()));
-        return verification;
+        return operations.confirmInstallerAbsence(appId, request, actor(principal));
     }
 
     /**
@@ -203,13 +140,7 @@ public class AdminAppController {
     @GetMapping(value = "/api/v1/admin/apps/export.csv", produces = "text/csv")
     public ResponseEntity<String> exportCsv(
             @AuthenticationPrincipal AccountPrincipal principal) {
-        AppCsvExport export = adminApps.exportCsv();
-        audit.record(
-                actor(principal),
-                "app.export_csv",
-                "app",
-                null,
-                Map.of("rows", export.rowCount()));
+        AppCsvExport export = operations.exportCsv(actor(principal));
         return ResponseEntity.ok()
                 .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
@@ -233,9 +164,7 @@ public class AdminAppController {
     public AppDetails createApp(
             @Valid @RequestBody UpsertAppRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        AppDetails created = adminApps.create(request);
-        audit.record(actor(principal), "app.create", "app", created.id(), null);
-        return created;
+        return operations.createApp(request, actor(principal));
     }
 
     /**
@@ -254,9 +183,7 @@ public class AdminAppController {
             @PathVariable String appId,
             @RequestBody PatchAppRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        AppDetails updated = adminApps.patch(appId, request);
-        audit.record(actor(principal), "app.update", "app", updated.id(), null);
-        return updated;
+        return operations.patchApp(appId, request, actor(principal));
     }
 
     /**
@@ -273,8 +200,7 @@ public class AdminAppController {
     public void deleteApp(
             @PathVariable String appId,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        adminApps.delete(appId);
-        audit.record(actor(principal), "app.delete", "app", appId, null);
+        operations.deleteApp(appId, actor(principal));
     }
 
     /**
@@ -293,14 +219,7 @@ public class AdminAppController {
     public Map<String, Object> deleteAllApps(
             @RequestParam(required = false) String confirm,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        if (!"DELETE_ALL".equals(confirm)) {
-            throw new ConflictException(
-                    "delete_all_confirmation_required",
-                    "Debes confirmar el borrado completo con confirm=DELETE_ALL.");
-        }
-        int deleted = adminApps.deleteAll();
-        audit.record(actor(principal), "app.delete_all", "app", null, Map.of("deleted", deleted));
-        return Map.of("deleted", deleted);
+        return operations.deleteAllApps(confirm, actor(principal));
     }
 
     /**
@@ -319,8 +238,7 @@ public class AdminAppController {
             @PathVariable String appId,
             @RequestBody ReplaceTagsRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        adminApps.replaceTags(appId, request.tags());
-        audit.record(actor(principal), "app.tags.replace", "app", appId, null);
+        operations.replaceTags(appId, request, actor(principal));
     }
 
     /**
@@ -342,8 +260,7 @@ public class AdminAppController {
             @PathVariable String sourceId,
             @RequestBody PatchSourceRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        adminApps.patchSource(appId, sourceId, request);
-        audit.record(actor(principal), "app.source.update", "source", sourceId, Map.of("appId", appId));
+        operations.patchSource(appId, sourceId, request, actor(principal));
     }
 
     /**
@@ -359,16 +276,7 @@ public class AdminAppController {
     public ResponseEntity<ScraperInternalClient.DescriptionGeneration> generateDescription(
             @PathVariable String appId,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        ScraperInternalClient.DescriptionGeneration payload = scraperClient.generateDescription(appId);
-        audit.record(
-                actor(principal),
-                "app.description.generate",
-                "app",
-                appId,
-                Map.of(
-                        "jobId", payload.jobId(),
-                        "status", payload.status()));
-        return ResponseEntity.accepted().body(payload);
+        return ResponseEntity.accepted().body(operations.generateDescription(appId, actor(principal)));
     }
 
     /**
@@ -388,17 +296,7 @@ public class AdminAppController {
             @PathVariable String appId,
             @Valid @RequestBody ManualInstallerInspectionRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        ManualInstallerInspection inspection =
-                scraperClient.createManualInstallerInspection(appId, request);
-        audit.record(
-                actor(principal),
-                "app.manual_installer.inspect",
-                "app",
-                appId,
-                Map.of(
-                        "inspectionId", inspection.id(),
-                        "status", inspection.status()));
-        return ResponseEntity.accepted().body(inspection);
+        return ResponseEntity.accepted().body(operations.createManualInstallerInspection(appId, request, actor(principal)));
     }
 
     /**
@@ -412,7 +310,7 @@ public class AdminAppController {
     @Nullable
     public ManualInstallerInspection currentManualInstallerInspection(
             @PathVariable String appId) {
-        return scraperClient.currentManualInstallerInspection(appId);
+        return operations.currentManualInstallerInspection(appId);
     }
 
     /**
@@ -427,7 +325,7 @@ public class AdminAppController {
     public ManualInstallerInspection manualInstallerInspection(
             @PathVariable String appId,
             @PathVariable String inspectionId) {
-        return scraperClient.manualInstallerInspection(appId, inspectionId);
+        return operations.manualInstallerInspection(appId, inspectionId);
     }
 
     /**
@@ -450,24 +348,7 @@ public class AdminAppController {
             @PathVariable String inspectionId,
             @Valid @RequestBody ManualInstallerApplyRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        ManualInstallerApplyResult result =
-                scraperClient.applyManualInstallerInspection(appId, inspectionId, request);
-        AppDetails application = catalog.details(result.appId());
-        audit.record(
-                actor(principal),
-                "app.manual_installer.apply",
-                "app",
-                result.appId(),
-                Map.of(
-                        "inspectionId", inspectionId,
-                        "sourceRef", result.sourceRef(),
-                        "sourceRefs", result.sourceRefs(),
-                        "catalogStatus", result.catalogStatus()));
-        return new ManualInstallerApplyResponse(
-                application,
-                result.sourceRef(),
-                result.sourceRefs(),
-                result.warnings());
+        return operations.applyManualInstallerInspection(appId, inspectionId, request, actor(principal));
     }
 
     /**
@@ -484,15 +365,7 @@ public class AdminAppController {
     public ResponseEntity<WebsiteAppDiscovery> createWebsiteAppDiscovery(
             @Valid @RequestBody WebsiteAppDiscoveryRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        WebsiteAppDiscovery discovery =
-                scraperClient.createWebsiteAppDiscovery(request);
-        audit.record(
-                actor(principal),
-                "app.website_discovery.inspect",
-                "website_app_discovery",
-                discovery.id(),
-                Map.of("status", discovery.status()));
-        return ResponseEntity.accepted().body(discovery);
+        return ResponseEntity.accepted().body(operations.createWebsiteAppDiscovery(request, actor(principal)));
     }
 
     /**
@@ -504,7 +377,7 @@ public class AdminAppController {
     @GetMapping("/api/v1/admin/app-discoveries/{discoveryId}")
     public WebsiteAppDiscovery websiteAppDiscovery(
             @PathVariable String discoveryId) {
-        return scraperClient.websiteAppDiscovery(discoveryId);
+        return operations.websiteAppDiscovery(discoveryId);
     }
 
     /**
@@ -523,22 +396,7 @@ public class AdminAppController {
             @PathVariable String discoveryId,
             @Valid @RequestBody WebsiteAppDiscoveryApplyRequest request,
             @AuthenticationPrincipal AccountPrincipal principal) {
-        WebsiteAppDiscoveryApplyResult result =
-                scraperClient.applyWebsiteAppDiscovery(discoveryId, request);
-        AppDetails application = catalog.details(result.appId());
-        audit.record(
-                actor(principal),
-                "app.website_discovery.apply",
-                "app",
-                result.appId(),
-                Map.of(
-                        "discoveryId", discoveryId,
-                        "catalogStatus", result.catalogStatus(),
-                        "installerCount", result.installerCount()));
-        return new WebsiteAppDiscoveryApplyResponse(
-                application,
-                result.installerCount(),
-                result.warnings());
+        return operations.applyWebsiteAppDiscovery(discoveryId, request, actor(principal));
     }
 
     /**

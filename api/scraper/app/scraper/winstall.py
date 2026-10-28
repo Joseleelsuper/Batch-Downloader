@@ -8,6 +8,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import AsyncIterator
@@ -22,6 +23,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
 from app.scraper.candidates import detect_extension
+from app.scraper.http.fetchers import fetch_bounded_response
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.text import normalize_text
 
 
@@ -145,6 +148,9 @@ WINSTALL_CATALOG_STABILITY_PASSES = 2
 """Número de instantáneas idénticas exigidas antes de procesar el catálogo."""
 WINSTALL_CATALOG_MAX_ATTEMPTS = 3
 """Número máximo de intentos para obtener una instantánea estable."""
+WINSTALL_CATALOG_MAX_ROWS = 100000
+WINSTALL_CATALOG_MAX_BYTES = 128 * 1024 * 1024
+WINSTALL_RESPONSE_MAX_BYTES = 8 * 1024 * 1024
 
 
 class WinstallProviderError(RuntimeError):
@@ -191,6 +197,7 @@ class WinstallClient:
         self.settings = settings
 
         self._client = client
+        self._catalog_bytes: int | None = None
 
 
     async def __aenter__(self) -> WinstallClient:
@@ -200,9 +207,8 @@ class WinstallClient:
             esta instancia con una sesión activa.
         """
         if self._client is None:
-            self._client = httpx.AsyncClient(
+            self._client = public_http_client(
                 timeout=self.settings.request_timeout_seconds,
-                follow_redirects=True,
                 headers={"User-Agent": "BatchDownloaderScraper/0.1"},
             )
         return self
@@ -252,6 +258,18 @@ class WinstallClient:
                 intentos.
             WinstallCatalogUnstableError: Si no se obtiene una instantánea estable.
         """
+        self._catalog_bytes = 0
+        try:
+            async with asyncio.timeout(max(60, self.settings.request_timeout_seconds * 30)):
+                return await self._catalog_snapshot(stability_passes, max_attempts)
+        except TimeoutError as exc:
+            raise WinstallCatalogUnstableError("catalog_timeout") from exc
+        finally:
+            self._catalog_bytes = None
+
+    async def _catalog_snapshot(
+        self, stability_passes: int, max_attempts: int,
+    ) -> list[WinstallApp]:
         if stability_passes < 1:
             raise ValueError("stability_passes_must_be_positive")
         if max_attempts < stability_passes:
@@ -299,14 +317,20 @@ class WinstallClient:
         offset = 0
         announced_total: int | None = None
         rows: list[dict[str, Any]] = []
+        pages = 0
         while announced_total is None or offset < announced_total:
+            pages += 1
+            if pages > 1000:
+                raise WinstallCatalogIncompleteError("catalog_page_limit")
             payload = await self._fetch_catalog_page(offset, WINSTALL_CATALOG_PAGE_SIZE)
+            from_html = payload is None and offset == 0
             if payload is None and offset == 0:
                 payload = await self._fetch_catalog_from_next_data()
             if not isinstance(payload, dict):
                 raise WinstallCatalogIncompleteError(f"catalog_page_unavailable offset={offset}")
 
             announced_total, data = validate_catalog_page(payload, offset, announced_total)
+            validate_catalog_limits(announced_total, len(rows) + len(data), len(data), from_html)
             rows.extend(data)
             offset += len(data)
 
@@ -392,7 +416,7 @@ class WinstallClient:
             enlaces oficiales, código fuente y descargas de la ficha.
         """
         assert self._client is not None
-        response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
+        response = await self._get(f"{self.settings.winstall_base_url}/apps/{package_id}")
         if not response.is_success:
             return WinstallPageLinks(official_url=None, source_code_url=None, downloads=[])
         return await run_cpu_bound(
@@ -415,7 +439,7 @@ class WinstallClient:
         """
         assert self._client is not None
         url = f"{self.settings.winstall_api_base_url}/apps"
-        response = await self._client.get(url, params={"offset": offset, "limit": limit})
+        response = await self._get(url, params={"offset": offset, "limit": limit})
         if response.status_code in {408, 425, 429} or response.status_code >= 500:
             response.raise_for_status()
         if not response.is_success:
@@ -434,7 +458,7 @@ class WinstallClient:
             payload de aplicación o None.
         """
         assert self._client is not None
-        response = await self._client.get(
+        response = await self._get(
             f"{self.settings.winstall_api_base_url}/apps/{package_id}"
         )
         if response.status_code in {408, 425, 429} or response.status_code >= 500:
@@ -455,7 +479,7 @@ class WinstallClient:
             payload coincidente o None.
         """
         assert self._client is not None
-        response = await self._client.get(
+        response = await self._get(
             f"{self.settings.winstall_api_base_url}/apps/search",
             params={"q": package_id, "offset": 0, "limit": WINSTALL_CATALOG_PAGE_SIZE},
         )
@@ -482,7 +506,7 @@ class WinstallClient:
             payload de catálogo o None.
         """
         assert self._client is not None
-        response = await self._client.get(f"{self.settings.winstall_base_url}/apps")
+        response = await self._get(f"{self.settings.winstall_base_url}/apps")
         if not response.is_success:
             return None
         return await run_cpu_bound(extract_next_data, response.text, "data")
@@ -498,10 +522,23 @@ class WinstallClient:
             payload de detalle o None.
         """
         assert self._client is not None
-        response = await self._client.get(f"{self.settings.winstall_base_url}/apps/{package_id}")
+        response = await self._get(f"{self.settings.winstall_base_url}/apps/{package_id}")
         if not response.is_success:
             return None
         return await run_cpu_bound(extract_next_data, response.text, "app")
+
+    async def _get(self, url: str, **kwargs) -> httpx.Response:
+        assert self._client is not None
+        response = await fetch_bounded_response(
+            self._client, url, timeout=self.settings.request_timeout_seconds,
+            max_bytes=WINSTALL_RESPONSE_MAX_BYTES, max_redirects=self.settings.max_redirects,
+            **kwargs,
+        )
+        if self._catalog_bytes is not None:
+            self._catalog_bytes += len(response.content)
+            if self._catalog_bytes > WINSTALL_CATALOG_MAX_BYTES:
+                raise WinstallCatalogIncompleteError("catalog_byte_limit")
+        return response
 
 
 def extract_next_data(html: str, key: str) -> dict[str, Any] | None:
@@ -719,6 +756,13 @@ def _winstall_fingerprint(payload: dict[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_catalog_limits(total: int, retained: int, page_size: int, from_html: bool) -> None:
+    if total > WINSTALL_CATALOG_MAX_ROWS or retained > WINSTALL_CATALOG_MAX_ROWS:
+        raise WinstallCatalogIncompleteError("catalog_row_limit")
+    if not from_html and page_size > WINSTALL_CATALOG_PAGE_SIZE:
+        raise WinstallCatalogIncompleteError("catalog_page_too_large")
 
 
 def validate_catalog_page(

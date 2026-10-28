@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import socket
 import ssl
 import struct
@@ -28,6 +29,8 @@ ARCHES = {"amd64": "x86_64", "x86_64": "x86_64", "i386": "x86",
           "aarch64": "aarch64", "all": "any", "noarch": "any", "any": "any", "universal": "any"}
 PROFILE_KEYS = {"schemaVersion", "strategy", "scope", "entrypoint", "dependencies",
                 "systemPackages", "update", "verification", "desktopName", "linuxTargets"}
+MAX_ARCHIVE_ENTRIES = 100000
+MAX_ARCHIVE_METADATA_BYTES = 16 * 1024 * 1024
 
 def require(condition, code):
     if not condition:
@@ -201,7 +204,8 @@ def inspect(strategy, path):
         require(header.startswith(b"\x7fELF") and header[8:11] in (b"AI\x01", b"AI\x02"),
                 "invalid_appimage")
     elif strategy == "tarball":
-        require(tarfile.is_tarfile(path), "invalid_tarball")
+        with BoundedTarFile.open(path) as archive:
+            bounded_tar_members(archive, 4 * 1024 ** 3)
     elif strategy == "jar":
         require(zipfile.is_zipfile(path), "invalid_jar")
     elif strategy == "arch":
@@ -216,14 +220,58 @@ def elf_arch(path):
     machine = struct.unpack(("<" if header[5] == 1 else ">") + "H", header[18:20])[0]
     return {3: "x86", 62: "x86_64", 183: "aarch64"}.get(machine, "unknown")
 
+class BoundedTarInfo(tarfile.TarInfo):
+    """Rechaza cabeceras auxiliares antes de que tarfile reserve su tamaño anunciado."""
+
+    def _proc_member(self, archive):
+        archive.entry_count += 1
+        require(archive.entry_count <= MAX_ARCHIVE_ENTRIES, "too_many_archive_entries")
+        require(self.size >= 0, "invalid_archive_size")
+        if self.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK,
+                         tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE):
+            archive.metadata_bytes += self.size
+            require(self.size <= 65536 and archive.metadata_bytes <= MAX_ARCHIVE_METADATA_BYTES,
+                    "archive_metadata_too_large")
+        else:
+            archive.payload_bytes += self.size
+            require(archive.payload_bytes <= archive.max_bytes, "archive_too_large")
+        require(self.type != tarfile.GNUTYPE_SPARSE, "sparse_archive_unsupported")
+        return super()._proc_member(archive)
+
+    def _proc_gnusparse_00(self, *args):
+        raise ValueError("sparse_archive_unsupported")
+
+    def _proc_gnusparse_01(self, *args):
+        raise ValueError("sparse_archive_unsupported")
+
+    def _proc_gnusparse_10(self, *args):
+        raise ValueError("sparse_archive_unsupported")
+
+
+class BoundedTarFile(tarfile.TarFile):
+    def __init__(self, *args, max_bytes=4 * 1024 ** 3, **kwargs):
+        self.entry_count = self.metadata_bytes = self.payload_bytes = 0
+        self.max_bytes = max_bytes
+        super().__init__(*args, tarinfo=BoundedTarInfo, **kwargs)
+
+
+def bounded_tar_members(archive, max_bytes):
+    members, size = [], 0
+    for member in archive:
+        size += member.size
+        require(size <= max_bytes, "archive_too_large")
+        if not (member.isdir() and PurePosixPath(member.name) == PurePosixPath(".")):
+            members.append(member)
+    return members
+
+
 def extract(path, destination, max_bytes=4 * 1024 ** 3):
     """Valida TODO el tar antes de extraer. No dispositivos ni enlaces externos."""
     destination = Path(destination).resolve()
-    with tarfile.open(path) as archive:
-        members = archive.getmembers()
-        members = [m for m in members if not (m.isdir() and PurePosixPath(m.name) == PurePosixPath("."))]
-        require(len(members) <= 100000, "too_many_archive_entries")
-        require(sum(m.size for m in members) <= max_bytes, "archive_too_large")
+    with BoundedTarFile.open(path, max_bytes=max_bytes) as archive:
+        members = bounded_tar_members(archive, max_bytes)
+        regular_files = {str(PurePosixPath(m.name)): m for m in members if m.isfile()}
+        expanded_bytes = sum(m.size for m in members)
         seen = set()
         for member in members:
             target = child(destination, member.name)
@@ -237,17 +285,41 @@ def extract(path, destination, max_bytes=4 * 1024 ** 3):
                 base = target.parent if member.issym() else destination
                 require((base / member.linkname).resolve().is_relative_to(destination),
                         "unsafe_archive_link")
-            member.mode &= 0o777
+            if member.islnk():
+                source = regular_files.get(str(PurePosixPath(member.linkname)))
+                require(source is not None, "unsafe_archive_link")
+                expanded_bytes += source.size
+                require(expanded_bytes <= max_bytes, "archive_too_large")
+            member.mode &= 0o755
             member.uid = member.gid = 0
             member.uname = member.gname = ""
         # Enlaces al final para impedir que redirijan escrituras durante la extracción.
         regular = [m for m in members if not (m.issym() or m.islnk())]
         links = [m for m in members if m.issym() or m.islnk()]
         for member in regular + links:
-            archive.extract(member, destination, set_attrs=False)
             target = child(destination, member.name)
+            require(not target.is_symlink(), "unsafe_archive_link")
+            if member.islnk():
+                # Copiar el miembro regular evita compartir un inode con un destino externo.
+                source = regular_files[str(PurePosixPath(member.linkname))]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(source) as content, target.open("xb") as output:
+                    shutil.copyfileobj(content, output)
+            elif member.issym():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(member.linkname, target)
+            else:
+                archive.extract(member, destination, set_attrs=False)
             if not member.issym():
-                target.chmod(member.mode & 0o777)
+                target.chmod(member.mode)
+        # Un enlace creado después puede cambiar la interpretación de un enlace anterior.
+        for member in links:
+            target = child(destination, member.name)
+            require(target.resolve().is_relative_to(destination), "unsafe_archive_link")
+        # tarfile y mkdir también crean padres sin una entrada explícita del archivo.
+        for directory, _directories, _files in os.walk(destination, followlinks=False):
+            parent = Path(directory)
+            parent.chmod(parent.stat().st_mode & 0o755)
 
 def validate_url(url, hosts):
     p = urlsplit(url)

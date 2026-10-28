@@ -27,7 +27,7 @@ public interface NotificationSender {
      * @throws es.ubu.batchdownloader.notification.application.RetryableNotificationException si el
      *     proveedor o el transporte admiten un nuevo intento.
      *
-     * @see es.ubu.batchdownloader.notification.infrastructure.mail.RoutingNotificationSender
+     * @see es.ubu.batchdownloader.notification.infrastructure.mail.ResendNotificationSender
      */
     void send(EmailNotification notification);
 }

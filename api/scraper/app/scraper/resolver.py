@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import uuid
 
-import httpx
-
 from app.core.config import Settings
 from app.core.cpu_pool import run_cpu_bound
 from app.db.enums import ResolutionStatus, ValidationStatus
@@ -26,6 +24,8 @@ from app.scraper.candidates import (
     score_candidate,
 )
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.http.fetchers import fetch_bounded_response
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.playwright_fallback import PlaywrightCandidateCollector
 from app.scraper.strategies import CallbackResolverStrategy, ResolverStrategyRegistry
 from app.scraper.validator import DownloadValidator, ValidationResult
@@ -508,12 +508,15 @@ class InstallerResolver:
         Returns:
             HTML o cadena vacía.
         """
-        async with httpx.AsyncClient(
+        async with public_http_client(
             timeout=self.settings.request_timeout_seconds,
-            follow_redirects=True,
             headers={"User-Agent": "BatchDownloaderScraper/0.1"},
         ) as client:
-            response = await client.get(url)
+            response = await fetch_bounded_response(
+                client, url, timeout=self.settings.request_timeout_seconds,
+                max_bytes=self.settings.manual_page_max_bytes,
+                max_redirects=self.settings.max_redirects,
+            )
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
             if "html" not in content_type and content_type:

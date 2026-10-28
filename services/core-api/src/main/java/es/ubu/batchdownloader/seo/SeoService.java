@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 public class SeoService {
     static final String BRAND = "Batch Downloader";
     private static final String CATALOG_PATH = "/catalog";
+    private static final String BUNDLE_CATALOG_PATH = "/catalog/bundles";
     static final String APP_PREFIX = "/catalog/app/";
     static final String BUNDLE_PREFIX = "/bundles/";
     private static final String INDEX = "index, follow";
@@ -59,6 +60,11 @@ public class SeoService {
 
     public Resolution resolve(String requestedPath) {
         String path = path(requestedPath);
+        if (CATALOG_PATH.equals(path) && requestedPath != null
+                && java.util.regex.Pattern.compile("[?&]bundleType=").matcher(requestedPath).find()) {
+            return publicPage(BUNDLE_CATALOG_PATH + requestedPath.substring(CATALOG_PATH.length()),
+                    BUNDLE_CATALOG_PATH, PUBLIC_PAGES.get(BUNDLE_CATALOG_PATH));
+        }
         List<String> staticPage = PUBLIC_PAGES.get(path);
         if (staticPage != null) return publicPage(requestedPath, path, staticPage);
         String privateTitle = PRIVATE_PAGES.get(path);
@@ -83,10 +89,13 @@ public class SeoService {
     }
 
     private Resolution publicPage(String requestedPath, String path, List<String> staticPage) {
-        boolean filtered = filteredCatalog(requestedPath, path);
-        int catalogPage = CATALOG_PATH.equals(path) && !filtered ? catalogPage(requestedPath) : 1;
-        if (catalogPage > 1 && (long) (catalogPage - 1) * 12 >= repository.catalogAvailableCount()) filtered = true;
-        boolean paginated = CATALOG_PATH.equals(path) && catalogPage > 1 && !filtered;
+        boolean bundleCatalog = path.startsWith(BUNDLE_CATALOG_PATH);
+        boolean filtered = bundleCatalog ? filteredBundleCatalog(requestedPath) : filteredCatalog(requestedPath, path);
+        boolean listing = CATALOG_PATH.equals(path) || BUNDLE_CATALOG_PATH.equals(path);
+        int catalogPage = listing && !filtered ? catalogPage(requestedPath) : 1;
+        if (catalogPage > 1 && (long) (catalogPage - 1) * 12 >= (bundleCatalog
+                ? repository.publicBundleCount() : repository.catalogAvailableCount())) filtered = true;
+        boolean paginated = listing && catalogPage > 1 && !filtered;
         return page(paginated ? path + "?page=" + catalogPage : path,
                 staticPage.getFirst() + (paginated ? " — página " + catalogPage : ""),
                 staticPage.get(1) + (paginated ? " Página " + catalogPage + "." : ""),
@@ -173,6 +182,21 @@ public class SeoService {
             if ("os".equals(key)) systems.add(value);
         }
         return !systems.isEmpty() && !systems.equals(Set.of("windows", "linux", "macos"));
+    }
+
+    private static boolean filteredBundleCatalog(String requested) {
+        String query = requested == null ? null : URI.create(requested).getRawQuery();
+        if (query == null) return false;
+        for (String pair : query.split("&")) {
+            String[] parts = pair.split("=", 2);
+            String key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+            String value = URLDecoder.decode(parts.length > 1 ? parts[1] : "", StandardCharsets.UTF_8);
+            if (value.isBlank() || ("page".equals(key) && value.matches("[1-9]\\d{0,8}"))) continue;
+            if (Map.of("sort", "downloads", "searchMode", "semantic", "pageSize", "12", "bundleType", "all")
+                    .getOrDefault(key, "").equals(value)) continue;
+            return true;
+        }
+        return false;
     }
 
     private static boolean isCatalogPageParameter(String path, String key, String value) {

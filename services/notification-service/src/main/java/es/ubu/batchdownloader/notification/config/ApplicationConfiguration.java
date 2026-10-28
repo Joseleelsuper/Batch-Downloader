@@ -34,7 +34,7 @@ public class ApplicationConfiguration {
      * identidad.
      *
      * @param encodedKey Clave Base64 de 32 bytes compartida con el productor de tokens cifrados.
-     * @return conversor del sobre enc:v1 con la clave configurada.
+     * @return conversor del sobre enc:v2 vinculado al destinatario y finalidad.
      * @see es.ubu.batchdownloader.contracts.crypto.NotificationTokenEnvelope
      */
     @Bean

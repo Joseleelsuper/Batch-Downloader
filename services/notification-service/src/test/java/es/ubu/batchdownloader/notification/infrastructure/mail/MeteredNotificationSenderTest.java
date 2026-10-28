@@ -6,6 +6,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import es.ubu.batchdownloader.notification.application.port.NotificationSender;
 import es.ubu.batchdownloader.notification.domain.EmailNotification;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
@@ -13,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /**
  * Comprueba métricas de envío y propagación de fallos sin introducir etiquetas con datos de
@@ -31,7 +33,7 @@ class MeteredNotificationSenderTest {
      */
     @Test
     void recordsSuccessWithoutRecipientOrEventTags() {
-        RoutingNotificationSender delegate = mock(RoutingNotificationSender.class);
+        NotificationSender delegate = mock(NotificationSender.class);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         MeteredNotificationSender sender = new MeteredNotificationSender(
                 delegate,
@@ -55,7 +57,7 @@ class MeteredNotificationSenderTest {
      */
     @Test
     void preservesFailureAndRecordsIt() {
-        RoutingNotificationSender delegate = mock(RoutingNotificationSender.class);
+        NotificationSender delegate = mock(NotificationSender.class);
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         MeteredNotificationSender sender = new MeteredNotificationSender(
                 delegate,
@@ -70,6 +72,21 @@ class MeteredNotificationSenderTest {
                 .tags("template", "magic_link", "outcome", "failure")
                 .timer()
                 .count()).isEqualTo(1);
+    }
+
+    @Test
+    void springSelectsTheMeteredPortAndItsQualifiedProvider() {
+        NotificationSender provider = mock(NotificationSender.class);
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("resendNotificationSender", NotificationSender.class, () -> provider);
+            context.register(MeteredNotificationSender.class);
+            context.refresh();
+            NotificationSender sender = context.getBean(NotificationSender.class);
+            assertThat(sender).isInstanceOf(MeteredNotificationSender.class);
+            EmailNotification notification = notification();
+            sender.send(notification);
+            verify(provider).send(notification);
+        }
     }
 
     /**

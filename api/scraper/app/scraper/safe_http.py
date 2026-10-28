@@ -6,14 +6,13 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
 
-import httpx
-
 from app.scraper.http import (
     FetchRequest,
     HttpxPublicResourceFetcher,
     SafeHttpError,
     SafeHttpResponse,
 )
+from app.scraper.http.public_transport import public_http_client
 from app.scraper.validator import domain_has_public_dns
 
 SENSITIVE_QUERY_KEYS = {
@@ -93,9 +92,8 @@ async def probe_public_resource_size(
 
     No lee el cuerpo ni recurre a GET cuando el proveedor no anuncia un tamaño válido.
     """
-    async with httpx.AsyncClient(
+    async with public_http_client(
         timeout=timeout,
-        follow_redirects=False,
         headers={"Accept-Encoding": "identity", "User-Agent": "BatchDownloaderScraper/0.1"},
     ) as client:
         for _redirect in range(max_redirects + 1):

@@ -26,7 +26,11 @@ import java.util.UUID;
  */
 public record DownloadSelection(
         List<UUID> appIds, List<String> operatingSystems, UUID sourceRef,
-        String linuxTarget, String targetArchitecture, Map<UUID, UUID> sourceSelections) {
+        String linuxTarget, String targetArchitecture, Map<UUID, UUID> sourceSelections, String bundleId) {
+    public DownloadSelection(List<UUID> appIds, List<String> operatingSystems, UUID sourceRef,
+            String linuxTarget, String targetArchitecture, Map<UUID, UUID> sourceSelections) {
+        this(appIds, operatingSystems, sourceRef, linuxTarget, targetArchitecture, sourceSelections, null);
+    }
     public DownloadSelection(List<UUID> appIds, List<String> operatingSystems, UUID sourceRef,
             String linuxTarget, String targetArchitecture) {
         this(appIds, operatingSystems, sourceRef, linuxTarget, targetArchitecture, Map.of());

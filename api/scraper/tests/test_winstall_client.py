@@ -18,6 +18,19 @@ from app.scraper.winstall import (
 )
 
 
+@pytest.mark.asyncio
+async def test_complete_catalog_rejects_provider_total_before_retaining_rows(monkeypatch):
+    async with httpx.AsyncClient() as http:
+        client = WinstallClient(Settings(), http)
+
+        async def page(_offset, _limit):
+            return {"total": 100001, "offset": 0, "data": [{"_id": "Vendor.App"}]}
+
+        monkeypatch.setattr(client, "_fetch_catalog_page", page)
+        with pytest.raises(WinstallCatalogIncompleteError, match="catalog_row_limit"):
+            await client._fetch_complete_catalog_once()
+
+
 def test_settings_use_the_current_winstall_api_host(monkeypatch: pytest.MonkeyPatch) -> None:
     """El valor predeterminado apunta al host de API que publica Winstall actualmente."""
     monkeypatch.delenv("SCRAPER_WINSTALL_API_BASE_URL", raising=False)

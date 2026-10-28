@@ -103,6 +103,12 @@ Permisos:
 
 El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
 
+El contrato para herramientas de IA está versionado en [`shared/contracts/openapi/batch-downloader-ai-api.json`](shared/contracts/openapi/batch-downloader-ai-api.json) y se sirve en `/openapi.json`. Incluye exclusivamente siete consultas `GET` sin sesión: búsqueda, filtros, estadísticas y detalle de aplicaciones; listado, filtros y detalle de bundles públicos u oficiales. No incluye autenticación, cookies, CSRF, descargas ni operaciones de usuario, administración o servicios internos. La imagen web copia ambos contratos como archivos estáticos: se actualizan manualmente y CI comprueba su validez y que el perfil de IA conserva solo lectura sin sesión.
+
+El catálogo de bundles está en `/catalog/bundles`: permite filtrar públicos u oficiales por etiquetas, plataformas y creador, buscar por sus propios metadatos y descargar cada bundle por separado. Los enlaces antiguos `/catalog?bundleType=official|community` siguen funcionando.
+
+Cada cuenta activa puede dar y retirar una estrella. Las estrellas administrativas muestran una mención general y las de bundles privados se conservan ocultas. El contador de descargas empieza en cero y suma una vez por trabajo tras confirmar la recepción completa del ZIP; conserva el total después de limpiar el trabajo. La proyección semántica de bundles se actualiza desde Core cada 300 segundos y utiliza el modelo local existente.
+
 <details>
 <summary><strong>API pública y de usuario</strong></summary>
 
@@ -120,6 +126,8 @@ El contrato público versionado está en [`shared/contracts/openapi/batch-downlo
 | `GET` | `/api/v1/apps`, `/api/v1/apps/stats`, `/api/v1/apps/facets` | Público | Busca aplicaciones y obtiene estadísticas o facetas. |
 | `GET` | `/api/v1/apps/{appId}` | Público | Obtiene el detalle de una aplicación. |
 | `GET` | `/api/v1/bundles`, `/api/v1/bundles/{bundleId}` | Público | Lista bundles visibles u obtiene uno visible/propio. |
+| `GET` | `/api/v1/bundles/catalog/facets` | Público | Etiquetas y creadores compatibles con la búsqueda de bundles. |
+| `PUT`, `DELETE` | `/api/v1/bundles/{bundleId}/star` | Cuenta activa + CSRF | Añade o retira una estrella por cuenta; los privados no admiten votos. |
 | `POST` | `/api/v1/download-jobs` | Público | Crea un trabajo y asigna su propietario. |
 | `GET`, `DELETE` | `/api/v1/download-jobs/{jobId}` | Propietario | Consulta o cancela un trabajo. |
 | `GET` | `/api/v1/download-jobs/{jobId}/events` | Propietario | Emite el progreso por SSE. |

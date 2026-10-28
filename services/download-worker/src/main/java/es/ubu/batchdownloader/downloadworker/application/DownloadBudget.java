@@ -19,10 +19,11 @@ public final class DownloadBudget {
      */
     private final long maxTotalBytes;
     /**
-     * Bytes contabilizados, incluidos los que causaron superar el límite.
+     * Bytes admitidos que todavía ocupan espacio.
      */
     private final AtomicLong consumedBytes = new AtomicLong();
     private final java.util.function.LongConsumer beforeWrite;
+    private final java.util.function.LongConsumer afterDelete;
 
     /**
      * Inicializa el presupuesto compartido con consumo cero y exige un límite positivo.
@@ -36,16 +37,21 @@ public final class DownloadBudget {
     }
 
     public DownloadBudget(long maxTotalBytes, java.util.function.LongConsumer beforeWrite) {
+        this(maxTotalBytes, beforeWrite, ignored -> {});
+    }
+
+    public DownloadBudget(long maxTotalBytes, java.util.function.LongConsumer beforeWrite,
+            java.util.function.LongConsumer afterDelete) {
         if (maxTotalBytes <= 0) {
             throw new IllegalArgumentException("maxTotalBytes must be positive");
         }
         this.maxTotalBytes = maxTotalBytes;
         this.beforeWrite = beforeWrite;
+        this.afterDelete = afterDelete;
     }
 
     /**
-     * Añade los bytes transferidos al consumo acumulado y rechaza la descarga si supera el límite;
-     * el consumo ya contabilizado no se revierte.
+     * Admite los bytes antes de escribirlos; un rechazo conserva el consumo anterior.
      *
      * @param bytes Cantidad de bytes que se reserva, contabiliza o consume según la operación.
      * @throws IllegalArgumentException si la cantidad es negativa.
@@ -56,17 +62,31 @@ public final class DownloadBudget {
         if (bytes < 0) {
             throw new IllegalArgumentException("bytes must not be negative");
         }
-        long total = consumedBytes.addAndGet(bytes);
-        if (total > maxTotalBytes) {
-            throw new DownloadRejectedException("total_size_limit_exceeded");
+        consumedBytes.updateAndGet(current -> {
+            if (bytes > maxTotalBytes - current) {
+                throw new DownloadRejectedException("total_size_limit_exceeded");
+            }
+            return current + bytes;
+        });
+        try {
+            beforeWrite.accept(bytes);
+        } catch (RuntimeException exception) {
+            consumedBytes.addAndGet(-bytes);
+            throw exception;
         }
-        beforeWrite.accept(bytes);
+    }
+
+    /** Devuelve únicamente bytes cuyo archivo parcial ya se ha eliminado. */
+    public void release(long bytes) {
+        if (bytes < 0 || bytes > consumedBytes.get()) throw new IllegalArgumentException("Invalid released bytes");
+        afterDelete.accept(bytes);
+        consumedBytes.addAndGet(-bytes);
     }
 
     /**
      * Consulta el consumo total acumulado por todas las transferencias del trabajo.
      *
-     * @return bytes contabilizados, incluidos los que causaron superar el límite.
+     * @return bytes admitidos pendientes de eliminar.
      */
     public long consumedBytes() {
         return consumedBytes.get();

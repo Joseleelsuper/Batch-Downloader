@@ -13,14 +13,22 @@ import { AdminEditorIcon, isUnresolved } from './AdminAppsSupport';
 import { LinuxInstallProfiles } from './LinuxInstallProfiles';
 import { useAdminAppsActivity } from './useAdminAppsActivity';
 import { ManualInstallerPanel } from './ManualInstallerPanel';
-import { useAdminAppEditor } from './useAdminAppEditor';
+
 import { useAdminAppsActions } from './useAdminAppsActions';
 import { useManualInstallerInspection } from './useManualInstallerInspection';
 import { useWebsiteDiscovery } from './useWebsiteDiscovery';
 import { WebsiteDiscoveryPanel } from './WebsiteDiscoveryPanel';
+import type { EditorView, EditorUpdates } from './adminEditorContracts';
+
+type EditorProps = EditorView<
+  'detailState' | 'closeMobileDetail' | 'detailAppRef' | 'openApp' | 'selected' | 'creating' | 'websiteDiscovery' | 'inspectionLocksOrdinaryWrite' | 'form' | 'detailHeadingRef' | 'inspection' | 'detailOpen' | 'websiteUrl' | 'websiteInstallerUrls' | 'manualInstallerUrls' | 'sourcePageUrl' | 'operatingSystem' | 'provenance' | 'previewPending'
+> & EditorUpdates<
+  'websiteUrl' | 'websiteInstallerUrls' | 'sourcePageUrl' | 'manualInstallerUrls' | 'operatingSystem' | 'form'
+>;
+
 
 type AdminAppEditorPanelProps = Readonly<{
-  editor: ReturnType<typeof useAdminAppEditor>;
+  editor: EditorProps;
   activity: ReturnType<typeof useAdminAppsActivity>;
   actions: ReturnType<typeof useAdminAppsActions>;
   inspectionActions: ReturnType<typeof useManualInstallerInspection>;
@@ -130,8 +138,8 @@ function ErrorState({
 }: Readonly<{
   t: Translator;
   closeMobileDetail: () => void;
-  detailAppRef: ReturnType<typeof useAdminAppEditor>['detailAppRef'];
-  openApp: ReturnType<typeof useAdminAppEditor>['openApp'];
+  detailAppRef: EditorProps['detailAppRef'];
+  openApp: EditorProps['openApp'];
 }>) {
   return (
     <div className="admin-app-detail-empty" role="alert">
@@ -200,7 +208,7 @@ function EditorHeader({
   actions,
   t,
 }: Readonly<{
-  editor: ReturnType<typeof useAdminAppEditor>;
+  editor: EditorProps;
   activity: ReturnType<typeof useAdminAppsActivity>;
   actions: ReturnType<typeof useAdminAppsActions>;
   t: Translator;
@@ -245,7 +253,7 @@ function EditorActions({
   t,
   inspectionLocksOrdinaryWrite,
 }: Readonly<{
-  editor: ReturnType<typeof useAdminAppEditor>;
+  editor: EditorProps;
   activity: ReturnType<typeof useAdminAppsActivity>;
   actions: ReturnType<typeof useAdminAppsActions>;
   t: Translator;

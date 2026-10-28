@@ -65,7 +65,7 @@ class NotificationRequestedMessageMapperTest {
     void supportsTheIdentityTemplatesPublishedByCoreApi() {
         NotificationRequestedMessage message = message(
                 "MAGIC_LINK",
-                Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
+                Map.of("username", "Ada", "token", "enc:v2:contract-envelope"));
 
         EmailNotification result = mapper.map(message, ROUTING_KEY);
 
@@ -80,7 +80,7 @@ class NotificationRequestedMessageMapperTest {
     void rejectsUnsupportedSchemaVersions() {
         NotificationRequestedMessage original = message(
                 "MAGIC_LINK",
-                Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
+                Map.of("username", "Ada", "token", "enc:v2:contract-envelope"));
         NotificationRequestedMessage unsupported = new NotificationRequestedMessage(
                 original.eventId(),
                 original.type(),
@@ -102,7 +102,7 @@ class NotificationRequestedMessageMapperTest {
     void rejectsARoutingKeyThatDoesNotMatchTheContract() {
         NotificationRequestedMessage message = message(
                 "MAGIC_LINK",
-                Map.of("username", "Ada", "token", "enc:v1:contract-envelope"));
+                Map.of("username", "Ada", "token", "enc:v2:contract-envelope"));
 
         assertThatThrownBy(() -> mapper.map(message, "batch.events.v1.unrelated"))
                 .isInstanceOf(InvalidNotificationEventException.class)
@@ -135,7 +135,7 @@ class NotificationRequestedMessageMapperTest {
 
         assertThatThrownBy(() -> mapper.map(message, ROUTING_KEY))
                 .isInstanceOf(InvalidNotificationEventException.class)
-                .hasMessageContaining("enc:v1");
+                .hasMessageContaining("enc:v2");
     }
 
     /**

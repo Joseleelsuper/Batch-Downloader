@@ -1353,6 +1353,7 @@ paths:
           - official
           - community
           - user
+          - public
       - name: sort
         in: query
         schema:
@@ -1360,15 +1361,240 @@ paths:
           enum:
           - updated
           - stars
+          - downloads
+          - name
+          - relevance
+      - name: query
+        in: query
+        schema:
+          type: string
+      - name: searchMode
+        in: query
+        schema:
+          type: string
+          enum:
+          - lexical
+          - semantic
+          default: lexical
+      - name: creator
+        in: query
+        schema:
+          type: string
+      - name: tag
+        in: query
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            type: string
+      - name: os
+        in: query
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+            - windows
+            - linux
+            - macos
       responses:
         '200':
           description: Página de bundles visibles públicamente.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BundlePage'
+                $ref: '#/components/schemas/BundleCatalogPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+  /bundles/catalog/facets:
+    get:
+      operationId: getBundleFacets
+      summary: Consultar etiquetas y creadores de bundles visibles
+      security: []
+      parameters:
+      - name: type
+        in: query
+        schema:
+          type: string
+          enum:
+          - official
+          - community
+          - public
+          - user
+      - name: query
+        in: query
+        schema:
+          type: string
+      - name: searchMode
+        in: query
+        schema:
+          type: string
+          enum:
+          - lexical
+          - semantic
+          default: lexical
+      - name: creator
+        in: query
+        schema:
+          type: string
+      - name: tag
+        in: query
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            type: string
+      - name: os
+        in: query
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+            - windows
+            - linux
+            - macos
+      responses:
+        '200':
+          description: Facetas compatibles con la búsqueda y filtros.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleFacets'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /bundles/{bundleId}/star:
+    put:
+      operationId: starBundle
+      summary: Dar una estrella a un bundle
+      description: Operación idempotente para cuentas USER y ADMIN activas. Los bundles
+        privados no admiten votos.
+      parameters:
+      - name: bundleId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Estado confirmado del voto y contadores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleStarState'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: unstarBundle
+      summary: Retirar la estrella de un bundle
+      description: Operación idempotente para cuentas USER y ADMIN activas. Los bundles
+        privados no admiten votos.
+      parameters:
+      - name: bundleId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Estado confirmado del voto y contadores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleStarState'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /internal/v1/semantic/bundles/source-status:
+    servers:
+    - url: /
+    get:
+      operationId: getBundleSemanticSourceStatus
+      summary: Consultar revisión de bundles públicos para el indexador
+      security:
+      - internalServiceToken: []
+      parameters: []
+      responses:
+        '200':
+          description: Proyección interna sin información privada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleSemanticSourceStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /internal/v1/semantic/bundles/documents:
+    servers:
+    - url: /
+    get:
+      operationId: getBundleSemanticDocuments
+      summary: Consultar documentos de bundles públicos para el indexador
+      security:
+      - internalServiceToken: []
+      parameters:
+      - name: afterBundleId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 500
+      responses:
+        '200':
+          description: Proyección interna sin información privada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleSemanticDocumentPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /internal/v1/semantic/bundles/search:
+    x-service: semantic
+    servers:
+    - url: http://semantic-service:8000
+    post:
+      operationId: searchSemanticBundles
+      summary: Buscar candidatos en la colección semántica de bundles
+      security:
+      - internalServiceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BundleSemanticSearchRequest'
+      responses:
+        '200':
+          description: Candidatos por relevancia; Core vuelve a comprobar visibilidad
+            y filtros.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleSemanticSearchResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          description: Índice no disponible o tiempo de búsqueda agotado.
   /bundles/{bundleId}:
     get:
       operationId: getBundle
@@ -4086,7 +4312,7 @@ components:
           type: [string, 'null']
     BundleSummary:
       type: object
-      required: [id, slug, name, type, visibility, starCount, appCount, operatingSystems, platformAvailability, tags, previewApps, updatedAt]
+      required: [id, slug, name, type, visibility, starCount, starred, hasAdminStar, downloadCount, appCount, operatingSystems, platformAvailability, tags, previewApps, updatedAt]
       properties:
         id:
           type: string
@@ -4108,6 +4334,16 @@ components:
           enum: [official, public, private]
         starCount:
           type: integer
+        starred:
+          type: boolean
+          description: Indica si la cuenta actual ha dado estrella; false para visitantes o bundles privados.
+        hasAdminStar:
+          type: boolean
+          description: Existe al menos una estrella de una cuenta administradora activa.
+        downloadCount:
+          type: integer
+          minimum: 0
+          description: ZIP recibidos completamente, contados una vez por trabajo desde la activación del contador.
         appCount:
           type: integer
         operatingSystems:
@@ -4163,6 +4399,144 @@ components:
               maxItems: 100
               items:
                 $ref: '#/components/schemas/App'
+    BundleStarState:
+      type: object
+      required:
+      - starCount
+      - starred
+      - hasAdminStar
+      - downloadCount
+      properties:
+        starCount:
+          type: integer
+          minimum: 0
+        starred:
+          type: boolean
+        hasAdminStar:
+          type: boolean
+        downloadCount:
+          type: integer
+          minimum: 0
+    BundleFacet:
+      type: object
+      required:
+      - value
+      - label
+      - letter
+      - count
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        letter:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+    BundleFacets:
+      type: object
+      required:
+      - tags
+      - creators
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleFacet'
+        creators:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleFacet'
+    BundleSemanticSourceStatus:
+      type: object
+      required:
+      - revision
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+    BundleSemanticDocument:
+      type: object
+      required:
+      - bundleId
+      - content
+      - contentHash
+      properties:
+        bundleId:
+          type: string
+          format: uuid
+        content:
+          type: string
+        contentHash:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+    BundleSemanticDocumentPage:
+      type: object
+      required:
+      - documents
+      - nextAfterBundleId
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleSemanticDocument'
+        nextAfterBundleId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+    BundleSemanticSearchRequest:
+      type: object
+      required:
+      - query
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 500
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20000
+          default: 20000
+        minimumSimilarity:
+          type:
+          - number
+          - 'null'
+          minimum: -1
+          maximum: 1
+    BundleSemanticSearchResponse:
+      type: object
+      required:
+      - candidates
+      - modelVersion
+      - indexVersion
+      - truncated
+      properties:
+        candidates:
+          type: array
+          items:
+            type: object
+            required:
+            - bundleId
+            - rank
+            - similarity
+            properties:
+              bundleId:
+                type: string
+                format: uuid
+              rank:
+                type: integer
+                minimum: 1
+              similarity:
+                type: number
+        modelVersion:
+          type: string
+        indexVersion:
+          type: string
+        truncated:
+          type: boolean
     BundlePage:
       type: object
       required: [data, page, pageSize, total]
@@ -4178,6 +4552,70 @@ components:
         total:
           type: integer
           format: int64
+    BundleCatalogPage:
+      type: object
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+        counts:
+          type: object
+          properties:
+            all:
+              type: integer
+              minimum: 0
+            public:
+              type: integer
+              minimum: 0
+            official:
+              type: integer
+              minimum: 0
+        alphabet:
+          type: array
+          items:
+            type: object
+            required:
+            - letter
+            - page
+            - count
+            properties:
+              letter:
+                type: string
+              page:
+                type: integer
+                minimum: 1
+              count:
+                type: integer
+                minimum: 0
+        requestedMode:
+          type:
+          - string
+          - 'null'
+        appliedMode:
+          type:
+          - string
+          - 'null'
+        modelVersion:
+          type:
+          - string
+          - 'null'
+        indexVersion:
+          type:
+          - string
+          - 'null'
+        degradedReason:
+          type:
+          - string
+          - 'null'
     OwnBundleSummary:
       type: object
       additionalProperties: false

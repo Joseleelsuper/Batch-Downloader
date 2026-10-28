@@ -78,6 +78,52 @@ def descriptor(version: str, dimensions: int) -> ModelDescriptor:
     return ModelDescriptor(version, dimensions, "query: ", "passage: ", 0.0)
 
 
+def test_bundle_collection_isolated_from_apps_and_retry_safe(database: Database) -> None:
+    from app.bundle_store import BundleSemanticStore
+
+    apps = SemanticStore(database)
+    bundles = BundleSemanticStore(database)
+    model = apps.ensure_model(descriptor("bundle-test", 2))
+    entity = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    apps.upsert_document_page(
+        [{"appId": entity, "contentHash": "a" * 64, "content": "Application"}],
+        model_version=model.model_version,
+        seen_at=now,
+    )
+    bundles.upsert_page(
+        [{"bundleId": entity, "contentHash": "b" * 64, "content": "Bundle only"}],
+        model.model_version,
+        now,
+    )
+    jobs = bundles.claim_jobs(model.model_version, 10, 900)
+    assert len(jobs) == 1
+    assert jobs[0]["content"] == "Bundle only"
+    assert bundles.claim_jobs(model.model_version, 10, 900) == []
+    bundles.complete_jobs(model.model_version, jobs, [[1.0, 0.0]])
+    assert bundles.acknowledge(model.model_version, 7) is True
+    assert bundles.checkpoint(model.model_version) == 7
+    rows, _ = bundles.exact_search(
+        model=model, query_vector=[1.0, 0.0], minimum_similarity=0.5, limit=10
+    )
+    assert rows == [{"bundleId": entity, "rank": 1, "similarity": 1.0}]
+    assert apps.semantic_status()["index"]["indexed"] == 0
+    bundles.upsert_page(
+        [{"bundleId": entity, "contentHash": "b" * 64, "content": "Bundle only"}],
+        model.model_version,
+        now,
+    )
+    assert bundles.claim_jobs(model.model_version, 10, 900) == []
+    bundles.finish_sweep(now + timedelta(seconds=1), model.model_version)
+    assert bundles.active_model() is None
+    app_count = database.run(
+        lambda connection: connection.execute(
+            "SELECT count(*) AS count FROM semantic_documents"
+        ).fetchone()["count"]
+    )
+    assert app_count == 1
+
+
 @pytest.mark.asyncio
 async def test_api_startup_applies_pending_migration_only_once(
     database: Database, monkeypatch: pytest.MonkeyPatch,

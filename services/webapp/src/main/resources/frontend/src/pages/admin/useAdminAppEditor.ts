@@ -32,7 +32,7 @@ import type { SetStateAction } from 'react';
 export const INSPECTION_POLL_MS = 1200;
 export const WEBSITE_DISCOVERY_STORAGE_KEY = 'batch-downloader.admin.website-discovery.v1';
 type DetailState = 'empty' | 'loading' | 'ready' | 'error';
-interface EditorState {
+export interface EditorState {
   selected: AppDetails | null;
   detailState: DetailState;
   detailOpen: boolean;

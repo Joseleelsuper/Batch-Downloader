@@ -7,10 +7,12 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from sqlalchemy.exc import StatementError
+from sqlalchemy.exc import OperationalError, StatementError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import Settings
 from app.core.json_safe import json_safe
@@ -20,12 +22,47 @@ from app.db.models import ScraperWorkItem
 from app.repositories.pipeline import PipelineRepository
 from app.repositories.runs import ScrapeRunRepository
 from app.scraper.pipeline_runtime import (
+    PipelineRuntime,
     async_session_local,
     retry_database_pool_operation,
 )
 from app.scraper.winstall import WinstallApp, parse_winstall_app
 
 logger = get_logger(__name__)
+
+
+async def queue_items(
+    settings: Settings, runtime: PipelineRuntime, queue: str, worker_id_value: str, *,
+    stage: Literal["filter", "scraper"], upstream_done: tuple[asyncio.Event, ...],
+) -> AsyncIterator[ScraperWorkItem]:
+    """Comparte pausa, reserva y drenaje, conservando las esperas de cada etapa."""
+    transient_errors = (SQLAlchemyTimeoutError, OperationalError) if stage == "filter" else (
+        OperationalError,
+    )
+    retry_wait = 0.5 if stage == "filter" else 0.25
+    while not runtime.stop_event.is_set():
+        if not await runtime.before_next_item():
+            break
+        try:
+            item = await claim_item(settings, queue, worker_id_value, run_id=runtime.run_id)
+        except Exception as error:
+            error_name = "OperationalError" if stage == "scraper" and isinstance(
+                error, OperationalError,
+            ) else error.__class__.__name__
+            logger.warning(
+                f"{stage}_claim_retry", worker_id=worker_id_value,
+                error=error_name, detail=exception_detail(error),
+            )
+            await asyncio.sleep(retry_wait if isinstance(error, transient_errors) else 1)
+            continue
+        if item is None:
+            if all(event.is_set() for event in upstream_done) and not await queue_has_active_work(
+                settings, queue, runtime.run_id,
+            ):
+                break
+            await asyncio.sleep(1)
+            continue
+        yield item
 
 
 async def claim_item(
