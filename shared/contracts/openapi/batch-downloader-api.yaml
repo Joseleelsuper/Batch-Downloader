@@ -1406,7 +1406,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BundlePage'
+                $ref: '#/components/schemas/BundleCatalogPage'
         '400':
           $ref: '#/components/responses/BadRequest'
   /bundles/catalog/facets:
@@ -1569,8 +1569,9 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
   /internal/v1/semantic/bundles/search:
+    x-service: semantic
     servers:
-    - url: /
+    - url: http://semantic-service:8000
     post:
       operationId: searchSemanticBundles
       summary: Buscar candidatos en la colección semántica de bundles
@@ -4537,6 +4538,21 @@ components:
         truncated:
           type: boolean
     BundlePage:
+      type: object
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          format: int64
+    BundleCatalogPage:
       type: object
       required: [data, page, pageSize, total]
       properties:
