@@ -88,8 +88,10 @@ function BundleSection({ title, type }: { title: string; type: 'official' | 'com
       <div className="bundle-section-tools">
         <label><span className="sr-only">{t('bundle.catalog.orderSection', { title })}</span>
           <select value={sort} onChange={(event) => setSort(event.target.value)}>
+            <option value="downloads">{t('bundle.sort.downloads')}</option>
             <option value="updated">{t('bundle.sort.updated')}</option>
             <option value="stars">{t('bundle.sort.stars')}</option>
+            <option value="name">{t('bundle.sort.name')}</option>
           </select>
         </label>
         {total > visibleBundles.length ? <Link to={`/catalog/bundles?bundleType=${type === 'official' ? 'official' : 'public'}&sort=${sort}`}>
