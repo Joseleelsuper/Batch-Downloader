@@ -214,6 +214,8 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 12px 28px rgb(15 23 42 / 12%);
+  transform-origin: top right;
+  animation: sort-menu-enter 140ms ease-out;
 }
 
 .language-menu-title {

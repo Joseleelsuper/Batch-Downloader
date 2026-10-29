@@ -11,6 +11,7 @@ import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunSummary;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunRequest;
 import es.ubu.batchdownloader.admin.ScraperOperationsDtos.ScraperRunRequestResponse;
 import jakarta.validation.Valid;
+import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import java.util.List;
 import java.util.Map;
@@ -260,6 +261,30 @@ public class AdminScraperController {
                 Map.of(
                         "matched", result.matched(),
                         "enqueued", result.enqueued(),
+                        "alreadyActive", result.alreadyActive()));
+        return result;
+    }
+
+    /** Encola regeneración por procedencia y audita el ámbito y los recuentos del lote. */
+    @PostMapping("/api/v1/admin/scraper/descriptions/regenerate")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ScraperInternalClient.ContentEnqueueResult regenerateDescriptions(
+            @AuthenticationPrincipal AccountPrincipal principal,
+            @RequestParam(required = false) String scope,
+            @RequestParam(required = false) String after) {
+        String actor = actor(principal);
+        if (scope == null || !List.of("ai", "manual", "all").contains(scope)) {
+            throw new BadRequestException("invalid_description_scope", "Ámbito de regeneración inválido.");
+        }
+        UUID cursor;
+        try {
+            cursor = after == null ? null : UUID.fromString(after);
+        } catch (IllegalArgumentException exception) {
+            throw new BadRequestException("invalid_description_cursor", "Cursor de regeneración inválido.");
+        }
+        var result = scraperClient.regenerateDescriptions(scope, cursor);
+        audit.record(actor, "scraper.description.regenerate", "scraper", "descriptions",
+                Map.of("scope", scope, "matched", result.matched(), "enqueued", result.enqueued(),
                         "alreadyActive", result.alreadyActive()));
         return result;
     }

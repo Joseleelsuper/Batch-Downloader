@@ -1076,6 +1076,9 @@ async def apply_website_app_discovery(
         long_description,
         generated_long_description,
         ai_state,
+        long_description_en,
+        suggestions.get("longDescriptionEn", {}).get("value")
+        if suggestions.get("longDescriptionEn", {}).get("source") == "generated_ai" else None,
     )
     app = SoftwareApp(
         winstall_id=f"manual.{slug}",

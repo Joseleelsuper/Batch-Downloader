@@ -121,6 +121,29 @@ class ScraperInternalClientTest {
     }
 
     @Test
+    void regenerationForwardsScopeCursorAndInternalAuthentication() throws Exception {
+        AtomicReference<String> query = new AtomicReference<>();
+        AtomicReference<String> token = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/v1/content/descriptions/regenerate", exchange -> {
+            query.set(exchange.getRequestURI().getQuery());
+            token.set(exchange.getRequestHeaders().getFirst("X-Internal-Service-Token"));
+            byte[] response = """
+                    {"matched":2,"enqueued":1,"alreadyActive":1,"nextAfter":null}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(202, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        var result = client().regenerateDescriptions("manual",
+                java.util.UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        assertThat(query).hasValue("scope=manual&after=00000000-0000-0000-0000-000000000002");
+        assertThat(token.get()).isNotBlank();
+        assertThat(result.enqueued()).isEqualTo(1);
+    }
+
+    @Test
     void descriptionGenerationUsesTheAuthenticatedInternalRoute() throws Exception {
         AtomicReference<String> token = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

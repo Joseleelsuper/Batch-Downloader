@@ -41,6 +41,7 @@
   "admin.message.descriptionQueued": "Descripciones encoladas para el Descriptor.",
   "admin.message.enrichmentQueued": "Trabajos encolados: {enqueued}; ya activos: {active}.",
   "admin.message.enrichmentQueueError": "No se pudo encolar el enriquecimiento.",
+  "admin.message.noMatchingDescriptions": "No hay descripciones que coincidan con el ámbito elegido.",
   "admin.message.noMissingDescriptions": "Todas las aplicaciones tienen ambas descripciones largas.",
   "admin.message.loadAppsError": "No se pudieron cargar las aplicaciones.",
   "admin.message.saveAppError": "No se pudo guardar la aplicación.",

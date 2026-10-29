@@ -1116,7 +1116,8 @@
   transition: transform 160ms ease;
 }
 
-.sort-menu-trigger[aria-expanded='true'] .sort-menu-chevron {
+.sort-menu-trigger[aria-expanded='true'] .sort-menu-chevron,
+.language-selector-trigger[aria-expanded='true'] .sort-menu-chevron {
   transform: rotate(180deg);
 }
 

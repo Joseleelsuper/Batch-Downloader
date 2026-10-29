@@ -117,281 +117,126 @@ def test_english_description_is_indexed_for_semantic_search() -> None:
     assert embedding_content_hash(app) != baseline
 
 
+def completion_response(
+    content: str = '{"long_description_es":"Descripción válida.",'
+                   '"long_description_en":"Valid description."}',
+) -> httpx.Response:
+    return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+
 @pytest.mark.asyncio
 @respx.mock
-async def test_llm_client_rotates_through_approved_groq_models_on_rate_limit() -> None:
-    """Comprueba el escenario `llm_client_rotates_through_approved_groq_models_on_rate_limit`.
-    """
-    settings = Settings(
+async def test_openai_responses_is_first_and_has_no_tools_or_web_requests() -> None:
+    route = respx.post("https://api.openai.com/v1/responses").mock(return_value=httpx.Response(
+        200, json={"status": "completed", "output": [
+            {"type": "reasoning", "summary": []},
+            {"type": "message", "content": [{"type": "output_text", "text":
+                '{"long_description_es":"Descripción válida.",'
+                '"long_description_en":"Valid description."}'}]},
+        ]},
+    ))
+    result = await AppDescriptionLLMClient(Settings(
+        _env_file=None, llm_openai_api_key="openai-key", llm_deepseek_api_key="deepseek-key",
         llm_groq_api_key="groq-key",
-        llm_deepseek_api_key="deepseek-key",
-        llm_request_timeout_seconds=5,
-    )
-    groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
-        side_effect=[
-            httpx.Response(429, headers={"x-ratelimit-reset-requests": "2h"}),
-            httpx.Response(
-                200,
-                json={
-                    "choices": [
-                        {
-                            "message": {
-                                "content": (
-                                    '{"long_description_es":"Descripcion larga valida.",'
-                                    '"long_description_en":"A valid long description for the app."}'
-                                )
-                            }
-                        }
-                    ]
-                },
-            ),
-        ]
-    )
-    deepseek_route = respx.post("https://api.deepseek.com/chat/completions").mock(
-        return_value=httpx.Response(500)
-    )
+    ), rate_limiter=NoopRateLimiter()).generate({"name": "Vendor App", "publisher": "Vendor"})
+    assert result.provider == "openai"
+    assert result.model == "gpt-6-luna"
+    payload = json.loads(route.calls[0].request.content)
+    assert payload["model"] == "gpt-6-luna"
+    assert payload["store"] is False
+    assert "tools" not in payload
+    assert "probable con cautela" not in payload["input"]
+    assert "sin mínimo obligatorio" in payload["input"]
+    assert "insufficient_evidence" in payload["input"]
+    assert len(respx.calls) == 1
 
-    result = await AppDescriptionLLMClient(settings, rate_limiter=NoopRateLimiter()).generate(
-        {"name": "Vendor App"}
-    )
 
-    assert result.provider == "groq"
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize("failure", [401, 402, 403, 429, 503, "timeout", "network",
+                                    "incomplete", "invalid_json", "missing_english",
+                                    "insufficient_evidence", "empty"])
+async def test_provider_failures_continue_in_order(failure) -> None:
+    if isinstance(failure, int):
+        response = httpx.Response(failure)
+    else:
+        content = {
+            "invalid_json": "invalid", "missing_english": '{"long_description_es":"Solo ES"}',
+            "insufficient_evidence": '{"error":"insufficient_evidence"}', "empty": "",
+        }.get(failure, "{}")
+        response = httpx.Response(200, json={
+            "status": "incomplete" if failure == "incomplete" else "completed",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": content}]}],
+        })
+    kwargs = {"return_value": response}
+    if failure in {"timeout", "network"}:
+        kwargs = {"side_effect": httpx.ReadTimeout("timeout") if failure == "timeout"
+                  else httpx.ConnectError("network")}
+    respx.post("https://api.openai.com/v1/responses").mock(**kwargs)
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=httpx.Response(503))
+    groq = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+        side_effect=[httpx.Response(429), completion_response()])
+    result = await AppDescriptionLLMClient(Settings(
+        _env_file=None, llm_openai_api_key="openai-key", llm_deepseek_api_key="deepseek-key",
+        llm_groq_api_key="groq-key",
+    ), rate_limiter=NoopRateLimiter()).generate({"name": "Vendor App"})
     assert result.model == "qwen/qwen3.8-27b"
-    assert result.description == "Descripcion larga valida."
-    assert result.description_en == "A valid long description for the app."
-    assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "qwen/qwen3.6-27b",
-        "qwen/qwen3.8-27b",
+    assert [json.loads(call.request.content)["model"] for call in respx.calls] == [
+        "gpt-6-luna", "deepseek-flash", "openai/gpt-oss-120b", "qwen/qwen3.8-27b",
     ]
-    assert all(
-        json.loads(call.request.content)["reasoning_effort"] == "none"
-        for call in groq_route.calls
-    )
-    assert not deepseek_route.called
+    assert json.loads(groq.calls[0].request.content)["reasoning_effort"] == "low"
+    assert json.loads(groq.calls[1].request.content)["reasoning_effort"] == "none"
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_llm_client_includes_deepseek_web_search_results_in_prompt() -> None:
-    settings = Settings(
-        llm_groq_api_key="groq-key",
-        llm_deepseek_api_key="deepseek-key",
-        llm_request_timeout_seconds=5,
-    )
-    search_route = respx.post("https://api.deepseek.com/v1/tools/search").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "results": [
-                    {
-                        "title": "Vendor App features",
-                        "url": "https://vendor.example/features",
-                        "snippet": "A vendor feature summary.",
-                        "summary": "The official page describes automation and reporting tools.",
-                        "content": "Official details about automation and reporting.",
-                        "site_name": "Vendor",
-                        "authority": 4,
-                    }
-                ]
-            },
-        )
-    )
-    groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {
-                        "message": {
-                            "content": (
-                                '{"long_description_es":"Descripción larga válida.",'
-                                '"long_description_en":"A valid long description."}'
-                            )
-                        }
-                    }
-                ]
-            },
-        )
-    )
-
-    result = await AppDescriptionLLMClient(
-        settings,
-        rate_limiter=NoopRateLimiter(),
-    ).generate(
-        {
-            "name": "Vendor App",
-            "publisher": "Vendor",
-            "official_domain": "vendor.example",
-            "latest_version": "9.3",
-        }
-    )
-
-    assert result.provider == "groq"
-    assert search_route.called
-    assert search_route.calls[0].request.headers["Authorization"] == "Bearer deepseek-key"
-    assert json.loads(search_route.calls[0].request.content) == {
-        "query": "Vendor App Vendor software features",
-        "count": 5,
-        "need_content": True,
-    }
-    prompt = json.loads(groq_route.calls[0].request.content)["messages"][1]["content"]
-    assert "No incluyas la versión más reciente de la aplicación ni números de versión." in prompt
-    assert "The official page describes automation and reporting tools." in prompt
-    assert "Official details about automation and reporting." in prompt
-    assert '"authority": 4' in prompt
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_llm_client_falls_back_to_catalog_evidence_when_web_search_fails() -> None:
-    settings = Settings(
-        llm_groq_api_key="groq-key",
-        llm_deepseek_api_key="deepseek-key",
-        llm_request_timeout_seconds=5,
-    )
-    search_route = respx.post("https://api.deepseek.com/v1/tools/search").mock(
-        return_value=httpx.Response(503)
-    )
-    groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {
-                        "message": {
-                            "content": (
-                                '{"long_description_es":"Descripción basada en catálogo.",'
-                                '"long_description_en":"Catalog-based description."}'
-                            )
-                        }
-                    }
-                ]
-            },
-        )
-    )
-
-    result = await AppDescriptionLLMClient(
-        settings,
-        rate_limiter=NoopRateLimiter(),
-    ).generate({"name": "Vendor App", "publisher": "Vendor"})
-
-    assert result.provider == "groq"
-    assert search_route.called
-    prompt = json.loads(groq_route.calls[0].request.content)["messages"][1]["content"]
-    assert '"web_search_results"' not in prompt
-    assert "Vendor App" in prompt
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_llm_client_uses_deepseek_only_after_groq_models_are_unavailable() -> None:
-    """Comprueba el escenario `llm_client_uses_deepseek_only_after_groq_models_are_unavailable`.
-    """
-    settings = Settings(
-        llm_groq_api_key="groq-key",
-        llm_deepseek_api_key="deepseek-key",
-        llm_request_timeout_seconds=5,
-    )
-    groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
-        return_value=httpx.Response(503)
-    )
-    deepseek_route = respx.post("https://api.deepseek.com/chat/completions").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {
-                        "message": {
-                            "content": (
-                                '{"long_description_es":"Descripcion final de DeepSeek.",'
-                                '"long_description_en":"Final description from DeepSeek."}'
-                            )
-                        }
-                    }
-                ]
-            },
-        )
-    )
-
-    result = await AppDescriptionLLMClient(
-        settings,
-        rate_limiter=NoopRateLimiter(),
-    ).generate({"name": "Vendor App"})
-
+async def test_deepseek_is_used_before_groq_without_web_search() -> None:
+    route = respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=completion_response())
+    result = await AppDescriptionLLMClient(Settings(
+        _env_file=None, llm_groq_api_key="groq-key", llm_deepseek_api_key="deepseek-key",
+    ), rate_limiter=NoopRateLimiter()).generate({"name": "Vendor App", "publisher": "Vendor"})
     assert result.provider == "deepseek"
-    assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "qwen/qwen3.6-27b",
-        "qwen/qwen3.8-27b",
-    ]
-    assert json.loads(deepseek_route.calls[0].request.content)["thinking"] == {
-        "type": "disabled"
-    }
-    assert all("thinking" not in json.loads(call.request.content) for call in groq_route.calls)
+    assert json.loads(route.calls[0].request.content)["thinking"] == {"type": "disabled"}
+    assert len(respx.calls) == 1
 
 
 @pytest.mark.asyncio
 @respx.mock
-@pytest.mark.parametrize("status_code", [400, 404])
-async def test_unavailable_groq_model_cools_down_and_tries_next_model(
-    status_code: int,
-) -> None:
-    """Un modelo incompatible o ausente no bloquea los fallbacks de Groq."""
-    settings = Settings(
-        llm_groq_api_key="groq-key",
-        llm_deepseek_api_key="deepseek-key",
-        llm_request_timeout_seconds=5,
-        llm_groq_fallback_models=("qwen/qwen3-32b",),
-    )
-    groq_route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
-        side_effect=[
-            httpx.Response(status_code),
-            httpx.Response(
-                200,
-                json={
-                    "choices": [
-                        {
-                            "message": {
-                                "content": (
-                                    '{"long_description_es":"Descripcion alternativa valida.",'
-                                    '"long_description_en":"Valid alternative description."}'
-                                )
-                            }
-                        }
-                    ]
-                },
-            ),
-        ]
-    )
-    deepseek_route = respx.post("https://api.deepseek.com/chat/completions").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {
-                        "message": {
-                            "content": (
-                                '{"long_description_es":"Descripcion alternativa valida.",'
-                                '"long_description_en":"Valid alternative description."}'
-                            )
-                        }
-                    }
-                ]
-            },
-        )
-    )
-
-    result = await AppDescriptionLLMClient(
-        settings,
-        rate_limiter=NoopRateLimiter(),
-    ).generate({"name": "Vendor App"})
-
-    assert result.provider == "groq"
-    assert result.model == "qwen/qwen3-32b"
-    assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "qwen/qwen3.6-27b",
-        "qwen/qwen3-32b",
+async def test_groq_uses_all_three_models_and_rejects_truncated_answers() -> None:
+    truncated = completion_response()
+    body = truncated.json()
+    body["choices"][0]["finish_reason"] = "length"
+    route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(side_effect=[
+        httpx.Response(200, json=body), httpx.Response(404), completion_response(),
+    ])
+    result = await AppDescriptionLLMClient(Settings(
+        _env_file=None, llm_groq_api_key="groq-key",
+    ), rate_limiter=NoopRateLimiter()).generate({"name": "Vendor App"})
+    assert result.model == "openai/gpt-oss-20b"
+    assert [json.loads(call.request.content)["model"] for call in route.calls] == [
+        "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b",
     ]
-    assert not deepseek_route.called
+
+
+@pytest.mark.asyncio
+async def test_missing_provider_and_all_models_cooling_down() -> None:
+    settings = Settings(_env_file=None)
+    client = AppDescriptionLLMClient(settings, rate_limiter=NoopRateLimiter())
+    assert not client.has_provider()
+    with pytest.raises(LLMGenerationError, match="llm_provider_not_configured"):
+        await client.generate({"name": "App"})
+    settings.llm_openai_api_key = "test-key"
+    client.cooldowns.start(client._openai(), reason="http_429", seconds=60)
+    assert client.has_provider()
+    with pytest.raises(LLMGenerationError, match="llm_models_cooling_down"):
+        await client.generate({"name": "App"})
+
+
+def test_parse_description_payload_rejects_insufficient_evidence() -> None:
+    with pytest.raises(LLMGenerationError, match="insufficient_evidence"):
+        parse_description_payload('{"error":"insufficient_evidence"}')
 
 
 def test_parse_description_payload_accepts_json_wrapped_in_provider_text() -> None:
@@ -420,6 +265,7 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
     clock = FakeClock()
     cooldowns = InMemoryModelCooldownStore(monotonic=clock)
     settings = Settings(
+        _env_file=None,
         llm_groq_api_key="groq-key",
         llm_groq_fallback_models=("qwen/qwen3-32b",),
         llm_request_timeout_seconds=5,
@@ -460,12 +306,12 @@ async def test_rate_limited_model_is_not_retried_until_its_cooldown_expires() ->
 
     assert first.model == "qwen/qwen3-32b"
     assert second.model == "qwen/qwen3-32b"
-    assert third.model == "qwen/qwen3.6-27b"
+    assert third.model == "openai/gpt-oss-120b"
     assert [json.loads(call.request.content)["model"] for call in groq_route.calls] == [
-        "qwen/qwen3.6-27b",
+        "openai/gpt-oss-120b",
         "qwen/qwen3-32b",
         "qwen/qwen3-32b",
-        "qwen/qwen3.6-27b",
+        "openai/gpt-oss-120b",
     ]
 
 

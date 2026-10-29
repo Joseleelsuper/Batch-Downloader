@@ -36,7 +36,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
-@WebMvcTest({AdminAppController.class, LinuxInstallAdminController.class})
+@WebMvcTest({AdminAppController.class, LinuxInstallAdminController.class, AdminScraperController.class})
 @Import({SecurityConfig.class, AdminAppService.class})
 @TestPropertySource(properties = {
     "server.port=0",
@@ -83,6 +83,9 @@ class AdminAppSecurityTest {
      */
     @MockitoBean
     private ScraperInternalClient scraperClient;
+
+    @MockitoBean
+    private AdminScraperRepository scraper;
 
     /**
      * Dato compartido {@code users} para los escenarios de prueba.
@@ -222,6 +225,40 @@ class AdminAppSecurityTest {
                         .contentType("application/json")
                         .content("{\"expectedVersion\":0,\"status\":\"draft\",\"profile\":{}}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void descriptionRegenerationRequiresAdminCsrfAndValidScope() throws Exception {
+        String path = "/api/v1/admin/scraper/descriptions/regenerate";
+        mvc.perform(post(path).param("scope", "all").with(csrf()))
+                .andExpect(status().isUnauthorized());
+        AccountPrincipal user = new AccountPrincipal(UUID.randomUUID(), "user", UserRole.USER);
+        mvc.perform(post(path).param("scope", "all").with(csrf()).with(authentication(
+                UsernamePasswordAuthenticationToken.authenticated(user, "", user.getAuthorities()))))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).param("scope", "all").with(administrator()))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).with(csrf()).with(administrator()))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(path).param("scope", "invalid").with(csrf()).with(administrator()))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(path).param("scope", "all").param("after", "bad-uuid")
+                .with(csrf()).with(administrator())).andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoInteractions(scraperClient);
+    }
+
+    @Test
+    void descriptionRegenerationForwardsCursorAndAuditsScope() throws Exception {
+        UUID after = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        when(scraperClient.regenerateDescriptions("manual", after))
+                .thenReturn(new ScraperInternalClient.ContentEnqueueResult(2, 1, 1, null));
+        mvc.perform(post("/api/v1/admin/scraper/descriptions/regenerate")
+                .param("scope", "manual").param("after", after.toString())
+                .with(csrf()).with(administrator())).andExpect(status().isAccepted());
+        org.mockito.Mockito.verify(audit).record(
+                "00000000-0000-0000-0000-000000000099", "scraper.description.regenerate",
+                "scraper", "descriptions", java.util.Map.of(
+                        "scope", "manual", "matched", 2, "enqueued", 1, "alreadyActive", 1));
     }
 
     private static RequestPostProcessor administrator() {

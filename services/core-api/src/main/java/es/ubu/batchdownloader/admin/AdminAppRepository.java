@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -121,6 +122,9 @@ public class AdminAppRepository {
                 isBlank(request.appStatus()) ? "active" : request.appStatus(),
                 now,
                 now);
+        if (!isBlank(request.longDescription()) || !isBlank(request.longDescriptionEn())) {
+            markDescriptionManual(id);
+        }
         replaceTags(id, request.tags(), "admin");
         createDefaultSource(id, request.officialUrl(), now);
         return catalog.details(id.toString());
@@ -200,11 +204,27 @@ public class AdminAppRepository {
                 isBlank(request.appStatus()) ? "active" : request.appStatus(),
                 LocalDateTime.now(clock),
                 UuidBytes.fromUuid(id));
+        if (!Objects.equals(coalesce(request.longDescription(), before.longDescription()), before.longDescription())
+                || !Objects.equals(coalesce(request.longDescriptionEn(), before.longDescriptionEn()),
+                        before.longDescriptionEn())) {
+            markDescriptionManual(id);
+        }
         if (request.officialUrl() != null
                 && !request.officialUrl().equals(before.officialUrl())) {
             absences.invalidate(id, "official_url_changed");
         }
         return catalog.details(id.toString());
+    }
+
+    /** Registra autoría manual solo cuando cambia realmente alguno de los textos. */
+    private void markDescriptionManual(UUID id) {
+        jdbc.update("""
+                UPDATE software_apps
+                SET long_description_source = 'admin_manual', long_description_model = NULL,
+                    long_description_input_hash = NULL, long_description_generated_at = NULL,
+                    long_description_error = NULL
+                WHERE id = ?
+                """, UuidBytes.fromUuid(id));
     }
 
     /**

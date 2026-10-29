@@ -58,6 +58,18 @@ export function enqueueMissingScraperDescriptions(after?: string): Promise<Conte
   return requestJson('/api/v1/admin/scraper/descriptions/enqueue-missing' + cursor, { method: 'POST' });
 }
 
+export type DescriptionRegenerationScope = 'ai' | 'manual' | 'all';
+
+export function regenerateScraperDescriptions(
+  scope: DescriptionRegenerationScope,
+  after?: string,
+): Promise<ContentEnqueueResult> {
+  const cursor = after ? `&after=${encodeURIComponent(after)}` : '';
+  return requestJson(`/api/v1/admin/scraper/descriptions/regenerate?scope=${scope}${cursor}`, {
+    method: 'POST',
+  });
+}
+
 export function scraperWebSocketUrl(): string {
   return apiWebSocketUrl('/api/v1/admin/scraper/ws', API_BASE);
 }

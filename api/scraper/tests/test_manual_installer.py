@@ -284,3 +284,10 @@ def test_public_url_syntax_rejects_unsafe_inputs(url: str, code: str) -> None:
         validate_public_https_syntax(url)
 
     assert error.value.code == code
+
+
+def test_english_only_description_edit_has_manual_provenance() -> None:
+    assert description_provenance(
+        "Texto ES", "Texto ES", {"provider": "openai", "model": "gpt-6-luna"},
+        "Edited English", "Generated English",
+    ) == ("completed", "admin_manual", None)

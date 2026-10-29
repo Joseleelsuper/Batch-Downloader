@@ -33,6 +33,12 @@ AVAILABLE_RESOLUTION_STATUSES = {
 }
 
 
+def description_text_hash(app: SoftwareApp) -> str:
+    """Identifica exactamente ambos textos para proteger ediciones durante la regeneración."""
+    raw = json.dumps([app.long_description, app.long_description_en], ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 
 
 

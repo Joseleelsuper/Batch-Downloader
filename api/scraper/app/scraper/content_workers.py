@@ -14,6 +14,7 @@ from app.db.enums import (
 )
 from app.db.models import ScraperWorkItem, SoftwareApp
 from app.repositories.catalog import CatalogRepository
+from app.repositories.catalog_rules import description_text_hash
 from app.repositories.logs import ResolverLogRepository
 from app.repositories.pipeline import (
     QUEUE_SCRAPER_SO_FILTER,
@@ -50,6 +51,7 @@ async def enqueue_descriptor_for_app(
     *,
     force: bool,
     priority: int = 0,
+    protect_existing_description: bool = False,
 ) -> ScraperWorkItem | None:
     """Calcula la huella de descripción, evita duplicar un resultado vigente y encola el
     descriptor cuando falta o se fuerza.
@@ -90,6 +92,8 @@ async def enqueue_descriptor_for_app(
             "package_id": app.winstall_id,
             "input_hash": input_hash,
             "force": force,
+            **({"expected_description_hash": description_text_hash(app)}
+               if protect_existing_description else {}),
         },
         run_id,
         priority=priority,
@@ -255,6 +259,7 @@ class DescriptorWorker:
                 ).enrich_app(
                     software_app_id,
                     force=bool(payload.get("force")),
+                    expected_description_hash=payload.get("expected_description_hash"),
                     release_database_connection=session.commit,
                 )
                 await session.commit()

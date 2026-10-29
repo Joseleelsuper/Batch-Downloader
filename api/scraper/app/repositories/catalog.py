@@ -24,6 +24,7 @@ from app.db.models import (
 )
 from app.repositories.catalog_rules import (
     _public_resolved_sources_loader,
+    description_text_hash,
     has_icon_url,
     is_replaceable_icon,
 )
@@ -110,6 +111,43 @@ class CatalogRepository:
         page = apps[: max(1, limit)]
         next_after = str(page[-1].id) if len(apps) > len(page) else None
         return page, next_after
+
+    async def apps_for_description_regeneration(
+        self, scope: str, after_app_id: uuid.UUID | None = None, limit: int = 100,
+    ) -> tuple[list[SoftwareApp], str | None]:
+        """Pagina aplicaciones activas por autoría del texto, independientemente de su estado."""
+        source = func.coalesce(SoftwareApp.long_description_source, "")
+        has_model = func.trim(func.coalesce(SoftwareApp.long_description_model, "")) != ""
+        is_ai = ~source.in_(["manual", "admin_manual"]) & (
+            source.in_(["openai", "deepseek", "groq", "generated_ai"]) | has_model
+        )
+        stmt = (
+            select(SoftwareApp)
+            .with_hint(SoftwareApp, "FORCE INDEX (PRIMARY)", dialect_name="mysql")
+            .where(SoftwareApp.app_status == AppStatus.ACTIVE.value)
+            .order_by(SoftwareApp.id)
+            .limit(limit + 1)
+        )
+        if scope != "all":
+            stmt = stmt.where(or_(
+                func.trim(func.coalesce(SoftwareApp.long_description, "")) != "",
+                func.trim(func.coalesce(SoftwareApp.long_description_en, "")) != "",
+            )).where(is_ai if scope == "ai" else ~is_ai)
+        if after_app_id is not None:
+            stmt = stmt.where(SoftwareApp.id > after_app_id)
+        apps = list(await self.session.scalars(stmt))
+        page = apps[:limit]
+        return page, str(page[-1].id) if len(apps) > limit else None
+
+    async def lock_description_if_unchanged(
+        self, software_app_id: uuid.UUID, expected_hash: str,
+    ) -> bool:
+        """Relee y bloquea brevemente la fila antes de publicar un resultado asíncrono."""
+        app = await self.session.scalar(
+            select(SoftwareApp).where(SoftwareApp.id == software_app_id)
+            .with_for_update().execution_options(populate_existing=True)
+        )
+        return bool(app and description_text_hash(app) == expected_hash)
 
     async def apps_pending_os_filter(self, limit: int = 250) -> list[SoftwareApp]:
         """Selecciona identidades activas sin comprobación de plataformas en las últimas 24 horas
@@ -316,8 +354,8 @@ class CatalogRepository:
         source: str | None = None,
         model: str | None = None,
     ) -> None:
-        """Guarda estado fallido, procedencia, huella y error truncado y aumenta la versión; no
-        retira el texto ampliado anterior.
+        """Guarda el error y estado fallido sin cambiar el texto ni su procedencia guardada.
+        Aumenta la versión para que los observadores detecten el resultado del intento.
 
         Args:
             software_app_id: UUID de la aplicación propietaria.
@@ -330,10 +368,7 @@ class CatalogRepository:
         if not software_app:
             return
         software_app.long_description_status = LongDescriptionStatus.FAILED.value
-        software_app.long_description_source = source
-        software_app.long_description_model = model
-        software_app.long_description_generated_at = utc_now()
-        software_app.long_description_input_hash = input_hash
+        # La procedencia pertenece al texto guardado, no al último intento fallido.
         software_app.long_description_error = error[:1000]
         software_app.updated_at = utc_now()
         software_app.version += 1

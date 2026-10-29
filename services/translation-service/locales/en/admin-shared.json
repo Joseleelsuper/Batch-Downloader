@@ -41,6 +41,7 @@
   "admin.message.descriptionQueued": "Descriptions queued for the Descriptor.",
   "admin.message.enrichmentQueued": "Queued jobs: {enqueued}; already active: {active}.",
   "admin.message.enrichmentQueueError": "Failed to queue enrichment.",
+  "admin.message.noMatchingDescriptions": "No descriptions match the selected scope.",
   "admin.message.noMissingDescriptions": "All applications have both long descriptions.",
   "admin.message.loadAppsError": "Applications could not be loaded.",
   "admin.message.saveAppError": "The application could not be saved.",

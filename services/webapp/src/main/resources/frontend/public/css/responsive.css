@@ -374,6 +374,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sort-menu-popover { animation: none; }
+  .sort-menu-popover,
+  .language-menu { animation: none; }
+  .bundle-sort-selector .sort-menu-chevron,
+  .language-selector-trigger .sort-menu-chevron { transition: none; }
 }
 

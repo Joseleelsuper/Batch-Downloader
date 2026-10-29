@@ -1297,6 +1297,8 @@ def description_provenance(
     reviewed: str | None,
     generated: object,
     ai_state: dict,
+    reviewed_en: str | None = None,
+    generated_en: object = None,
 ) -> tuple[str, str | None, str | None]:
     """Determina si la descripción revisada sigue siendo generada por IA o fue modificada
     manualmente.
@@ -1312,7 +1314,8 @@ def description_provenance(
     reviewed_clean = clean_optional(reviewed)
     if not reviewed_clean:
         return LongDescriptionStatus.PENDING.value, None, None
-    if reviewed_clean == clean_optional(generated):
+    if (reviewed_clean == clean_optional(generated)
+            and clean_optional(reviewed_en) == clean_optional(generated_en)):
         return (
             LongDescriptionStatus.COMPLETED.value,
             clean_optional(ai_state.get("provider")) or "generated_ai",
