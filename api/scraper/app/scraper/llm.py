@@ -13,6 +13,8 @@ from typing import Protocol
 
 class LLMProviderName(StrEnum):
     """Identifica los proveedores soportados por el servicio de descripciones."""
+    OPENAI = "openai"
+
     GROQ = "groq"
 
     DEEPSEEK = "deepseek"

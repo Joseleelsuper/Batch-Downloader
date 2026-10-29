@@ -16,6 +16,8 @@ class GroqDescriptionModel(StrEnum):
     
     GPT_OSS_120B = "openai/gpt-oss-120b"
 
+    GPT_OSS_20B = "openai/gpt-oss-20b"
+
     QWEN_3_32B = "qwen/qwen3-32b"
 
     QWEN_3_6_27B = "qwen/qwen3.6-27b"
@@ -30,6 +32,7 @@ class GroqDescriptionModel(StrEnum):
 
 DEFAULT_GROQ_DESCRIPTION_FALLBACKS = (
     GroqDescriptionModel.QWEN_3_8_27B,
+    GroqDescriptionModel.GPT_OSS_20B,
 )
 
 
@@ -85,10 +88,10 @@ class Settings(BaseSettings):
             milisegundos.
         internal_service_token: Secreto de las rutas internas; vacío nunca autoriza
             peticiones.
-        llm_groq_api_key, llm_deepseek_api_key: Credenciales opcionales de los proveedores de
-            descripciones.
-        llm_groq_base_url, llm_deepseek_base_url: Bases de las API compatibles con chat
-            completions.
+        llm_openai_api_key, llm_groq_api_key, llm_deepseek_api_key: Credenciales opcionales
+            de los proveedores de descripciones.
+        llm_openai_base_url, llm_openai_model: Base de Responses API y modelo prioritario.
+        llm_groq_base_url, llm_deepseek_base_url: Bases de Chat Completions.
         llm_groq_model, llm_groq_fallback_models, llm_deepseek_model: Modelos principal,
             alternativos de Groq y de DeepSeek utilizados por el enriquecimiento.
         llm_max_concurrency, llm_max_apps_per_run: Paralelismo de enriquecimiento y máximo por
@@ -212,11 +215,17 @@ class Settings(BaseSettings):
 
     internal_service_token: SecretStr = SecretStr("")
 
+    llm_openai_api_key: str = ""
+
+    llm_openai_base_url: str = "https://api.openai.com/v1"
+
+    llm_openai_model: str = "gpt-6-luna"
+
     llm_groq_api_key: str = ""
 
     llm_groq_base_url: str = "https://api.groq.com/openai/v1"
 
-    llm_groq_model: str = "qwen/qwen3.6-27b"
+    llm_groq_model: str = "openai/gpt-oss-120b"
 
     llm_groq_fallback_models: tuple[GroqDescriptionModel, ...] = (
         DEFAULT_GROQ_DESCRIPTION_FALLBACKS
@@ -226,7 +235,7 @@ class Settings(BaseSettings):
 
     llm_deepseek_base_url: str = "https://api.deepseek.com"
 
-    llm_deepseek_model: str = "deepseek-v4-flash"
+    llm_deepseek_model: str = "deepseek-flash"
 
     llm_max_concurrency: int = 2
 

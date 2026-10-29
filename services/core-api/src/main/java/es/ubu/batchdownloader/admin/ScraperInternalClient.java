@@ -226,6 +226,14 @@ public class ScraperInternalClient {
                 "description_enqueue_failed");
     }
 
+    /** Solicita un lote de regeneración por ámbito validado y cursor UUID. */
+    public ContentEnqueueResult regenerateDescriptions(String scope, UUID after) {
+        return post(
+                "/internal/v1/content/descriptions/regenerate?scope=" + scope
+                        + (after == null ? "" : "&after=" + after),
+                "", ContentEnqueueResult.class, "description_enqueue_failed");
+    }
+
     /**
      * Crea una inspección persistente de los instaladores aportados para una aplicación existente.
      *

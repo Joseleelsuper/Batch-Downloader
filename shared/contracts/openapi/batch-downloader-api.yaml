@@ -2616,6 +2616,44 @@ paths:
           $ref: '#/components/responses/Conflict'
       x-required-roles:
       - ADMIN
+  /admin/scraper/descriptions/regenerate:
+    post:
+      operationId: adminRegenerateDescriptions
+      summary: Regenerar descripciones por procedencia y devolver los contadores
+      tags:
+      - Administración
+      description: Requiere sesión ADMIN. Las mutaciones requieren además CSRF.
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      - name: scope
+        in: query
+        required: true
+        schema:
+          type: string
+          enum: [ai, manual, all]
+      - name: after
+        in: query
+        description: Último UUID procesado en el lote anterior.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '202':
+          description: Regenerar descripciones por procedencia y devolver los contadores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentEnqueueResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      x-required-roles:
+      - ADMIN
   /admin/audit:
     get:
       operationId: listAdminAudit

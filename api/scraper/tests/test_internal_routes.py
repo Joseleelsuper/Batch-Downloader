@@ -2009,3 +2009,60 @@ async def test_semantic_feed_is_authenticated_canonical_and_paginated(
 
     assert changed_response.status_code == 200
     assert changed_response.json()["documents"][0]["contentHash"] != initial_hash
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["ai", "manual", "all"])
+async def test_regeneration_selects_origin_and_keeps_active_jobs(internal_api, scope) -> None:
+    from app.repositories.catalog_rules import description_text_hash
+
+    apps = [await internal_api.add_unresolved_app() for _ in range(6)]
+    for app in apps:
+        app.long_description = "Texto anterior"
+        app.long_description_en = "Previous text"
+    apps[0].long_description_source = "openai"
+    apps[1].long_description_source = "admin_manual"
+    apps[2].long_description_source = None  # Texto histórico sin marca de IA.
+    apps[3].long_description_source = "admin_manual"
+    apps[3].long_description_model = "stale-ai-model"  # La marca manual prevalece.
+    apps[4].long_description = apps[4].long_description_en = None
+    apps[5].app_status = "disabled"
+    await internal_api.session.commit()
+    path = "/internal/v1/content/descriptions/regenerate"
+    assert (await internal_api.client.post(path, params={"scope": scope})).status_code == 401
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    response = await internal_api.client.post(path, params={"scope": scope}, headers=headers)
+    expected = {"ai": apps[:1], "manual": apps[1:4], "all": apps[:5]}[scope]
+    assert response.status_code == 202
+    assert response.json() == {
+        "matched": len(expected), "enqueued": len(expected), "alreadyActive": 0, "nextAfter": None,
+    }
+    items = list(await internal_api.session.scalars(select(ScraperWorkItem)))
+    assert {item.package_id for item in items} == {app.winstall_id for app in expected}
+    for item in items:
+        app = next(app for app in expected if app.winstall_id == item.package_id)
+        assert item.payload_json["expected_description_hash"] == description_text_hash(app)
+        assert item.payload_json["force"] is True
+    repeated = await internal_api.client.post(path, params={"scope": scope}, headers=headers)
+    assert repeated.json()["enqueued"] == 0
+    assert repeated.json()["alreadyActive"] == len(expected)
+    assert apps[0].long_description == "Texto anterior"
+
+
+@pytest.mark.asyncio
+async def test_regeneration_validates_scope_and_paginates(internal_api, monkeypatch) -> None:
+    monkeypatch.setattr("app.api.internal_routes.DESCRIPTION_ENQUEUE_BATCH_SIZE", 2)
+    for _ in range(3):
+        await internal_api.add_unresolved_app()
+    path = "/internal/v1/content/descriptions/regenerate"
+    headers = {INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN}
+    for params in ({}, {"scope": "invalid"}, {"scope": "all", "after": "bad-uuid"}):
+        response = await internal_api.client.post(path, params=params, headers=headers)
+        assert response.status_code == 422
+    first = await internal_api.client.post(path, params={"scope": "all"}, headers=headers)
+    assert first.json()["enqueued"] == 2
+    second = await internal_api.client.post(path, params={
+        "scope": "all", "after": first.json()["nextAfter"],
+    }, headers=headers)
+    assert second.json()["enqueued"] == 1
+    assert second.json()["nextAfter"] is None

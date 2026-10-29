@@ -10,6 +10,7 @@ vi.mock('../../api/scraperAdmin', () => ({
   connectScraperEvents: vi.fn(() => () => undefined),
   createScraperRun: vi.fn(),
   enqueueMissingScraperDescriptions: vi.fn(),
+  regenerateScraperDescriptions: vi.fn(),
   fetchAdminCurrentRun: vi.fn(),
   fetchAdminFailedItems: vi.fn(),
   fetchAdminLogs: vi.fn(),
@@ -42,6 +43,7 @@ const latestRun: ScraperRunSummary = {
 
 describe('AdminScraperPage', () => {
   beforeEach(() => {
+    vi.mocked(scraperAdminApi.regenerateScraperDescriptions).mockReset();
     vi.mocked(scraperAdminApi.fetchAdminCurrentRun).mockResolvedValue(latestRun);
     vi.mocked(scraperAdminApi.fetchAdminRuns).mockResolvedValue([latestRun]);
     vi.mocked(scraperAdminApi.fetchAdminLogs).mockResolvedValue([]);
@@ -177,4 +179,53 @@ describe('AdminScraperPage', () => {
     expect(enqueue).toHaveBeenNthCalledWith(2, '00000000-0000-0000-0000-000000000002');
     expect(await screen.findByText('Trabajos encolados: 2; ya activos: 1.')).toBeInTheDocument();
   });
+
+  it.each([
+    ['ai', 'Regenerar descripciones de IA'],
+    ['manual', 'Regenerar descripciones manuales'],
+    ['all', 'Regenerar todas las descripciones'],
+  ] as const)('regenera el ámbito %s y recorre todos los lotes', async (scope, label) => {
+    const regenerate = vi.mocked(scraperAdminApi.regenerateScraperDescriptions);
+    regenerate.mockResolvedValueOnce({
+      matched: 2, enqueued: 1, alreadyActive: 1, nextAfter: 'cursor',
+    }).mockResolvedValueOnce({
+      matched: 1, enqueued: 1, alreadyActive: 0, nextAfter: null,
+    });
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    await waitFor(() => expect(regenerate).toHaveBeenCalledTimes(2));
+    expect(regenerate).toHaveBeenNthCalledWith(1, scope, undefined);
+    expect(regenerate).toHaveBeenNthCalledWith(2, scope, 'cursor');
+    expect(await screen.findByText('Trabajos encolados: 2; ya activos: 1.')).toBeInTheDocument();
+  });
+
+  it('conserva los contadores si falla un lote posterior', async () => {
+    vi.mocked(scraperAdminApi.regenerateScraperDescriptions).mockResolvedValueOnce({
+      matched: 2, enqueued: 1, alreadyActive: 1, nextAfter: 'cursor',
+    }).mockRejectedValueOnce(new Error('unavailable'));
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerar todas las descripciones' }));
+    expect(await screen.findByText(
+      'No se pudo encolar el enriquecimiento. Trabajos encolados: 1; ya activos: 1.',
+    )).toBeInTheDocument();
+  });
+
+  it('bloquea las cuatro acciones mientras encola y muestra un ámbito vacío', async () => {
+    let finish!: (result: Awaited<ReturnType<typeof scraperAdminApi.regenerateScraperDescriptions>>) => void;
+    vi.mocked(scraperAdminApi.regenerateScraperDescriptions).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+    const button = screen.getByRole('button', { name: 'Regenerar descripciones manuales' });
+    fireEvent.click(button);
+    for (const label of ['Encolar sin descripción', 'Regenerar descripciones de IA',
+      'Regenerar descripciones manuales', 'Regenerar todas las descripciones']) {
+      expect(screen.getByRole('button', { name: label })).toBeDisabled();
+    }
+    finish({ matched: 0, enqueued: 0, alreadyActive: 0, nextAfter: null });
+    expect(await screen.findByText('No hay descripciones que coincidan con el ámbito elegido.'))
+      .toBeInTheDocument();
+    expect(button).toBeEnabled();
+  });
+
 });

@@ -11,8 +11,10 @@ import {
   fetchAdminRuns,
   pruneTerminalScraperQueueItems,
   recoverStuckScraperQueueItems,
+  regenerateScraperDescriptions,
   retryFailedScraperQueueItems,
   sendScraperCommand,
+  type DescriptionRegenerationScope,
 } from '../../api/scraperAdmin';
 import { ScraperQueues } from '../../components/admin/ScraperQueues';
 import { useTranslation, type Translator } from '../../services/i18n';
@@ -37,7 +39,7 @@ export function AdminScraperPage() {
   const [queues, setQueues] = useState<ScraperQueueState[]>([]);
   const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
   const [message, setMessage] = useState<string | null>(null);
-  const [enrichmentAction, setEnrichmentAction] = useState<'descriptions' | null>(null);
+  const [enrichmentAction, setEnrichmentAction] = useState<'missing' | DescriptionRegenerationScope | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
@@ -108,16 +110,19 @@ export function AdminScraperPage() {
     }
   }
 
-  async function enqueueMissingDescriptions() {
+  async function enqueueDescriptions(scope: 'missing' | DescriptionRegenerationScope) {
+    if (enrichmentAction !== null) return;
     setMessage(null);
-    setEnrichmentAction('descriptions');
+    setEnrichmentAction(scope);
+    let matched = 0;
+    let enqueued = 0;
+    let active = 0;
     try {
-      let matched = 0;
-      let enqueued = 0;
-      let active = 0;
       let after: string | undefined;
       do {
-        const result = await enqueueMissingScraperDescriptions(after);
+        const result = scope === 'missing'
+          ? await enqueueMissingScraperDescriptions(after)
+          : await regenerateScraperDescriptions(scope, after);
         matched += result.matched;
         enqueued += result.enqueued;
         active += result.alreadyActive;
@@ -125,11 +130,12 @@ export function AdminScraperPage() {
         setMessage(t('admin.message.enrichmentQueued', { enqueued, active }));
       } while (after);
       if (matched === 0) {
-        setMessage(t('admin.message.noMissingDescriptions'));
+        setMessage(t(scope === 'missing'
+          ? 'admin.message.noMissingDescriptions' : 'admin.message.noMatchingDescriptions'));
       }
       await load();
     } catch {
-      setMessage(t('admin.message.enrichmentQueueError'));
+      setMessage(`${t('admin.message.enrichmentQueueError')} ${t('admin.message.enrichmentQueued', { enqueued, active })}`);
     } finally {
       setEnrichmentAction(null);
     }
@@ -224,11 +230,23 @@ export function AdminScraperPage() {
             className="secondary-button"
             type="button"
             disabled={enrichmentAction !== null}
-            onClick={() => enqueueMissingDescriptions()}
+            onClick={() => enqueueDescriptions('missing')}
           >
             <Wand2 size={16} />
             {t('admin.scraper.enqueueMissingDescriptions')}
           </button>
+          {(['ai', 'manual', 'all'] as const).map((scope) => (
+            <button
+              className="secondary-button"
+              type="button"
+              key={scope}
+              disabled={enrichmentAction !== null}
+              onClick={() => enqueueDescriptions(scope)}
+            >
+              <RefreshCw size={16} />
+              {t(`admin.scraper.regenerateDescriptions.${scope}`)}
+            </button>
+          ))}
         </div>
       </section>
       {message ? <p className="form-message">{message}</p> : null}

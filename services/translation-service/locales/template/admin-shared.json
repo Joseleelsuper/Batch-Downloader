@@ -53,6 +53,7 @@
   "admin.message.queueMaintenanceError": "",
   "admin.message.enrichmentQueued": "",
   "admin.message.enrichmentQueueError": "",
+  "admin.message.noMatchingDescriptions": "",
   "admin.message.noMissingDescriptions": "",
   "admin.table.empty": ""
 }

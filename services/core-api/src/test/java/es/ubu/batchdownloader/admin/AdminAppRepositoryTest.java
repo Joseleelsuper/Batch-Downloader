@@ -214,6 +214,44 @@ class AdminAppRepositoryTest {
                 .containsExactly(UuidBytes.fromUuid(applicationId));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"unchanged", "spanish", "english"})
+    void descriptionEditsUpdateProvenanceOnlyWhenTextChanges(String edit) {
+        UUID id = UUID.randomUUID();
+        JdbcTemplate jdbc = new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                "jdbc:h2:mem:description-" + id + ";DB_CLOSE_DELAY=-1", "sa", ""));
+        jdbc.execute("""
+                CREATE TABLE software_apps (
+                    id BINARY(16) PRIMARY KEY, name VARCHAR(200), normalized_name VARCHAR(200),
+                    publisher VARCHAR(200), description CLOB, long_description CLOB,
+                    long_description_en CLOB, long_description_status VARCHAR(32),
+                    icon_url VARCHAR(500), official_url VARCHAR(500), latest_version VARCHAR(50),
+                    app_status VARCHAR(32), updated_at TIMESTAMP, version INT DEFAULT 0,
+                    long_description_source VARCHAR(50), long_description_model VARCHAR(120),
+                    long_description_input_hash VARCHAR(64), long_description_generated_at TIMESTAMP,
+                    long_description_error VARCHAR(1000)
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO software_apps(id, long_description_source, long_description_model)
+                VALUES (?, 'openai', 'gpt-6-luna')
+                """, UuidBytes.fromUuid(id));
+        CatalogRepository catalog = mock(CatalogRepository.class);
+        var details = mock(es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails.class);
+        when(catalog.softwareAppId(id.toString())).thenReturn(id);
+        when(catalog.details(id.toString())).thenReturn(details);
+        when(details.name()).thenReturn("App");
+        when(details.longDescription()).thenReturn("Original ES");
+        when(details.longDescriptionEn()).thenReturn("Original EN");
+        repository(jdbc, catalog).patch(id.toString(), new es.ubu.batchdownloader.admin.AdminCatalogDtos.PatchAppRequest(
+                null, null, null, edit.equals("spanish") ? "Edited ES" : "Original ES",
+                edit.equals("english") ? "Edited EN" : "Original EN", null, null, null, null));
+        assertThat(jdbc.queryForObject("SELECT long_description_source FROM software_apps", String.class))
+                .isEqualTo(edit.equals("unchanged") ? "openai" : "admin_manual");
+        assertThat(jdbc.queryForObject("SELECT long_description_model FROM software_apps", String.class))
+                .isEqualTo(edit.equals("unchanged") ? "gpt-6-luna" : null);
+    }
+
     /**
      * Ejecuta row y comunica su resultado manteniendo las reglas del componente.
      *

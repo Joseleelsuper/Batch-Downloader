@@ -51,3 +51,14 @@ def test_rejects_removed_scrapper_environment_prefix(monkeypatch: pytest.MonkeyP
 
     with pytest.raises(ValueError, match=r"SCRAPPER_\* a SCRAPER_\*"):
         Settings(_env_file=None)
+
+
+def test_description_models_default_to_the_requested_provider_order(monkeypatch) -> None:
+    monkeypatch.setenv("SCRAPER_LLM_OPENAI_API_KEY", "test-key")
+    settings = Settings(_env_file=None)
+    assert settings.llm_openai_api_key == "test-key"
+    assert settings.llm_openai_model == "gpt-6-luna"
+    assert settings.llm_openai_base_url == "https://api.openai.com/v1"
+    assert settings.llm_deepseek_model == "deepseek-flash"
+    assert settings.llm_groq_model == "openai/gpt-oss-120b"
+    assert settings.llm_groq_fallback_models == ("qwen/qwen3.8-27b", "openai/gpt-oss-20b")

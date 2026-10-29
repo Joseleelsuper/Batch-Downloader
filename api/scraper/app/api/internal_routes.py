@@ -13,7 +13,7 @@ import secrets as secrets
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -318,6 +318,42 @@ async def enqueue_missing_descriptions(
         enqueued=enqueued,
         alreadyActive=already_active,
         nextAfter=next_after,
+    )
+
+
+@internal_router.post(
+    "/content/descriptions/regenerate",
+    status_code=202,
+    response_model=ContentEnqueueResult,
+    response_model_by_alias=True,
+)
+async def regenerate_descriptions(
+    scope: Literal["ai", "manual", "all"],
+    _authorized: Annotated[None, Depends(require_internal_service_token)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    after: UUID | None = None,
+) -> ContentEnqueueResult:
+    """Encola un lote de regeneración explícita sin duplicar tareas activas."""
+    catalog = CatalogRepository(session, UrlProtector(settings.url_protection_secret))
+    pipeline = PipelineRepository(session)
+    apps, next_after = await catalog.apps_for_description_regeneration(
+        scope, after, DESCRIPTION_ENQUEUE_BATCH_SIZE
+    )
+    enqueued = 0
+    already_active = 0
+    for app in apps:
+        if await pipeline.has_active_item(QUEUE_SO_FILTER_DESCRIPTOR, app.winstall_id):
+            already_active += 1
+            continue
+        await enqueue_descriptor_for_app(
+            catalog, pipeline, None, app, force=True, priority=100,
+            protect_existing_description=True,
+        )
+        enqueued += 1
+    await session.commit()
+    return ContentEnqueueResult(
+        matched=len(apps), enqueued=enqueued, alreadyActive=already_active, nextAfter=next_after,
     )
 
 

@@ -44,24 +44,47 @@ Cada petición a la IA devuelve una descripción larga en español y otra en ing
 El trabajo solo se completa cuando ambas son válidas. Las aplicaciones antiguas sin
 versión inglesa se pueden reencolar desde la administración del catálogo.
 
-La clave `SCRAPER_LLM_GROQ_API_KEY` activa Groq. El modelo primario se configura
-con `SCRAPER_LLM_GROQ_MODEL`; cuando alcanza una cuota o sufre un fallo transitorio,
-el descriptor rota, sin duplicados, por estos modelos de texto:
+La generación usa los proveedores configurados en este orden:
 
-1. `qwen/qwen3-32b`
-2. `qwen/qwen3.6-27b`
-3. `meta-llama/llama-4-scout-17b-16e-instruct`
+1. OpenAI: `gpt-6-luna`, mediante Responses API.
+2. DeepSeek: `deepseek-flash`, mediante Chat Completions.
+3. Groq: `openai/gpt-oss-120b`, `qwen/qwen3.8-27b` y `openai/gpt-oss-20b`.
 
-La lista puede sobrescribirse mediante `SCRAPER_LLM_GROQ_FALLBACK_MODELS` como un
-array JSON. `openai/gpt-oss-120b` no se incluye por defecto porque el endpoint
-Groq ha devuelto `400` con el formato JSON estricto usado por este enriquecedor.
-Cada modelo limitado entra en cooldown; las cabeceras `Retry-After` y
-`X-RateLimit-Reset-*` prevalecen sobre
-`SCRAPER_LLM_RATE_LIMIT_COOLDOWN_SECONDS`. Los fallos transitorios usan
-`SCRAPER_LLM_TRANSIENT_COOLDOWN_SECONDS`; un `400` de compatibilidad de modelo
-enfria solo ese modelo y permite probar el siguiente fallback.
+La clave opcional `SCRAPER_LLM_OPENAI_API_KEY` activa OpenAI. Su URL y modelo se
+configuran con `SCRAPER_LLM_OPENAI_BASE_URL` y `SCRAPER_LLM_OPENAI_MODEL`.
+En Compose, declara las tres variables en el `.env` raíz; la clave puede quedar
+vacía para desactivar OpenAI. DeepSeek y Groq mantienen sus variables `SCRAPER_LLM_DEEPSEEK_*` y
+`SCRAPER_LLM_GROQ_*`; los fallbacks Groq aceptan un array JSON en
+`SCRAPER_LLM_GROQ_FALLBACK_MODELS`. Al actualizar un despliegue existente, sustituye
+sus valores de modelo antiguos: las variables configuradas prevalecen sobre los defaults.
+No se crean claves ni se realizan regeneraciones durante la configuración.
 
-Si todos los modelos Groq aplicables fallan o estan en cooldown, DeepSeek se usa como
-ultimo proveedor solo cuando `SCRAPER_LLM_DEEPSEEK_API_KEY` esta configurada. Los
-logs y la descripcion persistida incluyen siempre el proveedor y el modelo que
-produjeron el resultado.
+No hay búsquedas web ni consultas adicionales a páginas durante la generación.
+Los modelos utilizan sus conocimientos y el contexto recibido del catálogo o de
+las inspecciones. El prompt evita conjeturas y permite textos breves sin relleno.
+Si la aplicación no puede identificarse, el proveedor devuelve
+`{"error":"insufficient_evidence"}` y se intenta la siguiente alternativa.
+
+Cuotas, errores de autenticación, red, modelos incompatibles o respuestas inválidas
+permiten continuar con el siguiente proveedor/modelo. Los cooldowns respetan
+`Retry-After`, `X-RateLimit-Reset-*` y las variables existentes
+`SCRAPER_LLM_RATE_LIMIT_COOLDOWN_SECONDS`, `SCRAPER_LLM_TRANSIENT_COOLDOWN_SECONDS`
+y `SCRAPER_LLM_MODEL_ERROR_COOLDOWN_SECONDS`.
+
+Administración → Scraper conserva «Encolar sin descripción» y permite regenerar
+textos de IA, manuales o todos. «Manuales» se refiere a la autoría del texto,
+no al origen de la aplicación; también incluye textos históricos sin marca de IA.
+Las marcas manuales explícitas prevalecen sobre modelos antiguos. «Todas» incluye
+aplicaciones activas sin texto. Las acciones procesan lotes de 100 por cursor UUID,
+saltan tareas activas y generan ambas versiones mediante IA.
+
+El contrato `POST /api/v1/admin/scraper/descriptions/regenerate?scope=ai|manual|all`
+acepta `after=<UUID>` y devuelve HTTP 202 con `matched`, `enqueued`, `alreadyActive`
+y `nextAfter`. Requiere sesión ADMIN y CSRF; cada lote se audita.
+
+Los textos anteriores y su procedencia se conservan ante fallos. Las nuevas
+regeneraciones comprueban la huella de ambos textos antes de generar y de guardar,
+para no sobrescribir ediciones posteriores al encolado. Las ediciones de cualquiera
+de los idiomas se registran como `admin_manual`; guardar textos intactos conserva
+su origen. Los intentos fallidos se detallan en logs, sin sustituir la procedencia
+correspondiente al texto guardado. No se reconstruyen ediciones históricas sin rastro.

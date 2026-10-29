@@ -292,6 +292,9 @@ def _apply_long_description(
             reviewed,
             suggested if source == "generated_ai" else None,
             result.get("ai") or {},
+            reviewed_en,
+            ((result.get("suggestions") or {}).get("longDescriptionEn") or {}).get("value")
+            if source == "generated_ai" else None,
         )
     )
     if not reviewed_en:
