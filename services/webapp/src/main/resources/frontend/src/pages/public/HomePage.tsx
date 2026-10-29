@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchApps } from '../../api/catalogApps';
 import { AppMiniIcon } from '../../components/AppMiniIcon';
@@ -6,6 +6,20 @@ import { BundleCard } from '../../components/BundleCard';
 import { useBundleResults } from '../../hooks/useBundleResults';
 import { useTranslation } from '../../services/i18n';
 import type { CatalogApp } from '../../types/catalog';
+
+// Los mismos umbrales de columnas que .bundle-grid en responsive.css.
+const BUNDLE_BREAKPOINTS = ['(max-width: 640px)', '(max-width: 1180px)'];
+
+function subscribeBundleLayout(onChange: () => void) {
+  const queries = BUNDLE_BREAKPOINTS.map((query) => window.matchMedia?.(query));
+  queries.forEach((query) => query?.addEventListener('change', onChange));
+  return () => queries.forEach((query) => query?.removeEventListener('change', onChange));
+}
+
+function getBundleColumns() {
+  const [mobile, compact] = BUNDLE_BREAKPOINTS.map((query) => window.matchMedia?.(query).matches);
+  return mobile ? 1 : compact ? 2 : 3;
+}
 
 export function HomePage() {
   const t = useTranslation();
@@ -79,8 +93,9 @@ export function HomePage() {
 function BundleSection({ title, type }: { title: string; type: 'official' | 'community' }) {
   const t = useTranslation();
   const [sort, setSort] = useState('updated');
+  const columns = useSyncExternalStore(subscribeBundleLayout, getBundleColumns, () => 3);
   const { response, error, loading, refresh, scope } = useBundleResults({ type, pageSize: 3, sort });
-  const visibleBundles = response?.data ?? [];
+  const visibleBundles = response?.data.slice(0, columns) ?? [];
   const total = response?.total ?? 0;
   return <section className="home-section">
     <div className="section-heading">
@@ -88,8 +103,10 @@ function BundleSection({ title, type }: { title: string; type: 'official' | 'com
       <div className="bundle-section-tools">
         <label><span className="sr-only">{t('bundle.catalog.orderSection', { title })}</span>
           <select value={sort} onChange={(event) => setSort(event.target.value)}>
+            <option value="downloads">{t('bundle.sort.downloads')}</option>
             <option value="updated">{t('bundle.sort.updated')}</option>
             <option value="stars">{t('bundle.sort.stars')}</option>
+            <option value="name">{t('bundle.sort.name')}</option>
           </select>
         </label>
         {total > visibleBundles.length ? <Link to={`/catalog/bundles?bundleType=${type === 'official' ? 'official' : 'public'}&sort=${sort}`}>
