@@ -1,3 +1,4 @@
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchApps } from '../../api/catalogApps';
@@ -101,13 +102,14 @@ function BundleSection({ title, type }: { title: string; type: 'official' | 'com
     <div className="section-heading">
       <h2>{title}</h2>
       <div className="bundle-section-tools">
-        <label><span className="sr-only">{t('bundle.catalog.orderSection', { title })}</span>
+        <label className="bundle-sort-selector"><span className="sr-only">{t('bundle.catalog.orderSection', { title })}</span>
           <select value={sort} onChange={(event) => setSort(event.target.value)}>
             <option value="downloads">{t('bundle.sort.downloads')}</option>
             <option value="updated">{t('bundle.sort.updated')}</option>
             <option value="stars">{t('bundle.sort.stars')}</option>
             <option value="name">{t('bundle.sort.name')}</option>
           </select>
+          <ChevronDown className="sort-menu-chevron" size={16} aria-hidden="true" />
         </label>
         {total > visibleBundles.length ? <Link to={`/catalog/bundles?bundleType=${type === 'official' ? 'official' : 'public'}&sort=${sort}`}>
           {t('common.viewAll')}</Link> : null}

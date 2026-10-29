@@ -63,7 +63,7 @@ export function LanguageSelector() {
       aria-label={`${t('language.selector')}: ${locale.toUpperCase()}`} aria-haspopup="listbox"
       aria-expanded={open} aria-controls={menuId} onClick={() => open ? closeMenu() : openMenu()} onKeyDown={handleKeyDown}>
       <Languages size={19} aria-hidden="true" /><span>{locale.toUpperCase()}</span>
-      <ChevronDown size={15} aria-hidden="true" />
+      <ChevronDown className="sort-menu-chevron" size={15} aria-hidden="true" />
     </button>
     {open ? <div className="language-menu" id={menuId} role="listbox" aria-labelledby={`${menuId}-title`}>
       <p className="language-menu-title" id={`${menuId}-title`}>{t('language.title')}</p>

@@ -42,7 +42,11 @@
 .bundle-download-count, .bundle-star-hint { color: var(--muted); }
 .bundle-admin-star { color: var(--teal-dark); font-size: 12px; font-weight: 650; }
 .bundle-section-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.bundle-section-tools select { min-height: 36px; max-width: 100%; padding: 5px 8px; color: var(--teal-dark); background: white; border: 1px solid var(--border); border-radius: 5px; }
+.bundle-section-tools select { appearance: none; min-height: 36px; max-width: 100%; padding: 5px 34px 5px 10px; color: var(--teal-dark); background: white; border: 1px solid var(--border); border-radius: 5px; }
+.bundle-sort-selector { display: inline-grid; align-items: center; }
+.bundle-sort-selector select, .bundle-sort-selector .sort-menu-chevron { grid-area: 1 / 1; }
+.bundle-sort-selector .sort-menu-chevron { justify-self: end; margin-right: 10px; color: var(--teal-dark); pointer-events: none; }
+.bundle-sort-selector select:open + .sort-menu-chevron { transform: rotate(180deg); }
 .bundle-catalog-grid { margin-top: 16px; }
 @media (max-width: 1100px) { .bundle-catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .bundle-catalog-grid { grid-template-columns: minmax(0, 1fr); } }
