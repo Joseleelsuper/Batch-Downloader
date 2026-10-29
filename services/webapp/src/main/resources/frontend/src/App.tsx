@@ -19,9 +19,10 @@ import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'rea
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
 import { AuthProvider, useAuth } from './auth/AuthContext';
-import { useLocaleSelector, useTranslation } from './services/i18n';
+import { useTranslation } from './services/i18n';
 import { lazyNamed } from './routing/lazyNamed';
 import { PageMetadata } from './components/PageMetadata';
+import { LanguageSelector } from './components/LanguageSelector';
 import { MobileAppHeader, MobileMenuButton, ResponsivePanel } from './components/ResponsivePanel';
 import {
   AdminAuditPage,
@@ -169,7 +170,6 @@ function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () 
 function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => void }) {
   const currentPath = useLocation().pathname;
   const t = useTranslation();
-  const { locale, selectLocale } = useLocaleSelector();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="topbar">
@@ -186,14 +186,7 @@ function Topbar({ auth, onLogout }: { auth: AuthUser | null; onLogout: () => voi
         <NavLink to="/catalog/bundles">{t('bundle.catalog.title')}</NavLink>
       </nav>
       <div className="topbar-actions">
-        <label className="language-selector">
-          <Globe2 size={20} aria-hidden="true" />
-          <select aria-label={t('language.selector')} value={locale}
-            onChange={(event) => selectLocale(event.target.value)}>
-            <option value="es">ES</option>
-            <option value="en">EN</option>
-          </select>
-        </label>
+        <LanguageSelector />
         {auth?.role === 'ADMIN' ? (
           <>
             <NavLink className="admin-link" to="/admin">

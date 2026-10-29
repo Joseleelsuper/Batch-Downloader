@@ -83,8 +83,9 @@
     overflow-wrap: anywhere;
   }
 
-  .mobile-drawer .language-selector { gap: 12px; padding: 0 12px; }
-  .mobile-drawer .language-selector select { flex: 1; min-height: 48px; }
+  .mobile-drawer .language-selector-trigger { width: 100%; }
+  .mobile-drawer .language-selector-trigger > span { flex: 1; text-align: left; }
+  .mobile-drawer .language-menu { width: 100%; }
   .mobile-drawer .admin-sidebar { min-height: 100%; padding: 0; border: 0; }
   .mobile-drawer .admin-brand { display: none; }
 
