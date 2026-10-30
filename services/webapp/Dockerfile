@@ -17,4 +17,4 @@ COPY --from=build /app/dist /usr/share/nginx/html
 COPY shared/contracts/openapi/batch-downloader-api.yaml /usr/share/nginx/html/openapi.yaml
 COPY shared/contracts/openapi/batch-downloader-ai-api.json /usr/share/nginx/html/openapi.json
 
-EXPOSE 80 8080
+EXPOSE 80

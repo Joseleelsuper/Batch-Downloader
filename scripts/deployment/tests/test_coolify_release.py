@@ -208,7 +208,6 @@ class CoolifyReleaseTest(unittest.TestCase):
                 mock.call((
                     "https://batchdownloader.dev/healthz",
                     "https://batchdownloader.dev/api/v1/locales/es",
-                    "https://downloads.batchdownloader.dev/healthz",
                 )),
                 mock.call(coolify_release.DEFAULT_URLS),
             ],

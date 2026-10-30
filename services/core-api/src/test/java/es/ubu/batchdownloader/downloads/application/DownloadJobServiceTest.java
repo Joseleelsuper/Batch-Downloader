@@ -24,7 +24,6 @@ import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobStatus;
 import es.ubu.batchdownloader.downloads.domain.DownloadItemStatus;
-import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -87,13 +86,11 @@ class DownloadJobServiceTest {
         lenient().when(sources.findManualSources(any())).thenReturn(Map.of());
         lenient().when(storage.decorate(any())).thenAnswer(invocation -> invocation.getArgument(0));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        DownloadLimits limits = new DownloadLimits(100, Duration.ofHours(24), Duration.ofMinutes(5),
+        DownloadLimits limits = new DownloadLimits(100, Duration.ofHours(24),
                 10, 30);
         DownloadJobNotifications notifications = new DownloadJobNotifications(notifier, storage);
         service = new DownloadJobService(jobs, sources, clock, limits, storage);
-        access = new DownloadJobAccessService(jobs,
-                (objectKey, validity) -> URI.create("https://storage.example.test/" + objectKey),
-                clock, limits, events, notifications, storage);
+        access = new DownloadJobAccessService(jobs, clock, events, notifications, storage);
         handler = new DownloadJobEventHandler(jobs, clock, limits, notifications, storage);
         lenient().when(jobs.save(any(DownloadJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }

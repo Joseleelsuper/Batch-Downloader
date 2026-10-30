@@ -1,24 +1,18 @@
 package es.ubu.batchdownloader.downloads.application;
 
 import es.ubu.batchdownloader.common.BadRequestException;
-import es.ubu.batchdownloader.common.ConflictException;
 import es.ubu.batchdownloader.common.NotFoundException;
-import es.ubu.batchdownloader.common.ServiceUnavailableException;
 import es.ubu.batchdownloader.downloads.application.DownloadRequestOwner.RequestOwner;
 import es.ubu.batchdownloader.downloads.application.port.DownloadEventPublisher;
 import es.ubu.batchdownloader.downloads.application.port.DownloadJobStore;
-import es.ubu.batchdownloader.downloads.application.port.ZipUriSigner;
 import es.ubu.batchdownloader.downloads.domain.DownloadJob;
 import es.ubu.batchdownloader.downloads.domain.DownloadJobItem;
-import java.net.URI;
 import java.time.Clock;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,31 +22,21 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * @see es.ubu.batchdownloader.downloads.application.DownloadJobService
  * @see es.ubu.batchdownloader.downloads.application.port.DownloadJobStore
- * @see es.ubu.batchdownloader.downloads.application.port.ZipUriSigner
  * @since 0.1.0
  * @version 0.1.0
  * @category Descargas
  */
 @Service
 public class DownloadJobAccessService {
-    private static final Logger LOGGER = LoggerFactory.getLogger(DownloadJobAccessService.class);
     private static final int MAX_METADATA_ITEMS = 100;
     /**
      * Persistencia de trabajos, elementos, contexto Linux y reservas de admisión.
      */
     private final DownloadJobStore jobs;
     /**
-     * Puerto que firma la lectura temporal del objeto ZIP ya publicado.
-     */
-    private final ZipUriSigner zipUris;
-    /**
      * Reloj que determina cuotas, cambios de estado y vencimientos.
      */
     private final Clock clock;
-    /**
-     * Cuotas de admisión y duraciones de conservación y firma del ZIP.
-     */
-    private final DownloadLimits limits;
     /**
      * Publicador de solicitudes durables mediante el outbox de la transacción actual.
      */
@@ -68,17 +52,13 @@ public class DownloadJobAccessService {
      * existentes.
      *
      * @param jobs Persistencia de trabajos, elementos, contexto Linux y reservas de admisión.
-     * @param zipUris Puerto que firma la lectura temporal del objeto ZIP ya publicado.
      * @param clock Reloj que determina cuotas, cambios de estado y vencimientos.
-     * @param limits Cuotas de admisión y duraciones de conservación y firma del ZIP.
      * @param events Publicador de solicitudes durables mediante el outbox de la transacción actual.
      * @param notifications Coordinador de difusión después del commit.
      */
-    public DownloadJobAccessService(DownloadJobStore jobs, ZipUriSigner zipUris, Clock clock, DownloadLimits limits, DownloadEventPublisher events, DownloadJobNotifications notifications, DownloadStorageCoordinator storage) {
+    public DownloadJobAccessService(DownloadJobStore jobs, Clock clock, DownloadEventPublisher events, DownloadJobNotifications notifications, DownloadStorageCoordinator storage) {
         this.jobs = jobs;
-        this.zipUris = zipUris;
         this.clock = clock;
-        this.limits = limits;
         this.events = events;
         this.notifications = notifications;
         this.storage = storage;
@@ -179,36 +159,6 @@ public class DownloadJobAccessService {
         DownloadJobView view = storage.decorate(DownloadJobView.from(job));
         notifications.notifyAfterCommit(view);
         return view;
-    }
-
-    /**
-     * Firma una lectura temporal solo cuando el trabajo tiene ZIP descargable y no ha vencido.
-     *
-     * @param owner Identidad autenticada o hashes del navegador que solicita acceso o creación.
-     * @param jobId UUID del trabajo de descarga al que pertenecen estado, elementos y ZIP.
-     * @return URI de lectura con la vigencia configurada.
-     * @throws es.ubu.batchdownloader.common.NotFoundException si el trabajo no es accesible.
-     * @throws es.ubu.batchdownloader.common.ConflictException si aún no hay ZIP disponible o ya
-     *     venció.
-     *
-     * @throws es.ubu.batchdownloader.common.ServiceUnavailableException si el proveedor no puede
-     *     firmar la lectura; permite reintentar tras cinco segundos.
-     */
-    public URI file(RequestOwner owner, UUID jobId) {
-        DownloadJob job = accessibleJob(owner, jobId);
-        if (!job.status().downloadable() || job.objectKey() == null || !job.expiresAt().isAfter(clock.instant())) {
-            throw new ConflictException("download_not_ready", "El ZIP no está disponible.");
-        }
-        try {
-            return zipUris.signGet(
-                    job.objectKey(), "batch-downloader-" + job.id() + ".zip", limits.presignedUrlTtl());
-        } catch (RuntimeException exception) {
-            LOGGER.warn("Could not sign download artifact for job {}", job.id(), exception);
-            throw new ServiceUnavailableException(
-                    "download_signing_unavailable",
-                    "No se pudo preparar el enlace. Inténtalo de nuevo en unos segundos.",
-                    5);
-        }
     }
 
     /**

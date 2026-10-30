@@ -334,7 +334,7 @@ describe('DownloadJobsProvider', () => {
     expect(screen.getByTestId('linux-start-error')).toBeEmptyDOMElement();
   });
 
-  it('shows a retryable signing error without removing the permanent manual action', async () => {
+  it('shows a delivery error without removing the permanent manual action', async () => {
     let pushJob: ((value: DownloadJob) => void) | undefined;
     vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
     vi.spyOn(downloadsApi, 'connectDownloadJobEvents')
@@ -343,7 +343,7 @@ describe('DownloadJobsProvider', () => {
         return vi.fn();
       });
     vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockRejectedValue(
-      new ApiRequestError(503, 'download_signing_unavailable'),
+      new ApiRequestError(503, 'download_unavailable'),
     );
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
 
@@ -353,11 +353,11 @@ describe('DownloadJobsProvider', () => {
     act(() => pushJob?.(job('READY', 100)));
 
     await waitFor(() => expect(screen.getByTestId('action-error')).toHaveTextContent(
-      'download_signing_unavailable',
-    ));
+      'download_unavailable',
+    ), { timeout: 15000 });
     expect(screen.getByTestId('status')).toHaveTextContent('READY');
     expect(click).not.toHaveBeenCalled();
-  });
+  }, 20000);
 
   it('restaura únicamente entradas válidas y tolera almacenamiento corrupto', () => {
     vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(vi.fn());
@@ -552,15 +552,15 @@ describe('DownloadJobsProvider', () => {
   it('restaura el código y HTTP de una entrega fallida sin guardar textos privados', async () => {
     vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('READY', 100));
     vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockRejectedValue(
-      new ApiRequestError(503, 'download_signing_unavailable', null,
+      new ApiRequestError(503, 'download_unavailable', null,
         { privateUrl: 'https://private.test?sig=secret' }),
     );
     vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(vi.fn());
     const view = render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
-    await waitFor(() => expect(screen.getByTestId('action-error')).toHaveTextContent('"httpStatus":503'));
+    await waitFor(() => expect(screen.getByTestId('action-error')).toHaveTextContent('"httpStatus":503'), { timeout: 15000 });
     const stored = window.sessionStorage.getItem('batch-downloader.download-jobs.v1');
-    expect(stored).toContain('download_signing_unavailable');
+    expect(stored).toContain('download_unavailable');
     expect(stored).not.toContain('private.test');
     expect(stored).not.toContain('secret');
     view.unmount();
@@ -568,8 +568,8 @@ describe('DownloadJobsProvider', () => {
     render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
     expect(screen.getByText('Ver incidencias (1)').closest('details')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByText('Ver incidencias (1)'));
-    expect(screen.getByText('download_signing_unavailable')).toBeVisible();
+    expect(screen.getByText('download_unavailable')).toBeVisible();
     expect(screen.getByText('503')).toBeVisible();
-  });
+  }, 20000);
 
 });

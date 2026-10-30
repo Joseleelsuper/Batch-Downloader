@@ -163,7 +163,7 @@ describe('DownloadJobPanel', () => {
     failed.failureCode = 'all_downloads_failed';
     failed.items[0] = { ...failed.items[0], status: 'FAILED', errorCode: 'source_revalidation_http_618' };
     const view = render(<DownloadJobPanel job={failed} onCancel={vi.fn()} onClose={vi.fn()}
-      actionError={{ code: 'download_signing_unavailable', httpStatus: 503, operation: 'delivery' }} />);
+      actionError={{ code: 'download_unavailable', httpStatus: 503, operation: 'delivery' }} />);
     const summary = screen.getByText('Ver incidencias (2)');
     expect(summary.closest('details')).not.toHaveAttribute('open');
     expect(screen.getByText(/El servidor respondió HTTP 618/)).not.toBeVisible();
@@ -175,7 +175,7 @@ describe('DownloadJobPanel', () => {
 
     view.rerender(<DownloadJobPanel job={{ ...failed, failureCode: 'zip_creation_failed' }}
       onCancel={vi.fn()} onClose={vi.fn()}
-      actionError={{ code: 'download_signing_unavailable', httpStatus: 503, operation: 'delivery' }} />);
+      actionError={{ code: 'download_unavailable', httpStatus: 503, operation: 'delivery' }} />);
     expect(screen.getByText('Ver incidencias (3)').closest('details')).toHaveAttribute('open');
     expect(screen.getByText('No se pudo preparar el ZIP.')).toBeVisible();
     expect(screen.getAllByText(/Qué ha fallado/)).toHaveLength(3);

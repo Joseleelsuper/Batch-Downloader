@@ -44,7 +44,6 @@ const composeEnvironment = {
   MINIO_WORKER_SECRET_KEY: 'download-flow-worker-minio-test',
   MINIO_API_HOST_PORT: '0',
   MINIO_CONSOLE_HOST_PORT: '0',
-  MINIO_DOWNLOAD_HOST_PORT: '0',
   WEBAPP_HOST_PORT: '0',
   CORE_API_HOST_PORT: '0',
   SEMANTIC_SERVICE_HOST_PORT: '0',
@@ -110,7 +109,7 @@ async function reserveHostPorts() {
   const keys = [
     'MYSQL_HOST_PORT', 'POSTGRES_HOST_PORT', 'RABBITMQ_HOST_PORT',
     'RABBITMQ_MANAGEMENT_HOST_PORT', 'MINIO_API_HOST_PORT',
-    'MINIO_CONSOLE_HOST_PORT', 'MINIO_DOWNLOAD_HOST_PORT', 'WEBAPP_HOST_PORT',
+    'MINIO_CONSOLE_HOST_PORT', 'WEBAPP_HOST_PORT',
     'CORE_API_HOST_PORT', 'SEMANTIC_SERVICE_HOST_PORT',
     'NOTIFICATION_SERVICE_HOST_PORT', 'DOWNLOAD_WORKER_HOST_PORT',
     'TRANSLATION_SERVICE_HOST_PORT',
@@ -261,8 +260,6 @@ export async function run() {
     Object.assign(composeEnvironment, reservations.values);
     const baseUrl = `http://127.0.0.1:${reservations.values.WEBAPP_HOST_PORT}`;
     composeEnvironment.APP_PUBLIC_BASE_URL = baseUrl;
-    composeEnvironment.MINIO_PUBLIC_ENDPOINT =
-      `http://127.0.0.1:${reservations.values.MINIO_DOWNLOAD_HOST_PORT}`;
 
     browser = await chromium.launch({ headless: true });
     process.stdout.write(`Building the isolated Compose project ${projectName}.\n`);

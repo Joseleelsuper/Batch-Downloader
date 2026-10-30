@@ -68,7 +68,6 @@ FIXED_PRODUCTION_VALUES = {
     "GHCR_OWNER": "joseleelsuper",
     "GHCR_IMAGE_PREFIX": "batch-downloader",
     "APP_PUBLIC_BASE_URL": "https://batchdownloader.dev",
-    "MINIO_PUBLIC_ENDPOINT": "https://downloads.batchdownloader.dev",
     "MINIO_ZIP_QUOTA": "10GB",
     "CORE_API_REQUIRE_HTTPS": "true",
     "CORE_API_COOKIE_SECURE": "true",

@@ -64,7 +64,6 @@ const EXACT_KINDS: Readonly<Record<string, string>> = {
   github_zip_not_release_asset: 'content',
   file_too_large: 'limit',
   local_io_error: 'storage',
-  download_signing_unavailable: 'signing',
   download_job_not_found: 'missingZip',
   download_not_ready: 'missingZip',
   destination_permission_denied: 'permission',
