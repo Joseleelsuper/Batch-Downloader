@@ -57,6 +57,7 @@ services:
       SCRAPER_LLM_OPENAI_MODEL: ${SCRAPER_LLM_OPENAI_MODEL:?}
       SCRAPER_LLM_GROQ_API_KEY: ${SCRAPER_LLM_GROQ_API_KEY?}
       SCRAPER_LLM_DEEPSEEK_API_KEY: ${SCRAPER_LLM_DEEPSEEK_API_KEY?}
+    cpus: 1.0
     cpu_shares: 256
     restart: unless-stopped
     depends_on:
