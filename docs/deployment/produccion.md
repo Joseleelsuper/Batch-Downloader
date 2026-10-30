@@ -40,8 +40,18 @@ también la mitigación y no reutilizar la copia anterior de `cacerts`.
 
 - `batchdownloader.dev`: web y API.
 - `www.batchdownloader.dev`: redirección al dominio principal.
-- `downloads.batchdownloader.dev`: proxy legado; las nuevas descargas usan la ruta autenticada `/api/v1/download-jobs/{id}/file` del dominio principal.
 - `deploy.batchdownloader.dev`: panel Coolify.
+
+Los ZIP se entregan únicamente por la ruta autorizada
+`/api/v1/download-jobs/{id}/file` del dominio principal, con soporte de rangos.
+`/file-link` devuelve esa misma ruta relativa; no se publican enlaces S3.
+
+Para retirar una instalación anterior, conservar el SHA/tag sano y los ajustes
+antiguos hasta validar una descarga completa y reanudada por el dominio principal.
+Retirar la ruta del subdominio de descargas en Coolify al desplegar; después de
+la validación, eliminar sus variables obsoletas y únicamente su registro A en
+Vercel. Si falla el despliegue, restaurar la versión y configuración guardadas
+antes de continuar con la retirada DNS.
 
 MySQL, PostgreSQL, RabbitMQ, MinIO y los demás servicios internos no tienen
 dominio público. Sus puertos del host se ligan a `127.0.0.1`.
@@ -55,7 +65,6 @@ nuevos y estos valores de producción:
 
 ```dotenv
 APP_PUBLIC_BASE_URL=https://batchdownloader.dev
-MINIO_PUBLIC_ENDPOINT=https://downloads.batchdownloader.dev
 CORE_API_REQUIRE_HTTPS=true
 CORE_API_COOKIE_SECURE=true
 MINIO_ZIP_QUOTA=10GB

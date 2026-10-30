@@ -49,8 +49,8 @@ describe('download failure explanations', () => {
   });
 
   it('keeps an API code and HTTP status while distinguishing a saved ZIP receipt', () => {
-    const error = actionFailure(new ApiRequestError(503, 'download_signing_unavailable'));
-    expect(error).toEqual({ code: 'download_signing_unavailable', httpStatus: 503, operation: 'delivery' });
+    const error = actionFailure(new ApiRequestError(503, 'download_unavailable'));
+    expect(error).toEqual({ code: 'download_unavailable', httpStatus: 503, operation: 'delivery' });
     expect(explainFailure(t, error.code, error.httpStatus).httpStatus).toBe(503);
     expect(explainFailure(t, error.code, error.httpStatus, 'receipt').cause).toContain('ya está guardado');
     expect(isDownloadActionError({ ...error, httpStatus: '503' })).toBe(false);

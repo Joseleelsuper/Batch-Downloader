@@ -8,7 +8,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @param maxApps Máximo de aplicaciones admitidas, incluidas las dependencias añadidas.
  * @param zipRetention Duración máxima durante la que se conserva disponible el ZIP.
- * @param presignedUrlTtl Vigencia de cada enlace firmado, independiente de la retención del ZIP.
  * @param anonymousMaxCreatesPerHour Máximo de creaciones por navegador en una ventana de una hora.
  * @param anonymousMaxCreatesPerIpHour Máximo de creaciones por hash de dirección IP durante una
  *     hora.
@@ -24,6 +23,5 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record DownloadLimits(
         int maxApps,
         Duration zipRetention,
-        Duration presignedUrlTtl,
         int anonymousMaxCreatesPerHour,
         int anonymousMaxCreatesPerIpHour) {}

@@ -1,4 +1,4 @@
-"""Comprueba HTTPS, salud web, locales y el proxy de descargas de producción."""
+"""Comprueba HTTPS, salud web y locales de producción."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ DEFAULT_URLS = (
     "https://batchdownloader.dev/healthz",
     "https://batchdownloader.dev/api/v1/locales/es",
     "https://batchdownloader.dev/api/v1/locales/en",
-    "https://downloads.batchdownloader.dev/healthz",
 )
 
 
@@ -102,7 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, SmokeError) as exception:
         print(f"ERROR: {exception}", file=sys.stderr)
         return 1
-    print("Producción responde por HTTPS, locales y descargas.")
+    print("Producción responde por HTTPS, salud web y locales.")
     return 0
 
 
