@@ -101,8 +101,10 @@ class CatalogFetcher:
         await self.session.commit()
 
         repaired_platforms = await self.catalog.sources.repair_resolved_source_platforms()
+        # Incluso sin cambios, el SELECT abre una transacción: devolver la conexión
+        # antes del scrape evita que wait_timeout la cierre durante los workers.
+        await self.session.commit()
         if repaired_platforms:
-            await self.session.commit()
             logger.warning("resolved_source_platforms_repaired", count=repaired_platforms)
 
         pending_work = await self._recover_pipeline()

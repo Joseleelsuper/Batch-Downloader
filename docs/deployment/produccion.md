@@ -94,6 +94,33 @@ depende exclusivamente del coordinador y de actividad real, no de la edad del ZI
 No aumentar el pool para ocultar consultas anidadas: la lectura de detalles
 libera la conexión principal antes de enriquecer el resultado.
 
+## CPU del rastreo
+
+Los Compose local y GHCR limitan `scraper-scheduler` con `cpus: 1.0`: una cuota
+máxima equivalente a una CPU para el conjunto de sus hilos y subprocesos,
+incluido Chromium. No se fija un núcleo físico. Se conservan `cpu_shares: 256`
+y las concurrencias existentes; `cpu_shares` solo establece prioridad relativa
+cuando hay contención, sin imponer un máximo de consumo.
+
+La API del scraper mantiene su capacidad independiente. El rastreo puede tardar
+más; la cuota protege frente a saturación de CPU, pero la fluidez de navegación
+también depende de la base de datos y del disco.
+
+El límite se aplica al recrear el scheduler con el Compose actualizado mediante
+el flujo GHCR/Coolify habitual. Desde SSH del host, sustituir
+`NOMBRE_O_ID_DEL_SCHEDULER` por el contenedor `scraper-scheduler` de producción:
+
+```sh
+docker inspect --format 'NanoCpus={{.HostConfig.NanoCpus}} health={{.State.Health.Status}}' NOMBRE_O_ID_DEL_SCHEDULER
+docker stats --no-stream NOMBRE_O_ID_DEL_SCHEDULER
+```
+
+El resultado debe mostrar `NanoCpus=1000000000` y `health=healthy`. Durante un
+rastreo, comprobar que el trabajo sigue avanzando y permanece saludable,
+observar el consumo de CPU y comparar las latencias del catálogo, las búsquedas
+y la paginación con el rastreo pausado. En `docker stats`, un consumo del 100 %
+equivale a una CPU; se evalúa el consumo sostenido, no una muestra aislada.
+
 ## Modelo y copias
 
 El modelo se instala offline en el volumen
