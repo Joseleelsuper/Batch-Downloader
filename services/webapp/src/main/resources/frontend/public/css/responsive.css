@@ -311,12 +311,7 @@
   .site-footer-column { gap: 2px; }
   .site-footer-column:last-child {
     grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(3, max-content);
-    justify-content: space-between;
-    column-gap: 8px;
   }
-  .site-footer-column:last-child h2 { grid-column: 1 / -1; }
   .site-footer-column:last-child a { gap: 6px; white-space: nowrap; }
   .site-footer-column h2 { margin-bottom: 6px; font-size: 16px; }
   .site-footer-column a { min-height: 44px; font-size: 14px; }

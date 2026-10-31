@@ -23,6 +23,13 @@ function Picker({ initial = [], administrator = false }: { initial?: CatalogApp[
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('BundleAppPicker', () => {
+  it.each([false, true])('muestra las descripciones de orden en el selector (admin: %s)', (administrator) => {
+    render(<Picker administrator={administrator} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar orden' }));
+    expect(screen.getByText('Primero las aplicaciones con más descargas.')).toBeInTheDocument();
+    expect(screen.getByText('Orden alfabético.')).toBeInTheDocument();
+  });
+
   it('agrupa pulsaciones durante 180 ms antes de buscar', async () => {
     vi.useFakeTimers();
     const fetch = vi.spyOn(catalogApi, 'fetchApps').mockResolvedValue(page([app]));

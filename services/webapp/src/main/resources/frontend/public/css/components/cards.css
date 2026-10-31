@@ -39,7 +39,7 @@
 .bundle-star-button:hover:not(:disabled), .bundle-star-active { background: var(--teal-soft); border-color: var(--teal); }
 .bundle-star-button:focus-visible { outline: 3px solid #0284c7; outline-offset: 2px; }
 .bundle-star-button:disabled { opacity: .65; cursor: wait; }
-.bundle-download-count, .bundle-star-hint { color: var(--muted); }
+.bundle-download-count { color: var(--muted); }
 .bundle-admin-star { color: var(--teal-dark); font-size: 12px; font-weight: 650; }
 .bundle-section-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .bundle-section-tools select { appearance: none; min-height: 36px; max-width: 100%; padding: 5px 34px 5px 10px; color: var(--teal-dark); background: white; border: 1px solid var(--border); border-radius: 5px; }
@@ -301,3 +301,15 @@
 }
 
 
+
+.star-signin-dialog {
+  width: min(480px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgb(24 35 52 / 28%);
+}
+.star-signin-dialog::backdrop { background: rgb(20 32 50 / 52%); }
+.star-signin-dialog h3 { margin: 0; }
+.star-signin-dialog p { color: var(--muted); line-height: 1.5; }
+.star-signin-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }

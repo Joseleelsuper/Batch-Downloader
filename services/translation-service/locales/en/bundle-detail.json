@@ -18,6 +18,8 @@
   "bundle.star.count": "{count} stars",
   "bundle.star.admin": "Starred by an administrator",
   "bundle.star.signIn": "Sign in to give stars",
+  "bundle.star.signInDescription": "You need to sign in to give this bundle a star.",
+  "bundle.star.signInAction": "Sign in",
   "bundle.star.error": "Could not save your star. Try again.",
   "bundle.downloads": "{count} downloads",
   "bundle.catalog.title": "Bundles",
