@@ -30,6 +30,7 @@ from app.scraper.candidates import (
     score_candidate,
 )
 from app.scraper.github import parse_github_repo
+from app.scraper.github_asset_urls import stable_installer_url
 from app.scraper.text import normalize_text
 from app.scraper.validator import (
     ValidationConfidence,
@@ -1052,7 +1053,7 @@ def catalog_url_for_installer(installer: ValidInstaller) -> str:
         return candidate.referer
     if is_sourceforge_download_url(candidate.url):
         return candidate.url
-    return installer.result.final_url or candidate.url
+    return stable_installer_url(candidate.url, installer.result.final_url)
 
 
 def is_catalog_publishable_installer(installer: ValidInstaller) -> bool:

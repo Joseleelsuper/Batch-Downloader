@@ -1818,3 +1818,19 @@ def valid(
         architecture=arch,
         version=version,
     )
+
+
+
+def test_catalog_keeps_github_release_url_instead_of_temporary_cdn():
+    stable = "https://github.com/vendor/app/releases/download/v1.2.0/App.exe"
+    installer = ValidInstaller(
+        candidate=InstallerCandidate(url=stable, source="github_release_api"),
+        result=ValidationResult(
+            ok=True, url=stable,
+            final_url="https://release-assets.githubusercontent.com/asset?jwt=temporary",
+            confidence=ValidationConfidence.VALIDATED,
+        ),
+        status=ResolutionStatus.DIRECT, operating_system="windows",
+        architecture="x86_64", version="1.2.0",
+    )
+    assert catalog_url_for_installer(installer) == stable

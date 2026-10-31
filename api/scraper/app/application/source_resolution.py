@@ -46,6 +46,7 @@ from app.scraper.candidates import (
     infer_operating_system,
     is_github_release_asset,
 )
+from app.scraper.github_asset_urls import recover_github_asset_url, stable_installer_url
 from app.scraper.installer_policy import (
     infer_validated_operating_system,
     known_official_candidates_for_package,
@@ -183,7 +184,7 @@ async def resolve_source(
         else SourceTrustStatus.UNRESOLVED
     )
     url = (
-        await _source_url(resolved, catalog, session)
+        await _source_url(resolved, catalog, session, settings)
         if trust_status == SourceTrustStatus.VERIFIED else None
     )
     if trust_status == SourceTrustStatus.UNRESOLVED and _can_revalidate_expired(resolved, metadata):
@@ -306,6 +307,48 @@ async def _source_url(
     resolved: ResolvedSource,
     catalog: CatalogRepository,
     session: AsyncSession,
+    settings: Settings,
+) -> str | None:
+    """Recupera el mismo asset CDN desde la evidencia manual o su ruta inmutable."""
+    url = catalog.reveal_url(resolved)
+    if urlparse(url or "").hostname == "release-assets.githubusercontent.com":
+        manual_url = await _manual_github_source_url(resolved, catalog, session)
+        if manual_url != url:
+            return manual_url
+        revision = _revalidation_revision(resolved)
+        filename = resolved.filename
+        app_metadata = resolved.source.software_app.metadata_json or {}
+        known_urls = [
+            value for version in (app_metadata.get("versions") or [])
+            if isinstance(version, dict)
+            for value in (version.get("installers") or []) if isinstance(value, str)
+        ]
+        await session.commit()
+        try:
+            recovered = await recover_github_asset_url(
+                url, filename, timeout=settings.request_timeout_seconds, known_urls=known_urls,
+            )
+        except (httpx.HTTPError, TimeoutError, SafeHttpError, ValueError):
+            raise SourceRevalidationTransientError(
+                "source_revalidation_transient", "network_error",
+            ) from None
+        locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
+        if locked is None or _revalidation_revision(locked) != revision:
+            await session.commit()
+            raise SourceRevalidationTransientError(
+                "source_revalidation_changed", "source_revalidation_changed",
+            )
+        if recovered is not None:
+            # Una fuente caducada se escribe solo tras validar: los triggers MySQL
+            # cambian también la revisión del padre al actualizar la URL.
+            if locked.expires_at > utc_now():
+                locked.resolved_url_encrypted = catalog.url_protector.protect(recovered)
+            return recovered
+    return url
+
+
+async def _manual_github_source_url(
+    resolved: ResolvedSource, catalog: CatalogRepository, session: AsyncSession,
 ) -> str | None:
     """Recupera el enlace GitHub exacto de una inspección aplicada si se guardó su CDN temporal."""
     url = catalog.reveal_url(resolved)
@@ -380,7 +423,8 @@ async def _validate_revalidation_candidate(
         result = None
 
     if result is None or not _is_verified_https_result(result, candidate.url):
-        official = await _validate_known_official_recovery(resolved, settings)
+        official = (None if stable_installer_url(candidate.url, "invalid") == candidate.url
+                    else await _validate_known_official_recovery(resolved, settings))
         if official is not None:
             candidate, result = official
         elif validation_error is not None:
@@ -442,14 +486,14 @@ async def _revalidate_expired_source(
         now=utc_now(),
     )
     if trust_status == SourceTrustStatus.VERIFIED:
-        url = await _source_url(resolved, catalog, session)
+        url = await _source_url(resolved, catalog, session, settings)
         await session.commit()
         return url
     if not _can_revalidate_expired(resolved, metadata):
         await session.commit()
         return None
 
-    protected_url = await _source_url(resolved, catalog, session)
+    protected_url = await _source_url(resolved, catalog, session, settings)
     if protected_url is None:
         await _expire_terminal_candidate(
             resolved,
@@ -545,7 +589,7 @@ async def _accept_revalidation(
     """
     metadata = dict(resolved.metadata_json or {})
     final_url = result.final_url or candidate.url
-    catalog_url = candidate.url if is_github_release_asset(candidate.url) else final_url
+    catalog_url = stable_installer_url(candidate.url, final_url)
     resolved.checked_at = now
     resolved.resolved_url_encrypted = catalog.url_protector.protect(catalog_url)
     resolved.final_domain = result.final_domain or resolved.final_domain
@@ -577,7 +621,7 @@ async def _accept_revalidation(
         metadata.pop("transport_security", None)
     resolved.metadata_json = metadata
     await session.commit()
-    return final_url
+    return catalog_url
 
 
 def _is_verified_https_result(result: ValidationResult, candidate_url: str) -> bool:

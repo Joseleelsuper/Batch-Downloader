@@ -56,13 +56,16 @@ public final class JdkRemoteExchange implements RemoteExchange {
     @Override
     public Response get(URI uri) {
         long startedAt = System.nanoTime();
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(uri)
                 .timeout(properties.requestTimeout())
                 .header("Accept", "application/octet-stream,*/*")
                 .header("Accept-Encoding", "identity")
                 .header("User-Agent", "BatchDownloaderWorker/1.0")
-                .GET()
-                .build();
+                .GET();
+        if ("github.com".equalsIgnoreCase(uri.getHost()) && uri.getPath().contains("/releases/download/")) {
+            requestBuilder.header("Cache-Control", "no-cache");
+        }
+        HttpRequest request = requestBuilder.build();
         try {
             HttpResponse<InputStream> response = client.send(
                     request,

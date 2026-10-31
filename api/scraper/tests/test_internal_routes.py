@@ -1371,7 +1371,7 @@ async def test_internal_resolution_recovers_manual_github_links_without_reusing_
     assert response.json()["sourceRef"] == str(resolved.id)
     assert response.json()["appId"] == str(app.id)
     assert response.json()["trustStatus"] == "VERIFIED"
-    assert response.json()["url"] == (fresh_url if expires_in_hours < 0 else stable_url)
+    assert response.json()["url"] == stable_url
     assert validation_calls == ([stable_url] if expires_in_hours < 0 else [])
     if expires_in_hours < 0:
         assert protector.reveal(resolved.resolved_url_encrypted) == stable_url
@@ -1392,6 +1392,9 @@ async def test_internal_resolution_only_recovers_the_applied_manual_github_input
     internal_api: InternalApiFixture, monkeypatch, mismatch,
 ) -> None:
     """Una inspección ajena, incompleta o ilegible no sustituye el instalador seleccionado."""
+    async def no_recovery(*args, **kwargs):
+        return None
+    monkeypatch.setattr("app.application.source_resolution.recover_github_asset_url", no_recovery)
     app, resolved, _ = await internal_api.add_source(confidence="validated", expires_in_hours=-1)
     stable_url = "https://github.com/vendor/app/releases/download/v1.2.0/AppSetup.exe"
     stale_url = "https://release-assets.githubusercontent.com/asset?sig=expired"
@@ -2066,3 +2069,70 @@ async def test_regeneration_validates_scope_and_paginates(internal_api, monkeypa
     }, headers=headers)
     assert second.json()["enqueued"] == 1
     assert second.json()["nextAfter"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expires_in_hours", [-1, 1])
+async def test_recovers_legacy_github_source_without_changing_reference(
+    internal_api: InternalApiFixture, monkeypatch, expires_in_hours,
+):
+    app, resolved, _ = await internal_api.add_source(
+        confidence="validated", expires_in_hours=expires_in_hours,
+    )
+    protector = UrlProtector(URL_SECRET)
+    old = "https://release-assets.githubusercontent.com/github-production-release-asset/123/original?jwt=old"
+    stable = "https://github.com/vendor/app/releases/download/v1.2/App.exe"
+    resolved.resolved_url_encrypted = protector.protect(old)
+    resolved.filename = "App.exe"
+    await internal_api.session.commit()
+
+    async def recover(url, filename, **kwargs):
+        assert not internal_api.session.in_transaction()
+        assert url == old and filename == "App.exe"
+        return stable
+
+    async def validate(_validator, candidate):
+        assert candidate.url == stable
+        # No se publica la reparación antes de validar la fuente caducada.
+        assert protector.reveal(resolved.resolved_url_encrypted) == old
+        return ValidationResult(ok=True, url=stable, final_url=old,
+                                confidence=ValidationConfidence.VALIDATED)
+
+    monkeypatch.setattr("app.application.source_resolution.recover_github_asset_url", recover)
+    monkeypatch.setattr("app.application.source_resolution.DownloadValidator.validate", validate)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 200
+    assert response.json()["sourceRef"] == str(resolved.id)
+    assert response.json()["appId"] == str(app.id)
+    assert response.json()["url"] == stable
+    assert protector.reveal(resolved.resolved_url_encrypted) == stable
+
+
+@pytest.mark.asyncio
+async def test_legacy_recovery_does_not_overwrite_a_concurrent_editorial_change(
+    internal_api: InternalApiFixture, monkeypatch,
+):
+    _, resolved, _ = await internal_api.add_source(confidence="validated")
+    protector = UrlProtector(URL_SECRET)
+    old = "https://release-assets.githubusercontent.com/github-production-release-asset/123/asset"
+    resolved.resolved_url_encrypted = protector.protect(old)
+    await internal_api.session.commit()
+    edited = "https://example.test/editor-selected.exe"
+
+    async def recover(*args, **kwargs):
+        assert not internal_api.session.in_transaction()
+        resolved.resolved_url_encrypted = protector.protect(edited)
+        await internal_api.session.commit()
+        return "https://github.com/vendor/app/releases/download/v1/App.exe"
+
+    monkeypatch.setattr("app.application.source_resolution.recover_github_asset_url", recover)
+    response = await internal_api.client.get(
+        f"/internal/v1/sources/{resolved.id}/resolution",
+        headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "source_revalidation_changed"
+    assert protector.reveal(resolved.resolved_url_encrypted) == edited
