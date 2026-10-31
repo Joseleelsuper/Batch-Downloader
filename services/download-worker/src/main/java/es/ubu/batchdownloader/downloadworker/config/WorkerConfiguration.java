@@ -21,6 +21,7 @@ import es.ubu.batchdownloader.downloadworker.infrastructure.http.HostResolver;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.JdkHttpsRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.HostLimitedRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.RetryingRemoteDownloader;
+import es.ubu.batchdownloader.downloadworker.infrastructure.http.RefreshingSourceRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.PartialFileCleanupRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.MeteredRemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy;
@@ -270,7 +271,8 @@ public class WorkerConfiguration {
             @Qualifier("downloadHttpClient") HttpClient downloadHttpClient,
             PublicHttpsUriPolicy publicHttpsUriPolicy,
             DownloadProperties properties,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            SourceReferenceResolver sourceReferenceResolver) {
         RemoteDownloader downloader = new JdkHttpsRemoteDownloader(
                 downloadHttpClient,
                 publicHttpsUriPolicy,
@@ -278,6 +280,7 @@ public class WorkerConfiguration {
         downloader = new HostLimitedRemoteDownloader(downloader, meterRegistry, 2);
         downloader = new RetryingRemoteDownloader(downloader, meterRegistry);
         downloader = new PartialFileCleanupRemoteDownloader(downloader);
+        downloader = new RefreshingSourceRemoteDownloader(downloader, sourceReferenceResolver);
         return new MeteredRemoteDownloader(downloader, meterRegistry);
     }
 

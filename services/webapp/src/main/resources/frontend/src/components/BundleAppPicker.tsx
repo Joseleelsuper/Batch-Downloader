@@ -115,7 +115,7 @@ export function BundleAppPicker({ apps, onChange, administrator = false }: Reado
         onSortChange={(value) => { setSort(value); setSearch({ query, page: 1 }); }}
         onSearchModeChange={(value) => { setSearchMode(value); setSearch({ query, page: 1 }); }}
         inputProps={{ id: `${id}-query`, type: 'search', onKeyDown: (event) => { if (event.key === 'Enter') event.preventDefault(); } }}
-        showSortDescriptions={false} />
+        />
       <p className="bundle-picker-status"><output>{searchStatus()}</output></p>
       {degradedReason ? <p className="bundle-picker-status" role="status">{t(degradedReason === 'semantic_query_too_short'
         ? 'catalog.search.degraded.shortQuery' : 'catalog.search.degraded')}</p> : null}

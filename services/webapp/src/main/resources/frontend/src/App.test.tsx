@@ -96,7 +96,6 @@ describe('catalog workspace', () => {
     Object.defineProperty(window, 'localStorage', { configurable: true, value: storage });
     vi.stubGlobal('localStorage', storage);
     vi.spyOn(accountApi, 'me').mockResolvedValue(null);
-    vi.spyOn(catalogAppsApi, 'connectCatalogEvents').mockReturnValue(() => undefined);
     vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
     vi.spyOn(downloadsApi, 'reportDownloadActivity').mockResolvedValue(undefined);
     vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({
@@ -540,75 +539,15 @@ describe('catalog workspace', () => {
     });
   });
 
-  it('coalesces bursts of catalog events into a single refresh', async () => {
-    vi.useFakeTimers();
-    let notifyCatalogChanged: (() => void) | undefined;
-    vi.mocked(catalogAppsApi.connectCatalogEvents).mockImplementation((onEvent) => {
-      notifyCatalogChanged = () => onEvent({
-        type: 'catalog.changed',
-        version: '1',
-        generatedAt: '2026-07-16T08:00:00Z',
-      });
-      return () => undefined;
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/catalog']}>
-        <App />
-      </MemoryRouter>,
-    );
-    await act(async () => Promise.resolve());
-    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      notifyCatalogChanged?.();
-      notifyCatalogChanged?.();
-      notifyCatalogChanged?.();
-    });
-    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
-  });
-
-  it('removes a selected app deleted during a catalog refresh', async () => {
-    vi.useFakeTimers();
-    let notifyCatalogChanged: (() => void) | undefined;
-    vi.mocked(catalogAppsApi.connectCatalogEvents).mockImplementation((onEvent) => {
-      notifyCatalogChanged = () => onEvent({
-        type: 'catalog.changed',
-        version: '2',
-        generatedAt: '2026-07-18T12:00:00Z',
-      });
-      return () => undefined;
-    });
-    vi.mocked(catalogAppsApi.fetchApps)
-      .mockResolvedValueOnce({ data: [catalogApp], page: 1, pageSize: 12, total: 1 })
-      .mockResolvedValueOnce({ data: [], page: 1, pageSize: 12, total: 0 });
-    vi.spyOn(catalogAppsApi, 'fetchAppDetails').mockRejectedValue(new Error('request_failed_404'));
-
-    render(
-      <MemoryRouter initialEntries={['/catalog']}>
-        <App />
-      </MemoryRouter>,
-    );
-    await act(async () => Promise.resolve());
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
-    expect(screen.getByText('1/100')).toBeInTheDocument();
-
-    act(() => notifyCatalogChanged?.());
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-      await Promise.resolve();
-    });
-    vi.useRealTimers();
-
-    await waitFor(() => expect(screen.getByText('0/100')).toBeInTheDocument());
-    expect(catalogAppsApi.fetchAppDetails).toHaveBeenCalledWith('app-1', expect.any(AbortSignal));
-  });
+  it.each(['downloads', 'updated', 'name', 'relevance'])(
+    'no abre un WebSocket del catálogo al ordenar por %s', async (sort) => {
+      const websocket = vi.fn();
+      vi.stubGlobal('WebSocket', websocket);
+      render(<MemoryRouter initialEntries={[`/catalog?sort=${sort}`]}><App /></MemoryRouter>);
+      await waitFor(() => expect(catalogAppsApi.fetchApps).toHaveBeenCalled());
+      expect(websocket).not.toHaveBeenCalled();
+    },
+  );
 
   it('preserves selections when navigating to another catalog page', async () => {
     const secondPageApp: CatalogApp = {

@@ -135,7 +135,6 @@ Cada cuenta activa puede dar y retirar una estrella. Las estrellas administrativ
 | `GET` | `/api/v1/download-jobs/{jobId}/file-link` | Propietario | Devuelve la ruta del archivo del mismo origen. |
 | `POST` | `/api/v1/download-jobs/{jobId}/activity`, `/complete` | Propietario + CSRF | Registra espera/guardado y confirma automáticamente el archivo cerrado para limpiar. |
 | `GET` | `/api/v1/locales/{locale}` | Público | Devuelve el catálogo publicado del idioma solicitado. |
-| `WS` | `/api/v1/catalog/ws` | Público | Notifica cambios del catálogo. |
 
 </details>
 

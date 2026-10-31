@@ -493,12 +493,6 @@ export interface ScraperQueueMaintenanceResult {
   affected: number;
 }
 
-export interface CatalogChangeEvent {
-  type: 'catalog.changed';
-  version: string;
-  generatedAt: string;
-}
-
 export interface AuditItem {
   actor: string;
   action: string;

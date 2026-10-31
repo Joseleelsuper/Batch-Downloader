@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as api from '../api/bundles';
 import { BundleActivity } from './BundleActivity';
@@ -9,12 +10,19 @@ const bundle = { id: 'bundle', name: 'Trabajo', visibility: 'public', starCount:
 beforeEach(() => { auth.account = { id: 'viewer' }; auth.status = 'authenticated'; });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-it('muestra contador e indicación de sesión sin ofrecer voto anónimo', () => {
+it('ofrece iniciar sesión al pulsar la estrella anónima y permite cancelar', () => {
   auth.account = null; auth.status = 'anonymous';
-  render(<BundleActivity bundle={bundle} />);
-  expect(screen.getByText('Inicia sesión para dar estrellas')).toBeInTheDocument();
-  expect(screen.getByLabelText('4 estrellas')).toBeInTheDocument();
-  expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
+  const star = vi.spyOn(api, 'setBundleStar');
+  render(<MemoryRouter initialEntries={['/catalog/bundles']}><BundleActivity bundle={bundle} /></MemoryRouter>);
+  expect(screen.queryByText('Inicia sesión para dar estrellas')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Dar estrella a Trabajo' }));
+  expect(screen.getByRole('dialog')).toHaveTextContent('Necesitas iniciar sesión');
+  expect(screen.getByRole('link', { name: 'Iniciar sesión' })).toHaveAttribute('href', '/login');
+  expect(star).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
 it('confirma el voto, anuncia el estado y retira la mención al quitar el último voto administrativo', async () => {

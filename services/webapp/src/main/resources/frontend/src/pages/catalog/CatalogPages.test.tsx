@@ -26,7 +26,6 @@ describe('catalog swipe navigation', () => {
       total: 36, filters: { all: 36, available: 36, review: 0, missing: 0 }, generatedAt: '',
     });
     vi.spyOn(catalogApi, 'fetchCatalogFacets').mockResolvedValue({ tags: [], publishers: [] });
-    vi.spyOn(catalogApi, 'connectCatalogEvents').mockReturnValue(() => undefined);
   });
 
   afterEach(() => {

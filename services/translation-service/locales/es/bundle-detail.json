@@ -18,6 +18,8 @@
   "bundle.star.count": "{count} estrellas",
   "bundle.star.admin": "Con estrella de administración",
   "bundle.star.signIn": "Inicia sesión para dar estrellas",
+  "bundle.star.signInDescription": "Necesitas iniciar sesión para dar una estrella a este bundle.",
+  "bundle.star.signInAction": "Iniciar sesión",
   "bundle.star.error": "No se pudo guardar la estrella. Inténtalo de nuevo.",
   "bundle.downloads": "{count} descargas",
   "bundle.catalog.title": "Bundles",

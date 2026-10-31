@@ -88,7 +88,7 @@
 
 .account-shell {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   min-height: 100vh;
   background: #f7f9fc;
 }

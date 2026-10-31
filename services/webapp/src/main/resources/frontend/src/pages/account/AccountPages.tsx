@@ -239,7 +239,7 @@ export function AccountLayout() {
     <aside className="account-nav admin-sidebar">
       <Link className="brand admin-brand" to="/">
         <img className="brand-icon" src="/assets/icon.ico" alt="" aria-hidden="true" />
-        <h1>{t('app.title')}</h1>
+        <span className="brand-title">{t('app.title')}</span>
       </Link>
       <nav>
         <NavLink to="/dashboard" end><Clock3 size={18} />{t('account.nav.dashboard')}</NavLink>

@@ -1,6 +1,6 @@
 .admin-shell {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   min-height: 100vh;
   background: #f7fafc;
 }
@@ -9,14 +9,18 @@
   display: flex;
   flex-direction: column;
   gap: 22px;
-  padding: 22px 14px;
+  padding: 17.5px 14px 22px;
   background: #ffffff;
   border-right: 1px solid var(--border);
 }
 
 .admin-brand {
-  padding: 0 8px 12px;
+  padding: 0 8px 16.5px 14px;
   border-bottom: 1px solid var(--border);
+}
+
+.admin-brand .brand-title {
+  white-space: nowrap;
 }
 
 .admin-sidebar nav {

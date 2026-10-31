@@ -98,7 +98,6 @@ async function runViewport(browser, baseUrl, viewport) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
-  await page.routeWebSocket('**/api/v1/catalog/ws', () => {});
   const state = { authenticated: false, createdJobs: 0 };
   await mockApi(page, state);
   try {

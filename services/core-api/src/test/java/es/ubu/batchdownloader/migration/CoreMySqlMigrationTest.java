@@ -34,6 +34,14 @@ class CoreMySqlMigrationTest {
     static void migrateCoreSchema() throws SQLException {
         try (Connection connection = connection(); Statement statement = connection.createStatement()) {
             statement.execute("""
+                    CREATE TABLE catalog_counters (
+                        id INT NOT NULL PRIMARY KEY,
+                        version BIGINT NOT NULL DEFAULT 0,
+                        updated_at DATETIME(6) NOT NULL
+                    )
+                    """);
+            statement.execute("INSERT INTO catalog_counters VALUES (1, 0, UTC_TIMESTAMP(6))");
+            statement.execute("""
                     CREATE TABLE software_apps (
                         id BINARY(16) NOT NULL,
                         app_status VARCHAR(32) NOT NULL,
@@ -165,9 +173,15 @@ class CoreMySqlMigrationTest {
             UUID firstJob = UUID.randomUUID();
             insertDownloadJob(connection, firstJob, userId);
             insertDownloadItem(connection, firstJob, appId, "PENDING");
+            long catalogVersion = catalogVersion(connection);
             execute(connection, "UPDATE download_job_items SET status = 'COMPLETED' WHERE job_id = ?",
                     firstJob.toString());
             assertThat(downloadCount(connection, appId)).isEqualTo(1L);
+            assertThat(catalogVersion(connection)).isEqualTo(catalogVersion + 1);
+            execute(connection, "UPDATE download_job_items SET status = 'COMPLETED' WHERE job_id = ?",
+                    firstJob.toString());
+            assertThat(downloadCount(connection, appId)).isEqualTo(1L);
+            assertThat(catalogVersion(connection)).isEqualTo(catalogVersion + 1);
 
             UUID secondJob = UUID.randomUUID();
             insertDownloadJob(connection, secondJob, userId);
@@ -353,6 +367,14 @@ class CoreMySqlMigrationTest {
                 ) VALUES (?, ?, ?, ?, 'Migration app', ?, NOW(6), NOW(6))
                 """, UUID.randomUUID().toString(), jobId.toString(), appId.toString(),
                 UUID.randomUUID().toString(), status);
+    }
+
+    private static long catalogVersion(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SELECT version FROM catalog_counters WHERE id = 1")) {
+            result.next();
+            return result.getLong(1);
+        }
     }
 
     private static long downloadCount(Connection connection, UUID appId) throws SQLException {

@@ -24,6 +24,7 @@ from app.scraper.candidates import (
     score_candidate,
 )
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.github_asset_urls import stable_installer_url
 from app.scraper.http.fetchers import fetch_bounded_response
 from app.scraper.http.public_transport import public_http_client
 from app.scraper.playwright_fallback import PlaywrightCandidateCollector
@@ -468,7 +469,7 @@ class InstallerResolver:
         await self.catalog.sources.save_resolved_source(
             ResolvedSourceCreate(
                 source_id=source_id,
-                url=result.final_url or candidate.url,
+                url=stable_installer_url(candidate.url, result.final_url),
                 final_domain=(
                     result.final_domain
                     or registered_domain(result.final_url or candidate.url)

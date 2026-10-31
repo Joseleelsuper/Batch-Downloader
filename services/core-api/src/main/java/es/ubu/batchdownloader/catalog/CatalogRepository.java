@@ -3,7 +3,6 @@ package es.ubu.batchdownloader.catalog;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppDetails;
 import es.ubu.batchdownloader.catalog.CatalogDtos.AppListItem;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogAlphabetEntry;
-import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogFacetsResponse;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
 import es.ubu.batchdownloader.common.BadRequestException;
@@ -315,27 +314,6 @@ public class CatalogRepository {
      */
     public String cacheVersion() {
         return statistics.cacheVersion();
-    }
-
-    /**
-     * Construye un evento catalog.changed con versión compuesta y fecha UTC actual.
-     *
-     * @return evento para invalidar las consultas del cliente.
-     * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
-     */
-    public CatalogChangeEvent changeEvent() {
-        return statistics.changeEvent();
-    }
-
-    /**
-     * Combina cantidad y actualización de aplicaciones activas, contadores de catálogo y progreso
-     * de la última ejecución en un hash textual.
-     *
-     * @return token opaco de cambio; no es una huella criptográfica.
-     * @see es.ubu.batchdownloader.catalog.CatalogStatisticsRepository
-     */
-    public String changeVersion() {
-        return statistics.changeVersion();
     }
 
     /**

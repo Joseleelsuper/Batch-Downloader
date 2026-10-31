@@ -48,6 +48,7 @@ from app.scraper.content_workers import (
     SOFilterWorker,
     enqueue_so_filter_for_app,
 )
+from app.scraper.github_asset_urls import stable_installer_url
 from app.scraper.installer_policy import (
     ValidInstaller,
     infer_validated_operating_system,
@@ -692,7 +693,7 @@ async def repair_known_apps() -> None:
                     await catalog.sources.save_resolved_source(
                         ResolvedSourceCreate(
                             source_id=source.id,
-                            url=result.final_url or candidate.url,
+                            url=stable_installer_url(candidate.url, result.final_url),
                             final_domain=result.final_domain
                             or registered_domain(result.final_url or candidate.url)
                             or "",

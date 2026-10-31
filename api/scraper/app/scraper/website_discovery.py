@@ -51,6 +51,7 @@ from app.scraper.candidates import (
 )
 from app.scraper.description_enricher import AppDescriptionLLMClient
 from app.scraper.github import GitHubReleaseResolver, parse_github_repo
+from app.scraper.github_asset_urls import stable_installer_url
 from app.scraper.inspection_lifecycle import InspectionProgress, append_warning, load_inspection
 from app.scraper.installer_policy import (
     ValidInstaller,
@@ -859,7 +860,7 @@ class WebsiteAppDiscoverer:
 
         discovered = [
             DiscoveredInstaller(
-                url=installer.result.final_url or installer.candidate.url,
+                url=stable_installer_url(installer.candidate.url, installer.result.final_url),
                 final_domain=installer.result.final_domain,
                 filename=installer.result.filename,
                 extension=installer.result.extension,
@@ -1163,7 +1164,7 @@ async def apply_website_app_discovery(
         await catalog.sources.save_resolved_source(
             ResolvedSourceCreate(
                 source_id=source.id,
-                url=installer.result.final_url or installer.candidate.url,
+                url=stable_installer_url(installer.candidate.url, installer.result.final_url),
                 final_domain=installer.result.final_domain
                 or registered_domain(installer.result.final_url or installer.candidate.url)
                 or "unknown",

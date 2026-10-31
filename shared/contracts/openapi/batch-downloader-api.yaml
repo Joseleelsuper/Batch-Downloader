@@ -2967,14 +2967,6 @@ components:
       required: true
       schema:
         type: string
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: true
-      schema:
-        type: string
-        minLength: 16
-        maxLength: 200
   responses:
     DownloadZip:
       description: ZIP completo (200) o el único rango solicitado (206), sin buffering de disco en el proxy.
