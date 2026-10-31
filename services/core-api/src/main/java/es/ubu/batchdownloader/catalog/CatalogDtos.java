@@ -391,17 +391,4 @@ public class CatalogDtos {
      */
     public record DownloadZipRequest(List<String> appIds) {}
 
-    /**
-     * Notifica una versión opaca del catálogo para que los clientes invaliden sus consultas.
-     *
-     * @param type Tipo de evento catalog.changed para invalidación del cliente.
-     * @param version Versión del instalador, o token de cambio cuando el contrato describe un
-     *     evento de catálogo.
-     * @param generatedAt Instante UTC en que se construye la estadística o evento.
-     * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
-     * @since 0.1.0
-     * @version 0.1.0
-     * @category Catálogo
-     */
-    public record CatalogChangeEvent(String type, String version, LocalDateTime generatedAt) {}
 }

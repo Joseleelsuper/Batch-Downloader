@@ -1,22 +1,19 @@
 package es.ubu.batchdownloader.catalog;
 
-import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogChangeEvent;
 import es.ubu.batchdownloader.catalog.CatalogDtos.CatalogStatsResponse;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * Consulta contadores del catálogo y produce versiones de invalidación para HTTP y WebSocket.
+ * Consulta contadores del catálogo y produce versiones de invalidación para el catálogo.
  *
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  * @see es.ubu.batchdownloader.catalog.CatalogRepository
- * @see es.ubu.batchdownloader.catalog.CatalogChangeNotifier
  * @since 0.1.0
  * @version 0.1.0
  * @category Catálogo
@@ -112,50 +109,6 @@ public class CatalogStatisticsRepository {
                     WHERE id = 1
                     """);
         }
-    }
-
-    /**
-     * Construye un evento catalog.changed con versión compuesta y fecha UTC actual.
-     *
-     * @return evento para invalidar las consultas del cliente.
-     */
-    public CatalogChangeEvent changeEvent() {
-        return new CatalogChangeEvent("catalog.changed", changeVersion(), now());
-    }
-
-    /**
-     * Combina cantidad y actualización de aplicaciones activas, contadores de catálogo y progreso
-     * de la última ejecución en un hash textual.
-     *
-     * @return token opaco de cambio; no es una huella criptográfica.
-     */
-    public String changeVersion() {
-        String appToken = jdbc.queryForObject(
-                """
-                SELECT CONCAT(COUNT(*), ':', COALESCE(UNIX_TIMESTAMP(MAX(updated_at)), 0))
-                FROM software_apps
-                WHERE app_status = 'active'
-                """,
-                String.class);
-        String catalogToken = cacheVersion();
-        List<String> runTokens = jdbc.query(
-                """
-                SELECT CONCAT(
-                    HEX(id), ':', status, ':',
-                    COALESCE(UNIX_TIMESTAMP(heartbeat_at), 0), ':',
-                    apps_discovered, ':', apps_resolved, ':', apps_failed, ':',
-                    apps_skipped, ':',
-                    COALESCE(current_package_id, ''), ':',
-                    COALESCE(current_phase, '')
-                ) AS token
-                FROM scrape_runs
-                ORDER BY started_at DESC
-                LIMIT 1
-                """,
-                (rs, rowNum) -> rs.getString("token"));
-        return Integer.toHexString(((appToken == null ? "" : appToken)
-                + "|" + (catalogToken == null ? "" : catalogToken)
-                + "|" + (runTokens.isEmpty() ? "" : runTokens.get(0))).hashCode());
     }
 
     /**

@@ -506,34 +506,6 @@ class CatalogRepositoryTest {
     }
 
     /**
-     * Comprueba el escenario {@code changeVersionCombinesApplicationProjectionAndScrapeTokens}.
-     */
-    @Test
-    void changeVersionCombinesApplicationProjectionAndScrapeTokens() {
-        JdbcTemplate jdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
-        when(jdbc.queryForObject(
-                argThat(sql -> sql.contains("MAX(updated_at)")),
-                eq(String.class))).thenReturn("apps");
-        when(jdbc.queryForObject(
-                argThat(sql -> sql.contains("FROM catalog_counters")),
-                eq(String.class),
-                any(Object[].class))).thenReturn("catalog");
-        when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of("run"));
-        CatalogRepository repository = repository(jdbc);
-
-        assertThat(repository.changeVersion())
-                .isEqualTo(Integer.toHexString("apps|catalog|run".hashCode()));
-
-        verify(jdbc).queryForObject(
-                argThat(sql -> sql.contains("COUNT(*)") && sql.contains("MAX(updated_at)")),
-                eq(String.class));
-        verify(jdbc).queryForObject(
-                argThat(sql -> sql.contains("FROM catalog_counters") && sql.contains("WHERE id = ?")),
-                eq(String.class),
-                any(Object[].class));
-    }
-
-    /**
      * Comprueba el escenario {@code normalizeSearchQueryRemovesAccentsAndCollapsesWhitespace}.
      */
     @Test

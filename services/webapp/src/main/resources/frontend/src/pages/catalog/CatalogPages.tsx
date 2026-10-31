@@ -7,7 +7,6 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import {
-  connectCatalogEvents,
   fetchAppDetails,
   fetchApps,
   fetchCatalogFacets,
@@ -57,7 +56,6 @@ const DEFAULT_COUNTS: Record<FilterKey, number> = {
   missing: 0,
 };
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
-const CATALOG_REFRESH_INTERVAL_MS = 5_000;
 const PREFETCH_SORTS: SortKey[] = ['downloads', 'updated', 'name', 'relevance'];
 const PREFETCH_FILTERS: FilterKey[] = ['all', 'available', 'review', 'missing'];
 const PAGE_CACHE_TTL_MS = 15_000;
@@ -181,7 +179,6 @@ export function CatalogPage() {
   const [error, setError] = useState<string | null>(null);
   const loadingApps = !displayedPage && !error;
   const searchNotice = searchNoticeFor(t, displayedPage?.degradedReason);
-  const [refreshToken, setRefreshToken] = useState(0);
   const [filtersVisible, setFiltersVisible] = useState(() => localStorage.getItem('catalog.filters.open') !== 'false');
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
   const [selectedDownloadApps, setSelectedDownloadApps] = useState<CatalogApp[]>([]);
@@ -263,24 +260,6 @@ export function CatalogPage() {
   }, [filters.query, query, updateFilters]);
 
   useEffect(() => {
-    let refreshTimer: number | undefined;
-    const disconnect = connectCatalogEvents(() => {
-      if (refreshTimer !== undefined) return;
-      refreshTimer = window.setTimeout(() => {
-        refreshTimer = undefined;
-        prefetchController.current.abort();
-        prefetchController.current = new AbortController();
-        clearCatalogPageCache();
-        setRefreshToken((value) => value + 1);
-      }, CATALOG_REFRESH_INTERVAL_MS);
-    });
-    return () => {
-      disconnect();
-      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!catalogStatusCanonical) return undefined;
     setError(null);
     const cached = cachedPage(filterKey);
@@ -348,7 +327,7 @@ export function CatalogPage() {
       cancelled = true;
       controller.abort();
     };
-  }, [catalogStatusCanonical, filterKey, filters, prefetchPage, refreshToken, removeDownloadSelections, t]);
+  }, [catalogStatusCanonical, filterKey, filters, prefetchPage, removeDownloadSelections, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -362,7 +341,7 @@ export function CatalogPage() {
       cancelled = true;
       controller.abort();
     };
-  }, [refreshToken]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -392,7 +371,7 @@ export function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [appId, refreshToken, t]);
+  }, [appId, t]);
 
   function toggleAppDetails(app: CatalogApp) {
     if (selectedId === app.id) {

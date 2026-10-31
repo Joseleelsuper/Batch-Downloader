@@ -1,6 +1,5 @@
 import type {
   AppDetails,
-  CatalogChangeEvent,
   CatalogFacets,
   CatalogResponse,
   CatalogStats,
@@ -9,8 +8,7 @@ import type {
   SearchMode,
   SortKey,
 } from '../types/catalog';
-import { API_BASE, requestJson } from './http';
-import { apiWebSocketUrl, connectJsonWebSocket, type LiveConnectionState } from './liveConnection';
+import { requestJson } from './http';
 
 export async function fetchApps(params: {
   query: string;
@@ -64,15 +62,4 @@ export function fetchCatalogStats(signal?: AbortSignal): Promise<CatalogStats> {
 
 export function fetchAppDetails(appId: string, signal?: AbortSignal): Promise<AppDetails> {
   return requestJson<AppDetails>(`/api/v1/apps/${encodeURIComponent(appId)}`, { signal });
-}
-
-export function catalogWebSocketUrl(): string {
-  return apiWebSocketUrl('/api/v1/catalog/ws', API_BASE);
-}
-
-export function connectCatalogEvents(
-  onEvent: (event: CatalogChangeEvent) => void,
-  onState?: (state: LiveConnectionState) => void,
-): () => void {
-  return connectJsonWebSocket(catalogWebSocketUrl(), 'catalog.changed', onEvent, onState);
 }

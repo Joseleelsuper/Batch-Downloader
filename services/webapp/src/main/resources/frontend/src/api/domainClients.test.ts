@@ -27,7 +27,6 @@ import {
   updateAdminBundle,
 } from './bundles';
 import {
-  connectCatalogEvents,
   fetchAppDetails,
   fetchApps,
   fetchCatalogFacets,
@@ -114,16 +113,16 @@ describe('current identity', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reconecta el websocket del catálogo y filtra mensajes ajenos', async () => {
+  it('reconecta el websocket del scraper y filtra mensajes ajenos', async () => {
     vi.useFakeTimers();
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket);
     const onEvent = vi.fn();
     const onState = vi.fn();
 
-    const disconnect = connectCatalogEvents(onEvent, onState);
+    const disconnect = connectScraperEvents(onEvent, onState);
     const first = FakeWebSocket.instances[0];
-    expect(new URL(first.url).pathname).toBe('/api/v1/catalog/ws');
+    expect(new URL(first.url).pathname).toBe('/api/v1/admin/scraper/ws');
     expect(onState).toHaveBeenLastCalledWith('reconnecting');
 
     first.dispatchEvent(new Event('open'));
@@ -131,7 +130,7 @@ describe('current identity', () => {
       data: JSON.stringify({ type: 'ignored.event' }),
     }));
     first.dispatchEvent(new MessageEvent('message', {
-      data: JSON.stringify({ type: 'catalog.changed', version: 2 }),
+      data: JSON.stringify({ type: 'scraper.changed', version: 2 }),
     }));
     expect(onEvent).toHaveBeenCalledOnce();
     expect(onState).toHaveBeenLastCalledWith('live');
@@ -406,7 +405,7 @@ describe('current identity', () => {
     vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket);
     const onEvent = vi.fn();
     const onState = vi.fn();
-    const disconnect = connectCatalogEvents(onEvent, onState);
+    const disconnect = connectScraperEvents(onEvent, onState);
     const socket = FakeWebSocket.instances[0];
 
     socket.dispatchEvent(new MessageEvent('message', { data: 'not-json' }));
