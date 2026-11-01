@@ -5,9 +5,10 @@ import { useCompactLayout } from '../hooks/useCompactLayout';
 import { useTranslation } from '../services/i18n';
 import type { AppDetails, CatalogApp } from '../types/catalog';
 import { AppDetailExpander } from './AppDetailExpander';
-import { AppDetailsPanel } from './AppDetailsPanel';
+import { lazyNamed } from '../routing/lazyNamed';
 import { LiteralHighlight } from './LiteralHighlight';
 import { OperatingSystemList } from './OperatingSystemIcons';
+const AppDetailsPanel = lazyNamed(() => import('./AppDetailsPanel'), 'AppDetailsPanel');
 
 interface Props {
   apps: CatalogApp[];

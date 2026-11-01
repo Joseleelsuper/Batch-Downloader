@@ -31,7 +31,10 @@ const filters: Array<{
 
 interface Props {
   active: FilterKey;
-  counts: Record<FilterKey, number>;
+  counts?: Record<FilterKey, number>;
+  countsLoading?: boolean;
+  countsError?: boolean;
+  onRetryCounts?: () => void;
   onChange: (filter: FilterKey) => void;
   selectedApps?: CatalogApp[];
   selectedTagCount?: number;
@@ -50,6 +53,9 @@ interface Props {
 export function AppFilters({
   active,
   counts,
+  countsLoading = false,
+  countsError = false,
+  onRetryCounts,
   onChange,
   selectedApps = [],
   selectedTagCount = 0,
@@ -89,11 +95,16 @@ export function AppFilters({
             >
               <Icon size={20} />
               <span>{t(filter.labelKey)}</span>
-              <strong>{(counts[filter.key] ?? 0).toLocaleString(locale)}</strong>
+              <strong aria-label={counts ? undefined : t(countsLoading ? 'common.loading' : 'common.notAvailable')}>
+                {counts ? (counts[filter.key] ?? 0).toLocaleString(locale) : '—'}
+              </strong>
             </button>
           );
         })}
       </nav>
+      {countsError ? <div className="error-banner" role="alert"><p>{t('common.loadError')}</p>
+        <button className="secondary-button compact-button" type="button" onClick={onRetryCounts}>{t('common.retry')}</button>
+      </div> : null}
       <section className="facet-links-panel">
         <div className={`facet-link-row ${selectedTagCount > 0 ? 'facet-link-row-clearable' : ''}`}>
           <Link className="facet-link-button" to={`/catalog/tags${facetSearch}`}>

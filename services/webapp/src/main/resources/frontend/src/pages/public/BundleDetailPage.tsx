@@ -1,3 +1,5 @@
+import { AsyncContent } from '../../components/AsyncContent';
+import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { BundleActivity } from '../../components/BundleActivity';
 import { useAuth } from '../../auth/AuthContext';
 import { ChevronDown } from 'lucide-react';
@@ -7,38 +9,29 @@ import { fetchBundle } from '../../api/bundles';
 import { fetchAppDetails } from '../../api/catalogApps';
 import { isCatalogAppSelectable } from '../../catalogSelection';
 import { AppDetailExpander } from '../../components/AppDetailExpander';
-import { AppDetailsPanel } from '../../components/AppDetailsPanel';
+import { lazyNamed } from '../../routing/lazyNamed';
 import { AppMiniIcon } from '../../components/AppMiniIcon';
 import { BundleDownloadButton } from '../../components/BundleDownloadButton';
 import { DownloadButton } from '../../components/DownloadButton';
 import { OperatingSystemList } from '../../components/OperatingSystemIcons';
 import { useTranslation } from '../../services/i18n';
-import type { AppDetails, BundleDetails, OperatingSystem } from '../../types/catalog';
+import type { AppDetails, OperatingSystem } from '../../types/catalog';
+const AppDetailsPanel = lazyNamed(() => import('../../components/AppDetailsPanel'), 'AppDetailsPanel');
 
 export function BundleDetailPage() {
   const { account } = useAuth();
   const t = useTranslation();
   const { slug } = useParams();
-  const [bundle, setBundle] = useState<BundleDetails | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const resource = useAsyncResource(() => fetchBundle(slug!), { scope: `${slug}:${account?.id ?? 'anonymous'}` });
+  const bundle = resource.data;
   const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
   const [details, setDetails] = useState<AppDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailRevision, setDetailRevision] = useState(0);
   const [detailsError, setDetailsError] = useState(false);
   const [operatingSystem, setOperatingSystem] = useState<OperatingSystem | null>(null);
   const [sourcesBySystem, setSourcesBySystem] = useState<Partial<Record<OperatingSystem, Record<string, string>>>>({});
   const [selectionLocked, setSelectionLocked] = useState(false);
-
-  useEffect(() => {
-    if (!slug) return;
-    let active = true;
-    setBundle(null);
-    setError(null);
-    fetchBundle(slug)
-      .then((result) => { if (active) setBundle(result); })
-      .catch(() => { if (active) setError(t('bundle.loadError')); });
-    return () => { active = false; };
-  }, [slug, t, account?.id]);
 
   useEffect(() => {
     setExpandedAppId(null);
@@ -54,14 +47,15 @@ export function BundleDetailPage() {
     setDetailsError(false);
     setLoadingDetails(true);
     fetchAppDetails(expandedAppId, controller.signal)
-      .then(setDetails)
+      .then((value) => { if (!controller.signal.aborted) setDetails(value); })
       .catch(() => { if (!controller.signal.aborted) setDetailsError(true); })
       .finally(() => { if (!controller.signal.aborted) setLoadingDetails(false); });
     return () => controller.abort();
-  }, [expandedAppId]);
+  }, [expandedAppId, detailRevision]);
 
-  if (error) return <main className="content-page"><p className="error-banner">{error}</p></main>;
-  if (!bundle) return <main className="content-page"><p className="loading-label">{t('bundle.loading')}</p></main>;
+  if (!bundle) return <main className="content-page">
+    <AsyncContent {...resource} hasData={false} onRetry={resource.refresh} errorMessage={t('bundle.loadError')}>{null}</AsyncContent>
+  </main>;
 
   const availableSystems = bundle.platformAvailability.length
     ? bundle.platformAvailability.map((item) => item.operatingSystem)
@@ -82,6 +76,7 @@ export function BundleDetailPage() {
 
   return (
     <main className="content-page">
+      {resource.error ? <AsyncContent {...resource} hasData onRetry={resource.refresh} errorMessage={t('bundle.loadError')}>{null}</AsyncContent> : null}
       <section className="bundle-detail-header">
         <div>
           <h1>{bundle.name}</h1>
@@ -142,7 +137,8 @@ export function BundleDetailPage() {
               </button>
             </div>
             <AppDetailExpander expanded={expanded} id={detailsId}>
-              {detailsError ? <p className="error-banner">{t('catalog.error.detail')}</p> : (
+              {detailsError ? <div className="error-banner" role="alert"><p>{t('catalog.error.detail')}</p>
+                <button className="secondary-button" type="button" onClick={() => setDetailRevision((value) => value + 1)}>{t('common.retry')}</button></div> : (
                 <AppDetailsPanel app={details?.id === app.id ? details : null}
                   loading={expanded && loadingDetails} operatingSystem={selectedSystem ?? undefined}
                   selectedSourceRef={selectedSources[app.id] ?? null}

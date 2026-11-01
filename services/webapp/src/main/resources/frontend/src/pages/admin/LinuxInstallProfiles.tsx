@@ -1,3 +1,5 @@
+import { AsyncContent } from '../../components/AsyncContent';
+import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useEffect, useState } from 'react';
 import { requestJson } from '../../api/http';
 import { useTranslation } from '../../services/i18n';
@@ -25,7 +27,8 @@ function LinuxProfileForm({ appId, options }: Readonly<{
 }>) {
   const t = useTranslation();
   const [source, setSource] = useState(options[0].id);
-  const [loaded, setLoaded] = useState<{ source: string; profile: ProfileVersion; dependencies: DependencyVersion } | null>(null);
+  const [loadedProfile, setLoadedProfile] = useState<{ source: string; profile: ProfileVersion }>();
+  const [loadedDependencies, setLoadedDependencies] = useState<DependencyVersion>();
   const [profileText, setProfileText] = useState('');
   const [dependenciesText, setDependenciesText] = useState('');
   const [status, setStatus] = useState<'draft' | 'approved'>('draft');
@@ -33,60 +36,62 @@ function LinuxProfileForm({ appId, options }: Readonly<{
   const [busy, setBusy] = useState(false);
   const base = '/api/v1/admin/apps/' + encodeURIComponent(appId) + '/linux';
   const profilePath = base + '/sources/' + encodeURIComponent(source) + '/profile';
-  const ready = loaded?.source === source;
+  const profileResource = useAsyncResource((signal) => requestJson<ProfileVersion>(profilePath, { signal }), { scope: source });
+  const dependenciesResource = useAsyncResource((signal) => requestJson<DependencyVersion>(base + '/dependencies', { signal }));
+  const ready = loadedProfile?.source === source;
 
   useEffect(() => {
-    let active = true;
-    void Promise.all([
-      requestJson<ProfileVersion>(profilePath),
-      requestJson<DependencyVersion>(base + '/dependencies'),
-    ]).then(([profile, dependencies]) => {
-      if (!active) return;
-      setLoaded({ source, profile, dependencies });
-      setProfileText(JSON.stringify(profile.profile, null, 2));
-      setDependenciesText(dependencies.dependencies.join('\n'));
-      setStatus(profile.status);
-      setMessage(null);
-    }).catch(() => { if (active) setMessage(t('linux.admin.error')); });
-    return () => { active = false; };
-  }, [base, profilePath, source, t]);
+    const profile = profileResource.data;
+    if (!profile) return;
+    setLoadedProfile({ source, profile });
+    setProfileText(JSON.stringify(profile.profile, null, 2));
+    setStatus(profile.status);
+    setMessage(null);
+  }, [profileResource.data, source]);
+  useEffect(() => {
+    const dependencies = dependenciesResource.data;
+    if (!dependencies) return;
+    setLoadedDependencies(dependencies);
+    setDependenciesText(dependencies.dependencies.join('\n'));
+  }, [dependenciesResource.data]);
 
   async function saveProfile() {
-    if (!loaded || !ready) return;
+    if (!loadedProfile || !ready || busy) return;
     setBusy(true);
     try {
       const profile: unknown = JSON.parse(profileText);
       const result = await requestJson<ProfileVersion>(profilePath, {
-        method: 'PUT', body: JSON.stringify({ expectedVersion: loaded.profile.version, status, profile }),
+        method: 'PUT', body: JSON.stringify({ expectedVersion: loadedProfile.profile.version, status, profile }),
       });
-      setLoaded({ ...loaded, profile: result });
+      setLoadedProfile({ source, profile: result });
       setMessage(t('linux.admin.saved'));
     } catch { setMessage(t('linux.admin.error')); }
     finally { setBusy(false); }
   }
 
   async function saveDependencies() {
-    if (!loaded || !ready) return;
+    if (!loadedDependencies || busy) return;
     setBusy(true);
     try {
       const dependencies = [...new Set(dependenciesText.split(/\s+/).filter(Boolean))];
       const result = await requestJson<DependencyVersion>(base + '/dependencies', {
-        method: 'PUT', body: JSON.stringify({ expectedVersion: loaded.dependencies.version, dependencies }),
+        method: 'PUT', body: JSON.stringify({ expectedVersion: loadedDependencies.version, dependencies }),
       });
-      setLoaded({ ...loaded, dependencies: result });
+      setLoadedDependencies(result);
       setMessage(t('linux.admin.saved'));
     } catch { setMessage(t('linux.admin.error')); }
     finally { setBusy(false); }
   }
 
   return (
-    <section aria-busy={busy || !ready}>
+    <section aria-busy={busy}>
       <p>{t('linux.admin.description')}</p>
       <label htmlFor="linux-recipe-source">{t('linux.admin.source')}</label>
       <select id="linux-recipe-source" value={source} disabled={busy}
         onChange={(event) => setSource(event.target.value)}>
         {options.map((option) => <option key={option.id} value={option.id}>{option.filename ?? option.id}</option>)}
       </select>
+      <AsyncContent {...profileResource} hasData={ready} onRetry={profileResource.refresh} errorMessage={t('linux.admin.error')}>
       <label htmlFor="linux-recipe-status">{t('linux.admin.status')}</label>
       <select id="linux-recipe-status" value={status} disabled={!ready || busy}
         onChange={(event) => setStatus(event.target.value as 'draft' | 'approved')}>
@@ -98,11 +103,14 @@ function LinuxProfileForm({ appId, options }: Readonly<{
         disabled={!ready || busy} onChange={(event) => setProfileText(event.target.value)} />
       <button type="button" className="secondary-button" disabled={!ready || busy}
         onClick={() => void saveProfile()}>{t('linux.admin.saveProfile')}</button>
+      </AsyncContent>
+      <AsyncContent {...dependenciesResource} hasData={loadedDependencies !== undefined} onRetry={dependenciesResource.refresh} errorMessage={t('linux.admin.error')}>
       <label htmlFor="linux-recipe-dependencies">{t('linux.admin.dependencies')}</label>
       <textarea id="linux-recipe-dependencies" value={dependenciesText} maxLength={3700}
-        disabled={!ready || busy} onChange={(event) => setDependenciesText(event.target.value)} />
-      <button type="button" className="secondary-button" disabled={!ready || busy}
+        disabled={!loadedDependencies || busy} onChange={(event) => setDependenciesText(event.target.value)} />
+      <button type="button" className="secondary-button" disabled={!loadedDependencies || busy}
         onClick={() => void saveDependencies()}>{t('linux.admin.saveDependencies')}</button>
+      </AsyncContent>
       {message ? <output aria-live="polite">{message}</output> : null}
     </section>
   );

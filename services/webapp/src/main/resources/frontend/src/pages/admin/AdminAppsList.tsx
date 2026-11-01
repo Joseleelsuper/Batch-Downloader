@@ -58,10 +58,15 @@ export function AdminAppsList({ editor, list }: Readonly<{ editor: EditorProps; 
             }}
           >
             <span>{filterLabel(t, value)}</span>
-            <strong>{filterCounts[value].toLocaleString(locale)}</strong>
+            <strong aria-label={list.stats ? undefined : t(list.statsLoading ? 'common.loading' : 'common.notAvailable')}>
+              {list.stats ? filterCounts[value].toLocaleString(locale) : '—'}
+            </strong>
           </button>
         ))}
       </div>
+      {list.statsError ? <div className="error-banner" role="alert"><p>{t('common.loadError')}</p>
+        <button className="secondary-button compact-button" type="button" onClick={list.retryStats}>{t('common.retry')}</button>
+      </div> : null}
       <label className="admin-app-search">
         <span className="sr-only">{t('common.searchApps')}</span>
         <Search size={18} aria-hidden="true" />

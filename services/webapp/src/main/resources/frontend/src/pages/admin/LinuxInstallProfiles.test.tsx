@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requestJson } from '../../api/http';
+import { t } from '../../services/i18n';
 import type { AppDetails } from '../../types/catalog';
 import { LinuxInstallProfiles } from './LinuxInstallProfiles';
 
@@ -110,5 +111,28 @@ describe('LinuxInstallProfiles', () => {
       expectedVersion: 3,
       dependencies: ['dependency-one', 'dependency-two'],
     });
+  });
+
+  it('permite editar y guardar el perfil sin esperar a las dependencias', async () => {
+    const profile = { version: 3, status: 'draft', profile: { type: 'deb' } };
+    vi.mocked(requestJson).mockImplementation((path, init) => path.endsWith('/profile')
+      ? Promise.resolve(init?.method === 'PUT' ? { ...profile, version: 4 } : profile)
+      : new Promise(() => undefined));
+    const app = { id: 'app', downloadOptions: [{ id: 'source', operatingSystem: 'linux', filename: 'test.deb' }] } as AppDetails;
+    const { container } = render(<LinuxInstallProfiles app={app} />);
+    expect(requestJson).not.toHaveBeenCalled();
+    act(() => {
+      const details = container.querySelector('details')!;
+      details.open = true;
+      fireEvent(details, new Event('toggle'));
+    });
+    expect(await screen.findByLabelText(t('linux.admin.profile'))).toHaveValue(JSON.stringify(profile.profile, null, 2));
+    expect(screen.getByRole('status')).toHaveTextContent('Cargando');
+    const save = screen.getByRole('button', { name: t('linux.admin.saveProfile') });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(requestJson).toHaveBeenCalledWith('/api/v1/admin/apps/app/linux/sources/source/profile', {
+      method: 'PUT', body: JSON.stringify({ expectedVersion: 3, status: 'draft', profile: { type: 'deb' } }),
+    }));
   });
 });

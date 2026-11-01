@@ -56,11 +56,27 @@ describe('AdminScraperPage', () => {
     vi.restoreAllMocks();
   });
 
+  it('actualiza el estado sin esperar a logs y reintenta solo el bloque que falla', async () => {
+    let failLogs!: (cause: Error) => void;
+    vi.mocked(scraperAdminApi.fetchAdminLogs).mockReturnValueOnce(new Promise((_, reject) => { failLogs = reject; }));
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+    expect(await screen.findByText(formatDate(`${latestRun.startedAt}Z`))).toBeInTheDocument();
+    const logs = screen.getByRole('heading', { name: 'Logs recientes' }).closest('section')!;
+    expect(within(logs).getByRole('status')).toHaveTextContent('Cargando');
+    failLogs(new Error('offline'));
+    expect(await within(logs).findByRole('alert')).toHaveTextContent('No se ha podido cargar');
+    fireEvent.click(within(logs).getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(scraperAdminApi.fetchAdminLogs).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(logs).queryByRole('alert')).not.toBeInTheDocument());
+    expect(scraperAdminApi.fetchAdminCurrentRun).toHaveBeenCalledTimes(1);
+    expect(scraperAdminApi.fetchAdminQueues).toHaveBeenCalledTimes(1);
+  });
+
   it('muestra las fechas de la última ejecución', async () => {
     const { container } = render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
 
+    await waitFor(() => expect(container.querySelector('.scraper-status')).toHaveTextContent('Completada'));
     const status = container.querySelector('.scraper-status');
-    await waitFor(() => expect(status).toHaveTextContent('Completada'));
     expect(within(status as HTMLElement).getByText('Completada')).toBeInTheDocument();
     expect(status).toHaveTextContent('Inicio');
     expect(status).toHaveTextContent(formatDate(`${latestRun.startedAt}Z`));
@@ -131,8 +147,8 @@ describe('AdminScraperPage', () => {
 
     render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
 
-    expect(await screen.findAllByText(/La base de datos agotó la memoria/)).toHaveLength(2);
-    expect(screen.getByText('TimeoutError: validation timed out')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText(/La base de datos agotó la memoria/)).toHaveLength(2));
+    expect(await screen.findByText('TimeoutError: validation timed out')).toBeInTheDocument();
     expect(screen.getByText('Vendor App')).toBeInTheDocument();
     await waitFor(() => expect(scraperAdminApi.fetchAdminLogs).toHaveBeenCalledWith(true));
     fireEvent.click(screen.getByText('No se encontró ningún candidato de instalador seguro.'));
@@ -157,8 +173,8 @@ describe('AdminScraperPage', () => {
 
     render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
 
-    expect(await screen.findAllByText(/2 aplicaciones tuvieron fallos temporales/)).toHaveLength(2);
-    expect(screen.getByText('El pool de conexiones de la base de datos agotó el tiempo de espera.'))
+    await waitFor(() => expect(screen.getAllByText(/2 aplicaciones tuvieron fallos temporales/)).toHaveLength(2));
+    expect(await screen.findByText('El pool de conexiones de la base de datos agotó el tiempo de espera.'))
       .toBeInTheDocument();
   });
 

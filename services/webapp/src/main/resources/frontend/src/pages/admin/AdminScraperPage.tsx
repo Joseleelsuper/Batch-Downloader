@@ -1,5 +1,8 @@
+import { AsyncContent } from '../../components/AsyncContent';
+import { DeferredSection } from '../../components/DeferredSection';
+import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { RefreshCw, RotateCcw, Square, Trash2, Wand2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   connectScraperEvents,
   createScraperRun,
@@ -19,11 +22,9 @@ import {
 import { ScraperQueues } from '../../components/admin/ScraperQueues';
 import { useTranslation, type Translator } from '../../services/i18n';
 import type {
-  ResolverLogItem,
-  ScraperFailedItem,
-  ScraperQueueState,
+  ResolverLogItem, ScraperQueueState,
   ScraperRunSummary,
-  ScrapeScope,
+  ScrapeScope
 } from '../../types/catalog';
 import { formatDate } from '../../utils/date';
 
@@ -31,42 +32,37 @@ const STALE_HEARTBEAT_MS = 90 * 60 * 1000;
 
 export function AdminScraperPage() {
   const t = useTranslation();
-  const [current, setCurrent] = useState<ScraperRunSummary | null>(null);
-  const [runs, setRuns] = useState<ScraperRunSummary[]>([]);
-  const [logs, setLogs] = useState<ResolverLogItem[]>([]);
-  const [failedItems, setFailedItems] = useState<ScraperFailedItem[]>([]);
-  const [logView, setLogView] = useState<'issues' | 'all'>('issues');
-  const [queues, setQueues] = useState<ScraperQueueState[]>([]);
+  const [queues, setQueues] = useState<ScraperQueueState[]>();
   const [socketState, setSocketState] = useState<'live' | 'reconnecting' | 'offline'>('offline');
   const [message, setMessage] = useState<string | null>(null);
   const [enrichmentAction, setEnrichmentAction] = useState<'missing' | DescriptionRegenerationScope | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const queuesVersion = useRef(0);
 
-  const load = useCallback(async () => {
-    const [nextCurrent, nextRuns, nextLogs, nextFailedItems, nextQueues] = await Promise.all([
-      fetchAdminCurrentRun(),
-      fetchAdminRuns(),
-      fetchAdminLogs(logView === 'issues'),
-      fetchAdminFailedItems(),
-      fetchAdminQueues(),
-    ]);
-    setCurrent(nextCurrent);
-    setRuns(nextRuns);
-    setLogs(nextLogs);
-    setFailedItems(nextFailedItems);
-    setQueues(nextQueues);
-  }, [logView]);
+  const currentResource = useAsyncResource(() => fetchAdminCurrentRun(), { pollMs: 10000 });
+  const queuesResource = useAsyncResource(async (signal) => {
+    const version = queuesVersion.current;
+    const next = await fetchAdminQueues();
+    if (!signal.aborted && version === queuesVersion.current) setQueues(next);
+    return next;
+  }, { pollMs: 10000 });
+  const current = currentResource.data ?? null;
+  const [reloadToken, setReloadToken] = useState(0);
+  const refreshCurrent = currentResource.refresh;
+  const refreshQueues = queuesResource.refresh;
+  const load = useCallback(() => {
+    refreshCurrent();
+    refreshQueues();
+    setReloadToken((value) => value + 1);
+  }, [refreshCurrent, refreshQueues]);
 
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => {
-      setNow(Date.now());
-      void load();
-    }, 10000);
+    const timer = window.setInterval(() => setNow(Date.now()), 10000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, []);
 
   useEffect(() => connectScraperEvents((event) => {
+    queuesVersion.current += 1;
     setQueues(event.queues);
   }, setSocketState), []);
 
@@ -142,6 +138,9 @@ export function AdminScraperPage() {
   }
 
   const controlState = scraperControlState(t, current);
+  if (currentResource.data === undefined || currentResource.error) {
+    Object.values(controlState).forEach((control) => { control.enabled = false; });
+  }
   const heartbeatTime = current ? parseUtcTimestamp(current.heartbeatAt) : Number.NaN;
   const heartbeatIsStale = current?.status === 'running'
     && Number.isFinite(heartbeatTime)
@@ -150,6 +149,7 @@ export function AdminScraperPage() {
   return (
     <section className="admin-panel">
       <h2>{t('admin.layout.scraper')}</h2>
+      <AsyncContent {...currentResource} hasData={currentResource.data !== undefined} onRetry={currentResource.refresh}>
       <div className="scraper-status admin-card">
         <div>
           <span>{t('admin.scraper.status')}</span>
@@ -190,6 +190,7 @@ export function AdminScraperPage() {
           ) : <strong>-</strong>}
         </div>
       </div>
+      </AsyncContent>
       {heartbeatIsStale ? (
         <p className="form-message" role="alert">{t('admin.scraper.staleHeartbeat')}</p>
       ) : null}
@@ -254,9 +255,25 @@ export function AdminScraperPage() {
         <span>{t('admin.scraper.liveState')}</span>
         <strong>{socketState}</strong>
       </div>
-      <ScraperQueues queues={queues} />
+      <AsyncContent {...queuesResource} hasData={queues !== undefined} onRetry={queuesResource.refresh}>
+        <ScraperQueues queues={queues ?? []} />
+      </AsyncContent>
+      <DeferredSection><ScraperFailedItems reloadToken={reloadToken} /></DeferredSection>
+      <DeferredSection><ScraperRuns reloadToken={reloadToken} /></DeferredSection>
+      <DeferredSection><ScraperLogs reloadToken={reloadToken} /></DeferredSection>
+    </section>
+  );
+}
+
+
+function ScraperFailedItems({ reloadToken }: { reloadToken: number }) {
+  const t = useTranslation();
+  const resource = useAsyncResource(() => fetchAdminFailedItems(), { pollMs: 10000, reloadToken });
+  const failedItems = resource.data ?? [];
+  return (
       <section className="admin-card scraper-activity" aria-labelledby="scraper-failed-items-heading">
         <h3 id="scraper-failed-items-heading">{t('admin.scraper.failedItems')}</h3>
+        <AsyncContent {...resource} hasData={resource.data !== undefined} onRetry={resource.refresh}>
         {failedItems.length ? failedItems.map((item) => (
           <article className="scraper-activity-item" key={item.id}>
             <div className="scraper-activity-heading">
@@ -269,9 +286,19 @@ export function AdminScraperPage() {
               : t('admin.scraper.failure.jobUnavailable')}</p>
           </article>
         )) : <p className="empty-state">{t('admin.scraper.noFailedItems')}</p>}
+        </AsyncContent>
       </section>
+  );
+}
+
+function ScraperRuns({ reloadToken }: { reloadToken: number }) {
+  const t = useTranslation();
+  const resource = useAsyncResource(() => fetchAdminRuns(), { pollMs: 10000, reloadToken });
+  const runs = resource.data ?? [];
+  return (
       <section className="admin-card scraper-activity" aria-labelledby="scraper-runs-heading">
         <h3 id="scraper-runs-heading">{t('admin.scraper.runs')}</h3>
+        <AsyncContent {...resource} hasData={resource.data !== undefined} onRetry={resource.refresh}>
         {runs.length ? runs.map((run) => (
           <details className="scraper-activity-item" key={run.id}>
             <summary>
@@ -295,7 +322,17 @@ export function AdminScraperPage() {
             </div>
           </details>
         )) : <p className="empty-state">{t('admin.table.empty')}</p>}
+        </AsyncContent>
       </section>
+  );
+}
+
+function ScraperLogs({ reloadToken }: { reloadToken: number }) {
+  const t = useTranslation();
+  const [logView, setLogView] = useState<'issues' | 'all'>('issues');
+  const resource = useAsyncResource(() => fetchAdminLogs(logView === 'issues'), { pollMs: 10000, reloadToken, scope: logView });
+  const logs = resource.data ?? [];
+  return (
       <section className="admin-card scraper-activity" aria-labelledby="scraper-logs-heading">
         <div className="scraper-activity-toolbar">
           <h3 id="scraper-logs-heading">{t('admin.scraper.logs')}</h3>
@@ -304,6 +341,7 @@ export function AdminScraperPage() {
             <button type="button" aria-pressed={logView === 'all'} onClick={() => setLogView('all')}>{t('admin.scraper.allLogs')}</button>
           </div>
         </div>
+        <AsyncContent {...resource} hasData={resource.data !== undefined} onRetry={resource.refresh}>
         {logs.length ? logs.map((log) => {
           const metadata = parseSafeMetadata(log.safeMetadata);
           return (
@@ -327,8 +365,8 @@ export function AdminScraperPage() {
             </details>
           );
         }) : <p className="empty-state">{t(logView === 'issues' ? 'admin.scraper.noIssues' : 'admin.table.empty')}</p>}
+        </AsyncContent>
       </section>
-    </section>
   );
 }
 

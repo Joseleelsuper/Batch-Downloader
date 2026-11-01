@@ -2,6 +2,8 @@
   "common.apps": "apps",
   "common.close": "Close",
   "common.deleteAllConfirmation": "DELETE_ALL",
+  "common.loadError": "This content could not be loaded.",
+  "common.reload": "Reload",
   "common.loading": "Loading...",
   "common.back": "Back",
   "common.cancel": "Cancel",

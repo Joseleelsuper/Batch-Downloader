@@ -1,10 +1,11 @@
+import { AsyncContent } from '../../components/AsyncContent';
+import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, SlidersHorizontal } from 'lucide-react';
 import {
-  Link,
   useNavigate,
   useParams,
-  useSearchParams,
+  useSearchParams
 } from 'react-router-dom';
 import {
   fetchAppDetails,
@@ -40,88 +41,16 @@ import { chooseDownloadDestination, isDestinationCancelled } from '../../downloa
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type {
   AppDetails,
-  CatalogApp,
-  CatalogFacets,
-  CatalogStats,
-  CatalogResponse,
-  FacetItem,
-  FilterKey,
-  SortKey,
+  CatalogApp, CatalogResponse, FilterKey,
+  SortKey
 } from '../../types/catalog';
 
-const DEFAULT_COUNTS: Record<FilterKey, number> = {
-  all: 0,
-  available: 0,
-  review: 0,
-  missing: 0,
-};
+import { appRequest, cachePage, cachedPage, enqueuePrefetch, pageCache, pendingPages, prefetchCatalogPage } from './catalogCache';
+export { clearCatalogPageCache } from './catalogCache';
+
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 const PREFETCH_SORTS: SortKey[] = ['downloads', 'updated', 'name', 'relevance'];
 const PREFETCH_FILTERS: FilterKey[] = ['all', 'available', 'review', 'missing'];
-const PAGE_CACHE_TTL_MS = 15_000;
-const pageCache = new Map<string, { response: CatalogResponse; loadedAt: number }>();
-const pendingPages = new Map<string, Promise<CatalogResponse>>();
-const queuedPages = new Set<string>();
-let prefetchTail: Promise<unknown> = Promise.resolve();
-
-function enqueuePrefetch<T>(task: () => Promise<T>): Promise<T> {
-  const queued = prefetchTail.then(task);
-  prefetchTail = queued.catch(() => undefined);
-  return queued;
-}
-
-export function clearCatalogPageCache() {
-  pageCache.clear();
-  pendingPages.clear();
-}
-
-function cachedPage(key: string): CatalogResponse | null {
-  const entry = pageCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.loadedAt <= PAGE_CACHE_TTL_MS) return entry.response;
-  pageCache.delete(key);
-  return null;
-}
-
-function cachePage(key: string, response: CatalogResponse) {
-  pageCache.set(key, { response, loadedAt: Date.now() });
-  if (pageCache.size > 40) pageCache.delete(pageCache.keys().next().value!);
-}
-
-function prefetchCatalogPage(filters: CatalogFilterState, signal?: AbortSignal) {
-  const key = catalogFiltersToSearchParams(filters).toString();
-  if (cachedPage(key) || pendingPages.has(key) || queuedPages.has(key)) return;
-  queuedPages.add(key);
-  void enqueuePrefetch(async () => {
-    try {
-      if (signal?.aborted || cachedPage(key) || pendingPages.has(key)) return;
-      const pending = fetchApps(appRequest(filters), signal);
-      pendingPages.set(key, pending);
-      try {
-        cachePage(key, await pending);
-      } finally {
-        if (pendingPages.get(key) === pending) pendingPages.delete(key);
-      }
-    } finally {
-      queuedPages.delete(key);
-    }
-  }).catch(() => undefined);
-}
-
-function appRequest(filters: CatalogFilterState) {
-  return {
-    query: filters.query,
-    filter: filters.filter,
-    sort: filters.sort,
-    page: filters.page,
-    pageSize: filters.pageSize,
-    tags: filters.tags,
-    publisher: filters.publisher,
-    operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
-    architecture: filters.architecture,
-    searchMode: filters.searchMode,
-  };
-}
 
 function searchNoticeFor(t: Translator, degradedReason?: string | null): string | null {
   if (!degradedReason) return null;
@@ -172,12 +101,17 @@ export function CatalogPage() {
   const apps = displayedPage?.data ?? [];
   const total = displayedPage?.total ?? 0;
   const alphabet = displayedPage?.alphabet ?? [];
-  const [stats, setStats] = useState<CatalogStats | null>(null);
+  const statsResource = useAsyncResource((signal) => fetchCatalogStats(signal));
+  const stats = statsResource.data;
   const [selected, setSelected] = useState<AppDetails | null>(null);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const loadingApps = !displayedPage && !error;
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const [detailsRevision, setDetailsRevision] = useState(0);
+  const loadingApps = !displayedPage && !catalogError;
   const searchNotice = searchNoticeFor(t, displayedPage?.degradedReason);
   const [filtersVisible, setFiltersVisible] = useState(() => localStorage.getItem('catalog.filters.open') !== 'false');
   const [selectedDownloadIds, setSelectedDownloadIds] = useState<Set<string>>(new Set());
@@ -262,6 +196,7 @@ export function CatalogPage() {
   useEffect(() => {
     if (!catalogStatusCanonical) return undefined;
     setError(null);
+    setCatalogError(null);
     const cached = cachedPage(filterKey);
     if (cached) {
       lastLoadedPage.current = { searchKey: filterKey, apps: cached.data };
@@ -321,27 +256,13 @@ export function CatalogPage() {
         }
       })
       .catch((requestError: unknown) => {
-        if (!cancelled && !isAbortError(requestError)) setError(t('catalog.error.load'));
+        if (!cancelled && !isAbortError(requestError)) setCatalogError(t('catalog.error.load'));
       })
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [catalogStatusCanonical, filterKey, filters, prefetchPage, removeDownloadSelections, t]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    fetchCatalogStats(controller.signal)
-      .then((response) => {
-        if (!cancelled) setStats(response);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, []);
+  }, [catalogStatusCanonical, catalogRevision, filterKey, filters, prefetchPage, removeDownloadSelections, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -353,6 +274,7 @@ export function CatalogPage() {
       };
     }
     setSelectedId(appId);
+    setDetailsError(null);
     setLoadingDetails(true);
     fetchAppDetails(appId)
       .then((details) => {
@@ -363,7 +285,7 @@ export function CatalogPage() {
       .catch(() => {
         if (cancelled) return;
         setSelected(null);
-        setError(t('catalog.error.detail'));
+        setDetailsError(t('catalog.error.detail'));
       })
       .finally(() => {
         if (!cancelled) setLoadingDetails(false);
@@ -371,7 +293,7 @@ export function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [appId, t]);
+  }, [appId, detailsRevision, t]);
 
   function toggleAppDetails(app: CatalogApp) {
     if (selectedId === app.id) {
@@ -438,7 +360,10 @@ export function CatalogPage() {
         </button>}>
         <AppFilters
           active={filters.filter}
-          counts={stats?.filters ?? DEFAULT_COUNTS}
+          counts={stats?.filters}
+          countsLoading={statsResource.loading}
+          countsError={Boolean(statsResource.error)}
+          onRetryCounts={statsResource.refresh}
           selectedTagCount={filters.tags.length}
           selectedPublisherCount={filters.publisher ? 1 : 0}
           catalogSearch={searchKey}
@@ -499,7 +424,11 @@ export function CatalogPage() {
           }}
         />
         {searchNotice ? <p className="semantic-notice">{searchNotice}</p> : null}
-        {error ? <p className="error-banner">{error}</p> : null}
+        {error ? <p className="error-banner" role="alert">{error}</p> : null}
+        {catalogError ? <AsyncContent loading={false} error={catalogError} hasData={false} errorMessage={catalogError}
+          onRetry={() => { pageCache.delete(filterKey); setCatalogError(null); setCatalogRevision((value) => value + 1); }}>{null}</AsyncContent> : null}
+        {detailsError ? <AsyncContent loading={false} error={detailsError} hasData={false} errorMessage={detailsError}
+          onRetry={() => setDetailsRevision((value) => value + 1)}>{null}</AsyncContent> : null}
         {filters.sort === 'name' ? (
           <nav className="catalog-alphabet" aria-label={t('catalog.alphabet.aria')}>
             {FACET_ALPHABET.map((letter) => {
@@ -523,12 +452,13 @@ export function CatalogPage() {
           </nav>
         ) : null}
         <div className="catalog-apps-swipe" {...swipePagination}>
+          {loadingApps ? <span className="sr-only" role="status">{t('common.loading')}</span> : null}
           <AppTable
             apps={selected && selected.id === selectedId && !apps.some((app) => app.id === selected.id)
               ? [selected, ...apps] : apps}
             loading={loadingApps}
             showLoadingLabel={false}
-            showEmptyState={!error}
+            showEmptyState={!error && !catalogError}
             selectedId={selectedId}
             selectedIds={selectedDownloadIds}
             selectedCount={selectedDownloadIds.size}
@@ -564,169 +494,6 @@ export function CatalogPage() {
           </button>
         </div> : null}
       </section>
-    </main>
-  );
-}
-
-export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
-  const t = useTranslation();
-  const locale = useLocale();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const searchKey = searchParams.toString();
-  const preferredSearchMode = useMemo(
-    () => preferredCatalogSearchMode(
-      searchKey,
-      localStorage.getItem('catalog.search.mode'),
-    ),
-    [searchKey],
-  );
-  const preferredFilter = useMemo(
-    () => preferredCatalogFilter(
-      searchKey,
-      localStorage.getItem('catalog.filter.status'),
-    ),
-    [searchKey],
-  );
-  const canonicalSearchKey = useMemo(
-    () => normalizeCatalogStatus(searchKey, preferredSearchMode, preferredFilter),
-    [preferredFilter, preferredSearchMode, searchKey],
-  );
-  const catalogStatusCanonical = canonicalSearchKey === searchKey;
-  const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
-  const [facets, setFacets] = useState<CatalogFacets>({ tags: [], publishers: [] });
-  const [activeLetter, setActiveLetter] = useState('A');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const items = kind === 'tags' ? facets.tags : facets.publishers;
-  const selectedValues = kind === 'tags' ? filters.tags : filters.publisher ? [filters.publisher] : [];
-  const selectedSet = new Set(selectedValues);
-  const lettersWithItems = useMemo(() => new Set(items.map((item) => item.letter)), [items]);
-  const visibleItems = items.filter((item) => item.letter === activeLetter);
-  const title = kind === 'tags' ? t('facet.tags.title') : t('facet.publishers.title');
-  const subtitle = kind === 'tags' ? t('facet.tags.subtitle') : t('facet.publishers.subtitle');
-
-  useEffect(() => {
-    if (!catalogStatusCanonical) {
-      setSearchParams(canonicalSearchKey, { replace: true });
-    }
-  }, [canonicalSearchKey, catalogStatusCanonical, setSearchParams]);
-
-  useEffect(() => {
-    if (!catalogStatusCanonical) {
-      setFacets({ tags: [], publishers: [] });
-      setLoading(true);
-      return undefined;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetchCatalogFacets({
-      query: filters.query,
-      filter: filters.filter,
-      tags: filters.tags,
-      publisher: filters.publisher,
-      operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
-      architecture: filters.architecture,
-      searchMode: filters.searchMode,
-    })
-      .then((response) => {
-        if (!cancelled) setFacets(response);
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('facet.loadError'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [catalogStatusCanonical, filters, t]);
-
-  useEffect(() => {
-    if (!items.length || lettersWithItems.has(activeLetter)) return;
-    const firstLetter = FACET_ALPHABET.find((letter) => lettersWithItems.has(letter)) ?? 'A';
-    setActiveLetter(firstLetter);
-  }, [activeLetter, items.length, lettersWithItems]);
-
-  function updateFilters(patch: Partial<CatalogFilterState>) {
-    setSearchParams(catalogFiltersToSearchParams(nextFilters(filters, patch)));
-  }
-
-  function toggleFacet(item: FacetItem) {
-    if (kind === 'tags') {
-      const tags = toggleValue(filters.tags, item.value);
-      prefetchCatalogPage(nextFilters(filters, { tags }));
-      updateFilters({ tags });
-      return;
-    }
-    const publisher = filters.publisher === item.value ? undefined : item.value;
-    prefetchCatalogPage(nextFilters(filters, { publisher }));
-    updateFilters({ publisher });
-  }
-
-  return (
-    <main className="facet-page">
-      <section className="facet-header">
-        <div>
-          <span>{t('facet.header')}</span>
-          <h1>{title}</h1>
-          <p>{subtitle}</p>
-        </div>
-        <Link className="secondary-button facet-back-link" to={{ pathname: '/catalog', search: canonicalSearchKey }}>
-          {t('facet.backToCatalog')}
-        </Link>
-      </section>
-
-      {error ? <p className="error-banner">{error}</p> : null}
-      {loading ? <p className="loading-label">{t('facet.loading')}</p> : null}
-      {!loading && !error && !items.length ? (
-        <section className="facet-empty-state">
-          <p>{t('facet.emptyCompatible')}</p>
-          {filters.tags.length || filters.publisher ? (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => updateFilters({ tags: [], publisher: undefined })}
-            >
-              {t('facet.resetFilters')}
-            </button>
-          ) : null}
-        </section>
-      ) : null}
-      {items.length ? (
-        <>
-          <nav className="facet-letter-nav" aria-label={t('facet.lettersAria', { title })}>
-            {FACET_ALPHABET.map((letter) => (
-              <button
-                key={letter}
-                className={activeLetter === letter ? 'facet-letter-active' : ''}
-                type="button"
-                disabled={!lettersWithItems.has(letter)}
-                onClick={() => setActiveLetter(letter)}
-              >
-                {letter}
-              </button>
-            ))}
-          </nav>
-          <section className="facet-chip-grid" aria-label={t('facet.availableAria', { title })}>
-            {visibleItems.map((item) => (
-              <button
-                key={`${kind}-${item.normalizedValue}`}
-                className={`facet-chip ${selectedSet.has(item.value) ? 'facet-chip-active' : ''}`}
-                type="button"
-                onClick={() => toggleFacet(item)}
-              >
-                <span>{item.label}</span>
-                <strong>{item.count.toLocaleString(locale)}</strong>
-              </button>
-            ))}
-            {!visibleItems.length ? (
-              <p className="empty-state">{t('facet.emptyLetter')}</p>
-            ) : null}
-          </section>
-        </>
-      ) : null}
     </main>
   );
 }

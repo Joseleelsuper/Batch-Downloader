@@ -1,7 +1,10 @@
 import { ChevronDown } from 'lucide-react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchApps } from '../../api/catalogApps';
+import { AsyncContent, LoadingPlaceholder } from '../../components/AsyncContent';
+import { DeferredSection } from '../../components/DeferredSection';
+import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { AppMiniIcon } from '../../components/AppMiniIcon';
 import { BundleCard } from '../../components/BundleCard';
 import { useBundleResults } from '../../hooks/useBundleResults';
@@ -24,37 +27,6 @@ function getBundleColumns() {
 
 export function HomePage() {
   const t = useTranslation();
-  const [apps, setApps] = useState<CatalogApp[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingApps, setLoadingApps] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    const handleError = (requestError: unknown) => {
-      if (!cancelled && !isAbortError(requestError)) setError(t('home.loadError'));
-    };
-
-    setError(null);
-    void fetchApps(
-      { query: '', filter: 'available', sort: 'updated', page: 1, pageSize: 6 },
-      controller.signal,
-    )
-      .then((catalog) => {
-        if (cancelled) return;
-        setApps(catalog.data);
-      })
-      .catch(handleError)
-      .finally(() => {
-        if (!cancelled) setLoadingApps(false);
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [t]);
-
   return (
     <main className="home-page">
       <section className="home-hero">
@@ -66,27 +38,14 @@ export function HomePage() {
           {t('home.hero.cta')}
         </Link>
       </section>
-      {error ? <p className="error-banner">{error}</p> : null}
       <BundleSection
         title={t('home.bundleOfficial')}
         type="official"
       />
-      <BundleSection
-        title={t('home.bundleCommunity')}
-        type="community"
-      />
-      <section className="home-section">
-        <div className="section-heading">
-          <h2>{t('home.appsRecent')}</h2>
-          {apps.length > 5 ? <Link to="/catalog?sort=updated">{t('common.viewAll')}</Link> : null}
-        </div>
-        {loadingApps ? <p className="loading-label">{t('common.loading')}</p> : null}
-        <div className="app-compact-grid">
-          {apps.map((app) => (
-            <AppCompactCard app={app} key={app.id} />
-          ))}
-        </div>
-      </section>
+      <DeferredSection fallback={<LoadingPlaceholder className="home-bundles-placeholder" />}>
+        <BundleSection title={t('home.bundleCommunity')} type="community" />
+      </DeferredSection>
+      <DeferredSection fallback={<LoadingPlaceholder className="home-apps-placeholder" />}><RecentAppsSection /></DeferredSection>
     </main>
   );
 }
@@ -115,13 +74,14 @@ function BundleSection({ title, type }: { title: string; type: 'official' | 'com
           {t('common.viewAll')}</Link> : null}
       </div>
     </div>
-    {error ? <p className="error-banner" role="alert">{t('home.loadError')}</p> : null}
-    <div className="bundle-grid">
-      {visibleBundles.map((bundle) => <BundleCard bundle={bundle} key={`${bundle.id}:${scope}`}
-        onStarChange={sort === 'stars' ? refresh : undefined} />)}
-      {!visibleBundles.length && !error && (loading || !response) ? <p className="loading-label">{t('common.loading')}</p>
-        : !visibleBundles.length && !error ? <p className="empty-state">{t('home.emptyBundles')}</p> : null}
-    </div>
+    <AsyncContent loading={loading} error={error} hasData={Boolean(response)} onRetry={refresh} errorMessage={t('home.loadError')}
+      placeholder={<LoadingPlaceholder className="bundle-card-placeholder" />}>
+      <div className="bundle-grid">
+        {visibleBundles.map((bundle) => <BundleCard bundle={bundle} key={`${bundle.id}:${scope}`}
+          onStarChange={sort === 'stars' ? refresh : undefined} />)}
+        {!visibleBundles.length ? <p className="empty-state">{t('home.emptyBundles')}</p> : null}
+      </div>
+    </AsyncContent>
   </section>;
 }
 
@@ -137,6 +97,20 @@ function AppCompactCard({ app }: { app: CatalogApp }) {
   );
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError';
+function RecentAppsSection() {
+  const t = useTranslation();
+  const resource = useAsyncResource((signal) => fetchApps(
+    { query: '', filter: 'available', sort: 'updated', page: 1, pageSize: 6 }, signal,
+  ));
+  const apps = resource.data?.data ?? [];
+  return <section className="home-section">
+    <div className="section-heading">
+      <h2>{t('home.appsRecent')}</h2>
+      {apps.length > 5 ? <Link to="/catalog?sort=updated">{t('common.viewAll')}</Link> : null}
+    </div>
+    <AsyncContent {...resource} hasData={resource.data !== undefined} onRetry={resource.refresh} errorMessage={t('home.loadError')}>
+      <div className="app-compact-grid">{apps.map((app) => <AppCompactCard app={app} key={app.id} />)}</div>
+      {!apps.length ? <p className="empty-state">{t('catalog.empty')}</p> : null}
+    </AsyncContent>
+  </section>;
 }

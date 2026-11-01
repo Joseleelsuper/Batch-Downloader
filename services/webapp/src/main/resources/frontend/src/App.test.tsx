@@ -130,6 +130,7 @@ describe('catalog workspace', () => {
       </MemoryRouter>,
     );
 
+    await waitFor(() => expect(container.querySelector('main.workspace')).toBeInTheDocument());
     const workspace = container.querySelector('main.workspace');
     expect(workspace).toHaveClass('filters-hidden');
     expect(workspace?.children[0]).toHaveClass('filter-rail-shell');
@@ -704,7 +705,7 @@ describe('catalog workspace', () => {
     );
   });
 
-  it('hides the previous page without a loading label while a different filter is pending', async () => {
+  it('announces loading while a different filter is pending', async () => {
     let resolveReview!: (response: CatalogResponse) => void;
     vi.mocked(catalogAppsApi.fetchApps).mockImplementation(({ filter }) => {
       if (filter === 'review') return new Promise((resolve) => {
@@ -724,7 +725,7 @@ describe('catalog workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /Revisión/ }));
 
     expect(screen.queryByText('Aplicación reciente')).not.toBeInTheDocument();
-    expect(screen.queryByText('Cargando...')).not.toBeInTheDocument();
+    expect(screen.getByText('Cargando...')).toBeInTheDocument();
 
     await act(async () => {
       resolveReview({ data: [], page: 1, pageSize: 12, total: 0 });
