@@ -103,11 +103,7 @@ Permisos:
 
 El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
 
-El contrato para herramientas de IA está versionado en [`shared/contracts/openapi/batch-downloader-ai-api.json`](shared/contracts/openapi/batch-downloader-ai-api.json) y se sirve en `/openapi.json`. Incluye exclusivamente siete consultas `GET` sin sesión: búsqueda, filtros, estadísticas y detalle de aplicaciones; listado, filtros y detalle de bundles públicos u oficiales. No incluye autenticación, cookies, CSRF, descargas ni operaciones de usuario, administración o servicios internos. La imagen web copia ambos contratos como archivos estáticos: se actualizan manualmente y CI comprueba su validez y que el perfil de IA conserva solo lectura sin sesión.
-
-El catálogo de bundles está en `/catalog/bundles`: permite filtrar públicos u oficiales por etiquetas, plataformas y creador, buscar por sus propios metadatos y descargar cada bundle por separado. Los enlaces antiguos `/catalog?bundleType=official|community` siguen funcionando.
-
-Cada cuenta activa puede dar y retirar una estrella. Las estrellas administrativas muestran una mención general y las de bundles privados se conservan ocultas. El contador de descargas empieza en cero y suma una vez por trabajo tras confirmar la recepción completa del ZIP; conserva el total después de limpiar el trabajo. La proyección semántica de bundles se actualiza desde Core cada 300 segundos y utiliza el modelo local existente.
+El contrato para herramientas de IA está versionado en [`shared/contracts/openapi/batch-downloader-ai-api.json`](shared/contracts/openapi/batch-downloader-ai-api.json) y se sirve en `/openapi.json`. Incluye exclusivamente siete consultas `GET` sin sesión: búsqueda, filtros, estadísticas y detalle de aplicaciones; listado, filtros y detalle de bundles públicos u oficiales. No incluye autenticación, cookies, CSRF, descargas ni operaciones de usuario, administración o servicios internos.
 
 <details>
 <summary><strong>API pública y de usuario</strong></summary>
@@ -305,10 +301,6 @@ La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea pa
 | Frontend | `VITE_API_BASE_URL` | Base opcional de la API; vacía usa el mismo origen. |
 
 </details>
-
-Los textos SEO fijos y la plantilla HTML están en `services/core-api/src/main/resources/seo/pages.json` y `page.html`. Maven genera las tarjetas fijas en `target/classes/seo/static-cards` y valida y fusiona las traducciones en `services/translation-service/target/compiled-locales`; Docker incluye esos resultados. Para ejecutar Translation fuera de Docker, `TRANSLATION_SERVICE_LOCALES_PATH` debe apuntar al directorio precompilado. Los sitemaps y los datos SEO del catálogo siguen siendo dinámicos.
-
-Alembic y Flyway aplican automáticamente las migraciones pendientes incluidas en cada versión al arrancar. Solo hay que añadir la migración versionada; no se mantiene un número objetivo en el entorno. Las comprobaciones de compatibilidad siguen activas.
 
 ## Estados de los jobs
 

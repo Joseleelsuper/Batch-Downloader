@@ -212,7 +212,7 @@ describe('account flows', () => {
       recentDownloads: [],
       recentBundles: [],
     });
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    render(<MemoryRouter><AuthProvider><DashboardPage /></AuthProvider></MemoryRouter>);
 
     expect(await screen.findByText(t('account.dashboard.title', { username: 'person' })))
       .toBeInTheDocument();
@@ -288,7 +288,7 @@ describe('account flows', () => {
     };
     const fetch = vi.spyOn(accountApi, 'fetchDashboard').mockResolvedValueOnce(dashboard)
       .mockRejectedValueOnce(new TypeError('offline'));
-    const first = render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    const first = render(<MemoryRouter><AuthProvider><DashboardPage /></AuthProvider></MemoryRouter>);
     expect(await screen.findByText('Without icon')).toBeInTheDocument();
     expect(first.container.querySelector('img')).toHaveAttribute(
       'src', 'https://example.com/icon.png',
@@ -297,7 +297,7 @@ describe('account flows', () => {
       'href', '/dashboard/bundles/bundle-1/edit',
     );
     first.unmount();
-    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    render(<MemoryRouter><AuthProvider><DashboardPage /></AuthProvider></MemoryRouter>);
     expect(await screen.findByText(t('account.dashboard.failed'))).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -311,10 +311,10 @@ describe('account flows', () => {
     vi.spyOn(accountApi, 'fetchOwnBundles')
       .mockResolvedValueOnce({ data: [bundle], page: 1, pageSize: 20, total: 1 })
       .mockRejectedValueOnce(new TypeError('offline'));
-    const first = render(<MemoryRouter><AccountBundlesPage /></MemoryRouter>);
+    const first = render(<MemoryRouter><AuthProvider><AccountBundlesPage /></AuthProvider></MemoryRouter>);
     expect(await screen.findByRole('link', { name: 'Tools' })).toBeInTheDocument();
     first.unmount();
-    render(<MemoryRouter><AccountBundlesPage /></MemoryRouter>);
+    render(<MemoryRouter><AuthProvider><AccountBundlesPage /></AuthProvider></MemoryRouter>);
     expect(await screen.findByText(t('account.bundles.failed'))).toBeInTheDocument();
   });
 

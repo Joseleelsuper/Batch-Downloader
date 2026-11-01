@@ -1,4 +1,6 @@
-import { BundleCatalogPage, BundleFacetDirectoryPage, CatalogEntry } from './pages/catalog/BundleCatalogPage';
+import { CatalogEntry } from './pages/catalog/CatalogEntry';
+import { AccountLayout } from './pages/account/AccountLayout';
+import { RouteContent } from './routing/ContentBoundary';
 import {
   BookOpenText,
   BrainCircuit,
@@ -14,8 +16,8 @@ import {
   Shield,
   UserCircle,
 } from 'lucide-react';
-import { Suspense, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';
 import { AuthProvider, useAuth } from './auth/AuthContext';
@@ -24,13 +26,6 @@ import { lazyNamed } from './routing/lazyNamed';
 import { PageMetadata } from './components/PageMetadata';
 import { LanguageSelector } from './components/LanguageSelector';
 import { MobileAppHeader, MobileMenuButton, ResponsivePanel } from './components/ResponsivePanel';
-import {
-  AdminAuditPage,
-  AdminBundlesPage,
-  AdminDashboard,
-} from './pages/admin/AdminOverviewPages';
-import { FacetDirectoryPage } from './pages/catalog/CatalogPages';
-import { BundleDetailPage } from './pages/public/BundleDetailPage';
 import { HomePage } from './pages/public/HomePage';
 import type { AuthUser } from './types/catalog';
 
@@ -46,34 +41,38 @@ const AdminScraperPage = lazyNamed(
   () => import('./pages/admin/AdminScraperPage'),
   'AdminScraperPage',
 );
-const AccountLayout = lazyNamed(
-  () => import('./pages/account/AccountPages'),
-  'AccountLayout',
-);
 const AccountBundlesPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
+  () => import('./pages/account/AccountBundlesPage'),
   'AccountBundlesPage',
 );
 const AdminLoginPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
+  () => import('./pages/account/AdminLoginPage'),
   'AdminLoginPage',
 );
 const BundleEditorPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
+  () => import('./pages/account/BundleEditorPage'),
   'BundleEditorPage',
 );
 const DashboardPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
+  () => import('./pages/account/DashboardPage'),
   'DashboardPage',
 );
 const ProfilePage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
+  () => import('./pages/account/ProfilePage'),
   'ProfilePage',
 );
 const UserLoginPage = lazyNamed(
-  () => import('./pages/account/AccountPages'),
+  () => import('./pages/account/UserLoginPage'),
   'UserLoginPage',
 );
+
+const AdminDashboard = lazyNamed(() => import('./pages/admin/AdminDashboard'), 'AdminDashboard');
+const AdminAuditPage = lazyNamed(() => import('./pages/admin/AdminAuditPage'), 'AdminAuditPage');
+const AdminBundlesPage = lazyNamed(() => import('./pages/admin/AdminBundlesPage'), 'AdminBundlesPage');
+const BundleCatalogPage = lazyNamed(() => import('./pages/catalog/BundleCatalogPage'), 'BundleCatalogPage');
+const BundleFacetDirectoryPage = lazyNamed(() => import('./pages/catalog/BundleFacetDirectoryPage'), 'BundleFacetDirectoryPage');
+const FacetDirectoryPage = lazyNamed(() => import('./pages/catalog/FacetDirectoryPage'), 'FacetDirectoryPage');
+const BundleDetailPage = lazyNamed(() => import('./pages/public/BundleDetailPage'), 'BundleDetailPage');
 
 export default function App() {
   return <AuthProvider><AppRoutes /></AuthProvider>;
@@ -87,7 +86,6 @@ function AppRoutes() {
   return (
     <DownloadJobsProvider accountScope={checkingAuth ? null : auth?.id ?? 'anonymous'}>
       <PageMetadata />
-      <Suspense fallback={<RouteLoading />}>
         <Routes>
         <Route element={<PublicLayout auth={auth} onLogout={onLogout} />}>
           <Route index element={<HomePage />} />
@@ -136,20 +134,8 @@ function AppRoutes() {
           <Route path="audit" element={<AdminAuditPage />} />
         </Route>
         </Routes>
-      </Suspense>
       <GlobalDownloadJobOverlay />
     </DownloadJobsProvider>
-  );
-}
-
-function RouteLoading() {
-  const t = useTranslation();
-  return (
-    <main className="public-page">
-      <p className="loading-label" role="status" aria-live="polite">
-        {t('common.loading')}
-      </p>
-    </main>
   );
 }
 
@@ -161,7 +147,7 @@ function PublicLayout({ auth, onLogout }: { auth: AuthUser | null; onLogout: () 
   return (
     <div className={`site-shell ${lockedCatalogSurface ? 'site-shell-app' : ''}`}>
       <Topbar auth={auth} onLogout={onLogout} />
-      <Outlet />
+      <RouteContent />
       <Footer />
     </div>
   );
@@ -383,7 +369,7 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
       </aside>
       </ResponsivePanel>
       <main className="admin-content">
-        <Outlet />
+        <RouteContent />
       </main>
     </div>
   );

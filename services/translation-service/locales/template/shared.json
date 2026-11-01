@@ -2,6 +2,8 @@
   "common.apps": "",
   "common.close": "",
   "common.deleteAllConfirmation": "",
+  "common.loadError": "",
+  "common.reload": "",
   "common.loading": "",
   "common.back": "",
   "common.cancel": "",

@@ -1,9 +1,9 @@
+import { AsyncContent } from '../../components/AsyncContent';
 import { Boxes, ChevronLeft, ChevronRight, Grid2X2, ShieldCheck, SlidersHorizontal, Tags, Users, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { fetchBundleFacets } from '../../api/bundles';
-import { bundleFiltersToSearch, bundleRequest, parseBundleFilters, type BundleCatalogFilters } from '../../bundleCatalogFilters';
-import { toggleOperatingSystem, toggleValue } from '../../catalogFilters';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { bundleFiltersToSearch, bundleRequest } from '../../bundleCatalogFilters';
+import { toggleOperatingSystem } from '../../catalogFilters';
 import { AppSearchBar } from '../../components/AppSearchBar';
 import { BundleCard } from '../../components/BundleCard';
 import { OperatingSystemIcon, operatingSystemLabel } from '../../components/OperatingSystemIcons';
@@ -13,29 +13,12 @@ import { useCompactLayout } from '../../hooks/useCompactLayout';
 import { useBundleResults } from '../../hooks/useBundleResults';
 import { useSwipePagination } from '../../hooks/useSwipePagination';
 import { useLocale, useTranslation } from '../../services/i18n';
-import type { BundleFacets, BundleSortKey } from '../../types/catalog';
-import { CatalogPage } from './CatalogPages';
+import type { BundleSortKey } from '../../types/catalog';
+
+import { useBundleFilters } from './useBundleFilters';
 
 const ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 const BASE = '/catalog/bundles';
-
-/** Mantiene los enlaces publicados antes de que existiera el catálogo de bundles. */
-export function CatalogEntry() {
-  const [params] = useSearchParams();
-  return params.has('bundleType')
-    ? <Navigate replace to={`${BASE}?${bundleFiltersToSearch(parseBundleFilters(params))}`} />
-    : <CatalogPage />;
-}
-
-function useBundleFilters() {
-  const [params, setParams] = useSearchParams();
-  const key = params.toString();
-  const filters = useMemo(() => parseBundleFilters(new URLSearchParams(key)), [key]);
-  const update = useCallback((patch: Partial<BundleCatalogFilters>, resetPage = true) => {
-    setParams(bundleFiltersToSearch({ ...filters, ...patch, page: resetPage ? 1 : patch.page ?? filters.page }));
-  }, [filters, setParams]);
-  return { filters, key, update };
-}
 
 export function BundleCatalogPage() {
   const { filters, update } = useBundleFilters();
@@ -81,7 +64,7 @@ export function BundleCatalogPage() {
             return <button type="button" key={type} className={`filter-item ${filters.bundleType === type ? 'filter-item-active' : ''}`}
               aria-pressed={filters.bundleType === type} onClick={() => update({ bundleType: type })}>
               <Icon size={20} aria-hidden="true" /><span>{t(`bundle.catalog.${type}`)}</span>
-              <strong>{(response?.counts?.[type] ?? 0).toLocaleString(locale)}</strong>
+              <strong>{response ? (response.counts?.[type] ?? 0).toLocaleString(locale) : '—'}</strong>
             </button>;
           })}
         </nav>
@@ -122,65 +105,22 @@ export function BundleCatalogPage() {
           sort: searchMode === 'lexical' && filters.sort === 'relevance' ? 'downloads' : filters.sort })}
         sortOptions={sortOptions} labelPrefix="bundle.sort" placeholder={t('bundle.catalog.search')} />
       {response?.degradedReason ? <p className="semantic-notice" role="status">{t('bundle.catalog.semanticFallback')}</p> : null}
-      {error ? <p className="error-banner" role="alert">{t('bundle.loadError')}</p> : null}
       {filters.sort === 'name' && response ? <nav className="catalog-alphabet" aria-label={t('catalog.alphabet.aria')}>
         {ALPHABET.map((letter) => { const entry = response.alphabet?.find((value) => value.letter === letter);
           return <button type="button" key={letter} disabled={!entry} onClick={() => { if (entry) update({ page: entry.page }, false); }}>{letter}</button>;
         })}
       </nav> : null}
       <div className="catalog-apps-swipe" {...swipe} aria-busy={loading}>
+        <AsyncContent loading={loading} error={error} hasData={response !== null} onRetry={changedStar} errorMessage={t('bundle.loadError')}>
         <div className="bundle-grid bundle-catalog-grid">
           {response?.data.map((bundle) => <BundleCard bundle={bundle} key={`${scope}:${bundle.id}`} onStarChange={changedStar} />)}
         </div>
-        {!response && loading ? <p className="loading-label">{t('common.loading')}</p> : null}
         {response && !response.data.length && !error ? <p className="empty-state">{t('home.emptyBundles')}</p> : null}
+        </AsyncContent>
       </div>
       {response ? <Pagination page={filters.page} pageSize={filters.pageSize} total={response.total}
         pageHref={(next) => `${BASE}?${bundleFiltersToSearch({ ...filters, page: next })}`}
         onPageChange={(next) => update({ page: next }, false)} onPageSizeChange={(pageSize) => update({ pageSize })} /> : null}
     </section>
-  </main>;
-}
-
-export function BundleFacetDirectoryPage({ kind }: { kind: 'tags' | 'creators' }) {
-  const { filters, key, update } = useBundleFilters();
-  const t = useTranslation();
-  const [facets, setFacets] = useState<BundleFacets>({ tags: [], creators: [] });
-  const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [letter, setLetter] = useState('A');
-  useEffect(() => {
-    const controller = new AbortController();
-    setError(false); setLoading(true);
-    void fetchBundleFacets(bundleRequest(filters), controller.signal).then((result) => {
-      if (!controller.signal.aborted) setFacets(result);
-    }).catch(() => { if (!controller.signal.aborted) setError(true); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  const title = t(kind === 'tags' ? 'facet.tags.title' : 'bundle.catalog.creators');
-  const items = facets[kind];
-  const activeLetter = items.some((item) => item.letter === letter) ? letter
-    : ALPHABET.find((candidate) => items.some((item) => item.letter === candidate)) ?? 'A';
-  return <main className="facet-page content-page">
-    <section className="facet-header"><div><h1>{title}</h1></div>
-      <Link className="secondary-button facet-back-link" to={`${BASE}?${bundleFiltersToSearch(filters)}`}>{t('facet.backToCatalog')}</Link>
-    </section>
-    {error ? <p className="error-banner" role="alert">{t('bundle.loadError')}</p> : null}
-    {loading ? <p className="loading-label">{t('facet.loading')}</p> : null}
-    <nav className="facet-letter-nav" aria-label={t('facet.lettersAria', { title })}>
-      {ALPHABET.map((value) => <button type="button" key={value} disabled={!items.some((item) => item.letter === value)}
-        className={activeLetter === value ? 'facet-letter-active' : ''} aria-pressed={activeLetter === value} onClick={() => setLetter(value)}>{value}</button>)}
-    </nav>
-    <section className="facet-list-panel"><div className="facet-chip-grid">
-      {items.filter((item) => item.letter === activeLetter).map((item) => {
-        const selected = kind === 'tags' ? filters.tags.includes(item.value) : filters.creator === item.value;
-        return <button type="button" key={item.value} className={`facet-chip ${selected ? 'facet-chip-active' : ''}`} aria-pressed={selected}
-          onClick={() => update(kind === 'tags' ? { tags: toggleValue(filters.tags, item.value) } : { creator: selected ? undefined : item.value })}>
-          <span>{item.label}</span><strong>{item.count}</strong>
-        </button>;
-      })}
-    </div>{!loading && !error && !items.some((item) => item.letter === activeLetter) ? <p className="empty-state">{t('facet.emptyLetter')}</p> : null}</section>
   </main>;
 }

@@ -2,7 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import * as api from '../../api/bundles';
-import { BundleCatalogPage, BundleFacetDirectoryPage, CatalogEntry } from './BundleCatalogPage';
+import { BundleCatalogPage } from './BundleCatalogPage';
+import { BundleFacetDirectoryPage } from './BundleFacetDirectoryPage';
+import { CatalogEntry } from './CatalogEntry';
 
 vi.mock('./CatalogPages', () => ({ CatalogPage: () => <p>Apps</p> }));
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ account: null, status: 'anonymous' }) }));

@@ -7,13 +7,13 @@ export function lazyNamed<
 >(
   loader: () => Promise<Module>,
   name: Name,
-): LazyExoticComponent<ComponentType> {
+): LazyExoticComponent<Extract<Module[Name], ComponentType<any>>> {
   return lazy(async () => ({ default: component(await loader(), name) }));
 }
 
 function component<
   Module extends Record<string, unknown>,
   Name extends keyof Module,
->(module: Module, name: Name): ComponentType {
-  return module[name] as ComponentType;
+>(module: Module, name: Name): Extract<Module[Name], ComponentType<any>> {
+  return module[name] as Extract<Module[Name], ComponentType<any>>;
 }

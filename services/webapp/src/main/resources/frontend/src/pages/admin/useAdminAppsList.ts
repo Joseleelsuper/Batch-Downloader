@@ -1,3 +1,4 @@
+import { useAsyncResource } from '../../hooks/useAsyncResource';
 import {
   useCallback,
   useEffect,
@@ -94,18 +95,17 @@ export function useAdminAppsList(setError: (message: string | null) => void) {
     return () => window.clearTimeout(timer);
   }, [queryInput]);
 
-  const refreshStats = useCallback(() => {
-    fetchCatalogStats()
-      .then((stats) => dispatchList({ type: 'patch', value: { stats } }))
-      .catch(() => dispatchList({ type: 'patch', value: { stats: null } }));
-    fetchAbsenceVerificationSummary()
-      .then((absenceSummary) => dispatchList({ type: 'patch', value: { absenceSummary } }))
-      .catch(() => dispatchList({ type: 'patch', value: { absenceSummary: null } }));
-  }, []);
-
+  const statsResource = useAsyncResource((signal) => fetchCatalogStats(signal), { reloadToken });
+  const absenceResource = useAsyncResource(() => fetchAbsenceVerificationSummary(), { reloadToken });
+  const retryStats = statsResource.refresh;
+  const retryAbsence = absenceResource.refresh;
+  const refreshStats = useCallback(() => { retryStats(); retryAbsence(); }, [retryStats, retryAbsence]);
   useEffect(() => {
-    refreshStats();
-  }, [refreshStats, reloadToken]);
+    if (statsResource.data) dispatchList({ type: 'patch', value: { stats: statsResource.data } });
+  }, [statsResource.data]);
+  useEffect(() => {
+    if (absenceResource.data) dispatchList({ type: 'patch', value: { absenceSummary: absenceResource.data } });
+  }, [absenceResource.data]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -133,7 +133,7 @@ export function useAdminAppsList(setError: (message: string | null) => void) {
       })
       .catch((requestError) => {
         if (controller.signal.aborted || requestId !== listRequestRef.current) return;
-        dispatchList({ type: 'patch', value: { apps: [], total: 0, state: 'error' } });
+        dispatchList({ type: 'patch', value: { state: 'error' } });
         setError(errorMessage(t, requestError, 'admin.apps.error.load'));
       });
     return () => controller.abort();
@@ -147,5 +147,5 @@ export function useAdminAppsList(setError: (message: string | null) => void) {
     review: stats?.filters.review ?? 0,
     missing: stats?.filters.missing ?? 0,
   };
-  return { ...list, dispatchList, listRequestRef, refreshStats, filterCounts };
+  return { ...list, dispatchList, listRequestRef, refreshStats, filterCounts, statsLoading: statsResource.loading, statsError: statsResource.error, retryStats };
 }

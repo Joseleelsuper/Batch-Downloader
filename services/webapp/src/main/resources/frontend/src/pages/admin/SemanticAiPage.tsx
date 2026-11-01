@@ -1,5 +1,6 @@
+import { AsyncContent } from '../../components/AsyncContent';
+import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { BrainCircuit, CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
 import { ApiRequestError } from '../../api/http';
 import { fetchSemanticOverview } from '../../api/semanticAdmin';
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
@@ -7,31 +8,15 @@ import type { SemanticOverview } from '../../types/semanticAdmin';
 
 export function SemanticAiPage() {
   const t = useTranslation();
-  const [overview, setOverview] = useState<SemanticOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setOverview(await fetchSemanticOverview());
-    } catch (cause) {
-      setError(errorMessage(t, cause));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
+  const resource = useAsyncResource(() => fetchSemanticOverview());
+  const overview = resource.data;
   return (
     <section className="admin-panel semantic-admin">
-      <SemanticHeader loading={loading} onRefresh={load} t={t} />
-      {error ? <SemanticError message={error} /> : null}
-      <SemanticContent loading={loading} overview={overview} t={t} />
+      <SemanticHeader loading={resource.loading} onRefresh={resource.refresh} t={t} />
+      <AsyncContent {...resource} hasData={overview !== undefined} onRetry={resource.refresh}
+        errorMessage={resource.error ? errorMessage(t, resource.error) : undefined}>
+        {overview ? <SemanticOverviewContent overview={overview} t={t} /> : null}
+      </AsyncContent>
     </section>
   );
 }
@@ -40,7 +25,7 @@ function SemanticHeader({
   loading,
   onRefresh,
   t,
-}: Readonly<{ loading: boolean; onRefresh: () => Promise<void>; t: Translator }>) {
+}: Readonly<{ loading: boolean; onRefresh: () => void; t: Translator }>) {
   return (
     <header className="semantic-admin-header">
       <div className="semantic-admin-title">
@@ -56,27 +41,6 @@ function SemanticHeader({
       </button>
     </header>
   );
-}
-
-function SemanticError({ message }: Readonly<{ message: string }>) {
-  return (
-    <div className="semantic-error" role="alert">
-      <XCircle size={18} aria-hidden="true" />
-      <span>{message}</span>
-    </div>
-  );
-}
-
-function SemanticContent({
-  loading,
-  overview,
-  t,
-}: Readonly<{ loading: boolean; overview: SemanticOverview | null; t: Translator }>) {
-  if (loading && !overview) {
-    return <output aria-live="polite">{t('semantic.status.loading')}</output>;
-  }
-  if (!overview) return null;
-  return <SemanticOverviewContent overview={overview} t={t} />;
 }
 
 function SemanticOverviewContent({

@@ -255,7 +255,7 @@ describe('AdminAppsPage', () => {
 
     const unresolvedFilter = await screen.findByRole('button', { name: /Por resolver/ });
     expect(unresolvedFilter).toHaveAttribute('aria-pressed', 'true');
-    expect(unresolvedFilter).toHaveTextContent('4');
+    await waitFor(() => expect(unresolvedFilter).toHaveTextContent('4'));
     await waitFor(() => {
       expect(adminAppsApi.fetchAdminApps).toHaveBeenLastCalledWith(
         expect.objectContaining({ filter: 'unresolved', query: '' }),

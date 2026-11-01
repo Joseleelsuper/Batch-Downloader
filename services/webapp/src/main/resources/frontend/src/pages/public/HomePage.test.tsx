@@ -12,6 +12,18 @@ vi.mock('../../components/BundleCard', () => ({ BundleCard: ({ bundle }: { bundl
   <button type="button" aria-pressed={bundle.starred}>{bundle.name}</button> }));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); auth.account = { id: 'first' }; });
 
+it('muestra los packs disponibles aunque las aplicaciones y la comunidad sigan cargando', async () => {
+  vi.spyOn(appsApi, 'fetchApps').mockReturnValue(new Promise(() => undefined));
+  vi.spyOn(bundlesApi, 'fetchBundles').mockImplementation(({ type }) => type === 'official'
+    ? Promise.resolve({ data: [{ id: 'ready', name: 'Pack disponible' } as BundleSummary], total: 1, page: 1, pageSize: 3 })
+    : new Promise(() => undefined));
+  render(<MemoryRouter><HomePage /></MemoryRouter>);
+  expect(await screen.findByRole('button', { name: 'Pack disponible' })).toBeVisible();
+  expect(screen.getByRole('heading', { level: 1 })).toBeVisible();
+  expect(screen.getAllByRole('status')).toHaveLength(2);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
 it('oculta el estado personal anterior mientras llega el de la nueva cuenta', async () => {
   const bundle = { id: 'bundle', name: 'Trabajo', starred: true } as BundleSummary;
   vi.spyOn(appsApi, 'fetchApps').mockResolvedValue({ data: [], total: 0, page: 1, pageSize: 6 });

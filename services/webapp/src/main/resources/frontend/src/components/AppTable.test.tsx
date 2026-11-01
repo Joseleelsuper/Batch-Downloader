@@ -105,7 +105,7 @@ describe('AppTable', () => {
     expect(screen.queryByText('Revisión')).not.toBeInTheDocument();
   });
 
-  it('keeps the detail row mounted while its closing animation runs', () => {
+  it('keeps the detail row mounted while its closing animation runs', async () => {
     const { container, rerender } = render(
       <AppTable
         apps={[app]}
@@ -127,7 +127,7 @@ describe('AppTable', () => {
 
     expect(screen.getByRole('button', { name: 'Ocultar detalles de Epic Games Launcher' }))
       .toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('Un detalle desplegado debajo de la aplicación.')).toBeInTheDocument();
+    expect(await screen.findByText('Un detalle desplegado debajo de la aplicación.')).toBeInTheDocument();
     expect(container.querySelector('.app-detail-row')).toHaveClass('app-detail-row-open');
 
     rerender(
