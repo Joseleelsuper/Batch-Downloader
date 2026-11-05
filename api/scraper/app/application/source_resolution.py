@@ -311,7 +311,7 @@ async def _source_url(
 ) -> str | None:
     """Recupera el mismo asset CDN desde la evidencia manual o su ruta inmutable."""
     url = catalog.reveal_url(resolved)
-    if urlparse(url or "").hostname == "release-assets.githubusercontent.com":
+    if url is not None and urlparse(url).hostname == "release-assets.githubusercontent.com":
         manual_url = await _manual_github_source_url(resolved, catalog, session)
         if manual_url != url:
             return manual_url
