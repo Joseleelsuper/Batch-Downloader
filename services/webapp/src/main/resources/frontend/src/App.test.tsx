@@ -455,7 +455,7 @@ describe('catalog workspace', () => {
     expect(screen.queryByText('Coincidencias mínimas')).not.toBeInTheDocument();
   });
 
-  it('uses a selected tag prefetch when returning from its directory', async () => {
+  it('keeps a selected tag prefetch visible after returning from its directory and cache expiry', async () => {
     vi.mocked(catalogAppsApi.fetchCatalogFacets).mockResolvedValue({
       tags: [{ label: 'automation', value: 'automation', normalizedValue: 'automation', letter: 'A', count: 1 }],
       publishers: [],
@@ -477,8 +477,16 @@ describe('catalog workspace', () => {
     await act(async () => Promise.resolve());
     fireEvent.click(screen.getByRole('link', { name: 'Volver al catálogo' }));
 
-    expect(screen.getByText('Aplicación reciente')).toBeInTheDocument();
+    expect(await screen.findByText('Aplicación reciente')).toBeInTheDocument();
     expect(screen.queryByText('Cargando...')).not.toBeInTheDocument();
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(1);
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 15_001);
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar filtros' }));
+
+    expect(screen.getByText('Aplicación reciente')).toBeInTheDocument();
+    expect(document.querySelector('.table-card')).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByRole('textbox', { name: 'Página' })).toHaveValue('1');
     expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(1);
   });
 
@@ -735,7 +743,7 @@ describe('catalog workspace', () => {
     expect(await screen.findByText('No hay aplicaciones que coincidan con la búsqueda.')).toBeInTheDocument();
   });
 
-  it('shows a prefetched filter immediately without requesting it again', async () => {
+  it.each(['expires', 'is evicted'])('keeps a prefetched filter visible when its cache %s', async (cacheChange) => {
     const reviewApp = { ...catalogApp, id: 'review-1', name: 'Aplicación en revisión' };
     vi.mocked(catalogAppsApi.fetchApps).mockImplementation(async ({ filter }) => ({
       data: filter === 'review' ? [reviewApp] : [catalogApp],
@@ -760,6 +768,16 @@ describe('catalog workspace', () => {
 
     expect(screen.getByText('Aplicación en revisión')).toBeInTheDocument();
     expect(screen.queryByText('Cargando...')).not.toBeInTheDocument();
+    expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(requests);
+
+    if (cacheChange === 'expires') vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 15_001);
+    else clearCatalogPageCache();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación en revisión' }));
+
+    expect(screen.getByRole('link', { name: 'Aplicación en revisión' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación en revisión' })).toBeChecked();
+    expect(document.querySelector('.table-card')).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByRole('textbox', { name: 'Página' })).toHaveValue('1');
     expect(catalogAppsApi.fetchApps).toHaveBeenCalledTimes(requests);
   });
 
