@@ -153,14 +153,21 @@ final class CatalogFilterSql {
             }
         }
         if (architecture != null && !architecture.isBlank()) {
+            List<String> architectures = switch (architecture.strip().toLowerCase(Locale.ROOT)) {
+                case "x64", "x86_64", "amd64" -> List.of("x64", "x86_64", "amd64");
+                case "arm64", "aarch64" -> List.of("arm64", "aarch64");
+                case "x86", "i386", "i686" -> List.of("x86", "i386", "i686");
+                default -> List.of(architecture);
+            };
             sql.append("""
                     AND EXISTS (
                         SELECT 1 FROM download_sources architecture_source
                         WHERE architecture_source.software_app_id = a.id
-                          AND architecture_source.architecture = ?
-                    )
+                          AND architecture_source.architecture IN (
                     """);
-            params.add(architecture);
+            CatalogSql.appendPlaceholders(sql, architectures.size());
+            sql.append("))");
+            params.addAll(architectures);
         }
     }
 

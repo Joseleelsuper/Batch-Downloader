@@ -27,7 +27,7 @@ class CatalogTagMinimumMySqlTest {
         jdbc.execute("CREATE TABLE download_sources(software_app_id INT,architecture VARCHAR(32))");
         jdbc.update("INSERT INTO software_apps VALUES(1,'Editor','active','available',JSON_ARRAY('windows')),(2,'Player','active','available',JSON_ARRAY('windows')),(3,'Inactive','inactive','available',JSON_ARRAY('windows'))");
         jdbc.update("INSERT INTO software_app_tags VALUES(1,'video'),(1,'tools'),(2,'video'),(3,'video'),(3,'tools')");
-        jdbc.update("INSERT INTO download_sources VALUES(1,'x64'),(2,'x64'),(3,'x64')");
+        jdbc.update("INSERT INTO download_sources VALUES(1,'x86_64'),(2,'x86_64'),(3,'x86_64')");
     }
 
     private List<String> search(String os, String architecture, Integer minimum) {
@@ -42,6 +42,8 @@ class CatalogTagMinimumMySqlTest {
     @Test void allAndMinimumTagsCombineWithCompatibilityWithoutDuplicateCounting() {
         assertThat(search("windows", "x64", null)).containsExactly("Editor");
         assertThat(search("windows", "x64", 1)).containsExactly("Editor", "Player");
+        assertThat(search("windows", "x86_64", 1)).containsExactly("Editor", "Player");
+        assertThat(search("windows", "amd64", 1)).containsExactly("Editor", "Player");
         assertThat(search("windows", "x64", 2)).containsExactly("Editor");
         assertThat(search("linux", "x64", 1)).isEmpty();
         assertThat(search("windows", "arm64", 1)).isEmpty();
