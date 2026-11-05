@@ -1,0 +1,21 @@
+CREATE TABLE software_inclusion_requests (
+    id CHAR(36) NOT NULL,
+    owner_id CHAR(36) NOT NULL,
+    name VARCHAR(160) NOT NULL,
+    normalized_name VARCHAR(160) COLLATE utf8mb4_bin NOT NULL,
+    official_url VARCHAR(2048) NOT NULL,
+    url_key BINARY(32) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    review_note VARCHAR(1000) NOT NULL DEFAULT '',
+    reviewed_by CHAR(36) NULL,
+    created_at DATETIME(6) NOT NULL,
+    reviewed_at DATETIME(6) NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_software_request_owner_name (owner_id, normalized_name),
+    UNIQUE KEY uq_software_request_owner_url (owner_id, url_key),
+    KEY ix_software_request_review (status, created_at, id),
+    CONSTRAINT fk_software_request_owner FOREIGN KEY (owner_id) REFERENCES core_users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_software_request_reviewer FOREIGN KEY (reviewed_by) REFERENCES core_users(id) ON DELETE SET NULL,
+    CONSTRAINT ck_software_request_status CHECK (status IN ('pending', 'accepted', 'rejected'))
+);

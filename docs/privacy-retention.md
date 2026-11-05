@@ -1,12 +1,13 @@
 # Conservación y eliminación de datos
 
-Política de referencia: 24/10/2026. Se conserva el historial mientras exista la cuenta.
+Política de referencia: 05/11/2026. Se conserva el historial mientras exista la cuenta.
 Los plazos siguientes describen el código y la configuración versionada; hay que
 desplegarlos y comprobarlos en el servidor antes de darlos por efectivos en producción.
 
 | Datos | Conservación y eliminación |
 | --- | --- |
 | Cuenta, bundles e historial | Mientras exista la cuenta. La baja deshabilita el acceso, invalida sesiones y retira bundles, historial y tokens. El borrado de la cuenta termina al limpiar sus trabajos y ZIP. |
+| Solicitudes de software | Nombre, página oficial, estado, fechas y motivo de revisión se conservan mientras exista la cuenta. La solicitud de baja las elimina de inmediato; Flyway V26 mantiene además el borrado en cascada por propietario. |
 | Enlaces y sesiones | Se retiran los tokens consumidos o caducados y las sesiones caducadas. Las solicitudes de acceso pendientes ya tienen su propio limpiador. Cadencia de referencia: un minuto. |
 | ZIP y trabajos | El coordinador mantiene los archivos mientras sean necesarios y los limpia tras guardado confirmado, cancelación o inactividad. El mantenimiento retira los trabajos terminales sin almacenamiento asociado, conservando el historial de cuenta. |
 | Recibos mínimos | Una hora después de limpiar el trabajo: permiten controlar la cuota horaria y reintentar el acuse. No contienen instaladores. |

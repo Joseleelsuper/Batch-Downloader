@@ -32,8 +32,10 @@ import login from '@batch-locales/es/login.json';
 import magicLinkEmail from '@batch-locales/es/magic-link-email.json';
 import errorPage from '@batch-locales/es/error.json';
 import shared from '@batch-locales/es/shared.json';
+import softwareRequests from '@batch-locales/es/software-requests.json';
 
 const bundledMessages = {
+  ...softwareRequests,
   ...shared,
   ...home,
   ...legal,

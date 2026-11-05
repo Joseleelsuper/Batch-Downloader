@@ -20,6 +20,14 @@ Al buscar en modo semántico aparece **Proponer bundle con búsqueda semántica*
 
 Si la búsqueda aplica respaldo literal, no se presenta ese resultado como una propuesta semántica: se informa de la indisponibilidad y se permite seleccionar aplicaciones manualmente. El modo de propuesta y la personalización temporal no se indexan como páginas públicas.
 
+## Solicitudes de software
+
+Una cuenta `USER` puede proponer nombre y página oficial HTTPS y consultar exclusivamente su propio historial. Se valida la sintaxis sin DNS ni HTTP, se rechazan credenciales, puertos alternativos, IP literales y dominios locales evidentes. La validación no acredita que el dominio sea oficial ni que su resolución sea pública: la propuesta queda pendiente de revisión y nunca provoca una descarga automática.
+
+Se normalizan nombre, dominio, puerto HTTPS predeterminado y fragmentos para detectar duplicados de la misma cuenta. También se comprueban coincidencias evidentes de nombre o URL en aplicaciones activas del catálogo. No se revela si otra cuenta ha propuesto la misma aplicación. El máximo es de cincuenta solicitudes por cuenta; las restricciones únicas y el bloqueo de la cuenta impiden altas duplicadas concurrentes.
+
+La administración acepta o rechaza con un motivo y control de versión. Aceptar una solicitud no publica una aplicación ni modifica el catálogo: la incorporación utiliza la revisión de fuentes existente. La auditoría guarda actor, identificador, estado y resultado, sin copiar URL, nombre ni motivo. Flyway V26 mantiene estas propuestas en Core y la baja de cuenta las elimina de inmediato; la política de privacidad informa del tratamiento.
+
 ## Evidencias iniciales
 
 Antes de crear un trabajo se abre **Revisa tu descarga** con sus instaladores, dominios registrados, nombres de archivo, tamaños conocidos, estimaciones y alternativas manuales u omisiones. La consulta comparte selección, permisos y límites con la creación, pero no crea identidad anónima, trabajos ni reservas ni llama a resolutores. Si hay tamaños parciales, extrapola con la mediana de los conocidos; si ninguno es conocido, conserva el total como desconocido. Los tamaños corresponden a instaladores antes de comprimir, y no al ZIP final. La confirmación abre el destino de guardado con un nuevo gesto del usuario; cancelar permite volver a la selección. La fuente vuelve a validarse cuando se prepara la descarga.
@@ -35,11 +43,15 @@ Antes de crear un trabajo se abre **Revisa tu descarga** con sus instaladores, d
 | Errores legibles que conservan códigos técnicos | `downloads/failures.test.ts`, `GlobalDownloadJobOverlay.test.tsx` |
 | Resumen completo, parcial, desconocido, sin escrituras y con permisos del bundle | `DownloadPreviewTest`, `DownloadPreviewControllerTest`, `JpaCatalogSourceLookupTest` |
 | Confirmación explícita, cancelación y cambio de cuenta | `DownloadPreviewDialog.test.tsx`, `DownloadJobsContext.test.tsx` |
+| Solicitudes válidas, URL maliciosas, propiedad, duplicados concurrentes, revisión y baja | `SoftwareRequestInputTest`, `SoftwareRequestMySqlTest`, `SoftwareRequestSecurityTest`, `AccountDeletionServiceTest` |
+| Formulario, historial, conflicto de versión y teclado ES en ambos tamaños | `SoftwareRequestsPage.test.tsx`, `scripts/e2e/keyboard-accessibility.mjs` |
 
-La suite del frontend ha pasado con 344 pruebas y 88,41 % de cobertura de líneas, usando dos procesos para limitar la competencia con Docker. El contrato principal y el perfil público de IA se comprueban conjuntamente con las catorce pruebas de `scripts/quality/tests`. Estos resultados locales no acreditan por sí solos un despliegue de producción ni sustituyen la validación final del flujo completo.
+La suite del frontend ha pasado con 356 pruebas y 88,37 % de cobertura de líneas, usando dos procesos para limitar la competencia con Docker. El contrato principal y el perfil público de IA se comprueban conjuntamente con las catorce pruebas de `scripts/quality/tests`. Estos resultados locales no acreditan por sí solos un despliegue de producción ni sustituyen la validación final del flujo completo.
 
 El resumen previo se ha contrastado además con 38 pruebas focalizadas de Java (ninguna omitida), los recorridos de teclado en Chromium a 1280×800 y 390×844 y el flujo completo en un Compose aislado: selección → revisión → confirmación → trabajo → revalidación fallida → ZIP `MANUAL_ONLY` con manifiesto y acceso oficial seguro. Las credenciales de los tres proveedores LLM se dejan vacías en esa prueba. El entorno de prueba y sus volúmenes se eliminan al terminar.
 
+Las solicitudes de software han superado otras 37 pruebas Java focalizadas, ninguna omitida, incluyendo MySQL real, migración completa, CSRF y separación de roles. El recorrido de teclado cubre el alta como usuario, la revisión como administrador y la consulta posterior del motivo como usuario, en ambos tamaños de pantalla.
+
 ## Trabajo que sigue abierto
 
-Las solicitudes de incorporación de software (#20), el cierre de observabilidad (#43) y las tareas académicas #111–#117 siguen sujetos a sus criterios y evidencias. Las issues se cerrarán conforme se verifique su resultado; las fechas objetivo no representan fechas de finalización real.
+El cierre de observabilidad (#43) y las tareas académicas #111–#117 siguen sujetos a sus criterios y evidencias. Las issues se cerrarán conforme se verifique su resultado; las fechas objetivo no representan fechas de finalización real.

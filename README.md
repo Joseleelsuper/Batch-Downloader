@@ -306,6 +306,11 @@ La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea pa
 
 ## Estados de los jobs
 
+Las cuentas pueden proponer aplicaciones y consultar su revisión en
+`/dashboard/software-requests`; la administración las revisa en
+`/admin/software-requests`. La propuesta no abre su URL ni incorpora software
+automáticamente. [Alcance, validación y evidencias](docs/tfg/alcance-enero-2027.md).
+
 ### Trabajo de descarga
 
 La interfaz solicita primero `POST /api/v1/download-jobs/preview` y muestra fuentes,

@@ -1,6 +1,6 @@
 import {
   Boxes,
-  Clock3, LogOut, UserRound
+  Clock3, LogOut, PackagePlus, UserRound
 } from 'lucide-react';
 import {
   useState
@@ -35,6 +35,7 @@ export function AccountLayout() {
       <nav>
         <NavLink to="/dashboard" end><Clock3 size={18} />{t('account.nav.dashboard')}</NavLink>
         <NavLink to="/dashboard/bundles"><Boxes size={18} />{t('account.nav.bundles')}</NavLink>
+        <NavLink to="/dashboard/software-requests"><PackagePlus size={18} />{t('software.requests.title')}</NavLink>
         <NavLink to="/profile"><UserRound size={18} />{t('account.nav.profile')}</NavLink>
       </nav>
       <button type="button" onClick={signOut}><LogOut size={18} />{t('nav.logout')}</button>

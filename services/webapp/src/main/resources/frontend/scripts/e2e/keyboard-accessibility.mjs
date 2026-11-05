@@ -43,7 +43,7 @@ async function mockApi(page, state) {
     const path = url.pathname;
     let body;
     let status = 200;
-    if (path === '/api/v1/auth/me') body = state.authenticated ? user : null;
+    if (path === '/api/v1/auth/me') body = state.authenticated ? { ...user, role: state.role } : null;
     else if (path === '/api/v1/auth/csrf') body = { token: 'keyboard-test' };
     else if (path === '/api/v1/auth/magic-link/request') status = 204;
     else if (path.startsWith('/api/v1/locales/')) status = 404;
@@ -80,6 +80,18 @@ async function mockApi(page, state) {
     else if (path === '/api/v1/download-jobs/job-1/events') {
       await route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
       return;
+    } else if (path === '/api/v1/users/me/software-requests' && request.method() === 'POST') {
+      state.softwareRequests.push({ ...request.postDataJSON(), id: 'request-1', status: 'pending',
+        reviewNote: '', version: 0, createdAt: '2026-11-05T12:00:00Z', reviewedAt: null });
+      body = state.softwareRequests.at(-1);
+      status = 201;
+    } else if (path === '/api/v1/users/me/software-requests' || path === '/api/v1/admin/software-requests') {
+      const data = state.softwareRequests.filter((item) => !url.searchParams.has('status') || item.status === url.searchParams.get('status'));
+      body = { data, page: 1, pageSize: 12, total: data.length };
+    } else if (path === '/api/v1/admin/software-requests/request-1' && request.method() === 'PATCH') {
+      Object.assign(state.softwareRequests[0], request.postDataJSON());
+      state.softwareRequests[0].version += 1;
+      body = state.softwareRequests[0];
     } else if (path === '/api/v1/users/me/bundles/custom-tags') body = [];
     else if (path === '/api/v1/users/me/bundles' && request.method() === 'POST') body = {
       id: 'own-bundle-1', slug: 'my-bundle', name: 'My bundle', description: '',
@@ -106,7 +118,7 @@ async function runViewport(browser, baseUrl, viewport) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
-  const state = { authenticated: false, createdJobs: 0 };
+  const state = { authenticated: false, createdJobs: 0, role: 'USER', softwareRequests: [] };
   await mockApi(page, state);
   try {
     await page.goto(baseUrl);
@@ -240,6 +252,37 @@ async function runViewport(browser, baseUrl, viewport) {
     await tabTo(page, save);
     await page.keyboard.press('Enter');
     await page.waitForURL('**/dashboard/bundles/own-bundle-1/edit');
+
+    await page.goto(`${baseUrl}/dashboard/software-requests`);
+    await tabTo(page, page.getByRole('textbox', { name: 'Nombre de la aplicación' }));
+    await page.keyboard.type('Editor solicitado');
+    await tabTo(page, page.getByRole('textbox', { name: 'Página oficial HTTPS' }));
+    await page.keyboard.type('https://example.org/');
+    await tabTo(page, page.getByRole('button', { name: 'Enviar solicitud' }));
+    await page.keyboard.press('Enter');
+    await page.getByRole('heading', { name: 'Editor solicitado' }).waitFor();
+    assert.equal(state.softwareRequests.length, 1);
+    if (process.env.E2E_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/software-user-${viewport.width}.png` });
+
+    state.role = 'ADMIN';
+    await page.goto(`${baseUrl}/admin/software-requests`);
+    const decision = page.getByRole('combobox', { name: 'Decisión' });
+    await tabTo(page, decision);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Tab');
+    const reason = page.getByRole('textbox', { name: 'Motivo de la revisión' });
+    await tabTo(page, reason);
+    await page.keyboard.type('No se ha localizado un instalador compatible.');
+    if (process.env.E2E_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/software-admin-${viewport.width}.png` });
+    await tabTo(page, page.getByRole('button', { name: 'Guardar revisión' }));
+    await page.keyboard.press('Enter');
+    await page.getByRole('heading', { name: 'Editor solicitado' }).waitFor({ state: 'hidden' });
+    assert.equal(state.softwareRequests[0].status, 'rejected');
+    assert.equal(state.softwareRequests[0].version, 1);
+    state.role = 'USER';
+    await page.goto(`${baseUrl}/dashboard/software-requests`);
+    await page.getByText('No se ha localizado un instalador compatible.', { exact: true }).waitFor();
+    await page.getByText('Rechazada', { exact: false }).waitFor();
     process.stdout.write(`Keyboard flows completed at ${viewport.width}×${viewport.height}.\n`);
     return barriers;
   } finally {

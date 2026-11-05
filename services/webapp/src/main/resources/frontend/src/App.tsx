@@ -74,6 +74,7 @@ const BundleFacetDirectoryPage = lazyNamed(() => import('./pages/catalog/BundleF
 const FacetDirectoryPage = lazyNamed(() => import('./pages/catalog/FacetDirectoryPage'), 'FacetDirectoryPage');
 const BundleDetailPage = lazyNamed(() => import('./pages/public/BundleDetailPage'), 'BundleDetailPage');
 const BundleDraftPage = lazyNamed(() => import('./pages/public/BundleDraftPage'), 'BundleDraftPage');
+const SoftwareRequestsPage = lazyNamed(() => import('./pages/SoftwareRequestsPage'), 'SoftwareRequestsPage');
 
 export default function App() {
   return <AuthProvider><AppRoutes /></AuthProvider>;
@@ -118,6 +119,7 @@ function AppRoutes() {
           <Route path="dashboard/bundles" element={<AccountBundlesPage />} />
           <Route path="dashboard/bundles/new" element={<BundleEditorPage />} />
           <Route path="dashboard/bundles/:id/edit" element={<BundleEditorPage />} />
+          <Route path="dashboard/software-requests" element={<SoftwareRequestsPage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
         <Route
@@ -135,6 +137,7 @@ function AppRoutes() {
           <Route path="semantic" element={<SemanticAiPage />} />
           <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
+          <Route path="software-requests" element={<SoftwareRequestsPage admin />} />
         </Route>
         </Routes>
       <GlobalDownloadJobOverlay />
@@ -367,6 +370,7 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
           <NavLink to="/admin/scraper"><Play size={18} />{t('admin.layout.scraper')}</NavLink>
           <NavLink to="/admin/semantic"><BrainCircuit size={18} />{t('admin.layout.semantic')}</NavLink>
           <NavLink to="/admin/audit"><ListFilter size={18} />{t('admin.layout.audit')}</NavLink>
+          <NavLink to="/admin/software-requests"><PackagePlus size={18} />{t('software.requests.title')}</NavLink>
         </nav>
         <button type="button" onClick={onLogout}><LogOut size={18} />{t('admin.layout.logout')}</button>
       </aside>

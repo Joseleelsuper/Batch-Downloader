@@ -62,6 +62,7 @@ class AccountDeletionServiceTest {
         verify(jdbc).update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME = ?", userId.toString());
         verify(jdbc).update("DELETE FROM bundles WHERE owner_id = ?", userId.toString());
         verify(jdbc).update("DELETE FROM user_download_history WHERE user_id = ?", userId.toString());
+        verify(jdbc).update("DELETE FROM software_inclusion_requests WHERE owner_id = ?", userId.toString());
         verify(jdbc).update("DELETE FROM download_job_receipts WHERE owner_id = ?", userId.toString());
         verify(jdbc).update("DELETE FROM identity_tokens WHERE user_id = ?", userId.toString());
         verify(downloads).cancel(new RequestOwner(userId, null, null), firstJob);
