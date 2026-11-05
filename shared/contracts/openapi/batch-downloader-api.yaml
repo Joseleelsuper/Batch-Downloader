@@ -827,6 +827,35 @@ paths:
           $ref: '#/components/responses/Forbidden'
       parameters:
       - $ref: '#/components/parameters/CsrfToken'
+  /download-jobs/preview:
+    post:
+      operationId: previewDownload
+      summary: Revisar fuentes, tamaños y advertencias antes de confirmar la descarga
+      description: Consulta de solo lectura. No crea trabajo, cookie ni reserva de almacenamiento, y no contacta con proveedores. Los tamaños registrados pueden cambiar durante la revalidación posterior.
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDownloadJobRequest'
+      responses:
+        '200':
+          description: Selección revisable, con distinción entre tamaños registrados y estimados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadPreview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /download-jobs/linux-preview:
     post:
       operationId: previewLinuxDownload
@@ -4027,6 +4056,91 @@ components:
           items:
             type: string
             format: uuid
+    DownloadPreview:
+      type: object
+      additionalProperties: false
+      required: [requestedCount, installerCount, manualCount, omittedCount, knownBytes, estimatedBytes, estimated, unknownSizeCount, estimatedPeakBytes, storageLimitBytes, items, warnings]
+      properties:
+        requestedCount:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Aplicaciones evaluadas, incluidas las dependencias Linux.
+        installerCount:
+          type: integer
+          minimum: 0
+        manualCount:
+          type: integer
+          minimum: 0
+        omittedCount:
+          type: integer
+          minimum: 0
+        knownBytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Suma de los tamaños de instaladores registrados en el catálogo.
+        estimatedBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+          description: Estimación de instaladores antes de comprimir. Los ausentes usan la mediana de la selección; sin muestra queda desconocida. No es el tamaño final del ZIP.
+        estimated:
+          type: boolean
+          description: El total incorpora tamaños estimados para fuentes sin tamaño registrado.
+        unknownSizeCount:
+          type: integer
+          minimum: 0
+        estimatedPeakBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+        storageLimitBytes:
+          type: integer
+          format: int64
+          const: 10737418240
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadPreviewItem'
+        warnings:
+          type: array
+          items:
+            type: string
+            enum: [budget_estimate_exceeded]
+    DownloadPreviewItem:
+      type: object
+      additionalProperties: false
+      required: [appId, name, sourceRef, operatingSystem, architecture, finalDomain, filename, sizeBytes, kind, warnings]
+      properties:
+        appId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        sourceRef:
+          type: [string, 'null']
+          format: uuid
+        operatingSystem:
+          type: [string, 'null']
+        architecture:
+          type: [string, 'null']
+        finalDomain:
+          type: [string, 'null']
+        filename:
+          type: [string, 'null']
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 1
+        kind:
+          type: string
+          enum: [installer, manual, unavailable]
+        warnings:
+          type: array
+          items:
+            type: string
+            enum: [size_unknown, manual_link, unavailable, manual_installation, dependency]
     LinuxDownloadPreview:
       type: object
       required: [target, architecture, totalCount, automaticCount, manualCount, omittedCount, items]

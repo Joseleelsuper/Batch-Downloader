@@ -8,6 +8,7 @@ El depósito está previsto para el 12–14 de enero de 2027 y la defensa para e
 - Se permiten estrellas en bundles propios públicos. Se conserva la unicidad por cuenta y bundle y se impiden las valoraciones de bundles privados. La [issue #18](https://github.com/Joseleelsuper/Batch-Downloader/issues/18) registra la sustitución del requisito original.
 - La propuesta utiliza el modelo local de embeddings y los resultados del catálogo. No amplía las llamadas a OpenAI, DeepSeek o Groq.
 - Los cambios se realizan directamente en `development`, por indicación expresa del autor. Las referencias a commits sustituyen los enlaces a PR cuando no existe un PR real.
+- Los avisos de finalización de descargas por correo (#29) quedan excluidos de enero por decisión expresa del autor. Su issue se conserva como no planificada; el correo de acceso mediante magic link continúa dentro del alcance.
 
 ## Selecciones editables
 
@@ -21,6 +22,8 @@ Si la búsqueda aplica respaldo literal, no se presenta ese resultado como una p
 
 ## Evidencias iniciales
 
+Antes de crear un trabajo se abre **Revisa tu descarga** con sus instaladores, dominios registrados, nombres de archivo, tamaños conocidos, estimaciones y alternativas manuales u omisiones. La consulta comparte selección, permisos y límites con la creación, pero no crea identidad anónima, trabajos ni reservas ni llama a resolutores. Si hay tamaños parciales, extrapola con la mediana de los conocidos; si ninguno es conocido, conserva el total como desconocido. Los tamaños corresponden a instaladores antes de comprimir, y no al ZIP final. La confirmación abre el destino de guardado con un nuevo gesto del usuario; cancelar permite volver a la selección. La fuente vuelve a validarse cuando se prepara la descarga.
+
 | Comportamiento | Evidencia |
 | --- | --- |
 | Descarga anónima de una selección modificada, sin persistencia | `BundleDraftPage.test.tsx` |
@@ -30,9 +33,13 @@ Si la búsqueda aplica respaldo literal, no se presenta ese resultado como una p
 | Ambos sentidos, empates, paginación y alfabeto de bundles | `BundleCatalogMySqlTest` |
 | Estrellas propias, unicidad concurrente y privacidad | `BundleCatalogMySqlTest`, `BundleStarSecurityTest` |
 | Errores legibles que conservan códigos técnicos | `downloads/failures.test.ts`, `GlobalDownloadJobOverlay.test.tsx` |
+| Resumen completo, parcial, desconocido, sin escrituras y con permisos del bundle | `DownloadPreviewTest`, `DownloadPreviewControllerTest`, `JpaCatalogSourceLookupTest` |
+| Confirmación explícita, cancelación y cambio de cuenta | `DownloadPreviewDialog.test.tsx`, `DownloadJobsContext.test.tsx` |
 
 La suite del frontend ha pasado con 344 pruebas y 88,41 % de cobertura de líneas, usando dos procesos para limitar la competencia con Docker. El contrato principal y el perfil público de IA se comprueban conjuntamente con las catorce pruebas de `scripts/quality/tests`. Estos resultados locales no acreditan por sí solos un despliegue de producción ni sustituyen la validación final del flujo completo.
 
+El resumen previo se ha contrastado además con 38 pruebas focalizadas de Java (ninguna omitida), los recorridos de teclado en Chromium a 1280×800 y 390×844 y el flujo completo en un Compose aislado: selección → revisión → confirmación → trabajo → revalidación fallida → ZIP `MANUAL_ONLY` con manifiesto y acceso oficial seguro. Las credenciales de los tres proveedores LLM se dejan vacías en esa prueba. El entorno de prueba y sus volúmenes se eliminan al terminar.
+
 ## Trabajo que sigue abierto
 
-El resumen general previo a descargar (#5), las solicitudes de incorporación de software (#20), el cierre de observabilidad (#43) y las tareas académicas #111–#117 siguen sujetos a sus criterios y evidencias. Las issues se cerrarán conforme se verifique su resultado; las fechas objetivo no representan fechas de finalización real.
+Las solicitudes de incorporación de software (#20), el cierre de observabilidad (#43) y las tareas académicas #111–#117 siguen sujetos a sus criterios y evidencias. Las issues se cerrarán conforme se verifique su resultado; las fechas objetivo no representan fechas de finalización real.

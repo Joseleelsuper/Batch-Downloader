@@ -19,11 +19,11 @@ export function useDownloadJob() {
   const entry = jobId ? downloads.jobs.find((candidate) => candidate.id === jobId) : undefined;
 
   const start = useCallback(async (request: DownloadJobRequest, label?: string,
-    destination?: Promise<DownloadFileHandle | undefined>) => {
+    destination?: Promise<DownloadFileHandle | undefined>, returnFocusTo?: HTMLElement | null) => {
     if (startInFlight.current) return startInFlight.current;
     setStarting(true);
     setLocalError(false);
-    const operation = downloads.start(request, label, destination);
+    const operation = downloads.start(request, label, destination, returnFocusTo);
     startInFlight.current = operation;
     try {
       const created = await operation;
@@ -31,7 +31,7 @@ export function useDownloadJob() {
       return created;
     } catch (cause) {
       if (!isDestinationCancelled(cause)
-          && !(cause instanceof Error && cause.message === 'linux_selection_cancelled')) setLocalError(true);
+          && !(cause instanceof Error && ['linux_selection_cancelled', 'download_preview_cancelled'].includes(cause.message))) setLocalError(true);
       throw cause;
     } finally {
       startInFlight.current = null;

@@ -18,6 +18,19 @@ import java.util.UUID;
  * @category Descargas
  */
 public interface CatalogSourceLookup {
+    /** Metadatos registrados de una fuente exacta; nunca contiene su URL de descarga. */
+    record SourceMetadata(UUID sourceRef, String finalDomain, String filename, Long sizeBytes) {}
+
+    /** Consulta por lote los metadatos de fuentes que ya han superado la selección de acceso. */
+    default Map<UUID, SourceMetadata> sourceMetadata(Collection<UUID> sourceRefs) {
+        return Map.of();
+    }
+
+    /** Nombres públicos para explicar aplicaciones sin fuente ni alternativa manual. */
+    default Map<UUID, String> appNames(Collection<UUID> appIds) {
+        return Map.of();
+    }
+
     /**
      * Ofrece una selección Linux de compatibilidad mediante la consulta general.
      * El método por defecto no aplica destino ni fuente exacta; el adaptador de producción debe

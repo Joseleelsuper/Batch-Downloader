@@ -59,6 +59,14 @@ async function mockApi(page, state) {
       data: url.searchParams.get('type') === 'official' ? [bundle] : [],
       page: 1, pageSize: 3, total: url.searchParams.get('type') === 'official' ? 1 : 0,
     };
+    else if (path === '/api/v1/download-jobs/preview') body = {
+      requestedCount: 1, installerCount: 1, manualCount: 0, omittedCount: 0,
+      knownBytes: 1024, estimatedBytes: 1024, estimated: false, unknownSizeCount: 0,
+      estimatedPeakBytes: 2048, storageLimitBytes: 10 * 1024 ** 3, warnings: [],
+      items: [{ appId: app.id, name: app.name, sourceRef: 'source-1',
+        operatingSystem: 'windows', architecture: 'x86_64', finalDomain: 'example.test',
+        filename: 'example.exe', sizeBytes: 1024, kind: 'installer', warnings: [] }],
+    };
     else if (path === '/api/v1/download-jobs/linux-preview') body = {
       target: 'apt', architecture: 'x86_64', totalCount: 1,
       automaticCount: 1, manualCount: 0, omittedCount: 0, items: [],
@@ -145,6 +153,17 @@ async function runViewport(browser, baseUrl, viewport) {
     const download = page.getByRole('button', { name: 'Descargar ZIP' });
     await tabTo(page, download);
     await page.keyboard.press('Enter');
+    const preview = page.getByRole('dialog', { name: 'Revisa tu descarga' });
+    await preview.waitFor();
+    assert.equal(state.createdJobs, 0);
+    await page.keyboard.press('Escape');
+    await preview.waitFor({ state: 'hidden' });
+    const downloadHandle = await download.elementHandle();
+    await page.waitForFunction((element) => document.activeElement === element, downloadHandle);
+    await page.keyboard.press('Enter');
+    await preview.waitFor();
+    await tabTo(page, preview.getByRole('button', { name: 'Confirmar descarga' }));
+    await page.keyboard.press('Enter');
     await page.getByRole('region', { name: 'Trabajos de descarga' }).waitFor();
     await page.getByRole('progressbar', { name: 'Preparación del ZIP' }).waitFor();
     assert.equal(state.createdJobs, 1);
@@ -180,6 +199,9 @@ async function runViewport(browser, baseUrl, viewport) {
     await tabTo(page, windows);
     await page.keyboard.press('Enter');
     await tabTo(page, bundleDownload);
+    await page.keyboard.press('Enter');
+    await page.getByRole('dialog', { name: 'Revisa tu descarga' }).waitFor();
+    await tabTo(page, page.getByRole('button', { name: 'Confirmar descarga' }));
     await page.keyboard.press('Enter');
     await page.getByRole('region', { name: 'Trabajos de descarga' }).waitFor();
 

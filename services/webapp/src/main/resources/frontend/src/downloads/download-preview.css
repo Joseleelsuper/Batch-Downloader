@@ -1,0 +1,4 @@
+.download-preview-dialog dl { display: grid; grid-template-columns: 1fr auto; gap: .4rem 1rem; }
+.download-preview-dialog dd { margin: 0; text-align: right; }
+.download-preview-dialog li { margin-block: .5rem; overflow-wrap: anywhere; }
+.download-preview-dialog li p { margin-block: .25rem; }

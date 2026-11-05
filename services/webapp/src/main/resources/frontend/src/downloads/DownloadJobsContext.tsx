@@ -14,11 +14,13 @@ import {
   cancelDownloadJob,
   connectDownloadJobEvents,
   createDownloadJob,
+  previewDownload,
   fetchDownloadJobFileLink,
   reportDownloadActivity,
 } from '../api/downloads';
-import type { CreateDownloadJobRequest, LinuxSelection } from '../api/downloads';
+import type { CreateDownloadJobRequest, DownloadPreview, LinuxSelection } from '../api/downloads';
 import { LinuxTargetDialog } from './LinuxTargetDialog';
+import { DownloadPreviewDialog } from './DownloadPreviewDialog';
 import { ApiRequestError } from '../api/http';
 import { useTranslation, type Translator } from '../services/i18n';
 import type { DownloadJob } from '../types/catalog';
@@ -71,7 +73,7 @@ interface DownloadJobsContextValue {
   jobs: TrackedDownloadJob[];
   startError: string | null;
   start: (request: DownloadJobRequest, label?: string,
-    destination?: Promise<DownloadFileHandle | undefined>) => Promise<DownloadJob>;
+    destination?: Promise<DownloadFileHandle | undefined>, returnFocusTo?: HTMLElement | null) => Promise<DownloadJob>;
   cancel: (jobId: string) => Promise<void>;
   download: (jobId: string) => Promise<void>;
   dismiss: (jobId: string) => void;
@@ -182,6 +184,13 @@ export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: R
     reject: (error: Error) => void;
   } | null>(null);
   const attemptedDownloads = useRef(new Set<string>());
+  const [preview, setPreview] = useState<DownloadPreview | null>(null);
+  const previewTrigger = useRef<HTMLElement | null>(null);
+  const previewPending = useRef<{
+    resolve: (destination: Promise<DownloadFileHandle | undefined>) => void;
+    reject: (error: Error) => void;
+    chosenDestination?: Promise<DownloadFileHandle | undefined>;
+  } | null>(null);
   useLayoutEffect(() => {
     const controller = new AbortController();
     const destinationHandles = destinations.current;
@@ -190,6 +199,7 @@ export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: R
     setJobState({ scope: accountScope, jobs: restored });
     setStartError(null);
     setLinuxRequest(null);
+    setPreview(null);
     attemptedDownloads.current = new Set(
       restored.filter((entry) => entry.autoDownloadAttempted).map((entry) => entry.id),
     );
@@ -198,6 +208,8 @@ export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: R
       controller.abort();
       linuxPending.current?.reject(new Error('linux_selection_cancelled'));
       linuxPending.current = null;
+      previewPending.current?.reject(new Error('download_preview_cancelled'));
+      previewPending.current = null;
       destinationHandles.clear();
     };
   }, [accountScope]);
@@ -336,16 +348,14 @@ export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: R
   const download = useCallback((jobId: string) => deliver(jobId, false), [deliver]);
 
   const start = useCallback(async (request: DownloadJobRequest, label?: string,
-    chosenDestination?: Promise<DownloadFileHandle | undefined>) => {
+    chosenDestination?: Promise<DownloadFileHandle | undefined>, returnFocusTo?: HTMLElement | null) => {
     const signal = lifetime.current.signal;
-    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const trigger = returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setStartError(null);
     try {
       signal.throwIfAborted();
       if (accountScope === null) throw new DOMException('Session pending', 'AbortError');
-      // Must run directly in the original click, before any API request or Linux dialog.
-      const destination = await (chosenDestination ?? chooseDownloadDestination());
-      signal.throwIfAborted();
+      if (chosenDestination) void chosenDestination.catch(() => undefined);
       let selectedRequest = request;
       if (request.operatingSystems?.length === 1 && request.operatingSystems[0] === 'linux'
           && (!request.linuxTarget || !request.targetArchitecture)) {
@@ -357,6 +367,15 @@ export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: R
         });
         selectedRequest = { ...request, ...selection };
       }
+      signal.throwIfAborted();
+      const summary = await previewDownload(selectedRequest);
+      signal.throwIfAborted();
+      if (previewPending.current) throw new Error('download_preview_pending');
+      const destination = await new Promise<DownloadFileHandle | undefined>((resolve, reject) => {
+        previewPending.current = { resolve, reject, chosenDestination };
+        previewTrigger.current = trigger;
+        setPreview(summary);
+      });
       signal.throwIfAborted();
       const created = await createDownloadJob(selectedRequest);
       signal.throwIfAborted();
@@ -376,8 +395,8 @@ export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: R
       });
       return created;
     } catch (cause) {
-      if (!isDestinationCancelled(cause)
-          && !(cause instanceof Error && cause.message === 'linux_selection_cancelled')) {
+      if (!signal.aborted && !isDestinationCancelled(cause)
+          && !(cause instanceof Error && ['linux_selection_cancelled', 'download_preview_cancelled'].includes(cause.message))) {
         setStartError(requestErrorMessage(t, cause));
       }
       throw cause;
@@ -434,6 +453,21 @@ export function DownloadJobsProvider({ children, accountScope = 'anonymous' }: R
   return (
     <DownloadJobsContext.Provider value={value}>
       {children}
+      {preview ? <DownloadPreviewDialog preview={preview} returnFocusTo={previewTrigger.current}
+        onConfirm={() => {
+          const pending = previewPending.current;
+          if (!pending) return;
+          // El selector debe abrirse directamente en este clic de confirmación.
+          const destination = pending.chosenDestination ?? chooseDownloadDestination();
+          pending.resolve(destination);
+          previewPending.current = null;
+          setPreview(null);
+        }}
+        onCancel={() => {
+          previewPending.current?.reject(new Error('download_preview_cancelled'));
+          previewPending.current = null;
+          setPreview(null);
+        }} /> : null}
       {linuxRequest ? <LinuxTargetDialog request={linuxRequest} returnFocusTo={linuxTrigger.current}
         onSelect={(selection) => {
           linuxPending.current?.resolve(selection);

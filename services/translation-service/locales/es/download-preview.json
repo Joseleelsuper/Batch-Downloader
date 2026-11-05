@@ -1,0 +1,22 @@
+{
+  "download.preview.title": "Revisa tu descarga",
+  "download.preview.counts": "{installers} instaladores · {manual} accesos manuales · {omitted} sin alternativa",
+  "download.preview.known": "Tamaño registrado conocido",
+  "download.preview.estimated": "Tamaño estimado de los instaladores",
+  "download.preview.total": "Tamaño registrado de los instaladores",
+  "download.preview.unknownCount": "Instaladores sin tamaño conocido",
+  "download.preview.temporarySpace": "Espacio temporal estimado en el servidor",
+  "download.preview.unknown": "Desconocido",
+  "download.preview.sizeHelp": "Los tamaños son los registrados en el catálogo, antes de comprimir. No indican el tamaño final del ZIP y pueden cambiar al revalidar las fuentes.",
+  "download.preview.estimateHelp": "Los tamaños desconocidos se estiman con la mediana de los instaladores conocidos de esta selección.",
+  "download.preview.sourceUnknown": "Dominio de origen no registrado",
+  "download.preview.recordedSize": "Tamaño registrado",
+  "download.preview.edit": "Volver a la selección",
+  "download.preview.confirm": "Confirmar descarga",
+  "download.preview.warning.budget_estimate_exceeded": "La estimación supera el presupuesto de 10 GiB. Reduce la selección si la descarga no puede admitirse.",
+  "download.preview.warning.size_unknown": "No hay un tamaño registrado para este instalador.",
+  "download.preview.warning.manual_link": "El ZIP incluirá un acceso a la web oficial para completar la descarga manualmente.",
+  "download.preview.warning.unavailable": "No hay un instalador compatible ni una alternativa manual; esta aplicación se omitirá.",
+  "download.preview.warning.manual_installation": "Se descargará el instalador, pero su instalación requiere pasos manuales.",
+  "download.preview.warning.dependency": "Se ha añadido como dependencia de una aplicación seleccionada."
+}

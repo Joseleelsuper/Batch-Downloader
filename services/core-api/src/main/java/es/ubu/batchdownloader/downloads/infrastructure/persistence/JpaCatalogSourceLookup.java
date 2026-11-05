@@ -149,6 +149,34 @@ class JpaCatalogSourceLookup implements CatalogSourceLookup {
         this.jdbc = jdbc;
     }
 
+    @Override
+    public Map<UUID, SourceMetadata> sourceMetadata(Collection<UUID> sourceRefs) {
+        if (sourceRefs == null || sourceRefs.isEmpty()) return Map.of();
+        StringBuilder sql = new StringBuilder("SELECT id, final_domain, filename, size_bytes FROM resolved_sources WHERE id IN (");
+        appendPlaceholders(sql, sourceRefs.size());
+        sql.append(')');
+        Map<UUID, SourceMetadata> result = new LinkedHashMap<>();
+        jdbc.query(sql.toString(), (ResultSet row) -> {
+            UUID id = UuidBytes.toUuid(row.getBytes("id"));
+            result.put(id, new SourceMetadata(id, row.getString("final_domain"),
+                    row.getString("filename"), (Long) row.getObject("size_bytes")));
+        }, sourceRefs.stream().map(UuidBytes::fromUuid).toArray());
+        return result;
+    }
+
+    @Override
+    public Map<UUID, String> appNames(Collection<UUID> appIds) {
+        if (appIds.isEmpty()) return Map.of();
+        StringBuilder sql = new StringBuilder("SELECT id, name FROM software_apps WHERE app_status = 'active' AND id IN (");
+        appendPlaceholders(sql, appIds.size());
+        sql.append(')');
+        Map<UUID, String> result = new LinkedHashMap<>();
+        jdbc.query(sql.toString(), (ResultSet row) -> {
+            result.put(UuidBytes.toUuid(row.getBytes("id")), row.getString("name"));
+        }, appIds.stream().map(UuidBytes::fromUuid).toArray());
+        return result;
+    }
+
     /**
      * Selecciona una fuente descargable por aplicación con preferencia estable de plataforma y
      * versión; una comprobación caducada requiere revalidación posterior y no excluye por sí sola

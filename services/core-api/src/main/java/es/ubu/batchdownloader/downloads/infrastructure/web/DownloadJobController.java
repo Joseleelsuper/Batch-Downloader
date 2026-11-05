@@ -188,6 +188,16 @@ public class DownloadJobController {
         return jobs.previewLinux(selectionFor(request, appIds));
     }
 
+    /** Revisa fuentes y tamaños registrados con los mismos permisos, sin crear identidad ni trabajo. */
+    @PostMapping("/preview")
+    DownloadJobService.DownloadPreview previewDownload(@Valid @RequestBody CreateDownloadJobRequest request,
+            Authentication authentication) {
+        validateSource(request);
+        List<UUID> appIds = request.bundleId() == null ? distinctAppIds(request.appIds())
+                : bundleAppIds(request.bundleId(), authentication);
+        return jobs.preview(selectionFor(request, appIds));
+    }
+
     /**
      * Consulta el trabajo con la identidad autenticada o el hash del navegador solicitante.
      *

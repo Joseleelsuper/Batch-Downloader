@@ -5,6 +5,7 @@ import { ApiRequestError } from '../api/http';
 import * as delivery from './delivery';
 import { GlobalDownloadJobOverlay } from './GlobalDownloadJobOverlay';
 import type { DownloadJob } from '../types/catalog';
+import { confirmDownloadPreview, downloadPreview } from '../test/downloadPreview';
 import {
   DownloadJobsProvider,
   useDownloadJobs,
@@ -42,7 +43,7 @@ function Harness() {
         onClick={() => void downloads.start(
           { appIds: ['53184a90-ab4b-4609-bbce-456f913fe691'] },
           'Aplicación de ejemplo',
-        )}
+        ).catch(() => undefined)}
       >
         Iniciar
       </button>
@@ -106,6 +107,37 @@ function LinuxHarness() {
 }
 
 describe('DownloadJobsProvider', () => {
+  it('does not create a job or choose a destination until the preview is confirmed', async () => {
+    const create = vi.spyOn(downloadsApi, 'createDownloadJob').mockResolvedValue(job('QUEUED', 0));
+    const picker = vi.spyOn(delivery, 'chooseDownloadDestination').mockResolvedValue(undefined);
+    vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(() => undefined);
+    render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    expect(await screen.findByRole('dialog', { name: 'Revisa tu descarga' })).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(picker).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a la selección' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.getByTestId('state')).toHaveTextContent('"error":null');
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await confirmDownloadPreview();
+    expect(create).toHaveBeenCalledOnce();
+    expect(picker).toHaveBeenCalledOnce();
+  });
+
+  it('discards a pending preview when the account changes', async () => {
+    const create = vi.spyOn(downloadsApi, 'createDownloadJob');
+    const { rerender } = render(<DownloadJobsProvider accountScope="owner-a"><ActionsHarness /></DownloadJobsProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await screen.findByRole('dialog', { name: 'Revisa tu descarga' });
+    rerender(<DownloadJobsProvider accountScope="anonymous"><ActionsHarness /></DownloadJobsProvider>);
+    await act(async () => {});
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.getByTestId('state')).toHaveTextContent('"error":null');
+  });
+
   it('retira trabajos persistidos y en memoria al cambiar el ámbito de cuenta', async () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
     const { rerender } = render(<DownloadJobsProvider accountScope="owner-a"><Harness /></DownloadJobsProvider>);
@@ -114,6 +146,7 @@ describe('DownloadJobsProvider', () => {
     vi.spyOn(delivery, 'chooseDownloadDestination').mockResolvedValue(undefined);
     vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink').mockResolvedValue({ url: 'https://example.test/file.zip' });
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('jobs')).toHaveTextContent('1'));
     rerender(<DownloadJobsProvider accountScope="anonymous"><Harness /></DownloadJobsProvider>);
     expect(screen.getByTestId('jobs')).toHaveTextContent('0');
@@ -130,6 +163,7 @@ describe('DownloadJobsProvider', () => {
     }
     const { rerender } = render(<DownloadJobsProvider accountScope="owner-a"><Start /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    await confirmDownloadPreview();
     rerender(<DownloadJobsProvider accountScope="anonymous"><Start /></DownloadJobsProvider>);
     await act(async () => { resolveDestination(undefined); });
     expect(create).not.toHaveBeenCalled();
@@ -144,6 +178,7 @@ describe('DownloadJobsProvider', () => {
       removeItem: (key: string) => storage.delete(key),
     });
     vi.spyOn(downloadsApi, 'reportDownloadActivity').mockResolvedValue(undefined);
+    vi.spyOn(downloadsApi, 'previewDownload').mockResolvedValue(downloadPreview);
     Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
       configurable: true,
       value(this: HTMLDialogElement) { this.setAttribute('open', ''); },
@@ -180,6 +215,7 @@ describe('DownloadJobsProvider', () => {
       </DownloadJobsProvider>,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await confirmDownloadPreview();
 
     await waitFor(() => expect(connect).toHaveBeenCalledOnce());
     act(() => pushJob?.(job('DOWNLOADING', 45)));
@@ -222,6 +258,7 @@ describe('DownloadJobsProvider', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar Linux' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Preparar ZIP' }));
+    await confirmDownloadPreview();
 
     await waitFor(() => expect(downloadsApi.createDownloadJob).toHaveBeenCalledWith({
       appIds: ['linux-app'],
@@ -231,7 +268,7 @@ describe('DownloadJobsProvider', () => {
     }));
   });
 
-  it('opens the destination in the click and waits for it before creating the job', async () => {
+  it('opens the destination in the confirmation click and waits for it before creating the job', async () => {
     const handle: delivery.DownloadFileHandle = { createWritable: vi.fn() };
     let selected!: (value: delivery.DownloadFileHandle) => void;
     const picker = vi.spyOn(delivery, 'chooseDownloadDestination')
@@ -246,6 +283,7 @@ describe('DownloadJobsProvider', () => {
     const link = vi.spyOn(downloadsApi, 'fetchDownloadJobFileLink');
     render(<DownloadJobsProvider><Harness /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await confirmDownloadPreview();
     expect(picker).toHaveBeenCalledOnce();
     expect(create).not.toHaveBeenCalled();
     await act(async () => { selected(handle); });
@@ -266,6 +304,7 @@ describe('DownloadJobsProvider', () => {
       .mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(undefined);
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('download_link_failed'));
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar entrega' }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
@@ -287,6 +326,7 @@ describe('DownloadJobsProvider', () => {
     });
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('download_receipt_failed'));
     act(() => pushJob({ ...job('READY', 100), deliveryStatus: 'TRANSFERRING' }));
     expect(screen.getByTestId('state')).toHaveTextContent('"deliveryStatus":"SAVED"');
@@ -308,6 +348,7 @@ describe('DownloadJobsProvider', () => {
       });
       render(<DownloadJobsProvider><Harness /></DownloadJobsProvider>);
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Iniciar' })); });
+      await confirmDownloadPreview();
       await act(async () => { await vi.advanceTimersByTimeAsync(75_000); });
       expect(downloadsApi.reportDownloadActivity).toHaveBeenCalledTimes(6);
       await act(async () => { pushJob(job('READY', 100)); });
@@ -349,6 +390,7 @@ describe('DownloadJobsProvider', () => {
 
     render(<DownloadJobsProvider><Harness /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(pushJob).toBeDefined());
     act(() => pushJob?.(job('READY', 100)));
 
@@ -392,6 +434,8 @@ describe('DownloadJobsProvider', () => {
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
 
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent(JOB_ID));
   });
 
@@ -401,9 +445,12 @@ describe('DownloadJobsProvider', () => {
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
 
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent(JOB_ID));
     expect(screen.getByTestId('state')).toHaveTextContent('Trabajo de descarga');
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar etiquetado' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(downloadsApi.createDownloadJob).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('state')).toHaveTextContent('Etiqueta');
     const state = JSON.parse(screen.getByTestId('state').textContent ?? '{}') as {
@@ -424,15 +471,20 @@ describe('DownloadJobsProvider', () => {
     const start = screen.getByRole('button', { name: 'Iniciar sin etiqueta' });
 
     fireEvent.click(start);
+
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('entre 1 y 100'));
     fireEvent.click(screen.getByRole('button', { name: 'Limpiar error' }));
     expect(screen.getByTestId('state')).toHaveTextContent('"error":null');
 
     fireEvent.click(start);
+
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent(
       'No se pudo iniciar el trabajo de descarga',
     ));
     fireEvent.click(start);
+    await confirmDownloadPreview();
     await waitFor(() => expect(downloadsApi.createDownloadJob).toHaveBeenCalledTimes(3));
     expect(screen.getByTestId('state')).toHaveTextContent('No se pudo iniciar el trabajo de descarga');
   });
@@ -446,6 +498,7 @@ describe('DownloadJobsProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(cancel).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('QUEUED'));
     fireEvent.click(screen.getByRole('button', { name: 'Descartar' }));
     expect(screen.getByTestId('state')).toHaveTextContent(JOB_ID);
@@ -467,6 +520,8 @@ describe('DownloadJobsProvider', () => {
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
 
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('QUEUED'));
     fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('invalid_job_size'));
@@ -483,6 +538,7 @@ describe('DownloadJobsProvider', () => {
     });
     render(<DownloadJobsProvider><ActionsHarness /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar sin etiqueta' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(reportError).toBeDefined());
 
     act(() => reportError?.(new TypeError('offline')));
@@ -507,6 +563,7 @@ describe('DownloadJobsProvider', () => {
 
       const view = render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
       fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+      await confirmDownloadPreview();
       await waitFor(() => expect(pushJob).toBeDefined());
       const terminalJob = job(status, 100);
       if (status === 'FAILED') {
@@ -544,6 +601,8 @@ describe('DownloadJobsProvider', () => {
     render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
 
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('action-error')).not.toBeEmptyDOMElement());
     expect(screen.getByTestId('status')).toHaveTextContent('READY');
     expect(screen.getByRole('button', { name: 'Cerrar' })).toBeInTheDocument();
@@ -558,6 +617,7 @@ describe('DownloadJobsProvider', () => {
     vi.spyOn(downloadsApi, 'connectDownloadJobEvents').mockReturnValue(vi.fn());
     const view = render(<DownloadJobsProvider><Harness /><GlobalDownloadJobOverlay /></DownloadJobsProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar' }));
+    await confirmDownloadPreview();
     await waitFor(() => expect(screen.getByTestId('action-error')).toHaveTextContent('"httpStatus":503'), { timeout: 15000 });
     const stored = window.sessionStorage.getItem('batch-downloader.download-jobs.v1');
     expect(stored).toContain('download_unavailable');

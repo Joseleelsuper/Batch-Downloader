@@ -1,0 +1,22 @@
+{
+  "download.preview.title": "Review your download",
+  "download.preview.counts": "{installers} installers · {manual} manual links · {omitted} unavailable",
+  "download.preview.known": "Known recorded size",
+  "download.preview.estimated": "Estimated installer size",
+  "download.preview.total": "Recorded installer size",
+  "download.preview.unknownCount": "Installers with unknown size",
+  "download.preview.temporarySpace": "Estimated temporary server space",
+  "download.preview.unknown": "Unknown",
+  "download.preview.sizeHelp": "Sizes are catalogue records before compression. They do not indicate the final ZIP size and may change when sources are revalidated.",
+  "download.preview.estimateHelp": "Unknown sizes are estimated using the median of known installers in this selection.",
+  "download.preview.sourceUnknown": "Source domain not recorded",
+  "download.preview.recordedSize": "Recorded size",
+  "download.preview.edit": "Back to selection",
+  "download.preview.confirm": "Confirm download",
+  "download.preview.warning.budget_estimate_exceeded": "The estimate exceeds the 10 GiB budget. Reduce the selection if the download cannot be admitted.",
+  "download.preview.warning.size_unknown": "There is no recorded size for this installer.",
+  "download.preview.warning.manual_link": "The ZIP will include a link to the official website to complete the download manually.",
+  "download.preview.warning.unavailable": "There is no compatible installer or manual alternative; this application will be omitted.",
+  "download.preview.warning.manual_installation": "The installer will be downloaded, but installation requires manual steps.",
+  "download.preview.warning.dependency": "Added as a dependency of a selected application."
+}

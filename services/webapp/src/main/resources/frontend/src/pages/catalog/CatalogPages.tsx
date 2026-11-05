@@ -38,7 +38,7 @@ import { ResponsivePanel } from '../../components/ResponsivePanel';
 import { useCompactLayout } from '../../hooks/useCompactLayout';
 import { useDownloadJob } from '../../hooks/useDownloadJob';
 import { useSwipePagination } from '../../hooks/useSwipePagination';
-import { chooseDownloadDestination, isDestinationCancelled } from '../../downloads/delivery';
+import { isDestinationCancelled } from '../../downloads/delivery';
 import { useLocale, useTranslation, type Translator } from '../../services/i18n';
 import type {
   AppDetails,
@@ -323,11 +323,10 @@ export function CatalogPage() {
 
   async function downloadSelection() {
     if (validatingSelection || selectedDownloadIdsRef.current.size < 1) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setValidatingSelection(true);
     setError(null);
     try {
-      const destination = chooseDownloadDestination();
-      await destination;
       const validation = await validateCatalogSelection(
         Array.from(selectedDownloadIdsRef.current),
         fetchAppDetails,
@@ -346,9 +345,10 @@ export function CatalogPage() {
       await downloadJob.start({
         appIds: validIds,
         operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
-      }, t('download.job.selectionLabel', { count: validIds.length }), destination);
+      }, t('download.job.selectionLabel', { count: validIds.length }), undefined, trigger);
     } catch (cause) {
-      if (!isDestinationCancelled(cause)) setError(t('catalog.error.zip'));
+      if (!isDestinationCancelled(cause)
+        && !(cause instanceof Error && cause.message === 'download_preview_cancelled')) setError(t('catalog.error.zip'));
     } finally {
       setValidatingSelection(false);
     }

@@ -36,6 +36,7 @@ import {
   cancelDownloadJob,
   connectDownloadJobEvents,
   createDownloadJob,
+  previewDownload,
   downloadJobFileUrl,
   fetchDownloadJobFileLink,
   fetchDownloadJob,
@@ -210,6 +211,20 @@ describe('current identity', () => {
       body: JSON.stringify({ bundleId: 'bundle-1', operatingSystems: ['linux'],
         sourceSelections: { 'app-1': 'source-1' } }),
     }));
+  });
+
+  it('previews an exact selection through the authenticated CSRF-aware client', async () => {
+    const fetcher = vi.fn((input: RequestInfo | URL) => Promise.resolve(new Response(
+      JSON.stringify(String(input).endsWith('/auth/csrf') ? { token: 'csrf' } : { installerCount: 1 }),
+      { status: 200 },
+    )));
+    vi.stubGlobal('fetch', fetcher);
+    const selection = { appIds: ['app-1'], sourceRef: 'source-1', operatingSystems: ['windows'] as const };
+    await previewDownload({ ...selection, operatingSystems: [...selection.operatingSystems] });
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/download-jobs/preview', expect.objectContaining({
+      method: 'POST', credentials: 'include', body: JSON.stringify(selection),
+    }));
+    expect(fetcher).not.toHaveBeenCalledWith('/api/v1/download-jobs', expect.anything());
   });
 
   it('envía la fuente concreta elegida para una descarga individual', async () => {

@@ -23,6 +23,32 @@ export type CreateDownloadJobRequest = Partial<LinuxSelection> & (
   }
   | { bundleId: string; operatingSystems?: OperatingSystem[]; sourceSelections?: Record<string, string> });
 
+export interface DownloadPreview {
+  requestedCount: number;
+  installerCount: number;
+  manualCount: number;
+  omittedCount: number;
+  knownBytes: number;
+  estimatedBytes: number | null;
+  estimated: boolean;
+  unknownSizeCount: number;
+  estimatedPeakBytes: number | null;
+  storageLimitBytes: number;
+  items: {
+    appId: string; name: string; sourceRef: string | null;
+    operatingSystem: OperatingSystem | null; architecture: string | null;
+    finalDomain: string | null; filename: string | null; sizeBytes: number | null;
+    kind: 'installer' | 'manual' | 'unavailable'; warnings: string[];
+  }[];
+  warnings: string[];
+}
+
+export function previewDownload(request: CreateDownloadJobRequest): Promise<DownloadPreview> {
+  return requestJson<DownloadPreview>('/api/v1/download-jobs/preview', {
+    method: 'POST', body: JSON.stringify(request),
+  });
+}
+
 export function previewLinuxDownload(request: CreateDownloadJobRequest): Promise<LinuxPreview> {
   return requestJson<LinuxPreview>('/api/v1/download-jobs/linux-preview', {
     method: 'POST', body: JSON.stringify(request),

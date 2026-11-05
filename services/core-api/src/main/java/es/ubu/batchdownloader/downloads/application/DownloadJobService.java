@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -114,6 +115,67 @@ public class DownloadJobService {
      */
     public record LinuxPreviewItem(UUID appId, String name, UUID sourceRef,
             String installationSupport, boolean dependency) {}
+
+    /** Resumen sin reserva, escrituras, llamadas a resolutores ni creación de trabajos. */
+    public record DownloadPreview(int requestedCount, int installerCount, int manualCount,
+            int omittedCount, long knownBytes, Long estimatedBytes, boolean estimated,
+            int unknownSizeCount, Long estimatedPeakBytes, long storageLimitBytes,
+            List<DownloadPreviewItem> items, List<String> warnings) {}
+
+    /** Fuente registrada o alternativa manual de una aplicación de la selección revisable. */
+    public record DownloadPreviewItem(UUID appId, String name, UUID sourceRef,
+            String operatingSystem, String architecture, String finalDomain, String filename,
+            Long sizeBytes, String kind, List<String> warnings) {}
+
+    @Transactional(readOnly = true)
+    public DownloadPreview preview(DownloadSelection selection) {
+        LinuxTarget target = LinuxTarget.optional(selection.linuxTarget(), selection.targetArchitecture(), selection.operatingSystems());
+        LinkedHashSet<UUID> appIds = normalizedAppIds(selection);
+        validateAppSelection(appIds, selection);
+        if (target != null) appIds.addAll(sources.expandLinuxDependencies(appIds));
+        validateDependencyLimit(appIds);
+        var selected = selectSources(List.copyOf(appIds), target, selection);
+        var manual = manualSources(appIds, target, selection);
+        var metadata = sources.sourceMetadata(selected.values().stream()
+                .map(CatalogSourceLookup.VerifiedSource::sourceRef).toList());
+        var missingNames = sources.appNames(appIds.stream()
+                .filter(id -> !selected.containsKey(id) && !manual.containsKey(id)).toList());
+        List<DownloadPreviewItem> items = appIds.stream().map(id -> {
+            var source = selected.get(id);
+            var fallback = manual.get(id);
+            var details = source == null ? null : metadata.get(source.sourceRef());
+            Long size = details != null && details.sizeBytes() != null && details.sizeBytes() > 0 ? details.sizeBytes() : null;
+            String kind = source != null ? "installer" : fallback != null ? "manual" : "unavailable";
+            List<String> warnings = new ArrayList<>();
+            if ("installer".equals(kind) && size == null) warnings.add("size_unknown");
+            if ("manual".equals(kind)) warnings.add("manual_link");
+            if ("unavailable".equals(kind)) warnings.add("unavailable");
+            if (source != null && "manual".equals(source.installationSupport())) warnings.add("manual_installation");
+            if (!selection.appIds().contains(id)) warnings.add("dependency");
+            return new DownloadPreviewItem(id, source != null ? source.appName() : fallback != null ? fallback.appName() : missingNames.getOrDefault(id, id.toString()),
+                    source == null ? null : source.sourceRef(), source == null ? null : source.operatingSystem(),
+                    source == null ? null : source.architecture(), details == null ? null : details.finalDomain(),
+                    details == null ? null : details.filename(), size, kind, List.copyOf(warnings));
+        }).toList();
+        List<Long> sizes = items.stream().filter(item -> "installer".equals(item.kind())).map(DownloadPreviewItem::sizeBytes).toList();
+        int unknown = (int) sizes.stream().filter(Objects::isNull).count();
+        List<String> warnings = new ArrayList<>();
+        try {
+            long known = sizes.stream().filter(Objects::nonNull).reduce(0L, Math::addExact);
+            Long estimated = null;
+            if (unknown == 0) estimated = known;
+            else if (DownloadStorageBudget.median(sizes) > 0) estimated = DownloadStorageBudget.estimate(sizes, 0);
+            Long peak = estimated == null ? null : DownloadStorageBudget.peak(estimated);
+            if (peak != null && peak > DownloadStorageBudget.LIMIT) warnings.add("budget_estimate_exceeded");
+            return new DownloadPreview(appIds.size(), sizes.size(),
+                    (int) items.stream().filter(item -> "manual".equals(item.kind())).count(),
+                    (int) items.stream().filter(item -> "unavailable".equals(item.kind())).count(), known,
+                    estimated, unknown > 0 && estimated != null, unknown, peak, DownloadStorageBudget.LIMIT,
+                    items, List.copyOf(warnings));
+        } catch (ArithmeticException exception) {
+            throw new ConflictException("download_budget_exceeded", "Los tamaños registrados superan el presupuesto representable.");
+        }
+    }
 
     /**
      * Evalúa compatibilidad y dependencias sin crear trabajos ni encolar descargas; una fuente
