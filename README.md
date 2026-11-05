@@ -103,6 +103,8 @@ Permisos:
 
 El contrato público versionado está en [`shared/contracts/openapi/batch-downloader-api.yaml`](shared/contracts/openapi/batch-downloader-api.yaml).
 
+El catálogo de aplicaciones admite `architecture`, etiquetas repetidas `tag` y `minimumTags` para exigir un mínimo de etiquetas distintas; omitir el mínimo exige todas. El catálogo de bundles admite `direction=asc|desc`, con desempates estables y un índice alfabético coherente con el sentido elegido. Véase el [alcance y la validación de la entrega de enero](docs/tfg/alcance-enero-2027.md) para la selección temporal, la clonación y las propuestas desde búsqueda semántica.
+
 El contrato para herramientas de IA está versionado en [`shared/contracts/openapi/batch-downloader-ai-api.json`](shared/contracts/openapi/batch-downloader-ai-api.json) y se sirve en `/openapi.json`. Incluye exclusivamente siete consultas `GET` sin sesión: búsqueda, filtros, estadísticas y detalle de aplicaciones; listado, filtros y detalle de bundles públicos u oficiales. No incluye autenticación, cookies, CSRF, descargas ni operaciones de usuario, administración o servicios internos.
 
 <details>

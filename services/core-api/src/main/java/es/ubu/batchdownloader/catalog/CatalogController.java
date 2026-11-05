@@ -89,6 +89,7 @@ public class CatalogController {
      * @param page Página numerada desde uno; el controlador la limita a un mínimo de uno.
      * @param pageSize Aplicaciones por página; el controlador limita el rango a 1–100.
      * @param searchMode Modo lexical o semantic; null o blanco selecciona lexical.
+     * @param minimumTags Mínimo de etiquetas distintas; omitirlo exige todas las seleccionadas.
      * @return página de 1–100 aplicaciones con información de búsqueda e índice alfabético al
      *     ordenar por nombre.
      */
@@ -103,7 +104,8 @@ public class CatalogController {
             @RequestParam(defaultValue = "name") String sort,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
-            @RequestParam(defaultValue = "lexical") String searchMode) {
+            @RequestParam(defaultValue = "lexical") String searchMode,
+            @RequestParam(required = false) Integer minimumTags) {
         status = publicCatalogStatus(status);
         int safePage = Math.max(1, page);
         int safePageSize = Math.clamp(pageSize, 1, 100);
@@ -112,13 +114,13 @@ public class CatalogController {
         List<String> publisherList = optionalPublisher(publisher);
         String normalizedStatus = status;
         CatalogQuery filters = new CatalogQuery(
-                query, normalizedStatus, systems, architecture, tagList, publisherList);
+                query, normalizedStatus, systems, architecture, tagList, publisherList, minimumTags);
         return cache.get(
                 "apps",
                 catalog::cacheVersion,
                 List.of(
                         String.valueOf(query), normalizedStatus, systems, String.valueOf(architecture),
-                        tagList, publisherList, sort, safePage, safePageSize, searchMode),
+                        tagList, publisherList, sort, safePage, safePageSize, searchMode, String.valueOf(minimumTags)),
                 () -> {
                     SemanticCandidateSet candidates = semanticSearch.resolve(
                             CatalogSearchMode.parse(searchMode), query);
@@ -163,6 +165,7 @@ public class CatalogController {
      *     solicitadas.
      * @param publisher Editor singular opcional; no se descompone por comas.
      * @param searchMode Modo lexical o semantic; null o blanco selecciona lexical.
+     * @param minimumTags Mínimo de etiquetas distintas aplicado también a las facetas.
      * @return facetas coherentes con el modo aplicado y su eventual degradación.
      */
     @GetMapping("/apps/facets")
@@ -173,20 +176,21 @@ public class CatalogController {
             @RequestParam(required = false) String architecture,
             @RequestParam(required = false, name = "tag") List<String> tag,
             @RequestParam(required = false) String publisher,
-            @RequestParam(defaultValue = "lexical") String searchMode) {
+            @RequestParam(defaultValue = "lexical") String searchMode,
+            @RequestParam(required = false) Integer minimumTags) {
         status = publicCatalogStatus(status);
         List<String> systems = normalizedOperatingSystems(operatingSystems);
         List<String> tagList = parseRepeated(tag);
         List<String> publisherList = optionalPublisher(publisher);
         String normalizedStatus = status;
         CatalogQuery filters = new CatalogQuery(
-                query, normalizedStatus, systems, architecture, tagList, publisherList);
+                query, normalizedStatus, systems, architecture, tagList, publisherList, minimumTags);
         return cache.get(
                 "facets",
                 catalog::cacheVersion,
                 List.of(
                         String.valueOf(query), normalizedStatus, systems, String.valueOf(architecture),
-                        tagList, publisherList, searchMode),
+                        tagList, publisherList, searchMode, String.valueOf(minimumTags)),
                 () -> {
                     SemanticCandidateSet candidates = semanticSearch.resolve(
                             CatalogSearchMode.parse(searchMode), query);

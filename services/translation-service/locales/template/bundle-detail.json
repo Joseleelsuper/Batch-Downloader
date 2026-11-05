@@ -41,5 +41,19 @@
   "bundle.sort.name": "",
   "bundle.sort.name.description": "",
   "bundle.sort.relevance": "",
-  "bundle.sort.relevance.description": ""
+  "bundle.sort.relevance.description": "",
+  "bundle.draft.customize": "",
+  "bundle.draft.clone": "",
+  "bundle.draft.propose": "",
+  "bundle.draft.copyName": "",
+  "bundle.draft.temporary": "",
+  "bundle.draft.unavailable": "",
+  "bundle.draft.explanation": "",
+  "bundle.draft.empty": "",
+  "bundle.draft.save": "",
+  "bundle.draft.back": "",
+  "bundle.sort.ascending": "",
+  "bundle.sort.descending": "",
+  "bundle.draft.why": "",
+  "bundle.draft.noDescription": ""
 }

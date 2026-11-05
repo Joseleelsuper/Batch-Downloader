@@ -75,5 +75,10 @@
   "catalog.sort.toggle": "",
   "catalog.sort.updated": "",
   "catalog.sort.updated.description": "",
-  "catalog.title": ""
+  "catalog.title": "",
+  "catalog.architecture": "",
+  "catalog.architecture.any": "",
+  "catalog.tags.minimum": "",
+  "catalog.tags.all": "",
+  "catalog.tags.atLeast": ""
 }

@@ -604,6 +604,7 @@ paths:
       summary: Buscar aplicaciones del catálogo
       security: []
       parameters:
+      - $ref: '#/components/parameters/MinimumTags'
       - $ref: '#/components/parameters/Page'
       - $ref: '#/components/parameters/PageSize'
       - name: query
@@ -647,7 +648,7 @@ paths:
           type: string
       - name: tag
         in: query
-        description: Puede repetirse; la aplicación debe contener todas las tags indicadas.
+        description: Puede repetirse; se exigen todas las etiquetas salvo que se indique minimumTags.
         style: form
         explode: true
         schema:
@@ -686,6 +687,7 @@ paths:
       summary: Consultar facetas del catálogo filtrado
       security: []
       parameters:
+      - $ref: '#/components/parameters/MinimumTags'
       - name: query
         in: query
         schema:
@@ -726,8 +728,7 @@ paths:
           type: string
       - name: tag
         in: query
-        description: Puede repetirse; las facetas se calculan sobre aplicaciones que contienen todas las
-          tags indicadas.
+        description: Puede repetirse; minimumTags permite exigir un mínimo en vez de todas las etiquetas.
         style: form
         explode: true
         schema:
@@ -1343,6 +1344,12 @@ paths:
       summary: Listar bundles públicos u oficiales
       security: []
       parameters:
+      - name: direction
+        in: query
+        description: Sentido del criterio principal. Si se omite, nombre y relevancia son ascendentes y el resto descendentes. Los empates conservan un desempate estable por identificador.
+        schema:
+          type: string
+          enum: [asc, desc]
       - $ref: '#/components/parameters/Page'
       - $ref: '#/components/parameters/PageSize'
       - name: type
@@ -2919,6 +2926,13 @@ components:
       in: header
       name: X-Internal-Service-Token
   parameters:
+    MinimumTags:
+      name: minimumTags
+      in: query
+      description: Mínimo de etiquetas distintas que debe cumplir la aplicación; al omitirlo se exigen todas. Debe estar entre 1 y el número de etiquetas seleccionadas.
+      schema:
+        type: integer
+        minimum: 1
     Page:
       name: page
       in: query

@@ -19,6 +19,8 @@ interface Props {
   onOperatingSystemChange?: (operatingSystem: OperatingSystem) => void;
   onSelectionLockedChange?: (locked: boolean) => void;
   sourceSelections?: Record<string, string>;
+  /** Selección temporal; no modifica ni vuelve a resolver los items del bundle original. */
+  appIds?: string[];
   compact?: boolean;
 }
 
@@ -34,6 +36,7 @@ export function BundleDownloadButton({
   onOperatingSystemChange,
   onSelectionLockedChange,
   sourceSelections,
+  appIds,
   compact = false,
 }: Readonly<Props>) {
   const t = useTranslation();
@@ -73,7 +76,7 @@ export function BundleDownloadButton({
   function startBundle() {
     if (!selectedPlatform) return;
     void start(
-      { bundleId, operatingSystems: [selectedPlatform],
+      { ...(appIds ? { appIds } : { bundleId }), operatingSystems: [selectedPlatform],
         ...(sourceSelections && Object.keys(sourceSelections).length ? { sourceSelections } : {}) },
       t('download.job.bundleLabel', { name: bundleName || bundleId }),
     ).catch(() => undefined);

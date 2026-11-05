@@ -108,7 +108,7 @@ final class CatalogFilterSql {
             CatalogSql.appendPlaceholders(sql, normalizedTags.size());
             sql.append(")) >= ?\n");
             params.addAll(normalizedTags);
-            params.add(normalizedTags.size());
+            params.add(filters.minimumTags() == null ? normalizedTags.size() : filters.minimumTags());
         }
     }
 

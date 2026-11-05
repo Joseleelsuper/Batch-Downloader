@@ -48,6 +48,10 @@ interface Props {
   onRemoveSelected?: (appId: string) => void;
   operatingSystems?: OperatingSystem[];
   onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
+  architecture?: string;
+  onArchitectureChange?: (architecture: string | undefined) => void;
+  minimumTags?: number;
+  onMinimumTagsChange?: (minimum: number | undefined) => void;
 }
 
 export function AppFilters({
@@ -69,6 +73,10 @@ export function AppFilters({
   onRemoveSelected,
   operatingSystems = ['windows', 'linux', 'macos'],
   onToggleOperatingSystem,
+  architecture,
+  onArchitectureChange,
+  minimumTags,
+  onMinimumTagsChange,
 }: Props) {
   const t = useTranslation();
   const locale = useLocale();
@@ -163,6 +171,18 @@ export function AppFilters({
             );
           })}
         </div>
+      </section>
+      <section className="platform-filter">
+        <label>{t('catalog.architecture')}<select value={architecture ?? ''}
+          onChange={(event) => onArchitectureChange?.(event.target.value || undefined)}>
+          <option value="">{t('catalog.architecture.any')}</option>
+          {['x64', 'x86', 'arm64', 'arm', 'neutral'].map((value) => <option value={value} key={value}>{value}</option>)}
+        </select></label>
+        {selectedTagCount > 1 ? <label>{t('catalog.tags.minimum')}<select value={minimumTags ?? 'all'}
+          onChange={(event) => onMinimumTagsChange?.(event.target.value === 'all' ? undefined : Number(event.target.value))}>
+          <option value="all">{t('catalog.tags.all')}</option>
+          {Array.from({ length: selectedTagCount }, (_, i) => i + 1).map((count) => <option value={count} key={count}>{t('catalog.tags.atLeast', { count })}</option>)}
+        </select></label> : null}
       </section>
       <fieldset
         className="selection-panel"

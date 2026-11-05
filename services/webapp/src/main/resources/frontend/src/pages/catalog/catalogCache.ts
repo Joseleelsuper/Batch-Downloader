@@ -66,6 +66,7 @@ export function appRequest(filters: CatalogFilterState) {
     page: filters.page,
     pageSize: filters.pageSize,
     tags: filters.tags,
+    minimumTags: filters.minimumTags,
     publisher: filters.publisher,
     operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
     architecture: filters.architecture,

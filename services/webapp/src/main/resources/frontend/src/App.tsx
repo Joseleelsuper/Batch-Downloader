@@ -73,6 +73,7 @@ const BundleCatalogPage = lazyNamed(() => import('./pages/catalog/BundleCatalogP
 const BundleFacetDirectoryPage = lazyNamed(() => import('./pages/catalog/BundleFacetDirectoryPage'), 'BundleFacetDirectoryPage');
 const FacetDirectoryPage = lazyNamed(() => import('./pages/catalog/FacetDirectoryPage'), 'FacetDirectoryPage');
 const BundleDetailPage = lazyNamed(() => import('./pages/public/BundleDetailPage'), 'BundleDetailPage');
+const BundleDraftPage = lazyNamed(() => import('./pages/public/BundleDraftPage'), 'BundleDraftPage');
 
 export default function App() {
   return <AuthProvider><AppRoutes /></AuthProvider>;
@@ -97,6 +98,8 @@ function AppRoutes() {
           <Route path="catalog/tags" element={<FacetDirectoryPage kind="tags" />} />
           <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
           <Route path="bundles/:slug" element={<BundleDetailPage />} />
+          <Route path="bundles/:slug/customize" element={<BundleDraftPage />} />
+          <Route path="bundle-proposal" element={<BundleDraftPage />} />
           <Route path="login" element={<UserLoginPage />} />
           <Route path="error" element={<PublicErrorPage />} />
           <Route path="terms" element={<LegalPage kind="terms" />} />

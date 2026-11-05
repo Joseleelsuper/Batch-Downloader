@@ -101,9 +101,14 @@ export function BundleCatalogPage() {
           onClick={() => setMobileOpen(true)}><SlidersHorizontal size={18} />{t('catalog.filters')}</button></div>
         : <h1 className="sr-only">{t('bundle.catalog.title')}</h1>}
       <AppSearchBar value={draft} sort={filters.sort} searchMode={filters.searchMode} onChange={setDraft}
-        onSortChange={(sort) => update({ sort })} onSearchModeChange={(searchMode) => update({ searchMode,
+        onSortChange={(sort) => update({ sort, direction: undefined })} onSearchModeChange={(searchMode) => update({ searchMode,
           sort: searchMode === 'lexical' && filters.sort === 'relevance' ? 'downloads' : filters.sort })}
         sortOptions={sortOptions} labelPrefix="bundle.sort" placeholder={t('bundle.catalog.search')} />
+      <button type="button" className="secondary-button" onClick={() => update({ direction:
+        (filters.direction ?? (['name', 'relevance'].includes(filters.sort) ? 'asc' : 'desc')) === 'asc' ? 'desc' : 'asc' })}>
+        {t((filters.direction ?? (['name', 'relevance'].includes(filters.sort) ? 'asc' : 'desc')) === 'asc'
+          ? 'bundle.sort.ascending' : 'bundle.sort.descending')}
+      </button>
       {response?.degradedReason ? <p className="semantic-notice" role="status">{t('bundle.catalog.semanticFallback')}</p> : null}
       {filters.sort === 'name' && response ? <nav className="catalog-alphabet" aria-label={t('catalog.alphabet.aria')}>
         {ALPHABET.map((letter) => { const entry = response.alphabet?.find((value) => value.letter === letter);

@@ -41,5 +41,19 @@
   "bundle.sort.name": "Nombre",
   "bundle.sort.name.description": "Orden alfabético por nombre.",
   "bundle.sort.relevance": "Relevancia",
-  "bundle.sort.relevance.description": "Primero los bundles más relacionados con tu búsqueda."
+  "bundle.sort.relevance.description": "Primero los bundles más relacionados con tu búsqueda.",
+  "bundle.draft.customize": "Personalizar selección",
+  "bundle.draft.clone": "Clonar en mi cuenta",
+  "bundle.draft.propose": "Proponer bundle con búsqueda semántica",
+  "bundle.draft.copyName": "Copia de {name}",
+  "bundle.draft.temporary": "Revisa, añade o quita aplicaciones. El bundle original se conserva; solo se guarda una copia privada si lo solicitas.",
+  "bundle.draft.unavailable": "La búsqueda semántica no está disponible. No se ha generado una propuesta. Puedes preparar la selección manualmente.",
+  "bundle.draft.explanation": "Propuesta de la búsqueda semántica para «{query}»: hasta 12 aplicaciones del catálogo, ordenadas por similitud. Revisa sus descripciones y compatibilidad antes de continuar.",
+  "bundle.draft.empty": "La selección está vacía. Puedes añadir aplicaciones del catálogo.",
+  "bundle.draft.save": "Guardar como bundle privado",
+  "bundle.draft.back": "Volver al catálogo de origen",
+  "bundle.sort.ascending": "Orden ascendente",
+  "bundle.sort.descending": "Orden descendente",
+  "bundle.draft.why": "Por qué aparecen estas aplicaciones",
+  "bundle.draft.noDescription": "Coincidencia semántica sin descripción disponible."
 }

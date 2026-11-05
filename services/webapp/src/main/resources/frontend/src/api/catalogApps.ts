@@ -17,6 +17,7 @@ export async function fetchApps(params: {
   page: number;
   pageSize: number;
   tags?: string[];
+  minimumTags?: number;
   publisher?: string;
   operatingSystems?: OperatingSystem[];
   architecture?: string;
@@ -26,6 +27,7 @@ export async function fetchApps(params: {
   if (params.query.trim()) search.set('query', params.query.trim());
   if (params.filter !== 'all') search.set('status', params.filter);
   params.tags?.forEach((tag) => search.append('tag', tag));
+  if (params.minimumTags) search.set('minimumTags', String(params.minimumTags));
   if (params.publisher) search.set('publisher', params.publisher);
   params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
@@ -40,6 +42,7 @@ export async function fetchCatalogFacets(params: {
   query: string;
   filter: FilterKey;
   tags?: string[];
+  minimumTags?: number;
   publisher?: string;
   operatingSystems?: OperatingSystem[];
   architecture?: string;
@@ -49,6 +52,7 @@ export async function fetchCatalogFacets(params: {
   if (params.query.trim()) search.set('query', params.query.trim());
   if (params.filter !== 'all') search.set('status', params.filter);
   params.tags?.forEach((tag) => search.append('tag', tag));
+  if (params.minimumTags) search.set('minimumTags', String(params.minimumTags));
   if (params.publisher) search.set('publisher', params.publisher);
   params.operatingSystems?.forEach((operatingSystem) => search.append('os', operatingSystem));
   if (params.architecture) search.set('architecture', params.architecture);
