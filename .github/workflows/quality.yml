@@ -4,7 +4,8 @@ on:
   push:
     branches: [main, development]
   pull_request:
-    branches: [main]
+    branches: [main, development]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,7 +40,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            changed_files=(".github/workflows/quality.yml")
+          elif [[ "${EVENT_NAME}" == "pull_request" ]]; then
             mapfile -t changed_files < <(git diff --name-only --diff-filter=ACDMRT "${BASE_SHA}" "${HEAD_SHA}")
           elif [[ "${BEFORE_SHA}" =~ ^0+$ ]]; then
             mapfile -t changed_files < <(git diff-tree --root --no-commit-id --name-only -r "${HEAD_SHA}")
@@ -59,22 +62,22 @@ jobs:
 
           for file in "${changed_files[@]}"; do
             case "${file}" in
-              scripts/java/*|services/core-api/Dockerfile|services/download-worker/Dockerfile|services/notification-service/Dockerfile|services/translation-service/Dockerfile|pom.xml|shared/java-contracts/*|services/core-api/src/*|services/core-api/pom.xml|services/download-worker/src/*|services/download-worker/pom.xml|services/notification-service/src/*|services/notification-service/pom.xml|services/translation-service/src/*|services/translation-service/pom.xml)
+              .github/workflows/quality.yml|scripts/java/*|services/core-api/Dockerfile|services/download-worker/Dockerfile|services/notification-service/Dockerfile|services/translation-service/Dockerfile|pom.xml|shared/java-contracts/*|services/core-api/src/*|services/core-api/pom.xml|services/download-worker/src/*|services/download-worker/pom.xml|services/notification-service/src/*|services/notification-service/pom.xml|services/translation-service/src/*|services/translation-service/locales/*|services/translation-service/pom.xml)
                 java=true
                 ;;
             esac
             case "${file}" in
-              api/scraper/*)
+              .github/workflows/quality.yml|api/scraper/*)
                 scraper=true
                 ;;
             esac
             case "${file}" in
-              services/semantic-service/*)
+              .github/workflows/quality.yml|services/semantic-service/*)
                 semantic=true
                 ;;
             esac
             case "${file}" in
-              services/webapp/src/main/resources/frontend/*)
+              .github/workflows/quality.yml|services/translation-service/locales/*|services/webapp/src/main/resources/frontend/*)
                 frontend=true
                 ;;
             esac
@@ -84,12 +87,12 @@ jobs:
                 ;;
             esac
             case "${file}" in
-              docker-compose.yml|docker-compose.ghcr.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env*.example|services/*/.env*.example|docker/*|scripts/compose_health.py|scripts/sync-service-env-files.ps1|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
+              .github/workflows/quality.yml|docker-compose.yml|docker-compose.ghcr.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env*.example|services/*/.env*.example|docker/*|scripts/compose_health.py|scripts/sync-service-env-files.ps1|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
                 compose=true
                 ;;
             esac
             case "${file}" in
-              scripts/linux-installer/*|services/download-worker/src/main/resources/linux-installer/*)
+              .github/workflows/quality.yml|scripts/linux-installer/*|services/download-worker/src/main/resources/linux-installer/*)
                 linux_installer=true
                 ;;
             esac
@@ -316,7 +319,7 @@ jobs:
   download-flow-smoke:
     name: Full browser download flow
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.download_flow == 'true'
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.download_flow == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
