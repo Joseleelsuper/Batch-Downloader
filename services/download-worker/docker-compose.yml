@@ -7,6 +7,9 @@ services:
       - path: ./.env
         required: true
     environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?}
+      MYSQL_USER: ${MYSQL_USER:?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
       RABBITMQ_HOST: ${RABBITMQ_HOST:?}
       RABBITMQ_PORT: ${RABBITMQ_PORT:?}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?}

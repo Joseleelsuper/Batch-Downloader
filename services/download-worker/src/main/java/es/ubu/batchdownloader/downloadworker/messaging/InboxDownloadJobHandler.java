@@ -1,9 +1,11 @@
 package es.ubu.batchdownloader.downloadworker.messaging;
 
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler;
-import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
+import es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRequestedEvent;
 import es.ubu.batchdownloader.downloadworker.ports.InboxRepository;
+import es.ubu.batchdownloader.downloadworker.ports.WorkerExecutionLocks;
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +22,7 @@ import org.slf4j.LoggerFactory;
 public final class InboxDownloadJobHandler implements DownloadJobHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger(InboxDownloadJobHandler.class);
     private final InboxRepository inbox;
-    private final DownloadProperties properties;
+    private final WorkerExecutionLocks locks;
     private final DownloadJobHandler delegate;
     private final java.util.concurrent.ConcurrentHashMap<java.util.UUID,
             java.util.concurrent.CompletableFuture<Void>> running = new java.util.concurrent.ConcurrentHashMap<>();
@@ -29,16 +31,16 @@ public final class InboxDownloadJobHandler implements DownloadJobHandler {
      * Conecta reserva, duración del arrendamiento y siguiente etapa de procesamiento.
      *
      * @param inbox Reserva y deduplicación de los eventos recibidos.
-     * @param properties Configuración que aporta la duración de reserva del inbox.
+     * @param locks Exclusión entre procesos que precede a la reserva del inbox.
      * @param delegate Siguiente etapa de la cadena, que solo recibe eventos admitidos por esta
      *     política.
      */
     public InboxDownloadJobHandler(
             InboxRepository inbox,
-            DownloadProperties properties,
+            WorkerExecutionLocks locks,
             DownloadJobHandler delegate) {
         this.inbox = inbox;
-        this.properties = properties;
+        this.locks = locks;
         this.delegate = delegate;
     }
 
@@ -65,7 +67,16 @@ public final class InboxDownloadJobHandler implements DownloadJobHandler {
     }
 
     private void process(DownloadJobRequestedEvent event) {
-        if (!inbox.tryStart(event.eventId(), properties.inboxLease())) {
+        try (var lease = locks.tryJob(event.payload().jobId())) {
+            if (lease == null) throw new CapacityDeferredException("temporary_storage_busy", null);
+            // Con la región exclusiva, un PROCESSING anterior no conserva escritores.
+            // No se confirma una redelivery ocupada: debe seguir siendo recuperable si cae su dueño.
+            processExclusively(event);
+        }
+    }
+
+    private void processExclusively(DownloadJobRequestedEvent event) {
+        if (!inbox.tryStart(event.eventId(), Duration.ZERO)) {
             LOGGER.info(
                     "Ignoring duplicate download event eventId={} jobId={}",
                     event.eventId(), event.payload().jobId());

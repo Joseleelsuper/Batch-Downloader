@@ -15,7 +15,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Poda entradas completadas del inbox local por antigüedad y en lotes acotados, conservando
+ * Poda entradas completadas del inbox compartido por antigüedad y en lotes acotados, conservando
  * reservas de trabajos todavía en procesamiento.
  *
  * @see es.ubu.batchdownloader.downloadworker.infrastructure.persistence.JdbcInboxRepository
@@ -37,7 +37,7 @@ public class DownloadInboxRetentionPruner {
     /**
      * Conecta la consulta de entradas antiguas, el reloj y los contadores de mantenimiento.
      *
-     * @param jdbc Acceso SQL al inbox local del worker.
+     * @param jdbc Acceso SQL al inbox compartido del worker.
      * @param clock Reloj para reservas, confirmaciones y cortes de retención.
      * @param meterRegistry Contadores de entradas eliminadas y fallos de retención.
      * @param interval Cadencia descontada del plazo máximo de conservación.

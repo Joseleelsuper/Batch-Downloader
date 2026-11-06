@@ -45,6 +45,7 @@ public class DownloadStorageCoordinator {
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final AtomicBoolean ticking = new AtomicBoolean();
     private final Set<UUID> operations = ConcurrentHashMap.newKeySet();
+    private final String instanceId = UUID.randomUUID().toString();
     private volatile boolean reconciled;
     private volatile Boolean accountDeletionTableAvailable;
 
@@ -268,7 +269,8 @@ public class DownloadStorageCoordinator {
             Entry row = entry(jobId);
             if (row == null || !row.phase().equals("READY") || row.delivery().equals("SAVED"))
                 throw new ConflictException("download_not_ready", "El ZIP no está disponible.");
-            if (jdbc.update("INSERT IGNORE INTO download_job_transfers(transfer_id,job_id) VALUES (?,?)", transferId.toString(), jobId.toString()) > 0)
+            if (jdbc.update("INSERT IGNORE INTO download_job_transfers(transfer_id,job_id,core_instance_id,last_seen_at) VALUES (?,?,?,?)",
+                    transferId.toString(), jobId.toString(), instanceId, now()) > 0)
                 jdbc.update("UPDATE download_job_storage SET active_transfers=active_transfers+1,delivery_status='TRANSFERRING',last_activity_at=?,last_progress_at=? WHERE job_id=?", now(), now(), jobId.toString());
             return null;
         });
@@ -286,6 +288,24 @@ public class DownloadStorageCoordinator {
                 jdbc.update("UPDATE download_job_storage SET active_transfers=GREATEST(0,active_transfers-1),last_activity_at=? WHERE job_id=?", now(), jobId.toString());
             return null;
         });
+    }
+
+    /** Un proceso caído deja de renovar; otra réplica retira sus referencias tras dos minutos. */
+    @Scheduled(fixedDelay = 10_000)
+    public void renewTransfers() {
+        jdbc.update("UPDATE download_job_transfers SET last_seen_at=? WHERE core_instance_id=?", now(), instanceId);
+    }
+
+    private void reconcileTransfers() {
+        jdbc.update("DELETE FROM download_job_transfers WHERE last_seen_at<?",
+                Timestamp.from(clock.instant().minusSeconds(120)));
+        jdbc.update("""
+                UPDATE download_job_storage s
+                LEFT JOIN (SELECT job_id,COUNT(*) AS active FROM download_job_transfers GROUP BY job_id) t
+                  ON t.job_id=s.job_id
+                SET s.active_transfers=COALESCE(t.active,0)
+                WHERE s.active_transfers<>COALESCE(t.active,0)
+                """);
     }
 
     public boolean transferAllowed(UUID jobId) {
@@ -402,6 +422,7 @@ public class DownloadStorageCoordinator {
 
     private void expireInactive() {
         locked(() -> {
+            reconcileTransfers();
             jdbc.update("""
                     UPDATE download_job_storage s JOIN download_jobs j ON j.id=s.job_id
                     SET s.phase='CLEANING',s.delivery_status=CASE WHEN s.delivery_status='SAVED' THEN 'SAVED' ELSE 'CLEANING' END
@@ -476,12 +497,22 @@ public class DownloadStorageCoordinator {
                 .collect(java.util.stream.Collectors.toMap(DownloadStorage.StoredJob::jobId, j -> j));
         for (var stored : inventory.jobs()) if (entry(stored.jobId()) == null) storage.delete(stored.jobId());
         locked(() -> {
-            jdbc.update("DELETE FROM download_job_transfers");
-            jdbc.update("UPDATE download_job_storage SET active_transfers=0");
+            reconcileTransfers();
             for (UUID id : ids("SELECT job_id FROM download_job_storage")) {
                 Entry row = entry(id);
                 var disk = files.get(id);
                 long bytes = disk == null ? 0 : Math.max(0, disk.bytes());
+                // El ledger actual es la autoridad. Una instantánea anterior a READY no debe
+                // cancelar otro proceso; solo los registros heredados requieren reconstrucción.
+                if (!row.phase().equals("RECONCILING")) {
+                    if (row.phase().equals("CLEANED") && bytes > 0) {
+                        jdbc.update("UPDATE download_job_storage SET phase='CLEANING',delivery_status='CLEANING',reserved_bytes=? WHERE job_id=?",
+                                Math.max(bytes, row.reserved()), id.toString());
+                    } else if (bytes > row.reserved()) {
+                        jdbc.update("UPDATE download_job_storage SET reserved_bytes=? WHERE job_id=?", bytes, id.toString());
+                    }
+                    continue;
+                }
                 String state = jdbc.queryForObject("SELECT status FROM download_jobs WHERE id=?", String.class, id.toString());
                 if (!List.of("CLEANING", "CLEANED").contains(row.phase()) && List.of("READY", "PARTIAL", "MANUAL_ONLY").contains(state) && disk != null && !disk.active()) {
                     jdbc.update("UPDATE download_job_storage SET phase='READY',reserved_bytes=?,last_activity_at=?,last_progress_at=? WHERE job_id=?", bytes, now(), now(), id.toString());

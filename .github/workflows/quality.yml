@@ -87,7 +87,7 @@ jobs:
                 ;;
             esac
             case "${file}" in
-              .github/workflows/quality.yml|docker-compose.yml|docker-compose.ghcr.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env*.example|services/*/.env*.example|docker/*|scripts/compose_health.py|scripts/sync-service-env-files.ps1|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
+              .github/workflows/quality.yml|docker-compose.yml|docker-compose.ghcr.yml|docker-compose.scale.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env*.example|services/*/.env*.example|docker/*|scripts/compose_health.py|scripts/sync-service-env-files.ps1|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
                 compose=true
                 ;;
             esac
@@ -97,7 +97,7 @@ jobs:
                 ;;
             esac
             case "${file}" in
-              .github/workflows/quality.yml|.env.example|docker-compose.yml|docker-compose.ghcr.yml|docker/minio/*|api/scraper/*|services/core-api/*|services/download-worker/*|services/translation-service/*|services/webapp/*|shared/contracts/*|shared/java-contracts/*|scripts/e2e/*)
+              .github/workflows/quality.yml|.env.example|docker-compose.yml|docker-compose.ghcr.yml|docker-compose.scale.yml|docker/minio/*|api/scraper/*|services/core-api/*|services/download-worker/*|services/translation-service/*|services/webapp/*|shared/contracts/*|shared/java-contracts/*|scripts/e2e/*)
                 download_flow=true
                 ;;
             esac
@@ -362,10 +362,11 @@ jobs:
               for example in directory.rglob(".env*.example"):
                   shutil.copyfile(example, example.with_suffix(""))
           PY
-      - name: Run isolated end-to-end download scenario
+      - name: Run isolated download and replica recovery scenario
         run: npm run test:download-flow
         working-directory: services/webapp/src/main/resources/frontend
         env:
+          DOWNLOAD_FLOW_REPLICAS: "2"
           DOWNLOAD_FLOW_COMPOSE_PROJECT: batch-downloader-download-flow-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Remove isolated Compose project and volumes
         if: always()

@@ -35,7 +35,7 @@ public class JdbcInboxRepository implements InboxRepository {
     /**
      * Conecta las transiciones del inbox con el reloj de reservas.
      *
-     * @param jdbc Acceso SQL al inbox local del worker.
+     * @param jdbc Acceso SQL al inbox compartido de los workers.
      * @param clock Reloj para reservas, confirmaciones y cortes de retención.
      */
     public JdbcInboxRepository(JdbcTemplate jdbc, Clock clock) {
@@ -43,18 +43,12 @@ public class JdbcInboxRepository implements InboxRepository {
         this.clock = clock;
     }
 
-    /** El H2 es exclusivo de este proceso: las ejecuciones anteriores ya no tienen escritores. */
-    public void recoverAbandoned() {
-        jdbc.update("UPDATE download_inbox SET started_at = ? WHERE status = 'PROCESSING'",
-                Timestamp.from(Instant.EPOCH));
-    }
-
     /**
      * Inserta una reserva nueva o, ante UUID duplicado, intenta recuperar únicamente una reserva
      * PROCESSING anterior al corte del arrendamiento.
      *
      * @param eventId UUID estable del evento de entrada que se deduplica.
-     * @param lease Duración máxima desde started_at antes de recuperar una reserva abandonada.
+     * @param lease Duración máxima desde started_at; cero requiere exclusión previa del trabajo.
      * @return true si insertó o recuperó la reserva; false si ya terminó o sigue vigente.
      */
     @Override
@@ -73,10 +67,11 @@ public class JdbcInboxRepository implements InboxRepository {
                     """
                     UPDATE download_inbox
                     SET started_at = ?, completed_at = NULL
-                    WHERE event_id = ? AND status = 'PROCESSING' AND started_at < ?
+                    WHERE event_id = ? AND status = 'PROCESSING' AND (? OR started_at <= ?)
                     """,
                     Timestamp.from(now),
                     eventId.toString(),
+                    lease.isZero(),
                     Timestamp.from(staleBefore));
             return reclaimed == 1;
         }

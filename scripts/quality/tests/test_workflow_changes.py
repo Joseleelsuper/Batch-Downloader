@@ -47,6 +47,9 @@ class WorkflowChangesTest(unittest.TestCase):
     def test_workflow_change_runs_every_suite(self):
         self.assertEqual(SUITES, self.selected(['.github/workflows/quality.yml']))
 
+    def test_replica_override_runs_compose_and_download_recovery(self):
+        self.assertTrue({'compose', 'download_flow'} <= self.selected(['docker-compose.scale.yml']))
+
     def test_manual_dispatch_runs_every_suite_without_a_git_diff(self):
         self.assertEqual(SUITES, self.selected([], event='workflow_dispatch'))
 

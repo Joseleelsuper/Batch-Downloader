@@ -27,6 +27,8 @@ import es.ubu.batchdownloader.downloadworker.infrastructure.http.MeteredRemoteDo
 import es.ubu.batchdownloader.downloadworker.infrastructure.http.PublicHttpsUriPolicy;
 import es.ubu.batchdownloader.downloadworker.infrastructure.messaging.RabbitEventPublisher;
 import es.ubu.batchdownloader.downloadworker.infrastructure.persistence.JdbcInboxRepository;
+import es.ubu.batchdownloader.downloadworker.infrastructure.persistence.FileWorkerExecutionLocks;
+import es.ubu.batchdownloader.downloadworker.ports.WorkerExecutionLocks;
 import es.ubu.batchdownloader.downloadworker.infrastructure.storage.MinioArtifactStore;
 import es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpJobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.infrastructure.source.HttpSourceReferenceResolver;
@@ -192,19 +194,18 @@ public class WorkerConfiguration {
      *
      * @param validator Bean Validation aplicado al sobre y contenido antes de reservar el inbox.
      * @param inbox Deduplicación y reserva temporal del comando recibido.
-     * @param properties Configuración tipada de destinos, límites o credenciales que utiliza el
-     *     componente construido.
      * @param processor Coordinador al que se delega después de validar y reservar el evento.
+     * @param locks Exclusión entre procesos sobre el volumen local compartido.
      * @return cadena validación, deduplicación y procesamiento.
      */
     @Bean("downloadJobHandler")
     DownloadJobHandler downloadJobHandler(
             Validator validator,
             InboxRepository inbox,
-            DownloadProperties properties,
+            WorkerExecutionLocks locks,
             DownloadJobProcessor processor) {
         DownloadJobHandler handler = processor::process;
-        handler = new InboxDownloadJobHandler(inbox, properties, handler);
+        handler = new InboxDownloadJobHandler(inbox, locks, handler);
         return new ValidatedDownloadJobHandler(validator, handler);
     }
 
@@ -413,14 +414,21 @@ public class WorkerConfiguration {
     /**
      * Configura reserva y deduplicación del inbox con JDBC y reloj común.
      *
-     * @param jdbcTemplate Acceso SQL al inbox local del worker.
+     * @param jdbcTemplate Acceso SQL al inbox compartido del worker.
      * @param clock Reloj UTC compartido para eventos, reservas y métricas.
-     * @return repositorio local de mensajes procesados.
+     * @return repositorio compartido de mensajes procesados.
      */
-    @Bean(initMethod = "recoverAbandoned")
+    @Bean
     @org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization
     InboxRepository inboxRepository(JdbcTemplate jdbcTemplate, Clock clock) {
         return new JdbcInboxRepository(jdbcTemplate, clock);
+    }
+
+    /** El canal vive hasta terminar el proceso para no liberar escritores durante su apagado. */
+    @Bean(destroyMethod = "")
+    WorkerExecutionLocks workerExecutionLocks(DownloadProperties properties) {
+        return new FileWorkerExecutionLocks(java.nio.file.Path.of(properties.tempDirectory()),
+                properties.packagingConcurrency());
     }
 
     /**

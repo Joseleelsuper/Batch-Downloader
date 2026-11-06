@@ -115,4 +115,36 @@ class AdminBootstrapTest {
         return new AdminBootstrap(
                 users, clock, " admin ", "admin@batch-downloader.local", ADMIN_PASSWORD, passwords);
     }
+
+    @Test void acceptsAConcurrentReplicaOnlyWhenTheCommittedAdminPasswordMatches() {
+        UserAccount concurrent = UserAccount.bootstrapAdmin("admin", "admin", "admin@example.com",
+                "admin@example.com", "other-replica-hash", NOW);
+        when(users.findByNormalizedUsername("admin")).thenReturn(Optional.empty(), Optional.of(concurrent));
+        when(passwords.encode(ADMIN_PASSWORD)).thenReturn("candidate-hash");
+        org.mockito.Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate"))
+                .when(users).save(org.mockito.ArgumentMatchers.any());
+        when(passwords.matches(ADMIN_PASSWORD, "other-replica-hash")).thenReturn(true);
+
+        bootstrap().run(arguments);
+
+        verify(passwords).matches(ADMIN_PASSWORD, "other-replica-hash");
+    }
+
+    @Test void doesNotIgnoreAnUnrelatedUniqueConstraintFailure() {
+        when(users.findByNormalizedUsername("admin")).thenReturn(Optional.empty());
+        when(passwords.encode(ADMIN_PASSWORD)).thenReturn("candidate-hash");
+        var conflict = new org.springframework.dao.DataIntegrityViolationException("email conflict");
+        org.mockito.Mockito.doThrow(conflict).when(users).save(org.mockito.ArgumentMatchers.any());
+        assertThatThrownBy(() -> bootstrap().run(arguments)).isSameAs(conflict);
+    }
+
+    @Test void concurrentCreationCannotPromoteAUserWithTheAdminName() {
+        UserAccount user = UserAccount.createUser("admin", "admin", "user@example.com", "user@example.com", NOW);
+        when(users.findByNormalizedUsername("admin")).thenReturn(Optional.empty(), Optional.of(user));
+        when(passwords.encode(ADMIN_PASSWORD)).thenReturn("candidate-hash");
+        org.mockito.Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate"))
+                .when(users).save(org.mockito.ArgumentMatchers.any());
+        assertThatThrownBy(() -> bootstrap().run(arguments)).hasMessage("bootstrap_admin_username_conflict");
+        verify(users, never()).save(user);
+    }
 }
