@@ -51,7 +51,7 @@
   "bundle.draft.explanation": "Propuesta de la búsqueda semántica para «{query}»: hasta 12 aplicaciones del catálogo, ordenadas por similitud. Revisa sus descripciones y compatibilidad antes de continuar.",
   "bundle.draft.empty": "La selección está vacía. Puedes añadir aplicaciones del catálogo.",
   "bundle.draft.save": "Guardar como bundle privado",
-  "bundle.draft.back": "Volver al catálogo de origen",
+  "bundle.draft.back": "Volver al catálogo",
   "bundle.sort.ascending": "Orden ascendente",
   "bundle.sort.descending": "Orden descendente",
   "bundle.draft.why": "Por qué aparecen estas aplicaciones",

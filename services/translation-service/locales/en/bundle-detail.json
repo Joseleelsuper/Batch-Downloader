@@ -51,7 +51,7 @@
   "bundle.draft.explanation": "Semantic search suggestion for “{query}”: up to 12 catalogue apps ranked by similarity. Review their descriptions and compatibility before continuing.",
   "bundle.draft.empty": "The selection is empty. You can add apps from the catalogue.",
   "bundle.draft.save": "Save as a private bundle",
-  "bundle.draft.back": "Back to the source catalogue",
+  "bundle.draft.back": "Back to the catalogue",
   "bundle.sort.ascending": "Ascending order",
   "bundle.sort.descending": "Descending order",
   "bundle.draft.why": "Why these apps appear",

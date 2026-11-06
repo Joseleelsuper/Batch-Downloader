@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { createOwnBundle } from '../../api/account';
 import { fetchBundle } from '../../api/bundles';
@@ -68,9 +69,16 @@ export function BundleDraftPage() {
   }
 
   return <main className="content-page bundle-draft-page">
-    <header className="bundle-draft-header">
-      <h1>{t(slug ? 'bundle.draft.customize' : 'bundle.draft.propose')}</h1>
-      <p>{t('bundle.draft.temporary')}</p>
+    <header className="bundle-detail-header bundle-draft-header">
+      <div className="bundle-draft-heading">
+        <h1>{t(slug ? 'bundle.draft.customize' : 'bundle.draft.propose')}</h1>
+        <p>{t('bundle.draft.temporary')}</p>
+      </div>
+      {draft ? <div className="bundle-detail-actions bundle-draft-download">
+        <BundleDownloadButton key={scope} bundleId="draft" bundleName={name} appCount={apps.length}
+          appIds={apps.map((app) => app.id)} operatingSystems={availability.map((item) => item.operatingSystem)}
+          platformAvailability={availability} onSelectionLockedChange={setLocked} />
+      </div> : null}
     </header>
     <AsyncContent {...resource} hasData={Boolean(draft)} onRetry={resource.refresh} errorMessage={t('bundle.loadError')}>{null}</AsyncContent>
     {draft ? <>
@@ -88,17 +96,16 @@ export function BundleDraftPage() {
         <BundleAppPicker apps={apps} onChange={(next) => change(next)} />
       </fieldset>
       {error ? <p className="error-banner" role="alert">{error}</p> : null}
-      <div className="bundle-draft-actions">
-        {account?.role === 'USER' && draft.canSave ? <form className="bundle-fields bundle-draft-save" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      {account?.role === 'USER' && draft.canSave ? <div className="bundle-draft-actions">
+        <form className="bundle-fields bundle-draft-save" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <label>{t('account.bundles.name')}<input value={name} maxLength={160} required
             disabled={saving} onChange={(event) => change(apps, event.target.value)} /></label>
           <button className="secondary-button" type="submit" disabled={saving || !apps.length}>{t('bundle.draft.save')}</button>
-        </form> : null}
-        <BundleDownloadButton key={scope} bundleId="draft" bundleName={name} appCount={apps.length}
-          appIds={apps.map((app) => app.id)} operatingSystems={availability.map((item) => item.operatingSystem)}
-          platformAvailability={availability} onSelectionLockedChange={setLocked} />
-      </div>
+        </form>
+      </div> : null}
     </> : null}
-    <p className="bundle-draft-back"><Link to={slug ? `/bundles/${encodeURIComponent(slug)}` : `/catalog?${params}`}>{t('bundle.draft.back')}</Link></p>
+    <p className="bundle-draft-back"><Link className="secondary-button" to={slug ? `/bundles/${encodeURIComponent(slug)}` : `/catalog?${params}`}>
+      <ArrowLeft size={18} aria-hidden="true" />{t('bundle.draft.back')}
+    </Link></p>
   </main>;
 }
