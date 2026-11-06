@@ -18,6 +18,20 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Verifica que la auditoría siga siendo no bloqueante sin ocultar sus fallos. */
 class AdminAuditServiceTest {
+    @Test void successfulOperationsHaveAnOutcomeAndExplicitFailuresKeepTheirs() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        var mapper = new ObjectMapper();
+        AdminAuditService audit = new AdminAuditService(jdbc, mapper,
+                Clock.fixed(Instant.parse("2026-11-06T15:00:00Z"), ZoneOffset.UTC), new SimpleMeterRegistry());
+        audit.record("admin-id", "app.update", "app", "app-id", Map.of());
+        audit.record("admin-id", "app.update", "app", "app-id", Map.of("outcome", "failure", "code", "invalid_input"));
+        var parameters = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.times(2)).update(anyString(), parameters.capture());
+        assertThat(mapper.readTree((String) parameters.getAllValues().get(0)[5]).get("outcome").asText()).isEqualTo("success");
+        assertThat(mapper.readTree((String) parameters.getAllValues().get(1)[5]).get("outcome").asText()).isEqualTo("failure");
+        assertThat(parameters.getAllValues().get(0)[1]).isEqualTo("admin-id");
+    }
+
     @Test
     void exposesPersistenceFailuresThroughAMetricWithoutBreakingTheOperation() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

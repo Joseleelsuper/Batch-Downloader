@@ -37,7 +37,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
  */
 @WebMvcTest({AdminAppController.class, LinuxInstallAdminController.class, AdminScraperController.class})
-@Import({SecurityConfig.class, AdminAppService.class})
+@Import({SecurityConfig.class, AdminAppService.class, AdminAuditWebConfiguration.class})
 @TestPropertySource(properties = {
     "server.port=0",
     "server.servlet.session.cookie.secure=false",
@@ -120,6 +120,29 @@ class AdminAppSecurityTest {
                 .contentType("application/json")
                 .content(validRequest()))
                 .andExpect(status().isForbidden());
+        org.mockito.Mockito.verifyNoInteractions(audit);
+    }
+
+    @Test
+    void rejectedAdminInputIsAuditedAfterSecurityAllowsTheRequest() throws Exception {
+        mvc.perform(post("/api/v1/admin/apps/{appId}/manual-installer-inspections", APP_ID)
+                .with(administrator()).with(csrf()).contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verify(audit).record(anyString(),
+                org.mockito.ArgumentMatchers.eq("admin.request.failed"),
+                org.mockito.ArgumentMatchers.eq("admin-route"), org.mockito.ArgumentMatchers.eq(APP_ID),
+                org.mockito.ArgumentMatchers.argThat(metadata -> metadata.get("status").equals(400)
+                        && metadata.get("route").equals("/api/v1/admin/apps/{appId}/manual-installer-inspections")));
+    }
+
+    @Test
+    void auditQueryRejectsUsersAndAllowsAdministrators() throws Exception {
+        var user = new AccountPrincipal(UUID.randomUUID(), "regular-user", UserRole.USER);
+        mvc.perform(get("/api/v1/admin/audit").with(authentication(
+                new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()))))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/audit").with(administrator())).andExpect(status().isOk());
+        org.mockito.Mockito.verify(scraper).audit(100);
     }
 
     /**
