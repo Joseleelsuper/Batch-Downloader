@@ -10,6 +10,10 @@ El depósito está previsto para el 12–14 de enero de 2027 y la defensa para e
 - Los cambios se realizan directamente en `development`, por indicación expresa del autor. Las referencias a commits sustituyen los enlaces a PR cuando no existe un PR real.
 - Los avisos de finalización de descargas por correo (#29) quedan excluidos de enero por decisión expresa del autor. Su issue se conserva como no planificada; el correo de acceso mediante magic link continúa dentro del alcance.
 
+El 6 de noviembre el autor acotó el escalado (#42) a varias réplicas de Core y
+del worker en un mismo servidor Docker. Su verificación debe incluir estado
+compartido, límites globales y recuperación tras la caída de una réplica.
+
 ## Selecciones editables
 
 Desde el detalle de un bundle se puede abrir **Personalizar selección**. La selección se conserva únicamente en el estado de la página. Añadir, retirar o reordenar aplicaciones no cambia el bundle original. La descarga envía los `appIds` al mismo flujo de trabajos que una selección del catálogo, con sus validaciones y límites.
@@ -50,8 +54,15 @@ La suite del frontend ha pasado con 356 pruebas y 88,37 % de cobertura de línea
 
 El resumen previo se ha contrastado además con 38 pruebas focalizadas de Java (ninguna omitida), los recorridos de teclado en Chromium a 1280×800 y 390×844 y el flujo completo en un Compose aislado: selección → revisión → confirmación → trabajo → revalidación fallida → ZIP `MANUAL_ONLY` con manifiesto y acceso oficial seguro. Las credenciales de los tres proveedores LLM se dejan vacías en esa prueba. El entorno de prueba y sus volúmenes se eliminan al terminar.
 
-Las solicitudes de software han superado otras 37 pruebas Java focalizadas, ninguna omitida, incluyendo MySQL real, migración completa, CSRF y separación de roles. El recorrido de teclado cubre el alta como usuario, la revisión como administrador y la consulta posterior del motivo como usuario, en ambos tamaños de pantalla.
+Las solicitudes de software han superado otras 37 pruebas Java focalizadas, ninguna omitida, incluyendo MySQL real, migración completa, CSRF y separación de roles. El recorrido de teclado, con API simulada, cubre el alta como usuario, la revisión como administrador y la consulta posterior del motivo como usuario, en ambos tamaños de pantalla.
+
+La observabilidad (#43) ha superado 30 pruebas Java focalizadas sin omisiones,
+incluyendo MySQL y los recorridos de éxito y fallo del worker. El Compose aislado
+ha contrastado por HTTP las muestras de Prometheus de Core y worker después de
+crear el ZIP manual. Las métricas y consultas de diagnóstico se describen en
+[`docs/observability.md`](../observability.md); no se presupone un servicio
+Prometheus o Grafana desplegado.
 
 ## Trabajo que sigue abierto
 
-El cierre de observabilidad (#43) y las tareas académicas #111–#117 siguen sujetos a sus criterios y evidencias. Las issues se cerrarán conforme se verifique su resultado; las fechas objetivo no representan fechas de finalización real.
+El escalado (#42) y las tareas académicas #111–#117 siguen sujetos a sus criterios y evidencias. Las issues se cerrarán conforme se verifique su resultado; las fechas objetivo no representan fechas de finalización real.

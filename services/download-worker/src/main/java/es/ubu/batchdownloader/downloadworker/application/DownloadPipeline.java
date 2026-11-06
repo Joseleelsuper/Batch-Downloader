@@ -179,12 +179,12 @@ public final class DownloadPipeline implements AutoCloseable {
         try {
             metrics.downloadStarted();
             try {
-                DownloadedArtifact artifact = remoteDownloader.download(
+                DownloadedArtifact artifact = metrics.measurePhase(DownloadWorkerMetrics.Phase.TRANSFER, () -> remoteDownloader.download(
                         resolved,
                         filename,
                         target,
                         budget,
-                        properties.maxFileSize().toBytes());
+                        properties.maxFileSize().toBytes()));
                 metrics.temporaryAdded(artifact.sizeBytes());
                 return Attempt.success(artifact);
             } finally {

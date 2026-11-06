@@ -181,8 +181,9 @@ public class WorkerConfiguration {
      */
     @Bean
     DownloadResolutionService downloadResolutions(SourceReferenceResolver resolver, ExecutorService executor,
-            DownloadProperties properties, DownloadCancellationRegistry cancellations, DownloadEventEmitter events, Clock clock) {
-        return new DownloadResolutionService(resolver, executor, properties, cancellations, events, clock);
+            DownloadProperties properties, DownloadCancellationRegistry cancellations, DownloadEventEmitter events, Clock clock,
+            DownloadWorkerMetrics metrics) {
+        return new DownloadResolutionService(resolver, executor, properties, cancellations, events, clock, metrics);
     }
 
     /**
