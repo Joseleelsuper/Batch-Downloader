@@ -55,5 +55,5 @@
   "bundle.sort.ascending": "Orden ascendente",
   "bundle.sort.descending": "Orden descendente",
   "bundle.draft.why": "Por qué aparecen estas aplicaciones",
-  "bundle.draft.noDescription": "Coincidencia semántica sin descripción disponible."
+  "bundle.draft.noDescription": "No hay una descripción disponible en tu idioma."
 }

@@ -55,5 +55,5 @@
   "bundle.sort.ascending": "Ascending order",
   "bundle.sort.descending": "Descending order",
   "bundle.draft.why": "Why these apps appear",
-  "bundle.draft.noDescription": "Semantic match without an available description."
+  "bundle.draft.noDescription": "No description is available in your language."
 }

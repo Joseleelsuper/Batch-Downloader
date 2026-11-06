@@ -12,7 +12,7 @@ import { BundleDownloadButton } from '../../components/BundleDownloadButton';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { lazyNamed } from '../../routing/lazyNamed';
 import { semanticBundleProposal } from '../../semanticBundleProposal';
-import { useTranslation } from '../../services/i18n';
+import { useLocale, useTranslation } from '../../services/i18n';
 import type { CatalogApp, OperatingSystem } from '../../types/catalog';
 import { bundleSlug } from '../../utils/bundleSlug';
 import { apiMessage } from '../account/accountSupport';
@@ -21,6 +21,7 @@ const BundleAppPicker = lazyNamed(() => import('../../components/BundleAppPicker
 
 export function BundleDraftPage() {
   const t = useTranslation();
+  const locale = useLocale();
   const { account } = useAuth();
   const { slug } = useParams();
   const [params] = useSearchParams();
@@ -87,8 +88,8 @@ export function BundleDraftPage() {
         <summary>{t('bundle.draft.why')}</summary>
         <ul>{draft.apps.map((app) => <li key={app.id}>
           <Link to={`/catalog/app/${encodeURIComponent(app.id)}`}>{app.name}</Link>
-          <p>{app.description?.slice(0, 400) || t('bundle.draft.noDescription')}</p>
-          {app.tags.length ? <small>{app.tags.join(', ')}</small> : null}
+          <p>{(locale === 'en' ? app.longDescriptionEn : app.longDescription)?.trim().slice(0, 400)
+            || t('bundle.draft.noDescription')}</p>
         </li>)}</ul>
       </details> : null}
       {!apps.length ? <p>{t('bundle.draft.empty')}</p> : null}

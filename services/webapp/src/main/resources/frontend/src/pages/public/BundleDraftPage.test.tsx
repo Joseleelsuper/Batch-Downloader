@@ -6,7 +6,7 @@ import * as accountApi from '../../api/account';
 import * as bundleApi from '../../api/bundles';
 import * as catalogApi from '../../api/catalogApps';
 import type { AuthUser, BundleDetails, CatalogApp } from '../../types/catalog';
-import { t } from '../../services/i18n';
+import { I18nProvider, t, useLocaleSelector } from '../../services/i18n';
 import { BundleDraftPage } from './BundleDraftPage';
 
 const state = vi.hoisted(() => ({ account: null as AuthUser | null, start: vi.fn() }));
@@ -26,12 +26,20 @@ const bundle: BundleDetails = {
   platformAvailability: [], previewApps: [app, other], apps: [app, other], updatedAt: '',
 };
 
-function open(path: string) {
-  return render(<MemoryRouter initialEntries={[path]}><Suspense fallback={null}><Routes>
+function LanguageControls() {
+  const { selectLocale } = useLocaleSelector();
+  return <><button onClick={() => selectLocale('es')}>Español</button><button onClick={() => selectLocale('en')}>English</button></>;
+}
+
+const localeFetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 304 }));
+
+function open(path: string, localized = false) {
+  const page = <MemoryRouter initialEntries={[path]}><Suspense fallback={null}><Routes>
     <Route path="/bundles/:slug/customize" element={<BundleDraftPage />} />
     <Route path="/bundle-proposal" element={<BundleDraftPage />} />
     <Route path="/dashboard/bundles/:id/edit" element={<p>Saved private copy</p>} />
-  </Routes></Suspense></MemoryRouter>);
+  </Routes></Suspense></MemoryRouter>;
+  return render(localized ? <I18nProvider fetcher={localeFetcher}><LanguageControls />{page}</I18nProvider> : page);
 }
 
 beforeEach(() => {
@@ -95,5 +103,38 @@ describe('editable bundle drafts', () => {
     expect(screen.queryByRole('button', { name: 'Quitar Third' })).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Añadir Third' }));
     expect(screen.getByRole('button', { name: 'Descargar bundle (1)' })).toBeEnabled();
+  });
+
+  it('muestra la explicación en el idioma seleccionado y la actualiza al cambiarlo', async () => {
+    const suggestion = { ...added, description: '原始描述 Original description',
+      longDescription: 'Permite editar vídeos y crear animaciones.',
+      longDescriptionEn: 'Edit videos and create animations.' };
+    vi.mocked(catalogApi.fetchApps).mockResolvedValue({ data: [suggestion], page: 1, pageSize: 12, total: 1,
+      appliedMode: 'semantic' });
+    open('/bundle-proposal?query=editar+vídeo', true);
+    fireEvent.click(screen.getByRole('button', { name: 'Español' }));
+    expect(await screen.findByText(suggestion.longDescription)).toBeInTheDocument();
+    expect(screen.queryByText(suggestion.description)).not.toBeInTheDocument();
+    expect(screen.queryByText(suggestion.longDescriptionEn)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'English' }));
+    expect(await screen.findByText(suggestion.longDescriptionEn)).toBeInTheDocument();
+    expect(screen.queryByText(suggestion.longDescription)).not.toBeInTheDocument();
+    expect(screen.queryByText(suggestion.description)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { language: 'Español', longDescription: '  ', longDescriptionEn: 'English catalogue description.',
+      message: 'No hay una descripción disponible en tu idioma.' },
+    { language: 'English', longDescription: 'Descripción española del catálogo.', longDescriptionEn: null,
+      message: 'No description is available in your language.' },
+  ])('avisa en $language cuando falta su traducción sin sustituirla por otro idioma', async ({ language, longDescription, longDescriptionEn, message }) => {
+    const suggestion = { ...added, description: '原始描述 Original description', longDescription, longDescriptionEn };
+    vi.mocked(catalogApi.fetchApps).mockResolvedValue({ data: [suggestion], page: 1, pageSize: 12, total: 1,
+      appliedMode: 'semantic' });
+    open('/bundle-proposal?query=editar+vídeo', true);
+    fireEvent.click(screen.getByRole('button', { name: language }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(suggestion.description)).not.toBeInTheDocument();
+    expect(screen.queryByText(longDescription.trim() || longDescriptionEn!)).not.toBeInTheDocument();
   });
 });

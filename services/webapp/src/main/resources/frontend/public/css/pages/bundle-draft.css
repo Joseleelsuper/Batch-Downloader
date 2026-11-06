@@ -87,7 +87,6 @@
 
 .bundle-draft-context a { font-weight: 600; }
 .bundle-draft-context p { margin: 0; }
-.bundle-draft-context small { color: var(--muted); }
 
 .bundle-draft-page .bundle-picker-list {
   max-height: 420px;
