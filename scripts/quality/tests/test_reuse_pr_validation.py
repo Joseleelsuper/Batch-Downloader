@@ -101,6 +101,7 @@ class ReusePrValidationTest(unittest.TestCase):
             with self.subTest(validation=validation), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / 'outputs'
                 with patch.dict(os.environ, {'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/heads/main',
+                                             'GITHUB_RUN_ATTEMPT': '1',
                                              'GITHUB_REPOSITORY': REPOSITORY, 'GITHUB_SHA': COMMIT,
                                              'GITHUB_OUTPUT': str(output)}), \
                         patch.object(reuse.subprocess, 'check_output', return_value=TREE + '\n'), \
