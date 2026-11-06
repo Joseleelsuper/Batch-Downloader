@@ -1,6 +1,6 @@
 {
   "prepared": "2026-11-06",
-  "applicationCommit": "fc5028f55e214f4a4a908a25a48d97be71699791",
+  "applicationCommit": "ddc15929db611e494aee6747aaaaf4bc78452c6c",
   "scope": "Validacion local y Docker aislado. No acredita release, CI remoto, produccion, conformidad completa ni deposito academico.",
   "java": {
     "runtime": "Temurin 25.0.5+8 en Docker",
@@ -12,7 +12,7 @@
       },
       {
         "module": "services/core-api",
-        "passed": 358,
+        "passed": 361,
         "skipped": 0
       },
       {
@@ -54,8 +54,15 @@
       }
     ],
     "quality": "JaCoCo, SpotBugs y analisis de dependencias superados en las verificaciones correspondientes.",
-    "workerScopeCorrection": "Tras pasar 127 pruebas, el analisis de dependencias detecto Flyway como dependencia de ejecucion. 088db1b corrigio su scope; verify -DskipTests paso reutilizando cobertura. No se atribuye una segunda ejecucion de pruebas a esa orden.",
-    "counting": "Las selecciones posteriores repiten casos. No sumar sus recuentos a las suites completas."
+    "workerScopeCorrection": "La correccion historica de Flyway a runtime quedo confirmada tambien por la compilacion limpia actual con las 127 pruebas del worker y verify completo.",
+    "counting": "La suite limpia actual incluye las selecciones previas; no sumar sus recuentos.",
+    "cleanVerification": {
+      "command": "mvn -B -pl shared/java-contracts,services/core-api,services/download-worker,services/notification-service,services/translation-service -am clean verify",
+      "passed": 553,
+      "skipped": 0,
+      "status": "BUILD SUCCESS",
+      "reports": "Solo XML de esta compilacion limpia; sin clases eliminadas ni recuentos de ejecuciones anteriores."
+    }
   },
   "pythonDocker": {
     "snapshot": "git archive del commit indicado; sin .env ignorados ni claves de proveedores.",
@@ -98,32 +105,31 @@
   },
   "frontend": {
     "node": "24.22.1",
-    "fullSuiteBeforePublicLink": {
+    "currentFullSuite": {
       "files": 58,
-      "passed": 362,
+      "passed": 363,
       "skipped": 0,
-      "lineCoveragePercent": 87.75,
-      "branchCoveragePercent": 81.24,
-      "command": "npm run test:coverage -- --maxWorkers=1"
+      "lineCoveragePercent": 87.78,
+      "branchCoveragePercent": 81.3,
+      "command": "npm run test:coverage -- --maxWorkers=1",
+      "jsonReporter": true
     },
-    "afterPublicLink": {
-      "suite": "AccountPages.test.tsx",
-      "passed": 17,
-      "skipped": 0,
-      "checks": [
-        "typecheck",
-        "lint",
-        "build"
-      ],
-      "publicEntryGzipKiB": 59.09,
-      "budgetKiB": 112
-    },
-    "note": "La suite completa anterior no incluye el caso nuevo del enlace publico; las 17 pruebas de cuentas si lo incluyen. Los recuentos no se suman."
+    "checks": [
+      "typecheck",
+      "lint",
+      "build"
+    ],
+    "publicEntryGzipKiB": 59.09,
+    "budgetKiB": 112,
+    "note": "La suite completa actual incluye el caso del enlace publico. Los controles de compilacion corresponden al mismo codigo; las pruebas no modificaron el producto."
   },
   "contracts": {
     "unittestPassed": 15,
     "mainOpenApi": "Valido; aviso preexistente de respuesta 4xx en sitemap",
-    "anonymousAiOpenApi": "Valido sin avisos"
+    "anonymousAiOpenApi": "Valido sin avisos",
+    "httpContractTestsPassed": 9,
+    "workflowSelectorTestsPassed": 6,
+    "counting": "15 comprende 9 contratos HTTP y 6 seleccion de suites CI; no 15 contratos HTTP."
   },
   "browser": {
     "engine": "Chromium 156.0.8078.4",
@@ -167,7 +173,8 @@
     ],
     "healthParity": "passed",
     "warnings": "Compose Desktop ignora mode de configs fuera de Swarm; no impide validar la configuracion.",
-    "activeUserEnvironmentsChanged": false
+    "activeUserEnvironmentsChanged": false,
+    "healthUnitTestsPassed": 18
   },
   "pending": [
     "CI remoto del corte publicado",
@@ -175,7 +182,30 @@
     "evaluacion controlada de relevancia y capacidad",
     "restauracion aislada integral",
     "artefactos y distribucion versionados",
-    "matriz academica completa y PDFs finales",
+    "diagramas, diccionario y PDFs finales",
     "campos de Projects pendientes por bloqueo del control de ordenador"
-  ]
+  ],
+  "traceability": {
+    "requirements": 74,
+    "groups": 26,
+    "verifiedLocally": 64,
+    "partial": 8,
+    "withdrawnOrExcluded": 2,
+    "source": "Batch-Downloader-Memoria/data/trazabilidad_requisitos.json",
+    "limits": "Estados revisados con evidencia local; no son porcentajes de calidad ni acreditan produccion."
+  },
+  "schemaMigrationSmoke": {
+    "mysql": "8.4.13",
+    "alembicHead": "20261012_0025",
+    "coreFlywayTarget": "28",
+    "workerFlywayTarget": "1",
+    "postgresql": "16.14",
+    "semanticMigration": "0011_bundle_semantic_collection",
+    "notificationH2": "2.3.232",
+    "functionalTables": 56,
+    "functionalColumns": 499,
+    "source": "Batch-Downloader-Memoria/data/esquemas_2026-11-06.json",
+    "scope": "Bases vacias aisladas; migraciones originales y driver H2 real. Solo metadatos. No es restauracion ni prueba de datos historicos.",
+    "testResourcesRemoved": true
+  }
 }
