@@ -70,6 +70,27 @@
 }
 
 .platform-filter > div,
+.architecture-filter { display: grid; justify-content: stretch; gap: 12px; }
+.architecture-filter .architecture-filter-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.architecture-filter-button {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 60px;
+  padding: 8px 4px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.architecture-filter-button:hover { color: var(--teal-dark); background: var(--teal-soft); }
+.architecture-filter-button[aria-pressed='true'] { color: #fff; background: var(--teal-dark); border-color: var(--teal-dark); }
+.architecture-filter-button:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+
 .os-icons {
   display: inline-flex;
   align-items: center;

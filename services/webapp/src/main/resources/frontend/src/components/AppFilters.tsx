@@ -2,6 +2,8 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  CircuitBoard,
+  Cpu,
   Download,
   Grid2X2,
   Tags,
@@ -48,6 +50,8 @@ interface Props {
   onRemoveSelected?: (appId: string) => void;
   operatingSystems?: OperatingSystem[];
   onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
+  architecture?: string;
+  onArchitectureChange?: (architecture?: string) => void;
 }
 
 export function AppFilters({
@@ -69,6 +73,8 @@ export function AppFilters({
   onRemoveSelected,
   operatingSystems = ['windows', 'linux', 'macos'],
   onToggleOperatingSystem,
+  architecture,
+  onArchitectureChange,
 }: Props) {
   const t = useTranslation();
   const locale = useLocale();
@@ -161,6 +167,20 @@ export function AppFilters({
                 <OperatingSystemIcon operatingSystem={operatingSystem} decorative />
               </button>
             );
+          })}
+        </div>
+      </section>
+      <section className="platform-filter architecture-filter">
+        <span>{t('catalog.architecture')}</span>
+        <div className="architecture-filter-options" role="group" aria-label={t('catalog.architecture')}>
+          {['', 'x64', 'x86', 'arm64'].map((value) => {
+            const Icon = !value ? Grid2X2 : value === 'arm64' ? CircuitBoard : Cpu;
+            const label = value || t('catalog.architecture.any');
+            return <button className="architecture-filter-button" key={value} type="button"
+              aria-pressed={(architecture ?? '') === value} title={label}
+              onClick={() => onArchitectureChange?.(value || undefined)}>
+              <Icon size={23} aria-hidden="true" /><span>{label}</span>
+            </button>;
           })}
         </div>
       </section>

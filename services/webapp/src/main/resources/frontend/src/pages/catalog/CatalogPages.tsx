@@ -370,6 +370,8 @@ export function CatalogPage() {
           selectedApps={selectedDownloadApps}
           downloading={downloadJob.starting || validatingSelection}
           operatingSystems={filters.operatingSystems}
+          architecture={filters.architecture}
+          onArchitectureChange={(architecture) => updateFilters({ architecture })}
           onChange={(nextFilter) => {
             localStorage.setItem('catalog.filter.status', nextFilter);
             updateFilters({ filter: nextFilter });
