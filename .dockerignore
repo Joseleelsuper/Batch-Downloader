@@ -6,6 +6,9 @@
 .vscode
 .env
 **/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
 **/__pycache__
 **/.mypy_cache
 **/.pytest_cache
