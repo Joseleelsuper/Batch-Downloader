@@ -25,6 +25,12 @@ export function createSoftwareRequest(name: string, officialUrl: string) {
   });
 }
 
+export async function cancelSoftwareRequest(requestId: string): Promise<void> {
+  await requestJson<void>(`/api/v1/users/me/software-requests/${encodeURIComponent(requestId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function fetchAdminSoftwareRequests(page: number, pageSize: number,
   status?: SoftwareRequestStatus, signal?: AbortSignal) {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });

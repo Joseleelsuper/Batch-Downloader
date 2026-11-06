@@ -390,6 +390,32 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+  /users/me/software-requests/{requestId}:
+    parameters:
+    - name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    delete:
+      operationId: cancelOwnSoftwareRequest
+      summary: Cancelar una solicitud propia pendiente
+      description: Elimina la solicitud del historial y libera su cupo y sus restricciones de duplicados. Solo permite solicitudes pendientes del UUID autenticado; una solicitud revisada devuelve conflicto y una solicitud ajena o inexistente devuelve 404.
+      x-required-roles: [USER]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: Solicitud pendiente eliminada del historial.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /admin/software-requests:
     get:
       operationId: listAdminSoftwareRequests

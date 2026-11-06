@@ -50,7 +50,9 @@ export function DownloadPreviewDialog({ preview, returnFocusTo, onConfirm, onCan
       {preview.estimated ? <p>{t('download.preview.estimateHelp')}</p> : null}
     </div>
     {preview.warnings.map((warning) => <p className="download-preview-warning" role="status" key={warning}>{t(`download.preview.warning.${warning}`)}</p>)}
-    <ol className="download-preview-items">{preview.items.map((item) => <li key={item.appId}>
+    <details className="download-preview-installers">
+      <summary>{t('download.preview.installers', { count: preview.items.length })}</summary>
+      <ol className="download-preview-items">{preview.items.map((item) => <li key={item.appId}>
       <div className="download-preview-item-heading">
         <strong>{item.name}</strong>
         {item.operatingSystem ? <span>{operatingSystemLabel(item.operatingSystem, t)} · {item.architecture}</span> : null}
@@ -60,7 +62,8 @@ export function DownloadPreviewDialog({ preview, returnFocusTo, onConfirm, onCan
         <p>{t('download.preview.recordedSize')}: {size(item.sizeBytes)}</p>
       </> : null}
       {item.warnings.length ? <ul className="download-preview-item-warnings">{item.warnings.map((warning) => <li key={warning}>{t(`download.preview.warning.${warning}`)}</li>)}</ul> : null}
-    </li>)}</ol>
+      </li>)}</ol>
+    </details>
     <footer>
       <button className="secondary-button" type="button" onClick={onCancel}>{t('download.preview.edit')}</button>
       <button className="primary-button" type="button" disabled={confirming || preview.installerCount + preview.manualCount === 0}

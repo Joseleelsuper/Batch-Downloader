@@ -13,6 +13,9 @@ describe('DownloadPreviewDialog', () => {
     render(<DownloadPreviewDialog preview={{ ...downloadPreview, estimated: true,
       unknownSizeCount: 1, estimatedBytes: 2048, estimatedPeakBytes: 4096 }} onConfirm={onConfirm} onCancel={vi.fn()} />);
     expect(screen.getByRole('dialog', { name: 'Revisa tu descarga' })).toBeInTheDocument();
+    expect(screen.getByText(/example.test/)).not.toBeVisible();
+    fireEvent.click(screen.getByText('Instaladores y alternativas (1)'));
+    expect(screen.getByText(/example.test/)).toBeVisible();
     expect(screen.getByText(/example.test/)).toHaveTextContent('example.exe');
     expect(screen.getByText(/No indican el tamaño final del ZIP/)).toBeInTheDocument();
     expect(screen.getByText(/mediana/)).toBeInTheDocument();
@@ -32,6 +35,7 @@ describe('DownloadPreviewDialog', () => {
         kind: 'unavailable', warnings: ['unavailable'] }],
     }} onConfirm={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getAllByText('Desconocido')).toHaveLength(2);
+    fireEvent.click(screen.getByText('Instaladores y alternativas (2)'));
     expect(screen.getByText('<script>example</script>')).toBeInTheDocument();
     expect(document.querySelector('script')).toBeNull();
     expect(screen.getByText(/web oficial/)).toBeInTheDocument();

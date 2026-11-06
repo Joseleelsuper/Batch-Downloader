@@ -6,7 +6,6 @@ import {
   Cpu,
   Download,
   Grid2X2,
-  Layers,
   Tags,
   type LucideIcon,
   SlidersHorizontal,
@@ -178,8 +177,8 @@ export function AppFilters({
       <section className="platform-filter architecture-filter">
         <span>{t('catalog.architecture')}</span>
         <div className="architecture-filter-options" role="group" aria-label={t('catalog.architecture')}>
-          {['', 'x64', 'x86', 'arm64', 'arm', 'neutral'].map((value) => {
-            const Icon = !value ? Grid2X2 : value === 'neutral' ? Layers : value.startsWith('arm') ? CircuitBoard : Cpu;
+          {['', 'x64', 'x86', 'arm64'].map((value) => {
+            const Icon = !value ? Grid2X2 : value === 'arm64' ? CircuitBoard : Cpu;
             const label = value || t('catalog.architecture.any');
             return <button className="architecture-filter-button" key={value} type="button"
               aria-pressed={(architecture ?? '') === value} title={label}

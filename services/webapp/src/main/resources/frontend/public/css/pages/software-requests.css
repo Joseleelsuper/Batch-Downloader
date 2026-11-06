@@ -90,6 +90,7 @@
 .software-request-summary .software-request-note { padding-top: 12px; border-top: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
 .software-request-review { gap: 16px; min-width: 0; }
 .software-request-review button { justify-self: end; }
+.software-request-cancel { display: grid; justify-items: start; gap: 12px; margin-top: 4px; }
 .software-requests button { min-height: 44px; }
 .software-request-feedback { margin: 0; padding: 16px; color: var(--teal-dark); background: var(--teal-soft); border-radius: 6px; line-height: 1.6; }
 

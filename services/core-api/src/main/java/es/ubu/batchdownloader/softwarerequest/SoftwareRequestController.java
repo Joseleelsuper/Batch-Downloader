@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,6 +44,12 @@ public class SoftwareRequestController {
     @ResponseStatus(HttpStatus.CREATED)
     SoftwareRequest create(@Valid @RequestBody CreateSoftwareRequest request, Authentication authentication) {
         return requests.create(accounts.require(authentication).id(), request.name(), request.officialUrl());
+    }
+
+    @DeleteMapping("/api/v1/users/me/software-requests/{requestId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void cancel(@PathVariable UUID requestId, Authentication authentication) {
+        requests.cancel(accounts.require(authentication).id(), requestId);
     }
 
     @GetMapping("/api/v1/admin/software-requests")

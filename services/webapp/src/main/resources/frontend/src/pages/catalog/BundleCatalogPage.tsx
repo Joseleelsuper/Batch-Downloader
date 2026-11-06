@@ -104,11 +104,6 @@ export function BundleCatalogPage() {
         onSortChange={(sort) => update({ sort, direction: undefined })} onSearchModeChange={(searchMode) => update({ searchMode,
           sort: searchMode === 'lexical' && filters.sort === 'relevance' ? 'downloads' : filters.sort })}
         sortOptions={sortOptions} labelPrefix="bundle.sort" placeholder={t('bundle.catalog.search')} />
-      <button type="button" className="secondary-button" onClick={() => update({ direction:
-        (filters.direction ?? (['name', 'relevance'].includes(filters.sort) ? 'asc' : 'desc')) === 'asc' ? 'desc' : 'asc' })}>
-        {t((filters.direction ?? (['name', 'relevance'].includes(filters.sort) ? 'asc' : 'desc')) === 'asc'
-          ? 'bundle.sort.ascending' : 'bundle.sort.descending')}
-      </button>
       {response?.degradedReason ? <p className="semantic-notice" role="status">{t('bundle.catalog.semanticFallback')}</p> : null}
       {filters.sort === 'name' && response ? <nav className="catalog-alphabet" aria-label={t('catalog.alphabet.aria')}>
         {ALPHABET.map((letter) => { const entry = response.alphabet?.find((value) => value.letter === letter);

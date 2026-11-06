@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import {
-  createSoftwareRequest, fetchAdminSoftwareRequests, fetchOwnSoftwareRequests, reviewSoftwareRequest,
+  cancelSoftwareRequest, createSoftwareRequest, fetchAdminSoftwareRequests, fetchOwnSoftwareRequests, reviewSoftwareRequest,
   type SoftwareRequest, type SoftwareRequestStatus,
 } from '../api/softwareRequests';
 import { ApiRequestError } from '../api/http';
@@ -76,6 +76,9 @@ export function SoftwareRequestsPage({ admin = false }: Readonly<{ admin?: boole
               <time dateTime={request.createdAt}>{formatDate(request.createdAt)}</time>
             </p>
             {request.reviewNote ? <p className="software-request-note">{request.reviewNote}</p> : null}
+            {!admin && request.status === 'pending' ? <RequestCancellation request={request} onCancelled={() => {
+              setPage(1); resource.refresh(); setError(null); setMessage(t('software.requests.cancelled'));
+            }} /> : null}
           </div>
           {admin ? <RequestReview request={request} onSaved={resource.refresh} /> : null}
         </article>
@@ -84,6 +87,25 @@ export function SoftwareRequestsPage({ admin = false }: Readonly<{ admin?: boole
         onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} /> : null}
     </AsyncContent>
   </section>;
+}
+
+function RequestCancellation({ request, onCancelled }: Readonly<{ request: SoftwareRequest; onCancelled: () => void }>) {
+  const t = useTranslation();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function cancel() {
+    if (submitting || !window.confirm(t('software.requests.cancelConfirm', { name: request.name }))) return;
+    setSubmitting(true); setError(null);
+    try { await cancelSoftwareRequest(request.id); onCancelled(); }
+    catch (cause) { setError(requestError(t, cause)); }
+    finally { setSubmitting(false); }
+  }
+  return <div className="software-request-cancel">
+    <button className="secondary-button compact-button" type="button" disabled={submitting} onClick={() => void cancel()}>
+      {t('software.requests.cancel')}
+    </button>
+    {error ? <p className="error-banner" role="alert">{error}</p> : null}
+  </div>;
 }
 
 function RequestReview({ request, onSaved }: Readonly<{ request: SoftwareRequest; onSaved: () => void }>) {

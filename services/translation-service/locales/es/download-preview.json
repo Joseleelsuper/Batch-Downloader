@@ -1,5 +1,6 @@
 {
   "download.preview.title": "Revisa tu descarga",
+  "download.preview.installers": "Instaladores y alternativas ({count})",
   "download.preview.counts": "{installers} instaladores · {manual} accesos manuales · {omitted} sin alternativa",
   "download.preview.known": "Tamaño registrado conocido",
   "download.preview.estimated": "Tamaño estimado de los instaladores",

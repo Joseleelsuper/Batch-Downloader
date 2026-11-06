@@ -74,6 +74,19 @@ public class SoftwareRequestRepository {
     }
 
     @Transactional
+    public void cancel(UUID owner, UUID id) {
+        int deleted = jdbc.update("DELETE FROM software_inclusion_requests WHERE id=? AND owner_id=? AND status='pending'",
+                id.toString(), owner.toString());
+        if (deleted > 0) return;
+        Long owned = jdbc.queryForObject("SELECT COUNT(*) FROM software_inclusion_requests WHERE id=? AND owner_id=?",
+                Long.class, id.toString(), owner.toString());
+        if (owned == null || owned == 0) {
+            throw new NotFoundException("software_request_not_found", "Solicitud no encontrada.");
+        }
+        throw new ConflictException("software_request_not_pending", "La solicitud ya ha sido revisada y no se puede cancelar.");
+    }
+
+    @Transactional
     public SoftwareRequest review(UUID id, UUID reviewer, ReviewSoftwareRequest request) {
         if (request.status() == null || !Set.of("accepted", "rejected").contains(request.status()) || request.reviewNote() == null
                 || request.reviewNote().isBlank() || request.reviewNote().length() > 1000

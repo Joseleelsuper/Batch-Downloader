@@ -12,6 +12,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +56,58 @@ class SoftwareRequestMySqlTest {
 
     private SoftwareRequestDtos.SoftwareRequest create(UUID owner, String name, String url) {
         return transaction.execute(status -> requests.create(owner, name, url));
+    }
+
+    private void cancel(UUID owner, UUID id) {
+        transaction.executeWithoutResult(status -> requests.cancel(owner, id));
+    }
+
+    @Test void cancellationDeletesOnlyTheOwnersPendingRequestAndAllowsResubmission() {
+        var request = create(OWNER, "New Editor", "https://example.org/");
+        assertThatThrownBy(() -> cancel(OTHER, request.id())).isInstanceOf(NotFoundException.class);
+        assertThat(requests.list(OWNER, null, 1, 12).total()).isEqualTo(1);
+        cancel(OWNER, request.id());
+        assertThat(requests.list(OWNER, null, 1, 12).data()).isEmpty();
+        assertThat(requests.list(null, null, 1, 12).total()).isZero();
+        assertThatThrownBy(() -> cancel(OWNER, request.id())).isInstanceOf(NotFoundException.class);
+        assertThat(create(OWNER, "New Editor", "https://example.org/").status()).isEqualTo("pending");
+    }
+
+    @Test void reviewedRequestsRemainInTheHistoryAndCannotBeCancelled() {
+        for (String decision : List.of("accepted", "rejected")) {
+            var request = create(OWNER, decision, "https://example.org/" + decision);
+            requests.review(request.id(), ADMIN, new ReviewSoftwareRequest(decision, "Motivo", 0L));
+            assertThatThrownBy(() -> cancel(OWNER, request.id()))
+                    .isInstanceOfSatisfying(ConflictException.class,
+                            error -> assertThat(error.code()).isEqualTo("software_request_not_pending"));
+        }
+        assertThat(requests.list(OWNER, null, 1, 12).total()).isEqualTo(2);
+    }
+
+    @Test void cancellationAndReviewCannotBothSucceedConcurrently() throws Exception {
+        var request = create(OWNER, "New Editor", "https://example.org/");
+        var start = new CyclicBarrier(2);
+        Callable<String> cancellation = () -> {
+            start.await();
+            try { cancel(OWNER, request.id()); return "cancelled"; }
+            catch (ConflictException exception) { return exception.code(); }
+        };
+        Callable<String> review = () -> {
+            start.await();
+            try { requests.review(request.id(), ADMIN, new ReviewSoftwareRequest("accepted", "Motivo", 0L)); return "reviewed"; }
+            catch (NotFoundException exception) { return "missing"; }
+        };
+        try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+            var futures = pool.invokeAll(List.of(cancellation, review));
+            var outcomes = List.of(futures.getFirst().get(), futures.getLast().get());
+            if (outcomes.contains("cancelled")) {
+                assertThat(outcomes).containsExactlyInAnyOrder("cancelled", "missing");
+                assertThat(requests.list(OWNER, null, 1, 12).data()).isEmpty();
+            } else {
+                assertThat(outcomes).containsExactlyInAnyOrder("reviewed", "software_request_not_pending");
+                assertThat(requests.list(OWNER, null, 1, 12).data().getFirst().status()).isEqualTo("accepted");
+            }
+        }
     }
 
     @Test void storesPendingRequestAndOnlyItsOwnerCanListIt() {
@@ -127,5 +180,7 @@ class SoftwareRequestMySqlTest {
         assertThat(page.page()).isEqualTo(1);
         assertThat(page.pageSize()).isEqualTo(50);
         assertThat(page.data()).hasSize(50);
+        cancel(OWNER, page.data().getFirst().id());
+        assertThat(create(OWNER, "Excess", "https://example.org/excess").status()).isEqualTo("pending");
     }
 }

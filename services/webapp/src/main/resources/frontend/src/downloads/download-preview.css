@@ -23,6 +23,9 @@
 .download-preview-help { display: grid; gap: 12px; margin-bottom: 20px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .download-preview-help p { margin: 0; }
 .download-preview-warning { padding: 12px 16px; color: #9a3412; background: #fff7ed; border-radius: 6px; line-height: 1.6; }
+.download-preview-installers { border-top: 1px solid var(--border); }
+.download-preview-installers summary { min-height: 48px; padding-block: 16px; color: var(--teal-dark); font-weight: 650; cursor: pointer; }
+.download-preview-installers summary:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
 .download-preview-items { display: grid; gap: 0; margin: 0; padding-left: 24px; }
 .download-preview-items > li { padding: 16px 0 16px 8px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
 .download-preview-items > li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
