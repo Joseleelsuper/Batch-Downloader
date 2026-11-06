@@ -17,7 +17,9 @@ class WorkflowReuseTest(unittest.TestCase):
         upload = next(step for step in steps if step.get('uses', '').startswith('actions/upload-artifact@'))
         self.assertEqual("github.event_name == 'pull_request' && github.base_ref == 'main'", upload['if'])
         self.assertEqual('quality-tree-main', upload['with']['name'])
-        self.assertEqual('read', workflow['permissions']['actions'])
+        self.assertNotIn('actions', workflow['permissions'])
+        self.assertEqual({'contents': 'read', 'pull-requests': 'read', 'actions': 'read'},
+                         workflow['jobs']['changes']['permissions'])
 
 
 if __name__ == '__main__':
