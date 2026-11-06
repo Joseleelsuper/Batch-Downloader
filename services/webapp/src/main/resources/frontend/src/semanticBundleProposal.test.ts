@@ -27,6 +27,11 @@ describe('semantic bundle proposal', () => {
     expect(() => semanticBundleProposal(response([{ ...app, id: 'invented-app' }]))).toThrow('invalid_semantic_proposal');
     expect(() => semanticBundleProposal(response([{ ...app, operatingSystems: ['unknown'] } as unknown as CatalogApp]))).toThrow('invalid_semantic_proposal');
     expect(() => semanticBundleProposal({ ...response([]), data: null } as unknown as CatalogResponse)).toThrow('invalid_semantic_proposal');
+    for (const invalid of [{ description: {} }, { tags: [1] }, { name: null }, { slug: null },
+      { resolutionStatus: 'invented' }, { validationStatus: 'invented' }, { operatingSystems: [] }]) {
+      expect(() => semanticBundleProposal(response([{ ...app, ...invalid } as unknown as CatalogApp])))
+        .toThrow('invalid_semantic_proposal');
+    }
   });
 
   it('limita la selección inicial a doce sin alterar los resultados recibidos', () => {
