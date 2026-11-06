@@ -60,7 +60,7 @@ describe('AdminScraperPage', () => {
     let failLogs!: (cause: Error) => void;
     vi.mocked(scraperAdminApi.fetchAdminLogs).mockReturnValueOnce(new Promise((_, reject) => { failLogs = reject; }));
     render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
-    expect(await screen.findByText(formatDate(`${latestRun.startedAt}Z`))).toBeInTheDocument();
+    expect(await screen.findByText(formatDate(`${latestRun.startedAt}Z`), { selector: '.scraper-status strong' })).toBeInTheDocument();
     const logs = screen.getByRole('heading', { name: 'Logs recientes' }).closest('section')!;
     expect(within(logs).getByRole('status')).toHaveTextContent('Cargando');
     failLogs(new Error('offline'));

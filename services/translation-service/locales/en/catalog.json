@@ -75,5 +75,7 @@
   "catalog.sort.toggle": "Change order",
   "catalog.sort.updated": "Updated",
   "catalog.sort.updated.description": "First the latest added applications.",
-  "catalog.title": "Application catalog"
+  "catalog.title": "Application catalog",
+  "catalog.architecture": "Architecture",
+  "catalog.architecture.any": "Any"
 }
