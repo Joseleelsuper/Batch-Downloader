@@ -67,18 +67,20 @@ export function BundleDraftPage() {
     finally { setSaving(false); }
   }
 
-  return <main className="content-page">
-    <h1>{t(slug ? 'bundle.draft.customize' : 'bundle.draft.propose')}</h1>
-    <p>{t('bundle.draft.temporary')}</p>
+  return <main className="content-page bundle-draft-page">
+    <header className="bundle-draft-header">
+      <h1>{t(slug ? 'bundle.draft.customize' : 'bundle.draft.propose')}</h1>
+      <p>{t('bundle.draft.temporary')}</p>
+    </header>
     <AsyncContent {...resource} hasData={Boolean(draft)} onRetry={resource.refresh} errorMessage={t('bundle.loadError')}>{null}</AsyncContent>
     {draft ? <>
-      {draft.semantic ? <p className="semantic-notice" role="status">{t(draft.degraded ? 'bundle.draft.unavailable' : 'bundle.draft.explanation', { query: filters.query })}</p> : null}
-      {draft.semantic && !draft.degraded && draft.apps.length ? <details>
+      {draft.semantic ? <p className={`semantic-notice ${draft.degraded ? '' : 'bundle-draft-origin'}`} role="status">{t(draft.degraded ? 'bundle.draft.unavailable' : 'bundle.draft.explanation', { query: filters.query })}</p> : null}
+      {draft.semantic && !draft.degraded && draft.apps.length ? <details className="bundle-draft-context">
         <summary>{t('bundle.draft.why')}</summary>
         <ul>{draft.apps.map((app) => <li key={app.id}>
-          <Link to={`/catalog/app/${encodeURIComponent(app.id)}`}>{app.name}</Link>: {' '}
-          {app.description?.slice(0, 400) || t('bundle.draft.noDescription')}
-          {app.tags.length ? ` (${app.tags.join(', ')})` : ''}
+          <Link to={`/catalog/app/${encodeURIComponent(app.id)}`}>{app.name}</Link>
+          <p>{app.description?.slice(0, 400) || t('bundle.draft.noDescription')}</p>
+          {app.tags.length ? <small>{app.tags.join(', ')}</small> : null}
         </li>)}</ul>
       </details> : null}
       {!apps.length ? <p>{t('bundle.draft.empty')}</p> : null}
@@ -86,15 +88,17 @@ export function BundleDraftPage() {
         <BundleAppPicker apps={apps} onChange={(next) => change(next)} />
       </fieldset>
       {error ? <p className="error-banner" role="alert">{error}</p> : null}
-      {account?.role === 'USER' && draft.canSave ? <form className="account-card" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-        <label>{t('account.bundles.name')}<input value={name} maxLength={160} required
-          disabled={saving} onChange={(event) => change(apps, event.target.value)} /></label>
-        <button className="secondary-button" type="submit" disabled={saving || !apps.length}>{t('bundle.draft.save')}</button>
-      </form> : null}
-      <BundleDownloadButton key={scope} bundleId="draft" bundleName={name} appCount={apps.length}
-        appIds={apps.map((app) => app.id)} operatingSystems={availability.map((item) => item.operatingSystem)}
-        platformAvailability={availability} onSelectionLockedChange={setLocked} />
+      <div className="bundle-draft-actions">
+        {account?.role === 'USER' && draft.canSave ? <form className="bundle-fields bundle-draft-save" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <label>{t('account.bundles.name')}<input value={name} maxLength={160} required
+            disabled={saving} onChange={(event) => change(apps, event.target.value)} /></label>
+          <button className="secondary-button" type="submit" disabled={saving || !apps.length}>{t('bundle.draft.save')}</button>
+        </form> : null}
+        <BundleDownloadButton key={scope} bundleId="draft" bundleName={name} appCount={apps.length}
+          appIds={apps.map((app) => app.id)} operatingSystems={availability.map((item) => item.operatingSystem)}
+          platformAvailability={availability} onSelectionLockedChange={setLocked} />
+      </div>
     </> : null}
-    <p><Link to={slug ? `/bundles/${encodeURIComponent(slug)}` : `/catalog?${params}`}>{t('bundle.draft.back')}</Link></p>
+    <p className="bundle-draft-back"><Link to={slug ? `/bundles/${encodeURIComponent(slug)}` : `/catalog?${params}`}>{t('bundle.draft.back')}</Link></p>
   </main>;
 }
