@@ -14,6 +14,10 @@ jobs:
   changes:
     name: Detect covered changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     outputs:
       java: ${{ steps.filter.outputs.java }}
       scraper: ${{ steps.filter.outputs.scraper }}
@@ -28,8 +32,15 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - id: prior-validation
+        name: Reuse the approved PR validation for the same code
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/quality/reuse_pr_validation.py
       - id: filter
         name: Match changed files to test coverage
+        if: steps.prior-validation.outputs.reused != 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
@@ -62,46 +73,55 @@ jobs:
               scripts/java/*|services/core-api/Dockerfile|services/download-worker/Dockerfile|services/notification-service/Dockerfile|services/translation-service/Dockerfile|pom.xml|shared/java-contracts/*|services/core-api/src/*|services/core-api/pom.xml|services/download-worker/src/*|services/download-worker/pom.xml|services/notification-service/src/*|services/notification-service/pom.xml|services/translation-service/src/*|services/translation-service/pom.xml)
                 java=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               api/scraper/*)
                 scraper=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               services/semantic-service/*)
                 semantic=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               services/webapp/src/main/resources/frontend/*)
                 frontend=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               .github/workflows/quality.yml|shared/contracts/*|scripts/quality/*|services/core-api/src/main/java/*|services/translation-service/src/main/java/*|services/webapp/src/main/resources/frontend/src/api/*)
                 contracts=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               docker-compose.yml|docker-compose.ghcr.yml|api/scraper/docker-compose.yml|services/*/docker-compose.yml|.env.example|api/scraper/.env*.example|services/*/.env*.example|docker/*|scripts/compose_health.py|scripts/sync-service-env-files.ps1|scripts/tests/*|scripts/deployment/*|services/*/src/main/resources/application.properties)
                 compose=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               scripts/linux-installer/*|services/download-worker/src/main/resources/linux-installer/*)
                 linux_installer=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               .github/workflows/quality.yml|.env.example|docker-compose.yml|docker-compose.ghcr.yml|docker/minio/*|api/scraper/*|services/core-api/*|services/download-worker/*|services/translation-service/*|services/webapp/*|shared/contracts/*|shared/java-contracts/*|scripts/e2e/*)
                 download_flow=true
                 ;;
+              *) ;;
             esac
             case "${file}" in
               sonar-project.properties)
                 sonar=true
                 ;;
+              *) ;;
             esac
           done
 
@@ -120,6 +140,17 @@ jobs:
             echo "download_flow=${download_flow}"
             echo "sonar=${sonar}"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Record the code validated by this main pull request
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: git rev-parse 'HEAD^{tree}' > "${RUNNER_TEMP}/validated-tree.txt"
+      - name: Save the validated code identity
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-tree-main
+          path: ${{ runner.temp }}/validated-tree.txt
+          if-no-files-found: error
 
   java:
     needs: changes
