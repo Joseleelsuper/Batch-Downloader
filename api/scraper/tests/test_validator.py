@@ -1,5 +1,7 @@
 """Contiene las pruebas de `test_validator`.
 """
+from dataclasses import asdict
+
 import dns.exception
 import dns.resolver
 import httpx
@@ -12,6 +14,7 @@ from app.scraper.validator import (
     BROWSER_COMPATIBLE_USER_AGENT,
     SOURCEFORGE_USER_AGENT,
     DownloadValidator,
+    RedirectHop,
     ValidationConfidence,
     domain_has_public_dns,
     is_non_binary_installer_reference,
@@ -19,6 +22,64 @@ from app.scraper.validator import (
     is_sourceforge_download_url,
     same_site_referer,
 )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redirect_trace_contains_only_ordered_domains_and_http_statuses(monkeypatch):
+    async def public_dns(_hostname):
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    urls = ["https://vendor.example/private-path/app.exe?token=secret-one",
+            "https://cdn.example/restricted/app.exe?signature=secret-two",
+            "https://files.example/app.exe?access_token=secret-three"]
+    for source, target, status in zip(urls, urls[1:], [302, 307], strict=False):
+        respx.head(source).mock(return_value=httpx.Response(status, headers={"location": target}))
+    respx.head(urls[-1]).mock(return_value=httpx.Response(200, headers={
+        "content-type": "application/x-msdownload", "content-length": "1024",
+    }))
+    result = await DownloadValidator(Settings(_env_file=None)).validate(
+        InstallerCandidate(url=urls[0], source="href"))
+    assert result.ok
+    assert result.redirects == (RedirectHop("vendor.example", 302), RedirectHop("cdn.example", 307))
+    safe_trace = str([asdict(hop) for hop in result.redirects])
+    assert "secret" not in safe_trace and "private-path" not in safe_trace
+    assert "restricted" not in safe_trace and "?" not in safe_trace
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_direct_response_has_an_observed_empty_redirect_trace(monkeypatch):
+    async def public_dns(_hostname):
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    url = "https://vendor.example/app.exe"
+    respx.head(url).mock(return_value=httpx.Response(200, headers={
+        "content-type": "application/x-msdownload", "content-length": "1024",
+    }))
+    result = await DownloadValidator(Settings(_env_file=None)).validate(
+        InstallerCandidate(url=url, source="href"))
+    assert result.ok and result.redirects == ()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redirect_limit_stops_before_requesting_the_next_destination(monkeypatch):
+    async def public_dns(_hostname):
+        return True
+
+    monkeypatch.setattr("app.scraper.validator.domain_has_public_dns", public_dns)
+    respx.head("https://vendor.example/app.exe").mock(return_value=httpx.Response(
+        302, headers={"location": "https://cdn.example/app.exe"}))
+    respx.head("https://cdn.example/app.exe").mock(return_value=httpx.Response(
+        307, headers={"location": "https://unrequested.example/app.exe"}))
+    result = await DownloadValidator(Settings(_env_file=None, max_redirects=1)).validate(
+        InstallerCandidate(url="https://vendor.example/app.exe", source="href"))
+    assert not result.ok and result.reason == "too_many_redirects"
+    assert len(respx.calls) == 2
+    assert result.redirects == (RedirectHop("vendor.example", 302), RedirectHop("cdn.example", 307))
 
 
 @pytest.mark.asyncio

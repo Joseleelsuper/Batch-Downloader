@@ -1,10 +1,13 @@
 {
   "app.details": "Details",
+  "app.details.checked": "Last source check",
   "app.details.description": "Description",
   "app.details.descriptionPending": "AI description pending generation.",
   "app.details.downloadSelected": "Download selection",
+  "app.details.downloadDomain": "Download domain",
   "app.details.installersDetected": "Installers detected",
   "app.details.latestInstaller": "Latest",
+  "app.details.knownSize": "Known installer size",
   "app.details.official": "Official website",
   "app.details.size": "Size",
   "app.details.tags": "Tags",

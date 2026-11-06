@@ -123,6 +123,7 @@ public class BundleDtos {
      *     flujo.
      * @param apps Aplicaciones activas del detalle en el orden configurado del bundle.
      * @param updatedAt Fecha del último cambio persistido del bundle.
+     * @param inactiveAppCount Asociaciones inactivas ocultas; solo se informa a administradores.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @since 0.1.0
      * @version 0.1.0
@@ -144,19 +145,27 @@ public class BundleDtos {
             LocalDateTime updatedAt,
             boolean starred,
             boolean hasAdminStar,
-            long downloadCount) {
+            long downloadCount,
+            int inactiveAppCount) {
         public BundleDetails(String id, String slug, String name, String description, String type,
                 String visibility, int starCount, int appCount, List<String> operatingSystems,
                 List<PlatformAvailability> platformAvailability, List<String> tags,
                 List<AppListItem> apps, LocalDateTime updatedAt) {
             this(id, slug, name, description, type, visibility, starCount, appCount, operatingSystems,
-                    platformAvailability, tags, apps, updatedAt, false, false, 0);
+                    platformAvailability, tags, apps, updatedAt, false, false, 0, 0);
         }
 
         public BundleDetails withActivity(BundleStarState activity) {
             return new BundleDetails(id, slug, name, description, type, visibility, activity.starCount(),
                     appCount, operatingSystems, platformAvailability, tags, apps, updatedAt,
-                    activity.starred(), activity.hasAdminStar(), activity.downloadCount());
+                    activity.starred(), activity.hasAdminStar(), activity.downloadCount(), inactiveAppCount);
+        }
+
+        /** Solo se incorpora tras comprobar que el solicitante es administrador. */
+        public BundleDetails withInactiveAppCount(int count) {
+            return new BundleDetails(id, slug, name, description, type, visibility, starCount,
+                    appCount, operatingSystems, platformAvailability, tags, apps, updatedAt,
+                    starred, hasAdminStar, downloadCount, count);
         }
     }
 

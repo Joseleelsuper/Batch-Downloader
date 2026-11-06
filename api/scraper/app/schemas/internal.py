@@ -290,6 +290,14 @@ class ManualInstallerSuggestions(BaseModel):
 
 
 
+class InstallerRedirect(BaseModel):
+    """Publica solo el dominio y estado del salto, nunca su URI ni Location."""
+
+    model_config = ConfigDict(extra="forbid")
+    domain: str = Field(min_length=1, max_length=253)
+    status: int = Field(ge=300, le=399)
+
+
 class ManualInstallerTechnicalData(BaseModel):
     """Resume la evidencia técnica de un instalador inspeccionado sin publicar su URL privada.
 
@@ -300,6 +308,7 @@ class ManualInstallerTechnicalData(BaseModel):
         version, operating_system, architecture: Versión y plataforma inferidas o conocidas.
         platform_required: True cuando el administrador debe completar la plataforma antes de
             aplicar.
+        redirects: Saltos observados; None representa una traza no disponible.
     """
     model_config = ConfigDict(populate_by_name=True)
 
@@ -321,6 +330,8 @@ class ManualInstallerTechnicalData(BaseModel):
     architecture: str
 
     platform_required: bool = Field(alias="platformRequired")
+
+    redirects: list[InstallerRedirect] | None = None
 
 
 

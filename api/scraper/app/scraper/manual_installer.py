@@ -665,6 +665,9 @@ class ManualInstallerInspector:
                 "operatingSystem": item.operating_system,
                 "architecture": item.architecture,
                 "platformRequired": item.operating_system is None,
+                "redirects": None if item.result.redirects is None else [
+                    {"domain": hop.domain, "status": hop.status} for hop in item.result.redirects
+                ],
             }
             for item in validated_installers
         ]

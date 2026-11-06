@@ -602,6 +602,12 @@
               "apps"
             ],
             "properties": {
+              "inactiveAppCount": {
+                "type": "integer",
+                "minimum": 0,
+                "readOnly": true,
+                "description": "Asociaciones con aplicaciones inactivas, ocultas en apps. Solo se informa a administradores; para los demás solicitantes vale cero."
+              },
               "apps": {
                 "type": "array",
                 "maxItems": 100,
@@ -1170,6 +1176,23 @@
           },
           "isPrimary": {
             "type": "boolean"
+          },
+          "checkedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Fecha de comprobación de esta fuente exacta; null si se desconoce."
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0,
+            "description": "Tamaño declarado de este instalador exacto en bytes; null si se desconoce. No es una estimación."
           }
         }
       },

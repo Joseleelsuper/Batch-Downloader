@@ -52,12 +52,18 @@ async function mockApi(page, state) {
       generatedAt: '2026-10-01T00:00:00Z',
     };
     else if (path === '/api/v1/apps/facets') body = { tags: [], publishers: [] };
-    else if (path === '/api/v1/apps/app-1') body = { ...app, notes: '', downloadOptions: [] };
+    else if (path === '/api/v1/apps/app-1') body = { ...app, notes: '', officialUrl: 'https://publisher.example/',
+      resolutionStatus: state.inspectResolverView ? 'requires_manual_review' : 'direct', downloadable: !state.inspectResolverView,
+      operatingSystems: state.inspectResolverView ? ['windows'] : app.operatingSystems,
+      downloadOptions: [{ id: 'source-1', filename: 'example.exe', operatingSystem: 'windows',
+        architecture: 'x86_64', version: '1.0', isLatest: true, isPrimary: true, sourceLabel: 'Oficial',
+        score: 100, finalDomain: 'cdn.example.test', sizeBytes: 1048576, checkedAt: '2026-11-06T12:00:00Z' }] };
     else if (path === '/api/v1/apps') body = { data: [app], page: 1, pageSize: 12, total: 1 };
-    else if (path === '/api/v1/bundles/bundle-1') body = bundle;
+    else if (path === '/api/v1/bundles/bundle-1') body = { ...bundle,
+      inactiveAppCount: state.role === 'ADMIN' ? state.inactiveBundleApps : 0 };
     else if (path === '/api/v1/bundles') body = {
-      data: url.searchParams.get('type') === 'official' ? [bundle] : [],
-      page: 1, pageSize: 3, total: url.searchParams.get('type') === 'official' ? 1 : 0,
+      data: url.searchParams.get('type') === 'official' && !state.bundleDeleted ? [bundle] : [],
+      page: 1, pageSize: 3, total: url.searchParams.get('type') === 'official' && !state.bundleDeleted ? 1 : 0,
     };
     else if (path === '/api/v1/download-jobs/preview') body = {
       requestedCount: 1, installerCount: 1, manualCount: 0, omittedCount: 0,
@@ -92,7 +98,26 @@ async function mockApi(page, state) {
       Object.assign(state.softwareRequests[0], request.postDataJSON());
       state.softwareRequests[0].version += 1;
       body = state.softwareRequests[0];
-    } else if (path === '/api/v1/users/me/bundles/custom-tags') body = [];
+    } else if (path === '/api/v1/admin/bundles/bundle-1' && request.method() === 'PATCH') {
+      state.bundleSaves += 1;
+      state.inactiveBundleApps = 0;
+      body = { ...bundle, inactiveAppCount: 0 };
+    } else if (path === '/api/v1/admin/bundles/bundle-1' && request.method() === 'DELETE') {
+      state.bundleDeleted = true;
+      status = 204;
+    } else if (path === '/api/v1/admin/bundles/custom-tags') body = [];
+    else if (path === '/api/v1/admin/apps') body = { data: state.inspectResolverView ? [app] : [],
+      page: 1, pageSize: 20, total: state.inspectResolverView ? 1 : 0 };
+    else if (path === '/api/v1/admin/apps/absence-verifications/summary') body = { active: 1, missing: 0, missingWithoutActiveEvidence: 0, review: 1 };
+    else if (path === '/api/v1/admin/apps/app-1/manual-installer-inspections/current') body = {
+      id: 'inspection-1', appId: app.id, status: 'ready', phase: 'ready', expectedAppVersion: 0,
+      warnings: [], installers: [{ finalDomain: 'cdn.example.test', filename: 'example.exe', extension: '.exe',
+        contentType: 'application/octet-stream', sizeBytes: 1024, operatingSystem: 'windows',
+        architecture: 'x86_64', platformRequired: false, redirects: [
+          { domain: 'publisher.example', status: 302 }, { domain: 'mirror.example', status: 307 },
+        ] }], createdAt: '2026-11-06T12:00:00Z', updatedAt: '2026-11-06T12:00:00Z', expiresAt: '2026-11-07T12:00:00Z',
+    };
+    else if (path === '/api/v1/users/me/bundles/custom-tags') body = [];
     else if (path === '/api/v1/users/me/bundles' && request.method() === 'POST') body = {
       id: 'own-bundle-1', slug: 'my-bundle', name: 'My bundle', description: '',
       visibility: 'private', appCount: 1, tags: [], apps: [app], version: 0,
@@ -118,7 +143,8 @@ async function runViewport(browser, baseUrl, viewport) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
-  const state = { authenticated: false, createdJobs: 0, role: 'USER', softwareRequests: [] };
+  const state = { authenticated: false, createdJobs: 0, role: 'USER', softwareRequests: [],
+    inactiveBundleApps: 2, bundleSaves: 0, bundleDeleted: false, inspectResolverView: false };
   await mockApi(page, state);
   try {
     await page.goto(baseUrl);
@@ -160,6 +186,14 @@ async function runViewport(browser, baseUrl, viewport) {
     const closeDetails = page.getByRole('button', { name: 'Ocultar detalles de Aplicación de ejemplo' });
     assert.equal(await closeDetails.getAttribute('aria-expanded'), 'true');
     assert.equal(await closeDetails.evaluate((element) => element === document.activeElement), true);
+    await page.getByText('Dominio de descarga', { exact: true }).waitFor();
+    assert.equal(await page.getByText('cdn.example.test', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('1 MiB', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('Última comprobación de la fuente', { exact: true }).isVisible(), true);
+    if (process.env.E2E_SCREENSHOT_DIR) {
+      await page.getByText('1 MiB', { exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/source-evidence-${viewport.width}.png`, animations: 'disabled', fullPage: true });
+    }
     await page.keyboard.press('Enter');
     assert.equal(await details.getAttribute('aria-expanded'), 'false');
     const download = page.getByRole('button', { name: 'Descargar ZIP' });
@@ -279,6 +313,40 @@ async function runViewport(browser, baseUrl, viewport) {
     await page.getByRole('heading', { name: 'Editor solicitado' }).waitFor({ state: 'hidden' });
     assert.equal(state.softwareRequests[0].status, 'rejected');
     assert.equal(state.softwareRequests[0].version, 1);
+    await page.goto(`${baseUrl}/admin/bundles`);
+    await tabTo(page, page.getByRole('button', { name: /Bundle de ejemplo/ }));
+    await page.keyboard.press('Enter');
+    const inactiveWarning = page.getByRole('alert').filter({ hasText: '2 aplicaciones inactivas' });
+    await inactiveWarning.waitFor();
+    const saveOfficial = page.getByRole('button', { name: 'Guardar cambios' });
+    assert.equal(await saveOfficial.isDisabled(), true);
+    const acknowledge = page.getByRole('checkbox', { name: /Confirmo que al guardar/ });
+    await tabTo(page, acknowledge);
+    if (process.env.E2E_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/bundle-maintenance-${viewport.width}.png` });
+    await page.keyboard.press('Space');
+    await tabTo(page, saveOfficial);
+    await page.keyboard.press('Enter');
+    await inactiveWarning.waitFor({ state: 'hidden' });
+    assert.equal(state.bundleSaves, 1);
+    const deleteOfficial = page.getByRole('button', { name: 'Eliminar bundle', exact: true });
+    await tabTo(page, deleteOfficial);
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.keyboard.press('Enter');
+    assert.equal(state.bundleDeleted, false);
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.keyboard.press('Enter');
+    await page.getByText('Bundle eliminado.', { exact: true }).waitFor();
+    assert.equal(state.bundleDeleted, true);
+    state.inspectResolverView = true;
+    await page.goto(`${baseUrl}/admin/apps`);
+    await tabTo(page, page.getByRole('option', { name: /Aplicación de ejemplo/ }));
+    await page.keyboard.press('Enter');
+    const trace = page.getByText('publisher.example (HTTP 302) → mirror.example (HTTP 307) → cdn.example.test', { exact: true });
+    await trace.waitFor();
+    await trace.scrollIntoViewIfNeeded();
+    assert.equal(await trace.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), true);
+    assert.notEqual(await trace.evaluate((element) => getComputedStyle(element).whiteSpace), 'nowrap');
+    if (process.env.E2E_SCREENSHOT_DIR) await page.locator('.installer-evidence').screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/resolver-evidence-${viewport.width}.png`, animations: 'disabled' });
     state.role = 'USER';
     await page.goto(`${baseUrl}/dashboard/software-requests`);
     await page.getByText('No se ha localizado un instalador compatible.', { exact: true }).waitFor();

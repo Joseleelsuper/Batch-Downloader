@@ -56,6 +56,8 @@ const app: AppDetails = {
       score: 130,
       finalDomain: 'geogebra.org',
       isPrimary: true,
+      checkedAt: '2026-06-26T03:00:00Z',
+      sizeBytes: 13_107_200,
     },
     {
       id: 'secondary',
@@ -70,6 +72,8 @@ const app: AppDetails = {
       score: 80,
       finalDomain: 'geogebra.org',
       isPrimary: false,
+      checkedAt: '2026-06-25T03:00:00Z',
+      sizeBytes: 26_214_400,
     },
   ],
 };
@@ -95,7 +99,7 @@ describe('AppDetailsPanel', () => {
 
     expect(screen.getByText(/helps explore mathematical functions/)).toBeInTheDocument();
     expect(screen.queryByText(/permite crear graficas/)).not.toBeInTheDocument();
-    expect(screen.getByText('12.5 MB')).toBeInTheDocument();
+    expect(screen.getByText('12.5 MiB')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled();
   });
 
@@ -108,7 +112,7 @@ describe('AppDetailsPanel', () => {
       'href',
       'https://www.geogebra.org',
     );
-    expect(screen.getByText('12,5 MB')).toBeInTheDocument();
+    expect(screen.getByText('12,5 MiB')).toBeInTheDocument();
     expect(screen.getByText('GeoGebraGraphing.exe')).toBeInTheDocument();
     expect(screen.getByText('GeoGebraSuite.exe')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Descargar' })).toBeEnabled();
@@ -131,6 +135,31 @@ describe('AppDetailsPanel', () => {
     render(<AppDetailsPanel app={{ ...app, longDescription: null }} />);
 
     expect(screen.getByText('Dynamic mathematics app.')).toBeInTheDocument();
+  });
+
+  it('keeps the official page separate and changes the evidence with the exact installer', () => {
+    const { container } = render(<AppDetailsPanel app={{ ...app, downloadOptions: [
+      app.downloadOptions![0], { ...app.downloadOptions![1], finalDomain: 'cdn.example.test' },
+    ] }} />);
+    const evidence = (label: string) => screen.getByText(label).closest('.detail-block')!;
+    expect(evidence('Dominio de descarga')).toHaveTextContent('geogebra.org');
+    fireEvent.click(screen.getByRole('button', { name: /GeoGebraSuite\.exe/ }));
+    expect(evidence('Dominio de descarga')).toHaveTextContent('cdn.example.test');
+    expect(evidence('Tamaño conocido del instalador')).toHaveTextContent('25 MiB');
+    expect(evidence('Última comprobación de la fuente')).toHaveTextContent(/25\/6\/26/);
+    expect(screen.getByRole('link', { name: /geogebra\.org/ })).toHaveAttribute('href', app.officialUrl);
+    expect(container.querySelector('a[href*="cdn.example.test"]')).toBeNull();
+  });
+
+  it('does not substitute another source or the application update for unknown evidence', () => {
+    render(<AppDetailsPanel app={{ ...app, downloadOptions: [
+      { ...app.downloadOptions![0], finalDomain: null, sizeBytes: null, checkedAt: null, version: null },
+    ] }} />);
+    for (const label of ['Dominio de descarga', 'Tamaño conocido del instalador', 'Última comprobación de la fuente', 'Versión detectada']) {
+      expect(screen.getByText(label).closest('.detail-block')).toHaveTextContent('No disponible');
+    }
+    expect(screen.queryByText('12,5 MiB')).not.toBeInTheDocument();
+    expect(screen.queryByText(/26\/6\/26/)).not.toBeInTheDocument();
   });
 
   it('highlights literal matches in the visible description and tags', () => {

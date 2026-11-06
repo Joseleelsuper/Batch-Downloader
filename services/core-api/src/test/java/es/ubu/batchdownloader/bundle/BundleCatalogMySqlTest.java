@@ -98,6 +98,58 @@ class BundleCatalogMySqlTest {
         assertThatThrownBy(() -> tx.execute(status -> activity.setStar(id.toString(), owner, true))).isInstanceOf(UnauthorizedException.class);
     }
 
+    @Test void onlyAdministratorsSeeTheInactiveAssociationsThatEditingWouldRemove() {
+        UUID owner = user("ADMIN");
+        UUID id = bundle("Mantenimiento", "official", "official", owner);
+        addInstaller(id, "windows", "available");
+        for (String status : List.of("inactive", "inactive")) {
+            UUID app = UUID.randomUUID();
+            jdbc.update("INSERT INTO software_apps VALUES(?,?, 'missing')", UuidBytes.fromUuid(app), status);
+            jdbc.update("INSERT INTO bundle_items VALUES(?,?,1)", UuidBytes.fromUuid(id), UuidBytes.fromUuid(app));
+        }
+        CatalogRepository catalog = mock(CatalogRepository.class);
+        when(catalog.listItems(any())).thenReturn(java.util.Map.of());
+        var read = new BundleReadRepository(jdbc, catalog);
+        var publicDetails = read.details(id.toString(), null, false);
+        var adminDetails = read.details(id.toString(), owner, true);
+        assertThat(publicDetails.inactiveAppCount()).isZero();
+        assertThat(read.details(id.toString(), owner, false).inactiveAppCount()).isZero();
+        assertThat(adminDetails.inactiveAppCount()).isEqualTo(2);
+        assertThat(adminDetails.appCount()).isEqualTo(1);
+        assertThat(adminDetails.withActivity(BundleDtos.BundleStarState.HIDDEN).inactiveAppCount()).isEqualTo(2);
+        assertThat(adminDetails.apps()).isEqualTo(publicDetails.apps());
+        jdbc.update("UPDATE bundles SET visibility='private' WHERE id=?", UuidBytes.fromUuid(id));
+        assertThatThrownBy(() -> read.details(id.toString(), null, false)).isInstanceOf(NotFoundException.class);
+    }
+
+    @Test void publishingAndWithdrawingAnOwnedBundleUpdatesAnonymousAccessAtTheSamePublicId() {
+        UUID owner = user("USER"), other = user("USER");
+        UUID id = bundle("Compartido", "user", "private", owner);
+        CatalogRepository catalog = mock(CatalogRepository.class);
+        when(catalog.listItems(any())).thenReturn(java.util.Map.of());
+        var read = new BundleReadRepository(jdbc, catalog);
+        BundleRepository bundles = mock(BundleRepository.class);
+        when(bundles.detailsInternal(anyString())).thenAnswer(call -> read.detailsInternal(call.getArgument(0)));
+        var own = new UserBundleRepository(jdbc, catalog, bundles);
+        String publicId = id.toString();
+        assertThatThrownBy(() -> read.details(publicId, null, false)).isInstanceOf(NotFoundException.class);
+        var publish = new BundleDtos.UpdateOwnBundleRequest("Compartido", "Descripción", publicId,
+                "public", List.of(), List.of(), 0L);
+        assertThat(tx.execute(status -> own.update(owner, publicId, publish)).visibility()).isEqualTo("public");
+        assertThat(read.details(publicId, null, false).id()).isEqualTo(publicId);
+        assertThatThrownBy(() -> tx.execute(status -> own.update(other, publicId, publish))).isInstanceOf(NotFoundException.class);
+        var withdraw = new BundleDtos.UpdateOwnBundleRequest("Compartido", "Descripción", publicId,
+                "private", List.of(), List.of(), 1L);
+        tx.execute(status -> own.update(owner, publicId, withdraw));
+        assertThatThrownBy(() -> read.details(publicId, null, false)).isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> read.details(publicId, other, false)).isInstanceOf(NotFoundException.class);
+        assertThat(read.details(publicId, owner, false).slug()).isEqualTo(publicId);
+        var republish = new BundleDtos.UpdateOwnBundleRequest("Compartido", "Descripción", publicId,
+                "public", List.of(), List.of(), 2L);
+        tx.execute(status -> own.update(owner, publicId, republish));
+        assertThat(read.details(publicId, null, false).id()).isEqualTo(publicId);
+    }
+
     @Test void filtersFacetsPaginationAndSemanticSourceSharePublicBundleMetadata() {
         UUID owner = user("USER");
         UUID official = bundle("Alpha", "official", "official", owner);

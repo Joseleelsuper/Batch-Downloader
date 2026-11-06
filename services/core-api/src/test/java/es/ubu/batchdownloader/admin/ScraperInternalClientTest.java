@@ -270,9 +270,31 @@ class ScraperInternalClientTest {
                 .isEqualTo("manual_installer_inspection_failed");
     }
 
-    /**
-     * Ejecuta client y comunica su resultado manteniendo las reglas del componente.
-     */
+    @Test
+    void manualInspectionRetainsTheTypedSafeRedirectTrace() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            assertThat(exchange.getRequestHeaders().getFirst("X-Internal-Service-Token")).isEqualTo("internal-secret");
+            byte[] response = """
+                    {"id":"00000000-0000-0000-0000-000000000002",
+                     "appId":"00000000-0000-0000-0000-000000000001","status":"ready","phase":"ready",
+                     "expectedAppVersion":0,"warnings":[],
+                     "installers":[{"finalDomain":"cdn.example.test","filename":"app.exe",
+                       "architecture":"x86_64","platformRequired":false,
+                       "redirects":[{"domain":"publisher.example","status":302}]}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        var result = client().currentManualInstallerInspection("00000000-0000-0000-0000-000000000001");
+        assertThat(result.installers()).singleElement().satisfies(installer ->
+                assertThat(installer.redirects()).containsExactly(
+                        new InstallerInspectionDtos.InstallerRedirect("publisher.example", 302)));
+    }
+
+    /** Ejecuta client y comunica su resultado manteniendo las reglas del componente. */
     private ScraperInternalClient client() {
         return new ScraperInternalClient(
                 new ObjectMapper().findAndRegisterModules(),

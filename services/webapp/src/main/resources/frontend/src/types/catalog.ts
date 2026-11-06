@@ -88,6 +88,8 @@ export interface DownloadOption {
   score: number;
   finalDomain?: string | null;
   isPrimary: boolean;
+  checkedAt?: string | null;
+  sizeBytes?: number | null;
 }
 
 export type DownloadJobStatus =
@@ -202,6 +204,7 @@ export interface ManualInstallerTechnicalData {
   operatingSystem?: OperatingSystem | null;
   architecture: string;
   platformRequired: boolean;
+  redirects?: { domain: string; status: number }[] | null;
 }
 
 export interface ManualInstallerInspection {
@@ -330,6 +333,7 @@ export interface BundlePlatformAvailability {
 
 export interface BundleDetails extends BundleSummary {
   apps: CatalogApp[];
+  inactiveAppCount?: number;
 }
 
 export interface BundleResponse {

@@ -2,12 +2,17 @@
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import httpx
 import pytest
 
 from app.core.config import Settings
+from app.schemas.internal import ManualInstallerTechnicalData
 from app.scraper.manual_installer import (
     ManualInstallerError,
     ManualInstallerInspector,
+    ManualInstallerTransientError,
     description_provenance,
     parse_page_evidence,
     reviewed_field_sources,
@@ -18,7 +23,59 @@ from app.scraper.safe_http import (
     has_sensitive_query,
     validate_public_https_syntax,
 )
-from app.scraper.validator import ValidationConfidence, ValidationResult
+from app.scraper.validator import RedirectHop, ValidationConfidence, ValidationResult
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redirects,expected", [
+    (None, None), ((), []),
+    ((RedirectHop("publisher.example", 302),), [{"domain": "publisher.example", "status": 302}]),
+])
+async def test_inspection_publishes_safe_redirects_without_resolved_urls(
+    monkeypatch, redirects, expected,
+):
+    inspector = ManualInstallerInspector(Settings(_env_file=None))
+
+    async def validate(*_args, **_kwargs):
+        return ValidationResult(ok=True, url="https://publisher.example/private?token=secret",
+                                final_url="https://cdn.example/app.exe?signature=private",
+                                final_domain="cdn.example", filename="App.exe", extension=".exe",
+                                confidence=ValidationConfidence.VALIDATED, redirects=redirects)
+
+    async def page_evidence(*_args):
+        return {}
+
+    async def phase(_name):
+        return None
+
+    monkeypatch.setattr(inspector.validator, "validate", validate)
+    monkeypatch.setattr("app.scraper.manual_installer.fetch_page_evidence", page_evidence)
+    app = SimpleNamespace(name="App", publisher="Publisher", latest_version="1.0",
+                          description="Description", long_description="Texto revisado",
+                          long_description_en="Reviewed text", icon_url=None,
+                          official_url="https://publisher.example/")
+    result, _warnings = await inspector.inspect(app, [("windows", "https://publisher.example/app.exe")],
+                                               "https://publisher.example/", set_phase=phase)
+    assert result["installer"]["redirects"] == expected
+    assert result["installer"]["finalDomain"] == "cdn.example"
+    assert ManualInstallerTechnicalData.model_validate(result["installer"]).model_dump(
+        by_alias=True)["redirects"] == expected
+    assert "secret" not in str(result) and "signature" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_manual_timeout_is_a_retryable_code_without_transport_details(monkeypatch):
+    inspector = ManualInstallerInspector(Settings(_env_file=None))
+
+    async def validate(*_args, **_kwargs):
+        raise httpx.ReadTimeout("private upstream URL and credentials")
+
+    monkeypatch.setattr(inspector.validator, "validate", validate)
+    with pytest.raises(ManualInstallerTransientError) as failure:
+        await inspector.validate_installer("https://publisher.example/app.exe",
+                                           "https://publisher.example/")
+    assert failure.value.code == "installer_network_error"
+    assert "private upstream" not in str(failure.value)
 
 
 def test_page_evidence_prefers_allowlisted_software_application_json_ld() -> None:

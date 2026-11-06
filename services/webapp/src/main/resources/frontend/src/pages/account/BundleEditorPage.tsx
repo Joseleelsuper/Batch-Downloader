@@ -10,6 +10,7 @@ import {
   useEffect, useState
 } from 'react';
 import {
+  Link,
   useNavigate,
   useParams
 } from 'react-router-dom';
@@ -96,6 +97,13 @@ export function BundleEditorPage() {
         <label className="bundle-description-field">{t('account.bundles.description')}<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} /></label>
         {ready ? <BundleTagPicker tags={tags} onChange={setTags} /> : null}
         {editing ? <label>{t('account.bundles.visibility')}<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'private' | 'public')}><option value="private">{t('account.private')}</option><option value="public">{t('account.public')}</option></select></label> : null}
+        {visibility === 'public' ? <p className="form-message">{t('account.bundles.publicationNotice')}</p> : null}
+        {ready && bundle?.visibility === 'public' ? <div className="bundle-description-field">
+          <label>{t('account.bundles.publicLink')}
+            <input readOnly type="url" value={`${window.location.origin}/bundles/${encodeURIComponent(bundle.id)}`} />
+          </label>
+          <Link to={`/bundles/${encodeURIComponent(bundle.id)}`}>{t('account.bundles.openPublic')}</Link>
+        </div> : null}
       </div>
       {ready ? <DeferredSection><BundleAppPicker apps={selected} onChange={setSelected} /></DeferredSection> : null}
       <footer className="bundle-editor-footer">
