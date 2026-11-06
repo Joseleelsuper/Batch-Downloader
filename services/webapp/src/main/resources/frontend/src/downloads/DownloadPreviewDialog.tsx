@@ -35,25 +35,31 @@ export function DownloadPreviewDialog({ preview, returnFocusTo, onConfirm, onCan
 
   return <dialog ref={dialog} className="linux-installer-dialog download-preview-dialog" aria-labelledby={titleId}
     onCancel={(event) => { event.preventDefault(); onCancel(); }}>
-    <h2 id={titleId}>{t('download.preview.title')}</h2>
-    <p>{t('download.preview.counts', { installers: preview.installerCount, manual: preview.manualCount, omitted: preview.omittedCount })}</p>
-    <dl>
-      <dt>{t('download.preview.known')}</dt><dd>{size(preview.knownBytes)}</dd>
-      <dt>{t(preview.estimated ? 'download.preview.estimated' : 'download.preview.total')}</dt><dd>{size(preview.estimatedBytes)}</dd>
-      <dt>{t('download.preview.unknownCount')}</dt><dd>{preview.unknownSizeCount}</dd>
-      <dt>{t('download.preview.temporarySpace')}</dt><dd>{size(preview.estimatedPeakBytes)}</dd>
+    <header className="download-preview-header">
+      <h2 id={titleId}>{t('download.preview.title')}</h2>
+      <p>{t('download.preview.counts', { installers: preview.installerCount, manual: preview.manualCount, omitted: preview.omittedCount })}</p>
+    </header>
+    <dl className="download-preview-summary">
+      <div><dt>{t('download.preview.known')}</dt><dd>{size(preview.knownBytes)}</dd></div>
+      <div><dt>{t(preview.estimated ? 'download.preview.estimated' : 'download.preview.total')}</dt><dd>{size(preview.estimatedBytes)}</dd></div>
+      <div><dt>{t('download.preview.unknownCount')}</dt><dd>{preview.unknownSizeCount}</dd></div>
+      <div><dt>{t('download.preview.temporarySpace')}</dt><dd>{size(preview.estimatedPeakBytes)}</dd></div>
     </dl>
-    <p><small>{t('download.preview.sizeHelp')}</small></p>
-    {preview.estimated ? <p>{t('download.preview.estimateHelp')}</p> : null}
-    {preview.warnings.map((warning) => <p role="status" key={warning}>{t(`download.preview.warning.${warning}`)}</p>)}
-    <ol>{preview.items.map((item) => <li key={item.appId}>
-      <strong>{item.name}</strong>
-      {item.operatingSystem ? <span> · {operatingSystemLabel(item.operatingSystem, t)} {item.architecture}</span> : null}
+    <div className="download-preview-help">
+      <p>{t('download.preview.sizeHelp')}</p>
+      {preview.estimated ? <p>{t('download.preview.estimateHelp')}</p> : null}
+    </div>
+    {preview.warnings.map((warning) => <p className="download-preview-warning" role="status" key={warning}>{t(`download.preview.warning.${warning}`)}</p>)}
+    <ol className="download-preview-items">{preview.items.map((item) => <li key={item.appId}>
+      <div className="download-preview-item-heading">
+        <strong>{item.name}</strong>
+        {item.operatingSystem ? <span>{operatingSystemLabel(item.operatingSystem, t)} · {item.architecture}</span> : null}
+      </div>
       {item.kind === 'installer' ? <>
         <p>{item.finalDomain || t('download.preview.sourceUnknown')}{item.filename ? <> · <code>{item.filename}</code></> : null}</p>
         <p>{t('download.preview.recordedSize')}: {size(item.sizeBytes)}</p>
       </> : null}
-      {item.warnings.length ? <ul>{item.warnings.map((warning) => <li key={warning}>{t(`download.preview.warning.${warning}`)}</li>)}</ul> : null}
+      {item.warnings.length ? <ul className="download-preview-item-warnings">{item.warnings.map((warning) => <li key={warning}>{t(`download.preview.warning.${warning}`)}</li>)}</ul> : null}
     </li>)}</ol>
     <footer>
       <button className="secondary-button" type="button" onClick={onCancel}>{t('download.preview.edit')}</button>

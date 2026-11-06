@@ -2,8 +2,11 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  CircuitBoard,
+  Cpu,
   Download,
   Grid2X2,
+  Layers,
   Tags,
   type LucideIcon,
   SlidersHorizontal,
@@ -172,18 +175,27 @@ export function AppFilters({
           })}
         </div>
       </section>
-      <section className="platform-filter">
-        <label>{t('catalog.architecture')}<select value={architecture ?? ''}
-          onChange={(event) => onArchitectureChange?.(event.target.value || undefined)}>
-          <option value="">{t('catalog.architecture.any')}</option>
-          {['x64', 'x86', 'arm64', 'arm', 'neutral'].map((value) => <option value={value} key={value}>{value}</option>)}
-        </select></label>
-        {selectedTagCount > 1 ? <label>{t('catalog.tags.minimum')}<select value={minimumTags ?? 'all'}
+      <section className="platform-filter architecture-filter">
+        <span>{t('catalog.architecture')}</span>
+        <div className="architecture-filter-options" role="group" aria-label={t('catalog.architecture')}>
+          {['', 'x64', 'x86', 'arm64', 'arm', 'neutral'].map((value) => {
+            const Icon = !value ? Grid2X2 : value === 'neutral' ? Layers : value.startsWith('arm') ? CircuitBoard : Cpu;
+            const label = value || t('catalog.architecture.any');
+            return <button className="architecture-filter-button" key={value} type="button"
+              aria-pressed={(architecture ?? '') === value} title={label}
+              onClick={() => onArchitectureChange?.(value || undefined)}>
+              <Icon size={23} aria-hidden="true" /><span>{label}</span>
+            </button>;
+          })}
+        </div>
+      </section>
+      {selectedTagCount > 1 ? <section className="platform-filter minimum-tag-filter">
+        <label>{t('catalog.tags.minimum')}<select value={minimumTags ?? 'all'}
           onChange={(event) => onMinimumTagsChange?.(event.target.value === 'all' ? undefined : Number(event.target.value))}>
           <option value="all">{t('catalog.tags.all')}</option>
           {Array.from({ length: selectedTagCount }, (_, i) => i + 1).map((count) => <option value={count} key={count}>{t('catalog.tags.atLeast', { count })}</option>)}
-        </select></label> : null}
-      </section>
+        </select></label>
+      </section> : null}
       <fieldset
         className="selection-panel"
         aria-label={t('catalog.selection.summary', { count: selectedCount, limit: MAX_SELECTED_APPS })}

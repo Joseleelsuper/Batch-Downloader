@@ -180,7 +180,7 @@ export function AdminBundlesPage() {
           <label className="bundle-description-field">{t('admin.field.description')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
           <BundleTagPicker tags={form.tags} onChange={(tags) => setForm((current) => ({ ...current, tags }))} administrator />
         </div>
-        {inactiveAppCount > 0 ? <div className="admin-card">
+        {inactiveAppCount > 0 ? <div className="admin-card bundle-inactive-warning">
           <p id="inactive-bundle-apps-warning" role="alert">{t('admin.bundle.inactiveWarning', { count: inactiveAppCount })}</p>
           <label><input type="checkbox" checked={inactiveRemovalAccepted}
             aria-describedby="inactive-bundle-apps-warning" onChange={(event) => setInactiveRemovalAccepted(event.target.checked)} />
@@ -189,13 +189,15 @@ export function AdminBundlesPage() {
         </div> : null}
         <DeferredSection><BundleAppPicker apps={bundleApps} onChange={setBundleApps} administrator /></DeferredSection>
         {message ? <span className="form-message" role="status">{message}</span> : null}
+        <footer className="bundle-editor-footer"><div className="editor-actions">
         <button className="primary-button bundle-save-button" type="submit" disabled={inactiveAppCount > 0 && !inactiveRemovalAccepted}>
           <Save size={17} />
           {selected ? t('common.saveChanges') : t('admin.bundle.create')}
         </button>
-        {selected ? <button className="secondary-button" type="button" onClick={() => void remove()}>
+        {selected ? <button className="danger-button" type="button" onClick={() => void remove()}>
           <Trash2 size={17} />{t('admin.bundle.delete')}
         </button> : null}
+        </div></footer>
         </fieldset>
       </form>
     </section>

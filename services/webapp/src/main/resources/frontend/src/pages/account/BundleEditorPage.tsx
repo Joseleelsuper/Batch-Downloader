@@ -2,6 +2,7 @@ import { AsyncContent } from '../../components/AsyncContent';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { DeferredSection } from '../../components/DeferredSection';
 import {
+  ExternalLink,
   Save,
   Trash2
 } from 'lucide-react';
@@ -97,12 +98,14 @@ export function BundleEditorPage() {
         <label className="bundle-description-field">{t('account.bundles.description')}<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} /></label>
         {ready ? <BundleTagPicker tags={tags} onChange={setTags} /> : null}
         {editing ? <label>{t('account.bundles.visibility')}<select value={visibility} onChange={(event) => setVisibility(event.target.value as 'private' | 'public')}><option value="private">{t('account.private')}</option><option value="public">{t('account.public')}</option></select></label> : null}
-        {visibility === 'public' ? <p className="form-message">{t('account.bundles.publicationNotice')}</p> : null}
-        {ready && bundle?.visibility === 'public' ? <div className="bundle-description-field">
+        {visibility === 'public' ? <p className="form-message bundle-publication-notice">{t('account.bundles.publicationNotice')}</p> : null}
+        {ready && bundle?.visibility === 'public' ? <div className="bundle-description-field bundle-public-link">
           <label>{t('account.bundles.publicLink')}
             <input readOnly type="url" value={`${window.location.origin}/bundles/${encodeURIComponent(bundle.id)}`} />
           </label>
-          <Link to={`/bundles/${encodeURIComponent(bundle.id)}`}>{t('account.bundles.openPublic')}</Link>
+          <Link className="secondary-button compact-button" to={`/bundles/${encodeURIComponent(bundle.id)}`}>
+            <ExternalLink size={17} aria-hidden="true" />{t('account.bundles.openPublic')}
+          </Link>
         </div> : null}
       </div>
       {ready ? <DeferredSection><BundleAppPicker apps={selected} onChange={setSelected} /></DeferredSection> : null}

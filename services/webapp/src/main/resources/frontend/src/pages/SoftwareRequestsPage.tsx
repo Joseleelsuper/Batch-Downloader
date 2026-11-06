@@ -46,30 +46,37 @@ export function SoftwareRequestsPage({ admin = false }: Readonly<{ admin?: boole
   }
 
   return <section className={`${admin ? 'admin-panel' : 'account-page'} software-requests`}>
-    <h1>{t('software.requests.title')}</h1>
-    <p>{t(admin ? 'software.requests.adminHelp' : 'software.requests.help')}</p>
-    {admin ? <label>{t('software.requests.filter')}
+    <header className="software-requests-header">
+      <h1>{t('software.requests.title')}</h1>
+      <p>{t(admin ? 'software.requests.adminHelp' : 'software.requests.help')}</p>
+    </header>
+    {admin ? <label className="software-requests-filter">{t('software.requests.filter')}
       <select value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1); }}>
         {(['pending', 'accepted', 'rejected', 'all'] as const).map((value) =>
           <option key={value} value={value}>{t(`software.requests.status.${value}`)}</option>)}
       </select>
-    </label> : <form className="account-card bundle-fields" onSubmit={(event) => void submit(event)}>
+    </label> : <form className="account-card bundle-fields software-request-form" onSubmit={(event) => void submit(event)}>
       <label>{t('software.requests.name')}<input required maxLength={160} value={name}
         onChange={(event) => setName(event.target.value)} /></label>
       <label>{t('software.requests.url')}<input required type="url" maxLength={2048} value={url}
         placeholder="https://" onChange={(event) => setUrl(event.target.value)} /></label>
       <button className="primary-button" type="submit" disabled={submitting}>{t('software.requests.submit')}</button>
     </form>}
-    {message ? <p role="status">{message}</p> : null}
+    {message ? <p className="software-request-feedback" role="status">{message}</p> : null}
     {error ? <p className="error-banner" role="alert">{error}</p> : null}
     <AsyncContent {...resource} hasData={resource.data !== undefined} onRetry={resource.refresh}>
       {resource.data?.data.length === 0 ? <p className="empty-state">{t('software.requests.empty')}</p> : null}
-      <ul className="account-list">{resource.data?.data.map((request) => <li key={`${request.id}:${request.version}`}>
-        <article className="account-card">
-          <h2>{request.name}</h2>
-          <p><a href={request.officialUrl} target="_blank" rel="noopener noreferrer">{request.officialUrl}</a></p>
-          <p>{t(`software.requests.status.${request.status}`)} · {formatDate(request.createdAt)}</p>
-          {request.reviewNote ? <p>{request.reviewNote}</p> : null}
+      <ul className="account-list software-request-list">{resource.data?.data.map((request) => <li key={`${request.id}:${request.version}`}>
+        <article className={`account-card software-request-card ${admin ? 'software-request-card-review' : ''}`}>
+          <div className="software-request-summary">
+            <h2>{request.name}</h2>
+            <p><a href={request.officialUrl} target="_blank" rel="noopener noreferrer">{request.officialUrl}</a></p>
+            <p className="software-request-meta">
+              <span className={`software-request-status software-request-status-${request.status}`}>{t(`software.requests.status.${request.status}`)}</span>
+              <time dateTime={request.createdAt}>{formatDate(request.createdAt)}</time>
+            </p>
+            {request.reviewNote ? <p className="software-request-note">{request.reviewNote}</p> : null}
+          </div>
           {admin ? <RequestReview request={request} onSaved={resource.refresh} /> : null}
         </article>
       </li>)}</ul>
@@ -93,7 +100,7 @@ function RequestReview({ request, onSaved }: Readonly<{ request: SoftwareRequest
     catch (cause) { setError(requestError(t, cause)); }
     finally { setSubmitting(false); }
   }
-  return <form className="bundle-fields" onSubmit={(event) => void submit(event)}>
+  return <form className="bundle-fields software-request-review" onSubmit={(event) => void submit(event)}>
     <label>{t('software.requests.decision')}<select value={status}
       onChange={(event) => setStatus(event.target.value as typeof status)}>
       <option value="accepted">{t('software.requests.status.accepted')}</option>
