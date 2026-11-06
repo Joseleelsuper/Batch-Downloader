@@ -111,9 +111,11 @@ distintas selecciones no se suman. El contrato principal y el perfil público
 de IA se comprueban con las quince pruebas de `scripts/quality/tests`.
 
 El scraper pasó 463 pruebas, ninguna omitida, con 73,28 % de cobertura conjunta
-de líneas y ramas, Ruff y MyPy. El entorno Python local y sus versiones se
-registran por separado de la imagen de producción; la repetición con todas las
-dependencias fijadas en Docker sigue formando parte del cierre reproducible.
+en Windows y 73,25 % al repetirlas en Docker con sus dependencias fijadas. El
+GIL siguió deshabilitado al terminar esa ejecución de CPython 3.14.10t. El
+servicio semántico pasó 54 pruebas en Docker, sin omisiones, con 68,91 % de
+cobertura conjunta, Ruff y MyPy. Los resultados y sus límites se conservan en
+[`evidencias/validacion-2026-11-06.json`](evidencias/validacion-2026-11-06.json).
 
 El resumen previo se ha contrastado además con 38 pruebas focalizadas de Java (ninguna omitida), los recorridos de teclado en Chromium a 1280×800 y 390×844 y el flujo completo en un Compose aislado: selección → revisión → confirmación → trabajo → revalidación fallida → ZIP `MANUAL_ONLY` con manifiesto y acceso oficial seguro. Las credenciales de los tres proveedores LLM se dejan vacías en esa prueba. El entorno de prueba y sus volúmenes se eliminan al terminar.
 

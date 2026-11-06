@@ -1,0 +1,228 @@
+{
+  "prepared": "2026-11-06",
+  "activity": {
+    "cutoff_utc": "2026-11-05T16:57:30+00:00",
+    "first_commit_utc": "2026-06-16T08:57:58+00:00",
+    "application_base": "73070ce94c44f75091c81162b87baa864541d301",
+    "documentation_base": "d3d791d207945fee8ccc3f1125572d8fa869042c",
+    "commit_count": 420,
+    "chat_points_deduplicated": 526,
+    "local_project_sessions": 11,
+    "history_threads_examined": 168,
+    "unavailable_histories": 5,
+    "excluded_session_count": 24,
+    "unique_activity_points": 922,
+    "commits_by_month": {
+      "2026-06": 59,
+      "2026-07": 93,
+      "2026-08": 41,
+      "2026-09": 116,
+      "2026-10": 107,
+      "2026-11": 4
+    },
+    "scenarios_commits_only": [
+      {
+        "scenario": "concentrated",
+        "gap_minutes": 30,
+        "padding_minutes_each_end": 15,
+        "cap_hours_per_day": 8,
+        "sessions": 170,
+        "active_days": 76,
+        "capped_days": 0,
+        "hours": 106.54,
+        "rounded_hours_nearest_5": 105,
+        "hours_by_month": {
+          "2026-06": 12.52,
+          "2026-07": 17.56,
+          "2026-08": 12.18,
+          "2026-09": 27.08,
+          "2026-10": 35.43,
+          "2026-11": 1.77
+        }
+      },
+      {
+        "scenario": "central",
+        "gap_minutes": 60,
+        "padding_minutes_each_end": 30,
+        "cap_hours_per_day": 10,
+        "sessions": 134,
+        "active_days": 76,
+        "capped_days": 0,
+        "hours": 178.89,
+        "rounded_hours_nearest_5": 180,
+        "hours_by_month": {
+          "2026-06": 21.94,
+          "2026-07": 30.74,
+          "2026-08": 20.12,
+          "2026-09": 46.61,
+          "2026-10": 56.2,
+          "2026-11": 3.27
+        }
+      },
+      {
+        "scenario": "broad",
+        "gap_minutes": 120,
+        "padding_minutes_each_end": 45,
+        "cap_hours_per_day": 12,
+        "sessions": 111,
+        "active_days": 76,
+        "capped_days": 0,
+        "hours": 241.3,
+        "rounded_hours_nearest_5": 240,
+        "hours_by_month": {
+          "2026-06": 29.45,
+          "2026-07": 43.07,
+          "2026-08": 26.76,
+          "2026-09": 63.32,
+          "2026-10": 73.92,
+          "2026-11": 4.77
+        }
+      }
+    ],
+    "scenarios_commits_and_chats": [
+      {
+        "scenario": "concentrated",
+        "gap_minutes": 30,
+        "padding_minutes_each_end": 15,
+        "cap_hours_per_day": 8,
+        "sessions": 265,
+        "active_days": 99,
+        "capped_days": 0,
+        "hours": 206.47,
+        "rounded_hours_nearest_5": 205,
+        "hours_by_month": {
+          "2026-06": 12.52,
+          "2026-07": 27.81,
+          "2026-08": 33.01,
+          "2026-09": 67.87,
+          "2026-10": 62.39,
+          "2026-11": 2.86
+        }
+      },
+      {
+        "scenario": "central",
+        "gap_minutes": 60,
+        "padding_minutes_each_end": 30,
+        "cap_hours_per_day": 10,
+        "sessions": 203,
+        "active_days": 99,
+        "capped_days": 0,
+        "hours": 318.03,
+        "rounded_hours_nearest_5": 320,
+        "hours_by_month": {
+          "2026-06": 21.94,
+          "2026-07": 42.99,
+          "2026-08": 52.52,
+          "2026-09": 106.51,
+          "2026-10": 89.71,
+          "2026-11": 4.36
+        }
+      },
+      {
+        "scenario": "broad",
+        "gap_minutes": 120,
+        "padding_minutes_each_end": 45,
+        "cap_hours_per_day": 12,
+        "sessions": 163,
+        "active_days": 99,
+        "capped_days": 0,
+        "hours": 411.19,
+        "rounded_hours_nearest_5": 410,
+        "hours_by_month": {
+          "2026-06": 29.45,
+          "2026-07": 56.01,
+          "2026-08": 70.2,
+          "2026-09": 136.04,
+          "2026-10": 113.62,
+          "2026-11": 5.86
+        }
+      }
+    ],
+    "method": "Sesiones por día Europe/Madrid; agrupar puntos por umbral de separación; añadir margen a ambos extremos, acotado al día; limitar horas diarias. Desduplicar SHA y puntos de interacción.",
+    "limitations": [
+      "No existe parte de horas: son escenarios de actividad reconstruida, no medición de atención humana ni intervalo estadístico.",
+      "No se utilizan duraciones de turnos, salidas, tokens, líneas de código ni tiempo automático del agente como horas trabajadas.",
+      "Los intervalos pueden incluir esperas y omitir trabajo sin commits ni chats; no es posible separar toda automatización no identificada.",
+      "Cinco historiales de la API no estaban disponibles; la cobertura privada no es completa.",
+      "Se excluye la auditoría actual y un chat mixto de mantenimiento programado, además de orígenes automáticos identificados.",
+      "La actividad posterior al corte debe registrarse aparte; las previsiones de cierre no se presentan como dedicación ya realizada."
+    ]
+  },
+  "budget_assumptions": {
+    "gross_eur_hour": "20.00",
+    "employer_percent": "32.15",
+    "contract": "Supuesto de contratación indefinida, tareas exclusivas de oficina, sin bonificaciones; no nómina real",
+    "annual_effective_hours": 1600,
+    "hardware_reference_eur": "1379.00",
+    "hardware_life_years": 4,
+    "hardware_salvage_eur": "0.00",
+    "energy_kw": "0.150",
+    "energy_eur_kwh": "0.25",
+    "energy_note": "Hipótesis de cálculo sin medición ni factura aportada",
+    "future_closure_hours": 60,
+    "future_closure_note": "Previsión separada de lectura final, revisión, coordinación y defensa; no trabajo acreditado"
+  },
+  "sources": {
+    "social_security": "https://www.seg-social.es/wps/portal/wss/internet/Trabajadores/CotizacionRecaudacionTrabajadores/10721/10957/9932/4315",
+    "contributions_order": "https://www.boe.es/buscar/act.php?id=BOE-A-2026-7296",
+    "office_risk_rate": "https://www.boe.es/buscar/act.php?id=BOE-A-2026-2548",
+    "hardware": "https://www.pccomponentes.com/hp-victus-gaming-16-r0037ns-intel-core-i7-13620h-32gb-1tb-ssd-rtx-4070-161"
+  },
+  "declared_cash": {
+    "domain_eur": "10.00",
+    "deepseek_topup_eur": "7.00",
+    "known_sum_eur": "17.00",
+    "note": "Declarado por el autor, sin facturas aportadas; recarga no equivale a consumo, periodicidad del dominio no acreditada",
+    "groq": "Gratuito según autor",
+    "openai": "Autor declara 100 EUR mensuales de crédito API asociados a su suscripción; no se afirma política general ni se cuenta como desembolso",
+    "hardware_actual_price_and_date": null,
+    "other_tool_subscription_costs": null,
+    "hosting_invoices": null
+  },
+  "scenarios": [
+    {
+      "hours": 205,
+      "gross_salary_eur": "4100.00",
+      "employer_contributions_eur": "1318.15",
+      "labor_equivalent_eur": "5418.15",
+      "hardware_amortization_eur": "44.17",
+      "energy_scenario_eur": "7.69",
+      "declared_domain_and_api_eur": "17.00",
+      "equivalent_total_eur": "5487.01",
+      "reserve_10_percent_eur": "548.70"
+    },
+    {
+      "hours": 320,
+      "gross_salary_eur": "6400.00",
+      "employer_contributions_eur": "2057.60",
+      "labor_equivalent_eur": "8457.60",
+      "hardware_amortization_eur": "68.95",
+      "energy_scenario_eur": "12.00",
+      "declared_domain_and_api_eur": "17.00",
+      "equivalent_total_eur": "8555.55",
+      "reserve_10_percent_eur": "855.56"
+    },
+    {
+      "hours": 410,
+      "gross_salary_eur": "8200.00",
+      "employer_contributions_eur": "2636.30",
+      "labor_equivalent_eur": "10836.30",
+      "hardware_amortization_eur": "88.34",
+      "energy_scenario_eur": "15.38",
+      "declared_domain_and_api_eur": "17.00",
+      "equivalent_total_eur": "10957.02",
+      "reserve_10_percent_eur": "1095.70"
+    },
+    {
+      "hours": 380,
+      "gross_salary_eur": "7600.00",
+      "employer_contributions_eur": "2443.40",
+      "labor_equivalent_eur": "10043.40",
+      "hardware_amortization_eur": "81.88",
+      "energy_scenario_eur": "14.25",
+      "declared_domain_and_api_eur": "17.00",
+      "equivalent_total_eur": "10156.53",
+      "reserve_10_percent_eur": "1015.65"
+    }
+  ]
+}

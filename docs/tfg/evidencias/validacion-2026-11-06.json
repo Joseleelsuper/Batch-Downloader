@@ -1,0 +1,181 @@
+{
+  "prepared": "2026-11-06",
+  "applicationCommit": "fc5028f55e214f4a4a908a25a48d97be71699791",
+  "scope": "Validacion local y Docker aislado. No acredita release, CI remoto, produccion, conformidad completa ni deposito academico.",
+  "java": {
+    "runtime": "Temurin 25.0.5+8 en Docker",
+    "fullSuites": [
+      {
+        "module": "shared/java-contracts",
+        "passed": 5,
+        "skipped": 0
+      },
+      {
+        "module": "services/core-api",
+        "passed": 358,
+        "skipped": 0
+      },
+      {
+        "module": "services/download-worker",
+        "passed": 127,
+        "skipped": 0
+      },
+      {
+        "module": "services/notification-service",
+        "passed": 45,
+        "skipped": 0
+      },
+      {
+        "module": "services/translation-service",
+        "passed": 15,
+        "skipped": 0
+      }
+    ],
+    "subsequentSelections": [
+      {
+        "tests": [
+          "BundleCatalogMySqlTest",
+          "BundleStarSecurityTest",
+          "CatalogProjectionRepositoryMySqlTest"
+        ],
+        "passed": 12,
+        "skipped": 0,
+        "command": "mvn -B -pl services/core-api -am -Dtest=BundleCatalogMySqlTest,BundleStarSecurityTest,CatalogProjectionRepositoryMySqlTest -Dsurefire.failIfNoSpecifiedTests=false verify"
+      },
+      {
+        "tests": [
+          "ScraperInternalClientTest",
+          "JsonFileLocaleCatalogTest",
+          "LocaleControllerTest"
+        ],
+        "passed": 20,
+        "skipped": 0,
+        "command": "mvn -B -pl services/core-api,services/translation-service -am -Dtest=ScraperInternalClientTest,JsonFileLocaleCatalogTest,LocaleControllerTest -Dsurefire.failIfNoSpecifiedTests=false verify"
+      }
+    ],
+    "quality": "JaCoCo, SpotBugs y analisis de dependencias superados en las verificaciones correspondientes.",
+    "workerScopeCorrection": "Tras pasar 127 pruebas, el analisis de dependencias detecto Flyway como dependencia de ejecucion. 088db1b corrigio su scope; verify -DskipTests paso reutilizando cobertura. No se atribuye una segunda ejecucion de pruebas a esa orden.",
+    "counting": "Las selecciones posteriores repiten casos. No sumar sus recuentos a las suites completas."
+  },
+  "pythonDocker": {
+    "snapshot": "git archive del commit indicado; sin .env ignorados ni claves de proveedores.",
+    "scraper": {
+      "passed": 463,
+      "skipped": 0,
+      "combinedCoveragePercent": 73.25,
+      "ratesPercent": {
+        "line-rate": 77.03,
+        "branch-rate": 59.97
+      },
+      "runtime": "CPython 3.14.10t; GIL deshabilitado tambien al terminar las pruebas",
+      "dependencies": "requirements.txt y requirements-dev.txt fijados",
+      "command": "python -m pytest --cov=app --cov-report=term -q -ra"
+    },
+    "semantic": {
+      "passed": 54,
+      "skipped": 0,
+      "combinedCoveragePercent": 68.91,
+      "ratesPercent": {
+        "line-rate": 72.43,
+        "branch-rate": 49.46
+      },
+      "dependencies": "pyproject.toml; torch 2.15.0+cpu satisface torch==2.15.0",
+      "offline": true,
+      "quality": [
+        "ruff check .",
+        "mypy app"
+      ],
+      "command": "python -m pytest --cov=app --cov-report=term -q -ra"
+    },
+    "productionSmoke": {
+      "python": "3.14.10t",
+      "gilEnabled": false,
+      "concurrentParses": 200,
+      "chromium": "ok",
+      "command": "python /app/scripts/verify_free_threading.py"
+    },
+    "localEnvironmentNote": "Una ejecucion previa de Windows uso versiones diferentes a las fijadas. Se registro por separado y se repitio la suite en Docker con las dependencias declaradas."
+  },
+  "frontend": {
+    "node": "24.22.1",
+    "fullSuiteBeforePublicLink": {
+      "files": 58,
+      "passed": 362,
+      "skipped": 0,
+      "lineCoveragePercent": 87.75,
+      "branchCoveragePercent": 81.24,
+      "command": "npm run test:coverage -- --maxWorkers=1"
+    },
+    "afterPublicLink": {
+      "suite": "AccountPages.test.tsx",
+      "passed": 17,
+      "skipped": 0,
+      "checks": [
+        "typecheck",
+        "lint",
+        "build"
+      ],
+      "publicEntryGzipKiB": 59.09,
+      "budgetKiB": 112
+    },
+    "note": "La suite completa anterior no incluye el caso nuevo del enlace publico; las 17 pruebas de cuentas si lo incluyen. Los recuentos no se suman."
+  },
+  "contracts": {
+    "unittestPassed": 15,
+    "mainOpenApi": "Valido; aviso preexistente de respuesta 4xx en sitemap",
+    "anonymousAiOpenApi": "Valido sin avisos"
+  },
+  "browser": {
+    "engine": "Chromium 156.0.8078.4",
+    "viewports": [
+      [
+        1280,
+        800
+      ],
+      [
+        390,
+        844
+      ]
+    ],
+    "backend": "API simulada para los recorridos de teclado",
+    "flows": [
+      "seleccion y confirmacion previa",
+      "solicitudes de software USER/ADMIN",
+      "mantenimiento de bundle oficial",
+      "evidencia por fuente",
+      "traza de resolutor sin elipsis"
+    ]
+  },
+  "dockerReplicaRecovery": {
+    "coreReplicas": 2,
+    "workerReplicas": 2,
+    "serverScope": "Un unico host Docker",
+    "passed": true,
+    "scenario": "Dos trabajos activos; SIGKILL de un worker ocupado; redelivery y finalizacion por el superviviente; ZIP MANUAL_ONLY autorizado e instrumentacion HTTP.",
+    "providerCalls": false,
+    "projectCleaned": true
+  },
+  "cleanConfiguration": {
+    "snapshot": "fc5028f",
+    "environmentFiles": "root .env de ejemplo mas siete .env de servicio generados",
+    "syncCheck": "passed",
+    "composeVariants": [
+      "local",
+      "GHCR",
+      "local+scale",
+      "GHCR+scale"
+    ],
+    "healthParity": "passed",
+    "warnings": "Compose Desktop ignora mode de configs fuera de Swarm; no impide validar la configuracion.",
+    "activeUserEnvironmentsChanged": false
+  },
+  "pending": [
+    "CI remoto del corte publicado",
+    "Sonar actualizado",
+    "evaluacion controlada de relevancia y capacidad",
+    "restauracion aislada integral",
+    "artefactos y distribucion versionados",
+    "matriz academica completa y PDFs finales",
+    "campos de Projects pendientes por bloqueo del control de ordenador"
+  ]
+}
