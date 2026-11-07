@@ -129,6 +129,16 @@ jobs:
             sonar=true
           fi
 
+          java=true
+          scraper=true
+          semantic=true
+          frontend=true
+          contracts=true
+          compose=true
+          linux_installer=true
+          download_flow=true
+          sonar=true
+
           {
             echo "java=${java}"
             echo "scraper=${scraper}"
