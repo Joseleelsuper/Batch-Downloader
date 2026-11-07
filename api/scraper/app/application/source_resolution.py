@@ -311,39 +311,40 @@ async def _source_url(
 ) -> str | None:
     """Recupera el mismo asset CDN desde la evidencia manual o su ruta inmutable."""
     url = catalog.reveal_url(resolved)
-    if urlparse(url or "").hostname == "release-assets.githubusercontent.com":
-        manual_url = await _manual_github_source_url(resolved, catalog, session)
-        if manual_url != url:
-            return manual_url
-        revision = _revalidation_revision(resolved)
-        filename = resolved.filename
-        app_metadata = resolved.source.software_app.metadata_json or {}
-        known_urls = [
-            value for version in (app_metadata.get("versions") or [])
-            if isinstance(version, dict)
-            for value in (version.get("installers") or []) if isinstance(value, str)
-        ]
+    if url is None or urlparse(url).hostname != "release-assets.githubusercontent.com":
+        return url
+    manual_url = await _manual_github_source_url(resolved, catalog, session)
+    if manual_url != url:
+        return manual_url
+    revision = _revalidation_revision(resolved)
+    filename = resolved.filename
+    app_metadata = resolved.source.software_app.metadata_json or {}
+    known_urls = [
+        value for version in (app_metadata.get("versions") or [])
+        if isinstance(version, dict)
+        for value in (version.get("installers") or []) if isinstance(value, str)
+    ]
+    await session.commit()
+    try:
+        recovered = await recover_github_asset_url(
+            url, filename, timeout=settings.request_timeout_seconds, known_urls=known_urls,
+        )
+    except (httpx.HTTPError, TimeoutError, SafeHttpError, ValueError):
+        raise SourceRevalidationTransientError(
+            "source_revalidation_transient", "network_error",
+        ) from None
+    locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
+    if locked is None or _revalidation_revision(locked) != revision:
         await session.commit()
-        try:
-            recovered = await recover_github_asset_url(
-                url, filename, timeout=settings.request_timeout_seconds, known_urls=known_urls,
-            )
-        except (httpx.HTTPError, TimeoutError, SafeHttpError, ValueError):
-            raise SourceRevalidationTransientError(
-                "source_revalidation_transient", "network_error",
-            ) from None
-        locked = await catalog.get_resolved_source_by_ref_for_update(str(resolved.id))
-        if locked is None or _revalidation_revision(locked) != revision:
-            await session.commit()
-            raise SourceRevalidationTransientError(
-                "source_revalidation_changed", "source_revalidation_changed",
-            )
-        if recovered is not None:
-            # Una fuente caducada se escribe solo tras validar: los triggers MySQL
-            # cambian también la revisión del padre al actualizar la URL.
-            if locked.expires_at > utc_now():
-                locked.resolved_url_encrypted = catalog.url_protector.protect(recovered)
-            return recovered
+        raise SourceRevalidationTransientError(
+            "source_revalidation_changed", "source_revalidation_changed",
+        )
+    if recovered is not None:
+        # Una fuente caducada se escribe solo tras validar: los triggers MySQL
+        # cambian también la revisión del padre al actualizar la URL.
+        if locked.expires_at > utc_now():
+            locked.resolved_url_encrypted = catalog.url_protector.protect(recovered)
+        return recovered
     return url
 
 
