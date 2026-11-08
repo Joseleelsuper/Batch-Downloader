@@ -372,6 +372,8 @@ export function CatalogPage() {
           operatingSystems={filters.operatingSystems}
           architecture={filters.architecture}
           onArchitectureChange={(architecture) => updateFilters({ architecture })}
+          minimumTags={filters.minimumTags}
+          onMinimumTagsChange={(minimumTags) => updateFilters({ minimumTags })}
           onChange={(nextFilter) => {
             localStorage.setItem('catalog.filter.status', nextFilter);
             updateFilters({ filter: nextFilter });

@@ -645,9 +645,15 @@ paths:
         in: query
         schema:
           type: string
+      - name: minimumTags
+        in: query
+        description: Mínimo de etiquetas distintas. Al omitirlo se exigen todas las seleccionadas.
+        schema:
+          type: integer
+          minimum: 1
       - name: tag
         in: query
-        description: Puede repetirse; la aplicación debe contener todas las tags indicadas.
+        description: Puede repetirse; se exigen todas las etiquetas salvo que se indique minimumTags.
         style: form
         explode: true
         schema:
@@ -724,10 +730,15 @@ paths:
         in: query
         schema:
           type: string
+      - name: minimumTags
+        in: query
+        description: Mínimo de etiquetas distintas. Al omitirlo se exigen todas las seleccionadas.
+        schema:
+          type: integer
+          minimum: 1
       - name: tag
         in: query
-        description: Puede repetirse; las facetas se calculan sobre aplicaciones que contienen todas las
-          tags indicadas.
+        description: Puede repetirse; minimumTags permite exigir un mínimo en vez de todas las etiquetas.
         style: form
         explode: true
         schema:

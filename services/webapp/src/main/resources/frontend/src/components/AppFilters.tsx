@@ -52,6 +52,8 @@ interface Props {
   onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
   architecture?: string;
   onArchitectureChange?: (architecture?: string) => void;
+  minimumTags?: number;
+  onMinimumTagsChange?: (minimum: number | undefined) => void;
 }
 
 export function AppFilters({
@@ -75,6 +77,8 @@ export function AppFilters({
   onToggleOperatingSystem,
   architecture,
   onArchitectureChange,
+  minimumTags,
+  onMinimumTagsChange,
 }: Props) {
   const t = useTranslation();
   const locale = useLocale();
@@ -184,6 +188,13 @@ export function AppFilters({
           })}
         </div>
       </section>
+      {selectedTagCount > 1 ? <section className="platform-filter minimum-tag-filter">
+        <label>{t('catalog.tags.minimum')}<select value={minimumTags ?? 'all'}
+          onChange={(event) => onMinimumTagsChange?.(event.target.value === 'all' ? undefined : Number(event.target.value))}>
+          <option value="all">{t('catalog.tags.all')}</option>
+          {Array.from({ length: selectedTagCount }, (_, i) => i + 1).map((count) => <option value={count} key={count}>{t('catalog.tags.atLeast', { count })}</option>)}
+        </select></label>
+      </section> : null}
       <fieldset
         className="selection-panel"
         aria-label={t('catalog.selection.summary', { count: selectedCount, limit: MAX_SELECTED_APPS })}

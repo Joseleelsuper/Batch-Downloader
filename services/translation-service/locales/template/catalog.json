@@ -77,5 +77,8 @@
   "catalog.sort.updated.description": "",
   "catalog.title": "",
   "catalog.architecture": "",
-  "catalog.architecture.any": ""
+  "catalog.architecture.any": "",
+  "catalog.tags.minimum": "",
+  "catalog.tags.all": "",
+  "catalog.tags.atLeast": ""
 }

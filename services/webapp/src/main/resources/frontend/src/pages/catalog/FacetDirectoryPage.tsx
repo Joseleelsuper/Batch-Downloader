@@ -51,7 +51,7 @@ export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
   const resource = useAsyncResource(() => fetchCatalogFacets({
     query: filters.query, filter: filters.filter, tags: filters.tags, publisher: filters.publisher,
     operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
-    architecture: filters.architecture, searchMode: filters.searchMode,
+    architecture: filters.architecture, minimumTags: filters.minimumTags, searchMode: filters.searchMode,
   }), { scope: canonicalSearchKey, enabled: catalogStatusCanonical });
   const facets = resource.data ?? { tags: [], publishers: [] };
   const [activeLetter, setActiveLetter] = useState('A');
