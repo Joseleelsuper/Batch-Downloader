@@ -24,7 +24,9 @@ it('expone controles con etiquetas accesibles para arquitectura y coincidencia m
   expect(architectures.queryByRole('button', { name: 'neutral' })).not.toBeInTheDocument();
   expect(architectures.getByRole('button', { name: 'x64' })).toHaveAttribute('aria-pressed', 'true');
   fireEvent.click(architectures.getByRole('button', { name: 'arm64' }));
-  fireEvent.change(screen.getByRole('combobox', { name: 'Coincidencia de etiquetas' }), { target: { value: '2' } });
+  const slider = screen.getByRole('slider', { name: 'Coincidencia de etiquetas' });
+  expect(slider).toHaveAttribute('aria-valuetext', 'Todas las etiquetas');
+  fireEvent.change(slider, { target: { value: '2' } });
   expect(architecture).toHaveBeenCalledWith('arm64');
   fireEvent.click(architectures.getByRole('button', { name: 'Cualquiera' }));
   expect(architecture).toHaveBeenLastCalledWith(undefined);

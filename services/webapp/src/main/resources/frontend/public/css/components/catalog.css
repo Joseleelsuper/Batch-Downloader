@@ -1258,5 +1258,16 @@
   background: #fff7d8;
 }
 
-.minimum-tag-filter label { display: grid; gap: 8px; width: 100%; }
-.minimum-tag-filter select { width: 100%; min-height: 44px; padding: 8px; color: #344052; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.minimum-tag-filter { display: grid; gap: 10px; }
+.minimum-tag-filter label { font-weight: 650; }
+.minimum-tag-filter .minimum-tag-slider { display: grid; gap: 8px; width: 100%; }
+.minimum-tag-value { color: var(--teal-dark); font-size: 13px; font-weight: 650; }
+.minimum-tag-track { position: relative; display: flex; align-items: center; min-height: 36px; }
+.minimum-tag-track input { position: relative; width: 100%; height: 36px; margin: 0; appearance: none; background: transparent; cursor: pointer; }
+.minimum-tag-track input::-webkit-slider-thumb { width: 18px; height: 18px; appearance: none; border: 3px solid #fff; border-radius: 50%; background: var(--teal-dark); box-shadow: 0 0 0 1px var(--teal-dark); }
+.minimum-tag-track input::-moz-range-thumb { width: 12px; height: 12px; border: 3px solid #fff; border-radius: 50%; background: var(--teal-dark); box-shadow: 0 0 0 1px var(--teal-dark); }
+.minimum-tag-track input:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; border-radius: 4px; }
+.minimum-tag-points { position: absolute; left: 9px; right: 9px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+.minimum-tag-points::before { content: ""; position: absolute; left: 0; right: 0; height: 2px; background: #a6cdd0; }
+.minimum-tag-points span { position: relative; width: 6px; height: 6px; border-radius: 50%; background: var(--teal-dark); }
+.minimum-tag-endpoints { display: flex; justify-content: space-between; color: #526579; font-size: 12px; }
