@@ -44,7 +44,7 @@ class CatalogControllerTest {
         CatalogController controller = controller();
 
         CatalogDtos.AppSearchResponse response = controller.apps(
-                null, "all", null, null, null, null, "name", 1, 12, "lexical");
+                null, "all", null, null, null, null, "name", 1, 12, "lexical", null);
 
         assertThat(response.alphabet()).isEqualTo(alphabet);
         verify(catalog).alphabet(eq(new CatalogQuery(null, "all", List.of(), null, List.of(), List.of())), eq(12), any(SemanticCandidateSet.class));
@@ -69,7 +69,7 @@ class CatalogControllerTest {
                 "updated",
                 1,
                 20,
-                "lexical");
+                "lexical", null);
 
         verify(catalog).search(eq(new CatalogQuery("epic", "available", List.of(), null, List.of(".NET", "runtime"), List.of("ACME, Inc."))), eq("updated"), eq(1), eq(20), any(SemanticCandidateSet.class));
     }
@@ -83,7 +83,7 @@ class CatalogControllerTest {
                 .thenReturn(new CatalogDtos.CatalogFacetsResponse(List.of(), List.of()));
         CatalogController controller = controller();
 
-        controller.facets(null, "review", List.of("windows"), "x64", List.of("productivity"), "Code Sector", "lexical");
+        controller.facets(null, "review", List.of("windows"), "x64", List.of("productivity"), "Code Sector", "lexical", null);
 
         verify(catalog).facets(eq(new CatalogQuery(null, "review", List.of("windows"), "x64", List.of("productivity"), List.of("Code Sector"))), any(SemanticCandidateSet.class));
     }
@@ -105,7 +105,7 @@ class CatalogControllerTest {
                         "name",
                         1,
                         20,
-                        "lexical"))
+                        "lexical", null))
                 .isInstanceOf(BadRequestException.class)
                 .extracting(exception -> ((BadRequestException) exception).code())
                 .isEqualTo("invalid_catalog_status");

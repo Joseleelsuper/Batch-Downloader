@@ -77,5 +77,8 @@
   "catalog.sort.updated.description": "Primero las últimas aplicaciones añadidas.",
   "catalog.title": "Catálogo de aplicaciones",
   "catalog.architecture": "Arquitectura",
-  "catalog.architecture.any": "Cualquiera"
+  "catalog.architecture.any": "Cualquiera",
+  "catalog.tags.minimum": "Coincidencia de etiquetas",
+  "catalog.tags.all": "Todas las etiquetas",
+  "catalog.tags.atLeast": "Al menos {count}"
 }

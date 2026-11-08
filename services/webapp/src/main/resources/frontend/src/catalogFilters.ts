@@ -9,6 +9,7 @@ export interface CatalogFilterState {
   page: number;
   pageSize: number;
   tags: string[];
+  minimumTags?: number;
   publisher?: string;
   operatingSystems: OperatingSystem[];
   architecture?: string;
@@ -41,6 +42,7 @@ export function parseCatalogFilters(search: URLSearchParams | string): CatalogFi
     page: positiveIntParam(params.get('page'), DEFAULT_CATALOG_FILTERS.page),
     pageSize: positiveIntParam(params.get('pageSize'), DEFAULT_CATALOG_FILTERS.pageSize),
     tags,
+    minimumTags: minimumTagsParam(params.get('minimumTags'), tags.length),
     publisher,
     operatingSystems: parseOperatingSystems(params.getAll('os')),
     architecture: optionalParam(params.get('architecture')),
@@ -103,6 +105,7 @@ export function catalogFiltersToSearchParams(filters: CatalogFilterState): URLSe
     params.set('pageSize', String(filters.pageSize));
   }
   filters.tags.forEach((tag) => params.append('tag', tag));
+  if (filters.minimumTags) params.set('minimumTags', String(filters.minimumTags));
   if (filters.publisher) params.set('publisher', filters.publisher);
   if (!hasAllOperatingSystems(filters.operatingSystems)) {
     filters.operatingSystems.forEach((operatingSystem) => params.append('os', operatingSystem));
@@ -131,11 +134,18 @@ export function nextFilters(
   patch: Partial<CatalogFilterState>,
   resetPage = true,
 ): CatalogFilterState {
-  return {
+  const next = {
     ...current,
     ...patch,
     page: resetPage ? DEFAULT_CATALOG_FILTERS.page : patch.page ?? current.page,
   };
+  if (next.minimumTags && next.minimumTags > next.tags.length) next.minimumTags = undefined;
+  return next;
+}
+
+function minimumTagsParam(value: string | null, count: number): number | undefined {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= count ? parsed : undefined;
 }
 
 export function toggleValue(values: string[], value: string): string[] {

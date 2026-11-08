@@ -52,6 +52,8 @@ interface Props {
   onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
   architecture?: string;
   onArchitectureChange?: (architecture?: string) => void;
+  minimumTags?: number;
+  onMinimumTagsChange?: (minimum: number | undefined) => void;
 }
 
 export function AppFilters({
@@ -75,6 +77,8 @@ export function AppFilters({
   onToggleOperatingSystem,
   architecture,
   onArchitectureChange,
+  minimumTags,
+  onMinimumTagsChange,
 }: Props) {
   const t = useTranslation();
   const locale = useLocale();
@@ -184,6 +188,29 @@ export function AppFilters({
           })}
         </div>
       </section>
+      {selectedTagCount > 1 ? <section className="platform-filter minimum-tag-filter">
+        <label htmlFor="minimum-tags">{t('catalog.tags.minimum')}</label>
+        <div className="minimum-tag-slider">
+          <span className="minimum-tag-value" aria-hidden="true">{minimumTags && minimumTags < selectedTagCount
+            ? t('catalog.tags.atLeast', { count: minimumTags }) : t('catalog.tags.all')}</span>
+          <div className="minimum-tag-track">
+            <div className="minimum-tag-points" aria-hidden="true">
+              {Array.from({ length: selectedTagCount }, (_, index) => <span key={index} />)}
+            </div>
+            <input id="minimum-tags" type="range" min={1} max={selectedTagCount} step={1}
+              value={minimumTags ?? selectedTagCount}
+              aria-valuetext={minimumTags && minimumTags < selectedTagCount
+                ? t('catalog.tags.atLeast', { count: minimumTags }) : t('catalog.tags.all')}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                onMinimumTagsChange?.(value === selectedTagCount ? undefined : value);
+              }} />
+          </div>
+          <div className="minimum-tag-endpoints" aria-hidden="true">
+            <span>1</span><span>{selectedTagCount}</span>
+          </div>
+        </div>
+      </section> : null}
       <fieldset
         className="selection-panel"
         aria-label={t('catalog.selection.summary', { count: selectedCount, limit: MAX_SELECTED_APPS })}
