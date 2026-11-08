@@ -346,11 +346,15 @@ describe('account flows', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Quitar Sample App' }));
     expect(screen.queryByText(t('account.bundles.publicationNotice'))).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: t('account.bundles.visibility') }), { target: { value: 'public' } });
+    expect(screen.getByText(t('account.bundles.publicationNotice'))).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: t('account.bundles.openPublic') })).not.toBeInTheDocument();
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(update).toHaveBeenCalledWith(
       'bundle-1',
       expect.objectContaining({ visibility: 'public', expectedVersion: 3, appIds: [] }),
     ));
+    expect(await screen.findByRole('link', { name: t('account.bundles.openPublic') })).toHaveAttribute('href', '/bundles/bundle-1');
+    expect(screen.getByRole('textbox', { name: t('account.bundles.publicLink') })).toHaveValue(`${window.location.origin}/bundles/bundle-1`);
 
     const deleteButton = screen.getByRole('button', { name: t('account.delete') });
     fireEvent.click(deleteButton);
@@ -359,6 +363,28 @@ describe('account flows', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith('bundle-1'));
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(await screen.findByTestId('location')).toHaveTextContent('/dashboard/bundles');
+  });
+
+  it('retira el enlace compartible solo cuando el servidor confirma que el bundle es privado', async () => {
+    const existing = { id: 'bundle-1', slug: 'old-slug', name: 'Tools', description: '', visibility: 'public' as const,
+      appCount: 0, tags: [], apps: [], version: 3, updatedAt: '2026-11-06T12:00:00Z' };
+    vi.spyOn(accountApi, 'fetchOwnBundle').mockResolvedValue(existing);
+    vi.spyOn(catalogAppsApi, 'fetchApps').mockResolvedValue({ data: [], page: 1, pageSize: 20, total: 0 });
+    const update = vi.spyOn(accountApi, 'updateOwnBundle').mockRejectedValueOnce(new Error('unavailable'))
+      .mockResolvedValue({ ...existing, visibility: 'private', version: 4 });
+    const { container } = render(<MemoryRouter initialEntries={['/dashboard/bundles/bundle-1/edit']}>
+      <Routes><Route path="/dashboard/bundles/:id/edit" element={<BundleEditorPage />} /></Routes>
+    </MemoryRouter>);
+    const publicLink = await screen.findByRole('link', { name: t('account.bundles.openPublic') });
+    expect(publicLink).toHaveAttribute('href', '/bundles/bundle-1');
+    fireEvent.change(screen.getByRole('combobox', { name: t('account.bundles.visibility') }), { target: { value: 'private' } });
+    expect(publicLink).toBeInTheDocument();
+    fireEvent.submit(container.querySelector('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent(t('account.bundles.saveFailed'));
+    expect(publicLink).toBeInTheDocument();
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(screen.queryByRole('link', { name: t('account.bundles.openPublic') })).not.toBeInTheDocument());
+    expect(update).toHaveBeenLastCalledWith('bundle-1', expect.objectContaining({ expectedVersion: 3, visibility: 'private' }));
   });
 
   it('actualiza el principal después de cambiar el username', async () => {
