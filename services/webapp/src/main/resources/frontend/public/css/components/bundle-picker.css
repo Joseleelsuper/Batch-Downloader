@@ -170,6 +170,10 @@
 .bundle-picker-limit { margin: 14px 0 0; color: var(--teal-dark); font-size: 14px; }
 .bundle-save-button { justify-self: start; }
 
+.bundle-public-link { display: grid; align-content: start; justify-items: start; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
+.bundle-public-link label { width: 100%; }
+.bundle-public-link a { text-decoration: none; }
+
 @media (max-width: 1100px) {
   .bundle-picker-selection .bundle-picker-row-actions { grid-column: 2 / -1; justify-self: end; }
   .bundle-picker-selection .bundle-picker-app { grid-column: 2 / -1; }
@@ -181,4 +185,5 @@
   .bundle-picker-panel { padding: 16px; }
   .bundle-picker-row-actions button,
   .bundle-picker-pagination button { min-width: 44px; min-height: 44px; }
+  .bundle-public-link a { width: 100%; }
 }

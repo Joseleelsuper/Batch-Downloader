@@ -1,4 +1,6 @@
 {
+  "account.bundles.publicLink": "Public link to share",
+  "account.bundles.openPublic": "Open public bundle",
   "bundlePicker.sort": "Sort by",
   "bundlePicker.selectionEmptyShort": "No apps selected.",
   "bundleTags.choose": "Choose tags",
