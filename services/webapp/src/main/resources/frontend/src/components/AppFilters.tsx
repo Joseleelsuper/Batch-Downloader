@@ -189,11 +189,27 @@ export function AppFilters({
         </div>
       </section>
       {selectedTagCount > 1 ? <section className="platform-filter minimum-tag-filter">
-        <label>{t('catalog.tags.minimum')}<select value={minimumTags ?? 'all'}
-          onChange={(event) => onMinimumTagsChange?.(event.target.value === 'all' ? undefined : Number(event.target.value))}>
-          <option value="all">{t('catalog.tags.all')}</option>
-          {Array.from({ length: selectedTagCount }, (_, i) => i + 1).map((count) => <option value={count} key={count}>{t('catalog.tags.atLeast', { count })}</option>)}
-        </select></label>
+        <label htmlFor="minimum-tags">{t('catalog.tags.minimum')}</label>
+        <div className="minimum-tag-slider">
+          <span className="minimum-tag-value" aria-hidden="true">{minimumTags && minimumTags < selectedTagCount
+            ? t('catalog.tags.atLeast', { count: minimumTags }) : t('catalog.tags.all')}</span>
+          <div className="minimum-tag-track">
+            <div className="minimum-tag-points" aria-hidden="true">
+              {Array.from({ length: selectedTagCount }, (_, index) => <span key={index} />)}
+            </div>
+            <input id="minimum-tags" type="range" min={1} max={selectedTagCount} step={1}
+              value={minimumTags ?? selectedTagCount}
+              aria-valuetext={minimumTags && minimumTags < selectedTagCount
+                ? t('catalog.tags.atLeast', { count: minimumTags }) : t('catalog.tags.all')}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                onMinimumTagsChange?.(value === selectedTagCount ? undefined : value);
+              }} />
+          </div>
+          <div className="minimum-tag-endpoints" aria-hidden="true">
+            <span>1</span><span>{selectedTagCount}</span>
+          </div>
+        </div>
       </section> : null}
       <fieldset
         className="selection-panel"
