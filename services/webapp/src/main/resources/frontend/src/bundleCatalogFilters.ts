@@ -6,6 +6,7 @@ export interface BundleCatalogFilters {
   query: string;
   searchMode: SearchMode;
   sort: BundleSortKey;
+  direction?: 'asc' | 'desc';
   page: number;
   pageSize: number;
   tags: string[];
@@ -24,6 +25,8 @@ export function parseBundleFilters(params: URLSearchParams): BundleCatalogFilter
   return {
     bundleType: type === 'official' ? 'official' : ['public', 'community', 'user'].includes(type ?? '') ? 'public' : 'all',
     query, searchMode,
+    direction: params.get('direction') === 'asc' || params.get('direction') === 'desc'
+      ? params.get('direction') as 'asc' | 'desc' : undefined,
     sort: (['updated', 'stars', 'name', 'downloads', ...(query && searchMode === 'semantic' ? ['relevance'] : [])].includes(sort ?? '')
       ? sort : 'downloads') as BundleSortKey,
     page: Number.isSafeInteger(page) && page > 0 && page <= 1_000_000 ? page : 1,
@@ -40,6 +43,7 @@ export function bundleFiltersToSearch(filters: BundleCatalogFilters): URLSearchP
   if (filters.query.trim()) params.set('query', filters.query.trim());
   params.set('searchMode', filters.searchMode);
   params.set('sort', filters.sort);
+  if (filters.direction) params.set('direction', filters.direction);
   if (filters.page !== 1) params.set('page', String(filters.page));
   if (filters.pageSize !== 12) params.set('pageSize', String(filters.pageSize));
   filters.tags.forEach((tag) => params.append('tag', tag));

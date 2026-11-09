@@ -6,6 +6,7 @@ export interface BundleSearchParams {
   page?: number;
   pageSize?: number;
   sort?: string;
+  direction?: 'asc' | 'desc';
   query?: string;
   searchMode?: SearchMode;
   tags?: string[];
@@ -19,6 +20,7 @@ export function bundleSearch(params: BundleSearchParams): URLSearchParams {
   search.set('page', String(params.page ?? 1));
   search.set('pageSize', String(params.pageSize ?? 12));
   search.set('sort', params.sort ?? 'updated');
+  if (params.direction) search.set('direction', params.direction);
   if (params.query) search.set('query', params.query);
   if (params.searchMode) search.set('searchMode', params.searchMode);
   params.tags?.forEach((tag) => search.append('tag', tag));

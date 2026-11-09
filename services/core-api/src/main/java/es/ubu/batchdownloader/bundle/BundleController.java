@@ -91,11 +91,12 @@ public class BundleController {
             @RequestParam(required = false) String creator,
             @RequestParam(required = false, name = "os") List<String> operatingSystems,
             @RequestParam(defaultValue = "lexical") String searchMode,
+            @RequestParam(required = false) String direction,
             Authentication authentication, jakarta.servlet.http.HttpServletResponse response) {
         int safePage = Math.max(page, 1);
         int safePageSize = Math.max(1, Math.min(pageSize, 60));
         response.setHeader("Cache-Control", "no-store");
-        return catalog.search(new BundleCatalogRepository.Filters(type, query, tags, creator, operatingSystems, searchMode),
+        return catalog.search(new BundleCatalogRepository.Filters(type, query, tags, creator, operatingSystems, searchMode, direction),
                 sort, safePage, safePageSize, accounts.optionalUserId(authentication));
     }
 

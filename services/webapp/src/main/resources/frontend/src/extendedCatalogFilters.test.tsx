@@ -3,6 +3,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AppFilters } from './components/AppFilters';
 import { catalogFiltersToSearchParams, nextFilters, parseCatalogFilters } from './catalogFilters';
+import { bundleFiltersToSearch, parseBundleFilters } from './bundleCatalogFilters';
+import { bundleSearch } from './api/bundles';
 
 afterEach(cleanup);
 
@@ -33,3 +35,11 @@ it('expone controles con etiquetas accesibles para arquitectura y coincidencia m
   expect(minimum).toHaveBeenCalledWith(2);
 });
 
+it('conserva ambos sentidos de orden en los enlaces y la petición del catálogo de bundles', () => {
+  for (const direction of ['asc', 'desc']) {
+    const filters = parseBundleFilters(new URLSearchParams(`sort=stars&direction=${direction}`));
+    expect(parseBundleFilters(bundleFiltersToSearch(filters))).toEqual(filters);
+    expect(bundleSearch(filters).get('direction')).toBe(direction);
+  }
+  expect(parseBundleFilters(new URLSearchParams('direction=invalid')).direction).toBeUndefined();
+});

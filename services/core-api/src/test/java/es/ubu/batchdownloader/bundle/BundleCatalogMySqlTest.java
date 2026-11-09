@@ -158,6 +158,40 @@ class BundleCatalogMySqlTest {
         assertThat(result.total()).isEqualTo(1);
     }
 
+    @Test void bothSortDirectionsKeepTiesAndAlphabetPagesStable() {
+        UUID owner = user("USER");
+        UUID empty = bundle("", "user", "public", owner);
+        UUID alpha = bundle("Alpha", "user", "public", owner);
+        UUID same = bundle("Alpha", "user", "public", owner);
+        UUID beta = bundle("Beta", "user", "public", owner);
+        bundle("Hidden", "user", "private", owner);
+        jdbc.update("UPDATE bundles SET updated_at='2026-11-05 12:00:00'");
+        jdbc.update("UPDATE bundles SET star_count=5 WHERE id=?", UuidBytes.fromUuid(beta));
+        var semantic = mock(SemanticSearchClient.class);
+        when(semantic.resolveBundles(any(), any())).thenReturn(SemanticCandidateSet.lexical());
+        var service = new BundleCatalogService(new BundleCatalogRepository(jdbc,
+                new BundleReadRepository(jdbc, mock(CatalogRepository.class)), activity), semantic);
+        var asc = new BundleCatalogRepository.Filters(null, null, List.of(), null, List.of(), "lexical", "asc");
+        var desc = new BundleCatalogRepository.Filters(null, null, List.of(), null, List.of(), "lexical", "desc");
+        List<String> ties = java.util.stream.Stream.of(alpha, same).map(UUID::toString).sorted().toList();
+        var ascending = service.search(asc, "name", 1, 4, null);
+        assertThat(ascending.data()).extracting(BundleDtos.BundleSummary::id)
+                .containsExactly(empty.toString(), ties.get(0), ties.get(1), beta.toString());
+        assertThat(service.search(desc, "name", 1, 4, null).data()).extracting(BundleDtos.BundleSummary::id)
+                .containsExactly(beta.toString(), ties.get(0), ties.get(1), empty.toString());
+        assertThat(service.search(desc, "name", 1, 1, null).alphabet()).extracting(BundleDtos.BundleAlphabet::letter)
+                .containsExactly("B", "A", "#");
+        assertThat(service.search(desc, "name", 2, 1, null).data().getFirst().id()).isEqualTo(ties.get(0));
+        assertThat(service.search(desc, "name", 3, 1, null).data().getFirst().id()).isEqualTo(ties.get(1));
+        assertThat(service.search(desc, "stars", 1, 1, null).data().getFirst().id()).isEqualTo(beta.toString());
+        assertThat(service.search(asc, "stars", 4, 1, null).data().getFirst().id()).isEqualTo(beta.toString());
+        jdbc.update("UPDATE bundles SET updated_at='2026-11-04 12:00:00' WHERE id=?", UuidBytes.fromUuid(beta));
+        assertThat(service.search(asc, "updated", 1, 1, null).data().getFirst().id()).isEqualTo(beta.toString());
+        assertThat(service.search(asc, "relevance", 1, 1, null).data().getFirst().id()).isEqualTo(beta.toString());
+        assertThatThrownBy(() -> new BundleCatalogRepository.Filters(null, null, List.of(), null, List.of(), "lexical", "desc;DROP TABLE bundles"))
+                .isInstanceOf(es.ubu.batchdownloader.common.BadRequestException.class);
+    }
+
     void addInstaller(UUID bundle,String os,String status) {
         UUID app=UUID.randomUUID(),source=UUID.randomUUID();
         jdbc.update("INSERT INTO software_apps VALUES(?,'active',?)",UuidBytes.fromUuid(app),status);

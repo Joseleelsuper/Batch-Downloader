@@ -101,7 +101,7 @@ export function BundleCatalogPage() {
           onClick={() => setMobileOpen(true)}><SlidersHorizontal size={18} />{t('catalog.filters')}</button></div>
         : <h1 className="sr-only">{t('bundle.catalog.title')}</h1>}
       <AppSearchBar value={draft} sort={filters.sort} searchMode={filters.searchMode} onChange={setDraft}
-        onSortChange={(sort) => update({ sort })} onSearchModeChange={(searchMode) => update({ searchMode,
+        onSortChange={(sort) => update({ sort, direction: undefined })} onSearchModeChange={(searchMode) => update({ searchMode,
           sort: searchMode === 'lexical' && filters.sort === 'relevance' ? 'downloads' : filters.sort })}
         sortOptions={sortOptions} labelPrefix="bundle.sort" placeholder={t('bundle.catalog.search')} />
       {response?.degradedReason ? <p className="semantic-notice" role="status">{t('bundle.catalog.semanticFallback')}</p> : null}
