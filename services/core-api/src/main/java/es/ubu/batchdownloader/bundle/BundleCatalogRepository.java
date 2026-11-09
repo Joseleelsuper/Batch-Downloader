@@ -62,15 +62,22 @@ public class BundleCatalogRepository {
         counts.put("all", counts.get("public") + counts.get("official"));
         Sql selected = filtered(filters, candidates, true, false, false);
         Long total = jdbc.queryForObject("SELECT COUNT(*) " + selected.text(), Long.class, selected.params().toArray());
-        String direction = filters.direction() != null ? filters.direction().toUpperCase(Locale.ROOT)
-                : List.of("name", "relevance").contains(sort) ? "ASC" : "DESC";
+        String direction = filters.direction();
+        if (direction == null) {
+            direction = List.of("name", "relevance").contains(sort) ? "ASC" : "DESC";
+        } else {
+            direction = direction.toUpperCase(Locale.ROOT);
+        }
+        String tieBreaker = ", b.id";
+        String relevanceDirection = filters.direction() == null ? "DESC" : direction;
+        String relevanceOrder = candidates.semantic() ? "ranked.semantic_rank " + direction
+                : "b.updated_at " + relevanceDirection;
         String order = switch (sort) {
-            case "stars" -> "b.star_count " + direction + ", b.updated_at DESC, b.id";
-            case "downloads" -> "b.download_count " + direction + ", b.updated_at DESC, b.id";
-            case "name" -> "b.name " + direction + ", b.id";
-            case "relevance" -> candidates.semantic() ? "ranked.semantic_rank " + direction + ", b.id"
-                    : "b.updated_at " + (filters.direction() == null ? "DESC" : direction) + ", b.id";
-            default -> "b.updated_at " + direction + ", b.id";
+            case "stars" -> "b.star_count " + direction + ", b.updated_at DESC" + tieBreaker;
+            case "downloads" -> "b.download_count " + direction + ", b.updated_at DESC" + tieBreaker;
+            case "name" -> "b.name " + direction + tieBreaker;
+            case "relevance" -> relevanceOrder + tieBreaker;
+            default -> "b.updated_at " + direction + tieBreaker;
         };
         List<Object> pageParams = new ArrayList<>(selected.params());
         pageParams.add(pageSize);
