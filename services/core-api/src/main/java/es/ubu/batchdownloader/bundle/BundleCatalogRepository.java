@@ -7,6 +7,7 @@ import es.ubu.batchdownloader.bundle.BundleDtos.BundleFacets;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleStarState;
 import es.ubu.batchdownloader.bundle.BundleDtos.BundleSummary;
 import es.ubu.batchdownloader.catalog.SemanticCandidateSet;
+import es.ubu.batchdownloader.common.BadRequestException;
 import es.ubu.batchdownloader.common.UuidBytes;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -33,7 +34,18 @@ public class BundleCatalogRepository {
     }
 
     public record Filters(String type, String query, List<String> tags, String creator,
-            List<String> operatingSystems, String searchMode) {}
+            List<String> operatingSystems, String searchMode, String direction) {
+        public Filters(String type, String query, List<String> tags, String creator,
+                List<String> operatingSystems, String searchMode) {
+            this(type, query, tags, creator, operatingSystems, searchMode, null);
+        }
+
+        public Filters {
+            if (direction != null && !List.of("asc", "desc").contains(direction)) {
+                throw new BadRequestException("invalid_sort_direction", "El sentido debe ser asc o desc.");
+            }
+        }
+    }
 
     @Transactional(readOnly = true)
     public BundleCatalogResponse search(Filters filters, String sort, int page, int pageSize,
@@ -50,12 +62,22 @@ public class BundleCatalogRepository {
         counts.put("all", counts.get("public") + counts.get("official"));
         Sql selected = filtered(filters, candidates, true, false, false);
         Long total = jdbc.queryForObject("SELECT COUNT(*) " + selected.text(), Long.class, selected.params().toArray());
+        String direction = filters.direction();
+        if (direction == null) {
+            direction = List.of("name", "relevance").contains(sort) ? "ASC" : "DESC";
+        } else {
+            direction = direction.toUpperCase(Locale.ROOT);
+        }
+        String tieBreaker = ", b.id";
+        String relevanceDirection = filters.direction() == null ? "DESC" : direction;
+        String relevanceOrder = candidates.semantic() ? "ranked.semantic_rank " + direction
+                : "b.updated_at " + relevanceDirection;
         String order = switch (sort) {
-            case "stars" -> "b.star_count DESC, b.updated_at DESC, b.id";
-            case "downloads" -> "b.download_count DESC, b.updated_at DESC, b.id";
-            case "name" -> "b.name, b.id";
-            case "relevance" -> candidates.semantic() ? "ranked.semantic_rank, b.id" : "b.updated_at DESC, b.id";
-            default -> "b.updated_at DESC, b.id";
+            case "stars" -> "b.star_count " + direction + ", b.updated_at DESC" + tieBreaker;
+            case "downloads" -> "b.download_count " + direction + ", b.updated_at DESC" + tieBreaker;
+            case "name" -> "b.name " + direction + tieBreaker;
+            case "relevance" -> relevanceOrder + tieBreaker;
+            default -> "b.updated_at " + direction + tieBreaker;
         };
         List<Object> pageParams = new ArrayList<>(selected.params());
         pageParams.add(pageSize);
@@ -72,7 +94,7 @@ public class BundleCatalogRepository {
             }
             String letter = "CASE WHEN " + initial + " REGEXP '^[A-Z]$' THEN " + initial + " ELSE '#' END";
             alphabet.addAll(jdbc.query("SELECT letter, COUNT(*) AS amount, MIN(row_position) AS first_position FROM (SELECT "
-                            + letter + " AS letter, ROW_NUMBER() OVER(ORDER BY b.name,b.id) AS row_position "
+                            + letter + " AS letter, ROW_NUMBER() OVER(ORDER BY " + order + ") AS row_position "
                             + selected.text() + ") letters GROUP BY letter ORDER BY first_position",
                     (rs, n) -> new BundleAlphabet(rs.getString("letter"),
                             (int) ((rs.getLong("first_position") - 1) / pageSize) + 1, rs.getLong("amount")),

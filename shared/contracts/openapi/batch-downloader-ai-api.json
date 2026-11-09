@@ -316,6 +316,18 @@
         "security": [],
         "parameters": [
           {
+            "name": "direction",
+            "in": "query",
+            "description": "Sentido del criterio principal. Si se omite, nombre y relevancia son ascendentes y el resto descendentes. Los empates conservan un desempate estable por identificador.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/Page"
           },
           {
