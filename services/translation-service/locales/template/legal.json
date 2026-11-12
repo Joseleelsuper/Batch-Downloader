@@ -1,6 +1,6 @@
 {
-  "legal.eyebrow": "",
-  "legal.lastUpdated": "",
+  "legal.eyebrow": " Your software requests are also stored: name, proposed official page, status, dates and review reason.",
+  "legal.lastUpdated": " Software requests are retained while the account exists and removed when account deletion is requested.",
   "legal.contact": "",
   "legal.providerPolicy": "",
   "legal.authority": "",

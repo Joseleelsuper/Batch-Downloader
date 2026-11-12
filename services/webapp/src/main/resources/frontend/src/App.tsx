@@ -66,6 +66,8 @@ const UserLoginPage = lazyNamed(
   'UserLoginPage',
 );
 
+const SoftwareRequestsPage = lazyNamed(() => import('./pages/SoftwareRequestsPage'), 'SoftwareRequestsPage');
+
 const AdminDashboard = lazyNamed(() => import('./pages/admin/AdminDashboard'), 'AdminDashboard');
 const AdminAuditPage = lazyNamed(() => import('./pages/admin/AdminAuditPage'), 'AdminAuditPage');
 const AdminBundlesPage = lazyNamed(() => import('./pages/admin/AdminBundlesPage'), 'AdminBundlesPage');
@@ -112,6 +114,7 @@ function AppRoutes() {
           }
         >
           <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="dashboard/software-requests" element={<SoftwareRequestsPage />} />
           <Route path="dashboard/bundles" element={<AccountBundlesPage />} />
           <Route path="dashboard/bundles/new" element={<BundleEditorPage />} />
           <Route path="dashboard/bundles/:id/edit" element={<BundleEditorPage />} />
@@ -131,6 +134,7 @@ function AppRoutes() {
           <Route path="scraper" element={<AdminScraperPage />} />
           <Route path="semantic" element={<SemanticAiPage />} />
           <Route path="semantic/:semanticSection" element={<SemanticAiPage />} />
+          <Route path="software-requests" element={<SoftwareRequestsPage admin />} />
           <Route path="audit" element={<AdminAuditPage />} />
         </Route>
         </Routes>
@@ -363,6 +367,7 @@ function AdminLayout({ onLogout }: { onLogout: () => void }) {
           <NavLink to="/admin/bundles"><Boxes size={18} />{t('admin.layout.bundles')}</NavLink>
           <NavLink to="/admin/scraper"><Play size={18} />{t('admin.layout.scraper')}</NavLink>
           <NavLink to="/admin/semantic"><BrainCircuit size={18} />{t('admin.layout.semantic')}</NavLink>
+          <NavLink to="/admin/software-requests"><PackagePlus size={18} />{t('software.requests.title')}</NavLink>
           <NavLink to="/admin/audit"><ListFilter size={18} />{t('admin.layout.audit')}</NavLink>
         </nav>
         <button type="button" onClick={onLogout}><LogOut size={18} />{t('admin.layout.logout')}</button>
