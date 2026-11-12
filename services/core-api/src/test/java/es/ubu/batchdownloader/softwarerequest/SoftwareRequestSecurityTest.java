@@ -2,6 +2,7 @@ package es.ubu.batchdownloader.softwarerequest;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -59,8 +60,8 @@ class SoftwareRequestSecurityTest {
     }
 
     @Test void anonymousAndWrongRolesAreDeniedAndMutationsRequireCsrf() throws Exception {
-        mvc.perform(get("/api/v1/users/me/software-requests")).andExpect(status().isUnauthorized());
-        mvc.perform(post("/api/v1/users/me/software-requests").with(csrf())).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/users/me/software-requests").with(anonymous())).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/users/me/software-requests").with(anonymous()).with(csrf())).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/admin/software-requests").with(authentication(token(UserRole.USER))))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/users/me/software-requests").with(authentication(token(UserRole.ADMIN))))
