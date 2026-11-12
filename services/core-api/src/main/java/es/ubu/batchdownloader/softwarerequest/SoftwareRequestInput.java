@@ -10,7 +10,7 @@ import java.util.Locale;
 import java.util.Set;
 
 /** Validación sintáctica sin DNS ni HTTP: guardar una propuesta nunca descarga su URL. */
-record SoftwareRequestInput(String name, String normalizedName, String officialUrl, byte[] urlKey) {
+record SoftwareRequestInput(String name, String normalizedName, String officialUrl) {
     private static final Set<String> PRIVATE_SUFFIXES = Set.of(
             "localhost", "local", "internal", "home", "lan", "onion", "test", "invalid", "example");
 
@@ -29,7 +29,7 @@ record SoftwareRequestInput(String name, String normalizedName, String officialU
             if (host.endsWith(".")) host = host.substring(0, host.length() - 1);
             if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getRawUserInfo() != null
                     || (uri.getPort() != -1 && uri.getPort() != 443)
-                    || !host.matches("(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}")
+                    || !host.matches("(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)++[a-z]{2,63}")
                     || PRIVATE_SUFFIXES.stream().anyMatch(suffix -> hostMatches(uri.getHost(), suffix))) {
                 throw new IllegalArgumentException();
             }
@@ -41,9 +41,12 @@ record SoftwareRequestInput(String name, String normalizedName, String officialU
         } catch (IllegalArgumentException exception) {
             throw new BadRequestException("invalid_software_request_url", "Indica una página HTTPS con dominio público, sin credenciales ni puertos alternativos.");
         }
+        return new SoftwareRequestInput(name, name.toLowerCase(Locale.ROOT), canonical);
+    }
+
+    byte[] urlKey() {
         try {
-            return new SoftwareRequestInput(name, name.toLowerCase(Locale.ROOT), canonical,
-                    MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
+            return MessageDigest.getInstance("SHA-256").digest(officialUrl.getBytes(StandardCharsets.UTF_8));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException(exception);
         }
