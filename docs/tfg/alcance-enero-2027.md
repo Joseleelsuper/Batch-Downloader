@@ -68,8 +68,7 @@ permanecen en el catálogo. Si falla la petición, el editor conserva sus datos.
 El detalle de una aplicación distingue web oficial y dominio de descarga. La
 versión, el tamaño conocido y la fecha de comprobación pertenecen a la fuente
 exacta seleccionada. No se sustituye una fecha desconocida por `updatedAt`, ni
-un tamaño desconocido por el de otra variante. El tamaño se expresa en MiB;
-las estimaciones de una selección siguen identificadas en el resumen previo.
+un tamaño desconocido por el de otra variante. El tamaño se expresa en MiB.
 
 Una inspección manual completada muestra los dominios y estados de las
 redirecciones HTTP observadas durante la consulta de metadatos. La lista vacía
@@ -82,7 +81,6 @@ traza completa. Las líneas de la traza pueden partirse en móvil.
 
 ## Evidencias iniciales
 
-Antes de crear un trabajo se abre **Revisa tu descarga** con sus instaladores, dominios registrados, nombres de archivo, tamaños conocidos, estimaciones y alternativas manuales u omisiones. La consulta comparte selección, permisos y límites con la creación, pero no crea identidad anónima, trabajos ni reservas ni llama a resolutores. Si hay tamaños parciales, extrapola con la mediana de los conocidos; si ninguno es conocido, conserva el total como desconocido. Los tamaños corresponden a instaladores antes de comprimir, y no al ZIP final. La confirmación abre el destino de guardado con un nuevo gesto del usuario; cancelar permite volver a la selección. La fuente vuelve a validarse cuando se prepara la descarga.
 
 | Comportamiento | Evidencia |
 | --- | --- |
@@ -93,8 +91,6 @@ Antes de crear un trabajo se abre **Revisa tu descarga** con sus instaladores, d
 | Ambos sentidos, empates, paginación y alfabeto de bundles | `BundleCatalogMySqlTest` |
 | Estrellas propias, unicidad concurrente y privacidad | `BundleCatalogMySqlTest`, `BundleStarSecurityTest` |
 | Errores legibles que conservan códigos técnicos | `downloads/failures.test.ts`, `GlobalDownloadJobOverlay.test.tsx` |
-| Resumen completo, parcial, desconocido, sin escrituras y con permisos del bundle | `DownloadPreviewTest`, `DownloadPreviewControllerTest`, `JpaCatalogSourceLookupTest` |
-| Confirmación explícita, cancelación y cambio de cuenta | `DownloadPreviewDialog.test.tsx`, `DownloadJobsContext.test.tsx` |
 | Solicitudes válidas, URL maliciosas, propiedad, duplicados concurrentes, revisión y baja | `SoftwareRequestInputTest`, `SoftwareRequestMySqlTest`, `SoftwareRequestSecurityTest`, `AccountDeletionServiceTest` |
 | Formulario, historial, conflicto de versión y teclado ES en ambos tamaños | `SoftwareRequestsPage.test.tsx`, `scripts/e2e/keyboard-accessibility.mjs` |
 | Publicar, retirar y republicar; propiedad y enlace confirmado por el servidor | `BundleCatalogMySqlTest`, `AccountPages.test.tsx` |
@@ -117,7 +113,6 @@ servicio semántico pasó 54 pruebas en Docker, sin omisiones, con 68,91 % de
 cobertura conjunta, Ruff y MyPy. Los resultados y sus límites se conservan en
 [`evidencias/validacion-2026-11-06.json`](evidencias/validacion-2026-11-06.json).
 
-El resumen previo se ha contrastado además con 38 pruebas focalizadas de Java (ninguna omitida), los recorridos de teclado en Chromium a 1280×800 y 390×844 y el flujo completo en un Compose aislado: selección → revisión → confirmación → trabajo → revalidación fallida → ZIP `MANUAL_ONLY` con manifiesto y acceso oficial seguro. Las credenciales de los tres proveedores LLM se dejan vacías en esa prueba. El entorno de prueba y sus volúmenes se eliminan al terminar.
 
 Las solicitudes de software han superado otras 37 pruebas Java focalizadas, ninguna omitida, incluyendo MySQL real, migración completa, CSRF y separación de roles. El recorrido de teclado, con API simulada, cubre el alta como usuario, la revisión como administrador y la consulta posterior del motivo como usuario, en ambos tamaños de pantalla.
 

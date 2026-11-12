@@ -313,10 +313,6 @@ automáticamente. [Alcance, validación y evidencias](docs/tfg/alcance-enero-202
 
 ### Trabajo de descarga
 
-La interfaz solicita primero `POST /api/v1/download-jobs/preview` y muestra fuentes,
-tamaños registrados, estimaciones y alternativas antes de confirmar. Esta consulta
-no crea trabajos ni reservas; el tamaño final del ZIP solo se conoce al empaquetarlo.
-
 El presupuesto global de 10 GiB incluye temporales, ZIP, multipart y reservas.
 Los trabajos esperan en FIFO estricto si su pico estimado no cabe; crear uno
 devuelve 202 también en ese caso. `estimatedBytes`, `reservedBytes` y

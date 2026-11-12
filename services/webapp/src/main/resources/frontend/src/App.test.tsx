@@ -10,7 +10,6 @@ import * as catalogAppsApi from './api/catalogApps';
 import { clearCatalogPageCache } from './pages/catalog/CatalogPages';
 import * as downloadsApi from './api/downloads';
 import * as delivery from './downloads/delivery';
-import { confirmDownloadPreview, downloadPreview, installModalDialogMethods } from './test/downloadPreview';
 import type { BundleDetails, BundleSummary, CatalogApp, CatalogResponse, OperatingSystem, ScraperQueueState } from './types/catalog';
 
 vi.mock('./components/PageMetadata', () => ({ PageMetadata: () => null }));
@@ -69,8 +68,6 @@ function LocationProbe() {
 
 beforeEach(() => {
   window.sessionStorage.clear();
-  installModalDialogMethods();
-  vi.spyOn(downloadsApi, 'previewDownload').mockResolvedValue(downloadPreview);
 });
 describe('catalog workspace', () => {
   it('conserva el enlace de acceso mientras termina de comprobar una sesión existente', async () => {
@@ -688,8 +685,6 @@ describe('catalog workspace', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación reciente' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Aplicación obsoleta' }));
     fireEvent.click(screen.getByRole('button', { name: 'Descargar ZIP' }));
-    await screen.findByRole('dialog', { name: 'Revisa tu descarga' });
-    await confirmDownloadPreview();
     expect(picker).toHaveBeenCalledOnce();
 
     await waitFor(() => expect(createDownloadJob).toHaveBeenCalledWith({
@@ -1046,8 +1041,6 @@ describe('home loading', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Windows: 1 aplicaciones disponibles' }));
     expect(screen.getByRole('button', { name: /Example-0\.9\.exe/ })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Descargar bundle (1)' }));
-    await screen.findByRole('dialog', { name: 'Revisa tu descarga' });
-    await confirmDownloadPreview();
 
     await waitFor(() => expect(createJob).toHaveBeenCalledWith({
       bundleId: 'bundle-1', operatingSystems: ['windows'],

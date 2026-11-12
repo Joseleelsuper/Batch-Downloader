@@ -23,7 +23,6 @@ import authenticationShared from '@batch-locales/es/authentication-shared.json';
 import bundleDetail from '@batch-locales/es/bundle-detail.json';
 import catalogPage from '@batch-locales/es/catalog.json';
 import downloads from '@batch-locales/es/downloads.json';
-import downloadPreview from '@batch-locales/es/download-preview.json';
 import linuxInstaller from '@batch-locales/es/linux-installer.json';
 import facetDirectory from '@batch-locales/es/facet-directory.json';
 import home from '@batch-locales/es/home.json';
@@ -44,7 +43,6 @@ const bundledMessages = {
   ...facetDirectory,
   ...bundleDetail,
   ...downloads,
-  ...downloadPreview,
   ...linuxInstaller,
   ...authenticationShared,
   ...login,
