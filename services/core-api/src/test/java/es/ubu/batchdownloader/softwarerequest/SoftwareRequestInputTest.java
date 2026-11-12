@@ -17,6 +17,14 @@ class SoftwareRequestInputTest {
         assertThat(first.urlKey()).isEqualTo(second.urlKey());
     }
 
+    @Test void acceptsManyDomainLabelsAndUsesValueEquality() {
+        String url = "https://" + "a.".repeat(124) + "org/";
+        var first = SoftwareRequestInput.parse("Editor", url);
+        var second = SoftwareRequestInput.parse("Editor", url);
+        assertThat(first).isEqualTo(second).hasSameHashCodeAs(second);
+        assertThat(first.urlKey()).isEqualTo(second.urlKey());
+    }
+
     @ParameterizedTest @ValueSource(strings = {
         "http://example.org", "javascript:alert(1)", "https://user:secret@example.org",
         "https://example.org:8443/", "https://127.0.0.1/", "https://10.0.0.1/",
