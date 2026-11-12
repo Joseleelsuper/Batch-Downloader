@@ -80,6 +80,7 @@ public class AccountDeletionService {
         jdbc.update("DELETE FROM bundle_stars WHERE user_key = ?", userId.toString());
         jdbc.update("DELETE FROM bundles WHERE owner_id = ?", userId.toString());
         jdbc.update("DELETE FROM user_download_history WHERE user_id = ?", userId.toString());
+        jdbc.update("DELETE FROM software_inclusion_requests WHERE owner_id = ?", userId.toString());
         jdbc.update("DELETE FROM download_job_receipts WHERE owner_id = ?", userId.toString());
         jdbc.update("DELETE FROM identity_tokens WHERE user_id = ?", userId.toString());
         jdbc.update("DELETE FROM pending_magic_link_requests WHERE normalized_email = (SELECT normalized_email FROM core_users WHERE id = ?)",

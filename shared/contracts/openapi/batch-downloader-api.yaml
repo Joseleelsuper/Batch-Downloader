@@ -343,6 +343,117 @@ paths:
           $ref: '#/components/responses/Forbidden'
       x-required-roles:
       - USER
+  /users/me/software-requests:
+    get:
+      operationId: listOwnSoftwareRequests
+      summary: Consultar solicitudes propias de incorporación
+      x-required-roles: [USER]
+      parameters:
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Historial exclusivo del UUID autenticado; tamaño acotado a 50.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoftwareRequestPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createSoftwareRequest
+      summary: Proponer software sin descargar su página oficial
+      description: Valida sintaxis HTTPS, dominio no literal, credenciales y puerto. No resuelve DNS ni abre la URL. Detecta nombre o URL repetidos en la cuenta y coincidencias evidentes en el catálogo. Máximo 50 solicitudes por cuenta.
+      x-required-roles: [USER]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSoftwareRequest'
+      responses:
+        '201':
+          description: Propuesta pendiente de revisión.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoftwareRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /admin/software-requests:
+    get:
+      operationId: listAdminSoftwareRequests
+      summary: Listar propuestas para revisión administrativa
+      x-required-roles: [ADMIN]
+      parameters:
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [pending, accepted, rejected]
+      responses:
+        '200':
+          description: Solicitudes paginadas; sin datos de contacto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoftwareRequestPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/software-requests/{requestId}:
+    parameters:
+    - name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    patch:
+      operationId: reviewSoftwareRequest
+      summary: Aceptar o rechazar una propuesta con motivo y versión
+      description: La aceptación no importa software ni publica instaladores. La incorporación utiliza la revisión segura de fuentes existente. Audita el resultado sin registrar nombres, URLs ni el texto del motivo.
+      x-required-roles: [ADMIN]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewSoftwareRequest'
+      responses:
+        '200':
+          description: Decisión guardada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoftwareRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /users/me/bundles:
     get:
       operationId: listOwnBundles
@@ -4030,6 +4141,75 @@ components:
           items:
             type: string
             format: uuid
+    CreateSoftwareRequest:
+      type: object
+      additionalProperties: false
+      required: [name, officialUrl]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        officialUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+    ReviewSoftwareRequest:
+      type: object
+      additionalProperties: false
+      required: [status, reviewNote, version]
+      properties:
+        status:
+          type: string
+          enum: [accepted, rejected]
+        reviewNote:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        version:
+          type: integer
+          minimum: 0
+    SoftwareRequest:
+      type: object
+      additionalProperties: false
+      required: [id, name, officialUrl, status, reviewNote, createdAt, reviewedAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        officialUrl:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [pending, accepted, rejected]
+        reviewNote:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        reviewedAt:
+          type: [string, 'null']
+          format: date-time
+        version:
+          type: integer
+    SoftwareRequestPage:
+      type: object
+      additionalProperties: false
+      required: [data, page, pageSize, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SoftwareRequest'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
     LinuxDownloadPreview:
       type: object
       required: [target, architecture, totalCount, automaticCount, manualCount, omittedCount, items]
