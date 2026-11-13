@@ -84,6 +84,27 @@ class SoftwareRequestSecurityTest {
         verify(requests).create(owner,"Editor","https://example.org");
     }
 
+    @Test void cancellationRequiresTheUserRoleCsrfAndCurrentAccount() throws Exception {
+        String endpoint = "/api/v1/users/me/software-requests/" + requestId;
+        mvc.perform(delete(endpoint).with(anonymous()).with(csrf())).andExpect(status().isUnauthorized());
+        mvc.perform(delete(endpoint).with(authentication(token(UserRole.ADMIN))).with(csrf()))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete(endpoint).with(authentication(token(UserRole.USER))))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(requests);
+        mvc.perform(delete(endpoint).with(authentication(token(UserRole.USER))).with(csrf()))
+                .andExpect(status().isNoContent()).andExpect(content().string(""));
+        verify(requests).cancel(owner, requestId);
+    }
+
+    @Test void cancellationReportsAConcurrentReviewAsConflict() throws Exception {
+        doThrow(new ConflictException("software_request_not_pending", "La solicitud ya ha sido revisada."))
+                .when(requests).cancel(owner, requestId);
+        mvc.perform(delete("/api/v1/users/me/software-requests/" + requestId)
+                .with(authentication(token(UserRole.USER))).with(csrf()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("software_request_not_pending"));
+    }
+
     @Test void adminReviewRequiresExplicitVersionAndAuditsSafeSuccessAndFailure() throws Exception {
         var endpoint = "/api/v1/admin/software-requests/"+requestId;
         mvc.perform(patch(endpoint).with(authentication(token(UserRole.USER))).with(csrf())
