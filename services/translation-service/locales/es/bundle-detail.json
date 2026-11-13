@@ -41,5 +41,12 @@
   "bundle.sort.name": "Nombre",
   "bundle.sort.name.description": "Orden alfabético por nombre.",
   "bundle.sort.relevance": "Relevancia",
-  "bundle.sort.relevance.description": "Primero los bundles más relacionados con tu búsqueda."
+  "bundle.sort.relevance.description": "Primero los bundles más relacionados con tu búsqueda.",
+  "bundle.draft.customize": "Personalizar selección",
+  "bundle.draft.clone": "Clonar en mi cuenta",
+  "bundle.draft.copyName": "Copia de {name}",
+  "bundle.draft.temporary": "Revisa, añade o quita aplicaciones. El bundle original se conserva; solo se guarda una copia privada si lo solicitas.",
+  "bundle.draft.empty": "La selección está vacía. Puedes añadir aplicaciones del catálogo.",
+  "bundle.draft.save": "Guardar como bundle privado",
+  "bundle.draft.back": "Volver al catálogo"
 }

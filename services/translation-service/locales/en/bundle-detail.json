@@ -41,5 +41,12 @@
   "bundle.sort.name": "Name",
   "bundle.sort.name.description": "Alphabetical order by name.",
   "bundle.sort.relevance": "Relevance",
-  "bundle.sort.relevance.description": "Bundles most relevant to your search first."
+  "bundle.sort.relevance.description": "Bundles most relevant to your search first.",
+  "bundle.draft.customize": "Customize selection",
+  "bundle.draft.clone": "Clone into my account",
+  "bundle.draft.copyName": "Copy of {name}",
+  "bundle.draft.temporary": "Review, add or remove apps. The original bundle is preserved; a private copy is saved only when you request it.",
+  "bundle.draft.empty": "The selection is empty. You can add apps from the catalogue.",
+  "bundle.draft.save": "Save as a private bundle",
+  "bundle.draft.back": "Back to the catalogue"
 }

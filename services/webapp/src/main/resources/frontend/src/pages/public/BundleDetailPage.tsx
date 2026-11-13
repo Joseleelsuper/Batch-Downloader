@@ -4,7 +4,7 @@ import { BundleActivity } from '../../components/BundleActivity';
 import { useAuth } from '../../auth/AuthContext';
 import { ChevronDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { fetchBundle } from '../../api/bundles';
 import { fetchAppDetails } from '../../api/catalogApps';
 import { isCatalogAppSelectable } from '../../catalogSelection';
@@ -92,6 +92,9 @@ export function BundleDetailPage() {
         <div className="bundle-detail-actions">
           <span>{t('bundle.appsCount', { count: bundle.appCount })}</span>
           <BundleActivity key={`${bundle.id}:${account?.id ?? "anonymous"}`} bundle={bundle} />
+          <Link className="secondary-button" to={`/bundles/${encodeURIComponent(bundle.slug)}/customize`}>{t('bundle.draft.customize')}</Link>
+          {account?.role === 'USER' && bundle.visibility !== 'private'
+            ? <Link className="secondary-button" to={`/bundles/${encodeURIComponent(bundle.slug)}/customize?clone=1`}>{t('bundle.draft.clone')}</Link> : null}
           <BundleDownloadButton
             key={bundle.id}
             bundleId={bundle.id}

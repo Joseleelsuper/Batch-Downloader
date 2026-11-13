@@ -57,7 +57,7 @@ function applyMetadata(value: SeoMetadata) {
   }
 }
 
-const PRIVATE_PATH = /^\/(?:login|admin|dashboard|profile|error)(?:\/|$)/;
+const PRIVATE_PATH = /^\/(?:login|admin|dashboard|profile|error)(?:\/|$)|^\/bundles\/[^/]+\/customize(?:\/|$)/;
 const EMPTY_METADATA: SeoMetadata = {
   title: 'Batch Downloader', description: '', canonicalUrl: '', imageUrl: null,
   imageAlt: '', robots: 'noindex, follow', type: 'website', structuredData: null,
