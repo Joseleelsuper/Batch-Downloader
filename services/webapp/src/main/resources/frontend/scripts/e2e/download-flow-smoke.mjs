@@ -276,6 +276,10 @@ export async function run() {
       'mysql', 'rabbitmq', 'minio', 'scraper-api', 'core-api', 'translation-service', 'webapp'],
     { timeoutMs: 20 * 60 * 1000 });
     await waitForHttp(`${baseUrl}/healthz`);
+    const customization = await fetch(`${baseUrl}/bundles/example/customize`);
+    assert.equal(customization.status, 200, 'Direct bundle customization route must serve the app shell');
+    assert.match(customization.headers.get('x-robots-tag') ?? '', /noindex/);
+
 
     const seeded = seedSelectableApplication();
     const page = await browser.newPage({ locale: 'es-ES', acceptDownloads: true });
