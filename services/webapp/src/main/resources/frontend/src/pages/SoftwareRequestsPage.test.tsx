@@ -18,6 +18,7 @@ beforeEach(() => {
   vi.spyOn(requests, 'fetchOwnSoftwareRequests').mockResolvedValue(page);
   vi.spyOn(requests, 'fetchAdminSoftwareRequests').mockResolvedValue(page);
   vi.spyOn(requests, 'createSoftwareRequest').mockResolvedValue(request);
+  vi.spyOn(requests, 'cancelSoftwareRequest').mockResolvedValue(undefined);
   vi.spyOn(requests, 'reviewSoftwareRequest').mockResolvedValue({ ...request, status: 'accepted', version: 1 });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -59,6 +60,7 @@ describe('software requests', () => {
     await waitFor(() => expect(requests.reviewSoftwareRequest).toHaveBeenCalledWith('request-1', 'accepted', 'Fuente oficial revisada', 0));
     expect(requests.createSoftwareRequest).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Enviar solicitud' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancelar solicitud' })).not.toBeInTheDocument();
     await waitFor(() => expect(requests.fetchAdminSoftwareRequests).toHaveBeenCalledTimes(2));
   });
 
@@ -78,5 +80,38 @@ describe('software requests', () => {
     vi.mocked(requests.fetchOwnSoftwareRequests).mockReturnValue(new Promise(() => {}));
     view.rerender(<MemoryRouter><SoftwareRequestsPage /></MemoryRouter>);
     expect(screen.queryByRole('heading', { name: 'New Editor' })).not.toBeInTheDocument();
+  });
+
+  it('asks for confirmation and removes a cancelled pending request from the history', async () => {
+    const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.mocked(requests.cancelSoftwareRequest).mockImplementation(async () => {
+      vi.mocked(requests.fetchOwnSoftwareRequests).mockResolvedValue({ ...page, data: [], total: 0 });
+    });
+    render(<MemoryRouter><SoftwareRequestsPage /></MemoryRouter>);
+    const cancel = await screen.findByRole('button', { name: 'Cancelar solicitud' });
+    fireEvent.click(cancel);
+    expect(requests.cancelSoftwareRequest).not.toHaveBeenCalled();
+    confirmation.mockReturnValue(true);
+    fireEvent.click(cancel);
+    expect(await screen.findByText('Solicitud cancelada y eliminada del historial.')).toHaveAttribute('role', 'status');
+    expect(requests.cancelSoftwareRequest).toHaveBeenCalledExactlyOnceWith('request-1');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'New Editor' })).not.toBeInTheDocument());
+  });
+
+  it('keeps the request visible and explains a cancellation blocked by a concurrent review', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(requests.cancelSoftwareRequest).mockRejectedValue(new ApiRequestError(409, 'software_request_not_pending'));
+    render(<MemoryRouter><SoftwareRequestsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar solicitud' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('La solicitud ya ha sido revisada');
+    expect(screen.getByRole('heading', { name: 'New Editor' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelar solicitud' })).toBeEnabled();
+  });
+
+  it.each(['accepted', 'rejected'] as const)('does not offer cancellation for a %s request', async (status) => {
+    vi.mocked(requests.fetchOwnSoftwareRequests).mockResolvedValue({ ...page, data: [{ ...request, status }] });
+    render(<MemoryRouter><SoftwareRequestsPage /></MemoryRouter>);
+    await screen.findByRole('heading', { name: 'New Editor' });
+    expect(screen.queryByRole('button', { name: 'Cancelar solicitud' })).not.toBeInTheDocument();
   });
 });
