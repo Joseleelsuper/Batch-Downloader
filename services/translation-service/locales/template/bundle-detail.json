@@ -41,5 +41,12 @@
   "bundle.sort.name": "",
   "bundle.sort.name.description": "",
   "bundle.sort.relevance": "",
-  "bundle.sort.relevance.description": ""
+  "bundle.sort.relevance.description": "",
+  "bundle.draft.customize": "",
+  "bundle.draft.clone": "",
+  "bundle.draft.copyName": "",
+  "bundle.draft.temporary": "",
+  "bundle.draft.empty": "",
+  "bundle.draft.save": "",
+  "bundle.draft.back": ""
 }
