@@ -330,6 +330,7 @@ export interface BundlePlatformAvailability {
 
 export interface BundleDetails extends BundleSummary {
   apps: CatalogApp[];
+  inactiveAppCount?: number;
 }
 
 export interface BundleResponse {

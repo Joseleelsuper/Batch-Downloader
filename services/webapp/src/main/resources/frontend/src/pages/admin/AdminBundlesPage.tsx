@@ -1,10 +1,11 @@
 import { AsyncContent } from '../../components/AsyncContent';
 import { DeferredSection } from '../../components/DeferredSection';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
-import { Boxes, Plus, Save } from 'lucide-react';
+import { Boxes, Plus, Save, Trash2 } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import {
   createAdminBundle,
+  deleteAdminBundle,
   fetchBundle,
   fetchBundles,
   updateAdminBundle,
@@ -30,10 +31,12 @@ export function AdminBundlesPage() {
   const [detailError, setDetailError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<BundleDetails | null>(null);
+  const [inactiveRemovalAccepted, setInactiveRemovalAccepted] = useState(false);
   const [form, setForm] = useState({ name: '', slug: '', description: '', tags: [] as string[] });
   const [slugEdited, setSlugEdited] = useState(false);
   const [bundleApps, setBundleApps] = useState<CatalogApp[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const inactiveAppCount = selected?.inactiveAppCount ?? 0;
 
   useEffect(() => () => { detailRequest.current += 1; }, []);
 
@@ -43,6 +46,7 @@ export function AdminBundlesPage() {
     setLoadingDetail(false);
     setDetailError(false);
     setSelected(null);
+    setInactiveRemovalAccepted(false);
     setForm({ name: '', slug: '', description: '', tags: [] });
     setSlugEdited(false);
     setBundleApps([]);
@@ -58,6 +62,7 @@ export function AdminBundlesPage() {
       const details = await fetchBundle(bundle.id);
       if (requestId !== detailRequest.current) return;
       setSelected(details);
+      setInactiveRemovalAccepted(false);
       setForm({ name: details.name, slug: details.slug, description: details.description ?? '', tags: details.tags });
       setSlugEdited(true);
       setBundleApps(details.apps);
@@ -71,7 +76,7 @@ export function AdminBundlesPage() {
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (loadingDetail || detailError || saving) return;
+    if (loadingDetail || detailError || saving || (inactiveAppCount > 0 && !inactiveRemovalAccepted)) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -88,6 +93,7 @@ export function AdminBundlesPage() {
         ? await updateAdminBundle(selected.id, payload)
         : await createAdminBundle(payload);
       setSelected(saved);
+      setInactiveRemovalAccepted(false);
       setBundleApps(saved.apps);
       setForm({
         name: saved.name,
@@ -100,6 +106,23 @@ export function AdminBundlesPage() {
       setMessage(t('admin.message.bundleSaved'));
     } catch {
       setMessage(t('admin.message.saveBundleError'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!selected || loadingDetail || detailError || saving
+      || !window.confirm(t('admin.bundle.deleteConfirm', { name: selected.name }))) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await deleteAdminBundle(selected.id);
+      resetBundleEditor();
+      bundlesResource.refresh();
+      setMessage(t('admin.bundle.deleted'));
+    } catch {
+      setMessage(t('admin.bundle.deleteFailed'));
     } finally {
       setSaving(false);
     }
@@ -157,12 +180,24 @@ export function AdminBundlesPage() {
           <label className="bundle-description-field">{t('admin.field.description')}<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
           <BundleTagPicker tags={form.tags} onChange={(tags) => setForm((current) => ({ ...current, tags }))} administrator />
         </div>
+        {inactiveAppCount > 0 ? <div className="admin-card bundle-inactive-warning">
+          <p id="inactive-bundle-apps-warning" role="alert">{t('admin.bundle.inactiveWarning', { count: inactiveAppCount })}</p>
+          <label><input type="checkbox" checked={inactiveRemovalAccepted}
+            aria-describedby="inactive-bundle-apps-warning" onChange={(event) => setInactiveRemovalAccepted(event.target.checked)} />
+            {t('admin.bundle.acceptInactiveRemoval')}
+          </label>
+        </div> : null}
         <DeferredSection><BundleAppPicker apps={bundleApps} onChange={setBundleApps} administrator /></DeferredSection>
-        {message ? <span className="form-message">{message}</span> : null}
-        <button className="primary-button bundle-save-button" type="submit">
+        {message ? <span className="form-message" role="status">{message}</span> : null}
+        <footer className="bundle-editor-footer"><div className="editor-actions">
+        <button className="primary-button bundle-save-button" type="submit" disabled={inactiveAppCount > 0 && !inactiveRemovalAccepted}>
           <Save size={17} />
           {selected ? t('common.saveChanges') : t('admin.bundle.create')}
         </button>
+        {selected ? <button className="danger-button" type="button" onClick={() => void remove()}>
+          <Trash2 size={17} />{t('admin.bundle.delete')}
+        </button> : null}
+        </div></footer>
         </fieldset>
       </form>
     </section>

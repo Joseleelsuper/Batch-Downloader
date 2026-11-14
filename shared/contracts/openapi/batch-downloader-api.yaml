@@ -4647,6 +4647,11 @@ components:
         - type: object
           required: [apps]
           properties:
+            inactiveAppCount:
+              type: integer
+              minimum: 0
+              readOnly: true
+              description: Asociaciones con aplicaciones inactivas, ocultas en apps. Solo se informa a administradores; para los demás solicitantes vale cero.
             apps:
               type: array
               maxItems: 100

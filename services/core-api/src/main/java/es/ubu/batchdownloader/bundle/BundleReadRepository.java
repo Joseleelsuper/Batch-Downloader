@@ -128,7 +128,13 @@ public class BundleReadRepository {
             // No revela si existe un identificador o slug privado.
             throw new NotFoundException("bundle_not_found", "El bundle no existe.");
         }
-        return bundle.details();
+        if (!administrator) return bundle.details();
+        Integer inactive = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM bundle_items item
+                JOIN software_apps app ON app.id=item.software_app_id
+                WHERE item.bundle_id=? AND app.app_status<>'active'
+                """, Integer.class, UuidBytes.fromUuid(UUID.fromString(bundle.details().id())));
+        return bundle.details().withInactiveAppCount(inactive == null ? 0 : inactive);
     }
 
     /**

@@ -173,6 +173,12 @@
 .bundle-public-link { display: grid; align-content: start; justify-items: start; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
 .bundle-public-link label { width: 100%; }
 .bundle-public-link a { text-decoration: none; }
+.bundle-inactive-warning { display: grid; gap: 12px; color: #9a3412; background: #fff7ed; border-color: #fed7aa; line-height: 1.6; }
+.bundle-inactive-warning p { margin: 0; }
+.bundle-inactive-warning label { display: flex; align-items: flex-start; gap: 12px; }
+.bundle-inactive-warning input { flex-shrink: 0; width: 18px; height: 18px; margin-top: 4px; accent-color: var(--teal-dark); }
+.bundle-admin-editor .bundle-editor-footer { padding-top: 20px; border-top: 1px solid var(--border); }
+.bundle-admin-editor .editor-actions { justify-content: flex-end; }
 
 @media (max-width: 1100px) {
   .bundle-picker-selection .bundle-picker-row-actions { grid-column: 2 / -1; justify-self: end; }
@@ -185,5 +191,7 @@
   .bundle-picker-panel { padding: 16px; }
   .bundle-picker-row-actions button,
   .bundle-picker-pagination button { min-width: 44px; min-height: 44px; }
+  .bundle-admin-editor .editor-actions,
   .bundle-public-link a { width: 100%; }
+  .bundle-admin-editor .editor-actions { flex-direction: column; }
 }

@@ -98,6 +98,30 @@ class BundleCatalogMySqlTest {
         assertThatThrownBy(() -> tx.execute(status -> activity.setStar(id.toString(), owner, true))).isInstanceOf(UnauthorizedException.class);
     }
 
+    @Test void onlyAdministratorsSeeTheInactiveAssociationsThatEditingWouldRemove() {
+        UUID owner = user("ADMIN");
+        UUID id = bundle("Mantenimiento", "official", "official", owner);
+        addInstaller(id, "windows", "available");
+        for (String status : List.of("inactive", "inactive")) {
+            UUID app = UUID.randomUUID();
+            jdbc.update("INSERT INTO software_apps VALUES(?,?, 'missing')", UuidBytes.fromUuid(app), status);
+            jdbc.update("INSERT INTO bundle_items VALUES(?,?,1)", UuidBytes.fromUuid(id), UuidBytes.fromUuid(app));
+        }
+        CatalogRepository catalog = mock(CatalogRepository.class);
+        when(catalog.listItems(any())).thenReturn(java.util.Map.of());
+        var read = new BundleReadRepository(jdbc, catalog);
+        var publicDetails = read.details(id.toString(), null, false);
+        var adminDetails = read.details(id.toString(), owner, true);
+        assertThat(publicDetails.inactiveAppCount()).isZero();
+        assertThat(read.details(id.toString(), owner, false).inactiveAppCount()).isZero();
+        assertThat(adminDetails.inactiveAppCount()).isEqualTo(2);
+        assertThat(adminDetails.appCount()).isEqualTo(1);
+        assertThat(adminDetails.withActivity(BundleDtos.BundleStarState.HIDDEN).inactiveAppCount()).isEqualTo(2);
+        assertThat(adminDetails.apps()).isEqualTo(publicDetails.apps());
+        jdbc.update("UPDATE bundles SET visibility='private' WHERE id=?", UuidBytes.fromUuid(id));
+        assertThatThrownBy(() -> read.details(id.toString(), null, false)).isInstanceOf(NotFoundException.class);
+    }
+
     @Test void filtersFacetsPaginationAndSemanticSourceSharePublicBundleMetadata() {
         UUID owner = user("USER");
         UUID official = bundle("Alpha", "official", "official", owner);
