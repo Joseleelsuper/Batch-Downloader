@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, SlidersHorizontal } from 'lucide-react';
 import {
   useNavigate,
-  Link,
   useParams,
   useSearchParams
 } from 'react-router-dom';
@@ -431,9 +430,6 @@ export function CatalogPage() {
           }}
         />
         {searchNotice ? <p className="semantic-notice">{searchNotice}</p> : null}
-        {filters.searchMode === 'semantic' && filters.query.trim().length >= 3 ? <p>
-          <Link className="secondary-button" to={`/bundle-proposal?${catalogFiltersToSearchParams(filters)}`}>{t('bundle.draft.propose')}</Link>
-        </p> : null}
         {error ? <p className="error-banner" role="alert">{error}</p> : null}
         {catalogError ? <AsyncContent loading={false} error={catalogError} hasData={false} errorMessage={catalogError}
           onRetry={() => { pageCache.delete(filterKey); setCatalogError(null); setCatalogRevision((value) => value + 1); }}>{null}</AsyncContent> : null}

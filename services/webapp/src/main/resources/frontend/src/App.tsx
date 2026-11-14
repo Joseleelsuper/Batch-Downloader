@@ -100,7 +100,6 @@ function AppRoutes() {
           <Route path="catalog/editors" element={<FacetDirectoryPage kind="publishers" />} />
           <Route path="bundles/:slug" element={<BundleDetailPage />} />
           <Route path="bundles/:slug/customize" element={<BundleDraftPage />} />
-          <Route path="bundle-proposal" element={<BundleDraftPage />} />
           <Route path="login" element={<UserLoginPage />} />
           <Route path="error" element={<PublicErrorPage />} />
           <Route path="terms" element={<LegalPage kind="terms" />} />

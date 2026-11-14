@@ -31,63 +31,6 @@
   line-height: 1.6;
 }
 
-.bundle-draft-page .semantic-notice {
-  margin: 0 0 16px;
-  padding: 16px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.bundle-draft-page .bundle-draft-origin {
-  color: var(--teal-dark);
-  background: var(--teal-soft);
-  border-color: var(--border);
-}
-
-.bundle-draft-context {
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--border);
-}
-
-.bundle-draft-context summary {
-  min-height: 44px;
-  padding: 12px 0;
-  color: var(--teal-dark);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.bundle-draft-context summary:focus-visible {
-  outline: 3px solid var(--teal);
-  outline-offset: 4px;
-}
-
-.bundle-draft-context ul {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 24px;
-  margin: 0;
-  padding: 4px 0 20px;
-  list-style: none;
-}
-
-.bundle-draft-context li {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-width: 0;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.bundle-draft-context a {
-  color: var(--teal-dark);
-  text-underline-offset: 3px;
-}
-
-.bundle-draft-context a { font-weight: 600; }
-.bundle-draft-context p { margin: 0; }
-
 .bundle-draft-page .bundle-picker-list {
   max-height: 420px;
   scrollbar-color: var(--muted) var(--surface);
@@ -128,7 +71,6 @@
 
 @media (max-width: 820px) {
   .bundle-draft-header h1 { font-size: 26px; }
-  .bundle-draft-context ul { grid-template-columns: minmax(0, 1fr); }
   .bundle-draft-page .bundle-picker-list { max-height: 360px; }
   .bundle-draft-actions,
   .bundle-draft-save { display: grid; grid-template-columns: minmax(0, 1fr); }

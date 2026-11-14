@@ -4,9 +4,8 @@ El depósito está previsto para el 12–14 de enero de 2027 y la defensa para e
 
 ## Decisiones del autor del 5 de noviembre de 2026
 
-- La entrega incluye personalización temporal, clonación, solicitudes de software y propuestas de bundles a partir de búsquedas semánticas.
+- La entrega incluye personalización temporal, clonación y solicitudes de software. El 14 de noviembre el autor retiró las propuestas semánticas de bundles del alcance.
 - Se permiten estrellas en bundles propios públicos. Se conserva la unicidad por cuenta y bundle y se impiden las valoraciones de bundles privados. La [issue #18](https://github.com/Joseleelsuper/Batch-Downloader/issues/18) registra la sustitución del requisito original.
-- La propuesta utiliza el modelo local de embeddings y los resultados del catálogo. No amplía las llamadas a OpenAI, DeepSeek o Groq.
 - Los cambios se realizan directamente en `development`, por indicación expresa del autor. Las referencias a commits sustituyen los enlaces a PR cuando no existe un PR real.
 - Los avisos de finalización de descargas por correo (#29) quedan excluidos de enero por decisión expresa del autor. Su issue se conserva como no planificada; el correo de acceso mediante magic link continúa dentro del alcance.
 
@@ -36,9 +35,7 @@ Desde el detalle de un bundle se puede abrir **Personalizar selección**. La sel
 
 Una cuenta `USER` puede clonar un bundle público u oficial: revisa la selección, elige el nombre y confirma **Guardar como bundle privado**. La creación utiliza el endpoint personal existente, genera una nueva identidad y asigna la propiedad a la cuenta autenticada. El original conserva sus items. El detalle de origen solo incluye aplicaciones activas; una aplicación retirada entre la revisión y el guardado vuelve a validarse en Core y puede impedir el guardado. La copia puede contener aplicaciones activas sin instalador, pero su descarga sigue la política vigente de disponibilidad y alternativas manuales.
 
-Al buscar en modo semántico aparece **Proponer bundle con búsqueda semántica**. Se consultan hasta doce resultados por relevancia, conservando etiquetas, mínimo de coincidencia, arquitectura, editor y sistemas operativos. La propuesta rechaza identificadores o plataformas que incumplan la estructura del catálogo, deduplica y excluye aplicaciones no descargables. El usuario puede modificarla antes de descargar o guardar. Las descripciones y etiquetas del catálogo permiten inspeccionar por qué aparecen los resultados, sin inventar capacidades de las aplicaciones.
-
-Si la búsqueda aplica respaldo literal, no se presenta ese resultado como una propuesta semántica: se informa de la indisponibilidad y se permite seleccionar aplicaciones manualmente. El modo de propuesta y la personalización temporal no se indexan como páginas públicas.
+La personalización temporal no se indexa como página pública. La búsqueda semántica del catálogo se mantiene disponible.
 
 ## Solicitudes de software
 
@@ -86,7 +83,6 @@ traza completa. Las líneas de la traza pueden partirse en móvil.
 | --- | --- |
 | Descarga anónima de una selección modificada, sin persistencia | `BundleDraftPage.test.tsx` |
 | Copia privada confirmada, independiente del original | `BundleDraftPage.test.tsx`, `UserBundleRepositoryTest` |
-| Propuestas válidas, vacías, duplicadas e inválidas y respaldo manual | `semanticBundleProposal.test.ts`, `BundleDraftPage.test.tsx` |
 | Arquitectura y mínimo de etiquetas combinados en MySQL | `CatalogTagMinimumMySqlTest` |
 | Ambos sentidos, empates, paginación y alfabeto de bundles | `BundleCatalogMySqlTest` |
 | Estrellas propias, unicidad concurrente y privacidad | `BundleCatalogMySqlTest`, `BundleStarSecurityTest` |

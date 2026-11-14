@@ -3,16 +3,13 @@ import { ArrowLeft } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { createOwnBundle } from '../../api/account';
 import { fetchBundle } from '../../api/bundles';
-import { fetchApps } from '../../api/catalogApps';
 import { useAuth } from '../../auth/AuthContext';
-import { parseCatalogFilters } from '../../catalogFilters';
 import { isCatalogAppSelectable } from '../../catalogSelection';
 import { AsyncContent } from '../../components/AsyncContent';
 import { BundleDownloadButton } from '../../components/BundleDownloadButton';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { lazyNamed } from '../../routing/lazyNamed';
-import { semanticBundleProposal } from '../../semanticBundleProposal';
-import { useLocale, useTranslation } from '../../services/i18n';
+import { useTranslation } from '../../services/i18n';
 import type { CatalogApp, OperatingSystem } from '../../types/catalog';
 import { bundleSlug } from '../../utils/bundleSlug';
 import { apiMessage } from '../account/accountSupport';
@@ -21,30 +18,21 @@ const BundleAppPicker = lazyNamed(() => import('../../components/BundleAppPicker
 
 export function BundleDraftPage() {
   const t = useTranslation();
-  const locale = useLocale();
   const { account } = useAuth();
   const { slug } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const filters = parseCatalogFilters(params);
   const scope = `${slug ?? ''}:${params}:${account?.id ?? 'anonymous'}`;
   const [edited, setEdited] = useState<{ scope: string; apps: CatalogApp[]; name: string }>();
   const [locked, setLocked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const resource = useAsyncResource(async (signal) => {
-    if (slug) {
-      const bundle = await fetchBundle(slug);
-      if (params.has('clone') && bundle.visibility === 'private') throw new Error('bundle_not_public');
-      return { apps: bundle.apps, name: t('bundle.draft.copyName', { name: bundle.name }).slice(0, 160),
-        description: bundle.description ?? '', tags: bundle.tags, semantic: false, degraded: false,
-        canSave: bundle.visibility !== 'private' };
-    }
-    const response = await fetchApps({ ...filters, filter: 'available', sort: 'relevance',
-      searchMode: 'semantic', page: 1, pageSize: 12 }, signal);
-    return { apps: semanticBundleProposal(response), name: filters.query.slice(0, 160),
-      description: '', tags: [], semantic: true, degraded: response.appliedMode !== 'semantic', canSave: true };
-  }, { scope, enabled: Boolean(slug || filters.query.length >= 3) });
+  const resource = useAsyncResource(async () => {
+    const bundle = await fetchBundle(slug!);
+    if (params.has('clone') && bundle.visibility === 'private') throw new Error('bundle_not_public');
+    return { apps: bundle.apps, name: t('bundle.draft.copyName', { name: bundle.name }).slice(0, 160),
+      description: bundle.description ?? '', tags: bundle.tags, canSave: bundle.visibility !== 'private' };
+  }, { scope, enabled: Boolean(slug) });
   const draft = resource.data;
   const current = edited?.scope === scope ? edited : undefined;
   const apps = current?.apps ?? draft?.apps ?? [];
@@ -72,7 +60,7 @@ export function BundleDraftPage() {
   return <main className="content-page bundle-draft-page">
     <header className="bundle-detail-header bundle-draft-header">
       <div className="bundle-draft-heading">
-        <h1>{t(slug ? 'bundle.draft.customize' : 'bundle.draft.propose')}</h1>
+        <h1>{t('bundle.draft.customize')}</h1>
         <p>{t('bundle.draft.temporary')}</p>
       </div>
       {draft ? <div className="bundle-detail-actions bundle-draft-download">
@@ -83,15 +71,6 @@ export function BundleDraftPage() {
     </header>
     <AsyncContent {...resource} hasData={Boolean(draft)} onRetry={resource.refresh} errorMessage={t('bundle.loadError')}>{null}</AsyncContent>
     {draft ? <>
-      {draft.semantic ? <p className={`semantic-notice ${draft.degraded ? '' : 'bundle-draft-origin'}`} role="status">{t(draft.degraded ? 'bundle.draft.unavailable' : 'bundle.draft.explanation', { query: filters.query })}</p> : null}
-      {draft.semantic && !draft.degraded && draft.apps.length ? <details className="bundle-draft-context">
-        <summary>{t('bundle.draft.why')}</summary>
-        <ul>{draft.apps.map((app) => <li key={app.id}>
-          <Link to={`/catalog/app/${encodeURIComponent(app.id)}`}>{app.name}</Link>
-          <p>{(locale === 'en' ? app.longDescriptionEn : app.longDescription)?.trim().slice(0, 400)
-            || t('bundle.draft.noDescription')}</p>
-        </li>)}</ul>
-      </details> : null}
       {!apps.length ? <p>{t('bundle.draft.empty')}</p> : null}
       <fieldset className="async-editor-fields" disabled={locked || saving}>
         <BundleAppPicker apps={apps} onChange={(next) => change(next)} />
@@ -105,7 +84,7 @@ export function BundleDraftPage() {
         </form>
       </div> : null}
     </> : null}
-    <p className="bundle-draft-back"><Link className="secondary-button" to={slug ? `/bundles/${encodeURIComponent(slug)}` : `/catalog?${params}`}>
+    <p className="bundle-draft-back"><Link className="secondary-button" to={`/bundles/${encodeURIComponent(slug!)}`}>
       <ArrowLeft size={18} aria-hidden="true" />{t('bundle.draft.back')}
     </Link></p>
   </main>;

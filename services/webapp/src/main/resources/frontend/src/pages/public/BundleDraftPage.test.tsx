@@ -6,7 +6,7 @@ import * as accountApi from '../../api/account';
 import * as bundleApi from '../../api/bundles';
 import * as catalogApi from '../../api/catalogApps';
 import type { AuthUser, BundleDetails, CatalogApp } from '../../types/catalog';
-import { I18nProvider, t, useLocaleSelector } from '../../services/i18n';
+import { t } from '../../services/i18n';
 import { BundleDraftPage } from './BundleDraftPage';
 
 const state = vi.hoisted(() => ({ account: null as AuthUser | null, start: vi.fn() }));
@@ -26,20 +26,12 @@ const bundle: BundleDetails = {
   platformAvailability: [], previewApps: [app, other], apps: [app, other], updatedAt: '',
 };
 
-function LanguageControls() {
-  const { selectLocale } = useLocaleSelector();
-  return <><button onClick={() => selectLocale('es')}>Español</button><button onClick={() => selectLocale('en')}>English</button></>;
-}
-
-const localeFetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 304 }));
-
-function open(path: string, localized = false) {
+function open(path: string) {
   const page = <MemoryRouter initialEntries={[path]}><Suspense fallback={null}><Routes>
     <Route path="/bundles/:slug/customize" element={<BundleDraftPage />} />
-    <Route path="/bundle-proposal" element={<BundleDraftPage />} />
     <Route path="/dashboard/bundles/:id/edit" element={<p>Saved private copy</p>} />
   </Routes></Suspense></MemoryRouter>;
-  return render(localized ? <I18nProvider fetcher={localeFetcher}><LanguageControls />{page}</I18nProvider> : page);
+  return render(page);
 }
 
 beforeEach(() => {
@@ -55,7 +47,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 describe('editable bundle drafts', () => {
   it('personaliza y descarga anónimamente por IDs sin guardar ni modificar el bundle original', async () => {
     open('/bundles/tools/customize');
-    fireEvent.click(await screen.findByRole('button', { name: 'Quitar First' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Quitar First' }, { timeout: 5000 }));
     fireEvent.click(await screen.findByRole('button', { name: 'Añadir Third' }));
     fireEvent.click(screen.getByRole('button', { name: 'Descargar bundle (2)' }));
     expect(state.start).toHaveBeenCalledWith({ appIds: [other.id, added.id], operatingSystems: ['windows'] }, expect.any(String));
@@ -69,7 +61,7 @@ describe('editable bundle drafts', () => {
     vi.mocked(accountApi.createOwnBundle).mockResolvedValue({ id: 'copy', slug: 'copia-de-tools', name: 'Copia de Tools',
       visibility: 'private', appCount: 1, tags: ['tools'], apps: [other], updatedAt: '', version: 0 });
     open('/bundles/tools/customize?clone=1');
-    fireEvent.click(await screen.findByRole('button', { name: 'Quitar First' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Quitar First' }, { timeout: 5000 }));
     expect(accountApi.createOwnBundle).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: t('bundle.draft.save') }));
     await waitFor(() => expect(accountApi.createOwnBundle).toHaveBeenCalledWith({ name: 'Copia de Tools', slug: 'copia-de-tools',
@@ -85,56 +77,4 @@ describe('editable bundle drafts', () => {
     expect(accountApi.createOwnBundle).not.toHaveBeenCalled();
   });
 
-  it('propone desde la búsqueda semántica, conserva los filtros y explica el origen sin llamar a un LLM', async () => {
-    open('/bundle-proposal?query=editar+vídeo&os=windows&tag=tools');
-    expect(await screen.findByRole('button', { name: 'Quitar Third' })).toBeInTheDocument();
-    expect(catalogApi.fetchApps).toHaveBeenCalledWith(expect.objectContaining({ query: 'editar vídeo',
-      tags: ['tools'], operatingSystems: ['windows'], searchMode: 'semantic', sort: 'relevance' }), expect.any(AbortSignal));
-    expect(screen.getByText(/^Propuesta de la búsqueda semántica/)).toHaveAttribute('role', 'status');
-    expect(state.start).not.toHaveBeenCalled();
-    expect(accountApi.createOwnBundle).not.toHaveBeenCalled();
-  });
-
-  it('permite selección manual cuando la búsqueda semántica se degrada a literal', async () => {
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({ data: [added], page: 1, pageSize: 12, total: 1,
-      appliedMode: 'lexical', degradedReason: 'semantic_unavailable' });
-    open('/bundle-proposal?query=editar+vídeo');
-    expect(await screen.findByText(t('bundle.draft.unavailable'))).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Quitar Third' })).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByRole('button', { name: 'Añadir Third' }));
-    expect(screen.getByRole('button', { name: 'Descargar bundle (1)' })).toBeEnabled();
-  });
-
-  it('muestra la explicación en el idioma seleccionado y la actualiza al cambiarlo', async () => {
-    const suggestion = { ...added, description: '原始描述 Original description',
-      longDescription: 'Permite editar vídeos y crear animaciones.',
-      longDescriptionEn: 'Edit videos and create animations.' };
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({ data: [suggestion], page: 1, pageSize: 12, total: 1,
-      appliedMode: 'semantic' });
-    open('/bundle-proposal?query=editar+vídeo', true);
-    fireEvent.click(screen.getByRole('button', { name: 'Español' }));
-    expect(await screen.findByText(suggestion.longDescription)).toBeInTheDocument();
-    expect(screen.queryByText(suggestion.description)).not.toBeInTheDocument();
-    expect(screen.queryByText(suggestion.longDescriptionEn)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'English' }));
-    expect(await screen.findByText(suggestion.longDescriptionEn)).toBeInTheDocument();
-    expect(screen.queryByText(suggestion.longDescription)).not.toBeInTheDocument();
-    expect(screen.queryByText(suggestion.description)).not.toBeInTheDocument();
-  });
-
-  it.each([
-    { language: 'Español', longDescription: '  ', longDescriptionEn: 'English catalogue description.',
-      message: 'No hay una descripción disponible en tu idioma.' },
-    { language: 'English', longDescription: 'Descripción española del catálogo.', longDescriptionEn: null,
-      message: 'No description is available in your language.' },
-  ])('avisa en $language cuando falta su traducción sin sustituirla por otro idioma', async ({ language, longDescription, longDescriptionEn, message }) => {
-    const suggestion = { ...added, description: '原始描述 Original description', longDescription, longDescriptionEn };
-    vi.mocked(catalogApi.fetchApps).mockResolvedValue({ data: [suggestion], page: 1, pageSize: 12, total: 1,
-      appliedMode: 'semantic' });
-    open('/bundle-proposal?query=editar+vídeo', true);
-    fireEvent.click(screen.getByRole('button', { name: language }));
-    expect(await screen.findByText(message)).toBeInTheDocument();
-    expect(screen.queryByText(suggestion.description)).not.toBeInTheDocument();
-    expect(screen.queryByText(longDescription.trim() || longDescriptionEn!)).not.toBeInTheDocument();
-  });
 });
