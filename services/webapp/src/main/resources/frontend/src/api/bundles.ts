@@ -61,6 +61,10 @@ export function updateAdminBundle(
   });
 }
 
+export function deleteAdminBundle(bundleId: string): Promise<void> {
+  return requestJson(`/api/v1/admin/bundles/${encodeURIComponent(bundleId)}`, { method: 'DELETE' });
+}
+
 export function fetchAdminBundleCustomTags(): Promise<string[]> {
   return requestJson<string[]>('/api/v1/admin/bundles/custom-tags');
 }
