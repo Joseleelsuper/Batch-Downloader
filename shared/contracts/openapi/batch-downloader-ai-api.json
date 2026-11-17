@@ -1188,6 +1188,23 @@
           },
           "isPrimary": {
             "type": "boolean"
+          },
+          "checkedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Fecha de comprobación de esta fuente exacta; null si se desconoce."
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0,
+            "description": "Tamaño declarado de este instalador exacto en bytes; null si se desconoce. No es una estimación."
           }
         }
       },

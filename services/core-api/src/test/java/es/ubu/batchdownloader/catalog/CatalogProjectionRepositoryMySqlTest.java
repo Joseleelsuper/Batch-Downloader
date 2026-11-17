@@ -82,6 +82,16 @@ class CatalogProjectionRepositoryMySqlTest {
                         TRUE, 'direct', '1.0', 'current')
                     """, APP_ID, APP_ID);
             jdbc.update("INSERT INTO software_app_tags VALUES (UUID_TO_BIN(?), 'utility')", APP_ID);
+            String alternate = "00000000-0000-0000-0000-000000000002";
+            jdbc.update("""
+                    INSERT INTO download_sources VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?),
+                        'https://cdn.example.test/previous.exe', 'fallback', 'valid', TRUE, 'windows', 'x64')
+                    """, alternate, APP_ID);
+            jdbc.update("""
+                    INSERT INTO resolved_sources VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), 'previous.exe',
+                        '.exe', 'application/octet-stream', NULL, 'cdn.example.test', 50, NULL,
+                        NULL, JSON_OBJECT(), 2, FALSE, TRUE, 'fallback', '0.9', 'previous')
+                    """, alternate, alternate);
         }
     }
 
@@ -149,9 +159,19 @@ class CatalogProjectionRepositoryMySqlTest {
         assertThat(details.downloadable()).isTrue();
         assertThat(details.installerFilename()).isEqualTo("example.exe");
         assertThat(details.sizeBytes()).isEqualTo(1024);
-        assertThat(details.downloadOptions()).singleElement().satisfies(option -> {
+        assertThat(details.downloadOptions()).hasSize(2);
+        assertThat(details.downloadOptions().getFirst()).satisfies(option -> {
             assertThat(option.filename()).isEqualTo("example.exe");
             assertThat(option.operatingSystem()).isEqualTo("windows");
+            assertThat(option.sizeBytes()).isEqualTo(1024);
+            assertThat(option.checkedAt()).isEqualTo(details.checkedAt());
+        });
+        assertThat(details.downloadOptions().get(1)).satisfies(option -> {
+            assertThat(option.filename()).isEqualTo("previous.exe");
+            assertThat(option.finalDomain()).isEqualTo("cdn.example.test");
+            assertThat(option.version()).isEqualTo("0.9");
+            assertThat(option.sizeBytes()).isNull();
+            assertThat(option.checkedAt()).isNull();
         });
     }
 }

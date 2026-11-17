@@ -458,6 +458,38 @@ async def test_manual_inspection_is_idempotent_encrypted_and_never_echoes_instal
 
 
 @pytest.mark.asyncio
+async def test_manual_inspection_get_keeps_the_safe_redirect_trace(
+    internal_api: InternalApiFixture,
+):
+    app = await internal_api.add_unresolved_app()
+    technical = {
+        "finalDomain": "cdn.example.test", "filename": "App.exe", "extension": ".exe",
+        "contentType": "application/octet-stream", "sizeBytes": None, "version": None,
+        "operatingSystem": "windows", "architecture": "x86_64", "platformRequired": False,
+        "redirects": [{"domain": "publisher.example", "status": 302}],
+    }
+    inspection = ManualInstallerInspection(
+        id=uuid4(), software_app_id=app.id, status="ready", phase="ready",
+        captured_app_version=app.version, input_hash="a" * 64,
+        source_page_url_encrypted=UrlProtector(URL_SECRET).protect("https://publisher.example/"),
+        installer_url_encrypted=UrlProtector(URL_SECRET).protect(
+            "https://cdn.example.test/App.exe?token=private-value"),
+        result_json={"installer": technical, "installers": [technical]},
+        expires_at=utc_after(hours=24),
+    )
+    internal_api.session.add(inspection)
+    await internal_api.session.commit()
+    for suffix in ("current", str(inspection.id)):
+        response = await internal_api.client.get(
+            f"/internal/v1/admin/apps/{app.id}/manual-installer-inspections/{suffix}",
+            headers={INTERNAL_SERVICE_TOKEN_HEADER: INTERNAL_TOKEN},
+        )
+        assert response.status_code == 200
+        assert response.json()["installers"][0]["redirects"] == technical["redirects"]
+        assert "private-value" not in response.text and "token=" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_manual_inspection_requires_fresh_analysis_after_the_app_changes(
     internal_api: InternalApiFixture,
     monkeypatch,

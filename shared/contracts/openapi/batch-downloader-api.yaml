@@ -3615,6 +3615,20 @@ components:
           $ref: '#/components/schemas/ManualFieldSuggestion'
         iconUrl:
           $ref: '#/components/schemas/ManualFieldSuggestion'
+    InstallerRedirect:
+      type: object
+      additionalProperties: false
+      required: [domain, status]
+      properties:
+        domain:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: Dominio que respondió con la redirección, sin ruta, query ni Location.
+        status:
+          type: integer
+          minimum: 300
+          maximum: 399
     ManualInstallerTechnicalData:
       type: object
       additionalProperties: false
@@ -3650,6 +3664,11 @@ components:
           enum: [x86_64, x86, aarch64, unknown]
         platformRequired:
           type: boolean
+        redirects:
+          type: [array, 'null']
+          description: Saltos de metadatos observados en orden y acotados por el límite de redirecciones. Vacío indica ninguno; null, traza no disponible en una inspección histórica.
+          items:
+            $ref: '#/components/schemas/InstallerRedirect'
     ManualInstallerAiState:
       type: object
       additionalProperties: false
@@ -4008,6 +4027,15 @@ components:
           type: [string, 'null']
         isPrimary:
           type: boolean
+        checkedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Fecha de comprobación de esta fuente exacta; null si se desconoce.
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+          description: Tamaño declarado de este instalador exacto en bytes; null si se desconoce. No es una estimación.
     AppPage:
       type: object
       required: [data, page, pageSize, total, alphabet, requestedMode, appliedMode]

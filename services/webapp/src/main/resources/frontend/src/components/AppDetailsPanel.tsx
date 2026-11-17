@@ -76,12 +76,17 @@ export function AppDetailsPanel({
           ) : <span>-</span>}
         </DetailBlock>
         <DetailBlock label={t('app.details.version')}>
-          {selectedOption?.version ?? app.latestVersion ?? '-'}
+          {(selectedOption ? selectedOption.version : app.latestVersion) ?? t('common.notAvailable')}
         </DetailBlock>
-        <DetailBlock label={t('app.details.updated')}>
-          {formatDate(app.checkedAt ?? app.updatedAt, locale)}
+        <DetailBlock label={t('app.details.downloadDomain')}>
+          {selectedOption?.finalDomain ?? t('common.notAvailable')}
         </DetailBlock>
-        <DetailBlock label={t('app.details.size')}>{formatSize(app.sizeBytes, locale)}</DetailBlock>
+        <DetailBlock label={t('app.details.checked')}>
+          {formatDate(selectedOption?.checkedAt, locale, t('common.notAvailable'))}
+        </DetailBlock>
+        <DetailBlock label={t('app.details.knownSize')}>
+          {formatSize(selectedOption?.sizeBytes, locale, t('common.notAvailable'))}
+        </DetailBlock>
       </div>
 
       <DetailBlock className="app-detail-installers" label={t('app.details.installersDetected')}>
@@ -196,17 +201,17 @@ function DetailsSkeleton() {
   );
 }
 
-function formatDate(value: string | null | undefined, locale: string): string {
-  if (!value) return '-';
+function formatDate(value: string | null | undefined, locale: string, unavailable: string): string {
+  if (!value || Number.isNaN(new Date(value).getTime())) return unavailable;
   return new Intl.DateTimeFormat(locale, {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(new Date(value));
 }
 
-function formatSize(value: number | null | undefined, locale: string): string {
-  if (!value) return '-';
-  return `${(value / 1024 / 1024).toLocaleString(locale, { maximumFractionDigits: 1 })} MB`;
+function formatSize(value: number | null | undefined, locale: string, unavailable: string): string {
+  if (value == null || !Number.isFinite(value) || value < 0) return unavailable;
+  return `${(value / 1024 / 1024).toLocaleString(locale, { maximumFractionDigits: 1 })} MiB`;
 }
 
 function preferredOption(options: DownloadOption[]): DownloadOption | undefined {
