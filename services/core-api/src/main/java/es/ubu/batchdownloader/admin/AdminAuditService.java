@@ -69,10 +69,14 @@ public class AdminAuditService {
      * @param action Acción administrativa realizada, sin datos secretos.
      * @param targetType Tipo del recurso sobre el que se realizó la acción.
      * @param targetId Identificador del recurso afectado.
-     * @param safeMetadata Datos ya filtrados por el llamador; null se guarda como un objeto vacío.
+     * @param safeMetadata Datos ya filtrados por el llamador; se añade outcome=success salvo que se
+     *     aporte un resultado explícito.
      */
     public void record(String actor, String action, String targetType, String targetId, Map<String, Object> safeMetadata) {
         try {
+            var metadata = new java.util.LinkedHashMap<String, Object>();
+            metadata.put("outcome", safeMetadata != null && "failure".equals(safeMetadata.get("result")) ? "failure" : "success");
+            if (safeMetadata != null) metadata.putAll(safeMetadata);
             jdbcTemplate.update(
                     """
                 INSERT INTO admin_audit_logs
@@ -84,7 +88,7 @@ public class AdminAuditService {
                     action,
                     targetType,
                     targetId,
-                    objectMapper.writeValueAsString(safeMetadata == null ? Map.of() : safeMetadata),
+                    objectMapper.writeValueAsString(metadata),
                     LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
         } catch (Exception exception) {
             failures.increment();
