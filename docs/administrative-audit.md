@@ -10,7 +10,7 @@ Los controladores y servicios administrativos registran acciones de negocio
 como `bundle.update`, `app.delete` o `scraper.command`. Cada entrada contiene
 UUID del actor, acción, tipo e identificador de objetivo cuando procede, fecha
 UTC y metadatos filtrados por el llamador. `safe_metadata.outcome` vale
-`success` salvo que se indique otro resultado explícitamente. Una solicitud
+`success` salvo que se indique otro resultado explícitamente. Los eventos con `result=failure` también reciben `outcome=failure`. Una solicitud
 asíncrona aceptada acredita su aceptación, no la finalización del trabajo.
 
 Un interceptor añade `admin.request.failed` para las mutaciones

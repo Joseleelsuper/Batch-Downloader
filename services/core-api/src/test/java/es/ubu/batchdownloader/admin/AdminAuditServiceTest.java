@@ -25,10 +25,12 @@ class AdminAuditServiceTest {
                 Clock.fixed(Instant.parse("2026-11-06T15:00:00Z"), ZoneOffset.UTC), new SimpleMeterRegistry());
         audit.record("admin-id", "app.update", "app", "app-id", Map.of());
         audit.record("admin-id", "app.update", "app", "app-id", Map.of("outcome", "failure", "code", "invalid_input"));
+        audit.record("admin-id", "software-request.review", "software-request", "request-id", Map.of("result", "failure"));
         var parameters = org.mockito.ArgumentCaptor.forClass(Object[].class);
-        org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.times(2)).update(anyString(), parameters.capture());
+        org.mockito.Mockito.verify(jdbc, org.mockito.Mockito.times(3)).update(anyString(), parameters.capture());
         assertThat(mapper.readTree((String) parameters.getAllValues().get(0)[5]).get("outcome").asText()).isEqualTo("success");
         assertThat(mapper.readTree((String) parameters.getAllValues().get(1)[5]).get("outcome").asText()).isEqualTo("failure");
+        assertThat(mapper.readTree((String) parameters.getAllValues().get(2)[5]).get("outcome").asText()).isEqualTo("failure");
         assertThat(parameters.getAllValues().get(0)[1]).isEqualTo("admin-id");
     }
 

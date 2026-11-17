@@ -75,7 +75,7 @@ public class AdminAuditService {
     public void record(String actor, String action, String targetType, String targetId, Map<String, Object> safeMetadata) {
         try {
             var metadata = new java.util.LinkedHashMap<String, Object>();
-            metadata.put("outcome", "success");
+            metadata.put("outcome", safeMetadata != null && "failure".equals(safeMetadata.get("result")) ? "failure" : "success");
             if (safeMetadata != null) metadata.putAll(safeMetadata);
             jdbcTemplate.update(
                     """
