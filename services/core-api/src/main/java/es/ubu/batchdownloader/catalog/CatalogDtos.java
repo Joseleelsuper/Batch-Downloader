@@ -212,6 +212,8 @@ public class CatalogDtos {
      * @param installationSupport automatic, manual o not_applicable según plataforma, extensión y
      *     perfil aprobado.
      * @param compatibleLinuxTargets Gestores Linux compatibles con el formato del instalador.
+     * @param checkedAt Fecha de comprobación de esta fuente exacta, o null si se desconoce.
+     * @param sizeBytes Tamaño declarado de esta fuente exacta en bytes; null no es una estimación.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @since 0.1.0
      * @version 0.1.0
@@ -231,7 +233,9 @@ public class CatalogDtos {
             String finalDomain,
             boolean isPrimary,
             String installationSupport,
-            List<String> compatibleLinuxTargets) {
+            List<String> compatibleLinuxTargets,
+            LocalDateTime checkedAt,
+            Long sizeBytes) {
         /**
          * Calcula soporte y destinos Linux solo por formato cuando no se aporta un perfil aprobado.
          *
@@ -259,7 +263,7 @@ public class CatalogDtos {
             this(id, filename, extension, operatingSystem, architecture, version, isLatest, versionStatus,
                     sourceLabel, score, finalDomain, isPrimary,
                     LinuxInstallationSupport.support(operatingSystem, extension, null),
-                    "linux".equals(operatingSystem) ? LinuxInstallationSupport.targets(extension) : List.of());
+                    "linux".equals(operatingSystem) ? LinuxInstallationSupport.targets(extension) : List.of(), null, null);
         }
     }
 

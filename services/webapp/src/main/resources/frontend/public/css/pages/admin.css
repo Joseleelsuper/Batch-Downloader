@@ -1338,6 +1338,12 @@
   white-space: nowrap;
 }
 
+.installer-evidence .installer-redirect-trace { grid-column: 1 / -1; }
+.installer-evidence .installer-redirect-trace dd {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .ai-provenance {
   display: flex;
   align-items: center;

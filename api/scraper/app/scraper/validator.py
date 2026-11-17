@@ -87,6 +87,14 @@ class ValidationConfidence(StrEnum):
 
 
 @dataclass(frozen=True)
+class RedirectHop:
+    """Describe un salto HTTP observado sin conservar rutas, parámetros ni Location."""
+
+    domain: str
+    status: int
+
+
+@dataclass(frozen=True)
 class ValidationResult:
     """Devuelve aceptación, confianza y metadatos observados de un candidato sin persistirlos.
 
@@ -99,6 +107,7 @@ class ValidationResult:
             ordinario.
         confidence: Garantía de comprobación; ok por sí solo no equivale a descarga HTTPS
             verificada.
+        redirects: Saltos de metadatos observados; None si no se llegó a observar la navegación.
     """
 
     ok: bool
@@ -123,6 +132,8 @@ class ValidationResult:
 
     confidence: ValidationConfidence = ValidationConfidence.UNVERIFIED
 
+    redirects: tuple[RedirectHop, ...] | None = None
+
 
 
 @dataclass(frozen=True)
@@ -140,6 +151,7 @@ class _HttpNavigation:
     current_url: str
     previous_url: str | None
     insecure_transport: bool = False
+    redirects: tuple[RedirectHop, ...] = ()
 
 
 @dataclass
@@ -284,15 +296,17 @@ class DownloadValidator:
         if response.status_code >= 400:
             attested = self._winstall_edge_attested_result(candidate, current_url, response)
             if attested:
-                return attested
-            return self._fail(current_url, f"http_{response.status_code}")
+                return replace(attested, redirects=navigation.redirects)
+            return replace(self._fail(current_url, f"http_{response.status_code}"),
+                           redirects=navigation.redirects)
 
-        return await self._validate_artifact_response(
+        result = await self._validate_artifact_response(
             client,
             candidate,
             navigation,
             require_signature=require_signature,
         )
+        return replace(result, redirects=navigation.redirects)
 
     async def _request_final_response(
         self,
@@ -314,6 +328,7 @@ class DownloadValidator:
         current_url = candidate.url
         previous_url: str | None = None
         insecure_transport = False
+        redirects: list[RedirectHop] = []
         for _ in range(self.settings.max_redirects + 1):
             insecure_transport = insecure_transport or urlparse(current_url).scheme == "http"
             request_referer = previous_url or same_site_referer(current_url, candidate.referer)
@@ -324,16 +339,19 @@ class DownloadValidator:
                 probe_html=candidate_has_download_intent(candidate),
             )
             if not response.is_redirect:
-                return _HttpNavigation(response, current_url, previous_url, insecure_transport)
+                return _HttpNavigation(response, current_url, previous_url, insecure_transport,
+                                       tuple(redirects))
 
+            redirects.append(RedirectHop(download_host(current_url) or "", response.status_code))
             location = response.headers.get("location")
             if not location:
-                return self._fail(current_url, "redirect_without_location")
+                return replace(self._fail(current_url, "redirect_without_location"),
+                               redirects=tuple(redirects))
             redirected = await self._validated_redirect_url(candidate, current_url, location)
             if isinstance(redirected, ValidationResult):
-                return redirected
+                return replace(redirected, redirects=tuple(redirects))
             previous_url, current_url = current_url, redirected
-        return self._fail(current_url, "too_many_redirects")
+        return replace(self._fail(current_url, "too_many_redirects"), redirects=tuple(redirects))
 
     async def _validated_redirect_url(
         self,

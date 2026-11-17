@@ -293,6 +293,12 @@ export function InstallerEvidence({ inspection }: { inspection: ManualInstallerI
       </div>
       <div className="manual-installer-evidence-list">
         {installers.map((installer, index) => {
+          const redirectTrace = installer.redirects == null
+            ? t('admin.apps.evidence.redirectsUnavailable')
+            : installer.redirects.length
+              ? [...installer.redirects.map((hop) => `${hop.domain} (HTTP ${hop.status})`),
+                installer.finalDomain || t('common.notAvailable')].join(' → ')
+              : t('admin.apps.evidence.noRedirects');
           const facts = [
             [t('admin.apps.evidence.file'), installer.filename || t('common.notAvailable')],
             [t('admin.apps.evidence.type'), installer.extension?.toUpperCase() || t('common.notAvailable')],
@@ -320,6 +326,10 @@ export function InstallerEvidence({ inspection }: { inspection: ManualInstallerI
                     <dd>{value || t('common.notAvailable')}</dd>
                   </div>
                 ))}
+                <div className="installer-redirect-trace">
+                  <dt>{t('admin.apps.evidence.redirects')}</dt>
+                  <dd>{redirectTrace}</dd>
+                </div>
               </dl>
             </article>
           );

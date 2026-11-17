@@ -129,6 +129,9 @@ public final class InstallerInspectionDtos {
             ManualFieldSuggestion longDescriptionEn,
             ManualFieldSuggestion iconUrl) {}
 
+    /** Salto HTTP observado: solo dominio y estado, sin URI ni cabecera Location. */
+    public record InstallerRedirect(String domain, int status) {}
+
     /**
      * Expone formato, tamaño y plataforma observados del instalador sin revelar su dirección final
      * protegida.
@@ -146,6 +149,7 @@ public final class InstallerInspectionDtos {
      *     aplicación.
      * @param platformRequired El formato inspeccionado no basta para decidir plataforma y requiere
      *     una selección explícita.
+     * @param redirects Saltos observados; null significa traza no disponible y vacío, ninguno.
      * @author <a href="mailto:jgc1031@alu.ubu.es">José Gallardo Caballero</a>
      * @since 0.1.0
      * @version 0.1.0
@@ -160,7 +164,8 @@ public final class InstallerInspectionDtos {
             String version,
             String operatingSystem,
             String architecture,
-            boolean platformRequired) {}
+            boolean platformRequired,
+            List<InstallerRedirect> redirects) {}
 
     /**
      * Resume el estado de generación de sugerencias y su proveedor y modelo sin transportar prompts
