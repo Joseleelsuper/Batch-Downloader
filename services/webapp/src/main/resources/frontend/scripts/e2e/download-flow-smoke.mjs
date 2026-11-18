@@ -105,6 +105,32 @@ function executeMySql(sql) {
   return result.stdout.trim();
 }
 
+function verifyOperationalMetrics() {
+  compose(['exec', '-T', 'scraper-api', 'python', '-c', `
+import time
+import urllib.request
+def samples(text, name, labels=None):
+    return [float(line.rsplit(' ', 1)[-1]) for line in text.splitlines()
+            if (line.startswith(name + '{') or line.startswith(name + ' '))
+            and all((key + '="' + value + '"') in line for key,value in (labels or {}).items())]
+for attempt in range(60):
+    core = urllib.request.urlopen('http://core-api:8080/actuator/prometheus', timeout=5).read().decode()
+    worker = urllib.request.urlopen('http://download-worker:8080/actuator/prometheus', timeout=5).read().decode()
+    def phase(phase_name, outcome):
+        return any(value >= 1 for value in samples(worker, 'download_worker_phase_seconds_count',
+                   {'phase':phase_name,'outcome':outcome}))
+    if (phase('resolution', 'rejected') and phase('packaging', 'success')
+            and any(value > 0 for value in samples(core, 'download_metrics_last_success_timestamp_seconds'))):
+        assert samples(core, 'download_storage_limit_bytes') == [10 * 1024**3]
+        assert samples(core, 'download_jobs', {'state':'FAILED'})
+        break
+    time.sleep(0.5)
+else:
+    raise AssertionError('Expected fresh Core and worker phase metrics were not exposed after the download')
+`], { timeoutMs: 60_000 });
+  process.stdout.write('Operational metrics were verified through the internal Prometheus endpoints.\n');
+}
+
 async function reserveHostPorts() {
   const keys = [
     'MYSQL_HOST_PORT', 'POSTGRES_HOST_PORT', 'RABBITMQ_HOST_PORT',
@@ -331,6 +357,7 @@ export async function run() {
     const zipPath = resolve(temporaryDirectory, 'manual-only.zip');
     await download.saveAs(zipPath);
     inspectZip(zipPath);
+    verifyOperationalMetrics();
     process.stdout.write('The UI download completed with a MANUAL_ONLY manifest and a safe .url entry.\n');
   } catch (error) {
     primaryError = error;

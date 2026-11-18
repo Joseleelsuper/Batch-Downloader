@@ -91,6 +91,7 @@ class DownloadJobProcessorTest {
      */
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Map<UUID, String> readyReceipts = new java.util.concurrent.ConcurrentHashMap<>();
+    private SimpleMeterRegistry recordedMetrics;
     private final es.ubu.batchdownloader.downloadworker.ports.InboxRepository inbox =
             new es.ubu.batchdownloader.downloadworker.ports.InboxRepository() {
                 public boolean tryStart(UUID id, Duration lease) { return true; }
@@ -298,6 +299,10 @@ class DownloadJobProcessorTest {
         assertThat(readyEvent.payload().status()).isEqualTo("PARTIAL");
         assertThat(readyEvent.payload().successfulItems()).isEqualTo(1);
         assertThat(readyEvent.payload().failedItems()).isEqualTo(1);
+        assertThat(recordedMetrics.get("download_worker_phase").tags("phase", "resolution", "outcome", "success").timer().count()).isEqualTo(2);
+        assertThat(recordedMetrics.get("download_worker_phase").tags("phase", "transfer", "outcome", "success").timer().count()).isEqualTo(1);
+        assertThat(recordedMetrics.get("download_worker_phase").tags("phase", "transfer", "outcome", "rejected").timer().count()).isEqualTo(1);
+        assertThat(recordedMetrics.get("download_worker_phase").tags("phase", "packaging", "outcome", "success").timer().count()).isEqualTo(1);
         assertThat(readyEvent.payload().storageBytes()).isEqualTo(
                 store.objects.values().stream().mapToLong(bytes -> bytes.length).sum());
         try (var children = Files.list(temp)) {
@@ -358,6 +363,9 @@ class DownloadJobProcessorTest {
         processor.process(event(List.of(item("bad"))));
 
         assertThat(store.objects).isEmpty();
+        assertThat(recordedMetrics.get("download_worker_phase").tags("phase", "transfer", "outcome", "rejected").timer().count()).isEqualTo(1);
+        assertThat(recordedMetrics.find("download_worker_phase").tag("phase", "packaging").timer()).isNull();
+        assertThat(recordedMetrics.get("download_worker_active_jobs").gauge().value()).isZero();
         assertThat(publisher.routingKeys).containsExactly(
                 EventTypes.JOB_PROGRESSED_ROUTING_KEY,
                 EventTypes.JOB_PROGRESSED_ROUTING_KEY,
@@ -700,6 +708,7 @@ class DownloadJobProcessorTest {
                 "http://minio", "key", "secret", "installers", Duration.ofHours(1));
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        recordedMetrics = registry;
         Clock clock = Clock.fixed(Instant.parse("2026-07-11T12:00:00Z"), ZoneOffset.UTC);
         DownloadCancellationRegistry cancellations = new DownloadCancellationRegistry();
         DownloadWorkerMetrics metrics = new DownloadWorkerMetrics(registry);
@@ -716,7 +725,7 @@ class DownloadJobProcessorTest {
                 new ManualShortcutWriter(metadataLookup, filenames,
                         new PublicHttpsUriPolicy(hostname -> List.of(publicAddress()))),
                 new DownloadManifestWriter(mapper, clock), new LinuxInstallerBundleWriter(mapper),
-                new DownloadResolutionService(resolver, executor, downloadProperties, cancellations, events, clock));
+                new DownloadResolutionService(resolver, executor, downloadProperties, cancellations, events, clock, metrics));
     }
 
     /**
