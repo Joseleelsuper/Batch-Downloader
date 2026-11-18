@@ -249,6 +249,8 @@ public class DownloadJobProcessor {
                 metrics.stopPackagingWait(wait);
             }
             metrics.packagingStarted();
+            Timer.Sample packaging = metrics.startPhase();
+            DownloadWorkerMetrics.Outcome packagingOutcome = DownloadWorkerMetrics.Outcome.SUCCESS;
             try {
                 AtomicReference<ArchiveOutcome> outcomeReference = new AtomicReference<>();
                 StoredArtifact storedZip = artifactStore.putStreaming(
@@ -286,7 +288,11 @@ public class DownloadJobProcessor {
                         Math.addExact(storedZip.sizeBytes(), outcome.manifest().length));
                 ledger.update(jobId, event.eventId(), "READY",
                         Math.addExact(storedZip.sizeBytes(), outcome.manifest().length));
+            } catch (RuntimeException | Error failure) {
+                packagingOutcome = DownloadWorkerMetrics.outcome(failure);
+                throw failure;
             } finally {
+                metrics.stopPhase(packaging, DownloadWorkerMetrics.Phase.PACKAGING, packagingOutcome);
                 metrics.packagingFinished();
                 packagingSemaphore.release();
             }

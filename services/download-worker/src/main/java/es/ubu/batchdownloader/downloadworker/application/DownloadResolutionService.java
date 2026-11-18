@@ -36,6 +36,7 @@ public final class DownloadResolutionService {
     private final DownloadCancellationRegistry cancellations;
     private final DownloadEventEmitter events;
     private final Clock clock;
+    private final DownloadWorkerMetrics metrics;
 
     /**
      * Conecta resolución exacta, ejecutor, límites, cancelación y publicación de progreso.
@@ -48,6 +49,7 @@ public final class DownloadResolutionService {
      * @param events Publicador de progreso y resultados que conserva identidad determinista de
      *     eventos.
      * @param clock Reloj para fechar el progreso y las decisiones del coordinador.
+     * @param metrics Medición de resolución por resultado, sin identificadores ni URLs.
      */
     public DownloadResolutionService(
             SourceReferenceResolver resolver,
@@ -55,13 +57,14 @@ public final class DownloadResolutionService {
             DownloadProperties properties,
             DownloadCancellationRegistry cancellations,
             DownloadEventEmitter events,
-            Clock clock) {
+            Clock clock, DownloadWorkerMetrics metrics) {
         this.resolver = resolver;
         this.executor = executor;
         this.properties = properties;
         this.cancellations = cancellations;
         this.events = events;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     /**
@@ -168,7 +171,7 @@ public final class DownloadResolutionService {
                     "manual-" + item.itemId() + ".url", "manual_download_required"));
         }
         try {
-            return ResolutionAttempt.success(resolver.resolve(item));
+            return ResolutionAttempt.success(metrics.measurePhase(DownloadWorkerMetrics.Phase.RESOLUTION, () -> resolver.resolve(item)));
         } catch (DownloadRejectedException exception) {
             return ResolutionAttempt.failure(new FailedDownload(
                     item.itemId(), item.appId(), item.sourceRef(),

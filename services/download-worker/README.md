@@ -51,7 +51,7 @@ aplicar disponibilidad y reserva atómicamente. El campo es opcional en el
 esquema para conservar compatibilidad con eventos históricos; los nuevos
 emisores siempre lo publican después de terminar subidas y borrar temporales.
 
-En Edge/Chrome compatibles, la web elige destino durante el clic inicial,
+En Edge/Chrome compatibles, la web elige destino al confirmar la vista previa,
 escribe directamente al archivo y confirma el guardado después de cerrar la
 escritura y verificar el número de bytes. En los demás navegadores se conserva
 la descarga normal, sin afirmar que el ZIP esté guardado en disco.
@@ -93,3 +93,5 @@ mvn -B -pl services/download-worker test
 Observar métricas de trabajos, descargas, empaquetados, disco y errores, junto
 con la suma de `download_job_storage.reserved_bytes` en MySQL. La prueba de
 carga con fuentes controladas está en [`tst/load/README.md`](../../tst/load/README.md).
+Las señales, sus límites y las consultas Prometheus se describen en
+[`docs/observability.md`](../../docs/observability.md).

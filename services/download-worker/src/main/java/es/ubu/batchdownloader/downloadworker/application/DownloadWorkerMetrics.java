@@ -5,6 +5,9 @@ import io.micrometer.core.instrument.Timer;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.time.Duration;
+import java.util.Locale;
+import java.util.concurrent.CancellationException;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -19,6 +22,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class DownloadWorkerMetrics {
+    public enum Phase { RESOLUTION, TRANSFER, PACKAGING }
+    public enum Outcome { SUCCESS, REJECTED, CANCELLED, FAILURE }
     /** Descargas HTTP activas. */
     private final AtomicInteger activeDownloads = new AtomicInteger();
     private final AtomicInteger activeJobs = new AtomicInteger();
@@ -26,7 +31,7 @@ public class DownloadWorkerMetrics {
     private final AtomicLong temporaryBytes = new AtomicLong();
     /** ZIP que se están construyendo o subiendo. */
     private final AtomicInteger activePackagings = new AtomicInteger();
-    /** Espera para entrar en la única fase de empaquetado. */
+    /** Espera para acceder a una plaza de empaquetado. */
     private final Timer packagingWait;
     /** Registro usado para iniciar las muestras. */
     private final MeterRegistry registry;
@@ -47,6 +52,28 @@ public class DownloadWorkerMetrics {
 
     public void jobStarted() { activeJobs.incrementAndGet(); }
     public void jobFinished() { activeJobs.decrementAndGet(); }
+
+    public Timer.Sample startPhase() { return Timer.start(registry); }
+
+    public static Outcome outcome(Throwable failure) {
+        if (failure instanceof CancellationException) return Outcome.CANCELLED;
+        if (failure instanceof DownloadRejectedException) return Outcome.REJECTED;
+        return Outcome.FAILURE;
+    }
+
+    public void stopPhase(Timer.Sample sample, Phase phase, Outcome outcome) {
+        sample.stop(Timer.builder("download_worker_phase")
+                .tag("phase", phase.name().toLowerCase(Locale.ROOT))
+                .tag("outcome", outcome.name().toLowerCase(Locale.ROOT)).register(registry));
+    }
+
+    public <T> T measurePhase(Phase phase, Supplier<T> operation) {
+        Timer.Sample sample = startPhase();
+        Outcome outcome = Outcome.SUCCESS;
+        try { return operation.get(); }
+        catch (RuntimeException | Error failure) { outcome = outcome(failure); throw failure; }
+        finally { stopPhase(sample, phase, outcome); }
+    }
 
     /**
      * Incrementa el número de transferencias actualmente activas.
@@ -127,7 +154,8 @@ public class DownloadWorkerMetrics {
      * @param reason Código que permite distinguir la causa de aplazamiento por capacidad.
      */
     public void capacityDeferred(String reason) {
-        registry.counter("download_worker_capacity_deferred", "reason", reason).increment();
+        String boundedReason = "temporary_storage_busy".equals(reason) || "storage_budget_wait".equals(reason) ? reason : "other";
+        registry.counter("download_worker_capacity_deferred", "reason", boundedReason).increment();
     }
 
     /**
