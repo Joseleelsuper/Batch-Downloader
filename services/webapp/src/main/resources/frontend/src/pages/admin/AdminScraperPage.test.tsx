@@ -59,9 +59,8 @@ describe('AdminScraperPage', () => {
   it('actualiza el estado sin esperar a logs y reintenta solo el bloque que falla', async () => {
     let failLogs!: (cause: Error) => void;
     vi.mocked(scraperAdminApi.fetchAdminLogs).mockReturnValueOnce(new Promise((_, reject) => { failLogs = reject; }));
-    const { container } = render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
-    await waitFor(() => expect(container.querySelector('.scraper-status'))
-      .toHaveTextContent(formatDate(`${latestRun.startedAt}Z`)));
+    render(<MemoryRouter><AdminScraperPage /></MemoryRouter>);
+    expect(await screen.findByText(formatDate(`${latestRun.startedAt}Z`), { selector: '.scraper-status strong' })).toBeInTheDocument();
     const logs = screen.getByRole('heading', { name: 'Logs recientes' }).closest('section')!;
     expect(within(logs).getByRole('status')).toHaveTextContent('Cargando');
     failLogs(new Error('offline'));

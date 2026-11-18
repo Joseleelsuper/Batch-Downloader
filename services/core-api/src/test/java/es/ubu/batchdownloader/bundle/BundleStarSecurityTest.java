@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -74,7 +75,7 @@ class BundleStarSecurityTest {
         String payload = "{\"name\":\"Oficial\",\"type\":\"official\",\"visibility\":\"official\",\"appIds\":[]}";
         for (var mutation : java.util.List.of(post("/api/v1/admin/bundles"),
                 patch("/api/v1/admin/bundles/{bundleId}", id), delete("/api/v1/admin/bundles/{bundleId}", id))) {
-            mvc.perform(mutation.with(csrf()).contentType("application/json").content(payload)).andExpect(status().isUnauthorized());
+            mvc.perform(mutation.with(anonymous()).with(csrf()).contentType("application/json").content(payload)).andExpect(status().isUnauthorized());
             var user = new AccountPrincipal(actor, "user", UserRole.USER);
             mvc.perform(mutation.with(authentication(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()))))
                     .andExpect(status().isForbidden());
