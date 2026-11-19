@@ -121,8 +121,12 @@ class DownloadJobProcessorTest {
         var processor = processor(localDownloader(), new MemoryArtifactStore(), new RecordingPublisher(), 10);
         processor.clean(event.payload().jobId());
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            executor.submit(() -> processor.process(event)).get();
-            executor.submit(() -> processor.process(event)).get();
+            for (int attempt = 0; attempt < 2; attempt++) {
+                assertThat(executor.submit(() -> {
+                    processor.process(event);
+                    return Thread.currentThread().isInterrupted();
+                }).get()).isFalse();
+            }
         }
         assertThat(calls).hasValue(0);
     }
