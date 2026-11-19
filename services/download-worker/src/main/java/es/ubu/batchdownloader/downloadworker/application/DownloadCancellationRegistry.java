@@ -51,7 +51,6 @@ public class DownloadCancellationRegistry {
 
     void writerStarted(UUID jobId) {
         writers.computeIfAbsent(jobId, ignored -> ConcurrentHashMap.newKeySet()).add(Thread.currentThread());
-        if (cancelled(jobId)) Thread.currentThread().interrupt();
     }
 
     void writerFinished(UUID jobId) {

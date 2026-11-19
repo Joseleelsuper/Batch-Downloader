@@ -443,6 +443,16 @@ export async function run() {
       }
       // READY puede llegar a Core antes del último callback y del ACK del worker.
       // La limpieza puede haber borrado job_id sin retirar la deduplicación completada.
+      if (completed !== '2') {
+        process.stderr.write(`Inbox states after replica recovery:\n${executeMySql(
+          "SELECT event_id, status, job_id, pending_result IS NOT NULL FROM download_inbox ORDER BY event_id;",
+        )}\n`);
+        process.stderr.write(`Queue state after replica recovery:\n${compose([
+          'exec', '-T', 'rabbitmq', 'rabbitmqctl', 'list_queues',
+          'name', 'messages_ready', 'messages_unacknowledged', 'consumers',
+        ])}\n`);
+        process.stderr.write(`Fixture jobs: ${createdJob.id}, ${secondJobId}\n`);
+      }
       assert.equal(completed, '2', 'both requests must eventually complete their shared inbox entries');
       process.stdout.write('The surviving worker completed both jobs, including the redelivered command.\n');
     }
@@ -468,7 +478,7 @@ export async function run() {
     try {
       process.stderr.write('\nCompose service logs from the failed smoke test:\n');
       process.stderr.write(compose([
-        'logs', '--tail', '25', '--no-color', 'scraper-api', 'core-api', 'download-worker', 'webapp',
+        'logs', '--tail', '100', '--no-color', 'scraper-api', 'core-api', 'download-worker', 'webapp',
       ]));
     } catch (logError) {
       process.stderr.write(`Unable to collect Compose logs: ${logError.message}\n`);
