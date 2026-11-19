@@ -108,6 +108,30 @@ class DownloadJobProcessorTest {
                     DataSize.ofMegabytes(20).toBytes(), false, DataSize.ofMegabytes(20).toBytes());
 
     @Test
+    void delayedCommandForCancelledJobDoesNotRetryTheStorageLedger() throws Exception {
+        var event = event(List.of(item("ok")));
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        ledger = (job, attempt, action, bytes) -> {
+            calls.incrementAndGet();
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InfrastructureException("storage_ledger_interrupted", new InterruptedException());
+            }
+            throw new AssertionError("cancelled jobs must not call the storage ledger");
+        };
+        var processor = processor(localDownloader(), new MemoryArtifactStore(), new RecordingPublisher(), 10);
+        processor.clean(event.payload().jobId());
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                assertThat(executor.submit(() -> {
+                    processor.process(event);
+                    return Thread.currentThread().isInterrupted();
+                }).get()).isFalse();
+            }
+        }
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
     void requeuesWithLargerReservationOnlyAfterAllFilesAreGone() throws Exception {
         List<String> actions = new ArrayList<>();
         MemoryArtifactStore store = new MemoryArtifactStore();

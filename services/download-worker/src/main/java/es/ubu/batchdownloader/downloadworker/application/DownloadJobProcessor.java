@@ -145,7 +145,7 @@ public class DownloadJobProcessor {
         cancellations.writerStarted(jobId);
         metrics.jobStarted();
         try {
-            processAttempt(event);
+            if (!cancellations.cancelled(jobId)) processAttempt(event);
         } finally {
             cancellations.writerFinished(jobId);
             metrics.jobFinished();
