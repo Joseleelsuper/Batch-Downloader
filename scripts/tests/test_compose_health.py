@@ -297,9 +297,6 @@ class ComposeHealthTest(unittest.TestCase):
             "NOTIFICATION_SERVICE_INBOX_PASSWORD": (
                 "services/notification-service/src/main/resources/application.properties"
             ),
-            "DOWNLOAD_WORKER_INBOX_PASSWORD": (
-                "services/download-worker/src/main/resources/application.properties"
-            ),
         }
         compose_sources = [
             path.read_text(encoding="utf-8")

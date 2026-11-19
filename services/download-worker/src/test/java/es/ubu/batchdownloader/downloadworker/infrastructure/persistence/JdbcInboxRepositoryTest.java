@@ -25,6 +25,7 @@ class JdbcInboxRepositoryTest {
      * Dato compartido {@code repository} para los escenarios de prueba.
      */
     private JdbcInboxRepository repository;
+    private JdbcTemplate jdbc;
 
     /**
      * Crea una base en memoria con la tabla del inbox y un repositorio JDBC para aislar las
@@ -34,7 +35,7 @@ class JdbcInboxRepositoryTest {
     void setUp() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:inbox-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("""
                 CREATE TABLE download_inbox (
                     event_id VARCHAR(64) PRIMARY KEY,
@@ -83,7 +84,6 @@ class JdbcInboxRepositoryTest {
         assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
         repository.saveReady(eventId, jobId, "{\"result\":\"READY\"}");
         repository.release(eventId);
-        repository.recoverAbandoned();
         assertThat(repository.pendingReady(eventId)).isEqualTo("{\"result\":\"READY\"}");
         assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
         repository.complete(eventId);
@@ -101,11 +101,19 @@ class JdbcInboxRepositoryTest {
         assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
         repository.rememberJob(eventId, jobId);
         repository.release(eventId);
-        repository.recoverAbandoned();
         assertThat(repository.trackedJobs()).containsExactly(jobId);
         assertThat(repository.tryStart(eventId, Duration.ofMinutes(30))).isTrue();
         repository.clearReady(jobId);
         repository.complete(eventId);
         assertThat(repository.trackedJobs()).isEmpty();
+    }
+
+    @Test void exclusiveRecoveryDoesNotDependOnThePreviousWritersWallClock() {
+        UUID id = UUID.randomUUID();
+        var futureWriter = new JdbcInboxRepository(jdbc, Clock.offset(Clock.systemUTC(), Duration.ofDays(1)));
+        assertThat(futureWriter.tryStart(id, Duration.ofMinutes(30))).isTrue();
+        assertThat(repository.tryStart(id, Duration.ofMinutes(30))).isFalse();
+        // El llamador con duración cero ya posee el bloqueo exclusivo del núcleo.
+        assertThat(repository.tryStart(id, Duration.ZERO)).isTrue();
     }
 }

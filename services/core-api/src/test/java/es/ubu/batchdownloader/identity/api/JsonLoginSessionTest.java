@@ -29,7 +29,7 @@ class JsonLoginSessionTest {
         IdentityController controller = new IdentityController(
                 identities, mock(AccountAuthenticator.class), mock(CurrentAccount.class),
                 mock(SecurityContextRepository.class), mock(SessionAuthenticationStrategy.class),
-                new AuthRateLimiter(100, 100, 100));
+                mock(AuthRateLimiter.class));
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRemoteAddr("127.0.0.1");
 
@@ -55,7 +55,7 @@ class JsonLoginSessionTest {
         when(identities.view(user)).thenReturn(view);
         IdentityController controller = new IdentityController(
                 identities, authenticator, mock(CurrentAccount.class), contexts, sessions,
-                new AuthRateLimiter(100, 100, 100));
+                mock(AuthRateLimiter.class));
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRemoteAddr("127.0.0.1");
         MockHttpServletResponse response = new MockHttpServletResponse();

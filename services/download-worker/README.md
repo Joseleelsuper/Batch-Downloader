@@ -22,16 +22,17 @@ lo reencola conservando su posición; si excede el presupuesto total, falla.
 Los hilos virtuales permiten esperar por red sin ocupar un hilo de plataforma
 por trabajo. RabbitMQ conserva el ACK pendiente hasta terminar la operación
 duradera; su consumidor asíncrono no limita la concurrencia de trabajos.
-La inbox H2 persistente conserva el `jobId` y el resultado pendiente antes de
+El inbox compartido de MySQL conserva el `jobId` y el resultado pendiente antes de
 confirmar RabbitMQ: permite recuperar multipart y reenviar el mismo evento tras
-un reinicio. Su volumen es necesario para la recuperación. El identificador del
+un reinicio. El volumen temporal compartido coordina los escritores entre réplicas.
+El identificador del
 comando protege contra eventos atrasados de un intento anterior.
 
 | Recurso | Ajuste |
 | --- | --- |
-| Empaquetados simultáneos | `DOWNLOAD_WORKER_PACKAGING_CONCURRENCY=2` |
+| Empaquetados simultáneos en el servidor | `DOWNLOAD_WORKER_PACKAGING_CONCURRENCY=2` en todas las réplicas |
 | Compresión | `DOWNLOAD_WORKER_ZIP_LEVEL=0` |
-| HTTP por trabajo/origen | Dos conexiones en cada caso |
+| HTTP por trabajo / por origen y proceso | Dos conexiones en cada caso |
 | Espacio libre del host | `DOWNLOAD_WORKER_MIN_FREE_SPACE=8GB`, separado del presupuesto |
 | Bucket MinIO | `MINIO_ZIP_QUOTA=10GB`, defensa adicional a la reserva física de Core |
 
@@ -67,6 +68,8 @@ borrado, conserva la reserva y lo reintenta. Queda un recibo mínimo de
 propietario durante una hora para reintentos idempotentes y límites de frecuencia,
 sin archivos ni reserva. Los datos operativos y el ZIP desaparecen. Core reconcilia el inventario al iniciar
 antes de admitir nuevos trabajos.
+Cada API renueva solo sus transferencias; arrancar otra réplica no invalida las
+existentes. Las referencias de una API caída caducan después de dos minutos.
 En la primera promoción hay que drenar los trabajos antiguos y limpiar sus
 archivos por `jobId` antes de activar el nuevo esquema de recuperación.
 El lifecycle de MinIO a 24 horas está deshabilitado: solo el coordinador limpia
@@ -95,3 +98,5 @@ con la suma de `download_job_storage.reserved_bytes` en MySQL. La prueba de
 carga con fuentes controladas está en [`tst/load/README.md`](../../tst/load/README.md).
 Las señales, sus límites y las consultas Prometheus se describen en
 [`docs/observability.md`](../../docs/observability.md).
+El arranque de réplicas, la exclusión entre procesos y la primera actualización
+desde H2 se describen en [`escalado-local.md`](../../docs/deployment/escalado-local.md).

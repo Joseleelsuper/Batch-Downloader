@@ -10,13 +10,13 @@ import static org.mockito.Mockito.when;
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor;
 import es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException;
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobHandler;
-import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobPayload;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadItemRequest;
 import es.ubu.batchdownloader.downloadworker.domain.DownloadEvents.DownloadJobRequestedEvent;
 import es.ubu.batchdownloader.downloadworker.domain.EventTypes;
 import es.ubu.batchdownloader.downloadworker.operations.DownloadWorkerHeartbeat;
 import es.ubu.batchdownloader.downloadworker.ports.InboxRepository;
+import es.ubu.batchdownloader.downloadworker.ports.WorkerExecutionLocks;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import java.time.Duration;
@@ -24,8 +24,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
-import org.springframework.util.unit.DataSize;
 
 /**
  * Caracteriza validación del contrato, reserva del inbox, seguimiento del latido y espera por
@@ -47,29 +47,23 @@ class DownloadJobListenerTest {
      * Dato compartido {@code inbox} para los escenarios de prueba.
      */
     private final InboxRepository inbox = mock(InboxRepository.class);
+    private final WorkerExecutionLocks locks = mock(WorkerExecutionLocks.class);
     /**
      * Dato compartido {@code processor} para los escenarios de prueba.
      */
     private final DownloadJobProcessor processor = mock(DownloadJobProcessor.class);
     /**
-     * Dato compartido {@code properties} para los escenarios de prueba.
-     */
-    private final DownloadProperties properties = new DownloadProperties(
-            10,
-            DataSize.ofMegabytes(10),
-            3,
-            Duration.ofSeconds(1),
-            Duration.ofSeconds(10),
-            Duration.ofMinutes(5),
-            "/tmp");
-    /**
      * Dato compartido {@code listener} para los escenarios de prueba.
      */
     private final DownloadJobHandler handler = new ValidatedDownloadJobHandler(
             validator,
-            new InboxDownloadJobHandler(inbox, properties, processor::process));
+            new InboxDownloadJobHandler(inbox, locks, processor::process));
     private final DownloadWorkerHeartbeat heartbeat = mock(DownloadWorkerHeartbeat.class);
     private final DownloadJobListener listener = new DownloadJobListener(handler, heartbeat);
+
+    @BeforeEach void unlockedJobs() {
+        when(locks.tryJob(org.mockito.ArgumentMatchers.any())).thenAnswer(ignored -> (WorkerExecutionLocks.Lease) () -> {});
+    }
 
     @Test
     void asynchronousAckWaitsForDurableProcessing() throws Exception {
@@ -93,7 +87,7 @@ class DownloadJobListenerTest {
     @Test
     void skipsAlreadyProcessedEvent() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
-        when(inbox.tryStart(event.eventId(), properties.inboxLease())).thenReturn(false);
+        when(inbox.tryStart(event.eventId(), Duration.ZERO)).thenReturn(false);
 
         listener.receive(event);
 
@@ -108,7 +102,7 @@ class DownloadJobListenerTest {
     @Test
     void completesInboxOnlyAfterSuccessfulProcessing() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
-        when(inbox.tryStart(event.eventId(), properties.inboxLease())).thenReturn(true);
+        when(inbox.tryStart(event.eventId(), Duration.ZERO)).thenReturn(true);
 
         listener.receive(event);
 
@@ -127,7 +121,7 @@ class DownloadJobListenerTest {
         assertThatThrownBy(() -> listener.receive(event))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class)
                 .hasMessage("unsupported_download_event_version");
-        verify(inbox, never()).tryStart(event.eventId(), properties.inboxLease());
+        verify(inbox, never()).tryStart(event.eventId(), Duration.ZERO);
     }
 
     /**
@@ -137,7 +131,7 @@ class DownloadJobListenerTest {
     @Test
     void releasesInboxWhenProcessingFailsSoRabbitCanRetry() {
         DownloadJobRequestedEvent event = event(EventTypes.CURRENT_VERSION);
-        when(inbox.tryStart(event.eventId(), properties.inboxLease())).thenReturn(true);
+        when(inbox.tryStart(event.eventId(), Duration.ZERO)).thenReturn(true);
         doThrow(new IllegalStateException("storage unavailable")).when(processor).process(event);
 
         assertThatThrownBy(() -> listener.receive(event)).isInstanceOf(IllegalStateException.class);

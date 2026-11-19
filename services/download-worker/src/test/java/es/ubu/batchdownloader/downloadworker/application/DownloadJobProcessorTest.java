@@ -23,6 +23,7 @@ import es.ubu.batchdownloader.downloadworker.ports.EventPublisher;
 import es.ubu.batchdownloader.downloadworker.ports.JobItemMetadataLookup;
 import es.ubu.batchdownloader.downloadworker.ports.RemoteDownloader;
 import es.ubu.batchdownloader.downloadworker.ports.SourceReferenceResolver;
+import es.ubu.batchdownloader.downloadworker.ports.WorkerExecutionLocks;
 import java.io.ByteArrayInputStream;
 import java.net.InetAddress;
 import java.net.URI;
@@ -743,13 +744,17 @@ class DownloadJobProcessorTest {
                 executor, downloader, filenames, downloadProperties, cancellations, metrics, events, clock, files);
         DownloadPipelineFactory pipelines = (event, items, directory, window, budget) -> new DownloadPipeline(
                 event, items, directory, window, budget, dependencies);
+        WorkerExecutionLocks locks = org.mockito.Mockito.mock(WorkerExecutionLocks.class);
+        org.mockito.Mockito.when(locks.tryJob(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(ignored -> (WorkerExecutionLocks.Lease) () -> {});
+        org.mockito.Mockito.when(locks.tryPackaging()).thenAnswer(ignored -> (WorkerExecutionLocks.Lease) () -> {});
         return new DownloadJobProcessor(pipelines, store, new ZipArchiveBuilder(), downloadProperties, clock,
                 cancellations, ledger,
                 packagingSemaphore, metrics, events, files,
                 new ManualShortcutWriter(metadataLookup, filenames,
                         new PublicHttpsUriPolicy(hostname -> List.of(publicAddress()))),
                 new DownloadManifestWriter(mapper, clock), new LinuxInstallerBundleWriter(mapper),
-                new DownloadResolutionService(resolver, executor, downloadProperties, cancellations, events, clock, metrics));
+                new DownloadResolutionService(resolver, executor, downloadProperties, cancellations, events, clock, metrics), locks);
     }
 
     /**

@@ -57,6 +57,7 @@ class DownloadStorageCoordinatorMySqlTest {
         jdbc.execute("CREATE TABLE download_sources (id BINARY(16) PRIMARY KEY,software_app_id BINARY(16),catalog_available BOOLEAN)");
         jdbc.execute("CREATE TABLE software_apps (id BINARY(16) PRIMARY KEY,app_status VARCHAR(24))");
         new ResourceDatabasePopulator(new ClassPathResource("db/migration/V20__download_storage_fifo.sql")).execute(pool);
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V27__download_transfer_replica_leases.sql")).execute(pool);
         jdbc.execute("CREATE TABLE bundles(id BINARY(16) PRIMARY KEY,slug VARCHAR(180),download_count BIGINT NOT NULL DEFAULT 0)");
         jdbc.execute("ALTER TABLE download_job_receipts ADD COLUMN bundle_id BINARY(16) NULL");
     }
@@ -133,6 +134,44 @@ class DownloadStorageCoordinatorMySqlTest {
         assertThat(number(id,"active_transfers")).isZero();
     }
 
+    @Test void anotherReplicaDoesNotCancelLiveDeliveryOrReplayAnOldInventory() {
+        UUID id = ready(1024), transfer = UUID.randomUUID();
+        coordinator.transferStarted(id, transfer);
+        var replica = new DownloadStorageCoordinator(jdbc, new TransactionTemplate(new DataSourceTransactionManager(pool)),
+                jobs, events, disk, clock, notifier);
+        try {
+            // La instantánea vacía puede haberse tomado antes de publicar el ZIP.
+            ReflectionTestUtils.invokeMethod(replica, "reconcile");
+            assertThat(phase(id)).isEqualTo("READY");
+            assertThat(number(id, "active_transfers")).isEqualTo(1);
+            assertThat(replica.transferAllowed(id)).isTrue();
+            assertThat(coordinator.transferAllowed(id)).isTrue();
+            verify(disk, never()).delete(id);
+        } finally { replica.close(); }
+    }
+
+    @Test void onlyTheDeadReplicasTransferReferencesExpire() {
+        UUID id = ready(1024), abandoned = UUID.randomUUID(), live = UUID.randomUUID();
+        coordinator.transferStarted(id, abandoned);
+        var survivor = new DownloadStorageCoordinator(jdbc, new TransactionTemplate(new DataSourceTransactionManager(pool)),
+                jobs, events, disk, clock, notifier);
+        try {
+            ReflectionTestUtils.invokeMethod(survivor, "reconcile");
+            survivor.transferStarted(id, live);
+            clock.advance(121);
+            survivor.renewTransfers();
+            ReflectionTestUtils.invokeMethod(survivor, "expireInactive");
+            assertThat(number(id, "active_transfers")).isEqualTo(1);
+            assertThat(jdbc.queryForList("SELECT transfer_id FROM download_job_transfers", String.class))
+                    .containsExactly(live.toString());
+            assertThat(survivor.transferAllowed(id)).isTrue();
+            coordinator.transferFinished(id, abandoned);
+            assertThat(number(id, "active_transfers")).isEqualTo(1);
+            survivor.transferFinished(id, live);
+            assertThat(number(id, "active_transfers")).isZero();
+        } finally { survivor.close(); }
+    }
+
     @Test void metadataRevalidationDoesNotHoldConnectionAndUsesOwnMedian() {
         UUID id = estimating(Arrays.asList(100L, null, 300L));
         when(disk.revalidateSize(any())).thenAnswer(call -> { assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero(); return null; });
@@ -178,8 +217,8 @@ class DownloadStorageCoordinatorMySqlTest {
 
     @Test void stalledTransferStopsAfterFiveMinutesButReservationWaitsForEverySocket() {
         UUID id = ready(GIB); start(id); start(id);
-        clock.advance(61); call("expireInactive"); assertThat(coordinator.transferAllowed(id)).isTrue();
-        clock.advance(240); call("expireInactive"); assertThat(coordinator.transferAllowed(id)).isFalse();
+        clock.advance(61); coordinator.renewTransfers(); call("expireInactive"); assertThat(coordinator.transferAllowed(id)).isTrue();
+        clock.advance(240); coordinator.renewTransfers(); call("expireInactive"); assertThat(coordinator.transferAllowed(id)).isFalse();
         call("cleanup", id); verify(disk, never()).delete(id);
         finish(id); call("cleanup", id); verify(disk, never()).delete(id);
         finish(id); call("cleanup", id); verify(disk).delete(id); assertThat(reserved()).isZero();
@@ -216,7 +255,7 @@ class DownloadStorageCoordinatorMySqlTest {
         assertThat(number(id,"active_transfers")).isEqualTo(2);
         coordinator.transferFinished(id,first); coordinator.transferFinished(id,first);
         assertThat(number(id,"active_transfers")).isEqualTo(1);
-        clock.advance(301); call("expireInactive"); call("cleanup",id); verify(disk,never()).delete(id);
+        clock.advance(301); coordinator.renewTransfers(); call("expireInactive"); call("cleanup",id); verify(disk,never()).delete(id);
         coordinator.transferFinished(id,second); call("cleanup",id); verify(disk).delete(id);
     }
 
@@ -225,7 +264,8 @@ class DownloadStorageCoordinatorMySqlTest {
         UUID orphan = UUID.randomUUID();
         when(disk.inventory()).thenReturn(new DownloadStorage.Inventory(List.of(new DownloadStorage.StoredJob(ready,1024,false),new DownloadStorage.StoredJob(orphan,2048,false)),20 * GIB));
         call("reconcile"); verify(disk).delete(orphan);
-        assertThat(phase(ready)).isEqualTo("CLEANING"); assertThat(number(ready,"active_transfers")).isZero();
+        assertThat(phase(ready)).isEqualTo("CLEANING"); assertThat(number(ready,"active_transfers")).isEqualTo(1);
+        finish(ready);
         call("cleanup",ready); assertThat(reserved()).isZero();
     }
 
@@ -235,7 +275,8 @@ class DownloadStorageCoordinatorMySqlTest {
         when(disk.inventory()).thenReturn(new DownloadStorage.Inventory(List.of(new DownloadStorage.StoredJob(dirty,4096,false)),20 * GIB));
         call("reconcile");
         assertThat(reserved()).isEqualTo(GIB + 4096);
-        assertThat(phase(missing)).isEqualTo("CLEANING"); assertThat(phase(dirty)).isEqualTo("CLEANING");
+        assertThat(phase(missing)).isEqualTo("READY"); assertThat(phase(dirty)).isEqualTo("CLEANING");
+        clock.advance(61); call("expireInactive");
         call("cleanup",missing); call("cleanup",dirty);
         verify(disk).delete(missing); verify(disk).delete(dirty); assertThat(reserved()).isZero();
     }

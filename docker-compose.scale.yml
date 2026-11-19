@@ -1,0 +1,8 @@
+# Un único servidor y volúmenes locales compartidos. Se accede por webapp.
+# Requiere Docker Compose >= 2.24.4 para retirar los puertos de diagnóstico fijos.
+# docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --scale core-api=2 --scale download-worker=2
+services:
+  core-api:
+    ports: !reset []
+  download-worker:
+    ports: !reset []

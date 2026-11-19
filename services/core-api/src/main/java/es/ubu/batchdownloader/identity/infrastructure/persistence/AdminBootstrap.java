@@ -9,6 +9,8 @@ import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -90,6 +92,20 @@ class AdminBootstrap implements ApplicationRunner {
     public void run(ApplicationArguments arguments) {
         if (username.isBlank() || password.isBlank()) return;
         String normalizedUsername = username.strip().toLowerCase(Locale.ROOT);
+        try {
+            synchronizeAdmin(normalizedUsername);
+        } catch (DataIntegrityViolationException | OptimisticLockingFailureException concurrentWrite) {
+            // Otra réplica puede crear o renovar la misma cuenta durante este arranque.
+            // Solo se acepta el conflicto si el estado confirmado coincide con la configuración.
+            UserAccount current = users.findByNormalizedUsername(normalizedUsername).orElse(null);
+            if (current == null) throw concurrentWrite;
+            if (current.role() != UserRole.ADMIN) throw new IllegalStateException("bootstrap_admin_username_conflict");
+            PasswordPolicy.requireSupportedForLogin(password);
+            if (!passwords.matches(password, current.passwordHash())) throw concurrentWrite;
+        }
+    }
+
+    private void synchronizeAdmin(String normalizedUsername) {
         UserAccount existing = users.findByNormalizedUsername(normalizedUsername).orElse(null);
         if (existing != null) {
             if (existing.role() != UserRole.ADMIN) {

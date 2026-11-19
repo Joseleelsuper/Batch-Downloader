@@ -9,6 +9,7 @@ import es.ubu.batchdownloader.downloadworker.ports.ArchiveBuilder;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore;
 import es.ubu.batchdownloader.downloadworker.ports.ArtifactStore.StoredArtifact;
 import es.ubu.batchdownloader.downloadworker.ports.JobStorageLedger;
+import es.ubu.batchdownloader.downloadworker.ports.WorkerExecutionLocks;
 import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -48,6 +49,7 @@ public class DownloadJobProcessor {
     private final Clock clock;
     private final DownloadCancellationRegistry cancellations;
     private final JobStorageLedger ledger;
+    private final WorkerExecutionLocks locks;
     private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.concurrent.CompletableFuture<Void>> active =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<UUID, JobStorageReservation> reservations =
@@ -93,6 +95,7 @@ public class DownloadJobProcessor {
      * @param manifests Generador del manifiesto ordenado por la selección original.
      * @param linuxInstaller Generador del runtime offline y su configuración de instalación Linux.
      * @param resolutions Validación inicial, resolución y estimación de peso y bytes del trabajo.
+     * @param locks Exclusión de escritura, limpieza y empaquetado entre réplicas del mismo servidor.
      */
     public DownloadJobProcessor(
             DownloadPipelineFactory pipelines,
@@ -109,7 +112,8 @@ public class DownloadJobProcessor {
             ManualShortcutWriter manualShortcuts,
             DownloadManifestWriter manifests,
             LinuxInstallerBundleWriter linuxInstaller,
-            DownloadResolutionService resolutions) {
+            DownloadResolutionService resolutions,
+            WorkerExecutionLocks locks) {
         this.pipelines = pipelines;
         this.artifactStore = artifactStore;
         this.archiveBuilder = archiveBuilder;
@@ -117,6 +121,7 @@ public class DownloadJobProcessor {
         this.clock = clock;
         this.cancellations = cancellations;
         this.ledger = ledger;
+        this.locks = locks;
         this.packagingSemaphore = packagingSemaphore;
         this.metrics = metrics;
         this.events = events;
@@ -157,15 +162,22 @@ public class DownloadJobProcessor {
     /** La respuesta de limpieza nunca precede a la terminación real de las escrituras. */
     public void clean(UUID jobId) {
         cancellations.cancel(jobId);
-        var running = active.get(jobId);
-        if (running != null) running.join();
-        files.clean(jobId, true);
-        events.clearReady(jobId);
+        try (var lease = locks.tryJob(jobId)) {
+            if (lease == null) throw new CapacityDeferredException("temporary_storage_busy", null);
+            var running = active.get(jobId);
+            if (running != null) running.join();
+            files.clean(jobId, true);
+            events.clearReady(jobId);
+        }
     }
 
     public java.util.Map<UUID, Long> usage() { return files.usage(events.trackedJobs()); }
-    public boolean active(UUID jobId) { return active.containsKey(jobId); }
-    public java.util.Set<UUID> activeJobs() { return java.util.Set.copyOf(active.keySet()); }
+    public boolean active(UUID jobId) { return active.containsKey(jobId) || locks.active(jobId); }
+    public java.util.Set<UUID> activeJobs() {
+        var jobs = new java.util.HashSet<>(active.keySet());
+        events.trackedJobs().stream().filter(locks::active).forEach(jobs::add);
+        return java.util.Set.copyOf(jobs);
+    }
 
     /** Mantiene el fence también cuando un proveedor todavía no ha enviado el siguiente bloque. */
     @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 10_000)
@@ -243,8 +255,9 @@ public class DownloadJobProcessor {
                 preparation = prepareArchive(event, prepared.failed(), pipeline, activeDirectory, budget);
             }
             Timer.Sample wait = metrics.startPackagingWait();
+            WorkerExecutionLocks.Lease packagingPermit;
             try {
-                acquirePackaging(jobId, reservation);
+                packagingPermit = acquirePackaging(jobId, reservation);
             } finally {
                 metrics.stopPackagingWait(wait);
             }
@@ -294,7 +307,7 @@ public class DownloadJobProcessor {
             } finally {
                 metrics.stopPhase(packaging, DownloadWorkerMetrics.Phase.PACKAGING, packagingOutcome);
                 metrics.packagingFinished();
-                packagingSemaphore.release();
+                packagingPermit.close();
             }
         } catch (AllDownloadsFailedException exception) {
             events.failed(event, "all_downloads_failed", exception.failedItems());
@@ -343,7 +356,8 @@ public class DownloadJobProcessor {
      * @throws es.ubu.batchdownloader.downloadworker.application.InfrastructureException si se
      *     interrumpe el hilo; conserva la interrupción.
      */
-    private void acquirePackaging(UUID jobId, JobStorageReservation reservation) {
+    private WorkerExecutionLocks.Lease acquirePackaging(UUID jobId, JobStorageReservation reservation) {
+        boolean localPermit = false;
         try {
             while (!packagingSemaphore.tryAcquire(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                 reservation.heartbeat();
@@ -351,9 +365,24 @@ public class DownloadJobProcessor {
                     throw new CancellationException("download_job_cancelled");
                 }
             }
+            localPermit = true;
+            for (;;) {
+                var shared = locks.tryPackaging();
+                if (shared != null) return () -> {
+                    try { shared.close(); }
+                    finally { packagingSemaphore.release(); }
+                };
+                reservation.heartbeat();
+                if (cancellations.cancelled(jobId)) throw new CancellationException("download_job_cancelled");
+                Thread.sleep(250);
+            }
         } catch (InterruptedException exception) {
+            if (localPermit) packagingSemaphore.release();
             Thread.currentThread().interrupt();
             throw new InfrastructureException("download_job_interrupted", exception);
+        } catch (RuntimeException | Error exception) {
+            if (localPermit) packagingSemaphore.release();
+            throw exception;
         }
     }
 
