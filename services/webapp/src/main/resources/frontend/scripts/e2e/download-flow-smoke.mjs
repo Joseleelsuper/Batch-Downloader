@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -19,6 +19,7 @@ const projectName = process.env.DOWNLOAD_FLOW_COMPOSE_PROJECT
 const applicationName = 'Codex Download Flow Smoke';
 const officialPage = 'https://8.8.8.8/manual';
 const timeoutMs = 20 * 60 * 1000;
+const replicaSmoke = process.env.DOWNLOAD_FLOW_REPLICAS === '2';
 
 assert.match(projectName, /^[a-z0-9][a-z0-9_-]*$/,
   'DOWNLOAD_FLOW_COMPOSE_PROJECT must be a lowercase Compose project name');
@@ -68,6 +69,7 @@ const composeArgs = [
   '--env-file', '.env.example',
   '-f', 'docker-compose.yml',
 ];
+if (replicaSmoke) composeArgs.push('-f', 'docker-compose.scale.yml');
 
 function compose(args, options = {}) {
   try {
@@ -105,7 +107,7 @@ function executeMySql(sql) {
   return result.stdout.trim();
 }
 
-function verifyOperationalMetrics() {
+function verifyOperationalMetrics(workerHost = 'download-worker') {
   compose(['exec', '-T', 'scraper-api', 'python', '-c', `
 import time
 import urllib.request
@@ -115,7 +117,7 @@ def samples(text, name, labels=None):
             and all((key + '="' + value + '"') in line for key,value in (labels or {}).items())]
 for attempt in range(60):
     core = urllib.request.urlopen('http://core-api:8080/actuator/prometheus', timeout=5).read().decode()
-    worker = urllib.request.urlopen('http://download-worker:8080/actuator/prometheus', timeout=5).read().decode()
+    worker = urllib.request.urlopen('http://${workerHost}:8080/actuator/prometheus', timeout=5).read().decode()
     def phase(phase_name, outcome):
         return any(value >= 1 for value in samples(worker, 'download_worker_phase_seconds_count',
                    {'phase':phase_name,'outcome':outcome}))
@@ -129,6 +131,78 @@ else:
     raise AssertionError('Expected fresh Core and worker phase metrics were not exposed after the download')
 `], { timeoutMs: 60_000 });
   process.stdout.write('Operational metrics were verified through the internal Prometheus endpoints.\n');
+}
+
+function containers(service) {
+  return compose(['ps', '--quiet', service]).trim().split(/\s+/).filter(Boolean);
+}
+
+function docker(args) {
+  return execFileSync(executables.docker, args, {
+    cwd: repositoryRoot, encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024,
+  }).trim();
+}
+
+async function prepareReplicaRecovery(page, baseUrl, request) {
+  assert.equal(containers('core-api').length, 2, 'two independent Core replicas must be healthy');
+  // Un resolutor controlado mantiene una ventana suficiente para matar un dueño real.
+  // Solo devuelve 404 tras la pausa: nunca permite descargar un binario ni llama a proveedores.
+  compose(['exec', '--detach', 'scraper-api', 'python', '-c', `
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+import time
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/healthz':
+            self.send_response(200); self.end_headers(); return
+        time.sleep(30)
+        self.send_response(404); self.end_headers()
+    def log_message(self,*args): pass
+ThreadingHTTPServer(('0.0.0.0',8099),Handler).serve_forever()
+`]);
+  compose(['exec', '-T', 'scraper-api', 'python', '-c', `
+import time,urllib.request
+for attempt in range(50):
+    try:
+        urllib.request.urlopen('http://127.0.0.1:8099/healthz',timeout=1); break
+    except OSError: time.sleep(.1)
+else: raise AssertionError('Controlled resolver did not start')
+`]);
+  const csrf = await (await page.request.get(`${baseUrl}/api/v1/auth/csrf`)).json();
+  const response = await page.request.post(`${baseUrl}/api/v1/download-jobs`, {
+    data: request, headers: { 'X-XSRF-TOKEN': csrf.token },
+  });
+  assert.equal(response.status(), 202, 'the second concurrent job must be admitted');
+  const second = await response.json();
+  await page.evaluate(({ id, token }) => {
+    window.setInterval(() => void fetch(`/api/v1/download-jobs/${id}/activity`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-XSRF-TOKEN': token },
+      body: JSON.stringify({ phase: 'waiting' }),
+    }).catch(() => {}), 10_000);
+  }, { id: second.id, token: csrf.token });
+  return second.id;
+}
+
+async function killBusyReplica() {
+  const workers = containers('download-worker');
+  assert.equal(workers.length, 2, 'two worker replicas must be healthy');
+  const deadline = Date.now() + 20_000;
+  let active = [];
+  while (Date.now() < deadline) {
+    active = workers.filter((id) => docker(['exec', id, 'curl', '-fsS',
+      'http://127.0.0.1:8080/actuator/prometheus']).split('\n').some((line) =>
+      /^download_worker_active_jobs(?:\{| )/.test(line) && Number(line.split(' ').at(-1)) >= 1));
+    if (active.length === 2) break;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+  }
+  assert.equal(active.length, 2, 'RabbitMQ must distribute two live jobs across both workers');
+  const victim = active[0];
+  // Solo IDs obtenidos de este proyecto aislado, nunca servicios del entorno del autor.
+  assert.equal(docker(['inspect', '--format', '{{index .Config.Labels "com.docker.compose.project"}}', victim]), projectName);
+  docker(['update', '--restart=no', victim]);
+  docker(['kill', '--signal', 'KILL', victim]);
+  const survivor = workers.find((id) => id !== victim);
+  process.stdout.write('Both workers processed concurrently; one busy replica was killed for redelivery.\n');
+  return docker(['inspect', '--format', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', survivor]);
 }
 
 async function reserveHostPorts() {
@@ -278,6 +352,13 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
 
 export async function run() {
   const temporaryDirectory = mkdtempSync(resolve(tmpdir(), 'batch-downloader-manual-smoke-'));
+  if (replicaSmoke) {
+    const override = resolve(temporaryDirectory, 'replica-resolver.yml');
+    writeFileSync(override, 'services:\n  download-worker:\n    environment:\n'
+      + '      DOWNLOAD_WORKER_SOURCE_RESOLVER_URL: http://scraper-api:8099\n'
+      + '      DOWNLOAD_WORKER_SOURCE_RESOLVER_TIMEOUT: 45s\n');
+    composeArgs.push('-f', override);
+  }
   let browser;
   let reservations;
   let primaryError;
@@ -299,6 +380,7 @@ export async function run() {
       'Starting MySQL, RabbitMQ, MinIO, Scraper API, Core API, translations and webapp.\n',
     );
     compose(['up', '--detach', '--wait', '--wait-timeout', '900',
+      ...(replicaSmoke ? ['--scale', 'core-api=2'] : []),
       'mysql', 'rabbitmq', 'minio', 'scraper-api', 'core-api', 'translation-service', 'webapp'],
     { timeoutMs: 20 * 60 * 1000 });
     await waitForHttp(`${baseUrl}/healthz`);
@@ -331,17 +413,38 @@ export async function run() {
     const createdJob = await response.json();
     assert.ok(createdJob.id, 'Core API must return the created job identifier');
 
+    const secondJobId = replicaSmoke
+      ? await prepareReplicaRecovery(page, baseUrl, response.request().postDataJSON()) : undefined;
+
     invalidateResolvedSource(seeded.resolvedSourceId);
     const automaticDownload = page.waitForEvent('download', { timeout: 90_000 }).catch(() => null);
     process.stdout.write('Starting the worker only after invalidating the selected source.\n');
-    compose(['up', '--detach', '--wait', '--wait-timeout', '600', 'download-worker'],
+    compose(['up', '--detach', '--wait', '--wait-timeout', '600',
+      ...(replicaSmoke ? ['--scale', 'core-api=2', '--scale', 'download-worker=2'] : []), 'download-worker'],
       { timeoutMs: 15 * 60 * 1000 });
+    const survivorHost = replicaSmoke ? await killBusyReplica() : 'download-worker';
 
     await page.waitForFunction(async (jobId) => {
       const response = await fetch(`/api/v1/download-jobs/${encodeURIComponent(jobId)}`);
       if (!response.ok) return false;
       return (await response.json()).status === 'MANUAL_ONLY';
     }, createdJob.id, { timeout: 180_000 });
+    if (secondJobId) {
+      await page.waitForFunction(async (id) => {
+        const response = await fetch(`/api/v1/download-jobs/${id}`);
+        return response.ok && (await response.json()).status === 'MANUAL_ONLY';
+      }, secondJobId, { timeout: 180_000 });
+      let completed;
+      for (let attempt = 0; attempt < 150; attempt++) {
+        completed = executeMySql("SELECT COUNT(*) FROM download_inbox WHERE status='COMPLETED';");
+        if (completed === '2') break;
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+      }
+      // READY puede llegar a Core antes del último callback y del ACK del worker.
+      // La limpieza puede haber borrado job_id sin retirar la deduplicación completada.
+      assert.equal(completed, '2', 'both requests must eventually complete their shared inbox entries');
+      process.stdout.write('The surviving worker completed both jobs, including the redelivered command.\n');
+    }
     await page.getByText('Accesos manuales preparados', { exact: true })
       .waitFor({ state: 'visible', timeout: 30_000 });
 
@@ -357,14 +460,14 @@ export async function run() {
     const zipPath = resolve(temporaryDirectory, 'manual-only.zip');
     await download.saveAs(zipPath);
     inspectZip(zipPath);
-    verifyOperationalMetrics();
+    verifyOperationalMetrics(survivorHost);
     process.stdout.write('The UI download completed with a MANUAL_ONLY manifest and a safe .url entry.\n');
   } catch (error) {
     primaryError = error;
     try {
       process.stderr.write('\nCompose service logs from the failed smoke test:\n');
       process.stderr.write(compose([
-        'logs', '--tail', '25', '--no-color', 'scraper-api', 'core-api', 'webapp',
+        'logs', '--tail', '25', '--no-color', 'scraper-api', 'core-api', 'download-worker', 'webapp',
       ]));
     } catch (logError) {
       process.stderr.write(`Unable to collect Compose logs: ${logError.message}\n`);

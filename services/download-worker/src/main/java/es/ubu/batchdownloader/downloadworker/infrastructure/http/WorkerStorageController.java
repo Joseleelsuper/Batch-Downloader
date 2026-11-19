@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.downloadworker.infrastructure.http;
 
 import es.ubu.batchdownloader.downloadworker.application.DownloadJobProcessor;
+import es.ubu.batchdownloader.downloadworker.application.CapacityDeferredException;
 import es.ubu.batchdownloader.downloadworker.config.CoreApiProperties;
 import es.ubu.batchdownloader.downloadworker.config.DownloadProperties;
 import java.io.IOException;
@@ -37,7 +38,10 @@ final class WorkerStorageController {
     void clean(@PathVariable UUID jobId,
             @RequestHeader(value = "X-Internal-Service-Token", required = false) String token) {
         authenticate(token);
-        processor.clean(jobId);
+        try { processor.clean(jobId); }
+        catch (CapacityDeferredException busy) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "download_job_busy");
+        }
     }
 
     @GetMapping("/internal/v1/storage/inventory")

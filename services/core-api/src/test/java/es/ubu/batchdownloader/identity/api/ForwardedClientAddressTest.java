@@ -17,7 +17,10 @@ import org.junit.jupiter.api.Test;
 class ForwardedClientAddressTest {
     @Test
     void ignoresForgedPrefixesAndForwardedHeadersWithoutLosingTheClientOrHttps() throws Exception {
-        AuthRateLimiter limiter = new AuthRateLimiter(1, 3, 20);
+        var attempts = new java.util.HashMap<String, Integer>();
+        AuthRateLimiter limiter = new AuthRateLimiter((scope, key, limit, window) ->
+                attempts.merge(scope + ':' + key, 1, Integer::sum) <= limit,
+                "test-only-auth-budget-secret", 1, 3, 20);
         String first = address("172.20.0.2", "192.0.2.10, 198.51.100.40, 172.20.0.3", true);
         String second = address("172.20.0.2", "192.0.2.99, 198.51.100.40, 172.20.0.3", true);
         assertThat(first).isEqualTo("198.51.100.40");

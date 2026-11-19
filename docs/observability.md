@@ -45,6 +45,9 @@ Estos ejemplos asumen que los targets del entorno se recogen con los trabajos
 Prometheus `batch-core` y `batch-worker`. Añadir un filtro de entorno si el mismo
 servidor recoge varios despliegues. Core y RabbitMQ publican información global
 repetida por réplica: se usa `max`. La actividad local de workers se suma.
+Con el [escalado en un servidor](deployment/escalado-local.md), el cupo de
+empaquetado se comparte por volumen: la suma de empaquetados activos debe
+respetar las dos plazas de la configuración de referencia.
 
 ```promql
 # Panel 1: trabajos conservados por estado

@@ -38,7 +38,7 @@ class IdentityControllerTest {
             currentAccount,
             mock(SecurityContextRepository.class),
             mock(SessionAuthenticationStrategy.class),
-            new AuthRateLimiter(100, 100, 100));
+            mock(AuthRateLimiter.class));
 
     /**
      * Comprueba el escenario {@code anonymousCurrentIdentityReturnsNoContent}.
