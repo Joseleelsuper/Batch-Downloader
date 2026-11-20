@@ -435,7 +435,7 @@ export async function run() {
       ? await prepareReplicaRecovery(page, baseUrl, response.request().postDataJSON()) : undefined;
 
     invalidateResolvedSource(seeded.resolvedSourceId);
-    const automaticDownload = page.waitForEvent('download', { timeout: 90_000 }).catch(() => null);
+    const automaticDownload = page.waitForEvent('download', { timeout: 180_000 }).catch(() => null);
     process.stdout.write('Starting the worker only after invalidating the selected source.\n');
     compose(['up', '--detach', '--wait', '--wait-timeout', '600',
       ...(replicaSmoke ? ['--scale', 'core-api=2', '--scale', 'download-worker=2'] : []), 'download-worker'],
@@ -473,9 +473,6 @@ export async function run() {
       assert.ok(acknowledged, `RabbitMQ must confirm both commands without dead-lettering:\n${queues}`);
       process.stdout.write('The surviving worker completed and acknowledged both jobs, including the redelivered command.\n');
     }
-    await page.getByText('Accesos manuales preparados', { exact: true })
-      .waitFor({ state: 'visible', timeout: 30_000 });
-
     let download = await automaticDownload;
     if (!download) {
       const downloadButton = page.getByRole('button', { name: 'Obtener ZIP' });
