@@ -254,6 +254,24 @@ async function waitForHttp(url, timeout = 90_000) {
   throw new Error(`Timed out waiting for ${url}`, { cause: lastError });
 }
 
+async function waitForManualOnly(page, baseUrl, jobId) {
+  const deadline = Date.now() + 180_000;
+  let status;
+  while (Date.now() < deadline) {
+    const response = await page.request.get(`${baseUrl}/api/v1/download-jobs/${encodeURIComponent(jobId)}`, {
+      timeout: 5_000,
+    });
+    try {
+      status = response.ok() ? (await response.json()).status : `HTTP ${response.status()}`;
+      if (status === 'MANUAL_ONLY') return;
+    } finally {
+      await response.dispose();
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+  }
+  assert.equal(status, 'MANUAL_ONLY', `job ${jobId} did not finish before the deadline`);
+}
+
 function seedSelectableApplication() {
   const appId = randomUUID();
   const sourceId = randomUUID();
@@ -424,36 +442,36 @@ export async function run() {
       { timeoutMs: 15 * 60 * 1000 });
     const survivorHost = replicaSmoke ? await killBusyReplica() : 'download-worker';
 
-    await page.waitForFunction(async (jobId) => {
-      const response = await fetch(`/api/v1/download-jobs/${encodeURIComponent(jobId)}`);
-      if (!response.ok) return false;
-      return (await response.json()).status === 'MANUAL_ONLY';
-    }, createdJob.id, { timeout: 180_000 });
+    await waitForManualOnly(page, baseUrl, createdJob.id);
     if (secondJobId) {
-      await page.waitForFunction(async (id) => {
-        const response = await fetch(`/api/v1/download-jobs/${id}`);
-        return response.ok && (await response.json()).status === 'MANUAL_ONLY';
-      }, secondJobId, { timeout: 180_000 });
+      assert.notEqual(secondJobId, createdJob.id, 'the fixture must create two distinct jobs');
+      await waitForManualOnly(page, baseUrl, secondJobId);
+      const deadline = Date.now() + 30_000;
       let completed;
-      for (let attempt = 0; attempt < 150; attempt++) {
+      let queues;
+      let acknowledged = false;
+      // El estado público puede llegar antes del commit del inbox y del ACK de RabbitMQ.
+      while (Date.now() < deadline) {
         completed = executeMySql("SELECT COUNT(*) FROM download_inbox WHERE status='COMPLETED';");
-        if (completed === '2') break;
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+        if (completed === '2') {
+          queues = compose(['exec', '-T', 'rabbitmq', 'rabbitmqctl', '-q', 'list_queues',
+            'name', 'messages_ready', 'messages_unacknowledged'], { timeoutMs: 10_000 });
+          const rows = queues.trim().split(/\r?\n/).map((line) => line.trim().split(/\s+/));
+          acknowledged = ['download-worker.download.job.requested.v1', 'download-worker.download.job.requested.v1.dlq']
+            .every((name) => rows.some(([queue, ready, unacknowledged]) =>
+              queue === name && ready === '0' && unacknowledged === '0'));
+          if (acknowledged) break;
+        }
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
       }
-      // READY puede llegar a Core antes del último callback y del ACK del worker.
-      // La limpieza puede haber borrado job_id sin retirar la deduplicación completada.
       if (completed !== '2') {
         process.stderr.write(`Inbox states after replica recovery:\n${executeMySql(
           "SELECT event_id, status, job_id, pending_result IS NOT NULL FROM download_inbox ORDER BY event_id;",
         )}\n`);
-        process.stderr.write(`Queue state after replica recovery:\n${compose([
-          'exec', '-T', 'rabbitmq', 'rabbitmqctl', 'list_queues',
-          'name', 'messages_ready', 'messages_unacknowledged', 'consumers',
-        ])}\n`);
-        process.stderr.write(`Fixture jobs: ${createdJob.id}, ${secondJobId}\n`);
       }
       assert.equal(completed, '2', 'both requests must eventually complete their shared inbox entries');
-      process.stdout.write('The surviving worker completed both jobs, including the redelivered command.\n');
+      assert.ok(acknowledged, `RabbitMQ must confirm both commands without dead-lettering:\n${queues}`);
+      process.stdout.write('The surviving worker completed and acknowledged both jobs, including the redelivered command.\n');
     }
     await page.getByText('Accesos manuales preparados', { exact: true })
       .waitFor({ state: 'visible', timeout: 30_000 });
