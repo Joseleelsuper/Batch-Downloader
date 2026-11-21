@@ -199,6 +199,8 @@ export function CatalogPage() {
     setCatalogError(null);
     const cached = cachedPage(filterKey);
     if (cached) {
+      // La página visible debe sobrevivir a la caducidad o expulsión de la caché.
+      setActivePage({ key: filterKey, response: cached });
       lastLoadedPage.current = { searchKey: filterKey, apps: cached.data };
       return undefined;
     }
