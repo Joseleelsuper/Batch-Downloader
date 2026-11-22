@@ -18,14 +18,14 @@ con contraseña y acceso root desactivados.
 Coolify no despliega por webhook. GitHub Actions es el único iniciador de un
 despliegue y los despliegues se serializan.
 
-## Parche de Oracle de octubre de 2026
+## Parches de Oracle de 2026
 
-Los servicios Java se construyen y ejecutan con Temurin 25.0.5+8, con binarios
+Los servicios Java se construyen y ejecutan con Temurin 25.0.5.1+2, con binarios
 oficiales verificados por SHA-256. Además se aplica la [mitigación de eMudhra](https://ops.java/emudhra)
 en compilación, ejecución y CI: se retiran las raíces emSign G1, G2, G3 y AAA Certificate Services,
 según la actualización del 24/10/2026 para [CVE-2026-114820](https://www.oracle.com/security-alerts/alert-cve-2026-114820.html).
-Java 25.0.5 por sí solo no sustituye esta mitigación.
-MySQL queda fijado en 8.4.13 por el [CPU de octubre](https://www.oracle.com/security-alerts/cpuoct2026.html).
+Java 25.0.5.1 por sí solo no sustituye esta mitigación.
+MySQL queda fijado en 8.4.13 y está afectado por el [CSPU de noviembre](https://www.oracle.com/security-alerts/cspunov2026.html). Se actualizará cuando exista una imagen Community corregida verificable.
 Las cuatro aplicaciones Java se ejecutan con UID/GID `10001:10001`. Antes de
 iniciar worker y notificaciones, el job `java-data-init` prepara la propiedad
 de sus volúmenes persistentes y del temporal del worker, conservando su contenido.

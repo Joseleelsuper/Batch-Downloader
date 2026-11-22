@@ -176,9 +176,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "25.0.5"
+          check-latest: true
           cache: maven
       - name: Apply eMudhra certificate mitigation
-        run: sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
+        run: |
+          grep -qx 'JAVA_VERSION="25.0.5.1"' "$JAVA_HOME/release"
+          sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
       - name: Require Docker-backed migration tests
         run: docker info
       - name: Verify Java services
@@ -290,8 +293,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "25.0.5"
+          check-latest: true
       - name: Apply eMudhra certificate mitigation
-        run: sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
+        run: |
+          grep -qx 'JAVA_VERSION="25.0.5.1"' "$JAVA_HOME/release"
+          sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -430,9 +436,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "25.0.5"
+          check-latest: true
           cache: maven
       - name: Apply eMudhra certificate mitigation
-        run: sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
+        run: |
+          grep -qx 'JAVA_VERSION="25.0.5.1"' "$JAVA_HOME/release"
+          sudo env JAVA_HOME="$JAVA_HOME" sh scripts/java/distrust-emudhra.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
