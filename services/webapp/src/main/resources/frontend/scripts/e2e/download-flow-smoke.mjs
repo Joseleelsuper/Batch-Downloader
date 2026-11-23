@@ -59,6 +59,7 @@ const composeEnvironment = {
   CORE_API_DOWNLOAD_OWNER_SECRET: 'download-flow-anonymous-owner-test-secret',
   SCRAPER_LLM_GROQ_API_KEY: '',
   SCRAPER_LLM_DEEPSEEK_API_KEY: '',
+  SCRAPER_LLM_OPENAI_API_KEY: '',
   CORE_API_REQUIRE_HTTPS: 'false',
   CORE_API_COOKIE_SECURE: 'false',
 };
