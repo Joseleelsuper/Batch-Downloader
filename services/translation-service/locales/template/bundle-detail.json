@@ -48,5 +48,7 @@
   "bundle.draft.temporary": "",
   "bundle.draft.empty": "",
   "bundle.draft.save": "",
-  "bundle.draft.back": ""
+  "bundle.draft.back": "",
+  "bundle.sort.ascending": "",
+  "bundle.sort.descending": ""
 }

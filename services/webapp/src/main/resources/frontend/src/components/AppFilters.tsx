@@ -51,7 +51,7 @@ interface Props {
   operatingSystems?: OperatingSystem[];
   onToggleOperatingSystem?: (operatingSystem: OperatingSystem) => void;
   architecture?: string;
-  onArchitectureChange?: (architecture?: string) => void;
+  onArchitectureChange?: (architecture: string | undefined) => void;
   minimumTags?: number;
   onMinimumTagsChange?: (minimum: number | undefined) => void;
 }
