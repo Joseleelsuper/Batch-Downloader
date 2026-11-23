@@ -48,5 +48,7 @@
   "bundle.draft.temporary": "Review, add or remove apps. The original bundle is preserved; a private copy is saved only when you request it.",
   "bundle.draft.empty": "The selection is empty. You can add apps from the catalogue.",
   "bundle.draft.save": "Save as a private bundle",
-  "bundle.draft.back": "Back to the catalogue"
+  "bundle.draft.back": "Back to the catalogue",
+  "bundle.sort.ascending": "Ascending order",
+  "bundle.sort.descending": "Descending order"
 }

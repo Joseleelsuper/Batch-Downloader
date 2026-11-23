@@ -48,5 +48,7 @@
   "bundle.draft.temporary": "Revisa, añade o quita aplicaciones. El bundle original se conserva; solo se guarda una copia privada si lo solicitas.",
   "bundle.draft.empty": "La selección está vacía. Puedes añadir aplicaciones del catálogo.",
   "bundle.draft.save": "Guardar como bundle privado",
-  "bundle.draft.back": "Volver al catálogo"
+  "bundle.draft.back": "Volver al catálogo",
+  "bundle.sort.ascending": "Orden ascendente",
+  "bundle.sort.descending": "Orden descendente"
 }

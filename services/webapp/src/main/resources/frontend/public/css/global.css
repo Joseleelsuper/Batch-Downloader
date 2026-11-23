@@ -24,7 +24,11 @@
 
 @import url("./pages/account.css");
 
+@import url("./pages/bundle-draft.css");
+
 @import url("./pages/admin.css");
+
+@import url("./pages/software-requests.css");
 
 @import url("./pages/semantic-admin.css");
 
