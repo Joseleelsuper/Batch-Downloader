@@ -741,6 +741,7 @@ paths:
       summary: Buscar aplicaciones del catálogo
       security: []
       parameters:
+      - $ref: '#/components/parameters/MinimumTags'
       - $ref: '#/components/parameters/Page'
       - $ref: '#/components/parameters/PageSize'
       - name: query
@@ -782,12 +783,6 @@ paths:
         in: query
         schema:
           type: string
-      - name: minimumTags
-        in: query
-        description: Mínimo de etiquetas distintas. Al omitirlo se exigen todas las seleccionadas.
-        schema:
-          type: integer
-          minimum: 1
       - name: tag
         in: query
         description: Puede repetirse; se exigen todas las etiquetas salvo que se indique minimumTags.
@@ -829,6 +824,7 @@ paths:
       summary: Consultar facetas del catálogo filtrado
       security: []
       parameters:
+      - $ref: '#/components/parameters/MinimumTags'
       - name: query
         in: query
         schema:
@@ -867,12 +863,6 @@ paths:
         in: query
         schema:
           type: string
-      - name: minimumTags
-        in: query
-        description: Mínimo de etiquetas distintas. Al omitirlo se exigen todas las seleccionadas.
-        schema:
-          type: integer
-          minimum: 1
       - name: tag
         in: query
         description: Puede repetirse; minimumTags permite exigir un mínimo en vez de todas las etiquetas.
@@ -3073,6 +3063,13 @@ components:
       in: header
       name: X-Internal-Service-Token
   parameters:
+    MinimumTags:
+      name: minimumTags
+      in: query
+      description: Mínimo de etiquetas distintas que debe cumplir la aplicación; al omitirlo se exigen todas. Debe estar entre 1 y el número de etiquetas seleccionadas.
+      schema:
+        type: integer
+        minimum: 1
     Page:
       name: page
       in: query
