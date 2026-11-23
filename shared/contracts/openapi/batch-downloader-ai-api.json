@@ -23,6 +23,9 @@
         "security": [],
         "parameters": [
           {
+            "$ref": "#/components/parameters/MinimumTags"
+          },
+          {
             "$ref": "#/components/parameters/Page"
           },
           {
@@ -83,15 +86,6 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "minimumTags",
-            "in": "query",
-            "description": "Mínimo de etiquetas distintas. Al omitirlo se exigen todas las seleccionadas.",
-            "schema": {
-              "type": "integer",
-              "minimum": 1
             }
           },
           {
@@ -156,6 +150,9 @@
         "security": [],
         "parameters": [
           {
+            "$ref": "#/components/parameters/MinimumTags"
+          },
+          {
             "name": "query",
             "in": "query",
             "schema": {
@@ -209,15 +206,6 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "name": "minimumTags",
-            "in": "query",
-            "description": "Mínimo de etiquetas distintas. Al omitirlo se exigen todas las seleccionadas.",
-            "schema": {
-              "type": "integer",
-              "minimum": 1
             }
           },
           {
@@ -1460,6 +1448,15 @@
         "required": true,
         "schema": {
           "type": "string"
+        }
+      },
+      "MinimumTags": {
+        "name": "minimumTags",
+        "in": "query",
+        "description": "Mínimo de etiquetas distintas que debe cumplir la aplicación; al omitirlo se exigen todas. Debe estar entre 1 y el número de etiquetas seleccionadas.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     }

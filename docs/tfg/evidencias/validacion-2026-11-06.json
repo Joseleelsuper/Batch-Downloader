@@ -1,0 +1,211 @@
+{
+  "prepared": "2026-11-06",
+  "applicationCommit": "ddc15929db611e494aee6747aaaaf4bc78452c6c",
+  "scope": "Validacion local y Docker aislado. No acredita release, CI remoto, produccion, conformidad completa ni deposito academico.",
+  "java": {
+    "runtime": "Temurin 25.0.5+8 en Docker",
+    "fullSuites": [
+      {
+        "module": "shared/java-contracts",
+        "passed": 5,
+        "skipped": 0
+      },
+      {
+        "module": "services/core-api",
+        "passed": 361,
+        "skipped": 0
+      },
+      {
+        "module": "services/download-worker",
+        "passed": 127,
+        "skipped": 0
+      },
+      {
+        "module": "services/notification-service",
+        "passed": 45,
+        "skipped": 0
+      },
+      {
+        "module": "services/translation-service",
+        "passed": 15,
+        "skipped": 0
+      }
+    ],
+    "subsequentSelections": [
+      {
+        "tests": [
+          "BundleCatalogMySqlTest",
+          "BundleStarSecurityTest",
+          "CatalogProjectionRepositoryMySqlTest"
+        ],
+        "passed": 12,
+        "skipped": 0,
+        "command": "mvn -B -pl services/core-api -am -Dtest=BundleCatalogMySqlTest,BundleStarSecurityTest,CatalogProjectionRepositoryMySqlTest -Dsurefire.failIfNoSpecifiedTests=false verify"
+      },
+      {
+        "tests": [
+          "ScraperInternalClientTest",
+          "JsonFileLocaleCatalogTest",
+          "LocaleControllerTest"
+        ],
+        "passed": 20,
+        "skipped": 0,
+        "command": "mvn -B -pl services/core-api,services/translation-service -am -Dtest=ScraperInternalClientTest,JsonFileLocaleCatalogTest,LocaleControllerTest -Dsurefire.failIfNoSpecifiedTests=false verify"
+      }
+    ],
+    "quality": "JaCoCo, SpotBugs y analisis de dependencias superados en las verificaciones correspondientes.",
+    "workerScopeCorrection": "La correccion historica de Flyway a runtime quedo confirmada tambien por la compilacion limpia actual con las 127 pruebas del worker y verify completo.",
+    "counting": "La suite limpia actual incluye las selecciones previas; no sumar sus recuentos.",
+    "cleanVerification": {
+      "command": "mvn -B -pl shared/java-contracts,services/core-api,services/download-worker,services/notification-service,services/translation-service -am clean verify",
+      "passed": 553,
+      "skipped": 0,
+      "status": "BUILD SUCCESS",
+      "reports": "Solo XML de esta compilacion limpia; sin clases eliminadas ni recuentos de ejecuciones anteriores."
+    }
+  },
+  "pythonDocker": {
+    "snapshot": "git archive del commit indicado; sin .env ignorados ni claves de proveedores.",
+    "scraper": {
+      "passed": 463,
+      "skipped": 0,
+      "combinedCoveragePercent": 73.25,
+      "ratesPercent": {
+        "line-rate": 77.03,
+        "branch-rate": 59.97
+      },
+      "runtime": "CPython 3.14.10t; GIL deshabilitado tambien al terminar las pruebas",
+      "dependencies": "requirements.txt y requirements-dev.txt fijados",
+      "command": "python -m pytest --cov=app --cov-report=term -q -ra"
+    },
+    "semantic": {
+      "passed": 54,
+      "skipped": 0,
+      "combinedCoveragePercent": 68.91,
+      "ratesPercent": {
+        "line-rate": 72.43,
+        "branch-rate": 49.46
+      },
+      "dependencies": "pyproject.toml; torch 2.15.0+cpu satisface torch==2.15.0",
+      "offline": true,
+      "quality": [
+        "ruff check .",
+        "mypy app"
+      ],
+      "command": "python -m pytest --cov=app --cov-report=term -q -ra"
+    },
+    "productionSmoke": {
+      "python": "3.14.10t",
+      "gilEnabled": false,
+      "concurrentParses": 200,
+      "chromium": "ok",
+      "command": "python /app/scripts/verify_free_threading.py"
+    },
+    "localEnvironmentNote": "Una ejecucion previa de Windows uso versiones diferentes a las fijadas. Se registro por separado y se repitio la suite en Docker con las dependencias declaradas."
+  },
+  "frontend": {
+    "node": "24.22.1",
+    "currentFullSuite": {
+      "files": 58,
+      "passed": 363,
+      "skipped": 0,
+      "lineCoveragePercent": 87.78,
+      "branchCoveragePercent": 81.3,
+      "command": "npm run test:coverage -- --maxWorkers=1",
+      "jsonReporter": true
+    },
+    "checks": [
+      "typecheck",
+      "lint",
+      "build"
+    ],
+    "publicEntryGzipKiB": 59.09,
+    "budgetKiB": 112,
+    "note": "La suite completa actual incluye el caso del enlace publico. Los controles de compilacion corresponden al mismo codigo; las pruebas no modificaron el producto."
+  },
+  "contracts": {
+    "unittestPassed": 15,
+    "mainOpenApi": "Valido; aviso preexistente de respuesta 4xx en sitemap",
+    "anonymousAiOpenApi": "Valido sin avisos",
+    "httpContractTestsPassed": 9,
+    "workflowSelectorTestsPassed": 6,
+    "counting": "15 comprende 9 contratos HTTP y 6 seleccion de suites CI; no 15 contratos HTTP."
+  },
+  "browser": {
+    "engine": "Chromium 156.0.8078.4",
+    "viewports": [
+      [
+        1280,
+        800
+      ],
+      [
+        390,
+        844
+      ]
+    ],
+    "backend": "API simulada para los recorridos de teclado",
+    "flows": [
+      "seleccion y confirmacion previa",
+      "solicitudes de software USER/ADMIN",
+      "mantenimiento de bundle oficial",
+      "evidencia por fuente",
+      "traza de resolutor sin elipsis"
+    ]
+  },
+  "dockerReplicaRecovery": {
+    "coreReplicas": 2,
+    "workerReplicas": 2,
+    "serverScope": "Un unico host Docker",
+    "passed": true,
+    "scenario": "Dos trabajos activos; SIGKILL de un worker ocupado; redelivery y finalizacion por el superviviente; ZIP MANUAL_ONLY autorizado e instrumentacion HTTP.",
+    "providerCalls": false,
+    "projectCleaned": true
+  },
+  "cleanConfiguration": {
+    "snapshot": "fc5028f",
+    "environmentFiles": "root .env de ejemplo mas siete .env de servicio generados",
+    "syncCheck": "passed",
+    "composeVariants": [
+      "local",
+      "GHCR",
+      "local+scale",
+      "GHCR+scale"
+    ],
+    "healthParity": "passed",
+    "warnings": "Compose Desktop ignora mode de configs fuera de Swarm; no impide validar la configuracion.",
+    "activeUserEnvironmentsChanged": false,
+    "healthUnitTestsPassed": 18
+  },
+  "pending": [
+    "CI remoto del corte publicado",
+    "Sonar actualizado",
+    "evaluacion controlada de relevancia y capacidad",
+    "restauracion aislada integral",
+    "artefactos y distribucion versionados",
+    "diagramas, diccionario y PDFs finales",
+    "campos de Projects pendientes por bloqueo del control de ordenador"
+  ],
+  "traceability": {
+    "requirements": 74,
+    "groups": 26,
+    "verifiedLocally": 64,
+    "partial": 8,
+    "withdrawnOrExcluded": 2,
+    "source": "Batch-Downloader-Memoria/data/trazabilidad_requisitos.json",
+    "limits": "Estados revisados con evidencia local; no son porcentajes de calidad ni acreditan produccion."
+  },
+  "schemaMigrationSmoke": {
+    "mysql": "8.4.13",
+    "alembicHead": "20261012_0025",
+    "coreFlywayTarget": "28",
+    "workerFlywayTarget": "1",
+    "postgresql": "16.14",
+    "semanticMigration": "0011_bundle_semantic_collection",
+    "notificationH2": "2.3.232",
+    "functionalTables": 56,
+    "functionalColumns": 499,
+    "source": "Batch-Downloader-Memoria/data/esquemas_2026-11-06.json",
+    "scope": "Bases vacias aisladas; migraciones originales y driver H2 real. Solo metadatos. No es restauracion ni prueba de datos historicos.",
+    "testResourcesRemoved": true
+  }
+}
