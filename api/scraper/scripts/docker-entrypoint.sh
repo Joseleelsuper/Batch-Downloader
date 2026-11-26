@@ -3,13 +3,11 @@ set -eu
 
 python - <<'PY'
 import asyncio
-from app.core.free_threading import assert_free_threaded_runtime
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 from app.core.config import get_settings
 
 async def main():
-    assert_free_threaded_runtime()
     engine = create_async_engine(get_settings().database_url, pool_pre_ping=True)
     last_error = None
     for _ in range(60):
@@ -28,9 +26,7 @@ asyncio.run(main())
 PY
 
 # Aplica las revisiones pendientes de esta imagen, con sus precondiciones de compatibilidad.
-# La recolección final sin GIL de CPython 3.14t puede bloquear el arranque después de Alembic.
-# Las migraciones son secuenciales; el servidor mantiene el runtime sin GIL.
-python -X gil=1 -m alembic upgrade head
+python -m alembic upgrade head
 
 case "${1:-api}" in
   api)

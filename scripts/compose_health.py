@@ -40,22 +40,7 @@ DAEMONS = frozenset(
         "translation-service",
     }
 )
-JOBS = frozenset(
-    {
-        "java-data-init",
-        "minio-init",
-        "scraper-python314t-benchmark",
-        "scraper-python314-control",
-        "scraper-python314-benchmark-report",
-    }
-)
-LOCAL_ONLY_SERVICES = frozenset(
-    {
-        "scraper-python314t-benchmark",
-        "scraper-python314-control",
-        "scraper-python314-benchmark-report",
-    }
-)
+JOBS = frozenset({"java-data-init", "minio-init"})
 EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
     "java-data-init": {},
     "mysql": {},
@@ -75,12 +60,6 @@ EXPECTED_DEPENDENCIES: dict[str, dict[str, str]] = {
     "semantic-indexer": {
         "semantic-service": "service_healthy",
         "scraper-api": "service_healthy",
-    },
-    "scraper-python314t-benchmark": {},
-    "scraper-python314-control": {},
-    "scraper-python314-benchmark-report": {
-        "scraper-python314t-benchmark": "service_completed_successfully",
-        "scraper-python314-control": "service_completed_successfully",
     },
     "notification-service": {
         "java-data-init": "service_completed_successfully",
@@ -254,7 +233,7 @@ def validate_configuration(name: str, configuration: Mapping[str, Any]) -> list[
     errors: list[str] = []
     services: Mapping[str, Mapping[str, Any]] = configuration.get("services") or {}
     service_names = set(services)
-    expected = DAEMONS | (JOBS - (LOCAL_ONLY_SERVICES if name == "ghcr" else frozenset()))
+    expected = DAEMONS | JOBS
     missing = expected - service_names
     unexpected = service_names - expected
     if missing:
@@ -357,8 +336,9 @@ def validate_parity(local: Mapping[str, Any], ghcr: Mapping[str, Any]) -> list[s
     errors: list[str] = []
     local_services: Mapping[str, Mapping[str, Any]] = local.get("services") or {}
     ghcr_services: Mapping[str, Mapping[str, Any]] = ghcr.get("services") or {}
-    if set(local_services) - set(ghcr_services) != LOCAL_ONLY_SERVICES:
-        errors.append("paridad: la diferencia de servicios no coincide con los benchmarks locales")
+    extra_local = set(local_services) - set(ghcr_services)
+    if extra_local:
+        errors.append(f"paridad: el Compose local tiene servicios extra: {', '.join(sorted(extra_local))}")
     extra_ghcr = set(ghcr_services) - set(local_services)
     if extra_ghcr:
         errors.append(f"paridad: GHCR tiene servicios extra: {', '.join(sorted(extra_ghcr))}")
