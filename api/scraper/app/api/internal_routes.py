@@ -135,7 +135,6 @@ async def semantic_source_status(
 
 @internal_router.get(
     "/semantic/documents",
-    response_model=SemanticDocumentPage,
     response_model_by_alias=True,
     responses={401: {}},
 )
@@ -254,7 +253,6 @@ async def get_source_resolution(
 @internal_router.post(
     "/content/descriptions/enqueue-missing",
     status_code=202,
-    response_model=ContentEnqueueResult,
     response_model_by_alias=True,
 )
 async def enqueue_missing_descriptions(
@@ -310,7 +308,6 @@ async def enqueue_missing_descriptions(
 @internal_router.post(
     "/content/descriptions/regenerate",
     status_code=202,
-    response_model=ContentEnqueueResult,
     response_model_by_alias=True,
 )
 async def regenerate_descriptions(
@@ -345,7 +342,6 @@ async def regenerate_descriptions(
 @internal_router.post(
     "/content/descriptions/generate",
     status_code=202,
-    response_model=GenerateDescriptionResult,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}},
 )
@@ -399,7 +395,6 @@ async def generate_description(
 @internal_router.post(
     "/admin/apps/{app_id}/manual-installer-inspections",
     status_code=202,
-    response_model=ManualInstallerInspectionView,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}, 422: {}},
 )
@@ -445,7 +440,6 @@ async def create_manual_installer_inspection(
 
 @internal_router.get(
     "/admin/apps/{app_id}/manual-installer-inspections/current",
-    response_model=ManualInstallerInspectionView | None,
     response_model_by_alias=True,
     responses={401: {}},
 )
@@ -483,7 +477,6 @@ async def current_manual_installer_inspection(
 
 @internal_router.get(
     "/admin/apps/{app_id}/manual-installer-inspections/{inspection_id}",
-    response_model=ManualInstallerInspectionView,
     response_model_by_alias=True,
     responses={401: {}, 404: {}},
 )
@@ -525,7 +518,6 @@ async def get_manual_installer_inspection(
 
 @internal_router.post(
     "/admin/apps/{app_id}/manual-installer-inspections/{inspection_id}/apply",
-    response_model=ManualInstallerApplyResult,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}, 422: {}, 503: {}},
 )
@@ -577,7 +569,6 @@ async def apply_manual_installer_inspection(
 @internal_router.post(
     "/admin/app-discoveries",
     status_code=202,
-    response_model=WebsiteAppDiscoveryView,
     response_model_by_alias=True,
     responses={401: {}, 409: {}, 422: {}},
 )
@@ -618,7 +609,6 @@ async def create_website_app_discovery(
 
 @internal_router.get(
     "/admin/app-discoveries/{discovery_id}",
-    response_model=WebsiteAppDiscoveryView,
     response_model_by_alias=True,
     responses={401: {}, 404: {}},
 )
@@ -660,7 +650,6 @@ async def get_website_app_discovery(
 
 @internal_router.post(
     "/admin/app-discoveries/{discovery_id}/apply",
-    response_model=WebsiteAppDiscoveryApplyResult,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}, 422: {}, 503: {}},
 )
