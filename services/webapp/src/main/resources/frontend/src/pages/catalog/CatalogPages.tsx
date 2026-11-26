@@ -1,12 +1,8 @@
 import { AsyncContent } from '../../components/AsyncContent';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, SlidersHorizontal } from 'lucide-react';
-import {
-  useNavigate,
-  useParams,
-  useSearchParams
-} from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   fetchAppDetails,
   fetchApps,
@@ -16,10 +12,6 @@ import {
 import {
   catalogFiltersToSearchParams,
   nextFilters,
-  normalizeCatalogStatus,
-  parseCatalogFilters,
-  preferredCatalogFilter,
-  preferredCatalogSearchMode,
   toggleOperatingSystem,
   toggleValue,
   type CatalogFilterState,
@@ -46,6 +38,7 @@ import type {
 } from '../../types/catalog';
 
 import { appRequest, cachePage, cachedPage, enqueuePrefetch, pageCache, pendingPages, prefetchCatalogPage } from './catalogCache';
+import { useCatalogFilters } from './useCatalogFilters';
 export { clearCatalogPageCache } from './catalogCache';
 
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
@@ -68,28 +61,7 @@ export function CatalogPage() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const { appId } = useParams();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const searchKey = searchParams.toString();
-  const preferredSearchMode = useMemo(
-    () => preferredCatalogSearchMode(
-      searchKey,
-      localStorage.getItem('catalog.search.mode'),
-    ),
-    [searchKey],
-  );
-  const preferredFilter = useMemo(
-    () => preferredCatalogFilter(
-      searchKey,
-      localStorage.getItem('catalog.filter.status'),
-    ),
-    [searchKey],
-  );
-  const canonicalSearchKey = useMemo(
-    () => normalizeCatalogStatus(searchKey, preferredSearchMode, preferredFilter),
-    [preferredFilter, preferredSearchMode, searchKey],
-  );
-  const catalogStatusCanonical = canonicalSearchKey === searchKey;
-  const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
+  const { searchKey, catalogStatusCanonical, filters, setSearchParams } = useCatalogFilters();
   const filterKey = catalogFiltersToSearchParams(filters).toString();
   const paginationParams = catalogFiltersToSearchParams({ ...filters, page: 1 });
   paginationParams.delete('searchMode');
@@ -134,12 +106,6 @@ export function CatalogPage() {
     prefetchController.current = new AbortController();
     pendingPages.clear();
   }, [filters.query]);
-
-  useEffect(() => {
-    if (!catalogStatusCanonical) {
-      setSearchParams(canonicalSearchKey, { replace: true });
-    }
-  }, [canonicalSearchKey, catalogStatusCanonical, setSearchParams]);
 
   useEffect(() => {
     setQuery(filters.query);

@@ -510,15 +510,15 @@ describe('catalog workspace', () => {
     fireEvent.click(acme);
     await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('publisher=ACME'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'B' }));
-    fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'B' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Beta/ }));
     await waitFor(() => expect(screen.getByTestId('location-search')).toHaveTextContent('publisher=Beta'));
 
-    fireEvent.click(screen.getByRole('button', { name: /Beta/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Beta/ }));
     await waitFor(() => expect(screen.getByTestId('location-search')).not.toHaveTextContent('publisher='));
-    expect(catalogAppsApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
+    await waitFor(() => expect(catalogAppsApi.fetchCatalogFacets).toHaveBeenLastCalledWith(
       expect.objectContaining({ publisher: undefined }),
-    );
+    ));
   });
 
   it('recovers empty facets by clearing only tags and editor', async () => {

@@ -16,7 +16,7 @@ import {
   Shield,
   UserCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type JSX } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { DownloadJobsProvider } from './downloads/DownloadJobsContext';
 import { GlobalDownloadJobOverlay } from './downloads/GlobalDownloadJobOverlay';

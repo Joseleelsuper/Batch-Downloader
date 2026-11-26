@@ -183,7 +183,11 @@ export function I18nProvider({ children, fetcher = DEFAULT_FETCHER }: Readonly<I
 
   useEffect(() => {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const supportsNativeTimeout = typeof AbortSignal.any === 'function' && typeof AbortSignal.timeout === 'function';
+    const timeout = supportsNativeTimeout ? undefined : window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const signal = supportsNativeTimeout
+      ? AbortSignal.any([controller.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+      : controller.signal;
 
     async function refreshLocale() {
       try {
@@ -192,7 +196,7 @@ export function I18nProvider({ children, fetcher = DEFAULT_FETCHER }: Readonly<I
           headers: revalidationEtag.current
             ? { 'If-None-Match': revalidationEtag.current }
             : undefined,
-          signal: controller.signal,
+          signal,
         });
         if (response.status === 304) return;
         if (!response.ok) throw new Error(`locale_request_failed_${response.status}`);
@@ -205,7 +209,7 @@ export function I18nProvider({ children, fetcher = DEFAULT_FETCHER }: Readonly<I
           catalog: mergedCatalog(locale.locale, messages),
           etag: response.headers.get('ETag') ?? undefined,
         };
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
         revalidationEtag.current = nextLocale.etag;
         setLocale(nextLocale);
         persistLocale({ locale: nextLocale.locale, etag: nextLocale.etag, messages });

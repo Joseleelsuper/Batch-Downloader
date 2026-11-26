@@ -20,7 +20,7 @@ describe('Pagination', () => {
 
     const input = screen.getByRole('textbox', { name: 'Página' });
     fireEvent.change(input, { target: { value: '99' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.submit((input as HTMLInputElement).form!);
 
     expect(onPageChange).toHaveBeenCalledWith(4);
   });

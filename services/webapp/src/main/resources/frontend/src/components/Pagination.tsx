@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLocale, useTranslation } from '../services/i18n';
 
@@ -18,6 +18,7 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
   const t = useTranslation();
   const locale = useLocale();
   const pages = Math.max(1, Math.ceil(total / pageSize));
+  const inputId = useId();
   const [draftPage, setDraftPage] = useState(String(page));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(total, page * pageSize);
@@ -51,20 +52,17 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
             onClick={() => onPageChange(page - 1)}
             type="button"
           ><ChevronLeft size={18} /></button>}
-        <label className="page-input-label">
-          <span>{t('catalog.pagination.page')}</span>
+        <form className="page-input-label" onSubmit={(event) => { event.preventDefault(); commitPage(); }}>
+          <label htmlFor={inputId}>{t('catalog.pagination.page')}</label>
           <input
+            id={inputId}
             value={draftPage}
             inputMode="numeric"
             onChange={(event) => setDraftPage(event.target.value.replace(/\D/g, ''))}
             onBlur={commitPage}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') commitPage();
-            }}
-            aria-label={t('catalog.pagination.page')}
           />
           <span>/ {pages}</span>
-        </label>
+        </form>
         {pageHref && page < pages
           ? <Link aria-label={t('catalog.pagination.next')} to={pageHref(page + 1)}><ChevronRight size={18} /></Link>
           : <button

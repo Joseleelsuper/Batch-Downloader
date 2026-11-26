@@ -1,12 +1,6 @@
 import { Check, ChevronDown, Search } from 'lucide-react';
-import {
-  type InputHTMLAttributes,
-  type KeyboardEvent as ReactKeyboardEvent,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from 'react';
+import type { InputHTMLAttributes } from 'react';
+import { useListbox } from '../hooks/useListbox';
 import { useTranslation } from '../services/i18n';
 import type { SearchMode, SortKey } from '../types/catalog';
 
@@ -38,68 +32,10 @@ export function AppSearchBar<S extends string = SortKey>({
   placeholder,
 }: Props<S>) {
   const t = useTranslation();
-  const sortOptionsId = useId();
-  const [sortOpen, setSortOpen] = useState(false);
-  const [activeSortIndex, setActiveSortIndex] = useState(0);
-  const sortMenuRef = useRef<HTMLDivElement>(null);
-  const sortTriggerRef = useRef<HTMLButtonElement>(null);
-  const sortOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const sortOptions = configuredOptions ?? ['downloads', 'updated', 'name', 'relevance'] as S[];
-
-  function focusSortOption(index: number) {
-    const normalizedIndex = Math.max(0, Math.min(sortOptions.length - 1, index));
-    setActiveSortIndex(normalizedIndex);
-    window.requestAnimationFrame(() => sortOptionRefs.current[normalizedIndex]?.focus());
-  }
-
-  function openSortMenu(index = Math.max(0, sortOptions.indexOf(sort))) {
-    setSortOpen(true);
-    focusSortOption(index);
-  }
-
-  function closeSortMenu({ restoreFocus = false } = {}) {
-    setSortOpen(false);
-    if (restoreFocus) {
-      window.requestAnimationFrame(() => sortTriggerRef.current?.focus());
-    }
-  }
-
-  function moveSortOption(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
-    const nextIndex = event.key === 'ArrowDown'
-      ? (index + 1) % sortOptions.length
-      : event.key === 'ArrowUp'
-        ? (index - 1 + sortOptions.length) % sortOptions.length
-        : event.key === 'Home'
-          ? 0
-          : event.key === 'End'
-            ? sortOptions.length - 1
-            : null;
-    if (nextIndex !== null) {
-      event.preventDefault();
-      focusSortOption(nextIndex);
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeSortMenu({ restoreFocus: true });
-    }
-  }
-
-  useEffect(() => {
-    if (!sortOpen) return;
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!sortMenuRef.current?.contains(event.target as Node)) setSortOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeSortMenu({ restoreFocus: true });
-    };
-    document.addEventListener('mousedown', closeOnOutsideClick);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutsideClick);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [sortOpen]);
+  const { close, visible, rootProps, triggerProps, listProps, optionProps } = useListbox(
+    sortOptions.length, sortOptions.indexOf(sort),
+  );
 
   return (
     <div className="search-row">
@@ -128,51 +64,36 @@ export function AppSearchBar<S extends string = SortKey>({
           </button>
         ))}
       </div>
-      <div className="sort-menu" ref={sortMenuRef}>
+      <div className="sort-menu" {...rootProps}>
         <button
-          ref={sortTriggerRef}
+          {...triggerProps}
           className="secondary-button sort-menu-trigger"
-          onClick={() => {
-            if (sortOpen) closeSortMenu();
-            else openSortMenu();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              event.preventDefault();
-              openSortMenu(event.key === 'ArrowDown' ? 0 : sortOptions.length - 1);
-            }
-          }}
           type="button"
           aria-label={t('catalog.sort.toggle')}
           aria-haspopup="listbox"
-          aria-expanded={sortOpen}
-          aria-controls={sortOptionsId}
         >
           <span>{t(`${labelPrefix}.${sort}`)}</span>
           <ChevronDown className="sort-menu-chevron" size={17} aria-hidden="true" />
         </button>
-        {sortOpen ? (
+        {visible ? (
           <div
-            id={sortOptionsId}
+            {...listProps}
             className="sort-menu-popover"
             role="listbox"
             aria-label={t('catalog.sort.toggle')}
           >
             {sortOptions.map((option, index) => (
               <button
-                ref={(element) => { sortOptionRefs.current[index] = element; }}
+                {...optionProps(index)}
                 className="sort-option"
                 key={option}
                 type="button"
                 role="option"
                 aria-selected={sort === option}
-                tabIndex={activeSortIndex === index ? 0 : -1}
                 onClick={() => {
                   onSortChange(option);
-                  closeSortMenu({ restoreFocus: true });
+                  close();
                 }}
-                onFocus={() => setActiveSortIndex(index)}
-                onKeyDown={(event) => moveSortOption(event, index)}
               >
                 <span className="sort-option-copy">
                   <strong>{t(`${labelPrefix}.${option}`)}</strong>

@@ -34,6 +34,22 @@
 
 @import url("./responsive.css");
 
+:is(.sort-menu-popover, .language-menu)[popover] {
+  position: fixed;
+  position-anchor: auto;
+  inset: calc(anchor(bottom) + var(--menu-gap, 6px)) anchor(right) auto auto;
+  margin: 0;
+  --menu-trigger-width: anchor-size(width);
+}
+
+.sort-menu-popover[popover] {
+  --menu-gap: 10px;
+}
+
+.sort-menu-popover[popover]:not(:popover-open) {
+  display: none;
+}
+
 
 
 @font-face {

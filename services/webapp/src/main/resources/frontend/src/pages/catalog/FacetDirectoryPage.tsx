@@ -1,53 +1,28 @@
 import { AsyncContent } from '../../components/AsyncContent';
 import { useAsyncResource } from '../../hooks/useAsyncResource';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Link, useSearchParams
-} from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   fetchCatalogFacets
 } from '../../api/catalogApps';
 import {
   catalogFiltersToSearchParams,
   nextFilters,
-  normalizeCatalogStatus,
-  parseCatalogFilters,
-  preferredCatalogFilter,
-  preferredCatalogSearchMode, toggleValue,
+  toggleValue,
   type CatalogFilterState
 } from '../../catalogFilters';
 import { useLocale, useTranslation } from '../../services/i18n';
 import type { FacetItem } from '../../types/catalog';
 
 import { prefetchCatalogPage } from './catalogCache';
+import { useCatalogFilters } from './useCatalogFilters';
 
 const FACET_ALPHABET = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 
 export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
   const t = useTranslation();
   const locale = useLocale();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const searchKey = searchParams.toString();
-  const preferredSearchMode = useMemo(
-    () => preferredCatalogSearchMode(
-      searchKey,
-      localStorage.getItem('catalog.search.mode'),
-    ),
-    [searchKey],
-  );
-  const preferredFilter = useMemo(
-    () => preferredCatalogFilter(
-      searchKey,
-      localStorage.getItem('catalog.filter.status'),
-    ),
-    [searchKey],
-  );
-  const canonicalSearchKey = useMemo(
-    () => normalizeCatalogStatus(searchKey, preferredSearchMode, preferredFilter),
-    [preferredFilter, preferredSearchMode, searchKey],
-  );
-  const catalogStatusCanonical = canonicalSearchKey === searchKey;
-  const filters = useMemo(() => parseCatalogFilters(canonicalSearchKey), [canonicalSearchKey]);
+  const { canonicalSearchKey, catalogStatusCanonical, filters, setSearchParams } = useCatalogFilters();
   const resource = useAsyncResource(() => fetchCatalogFacets({
     query: filters.query, filter: filters.filter, tags: filters.tags, publisher: filters.publisher,
     operatingSystems: filters.operatingSystems.length === 3 ? undefined : filters.operatingSystems,
@@ -64,12 +39,6 @@ export function FacetDirectoryPage({ kind }: { kind: 'tags' | 'publishers' }) {
   const visibleItems = items.filter((item) => item.letter === activeLetter);
   const title = kind === 'tags' ? t('facet.tags.title') : t('facet.publishers.title');
   const subtitle = kind === 'tags' ? t('facet.tags.subtitle') : t('facet.publishers.subtitle');
-
-  useEffect(() => {
-    if (!catalogStatusCanonical) {
-      setSearchParams(canonicalSearchKey, { replace: true });
-    }
-  }, [canonicalSearchKey, catalogStatusCanonical, setSearchParams]);
 
   useEffect(() => {
     if (!items.length || lettersWithItems.has(activeLetter)) return;

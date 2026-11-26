@@ -13,8 +13,7 @@ export function AppDetailExpander({ expanded, id, children }: Readonly<Props>) {
   useEffect(() => { if (expanded) setOpened(true); }, [expanded]);
   return (
     <div className="app-detail-expander" aria-hidden={!expanded}>
-      <div className="app-detail-expander-inner" id={id} aria-hidden={!expanded}
-        ref={(element) => { if (element) element.inert = !expanded; }}>
+      <div className="app-detail-expander-inner" id={id} aria-hidden={!expanded} inert={!expanded}>
         {expanded || opened ? <ContentBoundary>{children}</ContentBoundary> : null}
       </div>
     </div>

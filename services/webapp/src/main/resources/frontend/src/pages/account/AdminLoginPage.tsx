@@ -1,6 +1,4 @@
-import {
-  type FormEvent, useState
-} from 'react';
+import { useActionState, useState } from 'react';
 import {
   Link, useLocation,
   useNavigate
@@ -20,42 +18,32 @@ export function AdminLoginPage() {
   const location = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const destination = destinationFrom(location.state, '/admin');
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return;
-    const validationError = loginPasswordIssue(t, password);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
+  const [error, submit, submitting] = useActionState(async (_error: string | null, fields: FormData) => {
+    const submittedPassword = String(fields.get('password') ?? '');
+    const validationError = loginPasswordIssue(t, submittedPassword);
+    if (validationError) return validationError;
     try {
-      const account = await adminLogin(username, password);
+      const account = await adminLogin(String(fields.get('username') ?? ''), submittedPassword);
       auth.setAuthenticated(account);
       await navigate(destination, { replace: true });
+      return null;
     } catch (cause) {
-      setError(apiMessage(t, cause, 'login.invalid'));
-    } finally {
-      setSubmitting(false);
+      return apiMessage(t, cause, 'login.invalid');
     }
-  }
+  }, null);
 
   return (
     <AuthCard>
       <h2>{t('account.adminLogin.title')}</h2>
-      <form className="auth-form" onSubmit={submit} noValidate>
+      <form className="auth-form" action={submit} noValidate>
         <label>{t('login.username')}
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
+          <input name="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
         </label>
         <label>{t('login.password')}
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+          <input name="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
         </label>
-        {error ? <p className="error-banner">{error}</p> : null}
+        {!submitting && error ? <p className="error-banner">{error}</p> : null}
         <div className="auth-actions">
           <button className="primary-button" type="submit" disabled={submitting}>{submitting ? t('account.sending') : t('login.submit')}</button>
           <Link className="auth-switch-link" to="/login" aria-label={t('account.userLogin.link')} title={t('account.userLogin.link')}>
