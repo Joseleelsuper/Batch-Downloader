@@ -20,7 +20,6 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.core.config import get_settings
-from app.core.free_threading import assert_free_threaded_runtime
 from app.core.logging import configure_logging, get_logger
 from app.core.url_protector import UrlProtector
 from app.db.enums import ResolutionStatus, ScrapeScope, ValidationStatus
@@ -884,9 +883,8 @@ async def run_scheduler() -> None:
 
 
 def main() -> None:
-    """Configura logging, comprueba runtime free-threaded y ejecuta el comando del worker."""
+    """Configura logging y ejecuta el comando del worker."""
     configure_logging()
-    assert_free_threaded_runtime()
     parser = argparse.ArgumentParser(description="Batch Downloader scraper worker")
     parser.add_argument(
         "command",
