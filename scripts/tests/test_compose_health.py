@@ -195,7 +195,6 @@ class ComposeHealthTest(unittest.TestCase):
                     "healthcheck": {"test": ["CMD", "true"]},
                     "restart": "unless-stopped",
                 },
-                **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
             }
         }
         ghcr = {
@@ -226,7 +225,6 @@ class ComposeHealthTest(unittest.TestCase):
                         "read_only": True,
                     }],
                 },
-                **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
             }
         }
         ghcr = {
@@ -252,7 +250,6 @@ class ComposeHealthTest(unittest.TestCase):
     def test_parity_allows_independent_environment_but_rejects_port_changes(self) -> None:
         local = {"services": {
             "core-api": {"environment": {"SETTING": "local"}, "ports": [8080]},
-            **{service: {} for service in compose_health.LOCAL_ONLY_SERVICES},
         }}
         ghcr = {"services": {
             "core-api": {"environment": {"SETTING": "production"}, "ports": [8080]},
