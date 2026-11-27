@@ -1,5 +1,6 @@
 package es.ubu.batchdownloader.identity.infrastructure.security;
 
+import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.ubu.batchdownloader.common.ApiError;
 import java.time.Duration;
@@ -21,6 +22,7 @@ import org.springframework.security.web.csrf.CsrfAuthenticationStrategy;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
@@ -53,6 +55,7 @@ public class SecurityConfig {
      *     sesión.
      * @param csrfTokens Repositorio de tokens CSRF utilizado al comprobar mutaciones y renovar la
      *     sesión.
+     * @param adminSessions Comprueba la vigencia de las credenciales administrativas.
      * @param requireHttps Redirige a HTTPS las rutas públicas; la ruta interna de metadatos
      *     conserva transporte interno.
      * @return cadena HTTP sin formularios ni autenticación básica, con errores JSON seguros.
@@ -63,6 +66,7 @@ public class SecurityConfig {
             HttpSecurity http,
             ObjectMapper objectMapper,
             CsrfTokenRepository csrfTokens,
+            AdminSessionVersion adminSessions,
             @Value("${app.security.require-https}") boolean requireHttps) throws Exception {
         RequestMatcher internalDownloadMetadata = new OrRequestMatcher(
                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/internal/v1/download-jobs/{jobId}/item-metadata"),
@@ -108,7 +112,13 @@ public class SecurityConfig {
             http.redirectToHttps(redirect -> redirect
                     .requestMatchers(new NegatedRequestMatcher(internalDownloadMetadata)));
         }
+        http.addFilterBefore(new AdminSessionVersionFilter(adminSessions), AuthorizationFilter.class);
         return http.build();
+    }
+
+    @Bean
+    AdminSessionVersion adminSessionVersion(UserAccountStore users) {
+        return new AdminSessionVersion(users);
     }
 
     /**

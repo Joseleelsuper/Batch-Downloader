@@ -71,6 +71,7 @@ public class IdentityService {
         String cleanEmail = cleanEmail(email);
         String normalizedEmail = normalize(cleanEmail);
         String cleanLocale = normalizeLocale(locale);
+        pending.lockIssuanceAndConsumption();
         UserAccount user = users.findByNormalizedEmail(normalizedEmail).orElse(null);
         if (user == null) {
             issuePendingMagicLink(cleanEmail, normalizedEmail, cleanLocale);
@@ -83,6 +84,7 @@ public class IdentityService {
     @Transactional
     public UserAccount consumeMagicLink(String rawToken) {
         String hash = hashToken(rawToken);
+        pending.lockIssuanceAndConsumption();
         IdentityToken token = tokens.findByHashForUpdate(hash).orElse(null);
         if (token != null) {
             requireUsableToken(token);
@@ -99,10 +101,9 @@ public class IdentityService {
         PendingMagicLink request = pending.findByHashForUpdate(hash)
                 .orElseThrow(this::invalidToken);
         requireUsablePending(request);
+        if (users.existsByNormalizedEmail(request.normalizedEmail())) throw invalidToken();
         Instant now = clock.instant();
-        UserAccount user = createUser(request.email(), request.normalizedEmail());
-        user.verifyEmail(now);
-        users.save(user);
+        UserAccount user = createUser(request.email(), request.normalizedEmail(), now);
         request.consume(now);
         pending.save(request);
         return user;
@@ -150,7 +151,7 @@ public class IdentityService {
         return IdentityView.from(user);
     }
 
-    private UserAccount createUser(String email, String normalizedEmail) {
+    private UserAccount createUser(String email, String normalizedEmail, Instant now) {
         String baseUsername = UsernamePolicy.fromEmail(email);
         for (int attempt = 0; attempt < 12; attempt++) {
             String username = attempt == 0
@@ -159,11 +160,12 @@ public class IdentityService {
             String normalizedUsername = UsernamePolicy.normalize(username);
             if (users.existsByNormalizedUsername(normalizedUsername)) continue;
             try {
-                return users.save(UserAccount.createUser(
-                        username, normalizedUsername, email, normalizedEmail, clock.instant()));
+                UserAccount user = UserAccount.createUser(username, normalizedUsername, email, normalizedEmail, now);
+                user.verifyEmail(now);
+                return users.save(user);
             } catch (DataIntegrityViolationException exception) {
                 if (users.existsByNormalizedEmail(normalizedEmail)) {
-                    return users.findByNormalizedEmail(normalizedEmail).orElseThrow();
+                    throw invalidToken();
                 }
             }
         }
@@ -173,7 +175,7 @@ public class IdentityService {
 
     private void issueMagicLink(UserAccount user, String locale) {
         Instant now = clock.instant();
-        tokens.invalidateUnconsumedForUser(user.id(), now);
+        if (tokens.hasUsableToken(user.id(), now)) return;
         String rawToken = newRawToken();
         tokens.save(IdentityToken.issue(user.id(), hashToken(rawToken), now.plus(magicLinkTtl), now));
         events.magicLinkRequested(
@@ -182,17 +184,19 @@ public class IdentityService {
 
     private void issuePendingMagicLink(String email, String normalizedEmail, String locale) {
         Instant now = clock.instant();
+        PendingMagicLink request = pending.findByNormalizedEmailForUpdate(normalizedEmail).orElse(null);
+        if (request != null && request.usableAt(now)) return;
+
         String rawToken = newRawToken();
-        PendingMagicLink request = pending.findByNormalizedEmailForUpdate(normalizedEmail)
-                .orElseGet(() -> PendingMagicLink.issue(
-                        email, normalizedEmail, hashToken(rawToken), locale,
-                        now.plus(magicLinkTtl), now));
-        if (!request.tokenHash().equals(hashToken(rawToken))) {
-            request.renew(hashToken(rawToken), locale, now.plus(magicLinkTtl), now);
+        String hash = hashToken(rawToken);
+        if (request == null) {
+            request = PendingMagicLink.issue(email, normalizedEmail, hash, locale, now.plus(magicLinkTtl), now);
+        } else {
+            request.renew(hash, locale, now.plus(magicLinkTtl), now);
         }
         pending.save(request);
         events.magicLinkRequested(
-                "pending_magic_link", request.id(), email, rawToken, locale, magicLinkTtl.toMinutes());
+                "pending_magic_link", request.id(), request.email(), rawToken, locale, magicLinkTtl.toMinutes());
     }
 
     private void requireUsableToken(IdentityToken token) {

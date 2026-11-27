@@ -1,6 +1,9 @@
 package es.ubu.batchdownloader.admin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.ubu.batchdownloader.identity.infrastructure.security.AdminSessionVersion;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -27,6 +30,7 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
      * Estado {@code scraper} mantenido por {@code AdminScraperNotifier}.
      */
     private final AdminScraperRepository scraper;
+    private final AdminSessionVersion adminSessions;
     /**
      * Dependencia {@code objectMapper} utilizada por {@code AdminScraperNotifier}.
      */
@@ -46,8 +50,10 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
      * @param scraper Consulta de colas y versión del scraper.
      * @param objectMapper Serializador del evento WebSocket administrativo.
      */
-    public AdminScraperNotifier(AdminScraperRepository scraper, ObjectMapper objectMapper) {
+    public AdminScraperNotifier(
+            AdminScraperRepository scraper, ObjectMapper objectMapper, AdminSessionVersion adminSessions) {
         this.scraper = scraper;
+        this.adminSessions = adminSessions;
         this.objectMapper = objectMapper;
     }
 
@@ -60,6 +66,7 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        if (!keepSession(session)) return;
         sessions.add(session);
         var event = scraper.event();
         lastVersion = event.version();
@@ -89,22 +96,29 @@ public class AdminScraperNotifier extends TextWebSocketHandler {
         if (sessions.isEmpty()) {
             return;
         }
-        var event = scraper.event();
-        if (event.version().equals(lastVersion)) {
-            return;
+        var authorized = new ArrayList<WebSocketSession>();
+        for (WebSocketSession session : sessions) {
+            if (keepSession(session)) authorized.add(session);
         }
+        if (authorized.isEmpty()) return;
+
+        var event = scraper.event();
+        if (event.version().equals(lastVersion)) return;
         lastVersion = event.version();
         TextMessage message = new TextMessage(objectMapper.writeValueAsString(event));
-        for (WebSocketSession session : sessions) {
-            if (!session.isOpen()) {
-                sessions.remove(session);
-                continue;
-            }
+        for (WebSocketSession session : authorized) {
             try {
                 session.sendMessage(message);
             } catch (Exception exception) {
                 sessions.remove(session);
             }
         }
+    }
+
+    private boolean keepSession(WebSocketSession session) throws IOException {
+        if (session.isOpen() && adminSessions.isCurrent(session.getPrincipal())) return true;
+        sessions.remove(session);
+        if (session.isOpen()) session.close(CloseStatus.POLICY_VIOLATION);
+        return false;
     }
 }

@@ -16,11 +16,14 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.ApplicationArguments;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 class AdminBootstrapTest {
     private static final String ADMIN_PASSWORD = "Bootstrap-admin-2026!";
     private static final Instant NOW = Instant.parse("2026-08-08T12:00:00Z");
+    private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final UserAccountStore users = mock(UserAccountStore.class);
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     private final ApplicationArguments arguments = mock(ApplicationArguments.class);
@@ -55,6 +58,8 @@ class AdminBootstrapTest {
         assertThat(existing.passwordHash()).isEqualTo("configured-hash");
         assertThat(existing.updatedAt()).isEqualTo(NOW);
         verify(users).save(existing);
+        assertThat(existing.credentialsVersion()).isEqualTo(2);
+        verify(jdbc).update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME = ?", existing.id().toString());
     }
 
     @Test
@@ -80,7 +85,7 @@ class AdminBootstrapTest {
         when(users.findByNormalizedUsername("admin")).thenReturn(Optional.of(existing));
         when(passwords.matches(legacyPassword, "configured-hash")).thenReturn(true);
         AdminBootstrap bootstrap = new AdminBootstrap(
-                users, clock, "admin", "admin@batch-downloader.local", legacyPassword, passwords);
+                users, clock, "admin", "admin@batch-downloader.local", legacyPassword, passwords, TransactionOperations.withoutTransaction(), jdbc);
 
         bootstrap.run(arguments);
 
@@ -104,7 +109,7 @@ class AdminBootstrapTest {
     @Test
     void rejectsAnInsecureConfiguredAdministratorPassword() {
         AdminBootstrap bootstrap = new AdminBootstrap(
-                users, clock, "admin", "admin@batch-downloader.local", "admin", passwords);
+                users, clock, "admin", "admin@batch-downloader.local", "admin", passwords, TransactionOperations.withoutTransaction(), jdbc);
 
         assertThatThrownBy(() -> bootstrap.run(arguments))
                 .isInstanceOfSatisfying(es.ubu.batchdownloader.common.BadRequestException.class,
@@ -113,7 +118,7 @@ class AdminBootstrapTest {
 
     private AdminBootstrap bootstrap() {
         return new AdminBootstrap(
-                users, clock, " admin ", "admin@batch-downloader.local", ADMIN_PASSWORD, passwords);
+                users, clock, " admin ", "admin@batch-downloader.local", ADMIN_PASSWORD, passwords, TransactionOperations.withoutTransaction(), jdbc);
     }
 
     @Test void acceptsAConcurrentReplicaOnlyWhenTheCommittedAdminPasswordMatches() {

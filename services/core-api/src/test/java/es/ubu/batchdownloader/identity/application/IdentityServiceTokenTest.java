@@ -89,14 +89,25 @@ class IdentityServiceTokenTest {
     }
 
     @Test
-    void invalidatesPreviousLinksAndPublishesAnEncryptedDeliveryRequest() {
+    void issuesALinkToThePersistedRecipient() {
         when(users.findByNormalizedEmail("person@example.com")).thenReturn(Optional.of(user));
 
         service.requestMagicLink(" PERSON@example.com ");
 
-        verify(tokens).invalidateUnconsumedForUser(user.id(), NOW);
+        verify(tokens).hasUsableToken(user.id(), NOW);
         verify(events).magicLinkRequested(
                 eq("user"), eq(user.id()), eq(user.email()), anyString(), eq("es"), eq(15L));
+    }
+
+    @Test
+    void retainsAnActiveLinkForARegisteredAccountWithoutResending() {
+        when(users.findByNormalizedEmail(user.normalizedEmail())).thenReturn(Optional.of(user));
+        when(tokens.hasUsableToken(user.id(), NOW)).thenReturn(true);
+
+        service.requestMagicLink(user.email());
+
+        verify(tokens, never()).save(any());
+        org.mockito.Mockito.verifyNoInteractions(events);
     }
 
     @Test
@@ -135,7 +146,7 @@ class IdentityServiceTokenTest {
 
         assertThat(first.email()).isEqualTo("new@example.com");
         assertThat(first.emailVerified()).isTrue();
-        verify(users, org.mockito.Mockito.times(2)).save(first);
+        verify(users).save(first);
         verify(pending).save(request);
         assertThat(request.consumedAt()).isEqualTo(NOW);
 
@@ -145,7 +156,35 @@ class IdentityServiceTokenTest {
     }
 
     @Test
-    void renewsPendingRequestAndInvalidatesItsPreviousHash() {
+    void sendsAReplacementForAnExpiredPendingLinkToItsPersistedAddress() {
+        PendingMagicLink request = PendingMagicLink.issue(
+                "New@example.com", "new@example.com", "expired-hash", "es", NOW, NOW.minusSeconds(60));
+        when(pending.findByNormalizedEmailForUpdate("new@example.com")).thenReturn(Optional.of(request));
+
+        service.requestMagicLink("new@example.com", "en");
+
+        assertThat(request.tokenHash()).isNotEqualTo("expired-hash");
+        assertThat(request.expiresAt()).isEqualTo(NOW.plusSeconds(900));
+        verify(events).magicLinkRequested(eq("pending_magic_link"), eq(request.id()),
+                eq("New@example.com"), anyString(), eq("en"), eq(15L));
+    }
+
+    @Test
+    void aPendingLinkCannotAuthenticateAnExistingAccount() {
+        String rawToken = "pending-token";
+        PendingMagicLink request = PendingMagicLink.issue(
+                user.email(), user.normalizedEmail(), IdentityService.hashToken(rawToken),
+                "es", NOW.plusSeconds(60), NOW);
+        when(pending.findByHashForUpdate(request.tokenHash())).thenReturn(Optional.of(request));
+        when(users.existsByNormalizedEmail(user.normalizedEmail())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.consumeMagicLink(rawToken))
+                .isInstanceOf(es.ubu.batchdownloader.common.BadRequestException.class);
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void retainsAnActivePendingLinkWithoutRenewingOrSendingAgain() {
         PendingMagicLink request = PendingMagicLink.issue(
                 "new@example.com", "new@example.com", "old-hash", "es",
                 NOW.plusSeconds(60), NOW);
@@ -157,8 +196,9 @@ class IdentityServiceTokenTest {
 
         service.requestMagicLink("new@example.com", "es");
 
-        assertThat(request.tokenHash()).isNotEqualTo("old-hash");
-        assertThat(request.consumedAt()).isNull();
-        verify(pending).save(request);
+        assertThat(request.tokenHash()).isEqualTo("old-hash");
+        assertThat(request.expiresAt()).isEqualTo(NOW.plusSeconds(60));
+        verify(pending, never()).save(any());
+        org.mockito.Mockito.verifyNoInteractions(events);
     }
 }

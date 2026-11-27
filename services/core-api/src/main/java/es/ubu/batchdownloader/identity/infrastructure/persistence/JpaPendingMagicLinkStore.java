@@ -16,6 +16,11 @@ class JpaPendingMagicLinkStore implements PendingMagicLinkStore {
     }
 
     @Override
+    public void lockIssuanceAndConsumption() {
+        repository.lockIssuanceAndConsumption();
+    }
+
+    @Override
     public PendingMagicLink save(PendingMagicLink request) {
         PendingMagicLinkEntity entity = repository.findById(request.id())
                 .orElseGet(() -> PendingMagicLinkEntity.from(request));

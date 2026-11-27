@@ -14,7 +14,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** Ventanas desde el primer intento, con tope de 20.000 huellas por ámbito entre todas las API. */
 @Repository
 public class JdbcAuthAttemptBudget implements AuthAttemptBudget {
-    private static final Set<String> SCOPES = Set.of("admin-login", "magic-email", "magic-ip", "magic-confirm");
+    private static final Set<String> SCOPES = Set.of("admin-login-ip", "admin-login-account", "magic-email", "magic-ip", "magic-confirm");
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final Clock clock;

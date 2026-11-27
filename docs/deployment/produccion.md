@@ -150,9 +150,15 @@ Revisar por separado el versionado del bucket OCI y los logs del proxy de Coolif
 
 ## Operación
 
-- Despliegue manual de emergencia: ejecutar `Deploy production` con un SHA que
-  ya exista en GHCR.
-- Rollback: volver a ejecutar el workflow con el SHA sano anterior.
+- Despliegue manual de emergencia: ejecutar `Deploy production` desde `main` con un SHA
+  del historial de `main` publicado por `Publish GHCR images`. En GitHub, limitar el entorno
+  `production` a la rama `main` y guardar las credenciales de Coolify en ese entorno.
+- Rollback: volver a ejecutar el workflow con el SHA sano anterior que cumpla esas condiciones.
+- Migración Core V29: coordinar el reemplazo de todas las réplicas para evitar que una versión
+  anterior vuelva a emitir enlaces durante el cambio. Las sesiones administrativas previas
+  requieren iniciar sesión de nuevo y los enlaces de alta pendientes deben volver a solicitarse.
+  Comprobar el acceso administrativo, el alta por correo y el WebSocket del scraper después
+  del despliegue.
 - Diagnóstico: usar logs y métricas del recurso en Coolify; no publicar paneles
   internos.
 - Migraciones: Core y el scraper las aplican al arrancar hasta sus objetivos

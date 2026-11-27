@@ -25,15 +25,18 @@ class AuthRateLimiterTest {
         assertThat(retainedFingerprints).allMatch(key -> key.matches("[0-9a-f]{64}"));
         assertThatThrownBy(() -> limiter.adminLogin("203.0.113.8", " " + username.toLowerCase() + " "))
                 .isInstanceOf(RateLimitException.class);
-        limiter.adminLogin("203.0.113.8", "administrator".repeat(6));
+        limiter.adminLogin("203.0.113.9", "administrator".repeat(6));
     }
     @Test
     void limitsAdminLoginByIpAndNormalizedUsername() {
         AuthRateLimiter limiter = limiter(2, 3, 20);
         limiter.adminLogin("203.0.113.8", " Admin ");
-        limiter.adminLogin("203.0.113.8", "admin");
+        limiter.adminLogin("203.0.113.9", "admin");
+        assertThatThrownBy(() -> limiter.adminLogin("203.0.113.10", "admin"))
+                .isInstanceOf(RateLimitException.class);
 
-        assertThatThrownBy(() -> limiter.adminLogin("203.0.113.8", "admin"))
+        limiter.adminLogin("203.0.113.8", "other");
+        assertThatThrownBy(() -> limiter.adminLogin("203.0.113.8", "different"))
                 .isInstanceOf(RateLimitException.class);
     }
 

@@ -56,10 +56,14 @@ class BundleStarSecurityTest {
         UUID id = UUID.randomUUID();
         UserAccount account = mock(UserAccount.class);
         when(account.id()).thenReturn(id);
+        when(account.enabled()).thenReturn(true);
+        when(account.role()).thenReturn(UserRole.ADMIN);
+        when(account.credentialsVersion()).thenReturn(1L);
+        when(users.findById(id)).thenReturn(java.util.Optional.of(account));
         when(accounts.require(any())).thenReturn(account);
         when(activity.setStar(anyString(),any(),anyBoolean())).thenReturn(new BundleDtos.BundleStarState(1,true,false,0));
         for (UserRole role : UserRole.values()) {
-            var principal = new AccountPrincipal(id,"account",role);
+            var principal = new AccountPrincipal(id,"account",role,1);
             var token = new UsernamePasswordAuthenticationToken(principal,null,principal.getAuthorities());
             mvc.perform(put("/api/v1/bundles/example/star").with(authentication(token))).andExpect(status().isForbidden());
             mvc.perform(delete("/api/v1/bundles/example/star").with(authentication(token))).andExpect(status().isForbidden());
@@ -81,7 +85,12 @@ class BundleStarSecurityTest {
                     .andExpect(status().isForbidden());
         }
         org.mockito.Mockito.verifyNoInteractions(bundles, audit);
-        var admin = new AccountPrincipal(actor, "admin", UserRole.ADMIN);
+        var account = mock(UserAccount.class);
+        when(account.enabled()).thenReturn(true);
+        when(account.role()).thenReturn(UserRole.ADMIN);
+        when(account.credentialsVersion()).thenReturn(1L);
+        when(users.findById(actor)).thenReturn(java.util.Optional.of(account));
+        var admin = new AccountPrincipal(actor, "admin", UserRole.ADMIN, 1);
         var auth = authentication(new UsernamePasswordAuthenticationToken(admin, null, admin.getAuthorities()));
         mvc.perform(post("/api/v1/admin/bundles").with(auth).contentType("application/json").content(payload))
                 .andExpect(status().isForbidden());

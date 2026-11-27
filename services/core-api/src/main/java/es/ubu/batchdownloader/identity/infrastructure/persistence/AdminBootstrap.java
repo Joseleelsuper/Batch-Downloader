@@ -9,6 +9,8 @@ import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -49,6 +51,8 @@ class AdminBootstrap implements ApplicationRunner {
      */
     private final String password;
     private final PasswordEncoder passwords;
+    private final TransactionOperations transactions;
+    private final JdbcTemplate jdbc;
 
     /**
      * Recibe identidad administrativa opcional, persistencia, reloj y codificador configurado.
@@ -61,6 +65,8 @@ class AdminBootstrap implements ApplicationRunner {
      * @param password Contraseña recibida; los límites se cuentan en puntos de código y bytes
      *     UTF-8.
      * @param passwords Codificador de Spring para comparar o renovar el hash administrativo.
+     * @param transactions Agrupa la rotación y la revocación de sesiones.
+     * @param jdbc Acceso al almacén compartido de sesiones.
      */
     AdminBootstrap(
             UserAccountStore users,
@@ -68,13 +74,17 @@ class AdminBootstrap implements ApplicationRunner {
             @Value("${app.auth.bootstrap-admin-username}") String username,
             @Value("${app.auth.bootstrap-admin-email}") String email,
             @Value("${app.auth.bootstrap-admin-password}") String password,
-            PasswordEncoder passwords) {
+            PasswordEncoder passwords,
+            TransactionOperations transactions,
+            JdbcTemplate jdbc) {
         this.users = users;
         this.clock = clock;
         this.username = username;
         this.email = email;
         this.password = password;
         this.passwords = passwords;
+        this.transactions = transactions;
+        this.jdbc = jdbc;
     }
 
     /**
@@ -93,7 +103,7 @@ class AdminBootstrap implements ApplicationRunner {
         if (username.isBlank() || password.isBlank()) return;
         String normalizedUsername = username.strip().toLowerCase(Locale.ROOT);
         try {
-            synchronizeAdmin(normalizedUsername);
+            transactions.executeWithoutResult(status -> synchronizeAdmin(normalizedUsername));
         } catch (DataIntegrityViolationException | OptimisticLockingFailureException concurrentWrite) {
             // Otra réplica puede crear o renovar la misma cuenta durante este arranque.
             // Solo se acepta el conflicto si el estado confirmado coincide con la configuración.
@@ -117,6 +127,7 @@ class AdminBootstrap implements ApplicationRunner {
             String encodedPassword = passwords.encode(password);
             existing.changePassword(encodedPassword, clock.instant());
             users.save(existing);
+            jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME = ?", existing.id().toString());
             return;
         }
         PasswordPolicy.requireValid(password);

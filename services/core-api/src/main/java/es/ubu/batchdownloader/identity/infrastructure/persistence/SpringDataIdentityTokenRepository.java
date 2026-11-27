@@ -5,7 +5,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
@@ -18,8 +17,5 @@ interface SpringDataIdentityTokenRepository extends JpaRepository<IdentityTokenE
     @Query("select token from IdentityTokenEntity token where token.tokenHash = :hash")
     Optional<IdentityTokenEntity> findForUpdate(@Param("hash") String tokenHash);
 
-    @Modifying
-    @Query("update IdentityTokenEntity token set token.consumedAt = :now "
-            + "where token.userId = :userId and token.consumedAt is null")
-    void consumeUnconsumed(@Param("userId") UUID userId, @Param("now") Instant now);
+    boolean existsByUserIdAndConsumedAtIsNullAndExpiresAtAfter(UUID userId, Instant now);
 }
