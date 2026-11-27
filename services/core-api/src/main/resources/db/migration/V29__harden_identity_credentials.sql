@@ -7,12 +7,13 @@ UPDATE core_users SET credentials_version = 1 WHERE role = 'ADMIN';
 -- Mantiene la versión de credenciales si una reversión restaura Core V28.
 CREATE TRIGGER core_users_credentials_on_insert
 BEFORE INSERT ON core_users FOR EACH ROW
-SET NEW.credentials_version = IF(NEW.role = 'ADMIN', GREATEST(NEW.credentials_version, 1), 0);
+SET NEW.credentials_version = IF(NEW.password_hash IS NOT NULL, GREATEST(NEW.credentials_version, 1), 0);
 
 CREATE TRIGGER core_users_credentials_on_update
 BEFORE UPDATE ON core_users FOR EACH ROW
 SET NEW.credentials_version = CASE
-    WHEN NEW.role = 'ADMIN' AND NOT (CAST(NEW.password_hash AS BINARY) <=> CAST(OLD.password_hash AS BINARY))
+    WHEN NEW.password_hash IS NOT NULL
+            AND NOT (CAST(NEW.password_hash AS BINARY) <=> CAST(OLD.password_hash AS BINARY))
         THEN OLD.credentials_version + 1
     ELSE OLD.credentials_version
 END;
@@ -33,4 +34,4 @@ WHERE aggregate_type = 'pending_magic_link'
   AND event_type = 'notification.email.requested'
   AND published_at IS NULL;
 
-DELETE FROM pending_magic_link_requests;
+TRUNCATE TABLE pending_magic_link_requests;
