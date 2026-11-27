@@ -49,7 +49,7 @@ class JdbcAuthAttemptBudgetMySqlTest {
         try (var threads = Executors.newVirtualThreadPerTaskExecutor()) {
             var tasks = java.util.stream.IntStream.range(0, 20).mapToObj(index -> threads.submit(() -> {
                 start.await();
-                return (index % 2 == 0 ? first : second).allow("admin-login", "a".repeat(64), 5, Duration.ofMinutes(1));
+                return (index % 2 == 0 ? first : second).allow("admin-login-account", "a".repeat(64), 5, Duration.ofMinutes(1));
             })).toList();
             start.countDown();
             int accepted = 0;
@@ -57,7 +57,7 @@ class JdbcAuthAttemptBudgetMySqlTest {
             assertThat(accepted).isEqualTo(5);
         }
         assertThat(jdbc.queryForObject("SELECT attempt_count FROM identity_auth_attempts", Long.class)).isEqualTo(6);
-        assertThat(replica().allow("admin-login", "a".repeat(64), 5, Duration.ofMinutes(1))).isFalse();
+        assertThat(replica().allow("admin-login-account", "a".repeat(64), 5, Duration.ofMinutes(1))).isFalse();
     }
 
     @Test void retriesDoNotExtendTheWindowAndExpiredFingerprintsAreRemoved() {
@@ -75,13 +75,13 @@ class JdbcAuthAttemptBudgetMySqlTest {
         String digits = "(SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4"
                 + " UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9)";
         jdbc.update("INSERT INTO identity_auth_attempts(scope,fingerprint,attempt_count,expires_at) "
-                + "SELECT 'admin-login',LPAD(a.n+10*b.n+100*c.n+1000*d.n+10000*e.n,64,'0'),1,? FROM "
+                + "SELECT 'admin-login-ip',LPAD(a.n+10*b.n+100*c.n+1000*d.n+10000*e.n,64,'0'),1,? FROM "
                 + digits + " a CROSS JOIN " + digits + " b CROSS JOIN " + digits + " c CROSS JOIN " + digits
                 + " d CROSS JOIN (SELECT 0 n UNION ALL SELECT 1) e", Timestamp.from(clock.instant().plusSeconds(60)));
-        assertThat(replica().allow("admin-login", "f".repeat(64), 5, Duration.ofMinutes(1))).isFalse();
+        assertThat(replica().allow("admin-login-ip", "f".repeat(64), 5, Duration.ofMinutes(1))).isFalse();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity_auth_attempts", Integer.class)).isEqualTo(20_000);
         clock.advance(60);
-        assertThat(replica().allow("admin-login", "f".repeat(64), 5, Duration.ofMinutes(1))).isTrue();
+        assertThat(replica().allow("admin-login-ip", "f".repeat(64), 5, Duration.ofMinutes(1))).isTrue();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM identity_auth_attempts", Integer.class)).isEqualTo(1);
     }
 

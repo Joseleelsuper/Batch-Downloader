@@ -6,6 +6,8 @@ import java.util.Optional;
 
 /** Persiste solicitudes de acceso antes de que exista una cuenta. */
 public interface PendingMagicLinkStore {
+    void lockIssuanceAndConsumption();
+
     PendingMagicLink save(PendingMagicLink request);
 
     Optional<PendingMagicLink> findByNormalizedEmailForUpdate(String normalizedEmail);

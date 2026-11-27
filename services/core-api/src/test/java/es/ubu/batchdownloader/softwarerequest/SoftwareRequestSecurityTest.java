@@ -39,11 +39,17 @@ class SoftwareRequestSecurityTest {
     @Autowired MockMvc mvc;
     @MockitoBean SoftwareRequestRepository requests;
     @MockitoBean CurrentAccount accounts;
+    @MockitoBean es.ubu.batchdownloader.identity.application.port.UserAccountStore users;
     @MockitoBean AdminAuditService audit;
     final UUID owner = UUID.randomUUID(), requestId = UUID.randomUUID();
 
     private UsernamePasswordAuthenticationToken token(UserRole role) {
-        var principal = new AccountPrincipal(owner, "account", role);
+        if (role == UserRole.ADMIN) {
+            var account = UserAccount.bootstrapAdmin(
+                    "admin", "admin", "admin@example.test", "admin@example.test", "test-hash", Instant.EPOCH);
+            org.mockito.Mockito.when(users.findById(owner)).thenReturn(java.util.Optional.of(account));
+        }
+        var principal = new AccountPrincipal(owner, "account", role, 1);
         return new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
     }
 

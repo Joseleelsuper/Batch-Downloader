@@ -14,6 +14,9 @@ import jakarta.persistence.LockModeType;
 /** Consultas bloqueantes y limpieza de solicitudes de acceso pendientes. */
 interface SpringDataPendingMagicLinkRepository
         extends JpaRepository<PendingMagicLinkEntity, UUID> {
+    @Query(value = "SELECT id FROM pending_magic_link_guard WHERE id = 1 FOR UPDATE", nativeQuery = true)
+    int lockIssuanceAndConsumption();
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select request from PendingMagicLinkEntity request "
             + "where request.normalizedEmail = :email")

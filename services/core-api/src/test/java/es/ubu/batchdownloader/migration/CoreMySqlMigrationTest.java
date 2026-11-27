@@ -116,7 +116,68 @@ class CoreMySqlMigrationTest {
 
         assertProjectionTableBlocksV17(flyway, true);
         assertProjectionTableBlocksV17(flyway, false);
+        migrateIdentityFromV28(flyway);
+    }
+
+    private static void migrateIdentityFromV28(Flyway flyway) throws SQLException {
+        Flyway v28 = Flyway.configure().configuration(flyway.getConfiguration()).target("28").load();
+        v28.migrate();
+        try (Connection connection = connection()) {
+            execute(connection, """
+                    INSERT INTO pending_magic_link_requests
+                        (id, email, normalized_email, token_hash, locale, expires_at, created_at)
+                    VALUES (?, 'pending@example.test', 'pending@example.test', ?, 'es',
+                        DATE_ADD(NOW(6), INTERVAL 15 MINUTE), NOW(6))
+                    """, UUID.randomUUID().toString(), "f".repeat(64));
+            execute(connection, """
+                    INSERT INTO core_users
+                        (id, username, normalized_username, email, normalized_email, password_hash,
+                         email_verified, role, enabled, created_at, updated_at)
+                    VALUES ('legacy-admin', 'legacy-admin', 'legacy-admin', 'legacy@example.test',
+                        'legacy@example.test', 'legacy-hash', TRUE, 'ADMIN', TRUE, NOW(6), NOW(6))
+                    """);
+            execute(connection, """
+                    INSERT INTO SPRING_SESSION
+                        (PRIMARY_ID, SESSION_ID, CREATION_TIME, LAST_ACCESS_TIME, MAX_INACTIVE_INTERVAL,
+                         EXPIRY_TIME, PRINCIPAL_NAME)
+                    VALUES (?, ?, 0, 0, 1800, 1800000, 'legacy-admin')
+                    """, UUID.randomUUID().toString(), UUID.randomUUID().toString());
+            for (String aggregate : new String[] {"user", "pending_magic_link"}) {
+                execute(connection, """
+                        INSERT INTO core_outbox_events
+                            (id, aggregate_type, aggregate_id, event_type, routing_key, payload, occurred_at, next_attempt_at)
+                        VALUES (?, ?, ?, 'notification.email.requested', 'email', JSON_OBJECT(), NOW(6), NOW(6))
+                        """, UUID.randomUUID().toString(), aggregate, UUID.randomUUID().toString());
+            }
+        }
         flyway.migrate();
+        v28.validate();
+        try (Connection connection = connection(); Statement statement = connection.createStatement()) {
+            assertThat(flywayVersion(connection)).isEqualTo("29");
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT
+                        (SELECT COUNT(*) FROM pending_magic_link_requests),
+                        (SELECT COUNT(*) FROM core_outbox_events WHERE aggregate_type = 'pending_magic_link'),
+                        (SELECT COUNT(*) FROM core_outbox_events WHERE aggregate_type = 'user')
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isZero();
+                assertThat(rows.getInt(2)).isZero();
+                assertThat(rows.getInt(3)).isEqualTo(1);
+            }
+            assertThat(count(connection, "SPRING_SESSION")).isZero();
+            execute(connection, "UPDATE core_users SET password_hash = 'rotated-hash' WHERE id = 'legacy-admin'");
+            try (ResultSet rows = statement.executeQuery("""
+                    SELECT credentials_version, COLLATION(normalized_email)
+                    FROM core_users WHERE id = 'legacy-admin'
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getLong(1)).isEqualTo(2);
+                assertThat(rows.getString(2)).isEqualTo("utf8mb4_0900_bin");
+            }
+            execute(connection, "DELETE FROM core_users WHERE id = 'legacy-admin'");
+            execute(connection, "DELETE FROM core_outbox_events WHERE aggregate_type = 'user'");
+        }
     }
 
     /**

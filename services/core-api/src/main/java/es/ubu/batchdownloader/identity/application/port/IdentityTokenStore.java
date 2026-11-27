@@ -13,5 +13,5 @@ public interface IdentityTokenStore {
 
     Optional<IdentityToken> findByHashForUpdate(String tokenHash);
 
-    void invalidateUnconsumedForUser(UUID userId, Instant now);
+    boolean hasUsableToken(UUID userId, Instant now);
 }

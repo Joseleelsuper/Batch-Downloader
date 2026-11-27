@@ -35,7 +35,7 @@ class JpaIdentityTokenStore implements IdentityTokenStore {
     }
 
     @Override
-    public void invalidateUnconsumedForUser(UUID userId, Instant now) {
-        repository.consumeUnconsumed(userId, now);
+    public boolean hasUsableToken(UUID userId, Instant now) {
+        return repository.existsByUserIdAndConsumedAtIsNullAndExpiresAtAfter(userId, now);
     }
 }

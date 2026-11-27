@@ -60,6 +60,9 @@ class UserAccountEntity {
      */
     @Column(name = "password_hash", nullable = true, length = 100)
     private String passwordHash;
+
+    @Column(name = "credentials_version", nullable = false)
+    private long credentialsVersion;
     /**
      * Indica que se ha confirmado el control del correo de la cuenta.
      */
@@ -122,6 +125,7 @@ class UserAccountEntity {
         email = account.email();
         normalizedEmail = account.normalizedEmail();
         passwordHash = account.passwordHash();
+        credentialsVersion = account.credentialsVersion();
         emailVerified = account.emailVerified();
         role = account.role();
         enabled = account.enabled();
@@ -137,7 +141,7 @@ class UserAccountEntity {
     UserAccount toDomain() {
         return UserAccount.rehydrate(
                 id, username, normalizedUsername, email, normalizedEmail, passwordHash, emailVerified, role,
-                enabled, createdAt, updatedAt, version);
+                enabled, createdAt, updatedAt, credentialsVersion, version);
     }
 
     /**
