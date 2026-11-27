@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import json
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -58,6 +63,49 @@ class CoolifyReleaseTest(unittest.TestCase):
                 self.assertEqual([], client.actions)
                 self.assertEqual(0, client.deployments)
                 smoke.assert_not_called()
+
+    def test_preflight_accepts_a_published_ancestor_and_preserves_the_target_compose(self) -> None:
+        sha = "a" * 40
+        publish_run = {"head_sha": sha, "head_branch": "main", "event": "push", "conclusion": "success",
+                       "head_repository": {"full_name": "example/repo"}}
+        compose = "setting: ${RELEASE_SPECIFIC_VALUE:?required}"
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": "example/repo", "GH_TOKEN": "test"}),
+            mock.patch.object(coolify_release.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 0, "commit\n"),
+                subprocess.CompletedProcess([], 0),
+                subprocess.CompletedProcess([], 0, compose),
+            ]) as git,
+            mock.patch.object(coolify_release, "urlopen",
+                              return_value=io.StringIO(json.dumps({"workflow_runs": [publish_run]}))),
+            mock.patch.object(coolify_release, "CoolifyClient") as coolify,
+        ):
+            path = Path(directory) / "release.yml"
+            self.assertEqual(0, coolify_release.main(
+                ["--verify-only", "--release-sha", sha, "--compose-file", str(path)]
+            ))
+            self.assertEqual(compose, path.read_text(encoding="utf-8"))
+        self.assertIn("RELEASE_SPECIFIC_VALUE", coolify_release.required_compose_values(compose))
+        self.assertEqual(["git", "merge-base", "--is-ancestor", sha, "HEAD"], git.call_args_list[1].args[0])
+        coolify.assert_not_called()
+
+    def test_unpublished_release_stops_before_coolify(self) -> None:
+        sha = "a" * 40
+        with (
+            mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": "example/repo", "GH_TOKEN": "test"}),
+            mock.patch.object(coolify_release.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 0, "commit\n"),
+                subprocess.CompletedProcess([], 0),
+            ]),
+            mock.patch.object(coolify_release, "urlopen",
+                              return_value=io.StringIO('{"workflow_runs": []}')),
+            mock.patch.object(coolify_release, "CoolifyClient") as coolify,
+        ):
+            self.assertEqual(1, coolify_release.main(
+                ["--verify-only", "--release-sha", sha, "--compose-file", "unused.yml"]
+            ))
+        coolify.assert_not_called()
 
     def test_environment_ignores_preview_values(self) -> None:
         client = coolify_release.CoolifyClient(
