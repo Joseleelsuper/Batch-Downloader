@@ -58,7 +58,9 @@ async function mockApi(page, state) {
       downloadOptions: [{ id: 'source-1', filename: 'example.exe', operatingSystem: 'windows',
         architecture: 'x86_64', version: '1.0', isLatest: true, isPrimary: true, sourceLabel: 'Oficial',
         score: 100, finalDomain: 'cdn.example.test', sizeBytes: 1048576, checkedAt: '2026-11-06T12:00:00Z' }] };
-    else if (path === '/api/v1/apps') body = { data: [app], page: 1, pageSize: 12, total: 1 };
+    else if (path === '/api/v1/apps') body = {
+      data: [app], page: Number(url.searchParams.get('page') ?? 1), pageSize: 12, total: state.appTotal ?? 1,
+    };
     else if (path === '/api/v1/bundles/bundle-1') body = { ...bundle,
       inactiveAppCount: state.role === 'ADMIN' ? state.inactiveBundleApps : 0 };
     else if (path === '/api/v1/bundles') body = {
@@ -136,7 +138,7 @@ async function runViewport(browser, baseUrl, viewport) {
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
   const state = { authenticated: false, createdJobs: 0, role: 'USER', softwareRequests: [],
-    inactiveBundleApps: 2, bundleSaves: 0, bundleDeleted: false, inspectResolverView: false };
+    inactiveBundleApps: 2, bundleSaves: 0, bundleDeleted: false, inspectResolverView: false, appTotal: 24 };
   await mockApi(page, state);
   try {
     await page.goto(baseUrl);
@@ -146,6 +148,42 @@ async function runViewport(browser, baseUrl, viewport) {
     await page.keyboard.press('Enter');
     await page.waitForURL('**/catalog');
     process.stdout.write(`Catalog opened at ${viewport.width}px.\n`);
+
+    const sort = page.getByRole('button', { name: 'Cambiar orden' });
+    const searchBox = page.getByRole('textbox', { name: 'Buscar aplicaciones' });
+    await sort.focus();
+    await page.keyboard.press('ArrowDown');
+    await page.locator('.sort-option:first-child:focus').waitFor();
+    await page.keyboard.press('End');
+    await page.locator('.sort-option:last-child:focus').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('listbox').waitFor({ state: 'hidden' });
+    assert.equal(await sort.evaluate((element) => element === document.activeElement), true);
+    await sort.click();
+    await page.getByRole('listbox').waitFor();
+    await searchBox.click();
+    await page.getByRole('listbox').waitFor({ state: 'hidden' });
+
+    const menu = page.getByRole('button', { name: 'Abrir menú' });
+    if (viewport.width < 1024) await menu.click();
+    const language = page.getByRole('button', { name: 'Seleccionar idioma: ES' });
+    await language.focus();
+    await page.keyboard.press('ArrowUp');
+    await page.locator('.language-option:last-child:focus').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('listbox').waitFor({ state: 'hidden' });
+    assert.equal(await language.evaluate((element) => element === document.activeElement), true);
+    if (viewport.width < 1024) {
+      assert.equal(await page.locator('dialog#public-navigation').isVisible(), true);
+      await page.keyboard.press('Escape');
+      await page.locator('dialog#public-navigation').waitFor({ state: 'hidden' });
+    }
+
+    await page.getByRole('textbox', { name: 'Página', exact: true }).fill('2');
+    await page.keyboard.press('Enter');
+    await page.waitForURL((url) => url.searchParams.get('page') === '2');
+    await page.goBack();
+    await page.waitForURL((url) => !url.searchParams.has('page'));
 
     if (viewport.width < 700) {
       const filters = page.getByRole('button', { name: 'Filtros', exact: true });

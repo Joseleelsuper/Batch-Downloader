@@ -90,6 +90,5 @@ def source_trust_status(
         return SourceTrustStatus.UNRESOLVED
     if confidence and confidence not in {"validated", "verified"}:
         return SourceTrustStatus.UNRESOLVED
-# Las filas creadas antes de explicitar la confianza solo se persistieron después
-# de una validación binaria correcta, salvo el antiguo marcador atestiguado en el perímetro.
+
     return SourceTrustStatus.VERIFIED

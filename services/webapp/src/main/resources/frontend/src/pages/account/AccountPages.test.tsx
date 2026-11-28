@@ -186,7 +186,7 @@ describe('account flows', () => {
     expect(await screen.findByTestId('location')).toHaveTextContent('/admin');
   });
 
-  it('valida la contraseña administrativa antes de enviarla', () => {
+  it('valida la contraseña administrativa antes de enviarla', async () => {
     const login = vi.spyOn(accountApi, 'adminLogin').mockResolvedValue({
       ...user, username: 'admin', role: 'ADMIN',
     });
@@ -196,12 +196,12 @@ describe('account flows', () => {
     const password = container.querySelector('input[type="password"]')!;
 
     fireEvent.submit(container.querySelector('form')!);
-    expect(screen.getByText(t('account.password.required'))).toBeInTheDocument();
+    expect(await screen.findByText(t('account.password.required'))).toBeInTheDocument();
     expect(login).not.toHaveBeenCalled();
 
     fireEvent.change(password, { target: { value: 'x'.repeat(73) } });
     fireEvent.submit(container.querySelector('form')!);
-    expect(screen.getByText(t('account.password.tooLong'))).toBeInTheDocument();
+    expect(await screen.findByText(t('account.password.tooLong'))).toBeInTheDocument();
     expect(login).not.toHaveBeenCalled();
   });
 

@@ -9,7 +9,7 @@ See Also:
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -36,7 +36,7 @@ router = APIRouter(
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 
-@router.get("/apps/{app_id}/sources/{source_ref}/profile")
+@router.get("/apps/{app_id}/sources/{source_ref}/profile", responses={404: {}})
 async def get_profile(app_id: UUID, source_ref: UUID, session: Session):
     """Comprueba que la resolución pertenece a la aplicación y es Linux y devuelve su receta o un
     borrador derivado del formato.
@@ -74,7 +74,7 @@ async def get_profile(app_id: UUID, source_ref: UUID, session: Session):
     }
 
 
-@router.put("/apps/{app_id}/sources/{source_ref}/profile")
+@router.put("/apps/{app_id}/sources/{source_ref}/profile", responses={404: {}, 409: {}})
 async def put_profile(app_id: UUID, source_ref: UUID, body: ProfileWrite, session: Session):
     """Bloquea la resolución, exige versión coincidente y estrategia compatible y guarda la
     receta con versión incrementada.
@@ -115,10 +115,16 @@ async def put_profile(app_id: UUID, source_ref: UUID, body: ProfileWrite, sessio
         FORMAT_STRATEGIES.get((source.extension or "").lower()),
         "manual",
     ):
-        raise HTTPException(422, detail={"code": "linux_profile_format_mismatch"})
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "linux_profile_format_mismatch"},
+        )
     # Las dependencias se administran en el grafo global para impedir ciclos ocultos.
     if body.profile.dependencies:
-        raise HTTPException(422, detail={"code": "use_application_dependencies"})
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "use_application_dependencies"},
+        )
     if row is None:
         row = LinuxInstallProfileRow(source_ref=source_ref, version=0)
         source.install_profile = row
@@ -130,7 +136,7 @@ async def put_profile(app_id: UUID, source_ref: UUID, body: ProfileWrite, sessio
     return {"version": row.version, "status": row.status, "profile": row.profile_json}
 
 
-@router.get("/apps/{app_id}/dependencies")
+@router.get("/apps/{app_id}/dependencies", responses={404: {}})
 async def get_dependencies(app_id: UUID, session: Session):
     """Comprueba la existencia de aplicación y consulta sus dependencias directas con la versión
     del conjunto.
@@ -159,7 +165,7 @@ async def get_dependencies(app_id: UUID, session: Session):
     return {"version": row.version if row else 0, "dependencies": [str(d) for d in dependencies]}
 
 
-@router.put("/apps/{app_id}/dependencies")
+@router.put("/apps/{app_id}/dependencies", responses={404: {}, 409: {}})
 async def put_dependencies(app_id: UUID, body: DependenciesWrite, session: Session):
     # Un mutex de catálogo estable serializa modificaciones del grafo, incluidos ciclos cruzados.
     """Serializa cambios del grafo bloqueando la primera aplicación, exige versión coincidente y
@@ -194,7 +200,10 @@ async def put_dependencies(app_id: UUID, body: DependenciesWrite, session: Sessi
         (await session.scalars(select(SoftwareApp.id).where(SoftwareApp.id.in_(ids)))).all()
     )
     if ids != found or app_id in ids:
-        raise HTTPException(422, detail={"code": "invalid_dependencies"})
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "invalid_dependencies"},
+        )
     graph: dict[UUID, set[UUID]] = {}
     for edge in (await session.scalars(select(SoftwareAppDependency))).all():
         graph.setdefault(edge.app_id, set()).add(edge.dependency_app_id)
@@ -211,7 +220,10 @@ async def put_dependencies(app_id: UUID, body: DependenciesWrite, session: Sessi
         if node in done:
             continue
         if node in active:
-            raise HTTPException(422, detail={"code": "dependency_cycle"})
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={"code": "dependency_cycle"},
+            )
         active.add(node)
         pending.append((node, True))
         pending.extend((dependency, False) for dependency in graph.get(node, set()))

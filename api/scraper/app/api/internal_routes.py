@@ -86,21 +86,18 @@ from app.scraper.website_discovery import (
     website_discovery_view,
 )
 
-internal_router = APIRouter(prefix="/internal/v1")
+internal_router = APIRouter(
+    prefix="/internal/v1",
+    dependencies=[Depends(require_internal_service_token)],
+)
 DESCRIPTION_ENQUEUE_BATCH_SIZE = 100
 
 
 
 @internal_router.get("/metrics", response_class=PlainTextResponse, responses={401: {}})
-async def internal_metrics(
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
-) -> PlainTextResponse:
+async def internal_metrics() -> PlainTextResponse:
     """Lee contadores del pool asíncrono y los expone como métricas gauge en formato de texto
     Prometheus.
-
-    Args:
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
 
     Returns:
         tamaño, conexiones ocupadas, disponibles y de desbordamiento del pool.
@@ -122,7 +119,6 @@ async def internal_metrics(
     responses={401: {}},
 )
 async def semantic_source_status(
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SemanticSourceStatus | None:
@@ -139,12 +135,10 @@ async def semantic_source_status(
 
 @internal_router.get(
     "/semantic/documents",
-    response_model=SemanticDocumentPage,
     response_model_by_alias=True,
     responses={401: {}},
 )
 async def semantic_documents(
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     after_app_id: Annotated[
@@ -157,8 +151,6 @@ async def semantic_documents(
     indexador reconozca cambios.
 
     Args:
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -195,7 +187,6 @@ async def semantic_documents(
 )
 async def get_source_size(
     source_ref: str,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> InternalSourceSize:
@@ -219,7 +210,6 @@ async def get_source_size(
 )
 async def get_source_resolution(
     source_ref: str,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> InternalSourceResolution | JSONResponse:
@@ -229,8 +219,6 @@ async def get_source_resolution(
     Args:
         source_ref: Referencia exacta de resolución que debe pertenecer a la aplicación cuando
             la ruta la especifica.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -265,11 +253,9 @@ async def get_source_resolution(
 @internal_router.post(
     "/content/descriptions/enqueue-missing",
     status_code=202,
-    response_model=ContentEnqueueResult,
     response_model_by_alias=True,
 )
 async def enqueue_missing_descriptions(
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     after: UUID | None = None,
@@ -278,8 +264,6 @@ async def enqueue_missing_descriptions(
     cuando no tienen tarea activa; confirma un lote acotado antes de responder.
 
     Args:
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -324,12 +308,10 @@ async def enqueue_missing_descriptions(
 @internal_router.post(
     "/content/descriptions/regenerate",
     status_code=202,
-    response_model=ContentEnqueueResult,
     response_model_by_alias=True,
 )
 async def regenerate_descriptions(
     scope: Literal["ai", "manual", "all"],
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     after: UUID | None = None,
@@ -360,14 +342,12 @@ async def regenerate_descriptions(
 @internal_router.post(
     "/content/descriptions/generate",
     status_code=202,
-    response_model=GenerateDescriptionResult,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}},
 )
 async def generate_description(
     request: GenerateDescriptionRequest,
     background_tasks: BackgroundTasks,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> GenerateDescriptionResult:
@@ -378,8 +358,6 @@ async def generate_description(
         request: Cuerpo validado con los datos de la operación solicitada.
         background_tasks: Ejecutor de tareas posterior a la respuesta para impulsar la
             generación encolada.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -417,14 +395,12 @@ async def generate_description(
 @internal_router.post(
     "/admin/apps/{app_id}/manual-installer-inspections",
     status_code=202,
-    response_model=ManualInstallerInspectionView,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}, 422: {}},
 )
 async def create_manual_installer_inspection(
     app_id: UUID,
     request: ManualInstallerInspectionRequest,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerInspectionView:
@@ -434,8 +410,6 @@ async def create_manual_installer_inspection(
     Args:
         app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
         request: Cuerpo validado con los datos de la operación solicitada.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -466,13 +440,11 @@ async def create_manual_installer_inspection(
 
 @internal_router.get(
     "/admin/apps/{app_id}/manual-installer-inspections/current",
-    response_model=ManualInstallerInspectionView | None,
     response_model_by_alias=True,
     responses={401: {}},
 )
 async def current_manual_installer_inspection(
     app_id: UUID,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerInspectionView | None:
@@ -481,8 +453,6 @@ async def current_manual_installer_inspection(
 
     Args:
         app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -507,14 +477,12 @@ async def current_manual_installer_inspection(
 
 @internal_router.get(
     "/admin/apps/{app_id}/manual-installer-inspections/{inspection_id}",
-    response_model=ManualInstallerInspectionView,
     response_model_by_alias=True,
     responses={401: {}, 404: {}},
 )
 async def get_manual_installer_inspection(
     app_id: UUID,
     inspection_id: UUID,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerInspectionView:
@@ -524,8 +492,6 @@ async def get_manual_installer_inspection(
     Args:
         app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
         inspection_id: UUID de la inspección persistida dentro de esa aplicación.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -552,7 +518,6 @@ async def get_manual_installer_inspection(
 
 @internal_router.post(
     "/admin/apps/{app_id}/manual-installer-inspections/{inspection_id}/apply",
-    response_model=ManualInstallerApplyResult,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}, 422: {}, 503: {}},
 )
@@ -560,7 +525,6 @@ async def apply_manual_installer_inspection(
     app_id: UUID,
     inspection_id: UUID,
     request: ManualInstallerApplyRequest,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ManualInstallerApplyResult:
@@ -571,8 +535,6 @@ async def apply_manual_installer_inspection(
         app_id: UUID de la aplicación propietaria de la inspección, receta o dependencias.
         inspection_id: UUID de la inspección persistida dentro de esa aplicación.
         request: Cuerpo validado con los datos de la operación solicitada.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -607,13 +569,11 @@ async def apply_manual_installer_inspection(
 @internal_router.post(
     "/admin/app-discoveries",
     status_code=202,
-    response_model=WebsiteAppDiscoveryView,
     response_model_by_alias=True,
     responses={401: {}, 409: {}, 422: {}},
 )
 async def create_website_app_discovery(
     request: WebsiteAppDiscoveryRequest,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WebsiteAppDiscoveryView:
@@ -622,8 +582,6 @@ async def create_website_app_discovery(
 
     Args:
         request: Cuerpo validado con los datos de la operación solicitada.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -651,13 +609,11 @@ async def create_website_app_discovery(
 
 @internal_router.get(
     "/admin/app-discoveries/{discovery_id}",
-    response_model=WebsiteAppDiscoveryView,
     response_model_by_alias=True,
     responses={401: {}, 404: {}},
 )
 async def get_website_app_discovery(
     discovery_id: UUID,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WebsiteAppDiscoveryView:
@@ -666,8 +622,6 @@ async def get_website_app_discovery(
 
     Args:
         discovery_id: UUID de la operación de descubrimiento que se recupera o aplica.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del
@@ -696,14 +650,12 @@ async def get_website_app_discovery(
 
 @internal_router.post(
     "/admin/app-discoveries/{discovery_id}/apply",
-    response_model=WebsiteAppDiscoveryApplyResult,
     response_model_by_alias=True,
     responses={401: {}, 404: {}, 409: {}, 422: {}, 503: {}},
 )
 async def apply_website_app_discovery_route(
     discovery_id: UUID,
     request: WebsiteAppDiscoveryApplyRequest,
-    _authorized: Annotated[None, Depends(require_internal_service_token)],
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WebsiteAppDiscoveryApplyResult:
@@ -713,8 +665,6 @@ async def apply_website_app_discovery_route(
     Args:
         discovery_id: UUID de la operación de descubrimiento que se recupera o aplica.
         request: Cuerpo validado con los datos de la operación solicitada.
-        _authorized: Dependencia que ha comprobado el secreto interno antes de ejecutar la
-            ruta.
         session: Sesión independiente de la petición; las escrituras se confirman antes de
             responder.
         settings: Configuración validada de salud, límites y credenciales internas del

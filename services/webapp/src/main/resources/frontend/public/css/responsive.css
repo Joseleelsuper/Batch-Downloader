@@ -85,7 +85,7 @@
 
   .mobile-drawer .language-selector-trigger { width: 100%; }
   .mobile-drawer .language-selector-trigger > span { flex: 1; text-align: left; }
-  .mobile-drawer .language-menu { width: 100%; }
+  .mobile-drawer .language-menu { width: var(--menu-trigger-width, 100%); }
   .mobile-drawer .admin-sidebar { min-height: 100%; padding: 0; border: 0; }
   .mobile-drawer .admin-brand { display: none; }
 
@@ -282,7 +282,7 @@
   .pipeline-queues { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bundle-picker-panel .search-row { grid-template-columns: minmax(0, 1fr); }
   .bundle-picker-panel .search-mode-toggle { justify-self: stretch; }
-  .bundle-picker-panel .sort-menu-popover { left: 0; right: auto; width: 100%; }
+  .bundle-picker-panel .sort-menu-popover { width: var(--menu-trigger-width, 100%); }
   .bundle-tag-selected button { width: 44px; height: 44px; }
   .bundle-editor-footer { align-items: stretch; }
   .bundle-editor-footer .error-banner { flex-basis: 100%; }
@@ -330,7 +330,6 @@
   .admin-bundles,
   .bundle-editor-fields,
   .bundle-app-picker { grid-template-columns: minmax(0, 1fr); }
-  .bundle-picker-panel { padding: 16px; }
   .bundle-picker-row { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; }
   .bundle-picker-add { font-size: 12px; padding-inline: 6px; }
   .app-detail-actions { align-items: stretch; flex-direction: column; }

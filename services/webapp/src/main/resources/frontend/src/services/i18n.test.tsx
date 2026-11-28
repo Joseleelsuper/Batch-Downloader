@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   I18nProvider,
   t,
@@ -57,6 +57,21 @@ describe('I18nProvider', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 304 }));
     render(<I18nProvider fetcher={fetcher}><><Message translationKey="nav.home" /><LocaleProbe /></></I18nProvider>);
     fireEvent.click(screen.getByText('English'));
+    expect(screen.getByText('Home')).toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}').locale).toBe('en');
+  });
+
+  it('cancela la revalidación anterior y descarta su respuesta al cambiar de idioma', async () => {
+    let finishPrevious!: (response: Response) => void;
+    const previous = new Promise<Response>((resolve) => { finishPrevious = resolve; });
+    const fetcher = vi.fn<typeof fetch>().mockReturnValueOnce(previous)
+      .mockResolvedValueOnce(new Response(null, { status: 304 }));
+    render(<I18nProvider fetcher={fetcher}><><Message translationKey="nav.home" /><LocaleProbe /></></I18nProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'English' }));
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    await act(async () => finishPrevious(new Response(JSON.stringify({ 'nav.home': 'Inicio obsoleto' }))));
+
     expect(screen.getByText('Home')).toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}').locale).toBe('en');
   });
